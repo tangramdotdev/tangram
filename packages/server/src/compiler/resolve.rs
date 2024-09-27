@@ -16,17 +16,18 @@ impl Compiler {
 		// Get the object and path.
 		let (object, path) = 'a: {
 			if let Some(referrer) = referrer {
-				if let Some(Either::Left(tg::object::Id::Directory(package))) = &referrer.object {
-					let package = tg::Directory::with_id(package.clone());
-					let path = referrer
+				if let Some(Either::Left(tg::object::Id::Directory(referrer_package))) =
+					&referrer.object
+				{
+					let referrer_package = tg::Directory::with_id(referrer_package.clone());
+					let referrer_path = referrer
 						.path
 						.as_ref()
 						.ok_or_else(|| tg::error!("the referrer must have a path"))?;
 
 					// Handle a path import.
 					if let tg::reference::Path::Path(import_path) = import.reference.path() {
-						let object = Either::Left(package.clone().into());
-						let path = path
+						let path = referrer_path
 							.clone()
 							.parent()
 							.unwrap()
@@ -35,24 +36,27 @@ impl Compiler {
 
 						// If the import is internal to the package, then use the imported path in the existing package.
 						if path.is_internal() {
+							let object = Either::Left(referrer_package.clone().into());
 							break 'a (object, Some(path));
 						}
 					}
 
 					// Otherwise, get the dependency from the referrer's file.
-					let file = package
-						.get(&self.server, path)
+					let referrer_file = referrer_package
+						.get(&self.server, referrer_path)
 						.await?
 						.try_unwrap_file()
 						.ok()
 						.ok_or_else(|| tg::error!("expected a file"))?;
-					let object = file.get_dependency(&self.server, &import.reference).await?;
+					let object = referrer_file
+						.get_dependency(&self.server, &import.reference)
+						.await?;
 					let object = Either::Left(object);
 					let path = None;
 
 					(object, path)
-				} else if let Some(Either::Right(package)) = &referrer.object {
-					let path = referrer
+				} else if let Some(Either::Right(referrer_package)) = &referrer.object {
+					let referrer_path = referrer
 						.path
 						.as_ref()
 						.ok_or_else(|| tg::error!("the referrer must have a path"))?;
@@ -65,22 +69,29 @@ impl Compiler {
 						.ok()
 						.or_else(|| import.reference.query()?.path.as_ref());
 					if let Some(import_path) = import_path {
-						let object = package.clone();
-						let path = path.parent().unwrap().join(import_path).normalize();
+						let path = referrer_path
+							.parent()
+							.unwrap()
+							.join(import_path)
+							.normalize();
 
 						// If the import is internal to the package, then use the imported path in the existing package.
 						if path.is_internal() {
+							let object = referrer_package.clone();
 							break 'a (Either::Right(object), Some(path));
 						}
 
 						// Otherwise, return the path.
-						break 'a (Either::Right(object.join(path)), None);
+						let object = referrer_package.clone().join(path).normalize();
+						break 'a (Either::Right(object), None);
 					}
 
 					// Try to find this module in an existing lockfile.
 					let Some((lockfile, node)) =
-						crate::util::lockfile::try_get_lockfile_node_for_module_path(path.as_ref())
-							.await?
+						crate::util::lockfile::try_get_lockfile_node_for_module_path(
+							referrer_path.as_ref(),
+						)
+						.await?
 					else {
 						return Err(tg::error!("failed to resolve module"));
 					};
@@ -157,11 +168,8 @@ impl Compiler {
 							.try_get(&self.server, path)
 							.await?
 							.ok_or_else(|| {
-								tg::error!(
-									?object,
-									?path,
-									"expected the directory to contain the path"
-								)
+								let message = "expected the directory to contain the path";
+								tg::error!(?object, ?path, "{message}")
 							})?
 							.into()
 					} else {
@@ -199,10 +207,6 @@ impl Compiler {
 							tg::package::try_get_root_module_file_name_for_package_path(&path_)
 								.await?
 						{
-							let object = object
-								.parent()
-								.ok_or_else(|| tg::error!("invalid path"))?
-								.to_owned();
 							let path = root_module_file_name.parse().unwrap();
 							(Either::Right(object), Some(path))
 						} else {
@@ -215,7 +219,7 @@ impl Compiler {
 			}
 		};
 
-		// If the kind is not known, then try to infer it from the extension.
+		// If the kind is not known, then try to infer it from the path extension.
 		let kind = if let Some(kind) = kind {
 			Some(kind)
 		} else if let Some(path) = &path {
