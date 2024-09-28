@@ -38,7 +38,7 @@ impl Runtime {
 			.parse::<Url>()
 			.map_err(|source| tg::error!(!source, "invalid url"))?;
 
-		let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
+		// Send the request.
 		let response = reqwest::get(url.clone())
 			.await
 			.map_err(|source| tg::error!(!source, %url, "failed to perform the request"))?
