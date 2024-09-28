@@ -71,6 +71,11 @@ impl<T> Pool<T> {
 			pool: self.clone(),
 		}
 	}
+
+	#[must_use]
+	pub fn available(&self) -> usize {
+		self.state.lock().unwrap().values.len()
+	}
 }
 
 impl<T> Default for Pool<T> {

@@ -158,7 +158,11 @@ impl Server {
 			.await?;
 		nodes.sort_unstable_by_key(|(k, _)| *k);
 		let nodes = nodes.into_iter().map(|(_, n)| n).collect();
-		Ok(tg::Lockfile { paths, nodes })
+
+		// Create the lockfile.
+		let lockfile = tg::Lockfile { paths, nodes };
+
+		Ok(lockfile)
 	}
 
 	async fn create_lockfile_file_node(

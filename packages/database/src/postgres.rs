@@ -70,6 +70,11 @@ impl Database {
 		}
 		Ok(Self { pool })
 	}
+
+	#[must_use]
+	pub fn pool(&self) -> &Pool<Connection> {
+		&self.pool
+	}
 }
 
 impl Connection {
