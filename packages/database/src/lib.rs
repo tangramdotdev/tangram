@@ -15,7 +15,7 @@ pub mod sqlite;
 pub mod value;
 
 pub mod prelude {
-	pub use super::{Connection as _, Database as _, Query as _, Transaction as _};
+	pub use super::{Connection as _, Database as _, Error as _, Query as _, Transaction as _};
 }
 
 pub trait Error: std::error::Error + Send + Sync + 'static {

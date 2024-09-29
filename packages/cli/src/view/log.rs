@@ -156,6 +156,7 @@ where
 
 		// Start tailing if necessary.
 		self.update_log_stream(true).await?;
+
 		Ok(())
 	}
 
@@ -359,6 +360,7 @@ where
 			chunks.extend_from_slice(&new_chunks);
 			chunks.rotate_left(mid);
 		}
+
 		Ok(())
 	}
 

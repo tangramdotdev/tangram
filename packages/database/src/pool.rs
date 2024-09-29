@@ -9,11 +9,13 @@ pub struct Pool<T> {
 
 struct State<T> {
 	requests: BinaryHeap<Request<T>>,
+	order: usize,
 	values: Vec<T>,
 }
 
 struct Request<T> {
 	priority: Priority,
+	order: usize,
 	sender: tokio::sync::oneshot::Sender<T>,
 }
 
@@ -33,6 +35,7 @@ impl<T> Pool<T> {
 	pub fn new() -> Self {
 		let state = State {
 			requests: BinaryHeap::new(),
+			order: 0,
 			values: Vec::new(),
 		};
 		let state = Arc::new(Mutex::new(state));
@@ -61,7 +64,13 @@ impl<T> Pool<T> {
 				};
 			}
 			let (sender, receiver) = tokio::sync::oneshot::channel();
-			let request = Request { priority, sender };
+			let order = state.order;
+			let request = Request {
+				priority,
+				order,
+				sender,
+			};
+			state.order += 1;
 			state.requests.push(request);
 			receiver
 		};
@@ -135,15 +144,20 @@ impl<T> Drop for Guard<T> {
 
 impl<T> PartialEq for Request<T> {
 	fn eq(&self, other: &Self) -> bool {
-		self.priority == other.priority
+		self.priority == other.priority && self.order == other.order
 	}
 }
 
 impl<T> Eq for Request<T> {}
 
+#[allow(clippy::non_canonical_partial_ord_impl)]
 impl<T> PartialOrd for Request<T> {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		Some(self.priority.cmp(&other.priority))
+		Some(
+			self.priority
+				.cmp(&other.priority)
+				.then_with(|| self.order.cmp(&other.order).reverse()),
+		)
 	}
 }
 

@@ -5,7 +5,7 @@ use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::{pin::pin, sync::Arc, time::Duration};
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*, Error};
+use tangram_database::{self as db, prelude::*};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
@@ -19,18 +19,18 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.boxed();
 
-		let semaphore = Arc::new(tokio::sync::Semaphore::new(
-			self.options
-				.object_indexer
-				.as_ref()
-				.unwrap()
-				.batch_size
-				.to_usize()
-				.unwrap(),
-		));
+		let permits = self
+			.options
+			.object_indexer
+			.as_ref()
+			.unwrap()
+			.batch_size
+			.to_usize()
+			.unwrap();
+		let semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		loop {
-			// Sleep until we can do some work.
+			// Sleep until there are permits available.
 			if semaphore.available_permits() == 0 {
 				tokio::time::sleep(Duration::from_millis(50)).await;
 				continue;
@@ -227,7 +227,9 @@ impl Server {
 				match transaction.commit().await {
 					Ok(()) => break,
 					Err(error) if error.is_retry() => continue,
-					Err(source) => return Err(tg::error!(!source, "failed to commit transaction")),
+					Err(source) => {
+						return Err(tg::error!(!source, "failed to commit the transaction"))
+					},
 				}
 			}
 		}
@@ -400,14 +402,14 @@ impl Server {
 		&self,
 		objects: &[tg::object::Id],
 	) -> tg::Result<()> {
-		loop {
-			// Get a database connection.
-			let mut connection = self
-				.database
-				.connection(db::Priority::Low)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		// Get a database connection.
+		let mut connection = self
+			.database
+			.connection(db::Priority::Low)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
+		loop {
 			let transaction = connection
 				.transaction()
 				.await
