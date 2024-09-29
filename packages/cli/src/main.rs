@@ -483,7 +483,7 @@ impl Cli {
 		let build_heartbeat_monitor = build_heartbeat_monitor.map(|config| {
 			let interval = config.interval.unwrap_or(1);
 			let limit = config.limit.unwrap_or(100);
-			let timeout = config.timeout.unwrap_or(60);
+			let timeout = config.timeout.unwrap_or(600);
 			let interval = Duration::from_secs(interval);
 			let timeout = Duration::from_secs(timeout);
 			tangram_server::options::BuildHeartbeatMonitor {

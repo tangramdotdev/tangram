@@ -114,7 +114,6 @@ impl Server {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
-
 		if outcomes
 			.iter()
 			.filter_map(Option::as_ref)
