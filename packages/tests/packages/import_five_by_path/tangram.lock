@@ -1,0 +1,32 @@
+{
+  "paths": {
+    ".": [
+      2
+    ],
+    "../five": [
+      1
+    ]
+  },
+  "nodes": [
+    {
+      "kind": "file",
+      "dependencies": {
+        "../five": {
+          "object": 1
+        }
+      }
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": null
+      }
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 0
+      }
+    }
+  ]
+}
