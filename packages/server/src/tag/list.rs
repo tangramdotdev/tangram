@@ -26,6 +26,26 @@ impl Server {
 			return Ok(output);
 		}
 
+		// Attempt to list the tags locally.
+		let output = self.list_tags_local(arg.clone()).await?;
+
+		// If the output is not empty, then return it.
+		if !output.data.is_empty() {
+			return Ok(output);
+		}
+
+		// Otherwise, try the remotes.
+		for remote in &self.remotes {
+			let output = remote.list_tags(arg.clone()).await?;
+			if !output.data.is_empty() {
+				return Ok(output);
+			}
+		}
+
+		Ok(tg::tag::list::Output { data: vec![] })
+	}
+
+	async fn list_tags_local(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
 		// Get a database connection.
 		let connection = self
 			.database
