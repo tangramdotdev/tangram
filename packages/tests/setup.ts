@@ -76,13 +76,14 @@ class ServerInstance {
 }
 
 export type ServerArg = {
+	concurrency?: number,
 	config?: string,
 	registry?: boolean,
 	remotePath?: string,
 }
 
 export const startServer = async (arg?: ServerArg) => {
-	const { config, registry, remotePath } = arg ?? {};
+	const { concurrency, config, registry, remotePath } = arg ?? {};
 
 	if (config && (registry || remotePath)) {
 		throw new Error("Setting config will override the registry and remotePath options. Either provide a config or use the options.");
@@ -98,6 +99,12 @@ export const startServer = async (arg?: ServerArg) => {
 
 	const isRegistry = registry ? "true" : "false";
 
+	const build = concurrency ? `
+		{
+			"concurrency": ${concurrency}
+		}
+	` : "{}";
+
 	const remotes = remotePath ? `{
 		"default": {
 			"url": "http+unix://${encodeURIComponent(remotePath + "/socket")}"
@@ -110,6 +117,7 @@ export const startServer = async (arg?: ServerArg) => {
 						"internal": true
 					}
 				},
+				"build": ${build},
 				"path": "${path}/.tangram",
 				"registry": ${isRegistry},
 				"remotes": ${remotes},

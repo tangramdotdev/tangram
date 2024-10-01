@@ -8,7 +8,7 @@ exports[`server reports health 1`] = `
     "started": 0
   },
   "database": {
-    "available_connections": 10
+    "available_connections": 24
   },
   "file_descriptor_semaphore": {
     "available_permits": 1024
