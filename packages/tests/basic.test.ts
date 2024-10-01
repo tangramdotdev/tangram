@@ -145,7 +145,6 @@ describe("remote", () => {
 
 		// Build the other target package on the new server. The tag should retrieve the package, but start a new build.
 		let otherTargetOutput = await $`tg --config ${freshServer.handle.configPath} build twoTargets#six --quiet`.text().then((t) => t.trim());
-		console.log("other output", otherTargetOutput);
 
 		// The build should succeed.
 		expect(otherTargetOutput).toBe("6");
