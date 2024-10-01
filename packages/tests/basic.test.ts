@@ -4,7 +4,7 @@ import { extractBuildId, getTestPackage, startServer } from "./setup.ts";
 
 describe("server", () => {
 	test("reports health", async () => {
-		await using server = await startServer({ concurrency: 2 });
+		await using server = await startServer({ dbConnections: 2 });
 
 		const server_health = await $`tg --config ${server.handle.configPath} server health`.text();
 		expect(server_health).toMatchSnapshot();
