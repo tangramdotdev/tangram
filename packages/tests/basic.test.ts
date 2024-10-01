@@ -115,4 +115,39 @@ describe("remote", () => {
 		// We should have received the correct output without ever passing the path to this server.
 		expect(buildOutput).toBe("5");
 	});
+	
+	test("build alternate target after pushing build", async () => {
+		await using remote = await startServer({ registry: true });
+
+		await using originalServer = await startServer({ remotePath: remote.handle.serverPath });
+
+		const twoTargets = getTestPackage("two_targets");
+
+		// Tag the package.
+		await $`tg --config ${originalServer.handle.configPath} tag twoTargets ${twoTargets}`.quiet();
+		
+		// Push the tag.
+		await $`tg --config ${originalServer.handle.configPath} push twoTargets`.quiet();
+
+		// Build the package.
+		const originalBuildOutput = await $`tg --config ${originalServer.handle.configPath} build twoTargets#five`.text();
+		const originalBuildId = extractBuildId(originalBuildOutput);
+		expect(originalBuildId).toBeDefined();
+
+		// Push the build.
+		await $`tg --config ${originalServer.handle.configPath} push ${originalBuildId}`.quiet();
+
+		// Stop the server.
+		await originalServer.handle.stop();
+
+		// Start a new server.
+		await using freshServer = await startServer({ remotePath: remote.handle.serverPath });
+
+		// Build the other target package on the new server. The tag should retrieve the package, but start a new build.
+		let otherTargetOutput = await $`tg --config ${freshServer.handle.configPath} build twoTargets#six --quiet`.text().then((t) => t.trim());
+		console.log("other output", otherTargetOutput);
+
+		// The build should succeed.
+		expect(otherTargetOutput).toBe("6");
+	});
 })
