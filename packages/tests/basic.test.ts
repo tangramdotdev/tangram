@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { $ } from "bun";
 import { extractBuildId, getTestPackage, startServer } from "./setup.ts";
 
 describe("server", () => {
@@ -148,4 +147,5 @@ describe("remote", () => {
 		// The build should succeed.
 		expect(otherTargetOutput).toBe("6");
 	});
-})
+});
+
