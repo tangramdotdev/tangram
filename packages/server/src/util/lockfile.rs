@@ -1,8 +1,5 @@
 use crate::Server;
-use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt,
-};
+use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::{
 	collections::{BTreeMap, BTreeSet, VecDeque},
 	path::{Path, PathBuf},
@@ -76,33 +73,19 @@ pub async fn try_get_node_for_module_path(
 				queue.extend(children);
 			},
 			tg::lockfile::Node::File { dependencies, .. } => {
-				let children = dependencies
-					.iter()
-					.filter_map(|(reference, dependency)| {
-						if dependency.tag.is_some() {
-							return None;
-						}
-						let path = reference
-							.path()
-							.try_unwrap_path_ref()
-							.ok()
-							.or_else(|| reference.query()?.path.as_ref())?;
-						let path = node_path.join(path);
-						let index = *dependency.object.as_ref()?.as_ref().left()?;
-						let follow = reference.query().and_then(|q| q.follow).unwrap_or(false);
-						Some((index, path, follow))
-					})
-					.map(|(index, path, follow)| async move {
-						let path = if follow {
-							read_link(&path).await?
-						} else {
-							path
-						};
-						Ok::<_, tg::Error>((index, path))
-					})
-					.collect::<FuturesOrdered<_>>()
-					.try_collect::<Vec<_>>()
-					.await?;
+				let children = dependencies.iter().filter_map(|(reference, dependency)| {
+					if dependency.tag.is_some() {
+						return None;
+					}
+					let path = reference
+						.path()
+						.try_unwrap_path_ref()
+						.ok()
+						.or_else(|| reference.query()?.path.as_ref())?;
+					let path = node_path.join(path);
+					let index = *dependency.object.as_ref()?.as_ref().left()?;
+					Some((index, path))
+				});
 				queue.extend(children);
 			},
 			tg::lockfile::Node::Symlink { .. } => continue,

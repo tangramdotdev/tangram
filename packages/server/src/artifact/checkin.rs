@@ -113,6 +113,7 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect check-in input"),
 			)?;
+		input::Graph::validate(input.clone()).await?;
 		self.select_lockfiles(input.clone()).await?;
 		progress.finish_input().await;
 
@@ -205,8 +206,9 @@ impl Server {
 			let child_output = output
 				.read()
 				.unwrap()
-				.dependencies
-				.get(&reference)
+				.edges
+				.iter()
+				.find(|edge| edge.reference == reference)
 				.ok_or_else(
 					|| tg::error!(%referrer = path.display(), %reference, "missing output reference"),
 				)?
@@ -243,6 +245,7 @@ impl Server {
 
 		match id {
 			tg::artifact::Id::File(_) => {
+				// If we're storing a file, we can short circuit and read the file data from its xattr directly.
 				let data = self
 					.create_file_data(path.as_ref())
 					.await
@@ -253,6 +256,7 @@ impl Server {
 			},
 
 			tg::artifact::Id::Symlink(_) => {
+				// If we're storing a symlink, we can read its data directly.
 				let data = self
 					.create_symlink_data(path.as_ref())
 					.await
@@ -263,6 +267,7 @@ impl Server {
 			},
 
 			tg::artifact::Id::Directory(_) => {
+				// Otherwise for directories, we need to recurse the object to collect its data.
 				let arg = tg::artifact::checkin::Arg {
 					deterministic: false,
 					destructive: false,

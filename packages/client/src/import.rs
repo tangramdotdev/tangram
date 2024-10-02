@@ -39,10 +39,6 @@ impl Import {
 				);
 				let attributes = serde_json::from_value::<tg::reference::Query>(attributes)
 					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
-				let follow = reference
-					.query()
-					.and_then(|query| query.follow)
-					.or(attributes.follow);
 				let name = reference
 					.query()
 					.and_then(|query| query.name.clone())
@@ -60,7 +56,6 @@ impl Import {
 					.and_then(|query| query.remote.clone())
 					.or(attributes.remote);
 				let query = tg::reference::Query {
-					follow,
 					name,
 					overrides,
 					path,

@@ -23,11 +23,16 @@ pub struct Graph {
 	pub data: tg::artifact::Data,
 	pub lock_index: usize,
 	pub weight: usize,
-	pub dependencies: BTreeMap<tg::Reference, Edge>,
+	pub edges: Vec<Edge>,
 }
 
 #[derive(Clone, Debug)]
-pub struct Edge(Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>);
+pub struct Edge {
+	pub reference: tg::Reference,
+	pub graph: Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>,
+}
+
+type Node = Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>;
 
 struct State {
 	root: PathBuf,
@@ -37,6 +42,94 @@ struct State {
 }
 
 impl Server {
+	pub(super) async fn collect_output(
+		&self,
+		input: Arc<tokio::sync::RwLock<input::Graph>>,
+		lockfile: tg::Lockfile,
+		progress: &super::ProgressState,
+	) -> tg::Result<Arc<RwLock<Graph>>> {
+		let root = input.read().await.arg.path.clone();
+		let artifacts = self.create_artifact_data_for_lockfile(&lockfile).await?;
+		let mut state = State {
+			root,
+			artifacts,
+			lockfile,
+			visited: BTreeMap::new(),
+		};
+		let output = self
+			.collect_output_inner(input, &mut state, progress)
+			.await?
+			.unwrap_left();
+		Ok(output)
+	}
+
+	async fn collect_output_inner(
+		&self,
+		input: Arc<tokio::sync::RwLock<input::Graph>>,
+		state: &mut State,
+		progress: &super::ProgressState,
+	) -> tg::Result<Node> {
+		let path = input.read().await.arg.path.clone();
+		let path = path.diff(&state.root).unwrap();
+		if let Some(node) = state.visited.get(&path) {
+			return Ok(Either::Right(node.clone()));
+		}
+
+		// Find the entry in the lockfile.
+		let lock_index = *state
+			.lockfile
+			.paths
+			.get(&path)
+			.and_then(|nodes| nodes.first())
+			.ok_or_else(|| tg::error!(%path = path.display(), "missing path in lockfile"))?;
+
+		// Get the data.
+		let data = state
+			.artifacts
+			.get(&lock_index)
+			.ok_or_else(|| tg::error!("missing artifact data"))?
+			.clone();
+
+		// Compute the ID.
+		let id = data.id()?;
+
+		// Update the total bytes that will be copied.
+		if input.read().await.metadata.is_file() {
+			let size = input.read().await.metadata.size().to_u64().unwrap();
+			progress.update_output_total(size);
+		}
+
+		// Create the output.
+		let output = Arc::new(RwLock::new(Graph {
+			input: input.clone(),
+			id: id.clone(),
+			data,
+			weight: 0,
+			lock_index,
+			edges: Vec::new(),
+		}));
+		state.visited.insert(path.clone(), Arc::downgrade(&output));
+
+		// Recurse.
+		let input_dependencies = input
+			.read()
+			.await
+			.edges
+			.iter()
+			.filter_map(|edge| {
+				let child = edge.node()?;
+				Some((edge.reference.clone(), child))
+			})
+			.collect::<Vec<_>>();
+		for (reference, input) in input_dependencies {
+			let graph = Box::pin(self.collect_output_inner(input, state, progress)).await?;
+			let edge = Edge { reference, graph };
+			add_edge(output.clone(), edge).await;
+		}
+
+		Ok(Either::Left(output))
+	}
+
 	pub async fn compute_count_and_weight(
 		&self,
 		output: Arc<RwLock<Graph>>,
@@ -52,7 +145,7 @@ impl Server {
 			}
 			visited.insert(id);
 			order.push(output.clone());
-			stack.extend(output.read().unwrap().dependencies.values().map(Edge::node));
+			stack.extend(output.read().unwrap().edges.iter().map(Edge::node));
 		}
 		order.reverse();
 
@@ -145,7 +238,7 @@ impl Server {
 					tg::error!(!source, "failed to put the artifact into the database")
 				})?;
 
-			stack.extend(output.read().unwrap().dependencies.values().map(Edge::node));
+			stack.extend(output.read().unwrap().edges.iter().map(Edge::node));
 		}
 
 		// Commit the transaction.
@@ -182,100 +275,6 @@ impl Server {
 				tg::error!(!source, "failed to put the artifact into the database")
 			})?;
 		Ok(())
-	}
-}
-
-// Output.
-impl Server {
-	pub(super) async fn collect_output(
-		&self,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
-		lockfile: tg::Lockfile,
-		progress: &super::ProgressState,
-	) -> tg::Result<Arc<RwLock<Graph>>> {
-		let root = input.read().await.arg.path.clone();
-		let artifacts = self.create_artifact_data_for_lockfile(&lockfile).await?;
-		let mut state = State {
-			root,
-			artifacts,
-			lockfile,
-			visited: BTreeMap::new(),
-		};
-		let output = self
-			.collect_output_inner(input, &mut state, progress)
-			.await?
-			.0
-			.unwrap_left();
-		Ok(output)
-	}
-
-	async fn collect_output_inner(
-		&self,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
-		state: &mut State,
-		progress: &super::ProgressState,
-	) -> tg::Result<Edge> {
-		let path = input.read().await.arg.path.clone();
-		let path = path.diff(&state.root).unwrap();
-		if let Some(output) = state.visited.get(&path) {
-			let edge = Edge(Either::Right(output.clone()));
-			return Ok(edge);
-		}
-
-		// Find the entry in the lockfile.
-		let lock_index = *state
-			.lockfile
-			.paths
-			.get(&path)
-			.and_then(|nodes| nodes.first())
-			.ok_or_else(|| tg::error!(%path = path.display(), "missing path in lockfile"))?;
-
-		// Get the data.
-		let data = state
-			.artifacts
-			.get(&lock_index)
-			.ok_or_else(|| tg::error!("missing artifact data"))?
-			.clone();
-
-		// Compute the ID.
-		let id = data.id()?;
-
-		// Update the total bytes that will be copied.
-		if input.read().await.metadata.is_file() {
-			let size = input.read().await.metadata.size().to_u64().unwrap();
-			progress.update_output_total(size);
-		}
-
-		// Create the output.
-		let output = Arc::new(RwLock::new(Graph {
-			input: input.clone(),
-			id: id.clone(),
-			data,
-			weight: 0,
-			lock_index,
-			dependencies: BTreeMap::new(),
-		}));
-		state.visited.insert(path.clone(), Arc::downgrade(&output));
-
-		// Recurse.
-		let mut output_dependencies = BTreeMap::new();
-		let input_dependencies = input
-			.read()
-			.await
-			.edges
-			.iter()
-			.filter_map(|edge| {
-				let child = edge.node()?;
-				Some((edge.reference.clone(), child))
-			})
-			.collect::<Vec<_>>();
-		for (reference, input) in input_dependencies {
-			let output = Box::pin(self.collect_output_inner(input, state, progress)).await?;
-			output_dependencies.insert(reference, output);
-		}
-
-		output.write().unwrap().dependencies = output_dependencies;
-		Ok(Edge(Either::Left(output)))
 	}
 }
 
@@ -710,19 +709,20 @@ impl Server {
 		}
 
 		// Recurse.
-		let dependencies = output.read().unwrap().dependencies.clone();
-		for (reference, child_output) in dependencies {
-			let child_output = child_output.node();
+		let edges = output.read().unwrap().edges.clone();
+		for edge in edges {
+			let child_output = edge.node();
 			let input = child_output.read().unwrap().input.clone();
-			let path = if input.read().await.is_root {
+			let path = if input.read().await.root.is_none() {
 				self.checkouts_path()
 					.join(child_output.read().unwrap().data.id()?.to_string())
 			} else {
-				let path_ = reference
+				let path_ = edge
+					.reference
 					.path()
 					.try_unwrap_path_ref()
 					.ok()
-					.or_else(|| reference.query()?.path.as_ref())
+					.or_else(|| edge.reference.query()?.path.as_ref())
 					.cloned()
 					.ok_or_else(|| tg::error!("expected a path dependency"))?;
 				// We could use metadata from the input, or the data, this avoids having to acquire a lock.
@@ -808,10 +808,10 @@ impl Server {
 			if visited.contains(&id) {
 				continue;
 			}
-			visited.insert(id);
+			visited.insert(id.clone());
 
 			let input = output.read().unwrap().input.clone();
-			if input.read().await.is_root {
+			if input.read().await.root.is_none() {
 				// Create a temp.
 				let temp = Tmp::new(self);
 
@@ -846,7 +846,7 @@ impl Server {
 			}
 
 			// Recurse.
-			stack.extend(output.read().unwrap().dependencies.values().map(Edge::node));
+			stack.extend(output.read().unwrap().edges.iter().map(Edge::node));
 		}
 		Ok(())
 	}
@@ -864,6 +864,7 @@ impl Server {
 			return Ok(());
 		}
 		visited.insert(input.arg.path.clone());
+
 		if input.metadata.is_dir() {
 			if input.arg.destructive {
 				match tokio::fs::rename(&input.arg.path, &dest).await {
@@ -876,15 +877,15 @@ impl Server {
 			tokio::fs::create_dir_all(&dest)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create directory"))?;
-			let dependencies = output.read().unwrap().dependencies.clone();
-			for (_, output) in dependencies {
-				let output = output.node();
+			let dependencies = output.read().unwrap().edges.clone();
+			for edge in dependencies {
+				let output = edge.node();
 				let input_ = output.read().unwrap().input.clone();
-				if input_.read().await.is_root {
+				if input_.read().await.root.is_none() {
 					continue;
 				}
 				let diff = input_.read().await.arg.path.diff(&input.arg.path).unwrap();
-				let dest = dest.join(diff).normalize();
+				let dest = dest.join(&diff).normalize();
 				Box::pin(self.copy_or_move_all(dest, output, visited, progress)).await?;
 			}
 		} else if input.metadata.is_symlink() {
@@ -982,7 +983,9 @@ impl Server {
 				let permissions = if executable { 0o0755 } else { 0o0644 };
 				tokio::fs::set_permissions(&dest, std::fs::Permissions::from_mode(permissions))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to set file permissions"))?;
+					.map_err(
+						|source| tg::error!(!source, %path = dest.display(), "failed to set file permissions"),
+					)?;
 
 				let json = serde_json::to_vec(&file)
 					.map_err(|source| tg::error!(!source, "failed to serialize file data"))?;
@@ -993,7 +996,9 @@ impl Server {
 			tg::artifact::Data::Directory(_) => {
 				let permissions = tokio::fs::metadata(&dest)
 					.await
-					.unwrap()
+					.map_err(
+						|source| tg::error!(!source, %dest = dest.display(), "failed to get metadata"),
+					)?
 					.permissions()
 					.mode();
 				let mode = format!("{permissions:o}");
@@ -1007,20 +1012,19 @@ impl Server {
 		}
 
 		// Recurse over path dependencies.
-		let dependencies = output.read().unwrap().dependencies.clone();
+		let dependencies = output.read().unwrap().edges.clone();
 		let dependencies = dependencies
 			.into_iter()
-			.map(|(reference, child)| async move {
-				let child = child.node();
+			.map(|edge| async move {
+				let child = edge.node();
 				let input = child.read().unwrap().input.clone();
-				if input.read().await.is_root {
-					return None;
-				}
-				let path = reference
+				input.read().await.root.as_ref()?;
+				let path = edge
+					.reference
 					.path()
 					.try_unwrap_path_ref()
 					.ok()
-					.or_else(|| reference.query()?.path.as_ref())?;
+					.or_else(|| edge.reference.query()?.path.as_ref())?;
 				Some((path.clone(), child.clone()))
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -1065,9 +1069,48 @@ fn set_file_times_to_epoch_inner(path: &Path, recursive: bool) -> tg::Result<()>
 
 impl Edge {
 	pub fn node(&self) -> Arc<RwLock<Graph>> {
-		match &self.0 {
+		match &self.graph {
 			Either::Left(strong) => strong.clone(),
 			Either::Right(weak) => weak.upgrade().unwrap(),
 		}
 	}
+}
+
+impl Graph {
+	#[allow(dead_code)]
+	async fn print(self_: Arc<RwLock<Graph>>) {
+		let mut stack = vec![(tg::Reference::with_path("."), Either::Left(self_), 0)];
+		while let Some((reference, node, depth)) = stack.pop() {
+			for _ in 0..depth {
+				eprint!("..");
+			}
+			match node {
+				Either::Left(strong) => {
+					eprintln!("strong {reference} {:x?}", Arc::as_ptr(&strong));
+					stack.extend(strong.read().unwrap().edges.iter().map(|edge| {
+						let reference = edge.reference.clone();
+						let graph = edge.graph.clone();
+						let depth = depth + 1;
+						(reference, graph, depth)
+					}));
+				},
+				Either::Right(weak) => {
+					eprintln!("weak {reference} {:x?}", Weak::as_ptr(&weak));
+				},
+			}
+		}
+	}
+}
+
+async fn add_edge(node: Arc<RwLock<Graph>>, edge: Edge) {
+	let mut node = node.write().unwrap();
+	for existing_edge in &mut node.edges {
+		if existing_edge.reference == edge.reference {
+			if let Either::Left(strong) = &edge.graph {
+				existing_edge.graph = Either::Left(strong.clone());
+			}
+			return;
+		}
+	}
+	node.edges.push(edge);
 }
