@@ -65,7 +65,14 @@ class ServerInstance {
 		}
 
 		// Construct instance.
-		return new ServerInstance(path, process);
+		const instance = new ServerInstance(path, process);
+
+		// Add the dispose symbol and return.
+		return Object.assign(instance, {
+			[Symbol.asyncDispose]: async () => {
+				await instance.stop();
+			}
+		});
 	}
 	
 	async stop() {
@@ -73,6 +80,18 @@ class ServerInstance {
 		await $`rm -rf ${this.path}`;
 	}
 
+	tg(strings: TemplateStringsArray, ...values: any[]) {
+		let argString = "";
+
+		strings.forEach((string, i) => {
+			argString += string;
+			if (i < values.length) {
+				argString += values[i];
+			}
+		});
+
+		return $`tg --config ${this.configPath} ${{ raw: `${argString}` }}`;
+	}
 }
 
 export type ServerArg = {
@@ -136,14 +155,7 @@ export const startServer = async (arg?: ServerArg) => {
 				"vfs": null
 			}`;
 	
-	const handle = await ServerInstance.create(path, configJson)
-	
-	return {
-		handle,
-		[Symbol.asyncDispose]: async () => {
-			await handle.stop();
-		}
-	}
+	return await ServerInstance.create(path, configJson);
 }
 
 /** Get the path to a pacakge defined in the test packages dir. */
