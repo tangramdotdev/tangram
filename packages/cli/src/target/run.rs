@@ -14,7 +14,7 @@ pub struct Args {
 	pub executable: Option<std::path::PathBuf>,
 
 	/// Arguments to pass to the executable.
-	#[arg(index = 1, trailing_var_arg = true)]
+	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
 }
 
