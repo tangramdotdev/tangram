@@ -1,7 +1,7 @@
-use std::time::Duration;
 use crate::Server;
 use futures::{stream, StreamExt as _};
 use indoc::formatdoc;
+use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -22,8 +22,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
 		let interval =
-			IntervalStream::new(tokio::time::interval(Duration::from_secs(60)))
-				.map(|_| ());
+			IntervalStream::new(tokio::time::interval(Duration::from_secs(60))).map(|_| ());
 		let mut events = stream::select(created, interval);
 
 		// Attempt to dequeue a build after each event.

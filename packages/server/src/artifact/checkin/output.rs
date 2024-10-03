@@ -60,6 +60,7 @@ impl Server {
 			.collect_output_inner(input, &mut state, progress)
 			.await?
 			.unwrap_left();
+
 		Ok(output)
 	}
 
@@ -864,7 +865,6 @@ impl Server {
 			return Ok(());
 		}
 		visited.insert(input.arg.path.clone());
-
 		if input.metadata.is_dir() {
 			if input.arg.destructive {
 				match tokio::fs::rename(&input.arg.path, &dest).await {
@@ -989,6 +989,13 @@ impl Server {
 
 				let json = serde_json::to_vec(&file)
 					.map_err(|source| tg::error!(!source, "failed to serialize file data"))?;
+
+				let metadata = tokio::fs::symlink_metadata(&dest).await.map_err(
+					|source| tg::error!(!source, %dest = dest.display(), "failed to get metadata"),
+				)?;
+				if !metadata.is_file() {
+					return Err(tg::error!(%path = dest.display(), "expected a file"));
+				}
 				xattr::set(&dest, tg::file::XATTR_NAME, &json).map_err(
 					|source| tg::error!(!source, %path = dest.display(), "failed to write file data as an xattr"),
 				)?;
@@ -1032,7 +1039,10 @@ impl Server {
 			.collect::<Vec<_>>()
 			.await;
 		for (subpath, output_) in dependencies {
-			let dest_ = if matches!(&data, tg::artifact::Data::File(_)) {
+			let dest_ = if matches!(
+				&data,
+				tg::artifact::Data::File(_) | tg::artifact::Data::Symlink(_)
+			) {
 				dest.parent().unwrap().join(&subpath).normalize()
 			} else {
 				dest.join(subpath.clone())
@@ -1082,11 +1092,11 @@ impl Graph {
 		let mut stack = vec![(tg::Reference::with_path("."), Either::Left(self_), 0)];
 		while let Some((reference, node, depth)) = stack.pop() {
 			for _ in 0..depth {
-				eprint!("..");
+				eprint!("  ");
 			}
 			match node {
 				Either::Left(strong) => {
-					eprintln!("strong {reference} {:x?}", Arc::as_ptr(&strong));
+					eprintln!("* strong {reference} {:x?}", Arc::as_ptr(&strong));
 					stack.extend(strong.read().unwrap().edges.iter().map(|edge| {
 						let reference = edge.reference.clone();
 						let graph = edge.graph.clone();
@@ -1095,7 +1105,7 @@ impl Graph {
 					}));
 				},
 				Either::Right(weak) => {
-					eprintln!("weak {reference} {:x?}", Weak::as_ptr(&weak));
+					eprintln!("* weak {reference} {:x?}", Weak::as_ptr(&weak));
 				},
 			}
 		}

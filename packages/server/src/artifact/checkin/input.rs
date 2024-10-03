@@ -57,25 +57,30 @@ impl Server {
 		)?;
 
 		// Create a graph.
-		let arg_ = tg::artifact::checkin::Arg {
-			path,
-			..arg.clone()
+		let input = 'a: {
+			let arg_ = tg::artifact::checkin::Arg {
+				path,
+				..arg.clone()
+			};
+			let graph = self.collect_input(arg_, progress).await?;
+
+			// Check if the graph contains the path.
+			if graph.read().await.contains_path(&arg.path).await {
+				break 'a graph;
+			}
+
+			// Otherwise use the parent.
+			let path = arg
+				.path
+				.parent()
+				.ok_or_else(|| tg::error!("cannot check in root"))?
+				.to_owned();
+			let arg_ = tg::artifact::checkin::Arg { path, ..arg };
+			self.collect_input(arg_, progress).await?
 		};
-		let graph = self.collect_input(arg_, progress).await?;
+		Graph::validate(input.clone()).await?;
 
-		// Check if the graph contains the path.
-		if graph.read().await.contains_path(&arg.path).await {
-			return Ok(graph);
-		}
-
-		// Otherwise use the parent.
-		let path = arg
-			.path
-			.parent()
-			.ok_or_else(|| tg::error!("cannot check in root"))?
-			.to_owned();
-		let arg_ = tg::artifact::checkin::Arg { path, ..arg };
-		self.collect_input(arg_, progress).await
+		Ok(input)
 	}
 
 	async fn find_root(&self, path: &Path) -> tg::Result<PathBuf> {
@@ -88,6 +93,7 @@ impl Server {
 		}
 
 		// Look for a `tangram.ts`.
+		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let path = path.parent().unwrap();
 		for path in path.ancestors() {
 			for root_module_name in tg::package::ROOT_MODULE_FILE_NAMES {
@@ -117,12 +123,9 @@ impl Server {
 			visited: BTreeMap::new(),
 		});
 
-		let input = self
-			.collect_input_inner(None, arg.path.as_ref(), &arg, &state, progress)
-			.await?
-			.unwrap_left();
+		let input = self.collect_input_inner(None, arg.path.as_ref(), &arg, &state, progress);
 
-		Ok(input)
+		Ok(input.await?.unwrap_left())
 	}
 	async fn collect_input_inner(
 		&self,
@@ -138,93 +141,80 @@ impl Server {
 			Some(Either::Right(weak)) => weak.upgrade().unwrap().read().await.arg.path.join(path),
 			None => return Err(tg::error!("expeccted a referrer")),
 		};
-		let absolute_path = tokio::fs::canonicalize(&absolute_path).await.map_err(
-			|source| tg::error!(!source, %path = absolute_path.display(), "failed to canonicalize the path"),
-		)?;
+		let absolute_path = {
+			let parent = absolute_path.parent().unwrap();
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+			let parent = tokio::fs::canonicalize(parent).await.map_err(
+				|source| tg::error!(!source, %path = parent.display(), %full = absolute_path.display(), %relative = path.display(), "failed to canonicalize the path"),
+			)?;
+			parent.join(absolute_path.components().last().unwrap())
+		};
 
-		let node = if path.is_absolute() {
-			// If this is an absolute path, create a new node.
-			self.get_or_create_input_node(referrer, &absolute_path, arg, state)
-				.await
-				.map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to create input node"),
-				)?
+		// Search for the parent.
+		let parent = if path.is_absolute() {
+			referrer.map(|referrer| (referrer, false))
 		} else {
-			// Otherwise, create a node for all the paths along the way.
-			let mut node = referrer
-				.ok_or_else(|| tg::error!(%path = path.display(), "expected a referrer"))?;
+			let mut created = true;
+
+			// Find the parent directory.
+			let mut parent_dir = match referrer {
+				Some(Either::Left(strong)) => strong,
+				Some(Either::Right(weak)) => weak.upgrade().unwrap(),
+				None => return Err(tg::error!("expected a referrer")),
+			};
 
 			// Walk the components of the path.
 			let mut components = path.components().peekable();
 			while let Some(component) = components.next() {
 				let is_end = components.peek().is_none();
-				node = match component {
+				parent_dir = match component {
 					// Ignore "." components.
 					std::path::Component::CurDir => continue,
 
 					// Try and get the parent of the current node.
 					std::path::Component::ParentDir => {
-						let node = match &node {
-							Either::Left(strong) => strong.clone(),
-							Either::Right(weak) => weak.upgrade().unwrap(),
-						};
-
-						if !node.read().await.metadata.is_dir() {
+						created = true;
+						if parent_dir.read().await.metadata.is_file() {
 							return Err(
-								tg::error!(%path = node.read().await.arg.path.display(), "expected a directory"),
+								tg::error!(%path = absolute_path.display(), "expected a directory or symlink"),
 							);
 						}
 
-						let parent = node.read().await.parent.clone().ok_or_else(
+						let parent_dir = parent_dir.read().await.parent.clone().ok_or_else(
 							|| tg::error!(%path = path.display(), "expected a parent node"),
 						)?;
 
-						Either::Right(parent)
+						parent_dir.upgrade().unwrap()
 					},
 
-					// If this is the last component, recurse.
+					// If this is the last component, do nothing.
 					std::path::Component::Normal(name) if is_end => {
 						if name.to_str().is_none() {
-							return Err(
-								tg::error!(%path = absolute_path.display(), "invalid path"),
-							);
+							return Err(tg::error!("non utf-8 path"));
 						}
-						let child = self
-							.get_or_create_input_node(
-								Some(node.clone()),
-								&absolute_path,
-								arg,
-								state,
-							)
-							.await?;
-
-						// Add to the parent.
-						let parent = match &node {
-							Either::Left(strong) => strong.clone(),
-							Either::Right(weak) => weak.upgrade().unwrap(),
-						};
-						let edge = Edge {
-							reference: tg::Reference::with_path(name),
-							graph: Some(child.clone()),
-							object: None,
-							tag: None,
-						};
-						add_edge(parent, edge).await;
-						child
+						break;
 					},
 
 					// Otherwise get or create intermediate directories.
 					std::path::Component::Normal(name) => {
-						let node = match &node {
-							Either::Left(strong) => strong.clone(),
-							Either::Right(weak) => weak.upgrade().unwrap(),
-						};
+						created = true;
 						let name = name
 							.to_str()
 							.ok_or_else(|| tg::error!("invalid directory entry name"))?
 							.to_owned();
-						self.get_or_create_intermediate_input_node(node, name, arg, state)
-							.await?
+						let parent = self
+							.get_or_create_intermediate_input_node(
+								parent_dir.clone(),
+								name,
+								arg,
+								state,
+								progress,
+							)
+							.await?;
+						match parent {
+							Either::Left(strong) => strong,
+							Either::Right(weak) => weak.upgrade().unwrap(),
+						}
 					},
 
 					// Error for root/prefix components.
@@ -234,18 +224,42 @@ impl Server {
 				}
 			}
 
-			node
+			Some((Either::Left(parent_dir), created))
 		};
 
-		// If the node is a weak reference, don't recurse.
-		let Either::Left(node) = node else {
-			return Ok(node);
+		// First, get or create the node that we're returning.
+		let node = self
+			.get_or_create_input_node(parent.clone().map(|p| p.0), &absolute_path, arg, state)
+			.await?;
+
+		// If this is a weak reference, return it immediately.
+		let node = match node {
+			Either::Left(node) => node,
+			Either::Right(_) => return Ok(node),
 		};
+
+		// Add to the parent if necessary.
+		if let Some((parent, created)) = parent {
+			if created {
+				let parent = match parent {
+					Either::Left(strong) => strong,
+					Either::Right(weak) => weak.upgrade().unwrap(),
+				};
+				let edge = Edge {
+					reference: tg::Reference::with_path(absolute_path.components().last().unwrap()),
+					graph: Some(Either::Right(Arc::downgrade(&node))),
+					object: None,
+					tag: None,
+				};
+				add_edge(parent, edge).await;
+			}
+		}
 
 		// Recurse.
 		let edges = self
 			.get_edges(node.clone(), absolute_path.as_ref(), arg, state, progress)
 			.await?;
+
 		for edge in edges {
 			add_edge(node.clone(), edge).await;
 		}
@@ -274,6 +288,7 @@ impl Server {
 			}
 		}
 	}
+
 	async fn get_edges(
 		&self,
 		referrer: Arc<RwLock<Graph>>,
@@ -307,29 +322,13 @@ impl Server {
 				};
 				return Ok(vec![edge]);
 			}
-			self.get_directory_edges(referrer, path, arg, state, progress)
-				.await
+
+			// This future is quite large, so we explicitly box it.
+			Box::pin(self.get_directory_edges(referrer, path, arg, state, progress)).await
 		} else if metadata.is_file() {
-			self.get_file_edges(referrer, path, arg, state, progress)
-				.await
+			Box::pin(self.get_file_edges(referrer, path, arg, state, progress)).await
 		} else if metadata.is_symlink() {
-			let target = tokio::fs::read_link(path).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to read symlink"),
-			)?;
-			let child = Box::pin(self.collect_input_inner(
-				Some(Either::Left(referrer)),
-				&target,
-				arg,
-				state,
-				progress,
-			))
-			.await?;
-			Ok(vec![Edge {
-				reference: tg::Reference::with_path(target),
-				graph: Some(child),
-				object: None,
-				tag: None,
-			}])
+			Box::pin(self.get_symlink_edges(referrer, path, arg, state, progress)).await
 		} else {
 			Err(tg::error!("invalid file type"))
 		}
@@ -343,11 +342,12 @@ impl Server {
 		state: &RwLock<State>,
 		progress: &super::ProgressState,
 	) -> tg::Result<Vec<Edge>> {
-		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let entries = tokio::fs::read_dir(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read directory"))?;
+
 		let vec: Vec<_> = stream::try_unfold(entries, |mut entries| async {
+			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			let Some(entry) = entries
 				.next_entry()
 				.await
@@ -355,6 +355,7 @@ impl Server {
 			else {
 				return Ok(None);
 			};
+			drop(permit);
 
 			// Get the file name and path.
 			let name = entry
@@ -381,9 +382,6 @@ impl Server {
 				return Ok(Some((None, entries)));
 			}
 
-			// Create edge metadata.
-			let reference = tg::Reference::with_path(&name);
-
 			// Follow the edge.
 			let graph = Box::pin(self.collect_input_inner(
 				Some(Either::Right(Arc::downgrade(&referrer))),
@@ -394,10 +392,11 @@ impl Server {
 			))
 			.await
 			.map_err(
-				|source| tg::error!(!source, %path = path.join(name).display(), "failed to collect child input"),
+				|source| tg::error!(!source, %path = path.display(), "failed to collect child input"),
 			)?;
 
 			// Create the edge.
+			let reference = tg::Reference::with_path(&name);
 			let edge = Edge {
 				reference,
 				graph: Some(graph),
@@ -495,12 +494,7 @@ impl Server {
 							.as_ref()
 							.map(|path| referrer_.arg.path.parent().unwrap().join(path))
 							.and_then(|path| path.diff(&root_path))
-							.map_or(false, |path| {
-								matches!(
-									path.components().next(),
-									Some(std::path::Component::ParentDir)
-								)
-							});
+							.map_or(false, |diff| diff.is_external());
 
 						let graph = if is_external_path {
 							None
@@ -648,6 +642,50 @@ impl Server {
 		Ok(edges)
 	}
 
+	async fn get_symlink_edges(
+		&self,
+		referrer: Arc<RwLock<Graph>>,
+		path: &Path,
+		arg: &tg::artifact::checkin::Arg,
+		state: &RwLock<State>,
+		progress: &super::ProgressState,
+	) -> tg::Result<Vec<Edge>> {
+		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+		let target = tokio::fs::read_link(path).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to read symlink"),
+		)?;
+		drop(permit);
+
+		if target.is_absolute() {
+			return Ok(Vec::new());
+		}
+
+		let Some(referrer) = referrer.read().await.parent.clone() else {
+			return Ok(Vec::new());
+		};
+
+		// If the target is ".", short circuit to the referrer.
+		let child = if target == PathBuf::from(".") {
+			Either::Right(referrer)
+		} else {
+			Box::pin(self.collect_input_inner(
+				Some(Either::Right(referrer)),
+				&target,
+				arg,
+				state,
+				progress,
+			))
+			.await?
+		};
+
+		Ok(vec![Edge {
+			reference: tg::Reference::with_path(target),
+			graph: Some(child),
+			object: None,
+			tag: None,
+		}])
+	}
+
 	async fn get_or_create_input_node(
 		&self,
 		referrer: Option<Node>,
@@ -695,10 +733,11 @@ impl Server {
 		};
 
 		// Get the file system metadata.
-		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let metadata = tokio::fs::symlink_metadata(path).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to get the file's metadata"),
 		)?;
+		drop(permit);
 
 		// Validate.
 		if !(metadata.is_dir() || metadata.is_file() || metadata.is_symlink()) {
@@ -737,6 +776,7 @@ impl Server {
 		name: String,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
+		progress: &super::ProgressState,
 	) -> tg::Result<Node> {
 		if !referrer.read().await.metadata.is_dir() {
 			return Err(
@@ -768,28 +808,29 @@ impl Server {
 			let referrer_root = referrer.read().await.root.clone();
 
 			// Lock the state to avoid TOCTOU races.
-			let mut state = state.write().await;
+			let mut state_ = state.write().await;
 
 			// Create the absolute path.
 			let path = referrer_path.join(name);
-
 			// Check if a node has already been created.
-			if let Some(node) = state.visited.get(&path) {
+			if let Some(node) = state_.visited.get(&path) {
 				break 'a Either::Right(node.clone());
 			}
 
 			// Add the referrer as a root if necessary.
 			if referrer_root.is_none() {
-				state.roots.insert(referrer_path.clone(), referrer.clone());
+				state_.roots.insert(referrer_path.clone(), referrer.clone());
 			}
 
 			// Get the root path.
 			let root = referrer_root.unwrap_or_else(|| referrer_path.clone());
 
 			// Get the metadata.
+			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
 				|source| tg::error!(!source, %path = path.display(), "failed to get metadata"),
 			)?;
+			drop(permit);
 
 			// Create the child node.
 			let child = Arc::new(RwLock::new(Graph {
@@ -800,14 +841,22 @@ impl Server {
 				edges: Vec::new(),
 				root: Some(root),
 				is_direct_dependency: false,
-				metadata,
+				metadata: metadata.clone(),
 				lockfile: None,
 				parent: Some(Arc::downgrade(&referrer)),
 			}));
 
 			// Update state.
-			state.visited.insert(path.clone(), Arc::downgrade(&child));
-			drop(state);
+			state_.visited.insert(path.clone(), Arc::downgrade(&child));
+			drop(state_);
+
+			// Follow symlinks.
+			if metadata.is_symlink() {
+				let edges = self
+					.get_symlink_edges(child.clone(), &path, arg, state, progress)
+					.await?;
+				child.write().await.edges = edges;
+			}
 
 			// Update the referrer.
 			let edge = Edge {
@@ -818,13 +867,23 @@ impl Server {
 			};
 			add_edge(referrer, edge).await;
 
-			Either::Right(Arc::downgrade(&child))
+			Either::Left(child)
 		};
 
-		// Resolve any symlinks.
-		self.try_resolve_symlink_node(child)
+		let child = self
+			.try_resolve_symlink_node(child)
 			.await?
-			.ok_or_else(|| tg::error!("failed to resolve symlinks"))
+			.ok_or_else(|| tg::error!("failed to resolve symlink"))?;
+
+		let strong = match &child {
+			Either::Left(strong) => strong.clone(),
+			Either::Right(weak) => weak.upgrade().unwrap(),
+		};
+		if !strong.read().await.metadata.is_dir() {
+			return Err(tg::error!("expected a directory"));
+		}
+
+		Ok(child)
 	}
 }
 
@@ -935,16 +994,16 @@ impl Edge {
 
 impl Graph {
 	#[allow(dead_code)]
-	async fn print(self_: Arc<RwLock<Graph>>) {
+	pub(super) async fn print(self_: Arc<RwLock<Graph>>) {
 		let mut stack = vec![(Either::Left(self_), 0)];
 		while let Some((node, depth)) = stack.pop() {
 			for _ in 0..depth {
-				eprint!("..");
+				eprint!("  ");
 			}
 			match node {
 				Either::Left(strong) => {
 					let path = strong.read().await.arg.path.clone();
-					eprintln!("strong {path:#?} {:x?}", Arc::as_ptr(&strong));
+					eprintln!("* strong {path:#?} {:x?}", Arc::as_ptr(&strong));
 					stack.extend(
 						strong
 							.read()
@@ -956,7 +1015,7 @@ impl Graph {
 				},
 				Either::Right(weak) => {
 					let path = weak.upgrade().unwrap().read().await.arg.path.clone();
-					eprintln!("weak {path:#?} {:x?}", Weak::as_ptr(&weak));
+					eprintln!("* weak {path:#?} {:x?}", Weak::as_ptr(&weak));
 				},
 			}
 		}

@@ -1,8 +1,8 @@
-use std::time::Duration;
 use crate::Server;
 use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
+use std::time::Duration;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
@@ -47,8 +47,7 @@ impl Server {
 
 		// Create the interval.
 		let interval =
-			IntervalStream::new(tokio::time::interval(Duration::from_secs(60)))
-				.map(|_| ());
+			IntervalStream::new(tokio::time::interval(Duration::from_secs(60))).map(|_| ());
 
 		// Create the stream.
 		let server = self.clone();

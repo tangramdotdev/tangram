@@ -113,7 +113,6 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect check-in input"),
 			)?;
-		input::Graph::validate(input.clone()).await?;
 		self.select_lockfiles(input.clone()).await?;
 		progress.finish_input().await;
 
