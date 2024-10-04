@@ -7,8 +7,6 @@ use tangram_either::Either;
 
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub paths: BTreeMap<PathBuf, Vec<usize>>,
 	pub nodes: Vec<Node>,
 }
 
@@ -39,11 +37,10 @@ pub enum Node {
 	},
 }
 
-pub type Entry = Option<Either<usize, tg::object::Id>>;
+pub type Entry = Either<usize, tg::object::Id>;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Dependency {
-	#[serde(skip_serializing_if = "Option::is_none")]
 	pub object: Entry,
 
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -70,13 +67,13 @@ impl Node {
 	#[must_use]
 	pub fn children(&self) -> Vec<Either<usize, tg::object::Id>> {
 		match self {
-			Self::Directory { entries } => entries.values().flatten().cloned().collect(),
+			Self::Directory { entries } => entries.values().cloned().collect(),
 			Self::File { dependencies, .. } => dependencies
 				.values()
-				.filter_map(|dependency: &Dependency| dependency.object.clone())
+				.map(|dependency: &Dependency| dependency.object.clone())
 				.collect(),
 			Self::Symlink { artifact, .. } => {
-				let Some(Some(artifact)) = artifact else {
+				let Some(artifact) = artifact else {
 					return Vec::new();
 				};
 				vec![artifact.clone()]

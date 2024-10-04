@@ -66,7 +66,7 @@ pub async fn try_get_node_for_module_path(
 		match node {
 			tg::lockfile::Node::Directory { entries } => {
 				let children = entries.iter().filter_map(|(name, either)| {
-					let index = *either.as_ref()?.as_ref().left()?;
+					let index = *either.as_ref().left()?;
 					let path = node_path.join(name);
 					Some((index, path))
 				});
@@ -83,7 +83,7 @@ pub async fn try_get_node_for_module_path(
 						.ok()
 						.or_else(|| reference.query()?.path.as_ref())?;
 					let path = node_path.join(path);
-					let index = *dependency.object.as_ref()?.as_ref().left()?;
+					let index = *dependency.object.as_ref().left()?;
 					Some((index, path))
 				});
 				queue.extend(children);
@@ -142,7 +142,6 @@ async fn filter_lockfile(lockfile: &tg::Lockfile, node: usize) -> tg::Result<tg:
 	let nodes = RwLock::new(Vec::new());
 	filter_lockfile_inner(lockfile, node, &visited, &nodes).await?;
 	Ok(tg::Lockfile {
-		paths: BTreeMap::new(),
 		nodes: nodes.into_inner().unwrap(),
 	})
 }
@@ -192,9 +191,6 @@ async fn filter_lockfile_inner(
 					let name = name.clone();
 					let entry = entry.clone();
 					async move {
-						let Some(entry) = entry else {
-							return Err(tg::error!("incomplete lockfile"));
-						};
 						let entry = match entry {
 							Either::Left(index) => Either::Left(
 								Box::pin(filter_lockfile_inner(lockfile, index, visited, nodes))
@@ -202,7 +198,7 @@ async fn filter_lockfile_inner(
 							),
 							Either::Right(id) => Either::Right(id.clone()),
 						};
-						Ok::<_, tg::Error>((name, Some(entry)))
+						Ok::<_, tg::Error>((name, entry))
 					}
 				})
 				.collect::<FuturesUnordered<_>>()
@@ -220,12 +216,9 @@ async fn filter_lockfile_inner(
 				.iter()
 				.map(|(reference, dependency)| {
 					let reference = reference.clone();
-					let entry = dependency.object.clone();
+					let object = dependency.object.clone();
 					async move {
-						let Some(entry) = entry else {
-							return Err(tg::error!("incomplete lockfile"));
-						};
-						let entry = match entry {
+						let object = match object {
 							Either::Left(index) => Either::Left(
 								Box::pin(filter_lockfile_inner(lockfile, index, visited, nodes))
 									.await?,
@@ -234,7 +227,7 @@ async fn filter_lockfile_inner(
 						};
 
 						let dependency = tg::lockfile::Dependency {
-							object: Some(entry),
+							object,
 							tag: dependency.tag.clone(),
 						};
 
@@ -254,9 +247,6 @@ async fn filter_lockfile_inner(
 			artifact: Some(entry),
 			..
 		} => {
-			let entry = entry
-				.as_ref()
-				.ok_or_else(|| tg::error!("incomplete lockfile"))?;
 			let entry = match entry {
 				Either::Left(index) => Either::Left(
 					Box::pin(filter_lockfile_inner(lockfile, *index, visited, nodes)).await?,
@@ -267,7 +257,7 @@ async fn filter_lockfile_inner(
 			let tg::lockfile::Node::Symlink { artifact, .. } = &mut nodes[index] else {
 				unreachable!()
 			};
-			artifact.replace(Some(entry));
+			artifact.replace(entry);
 		},
 		tg::lockfile::Node::Symlink { .. } => (),
 	}

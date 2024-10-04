@@ -144,7 +144,7 @@ impl Server {
 					};
 					break 'a;
 				};
-				let Some(Either::Right(object)) = &dependency.object else {
+				let Either::Right(object) = &dependency.object else {
 					break 'a;
 				};
 

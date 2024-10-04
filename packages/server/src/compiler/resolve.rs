@@ -103,7 +103,7 @@ impl Compiler {
 					// Try to resolve using the node in the lockfile.
 					let Some(object) = dependencies
 						.get(&import.reference)
-						.and_then(|dependency| dependency.object.as_ref())
+						.map(|dependency| &dependency.object)
 					else {
 						return Err(tg::error!("failed to resolve module"));
 					};

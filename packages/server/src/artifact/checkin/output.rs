@@ -35,10 +35,9 @@ pub struct Edge {
 type Node = Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>;
 
 struct State {
-	root: PathBuf,
 	artifacts: BTreeMap<usize, tg::artifact::Data>,
+	paths: BTreeMap<PathBuf, usize>,
 	visited: BTreeMap<PathBuf, Weak<RwLock<Graph>>>,
-	lockfile: tg::Lockfile,
 }
 
 impl Server {
@@ -46,14 +45,13 @@ impl Server {
 		&self,
 		input: Arc<tokio::sync::RwLock<input::Graph>>,
 		lockfile: tg::Lockfile,
+		paths: BTreeMap<PathBuf, usize>,
 		progress: &super::ProgressState,
 	) -> tg::Result<Arc<RwLock<Graph>>> {
-		let root = input.read().await.arg.path.clone();
 		let artifacts = self.create_artifact_data_for_lockfile(&lockfile).await?;
 		let mut state = State {
-			root,
 			artifacts,
-			lockfile,
+			paths: paths.clone(),
 			visited: BTreeMap::new(),
 		};
 		let output = self
@@ -71,18 +69,15 @@ impl Server {
 		progress: &super::ProgressState,
 	) -> tg::Result<Node> {
 		let path = input.read().await.arg.path.clone();
-		let path = path.diff(&state.root).unwrap();
 		if let Some(node) = state.visited.get(&path) {
 			return Ok(Either::Right(node.clone()));
 		}
 
 		// Find the entry in the lockfile.
 		let lock_index = *state
-			.lockfile
 			.paths
 			.get(&path)
-			.and_then(|nodes| nodes.first())
-			.ok_or_else(|| tg::error!(%path = path.display(), "missing path in lockfile"))?;
+			.ok_or_else(|| tg::error!(%path = path.display(), "missing path"))?;
 
 		// Get the data.
 		let data = state
@@ -431,7 +426,6 @@ impl Server {
 	) -> tg::Result<tg::graph::data::node::Directory> {
 		let mut entries_ = BTreeMap::new();
 		for (name, entry) in entries {
-			let entry = entry.ok_or_else(|| tg::error!("incomplete lockfile"))?;
 			let entry = self
 				.resolve_lockfile_dependency(entry, graphs, indices)
 				.await?
@@ -460,8 +454,7 @@ impl Server {
 			.map(|(reference, dependency)| async move {
 				let object = dependency
 					.object
-					.clone()
-					.ok_or_else(|| tg::error!("incomplete lockfile"))?;
+					.clone();
 				let object = self
 					.resolve_lockfile_dependency(object, graphs, indices)
 					.await?;
@@ -489,7 +482,6 @@ impl Server {
 		indices: &BTreeMap<usize, (usize, usize)>,
 	) -> tg::Result<tg::graph::data::node::Symlink> {
 		let artifact = if let Some(artifact) = artifact {
-			let artifact = artifact.ok_or_else(|| tg::error!("incomplete lockfile"))?;
 			let artifact = self
 				.resolve_lockfile_dependency(artifact, graphs, indices)
 				.await?
@@ -773,17 +765,17 @@ impl<'a> petgraph::visit::IntoNeighbors for GraphImpl<'a> {
 			tg::lockfile::Node::Directory { entries } => Box::new(
 				entries
 					.values()
-					.filter_map(|entry| entry.as_ref()?.as_ref().left().copied()),
+					.filter_map(|entry| entry.as_ref().left().copied()),
 			),
 			tg::lockfile::Node::File { dependencies, .. } => Box::new(
 				dependencies
 					.values()
-					.filter_map(|dependency| dependency.object.as_ref()?.as_ref().left().copied()),
+					.filter_map(|dependency| dependency.object.as_ref().left().copied()),
 			),
 			tg::lockfile::Node::Symlink { artifact, .. } => Box::new(
 				artifact
 					.iter()
-					.filter_map(|entry| entry.as_ref()?.as_ref().left().copied()),
+					.filter_map(|entry| entry.as_ref().left().copied()),
 			),
 		}
 	}

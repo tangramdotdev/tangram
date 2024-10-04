@@ -137,7 +137,7 @@ impl Server {
 
 		// Create the lock that is written to disk.
 		progress.begin_blobs().await;
-		let lockfile = self
+		let (lockfile, paths) = self
 			.create_lockfile(&unification_graph, &root, progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create lockfile"))?;
@@ -146,7 +146,7 @@ impl Server {
 		// Get the output.
 		progress.begin_output().await;
 		let output = self
-			.collect_output(input.clone(), lockfile.clone(), progress)
+			.collect_output(input.clone(), lockfile.clone(), paths.clone(), progress)
 			.await?;
 
 		// Get the artifact ID.
@@ -168,7 +168,8 @@ impl Server {
 				.await?;
 
 			// Write lockfiles.
-			self.write_lockfiles(input.clone(), &lockfile).await?;
+			self.write_lockfiles(input.clone(), &lockfile, &paths)
+				.await?;
 		}
 		progress.finish_output().await;
 

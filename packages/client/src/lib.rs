@@ -3,7 +3,8 @@ use futures::{Future, FutureExt as _, Stream};
 use std::{
 	collections::VecDeque,
 	path::{Path, PathBuf},
-	sync::Arc, time::Duration,
+	sync::Arc,
+	time::Duration,
 };
 use tangram_http::{Incoming, Outgoing};
 use tokio::{
