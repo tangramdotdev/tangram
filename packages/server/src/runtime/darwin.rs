@@ -245,6 +245,11 @@ impl Runtime {
 					(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
 				)
 
+				;; Allow querying the macOS system version metadata.
+				(allow file-read* file-test-existence
+					(literal "/System/Library/CoreServices/SystemVersion.plist")
+				)
+
 				;; Allow bash to create and use file descriptors for pipes.
 				(allow file-read* file-write* file-ioctl process-exec
 					(literal "/dev/fd")
