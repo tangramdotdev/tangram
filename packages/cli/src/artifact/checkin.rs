@@ -14,6 +14,10 @@ pub struct Args {
 	#[arg(long)]
 	pub deterministic: bool,
 
+	/// If false, don't parse ignore files.
+	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
+	pub ignore: bool,
+
 	/// If this flag is set, lockfiles will not be updated.
 	#[arg(long)]
 	pub locked: bool,
@@ -38,6 +42,7 @@ impl Cli {
 		let arg = tg::artifact::checkin::Arg {
 			destructive: args.destructive,
 			deterministic: false,
+			ignore: args.ignore,
 			locked: args.locked,
 			path,
 		};

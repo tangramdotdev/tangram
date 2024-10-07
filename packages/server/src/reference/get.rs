@@ -25,6 +25,7 @@ impl Server {
 				let arg = tg::artifact::checkin::Arg {
 					destructive: false,
 					deterministic: false,
+					ignore: true,
 					locked: false,
 					path: path.clone(),
 				};

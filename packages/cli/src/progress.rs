@@ -57,7 +57,7 @@ async fn consume_progress_stream<T>(
 #[cfg(test)]
 mod tests {
 	use std::time::Duration;
-use tangram_client as tg;
+	use tangram_client as tg;
 
 	#[tokio::test]
 	async fn progress() {
