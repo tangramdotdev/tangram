@@ -271,6 +271,7 @@ impl Server {
 				let arg = tg::artifact::checkin::Arg {
 					deterministic: false,
 					destructive: false,
+					ignore: false,
 					locked: true,
 					path,
 				};

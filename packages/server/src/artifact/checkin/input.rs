@@ -1,10 +1,5 @@
 use crate::Server;
-use futures::{
-	future,
-	stream::{self, FuturesUnordered},
-	StreamExt, TryStreamExt,
-};
-use itertools::Itertools;
+use futures::{future, stream::FuturesUnordered, StreamExt, TryStreamExt};
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	path::{Path, PathBuf},
@@ -342,74 +337,78 @@ impl Server {
 		state: &RwLock<State>,
 		progress: &super::ProgressState,
 	) -> tg::Result<Vec<Edge>> {
-		let entries = tokio::fs::read_dir(&path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read directory"))?;
-
-		let vec: Vec<_> = stream::try_unfold(entries, |mut entries| async {
-			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let Some(entry) = entries
-				.next_entry()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get directory entry"))?
+		// Get the directory entries.
+		let mut names = Vec::new();
+		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+		let mut entries = tokio::fs::read_dir(&path).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to get the directory entries"),
+		)?;
+		loop {
+			let Some(entry) = entries.next_entry().await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to get directory entry"),
+			)?
 			else {
-				return Ok(None);
+				break;
 			};
-			drop(permit);
-
-			// Get the file name and path.
-			let name = entry
-				.file_name()
-				.to_str()
-				.ok_or_else(|| tg::error!("non-utf8 file name"))?
-				.to_owned();
-			let path = path.join(&name);
-
-			// Check if we should ignore it.
-			let metadata = entry
-				.metadata()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get metadata"))?;
-			if state
-				.write()
-				.await
-				.ignore
-				.should_ignore(path.as_ref(), &metadata)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to check if the path should be ignored")
-				})? {
-				return Ok(Some((None, entries)));
-			}
-
-			// Follow the edge.
-			let graph = Box::pin(self.collect_input_inner(
-				Some(Either::Right(Arc::downgrade(&referrer))),
-				name.as_ref(),
-				arg,
-				state,
-				progress,
-			))
-			.await
-			.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to collect child input"),
+			let name = entry.file_name().into_string().map_err(
+				|_| tg::error!(%path = path.display(), "directory contains entries with non-utf8 children"),
 			)?;
+			if arg.ignore {
+				let file_type = entry
+					.file_type()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get file type"))?;
+				if state
+					.write()
+					.await
+					.ignore
+					.should_ignore(&path.join(&name), &file_type)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to check if the path should be ignored")
+					})? {
+					continue;
+				}
+			}
+			names.push(name);
+		}
+		drop(permit);
 
-			// Create the edge.
-			let reference = tg::Reference::with_path(&name);
-			let edge = Edge {
-				reference,
-				graph: Some(graph),
-				object: None,
-				tag: None,
-			};
-			Ok::<_, tg::Error>(Some((Some(edge), entries)))
-		})
-		.collect::<FuturesUnordered<_>>()
-		.await
-		.into_iter()
-		.try_collect()?;
-		Ok(vec.into_iter().flatten().collect())
+		let vec: Vec<_> = names
+			.into_iter()
+			.map(|name| {
+				let referrer = referrer.clone();
+				async move {
+					let path = path.join(&name);
+
+					// Follow the edge.
+					let graph = Box::pin(self.collect_input_inner(
+						Some(Either::Right(Arc::downgrade(&referrer))),
+						name.as_ref(),
+						arg,
+						state,
+						progress,
+					))
+					.await
+					.map_err(
+						|source| tg::error!(!source, %path = path.display(), "failed to collect child input"),
+					)?;
+
+					// Create the edge.
+					let reference = tg::Reference::with_path(&name);
+					let edge = Edge {
+						reference,
+						graph: Some(graph),
+						object: None,
+						tag: None,
+					};
+					Ok::<_, tg::Error>(edge)
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
+		Ok(vec)
 	}
 
 	async fn get_file_edges(

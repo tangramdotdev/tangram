@@ -6,7 +6,8 @@ use num::ToPrimitive;
 use std::{
 	fmt::Write as _,
 	path::PathBuf,
-	sync::{Arc, Mutex, Weak}, time::Duration,
+	sync::{Arc, Mutex, Weak},
+	time::Duration,
 };
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_either::Either;

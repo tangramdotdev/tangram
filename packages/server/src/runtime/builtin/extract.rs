@@ -81,6 +81,7 @@ impl Runtime {
 		let arg = tg::artifact::checkin::Arg {
 			destructive: true,
 			deterministic: true,
+			ignore: false,
 			locked: true,
 			path,
 		};

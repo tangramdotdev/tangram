@@ -57,7 +57,7 @@ impl Ignore {
 	pub async fn should_ignore(
 		&self,
 		path: &Path,
-		metadata: &std::fs::Metadata,
+		file_type: &std::fs::FileType,
 	) -> Result<bool, Error> {
 		let mut components = path.strip_prefix("/")?.components().peekable();
 
@@ -67,7 +67,7 @@ impl Ignore {
 			{
 				let node = current.read().await;
 				if let Some(patterns) = &node.patterns {
-					if patterns.should_ignore(&node.path, path, metadata) {
+					if patterns.should_ignore(&node.path, path, file_type) {
 						return Ok(true);
 					}
 				}
@@ -185,23 +185,23 @@ impl Node {
 }
 
 impl PatternSet {
-	fn should_ignore(&self, root: &Path, path: &Path, metadata: &std::fs::Metadata) -> bool {
+	fn should_ignore(&self, root: &Path, path: &Path, file_type: &std::fs::FileType) -> bool {
 		let allow = self
 			.allow
 			.iter()
-			.any(|pattern| pattern.matches(root, path, metadata));
+			.any(|pattern| pattern.matches(root, path, file_type));
 		let deny = self
 			.deny
 			.iter()
-			.any(|pattern| pattern.matches(root, path, metadata));
+			.any(|pattern| pattern.matches(root, path, file_type));
 		deny && !allow
 	}
 }
 
 impl Pattern {
-	fn matches(&self, root: &Path, path: &Path, metadata: &std::fs::Metadata) -> bool {
+	fn matches(&self, root: &Path, path: &Path, file_type: &std::fs::FileType) -> bool {
 		let path = path.strip_prefix(root).unwrap_or(path);
-		if self.only_directories && !metadata.is_dir() {
+		if self.only_directories && !file_type.is_dir() {
 			return false;
 		}
 		self.glob.is_match(path)
@@ -298,16 +298,16 @@ mod tests {
 
 	#[test]
 	fn pattern() {
-		let metadata = std::fs::metadata(".").unwrap();
+		let file_type = std::fs::metadata(".").unwrap().file_type();
 
 		let root = "/home/user";
 		let path = "/home/user/thing";
 		let pattern: Pattern = "thing".parse().unwrap();
-		assert!(pattern.matches(root.as_ref(), path.as_ref(), &metadata));
+		assert!(pattern.matches(root.as_ref(), path.as_ref(), &file_type));
 
 		let root = "/home/user";
 		let path = "/home/user/thing";
 		let pattern: Pattern = "/thing".parse().unwrap();
-		assert!(pattern.matches(root.as_ref(), path.as_ref(), &metadata));
+		assert!(pattern.matches(root.as_ref(), path.as_ref(), &file_type));
 	}
 }

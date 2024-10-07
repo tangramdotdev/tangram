@@ -452,9 +452,7 @@ impl Server {
 		let dependencies = dependencies
 			.into_iter()
 			.map(|(reference, dependency)| async move {
-				let object = dependency
-					.object
-					.clone();
+				let object = dependency.object.clone();
 				let object = self
 					.resolve_lockfile_dependency(object, graphs, indices)
 					.await?;

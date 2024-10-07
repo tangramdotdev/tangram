@@ -772,6 +772,7 @@ impl Runtime {
 			let arg = tg::artifact::checkin::Arg {
 				destructive: true,
 				deterministic: true,
+				ignore: false,
 				path: output_host_path.clone(),
 				locked: true,
 			};
