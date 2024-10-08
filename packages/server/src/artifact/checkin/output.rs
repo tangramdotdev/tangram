@@ -126,64 +126,11 @@ impl Server {
 		Ok(Either::Left(output))
 	}
 
-	pub async fn compute_count_and_weight(
-		&self,
-		output: Arc<RwLock<Graph>>,
-		lockfile: &tg::Lockfile,
-	) -> tg::Result<BTreeMap<tg::artifact::Id, (usize, usize)>> {
-		let mut stack = vec![output];
-		let mut visited = BTreeSet::new();
-		let mut order = Vec::new();
-		while let Some(output) = stack.pop() {
-			let id = output.read().unwrap().data.id()?;
-			if visited.contains(&id) {
-				continue;
-			}
-			visited.insert(id);
-			order.push(output.clone());
-			stack.extend(output.read().unwrap().edges.iter().map(Edge::node));
-		}
-		order.reverse();
-
-		// Compute the count and weight.
-		let mut count_and_weight = BTreeMap::new();
-		let mut visited = BTreeMap::new();
-		'outer: for output in &order {
-			let node = output.read().unwrap().lock_index;
-			let id = output.read().unwrap().data.id()?;
-			let mut count = 1usize;
-			let mut weight = output.read().unwrap().weight;
-			for child in lockfile.nodes[node].children() {
-				match child {
-					Either::Left(node) => {
-						let Some((c, w)) = visited.get(&node) else {
-							continue 'outer;
-						};
-						count += *c;
-						weight += *w;
-					},
-					Either::Right(_) => {
-						continue 'outer;
-					},
-				}
-			}
-			visited.insert(node, (count, weight));
-			count_and_weight.insert(id, (count, weight));
-		}
-
-		Ok(count_and_weight)
-	}
-
 	pub async fn write_output_to_database(
 		&self,
 		output: Arc<RwLock<Graph>>,
-		lockfile: &tg::Lockfile,
+		_lockfile: &tg::Lockfile,
 	) -> tg::Result<()> {
-		// Compute the count and weight.
-		let count_and_weight = self
-			.compute_count_and_weight(output.clone(), lockfile)
-			.await?;
-
 		// Get a database connection.
 		let mut connection = self
 			.database
@@ -213,20 +160,14 @@ impl Server {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-					insert into objects (id, bytes, count, weight, complete, touched_at)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
+					insert into objects (id, bytes, touched_at)
+					values ({p}1, {p}2, {p}3)
 					on conflict (id) do update set touched_at = {p}4;
 				"
 			);
-			let (count, weight, complete) = if let Some((count, weight)) = count_and_weight.get(&id)
-			{
-				(Some(*count), Some(*weight), 1)
-			} else {
-				(None, None, 0)
-			};
 			let bytes = data.serialize()?;
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let params = db::params![id, bytes, count, weight, complete, now];
+			let params = db::params![id, bytes, now];
 			transaction
 				.execute(statement, params)
 				.await
@@ -632,7 +573,7 @@ impl Server {
 		let hardlink_prohibited = if cfg!(target_os = "macos") {
 			static APP_DIR_RE: std::sync::LazyLock<regex::Regex> =
 				std::sync::LazyLock::new(|| regex::Regex::new(r"\.app/Contents/.+$").unwrap());
-			let path_string = path.normalize().display().to_string();
+			let path_string = path.display().to_string();
 			APP_DIR_RE.is_match(&path_string)
 		} else {
 			false
@@ -1033,7 +974,7 @@ impl Server {
 				&data,
 				tg::artifact::Data::File(_) | tg::artifact::Data::Symlink(_)
 			) {
-				dest.parent().unwrap().join(&subpath).normalize()
+				dest.parent().unwrap().join(&subpath)
 			} else {
 				dest.join(subpath.clone())
 			};
