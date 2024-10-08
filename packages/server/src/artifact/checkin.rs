@@ -102,8 +102,10 @@ impl Server {
 			return Err(tg::error!(%path = arg.path.display(), "expected an absolute path"));
 		}
 
-		// Normalize the path.
-		arg.path = arg.path.normalize();
+		// Canonicalize the path.
+		arg.path = tokio::fs::canonicalize(&arg.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize path"))?;
 
 		// Collect the input.
 		progress.begin_input().await;

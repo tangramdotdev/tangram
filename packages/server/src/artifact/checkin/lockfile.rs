@@ -13,7 +13,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
-use tg::path::Ext as _;
 
 impl Server {
 	// Create one giant lockfile for the entire graph, and return a table of nodes within that lockfile that correspond to path dependencies.
@@ -135,7 +134,8 @@ impl Server {
 					self.create_lockfile_file_node(input, dependencies, progress)
 						.await?
 				} else if input.metadata.is_symlink() {
-					self.create_lockfile_symlink_node(input).await?
+					let dependency = dependencies.values().next().cloned();
+					self.create_lockfile_symlink_node(input, dependency).await?
 				} else {
 					return Err(tg::error!("unknown file type"));
 				};
@@ -195,55 +195,63 @@ impl Server {
 	async fn create_lockfile_symlink_node(
 		&self,
 		input: input::Graph,
+		dependency: Option<tg::lockfile::Dependency>,
 	) -> tg::Result<tg::lockfile::Node> {
-		let input::Graph { arg, .. } = input;
-		let path = arg.path.clone();
+		let (artifact, path) = 'a: {
+			let edge = input.edges.first().unwrap();
+			let target = edge.reference.path().unwrap_path_ref().clone();
 
-		// Read the target from the symlink.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let target = tokio::fs::read_link(&path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), r#"failed to read the symlink at path"#,),
-		)?;
-		drop(permit);
+			// If there is a dependency and it points outside the root, create a symlink with an artifact ID.
+			if let Some(dependency) = dependency {
+				if edge.node().unwrap().read().await.root.is_none() {
+					let artifact = Some(dependency.object);
+					break 'a (artifact, None);
+				}
+			}
 
-		// Unrender the target.
-		let target = target
-			.to_str()
-			.ok_or_else(|| tg::error!("the symlink target must be valid UTF-8"))?;
-		let artifacts_path = self.artifacts_path();
-		let artifacts_path = artifacts_path
-			.to_str()
-			.ok_or_else(|| tg::error!("the artifacts path must be valid UTF-8"))?;
-		let target = tg::template::Data::unrender(artifacts_path, target)?;
+			// Unrender the target.
+			let target = target
+				.to_str()
+				.ok_or_else(|| tg::error!("the symlink target must be valid UTF-8"))?;
+			let artifacts_path = self.artifacts_path();
+			let artifacts_path = artifacts_path
+				.to_str()
+				.ok_or_else(|| tg::error!("the artifacts path must be valid UTF-8"))?;
+			let template = tg::template::Data::unrender(artifacts_path, target)?;
 
-		// Get the artifact and path.
-		let (artifact, path) = if target.components.len() == 1 {
-			let path = target.components[0]
-				.try_unwrap_string_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("invalid symlink"))?
-				.clone();
-			let path = path
-				.parse()
-				.map_err(|source| tg::error!(!source, "invalid symlink"))?;
-			(None, Some(path))
-		} else if target.components.len() == 2 {
-			let artifact = target.components[0]
-				.try_unwrap_artifact_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("invalid symlink"))?
-				.clone();
-			let path = target.components[1]
-				.try_unwrap_string_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("invalid sylink"))?
-				.clone();
-			let path = &path[1..];
-			let path = path
-				.parse()
-				.map_err(|source| tg::error!(!source, "invalid symlink"))?;
-			(Some(Either::Right(artifact.into())), Some(path))
-		} else {
+			// Check if this is a relative path symlink.
+			if template.components.len() == 1 {
+				let path = template.components[0]
+					.try_unwrap_string_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("invalid symlink"))?
+					.clone();
+				let path = path
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid symlink"))?;
+				break 'a (None, Some(path));
+			}
+
+			// Check if the symlink points within an artifact.
+			if template.components.len() == 2 {
+				let artifact = template.components[0]
+					.try_unwrap_artifact_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("invalid symlink"))?
+					.clone();
+				let path = template.components[1]
+					.try_unwrap_string_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("invalid sylink"))?
+					.clone();
+				let path = &path[1..];
+				let path = path
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid symlink"))?;
+				let artifact = Either::Right(artifact.into());
+				break 'a (Some(artifact), Some(path));
+			}
+
 			return Err(tg::error!("invalid symlink"));
 		};
 
@@ -292,7 +300,7 @@ impl Server {
 			let contents = serde_json::to_string_pretty(&stripped_lockfile)
 				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let lockfile_path = arg.path.join(tg::package::LOCKFILE_FILE_NAME).normalize();
+			let lockfile_path = arg.path.join(tg::package::LOCKFILE_FILE_NAME);
 			tokio::fs::write(&lockfile_path, &contents)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;

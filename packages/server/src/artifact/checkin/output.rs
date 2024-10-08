@@ -162,7 +162,7 @@ impl Server {
 				"
 					insert into objects (id, bytes, touched_at)
 					values ({p}1, {p}2, {p}3)
-					on conflict (id) do update set touched_at = {p}4;
+					on conflict (id) do update set touched_at = {p}3;
 				"
 			);
 			let bytes = data.serialize()?;
@@ -645,24 +645,25 @@ impl Server {
 		for edge in edges {
 			let child_output = edge.node();
 			let input = child_output.read().unwrap().input.clone();
-			let path = if input.read().await.root.is_none() {
-				self.checkouts_path()
-					.join(child_output.read().unwrap().data.id()?.to_string())
+
+			// Skip any children that are roots.
+			if input.read().await.root.is_none() {
+				continue;
+			}
+
+			let path_ = edge
+				.reference
+				.path()
+				.try_unwrap_path_ref()
+				.ok()
+				.or_else(|| edge.reference.query()?.path.as_ref())
+				.cloned()
+				.ok_or_else(|| tg::error!("expected a path dependency"))?;
+			// We could use metadata from the input, or the data, this avoids having to acquire a lock.
+			let path = if matches!(id, tg::artifact::Id::Directory(_)) {
+				path.join(path_)
 			} else {
-				let path_ = edge
-					.reference
-					.path()
-					.try_unwrap_path_ref()
-					.ok()
-					.or_else(|| edge.reference.query()?.path.as_ref())
-					.cloned()
-					.ok_or_else(|| tg::error!("expected a path dependency"))?;
-				// We could use metadata from the input, or the data, this avoids having to acquire a lock.
-				if matches!(id, tg::artifact::Id::Directory(_)) {
-					path.join(path_)
-				} else {
-					path.parent().unwrap().join(path_)
-				}
+				path.parent().unwrap().join(path_)
 			};
 
 			Box::pin(self.write_links_inner(&path, child_output, visited)).await?;
@@ -741,7 +742,6 @@ impl Server {
 				continue;
 			}
 			visited.insert(id.clone());
-
 			let input = output.read().unwrap().input.clone();
 			if input.read().await.root.is_none() {
 				// Create a temp.
@@ -820,9 +820,51 @@ impl Server {
 				Box::pin(self.copy_or_move_all(dest, output, visited, progress)).await?;
 			}
 		} else if input.metadata.is_symlink() {
-			let target = tokio::fs::read_link(&input.arg.path)
-				.await
-				.map_err(|source| tg::error!(!source, "expected a symlink"))?;
+			let target = 'a: {
+				let edge = input.edges.first().unwrap();
+				// If the target is a root, then write ../../../../<target_id>
+				if let Some(dependency) = edge.node() {
+					if dependency.read().await.root.is_none() && edge.reference.as_str() != "." {
+						let id = output
+							.read()
+							.unwrap()
+							.edges
+							.first()
+							.unwrap()
+							.node()
+							.read()
+							.unwrap()
+							.id
+							.clone();
+						let target = input
+							.root
+							.as_ref()
+							.and_then(|root| input.arg.path.diff(root))
+							.map(|diff| {
+								let mut buf = PathBuf::new();
+								for component in diff.components() {
+									if matches!(
+										component,
+										std::path::Component::ParentDir
+											| std::path::Component::CurDir
+									) {
+										buf.push(std::path::Component::ParentDir);
+										continue;
+									}
+									break;
+								}
+								buf.push(id.to_string());
+								buf
+							})
+							.unwrap_or_else(|| PathBuf::from("../").join(id.to_string()));
+						break 'a target;
+					}
+				}
+
+				// Otherwise use the reference.
+				edge.reference.path().unwrap_path_ref().clone()
+			};
+
 			tokio::fs::symlink(&target, &dest)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create symlink"))?;
@@ -970,6 +1012,10 @@ impl Server {
 			.collect::<Vec<_>>()
 			.await;
 		for (subpath, output_) in dependencies {
+			let input = output_.read().unwrap().input.clone();
+			if input.read().await.root.is_none() {
+				continue;
+			}
 			let dest_ = if matches!(
 				&data,
 				tg::artifact::Data::File(_) | tg::artifact::Data::Symlink(_)
@@ -978,7 +1024,10 @@ impl Server {
 			} else {
 				dest.join(subpath.clone())
 			};
-			Box::pin(self.update_xattrs_and_permissions_inner(dest_, &output_, visited)).await?;
+			let dest = tokio::fs::canonicalize(&dest_).await.map_err(
+				|source| tg::error!(!source, %path = dest_.display(), "failed to canonicalize the path"),
+			)?;
+			Box::pin(self.update_xattrs_and_permissions_inner(dest, &output_, visited)).await?;
 		}
 
 		Ok(())

@@ -176,7 +176,7 @@ impl Server {
 						}
 
 						let parent_dir = parent_dir.read().await.parent.clone().ok_or_else(
-							|| tg::error!(%path = path.display(), "expected a parent node"),
+							|| tg::error!(%path = path.display(), "cannot checkin relative path that points outside of a root directory"),
 						)?;
 
 						parent_dir.upgrade().unwrap()
@@ -185,7 +185,7 @@ impl Server {
 					// If this is the last component, do nothing.
 					std::path::Component::Normal(name) if is_end => {
 						if name.to_str().is_none() {
-							return Err(tg::error!("non utf-8 path"));
+							return Err(tg::error!("invalid file name"));
 						}
 						break;
 					},
@@ -195,7 +195,7 @@ impl Server {
 						created = true;
 						let name = name
 							.to_str()
-							.ok_or_else(|| tg::error!("invalid directory entry name"))?
+							.ok_or_else(|| tg::error!("invalid file name"))?
 							.to_owned();
 						let parent = self
 							.get_or_create_intermediate_input_node(
@@ -364,7 +364,7 @@ impl Server {
 					.write()
 					.await
 					.ignore
-					.should_ignore(&path.join(&name), &file_type)
+					.should_ignore(&path.join(&name), file_type)
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to check if the path should be ignored")
@@ -662,22 +662,32 @@ impl Server {
 			return Ok(Vec::new());
 		}
 
-		let Some(referrer) = referrer.read().await.parent.clone() else {
-			return Ok(Vec::new());
-		};
+		let parent = referrer.read().await.parent.clone().map(Either::Right);
 
-		// If the target is ".", short circuit to the referrer.
-		let child = if target == PathBuf::from(".") {
-			Either::Right(referrer)
-		} else {
+		// Get the absolute path of the target.
+		let target_absolute_path = path.parent().unwrap().join(&target);
+		let target_absolute_path = tokio::fs::canonicalize(path.join(&target_absolute_path))
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = target_absolute_path.display(), "failed to resolve symlink"),
+			)?;
+
+		let child = if state
+			.read()
+			.await
+			.find_root(&target_absolute_path)
+			.is_none()
+		{
 			Box::pin(self.collect_input_inner(
-				Some(Either::Right(referrer)),
-				&target,
+				Some(Either::Left(referrer)),
+				&target_absolute_path,
 				arg,
 				state,
 				progress,
 			))
 			.await?
+		} else {
+			Box::pin(self.collect_input_inner(parent, &target, arg, state, progress)).await?
 		};
 
 		Ok(vec![Edge {
@@ -703,16 +713,7 @@ impl Server {
 		}
 
 		// Get the root.
-		let root = state.roots.iter().find_map(|(root, node)| {
-			let diff = path.diff(root);
-			diff.map_or(false, |diff| {
-				matches!(
-					diff.components().next(),
-					Some(std::path::Component::CurDir | std::path::Component::Normal(_))
-				)
-			})
-			.then_some((root.clone(), node.clone()))
-		});
+		let root = state.find_root(path);
 
 		// This should never happen, but if it does it means the code is incorrect higher up.
 		if let Some((root_path, _node)) = &root {
@@ -1070,4 +1071,14 @@ async fn add_edge(node: Arc<RwLock<Graph>>, edge: Edge) {
 		}
 	}
 	node.edges.push(edge);
+}
+
+impl State {
+	fn find_root(&self, path: &Path) -> Option<(PathBuf, Arc<RwLock<Graph>>)> {
+		self.roots.iter().find_map(|(root, node)| {
+			let diff = path.diff(root);
+			diff.map_or(false, |root| root.is_internal())
+				.then(|| (root.clone(), node.clone()))
+		})
+	}
 }
