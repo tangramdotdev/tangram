@@ -57,7 +57,7 @@ impl Ignore {
 	pub async fn should_ignore(
 		&self,
 		path: &Path,
-		file_type: &std::fs::FileType,
+		file_type: std::fs::FileType,
 	) -> Result<bool, Error> {
 		let mut components = path.strip_prefix("/")?.components().peekable();
 
@@ -185,7 +185,7 @@ impl Node {
 }
 
 impl PatternSet {
-	fn should_ignore(&self, root: &Path, path: &Path, file_type: &std::fs::FileType) -> bool {
+	fn should_ignore(&self, root: &Path, path: &Path, file_type: std::fs::FileType) -> bool {
 		let allow = self
 			.allow
 			.iter()
@@ -199,7 +199,7 @@ impl PatternSet {
 }
 
 impl Pattern {
-	fn matches(&self, root: &Path, path: &Path, file_type: &std::fs::FileType) -> bool {
+	fn matches(&self, root: &Path, path: &Path, file_type: std::fs::FileType) -> bool {
 		let path = path.strip_prefix(root).unwrap_or(path);
 		if self.only_directories && !file_type.is_dir() {
 			return false;
@@ -303,11 +303,11 @@ mod tests {
 		let root = "/home/user";
 		let path = "/home/user/thing";
 		let pattern: Pattern = "thing".parse().unwrap();
-		assert!(pattern.matches(root.as_ref(), path.as_ref(), &file_type));
+		assert!(pattern.matches(root.as_ref(), path.as_ref(), file_type));
 
 		let root = "/home/user";
 		let path = "/home/user/thing";
 		let pattern: Pattern = "/thing".parse().unwrap();
-		assert!(pattern.matches(root.as_ref(), path.as_ref(), &file_type));
+		assert!(pattern.matches(root.as_ref(), path.as_ref(), file_type));
 	}
 }
