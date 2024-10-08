@@ -23,10 +23,9 @@ console-subscriber = { workspace = true }
 copypasta = { workspace = true }
 crossterm = { workspace = true }
 deno_core_icudata = { workspace = true }
-dialoguer = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
-indicatif = { workspace = true }
+indexmap = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }

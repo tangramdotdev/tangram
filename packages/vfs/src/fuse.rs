@@ -19,7 +19,7 @@ use std::{
 	sync::{Arc, Mutex},
 };
 use tangram_futures::task::{Stop, Task};
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{FromBytes as _, IntoBytes as _};
 
 pub mod sys;
 
@@ -240,8 +240,8 @@ where
 	}
 
 	fn deserialize_request(buffer: &[u8]) -> Result<Request> {
-		let header = sys::fuse_in_header::read_from_prefix(buffer)
-			.ok_or_else(|| Error::other("failed to deserialize the request header"))?;
+		let (header, _) = sys::fuse_in_header::read_from_prefix(buffer)
+			.map_err(|_| Error::other("failed to deserialize the request header"))?;
 		let header_len = std::mem::size_of::<sys::fuse_in_header>();
 		let data = &buffer[header_len..];
 		let data = match header.opcode {
@@ -761,7 +761,9 @@ fn read_data<T>(request_data: &[u8]) -> Result<T>
 where
 	T: zerocopy::FromBytes,
 {
-	T::read_from_prefix(request_data).ok_or(Error::other("failed to deserialize the request data"))
+	T::read_from_prefix(request_data)
+		.map(|(data, _)| data)
+		.map_err(|_| Error::other("failed to deserialize the request data"))
 }
 
 fn write_error(fd: RawFd, unique: u64, error: i32) -> std::io::Result<()> {

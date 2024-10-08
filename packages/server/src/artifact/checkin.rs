@@ -1,10 +1,12 @@
-use crate::{util, Server};
-use futures::{future::BoxFuture, Stream};
+use crate::Server;
+use futures::{future::BoxFuture, Stream, StreamExt as _};
 use std::{
 	path::PathBuf,
+	pin::pin,
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
+use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tg::path::Ext as _;
 
@@ -14,34 +16,26 @@ mod lockfile;
 mod output;
 mod unify;
 
-struct ProgressState {
-	state: Option<tg::progress::State>,
-}
-
 impl Server {
 	pub async fn check_in_artifact(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>>> {
-		let bars = [
-			("collecting input files", None),
-			("creating blobs", None),
-			("resolving dependencies", None),
-			("writing output", Some(0)),
-		];
-
-		let stream = tg::progress::stream(
-			{
-				let server = self.clone();
-				|state| async move {
-					server
-						.clone()
-						.check_in_artifact_task(arg, ProgressState::new(Some(state)))
-						.await
-				}
-			},
-			bars,
-		);
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>,
+	> {
+		let progress = crate::progress::Handle::new();
+		tokio::spawn({
+			let server = self.clone();
+			let progress = progress.clone();
+			async move {
+				let result = server.check_in_artifact_task(arg, Some(&progress)).await;
+				match result {
+					Ok(output) => progress.output(output),
+					Err(error) => progress.error(error),
+				};
+			}
+		});
+		let stream = progress.stream();
 		Ok(stream)
 	}
 
@@ -49,8 +43,8 @@ impl Server {
 	async fn check_in_artifact_task(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-		progress: ProgressState,
-	) -> tg::Result<tg::artifact::Id> {
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+	) -> tg::Result<tg::artifact::checkin::Output> {
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		if let Some(path) = arg
 			.path
@@ -69,7 +63,8 @@ impl Server {
 				.ok_or_else(|| tg::error!("cannot check in the checkouts directory"))??
 				.parse()?;
 			if components.len() < 2 {
-				return Ok(id);
+				let output = tg::artifact::checkin::Output { artifact: id };
+				return Ok(output);
 			}
 			let mut path = PathBuf::new();
 			for component in &components[2..] {
@@ -82,11 +77,12 @@ impl Server {
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let artifact = directory.get(self, path).await?;
 			let id = artifact.id(self).await?;
-			return Ok(id);
+			let output = tg::artifact::checkin::Output { artifact: id };
+			return Ok(output);
 		}
 
 		// Check in the artifact.
-		self.check_in_or_store_artifact_inner(arg.clone(), None, &progress)
+		self.check_in_or_store_artifact_inner(arg.clone(), None, progress)
 			.await
 	}
 
@@ -95,8 +91,8 @@ impl Server {
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
 		store_as: Option<&tg::artifact::Id>,
-		progress: &ProgressState,
-	) -> tg::Result<tg::artifact::Id> {
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Verify the path is absolute.
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(%path = arg.path.display(), "expected an absolute path"));
@@ -108,45 +104,38 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to canonicalize path"))?;
 
 		// Collect the input.
-		progress.begin_input().await;
 		let input = self
 			.create_input_graph(arg.clone(), progress)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect check-in input"),
+				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect the input"),
 			)?;
 		self.select_lockfiles(input.clone()).await?;
-		progress.finish_input().await;
 
 		// Construct the graph for unification.
 		let (mut unification_graph, root) = self
 			.create_unification_graph(input.clone())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to construct object graph"))?;
+			.map_err(|source| tg::error!(!source, "failed to construct the object graph"))?;
 
 		// Unify.
 		if !arg.deterministic {
-			progress.begin_dependencies().await;
 			unification_graph = self
-				.unify_dependencies(unification_graph, &root, progress)
+				.unify_dependencies(unification_graph, &root)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to unify object graph"))?;
-			progress.finish_dependencies().await;
+				.map_err(|source| tg::error!(!source, "failed to unify the object graph"))?;
 		}
 
 		// Validate.
 		unification_graph.validate().await?;
 
 		// Create the lock that is written to disk.
-		progress.begin_blobs().await;
 		let (lockfile, paths) = self
 			.create_lockfile(&unification_graph, &root, progress)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create lockfile"))?;
-		progress.finish_blobs().await;
+			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
 
 		// Get the output.
-		progress.begin_output().await;
 		let output = self
 			.collect_output(input.clone(), lockfile.clone(), paths.clone(), progress)
 			.await?;
@@ -160,7 +149,7 @@ impl Server {
 		if let Some(store_as) = store_as {
 			// Store if requested.
 			if store_as != &artifact {
-				return Err(tg::error!("checkouts directory is corrupted"));
+				return Err(tg::error!("the checkouts directory is corrupted"));
 			}
 			self.write_output_to_database(output.clone(), &lockfile)
 				.await?;
@@ -173,9 +162,11 @@ impl Server {
 			self.write_lockfiles(input.clone(), &lockfile, &paths)
 				.await?;
 		}
-		progress.finish_output().await;
 
-		Ok(artifact)
+		// Create the output.
+		let output = tg::artifact::checkin::Output { artifact };
+
+		Ok(output)
 	}
 
 	#[allow(clippy::only_used_in_recursion, clippy::needless_pass_by_value)]
@@ -251,20 +242,19 @@ impl Server {
 				let data = self
 					.create_file_data(path.as_ref())
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to create file data"))?;
+					.map_err(|source| tg::error!(!source, %id, "failed to create the file data"))?;
 				self.write_data_to_database(data.into()).await.map_err(
-					|source| tg::error!(!source, %id, "failed to write file to database"),
+					|source| tg::error!(!source, %id, "failed to write the file to the database"),
 				)?;
 			},
 
 			tg::artifact::Id::Symlink(_) => {
 				// If we're storing a symlink, we can read its data directly.
-				let data = self
-					.create_symlink_data(path.as_ref())
-					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to create symlink data"))?;
+				let data = self.create_symlink_data(path.as_ref()).await.map_err(
+					|source| tg::error!(!source, %id, "failed to create the symlink data"),
+				)?;
 				self.write_data_to_database(data.into()).await.map_err(
-					|source| tg::error!(!source, %id, "failed to write symlink to database"),
+					|source| tg::error!(!source, %id, "failed to write the symlink to the database"),
 				)?;
 			},
 
@@ -277,11 +267,9 @@ impl Server {
 					locked: true,
 					path,
 				};
-				let progress = ProgressState::new(None);
-				let _artifact = self
-					.check_in_or_store_artifact_inner(arg.clone(), Some(id), &progress)
+				self.check_in_or_store_artifact_inner(arg.clone(), Some(id), None)
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to store directory"))?;
+					.map_err(|source| tg::error!(!source, %id, "failed to store the directory"))?;
 			},
 		}
 
@@ -297,107 +285,51 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()?;
+
+		// Get the arg.
 		let arg = request.json().await?;
+
+		// Get the stream.
 		let stream = handle.check_in_artifact(arg).await?;
-		Ok(util::progress::sse(stream))
-	}
-}
 
-impl ProgressState {
-	fn new(state: Option<tg::progress::State>) -> Self {
-		Self { state }
-	}
-}
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None => {
+				pin!(stream)
+					.try_last()
+					.await?
+					.and_then(|event| event.try_unwrap_output().ok())
+					.ok_or_else(|| tg::error!("stream ended without output"))?;
+				(None, Outgoing::empty())
+			},
 
-impl ProgressState {
-	async fn begin_input(&self) {
-		let Some(state) = &self.state else {
-			return;
+			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+				let content_type = mime::TEXT_EVENT_STREAM;
+				let stream = stream.map(|result| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
+				});
+				(Some(content_type), Outgoing::sse(stream))
+			},
+
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
 		};
-		state.begin("collecting input files").await;
-	}
 
-	async fn finish_input(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.finish("collecting input files").await;
-	}
+		// Create the response.
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
 
-	fn report_input_progress(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.report_progress("collecting input files", 1).ok();
-	}
-
-	async fn begin_dependencies(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.begin("resolving dependencies").await;
-	}
-
-	async fn finish_dependencies(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.finish("resolving dependencies").await;
-	}
-
-	fn report_dependencies_progress(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.report_progress("resolving dependencies", 1).ok();
-	}
-
-	async fn begin_blobs(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.begin("creating blobs").await;
-	}
-
-	async fn finish_blobs(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.finish("creating blobs").await;
-	}
-
-	fn report_blobs_progress(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.report_progress("creating blobs", 1).ok();
-	}
-
-	async fn begin_output(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.begin("writing output").await;
-	}
-
-	async fn finish_output(&self) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.finish("writing output").await;
-	}
-
-	fn update_output_total(&self, count: u64) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.update_total("writing output", count).ok();
-	}
-
-	fn report_output_progress(&self, count: u64) {
-		let Some(state) = &self.state else {
-			return;
-		};
-		state.report_progress("writing output", count).ok();
+		Ok(response)
 	}
 }

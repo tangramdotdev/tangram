@@ -1,12 +1,14 @@
 use crate::Server;
-use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt as _};
+use futures::{
+	future, stream, Future, FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
+};
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_build_outcome_future(
@@ -138,21 +140,13 @@ impl Server {
 		// Parse the ID.
 		let id = id.parse()?;
 
-		// Get the future.
+		// Get the accept header.
+		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
+
+		// Get the stream.
 		let Some(future) = handle.try_get_build_outcome(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-
-		// Stop the future when the server stops.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let future = future.boxed();
-		let stop = async move { stop.stopped().await }.boxed();
-		let future = future::select(future, stop).map(|result| match result {
-			future::Either::Left((result, _)) => result,
-			future::Either::Right(((), _)) => Ok(None),
-		});
-
-		// Create the body.
 		let future = future.and_then({
 			let handle = handle.clone();
 			move |option| async move {
@@ -163,11 +157,38 @@ impl Server {
 				}
 			}
 		});
+		let stream = stream::once(future).filter_map(|option| future::ready(option.transpose()));
+
+		// Stop the stream when the server stops.
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stop = async move { stop.stopped().await };
+		let stream = stream.take_until(stop);
+
+		// Create the body.
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+				let content_type = mime::TEXT_EVENT_STREAM;
+				let stream = stream.map(|result| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
+				});
+				(Some(content_type), Outgoing::sse(stream))
+			},
+
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		};
 
 		// Create the response.
-		let response = http::Response::builder()
-			.future_optional_json(future)
-			.unwrap();
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
 
 		Ok(response)
 	}

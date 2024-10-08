@@ -87,13 +87,14 @@ impl Server {
 		#[derive(serde::Deserialize)]
 		struct Row {
 			bytes: Option<Bytes>,
+			complete: bool,
 			count: Option<u64>,
 			weight: Option<u64>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select bytes, count, weight
+				select bytes, complete, count, weight
 				from objects
 				where id = {p}1;
 			",
@@ -117,6 +118,7 @@ impl Server {
 		let output = tg::object::get::Output {
 			bytes,
 			metadata: tg::object::Metadata {
+				complete: row.complete,
 				count: row.count,
 				weight: row.weight,
 			},

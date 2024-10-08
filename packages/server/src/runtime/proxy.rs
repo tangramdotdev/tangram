@@ -86,8 +86,11 @@ impl tg::Handle for Proxy {
 	async fn check_in_artifact(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static>
-	{
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
+			+ Send
+			+ 'static,
+	> {
 		// Replace the path with the host path.
 		arg.path = self.host_path_for_guest_path(arg.path.clone())?;
 
@@ -101,7 +104,11 @@ impl tg::Handle for Proxy {
 		&self,
 		id: &tg::artifact::Id,
 		mut arg: tg::artifact::checkout::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<PathBuf>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
+			+ Send
+			+ 'static,
+	> {
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path.clone())?;
@@ -115,8 +122,8 @@ impl tg::Handle for Proxy {
 		let stream = stream.and_then(move |mut event| {
 			let proxy = proxy.clone();
 			async move {
-				if let tg::Progress::End(path) = &mut event {
-					*path = proxy.guest_path_for_host_path(path.clone())?;
+				if let tg::progress::Event::Output(output) = &mut event {
+					output.path = proxy.guest_path_for_host_path(output.path.clone())?;
 					return Ok(event);
 				}
 				Ok(event)
@@ -164,7 +171,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -172,7 +179,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -307,7 +314,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::object::Id,
 		_arg: tg::object::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -315,7 +322,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::object::Id,
 		_arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 

@@ -267,7 +267,6 @@ impl Server {
 		&self,
 		mut graph: Graph,
 		root: &Id,
-		progress: &super::ProgressState,
 	) -> tg::Result<Graph> {
 		// Get the overrides.
 		let mut overrides: BTreeMap<Id, BTreeMap<String, tg::Reference>> = BTreeMap::new();
@@ -324,7 +323,7 @@ impl Server {
 
 		// Walk the graph until we have no more edges to solve.
 		loop {
-			self.walk_edge(&mut checkpoints, &mut current, &overrides, progress)
+			self.walk_edge(&mut checkpoints, &mut current, &overrides)
 				.await;
 
 			let Some(next) = current.queue.pop_front() else {
@@ -343,7 +342,6 @@ impl Server {
 		state: &mut Vec<State>,
 		current: &mut State,
 		overrides: &BTreeMap<Id, BTreeMap<String, tg::Reference>>,
-		progress: &super::ProgressState,
 	) {
 		// Check if this edge has already been visited.
 		if current.visited.contains(&current.edge) {
@@ -398,9 +396,6 @@ impl Server {
 				tg::error!("could not solve {reference} because the dependency contains errors");
 			current.graph.add_error(&current.edge.src, error);
 		}
-
-		// Send a progress report.
-		progress.report_dependencies_progress();
 
 		// If there is no tag it is not a tag dependency, so return.
 		if current.edge.dst.is_right() {

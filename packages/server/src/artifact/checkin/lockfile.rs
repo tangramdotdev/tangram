@@ -20,7 +20,7 @@ impl Server {
 		&self,
 		graph: &unify::Graph,
 		root: &Id,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<(tg::Lockfile, BTreeMap<PathBuf, usize>)> {
 		let mut paths = BTreeMap::new();
 
@@ -158,7 +158,7 @@ impl Server {
 		&self,
 		input: input::Graph,
 		dependencies: BTreeMap<tg::Reference, tg::lockfile::Dependency>,
-		progress: &super::ProgressState,
+		_progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<tg::lockfile::Node> {
 		let input::Graph { arg, metadata, .. } = input;
 
@@ -180,9 +180,6 @@ impl Server {
 
 		let contents = Some(output.blob);
 		let executable = metadata.permissions().mode() & 0o111 != 0;
-
-		// Update state.
-		progress.report_blobs_progress();
 
 		// Create the data.
 		Ok(tg::lockfile::Node::File {

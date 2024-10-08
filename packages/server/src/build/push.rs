@@ -1,6 +1,8 @@
-use crate::{util, Server};
+use crate::Server;
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt};
+use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
+use tangram_futures::stream::{StreamExt as _, TryStreamExt as _};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 struct InnerOutput {
@@ -20,7 +22,7 @@ impl Server {
 		&self,
 		build: &tg::build::Id,
 		arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let remote = self
 			.remotes
 			.get(&arg.remote)
@@ -34,36 +36,46 @@ impl Server {
 		dst: &impl tg::Handle,
 		build: &tg::build::Id,
 		arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
-		// Get the build.
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let output = src.get_build(build).await?;
-
-		// Get the metadata.
 		let metadata = Self::get_build_metadata(src, &output, &arg).await?;
-
-		let bars = [
-			("builds", metadata.build_count),
-			("objects", metadata.object_count),
-			("bytes", metadata.object_weight),
-		];
-
-		// Spawn the task.
-		let stream = tg::progress::stream(
-			{
-				let src = src.clone();
-				let dst = dst.clone();
-				let build = build.clone();
-				|state| async move {
-					state.begin("builds").await;
-					state.begin("objects").await;
-					state.begin("bytes").await;
-					Self::push_or_pull_build_inner(&src, &dst, &build, arg, &state).await?;
-					Ok(())
-				}
-			},
-			bars,
-		);
-
+		let progress = crate::progress::Handle::new();
+		tokio::spawn({
+			let src = src.clone();
+			let dst = dst.clone();
+			let build = build.clone();
+			let progress = progress.clone();
+			async move {
+				progress.start(
+					"builds".to_owned(),
+					"builds".to_owned(),
+					Some(0),
+					metadata.build_count.map(Into::into),
+				);
+				progress.start(
+					"objects".to_owned(),
+					"objects".to_owned(),
+					Some(0),
+					metadata.object_count.map(Into::into),
+				);
+				progress.start(
+					"bytes".to_owned(),
+					"bytes".to_owned(),
+					Some(0),
+					metadata.object_weight.map(Into::into),
+				);
+				let result =
+					Self::push_or_pull_build_inner(&src, &dst, &build, arg, &progress).await;
+				progress.finish("builds");
+				progress.finish("objects");
+				progress.finish("bytes");
+				match result {
+					Ok(_) => progress.output(()),
+					Err(error) => progress.error(error),
+				};
+			}
+		});
+		let stream = progress.stream();
 		Ok(stream)
 	}
 
@@ -72,7 +84,7 @@ impl Server {
 		dst: &impl tg::Handle,
 		build: &tg::build::Id,
 		arg: tg::build::push::Arg,
-		state: &tg::progress::State,
+		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<InnerOutput> {
 		// Get the build.
 		let output = src
@@ -114,8 +126,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 
-		// Update the state.
-		state.report_progress("builds", 1).ok();
+		// Update the progress.
+		progress.increment("builds", 1);
 
 		// Handle the incomplete objects.
 		let mut incomplete_objects: Vec<tg::object::Id> = Vec::new();
@@ -133,24 +145,9 @@ impl Server {
 		let incomplete_object_count_and_weight = incomplete_objects
 			.iter()
 			.map(|object| async {
-				let mut stream = Self::push_or_pull_object(src, dst, object).await?.boxed();
-				let mut count = 0;
-				let mut weight = 0;
-				while let Some(event) = stream.try_next().await? {
-					match event {
-						tg::Progress::Report(report) => {
-							if let Some(count_) = report.get("objects") {
-								count += count_.current;
-							}
-							if let Some(weight_) = report.get("bytes") {
-								weight += weight_.current;
-							}
-						},
-						tg::Progress::End(()) => break,
-						_ => (),
-					}
-				}
-				Ok::<_, tg::Error>((count, weight))
+				let stream = Self::push_or_pull_object(src, dst, object).await?.boxed();
+				stream.last().await;
+				Ok::<_, tg::Error>((0, 0))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
@@ -173,7 +170,7 @@ impl Server {
 			let outputs = incomplete
 				.children
 				.keys()
-				.map(|child| Self::push_or_pull_build_inner(src, dst, child, arg.clone(), state))
+				.map(|child| Self::push_or_pull_build_inner(src, dst, child, arg.clone(), progress))
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?;
@@ -197,30 +194,26 @@ impl Server {
 			}
 		};
 
-		// Update the build count.
+		// Update the progress.
 		let build_count = metadata.build_count.map_or_else(
 			|| 1 + incomplete_children_build_count,
 			|build_count| build_count - 1 - incomplete_children_build_count,
 		);
-		state.report_progress("builds", build_count).ok();
-
-		// Update the object count.
+		progress.increment("builds", build_count);
 		let object_count = metadata.object_count.map_or_else(
 			|| incomplete_object_count + incomplete_children_object_count,
 			|object_count| {
 				object_count - incomplete_object_count - incomplete_children_object_count
 			},
 		);
-		state.report_progress("objects", object_count).ok();
-
-		// Update the object count.
+		progress.increment("objects", object_count);
 		let object_weight = metadata.object_weight.map_or_else(
 			|| incomplete_object_weight + incomplete_children_object_weight,
 			|object_weight| {
 				object_weight - incomplete_object_weight - incomplete_children_object_weight
 			},
 		);
-		state.report_progress("bytes", object_weight).ok();
+		progress.increment("bytes", object_weight);
 
 		Ok(InnerOutput {
 			build_count,
@@ -353,9 +346,54 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
+		// Parse the ID.
 		let id = id.parse()?;
+
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()?;
+
+		// Get the arg.
 		let arg = request.json().await?;
+
+		// Get the stream.
 		let stream = handle.push_build(&id, arg).await?;
-		Ok(util::progress::sse(stream))
+
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None => {
+				pin!(stream)
+					.try_last()
+					.await?
+					.and_then(|event| event.try_unwrap_output().ok())
+					.ok_or_else(|| tg::error!("stream ended without output"))?;
+				(None, Outgoing::empty())
+			},
+
+			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+				let content_type = mime::TEXT_EVENT_STREAM;
+				let stream = stream.map(|result| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
+				});
+				(Some(content_type), Outgoing::sse(stream))
+			},
+
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		};
+
+		// Create the response.
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
+
+		Ok(response)
 	}
 }

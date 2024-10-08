@@ -36,7 +36,6 @@ pub use self::{
 	mutation::Mutation,
 	object::Handle as Object,
 	position::Position,
-	progress::Progress,
 	range::Range,
 	reference::Reference,
 	symlink::Symlink,
@@ -566,7 +565,9 @@ impl tg::Handle for Client {
 		arg: tg::artifact::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
+				+ Send
+				+ 'static,
 		>,
 	> {
 		self.check_in_artifact(arg)
@@ -577,7 +578,11 @@ impl tg::Handle for Client {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<PathBuf>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
+				+ Send
+				+ 'static,
+		>,
 	> {
 		self.check_out_artifact(id, arg)
 	}
@@ -621,7 +626,9 @@ impl tg::Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> {
 		self.push_build(id, arg)
 	}
@@ -631,7 +638,9 @@ impl tg::Handle for Client {
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> {
 		self.pull_build(id, arg)
 	}
@@ -764,7 +773,9 @@ impl tg::Handle for Client {
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> {
 		self.push_object(id, arg)
 	}
@@ -774,7 +785,9 @@ impl tg::Handle for Client {
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> {
 		self.pull_object(id, arg)
 	}

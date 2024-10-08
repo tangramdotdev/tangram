@@ -2,8 +2,9 @@ use crate::{
 	self as tg,
 	util::serde::{is_false, is_true, return_true},
 };
-use futures::{Stream, StreamExt as _, TryStreamExt as _};
+use futures::{future, Stream, TryStreamExt as _};
 use std::{path::PathBuf, pin::pin};
+use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -21,6 +22,11 @@ pub struct Arg {
 	pub path: Option<PathBuf>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub path: PathBuf,
+}
+
 impl tg::Artifact {
 	pub async fn check_out<H>(&self, handle: &H, arg: Arg) -> tg::Result<PathBuf>
 	where
@@ -28,13 +34,12 @@ impl tg::Artifact {
 	{
 		let id = self.id(handle).await?;
 		let stream = handle.check_out_artifact(&id, arg).await?;
-		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
-			if let tg::Progress::End(path) = event {
-				return Ok(path);
-			}
-		}
-		Err(tg::error!("checkout failed"))
+		let output = pin!(stream)
+			.try_last()
+			.await?
+			.and_then(|event| event.try_unwrap_output().ok())
+			.ok_or_else(|| tg::error!("stream ended without output"))?;
+		Ok(output.path)
 	}
 }
 
@@ -43,7 +48,9 @@ impl tg::Client {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<PathBuf>>>> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>,
+	> {
 		let method = http::Method::POST;
 		let uri = format!("/artifacts/{id}/checkout");
 		let request = http::request::Builder::default()
@@ -56,12 +63,21 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.sse().map(|result| {
-			result
-				.map_err(|source| tg::error!(!source, "failed to read an event"))?
-				.try_into()
-		});
-		Ok(output)
+		let stream = response
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			});
+		Ok(stream)
 	}
 }
 

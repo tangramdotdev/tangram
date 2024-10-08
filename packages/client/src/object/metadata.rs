@@ -3,6 +3,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Metadata {
+	pub complete: bool,
 	pub count: Option<u64>,
 	pub weight: Option<u64>,
 }

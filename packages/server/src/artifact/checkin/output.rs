@@ -1,12 +1,10 @@
-use super::{input, ProgressState};
 use crate::{tmp::Tmp, Server};
 use futures::{future, stream::FuturesUnordered, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools;
-use num::ToPrimitive;
 use std::{
 	collections::{BTreeMap, BTreeSet},
-	os::unix::fs::{MetadataExt as _, PermissionsExt as _},
+	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
 	sync::{Arc, RwLock, Weak},
 };
@@ -18,7 +16,7 @@ use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug)]
 pub struct Graph {
-	pub input: Arc<tokio::sync::RwLock<input::Graph>>,
+	pub input: Arc<tokio::sync::RwLock<super::input::Graph>>,
 	pub id: tg::artifact::Id,
 	pub data: tg::artifact::Data,
 	pub lock_index: usize,
@@ -43,10 +41,10 @@ struct State {
 impl Server {
 	pub(super) async fn collect_output(
 		&self,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
+		input: Arc<tokio::sync::RwLock<super::input::Graph>>,
 		lockfile: tg::Lockfile,
 		paths: BTreeMap<PathBuf, usize>,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Arc<RwLock<Graph>>> {
 		let artifacts = self.create_artifact_data_for_lockfile(&lockfile).await?;
 		let mut state = State {
@@ -64,9 +62,9 @@ impl Server {
 
 	async fn collect_output_inner(
 		&self,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
+		input: Arc<tokio::sync::RwLock<super::input::Graph>>,
 		state: &mut State,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Node> {
 		let path = input.read().await.arg.path.clone();
 		if let Some(node) = state.visited.get(&path) {
@@ -88,12 +86,6 @@ impl Server {
 
 		// Compute the ID.
 		let id = data.id()?;
-
-		// Update the total bytes that will be copied.
-		if input.read().await.metadata.is_file() {
-			let size = input.read().await.metadata.size().to_u64().unwrap();
-			progress.update_output_total(size);
-		}
 
 		// Create the output.
 		let output = Arc::new(RwLock::new(Graph {
@@ -732,7 +724,7 @@ impl Server {
 	pub(super) async fn copy_or_move_to_checkouts_directory(
 		&self,
 		output: Arc<RwLock<Graph>>,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<()> {
 		let mut visited = BTreeSet::new();
 		let mut stack = vec![output];
@@ -788,7 +780,7 @@ impl Server {
 		dest: PathBuf,
 		output: Arc<RwLock<Graph>>,
 		visited: &mut BTreeSet<PathBuf>,
-		progress: &ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<()> {
 		let input = output.read().unwrap().input.clone();
 		let input = input.read().await.clone();
@@ -821,8 +813,8 @@ impl Server {
 			}
 		} else if input.metadata.is_symlink() {
 			let target = 'a: {
-				let edge = input.edges.first().unwrap();
 				// If the target is a root, then write ../../../../<target_id>
+				let edge = input.edges.first().unwrap();
 				if let Some(dependency) = edge.node() {
 					if dependency.read().await.root.is_none() && edge.reference.as_str() != "." {
 						let id = output
@@ -840,23 +832,25 @@ impl Server {
 							.root
 							.as_ref()
 							.and_then(|root| input.arg.path.diff(root))
-							.map(|diff| {
-								let mut buf = PathBuf::new();
-								for component in diff.components() {
-									if matches!(
-										component,
-										std::path::Component::ParentDir
-											| std::path::Component::CurDir
-									) {
-										buf.push(std::path::Component::ParentDir);
-										continue;
+							.map_or_else(
+								|| PathBuf::from("../").join(id.to_string()),
+								|diff| {
+									let mut buf = PathBuf::new();
+									for component in diff.components() {
+										if matches!(
+											component,
+											std::path::Component::ParentDir
+												| std::path::Component::CurDir
+										) {
+											buf.push(std::path::Component::ParentDir);
+											continue;
+										}
+										break;
 									}
-									break;
-								}
-								buf.push(id.to_string());
-								buf
-							})
-							.unwrap_or_else(|| PathBuf::from("../").join(id.to_string()));
+									buf.push(id.to_string());
+									buf
+								},
+							);
 						break 'a target;
 					}
 				}
@@ -888,10 +882,6 @@ impl Server {
 			return Err(tg::error!(%path = input.arg.path.display(), "invalid file type"));
 		}
 
-		// Send a new progress report.
-		if input.metadata.is_file() {
-			progress.report_output_progress(input.metadata.size().to_u64().unwrap());
-		}
 		Ok(())
 	}
 

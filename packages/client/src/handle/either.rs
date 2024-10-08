@@ -1,6 +1,5 @@
 use crate::{self as tg, handle::Ext as _};
 use futures::{Future, FutureExt as _, Stream};
-use std::path::PathBuf;
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
@@ -14,7 +13,9 @@ where
 		arg: tg::artifact::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
+				+ Send
+				+ 'static,
 		>,
 	> {
 		match self {
@@ -34,7 +35,11 @@ where
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<PathBuf>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
+				+ Send
+				+ 'static,
+		>,
 	> {
 		match self {
 			Either::Left(s) => s
@@ -105,7 +110,9 @@ where
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> {
 		match self {
 			Either::Left(s) => s
@@ -124,7 +131,9 @@ where
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> {
 		match self {
 			Either::Left(s) => s
@@ -332,7 +341,9 @@ where
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> + Send {
 		match self {
 			Either::Left(s) => s
@@ -351,7 +362,9 @@ where
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> + Send {
 		match self {
 			Either::Left(s) => s

@@ -1,4 +1,4 @@
-use crate::{sse, Error};
+use crate::Error;
 use bytes::Bytes;
 use futures::{
 	future, stream, Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
@@ -117,13 +117,12 @@ impl Outgoing {
 		}))
 	}
 
-	pub fn sse<S, T, E>(value: S) -> Self
+	pub fn sse<S, E>(value: S) -> Self
 	where
-		S: Stream<Item = Result<T, E>> + Send + 'static,
-		T: Into<sse::Event> + 'static,
+		S: Stream<Item = Result<crate::sse::Event, E>> + Send + 'static,
 		E: Into<Error> + 'static,
 	{
-		Self::stream(value.map_ok(|event| event.into().to_string()))
+		Self::stream(value.map_ok(|event| event.to_string()))
 	}
 }
 

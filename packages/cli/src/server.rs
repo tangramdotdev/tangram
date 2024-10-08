@@ -3,6 +3,7 @@ use tangram_client as tg;
 
 pub mod clean;
 pub mod health;
+pub mod restart;
 pub mod run;
 pub mod start;
 pub mod status;
@@ -20,6 +21,7 @@ pub struct Args {
 pub enum Command {
 	Clean(self::clean::Args),
 	Health(self::health::Args),
+	Restart(self::restart::Args),
 	Run(self::run::Args),
 	Start(self::start::Args),
 	Status(self::status::Args),
@@ -34,6 +36,9 @@ impl Cli {
 			},
 			Command::Health(args) => {
 				self.command_server_health(args).await?;
+			},
+			Command::Restart(args) => {
+				self.command_server_restart(args).await?;
 			},
 			Command::Run(args) => {
 				self.command_server_run(args).await?;

@@ -1,3 +1,9 @@
+<p align="center">
+	<img width="200px" src="tangram.svg" title="Tangram">
+</p>
+
+# Tangram
+
 Tangram is a build system and package manager.
 
 - **TypeScript** makes writing builds easy with autocomplete and type checking.

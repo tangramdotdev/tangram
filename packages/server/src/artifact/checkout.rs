@@ -1,29 +1,26 @@
-use crate::{
-	tmp::Tmp,
-	util::{self, fs::remove},
-	Server,
-};
+use crate::{tmp::Tmp, Server};
 use dashmap::DashMap;
-use futures::{stream::FuturesUnordered, Stream, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use std::{
 	collections::BTreeSet,
 	ffi::OsStr,
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
+	pin::pin,
 	sync::Arc,
 };
-use tangram_client::{self as tg, handle::Ext as _};
-use tangram_futures::task::Task;
+use tangram_client as tg;
+use tangram_futures::{stream::TryStreamExt as _, task::Task};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 struct InnerArg<'a> {
-	path: &'a PathBuf,
-	artifact: &'a tg::Artifact,
-	existing_artifact: Option<&'a tg::Artifact>,
 	arg: &'a tg::artifact::checkout::Arg,
+	artifact: &'a tg::Artifact,
 	depth: usize,
+	existing_artifact: Option<&'a tg::Artifact>,
 	files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
-	state: &'a tg::progress::State,
+	path: &'a PathBuf,
+	progress: &'a crate::progress::Handle<tg::artifact::checkout::Output>,
 }
 
 impl Server {
@@ -31,26 +28,23 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<PathBuf>>>> {
-		// Get the metadata.
-		let metadata = self.get_object_metadata(&id.clone().into()).await?;
-
-		// Create the stream.
-		let bars = [("objects", metadata.count), ("bytes", metadata.weight)];
-		let stream = tg::progress::stream(
-			{
-				let server = self.clone();
-				let id = id.clone();
-
-				|state| async move {
-					state.begin("objects").await;
-					state.begin("bytes").await;
-					server.check_out_artifact_task(&id, arg, state).await
-				}
-			},
-			bars,
-		);
-
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>,
+	> {
+		let progress = crate::progress::Handle::new();
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			let progress = progress.clone();
+			async move {
+				let result = server.check_out_artifact_task(&id, arg, &progress).await;
+				match result {
+					Ok(output) => progress.output(output),
+					Err(error) => progress.error(error),
+				};
+			}
+		});
+		let stream = progress.stream();
 		Ok(stream)
 	}
 
@@ -58,18 +52,18 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
-		state: tg::progress::State,
-	) -> tg::Result<PathBuf> {
+		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
+	) -> tg::Result<tg::artifact::checkout::Output> {
 		// Get or spawn the task.
 		let spawn = |_| {
 			let server = self.clone();
 			let id = id.clone();
 			let arg = arg.clone();
 			let files = Arc::new(DashMap::default());
-			let state = state.clone();
+			let progress = progress.clone();
 			async move {
 				server
-					.check_out_artifact_with_files(&id, &arg, files, &state)
+					.check_out_artifact_with_files(&id, &arg, files, &progress)
 					.await
 			}
 		};
@@ -81,12 +75,12 @@ impl Server {
 		};
 
 		// Wait for the task.
-		let path = task
+		let output = task
 			.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "the task failed"))??;
 
-		Ok(path)
+		Ok(output)
 	}
 
 	async fn check_out_artifact_with_files(
@@ -94,8 +88,8 @@ impl Server {
 		id: &tg::artifact::Id,
 		arg: &tg::artifact::checkout::Arg,
 		files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
-		state: &tg::progress::State,
-	) -> tg::Result<PathBuf> {
+		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
+	) -> tg::Result<tg::artifact::checkout::Output> {
 		let artifact = tg::Artifact::with_id(id.clone());
 
 		// Bundle the artifact if requested.
@@ -149,15 +143,18 @@ impl Server {
 				depth: 0,
 				arg,
 				files,
-				state,
+				progress,
 			};
 			self.check_out_inner(arg).await?;
 
-			Ok(path)
+			// Create the output.
+			let output = tg::artifact::checkout::Output { path };
+
+			Ok(output)
 		} else {
 			// Get the path in the checkouts directory.
 			let id = artifact.id(self).await?;
-			let path: PathBuf = self.checkouts_path().join(id.to_string());
+			let path = self.checkouts_path().join(id.to_string());
 			let artifact_path = self.artifacts_path().join(id.to_string());
 
 			// If there is already a file system object at the path, then return.
@@ -165,12 +162,18 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to stat the path"))?
 			{
-				return Ok(artifact_path);
+				let output = tg::artifact::checkout::Output {
+					path: artifact_path,
+				};
+				return Ok(output);
 			}
 
 			// If the VFS is enabled and `force` is `false`, then return.
 			if self.options.vfs.is_some() && !arg.force {
-				return Ok(artifact_path);
+				let output = tg::artifact::checkout::Output {
+					path: artifact_path,
+				};
+				return Ok(output);
 			}
 
 			// Create a tmp.
@@ -185,7 +188,7 @@ impl Server {
 				depth: 0,
 				arg,
 				files,
-				state,
+				progress,
 			};
 			self.check_out_inner(arg).await?;
 
@@ -196,7 +199,7 @@ impl Server {
 				Err(ref error)
 					if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
 				{
-					remove(&tmp).await.ok();
+					crate::util::fs::remove(&tmp).await.ok();
 				},
 
 				// Otherwise, return the error.
@@ -207,19 +210,24 @@ impl Server {
 				},
 			};
 
-			Ok(artifact_path)
+			// Create the output.
+			let output = tg::artifact::checkout::Output {
+				path: artifact_path,
+			};
+
+			Ok(output)
 		}
 	}
 
 	async fn check_out_inner(&self, arg: InnerArg<'_>) -> tg::Result<()> {
 		let InnerArg {
-			path,
-			artifact,
-			existing_artifact,
 			arg,
+			artifact,
 			depth,
+			existing_artifact,
 			files,
-			state,
+			path,
+			progress,
 		} = arg;
 
 		// If the artifact is the same as the existing artifact, then return.
@@ -228,13 +236,6 @@ impl Server {
 			None => (),
 			Some(existing_artifact) => {
 				if id == existing_artifact.id(self).await? {
-					let metadata = self.get_object_metadata(&id.clone().into()).await?;
-					if let Some(count) = metadata.count {
-						state.report_progress("objects", count).ok();
-					}
-					if let Some(weight) = metadata.weight {
-						state.report_progress("bytes", weight).ok();
-					}
 					return Ok(());
 				}
 			},
@@ -242,13 +243,13 @@ impl Server {
 
 		// Call the appropriate function for the artifact's type.
 		let arg_ = InnerArg {
-			path,
-			artifact,
-			existing_artifact,
 			arg,
+			artifact,
 			depth,
+			existing_artifact,
 			files,
-			state,
+			path,
+			progress,
 		};
 		match artifact {
 			tg::Artifact::Directory(_) => {
@@ -286,9 +287,6 @@ impl Server {
 			.unwrap()?;
 		}
 
-		// Send a new progress report.
-		state.report_progress("objects", 1).ok();
-
 		Ok(())
 	}
 
@@ -300,7 +298,7 @@ impl Server {
 			existing_artifact,
 			files,
 			path,
-			state,
+			progress,
 		} = arg;
 		let directory = artifact
 			.try_unwrap_directory_ref()
@@ -318,7 +316,7 @@ impl Server {
 					.map(|name| async move {
 						if !directory.entries(self).await?.contains_key(name) {
 							let entry_path = path.clone().join(name);
-							remove(&entry_path).await.ok();
+							crate::util::fs::remove(&entry_path).await.ok();
 						}
 						Ok::<_, tg::Error>(())
 					})
@@ -329,7 +327,7 @@ impl Server {
 
 			// If there is an existing file system object at the path and it is not a directory, then remove it, create a directory, and continue.
 			Some(_) => {
-				remove(path).await.ok();
+				crate::util::fs::remove(path).await.ok();
 				tokio::fs::create_dir_all(path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -363,13 +361,13 @@ impl Server {
 					// Recurse.
 					let entry_path = path.clone().join(name);
 					let arg = InnerArg {
-						path: &entry_path,
-						artifact,
-						existing_artifact: existing_artifact.as_ref(),
-						depth: depth + 1,
 						arg,
+						artifact,
+						depth: depth + 1,
+						existing_artifact: existing_artifact.as_ref(),
 						files,
-						state,
+						path: &entry_path,
+						progress,
 					};
 					self.check_out_inner(arg).await?;
 
@@ -390,7 +388,7 @@ impl Server {
 			existing_artifact,
 			files,
 			path,
-			state,
+			progress,
 			..
 		} = arg;
 		let file = artifact
@@ -402,7 +400,7 @@ impl Server {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				remove(path).await.ok();
+				crate::util::fs::remove(path).await.ok();
 			},
 
 			// If there is no file system object at this path, then continue.
@@ -434,7 +432,7 @@ impl Server {
 						artifact,
 						&arg,
 						files.clone(),
-						state,
+						progress,
 					))
 					.await?;
 					Ok::<_, tg::Error>(())
@@ -520,7 +518,7 @@ impl Server {
 			existing_artifact,
 			files,
 			path,
-			state,
+			progress,
 		} = arg;
 		let symlink = artifact
 			.try_unwrap_symlink_ref()
@@ -531,7 +529,7 @@ impl Server {
 		match &existing_artifact {
 			// If there is an existing file system object at the path, then remove it and continue.
 			Some(_) => {
-				remove(&path).await.ok();
+				crate::util::fs::remove(&path).await.ok();
 			},
 
 			// If there is no file system object at this path, then continue.
@@ -548,7 +546,7 @@ impl Server {
 				}
 				let id = artifact.id(self).await?;
 				let arg = tg::artifact::checkout::Arg::default();
-				Box::pin(self.check_out_artifact_with_files(&id, &arg, files, state)).await?;
+				Box::pin(self.check_out_artifact_with_files(&id, &arg, files, progress)).await?;
 			}
 		}
 
@@ -587,9 +585,54 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
+		// Parse the ID.
 		let id = id.parse()?;
+
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()?;
+
+		// Get the arg.
 		let arg = request.json().await?;
+
+		// Get the stream.
 		let stream = handle.check_out_artifact(&id, arg).await?;
-		Ok(util::progress::sse(stream))
+
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None => {
+				pin!(stream)
+					.try_last()
+					.await?
+					.and_then(|event| event.try_unwrap_output().ok())
+					.ok_or_else(|| tg::error!("stream ended without output"))?;
+				(None, Outgoing::empty())
+			},
+
+			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+				let content_type = mime::TEXT_EVENT_STREAM;
+				let stream = stream.map(|result| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
+				});
+				(Some(content_type), Outgoing::sse(stream))
+			},
+
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		};
+
+		// Create the response.
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
+
+		Ok(response)
 	}
 }

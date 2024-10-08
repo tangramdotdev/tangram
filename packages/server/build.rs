@@ -92,6 +92,16 @@ fn main() {
 		std::fs::write(out_dir_path.join(name), bytes).unwrap();
 	}
 
+	// Install dependencies.
+	println!("cargo:rerun-if-changed=../../bun.lockb");
+	std::process::Command::new("bun")
+		.args(["install"])
+		.status()
+		.unwrap()
+		.success()
+		.then_some(())
+		.unwrap();
+
 	// Create the lib path.
 	let lib_path = out_dir_path.join("lib");
 	std::fs::create_dir_all(&lib_path).unwrap();
@@ -105,7 +115,6 @@ fn main() {
 	.unwrap();
 
 	// Copy the typescript libraries.
-	println!("cargo:rerun-if-changed=../../node_modules/typescript/lib");
 	let paths = glob::glob("../../node_modules/typescript/lib/lib.es*.d.ts").unwrap();
 	for path in paths {
 		let path = path.unwrap();
@@ -123,7 +132,6 @@ fn main() {
 	.unwrap();
 
 	// Build the compiler.
-	println!("cargo:rerun-if-changed=../../node_modules");
 	println!("cargo:rerun-if-changed=../../packages/compiler");
 	std::process::Command::new("bun")
 		.args([
@@ -151,7 +159,6 @@ fn main() {
 	fixup_source_map(out_dir_path.join("compiler.js.map"));
 
 	// Build the runtime.
-	println!("cargo:rerun-if-changed=../../node_modules");
 	println!("cargo:rerun-if-changed=../../packages/runtime");
 	std::process::Command::new("bun")
 		.args([

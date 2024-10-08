@@ -1,10 +1,11 @@
 use crate::Server;
-use futures::{stream, StreamExt as _};
+use futures::{future, stream, StreamExt as _};
 use indoc::formatdoc;
 use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_futures::task::Stop;
+use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 use tokio_stream::wrappers::IntervalStream;
@@ -81,10 +82,49 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+
+		// Get the accept header.
+		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
+
+		// Parse the arg.
 		let arg = request.json().await?;
+
+		// Get the stream.
 		let handle = handle.clone();
 		let future = async move { handle.try_dequeue_build(arg).await };
-		let response = http::Response::builder().future_json(future).unwrap();
+		let stream = stream::once(future).filter_map(|option| future::ready(option.transpose()));
+
+		// Stop the stream when the server stops.
+		let stop = async move { stop.stopped().await };
+		let stream = stream.take_until(stop);
+
+		// Create the body.
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+				let content_type = mime::TEXT_EVENT_STREAM;
+				let stream = stream.map(|result| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
+				});
+				(Some(content_type), Outgoing::sse(stream))
+			},
+
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		};
+
+		// Create the response.
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
+
 		Ok(response)
 	}
 }

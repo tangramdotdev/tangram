@@ -1,5 +1,6 @@
 use crate::{self as tg, handle::Ext as _};
-use futures::{Future, TryFutureExt as _};
+use futures::{future, Future, StreamExt as _, TryStreamExt as _};
+use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize)]
@@ -116,7 +117,7 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
@@ -127,8 +128,22 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.optional_json().err_into();
-		Ok(Some(output))
+		let stream = response
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready({
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					}
+				})
+			});
+		let future = stream.boxed().try_last();
+		Ok(Some(future))
 	}
 }
 
@@ -141,5 +156,42 @@ impl TryFrom<tg::build::outcome::Data> for Outcome {
 			tg::build::outcome::Data::Failed(error) => Ok(Outcome::Failed(error)),
 			tg::build::outcome::Data::Succeeded(value) => Ok(Outcome::Succeeded(value.try_into()?)),
 		}
+	}
+}
+
+impl TryFrom<tg::build::outcome::Data> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: tg::build::outcome::Data) -> Result<Self, Self::Error> {
+		let data = serde_json::to_string(&value)
+			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+		let event = tangram_http::sse::Event {
+			data,
+			..Default::default()
+		};
+		Ok(event)
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for tg::build::outcome::Data {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> Result<Self, Self::Error> {
+		match value.event.as_deref() {
+			None => {
+				let outcome = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+				Ok(outcome)
+			},
+			_ => Err(tg::error!("invalid event")),
+		}
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for Outcome {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> Result<Self, Self::Error> {
+		tg::build::outcome::Data::try_from(value)?.try_into()
 	}
 }

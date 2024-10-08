@@ -17,5 +17,6 @@ workspace = true
 dashmap = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+pin-project = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

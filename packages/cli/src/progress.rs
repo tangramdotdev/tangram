@@ -1,83 +1,84 @@
 use crate::Cli;
+use crossterm::{self as ct, style::Stylize as _};
 use futures::{stream::TryStreamExt as _, Stream};
-use std::{collections::BTreeMap, pin::pin};
+use indexmap::IndexMap;
+use std::pin::pin;
 use tangram_client as tg;
 
 impl Cli {
-	pub async fn consume_progress_stream<T>(
+	pub async fn render_progress_stream<T>(
 		&self,
-		stream: impl Stream<Item = tg::Result<tg::Progress<T>>>,
+		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
 	) -> tg::Result<T> {
-		consume_progress_stream(stream).await
-	}
-}
+		let mut indicators = IndexMap::new();
+		let mut stdout = std::io::stdout();
+		let mut stream = pin!(stream);
 
-async fn consume_progress_stream<T>(
-	mut stream: impl Stream<Item = tg::Result<tg::Progress<T>>>,
-) -> tg::Result<T> {
-	let mut stream = pin!(stream);
-	let mut bars = BTreeMap::new();
-	let progress_bar = indicatif::MultiProgress::new();
-	while let Some(progress) = stream.try_next().await? {
-		match progress {
-			tg::Progress::Begin(name) => {
-				let bar = indicatif::ProgressBar::new_spinner();
-				progress_bar.add(bar.clone());
-				bars.insert(name, bar);
-			},
-			tg::Progress::Finish(name) => {
-				if let Some(bar) = bars.remove(&name) {
-					bar.finish_and_clear();
-					progress_bar.remove(&bar);
-				}
-			},
-			tg::Progress::Report(report) => {
-				for (name, data) in report {
-					let Some(bar) = bars.get(&name) else {
-						continue;
-					};
-					bar.set_position(data.current);
-					bar.set_message(format!("{name} {}", data.current));
-					if let Some(total) = data.total {
-						if total > 0 {
-							bar.set_style(indicatif::ProgressStyle::default_bar());
-							bar.set_length(total);
+		while let Some(event) = stream.try_next().await? {
+			// Clear.
+			ct::execute!(
+				stdout,
+				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+			)
+			.unwrap();
+
+			match event {
+				tg::progress::Event::Log(log) => {
+					if let Some(level) = log.level {
+						match level {
+							tg::progress::Level::Success => {
+								eprint!("{} ", "success".green().bold());
+							},
+							tg::progress::Level::Info => {
+								eprint!("{} ", "info".blue().bold());
+							},
+							tg::progress::Level::Warning => {
+								eprint!("{} ", "warning".yellow().bold());
+							},
+							tg::progress::Level::Error => {
+								eprint!("{} ", "error".red().bold());
+							},
 						}
 					}
+					eprintln!("{}", log.message);
+				},
+
+				tg::progress::Event::Diagnostic(diagnostic) => {
+					self.print_diagnostic(&diagnostic).await;
+				},
+
+				tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
+					indicators.insert(indicator.name.clone(), indicator);
+				},
+
+				tg::progress::Event::Finish(indicator) => {
+					indicators.shift_remove(&indicator.name);
+				},
+
+				tg::progress::Event::Output(value) => {
+					return Ok(value);
+				},
+			}
+
+			// Save the cursor position.
+			ct::execute!(stdout, ct::cursor::SavePosition).unwrap();
+
+			// Restore the cursor position.
+			ct::execute!(stdout, ct::cursor::RestorePosition).unwrap();
+
+			// Render the indicators.
+			for indicator in indicators.values() {
+				eprint!("{}", indicator.title);
+				if let Some(current) = indicator.current {
+					eprint!(" {current}");
 				}
-			},
-			tg::Progress::End(value) => {
-				return Ok(value);
-			},
+				if let Some(total) = indicator.total {
+					eprint!(" / {total}");
+				}
+				eprintln!();
+			}
 		}
-	}
-	Err(tg::error!("stream closed early"))
-}
 
-#[cfg(test)]
-mod tests {
-	use std::time::Duration;
-	use tangram_client as tg;
-
-	#[tokio::test]
-	async fn progress() {
-		let bars = [("dingbats", Some(10)), ("scoops", None)];
-
-		let stream = tg::progress::stream(
-			{
-				|state| async move {
-					for _ in 0..10 {
-						tokio::time::sleep(Duration::from_millis(500)).await;
-						state.report_progress("dingbats", 1).ok();
-						state.report_progress("scoops", 1).ok();
-					}
-					Ok(())
-				}
-			},
-			bars,
-		);
-		super::consume_progress_stream(stream)
-			.await
-			.expect("failed to drain stream");
+		Err(tg::error!("stream ended without output"))
 	}
 }

@@ -5,7 +5,10 @@ use crate::{
 	Client,
 };
 use bytes::{Buf, Bytes};
-use futures::{future::BoxFuture, FutureExt as _, Stream, StreamExt as _};
+use futures::{
+	future::{self, BoxFuture},
+	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+};
 use num::ToPrimitive as _;
 use serde_with::serde_as;
 use std::{
@@ -244,6 +247,44 @@ where
 	}
 }
 
+impl TryFrom<Event> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: Event) -> Result<Self, Self::Error> {
+		let event = match value {
+			Event::Chunk(chunk) => {
+				let data = serde_json::to_string(&chunk)
+					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+				tangram_http::sse::Event {
+					data,
+					..Default::default()
+				}
+			},
+			Event::End => tangram_http::sse::Event {
+				event: Some("end".to_owned()),
+				..Default::default()
+			},
+		};
+		Ok(event)
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for Event {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
+		match value.event.as_deref() {
+			None => {
+				let chunk = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+				Ok(Self::Chunk(chunk))
+			},
+			Some("end") => Ok(Self::End),
+			_ => Err(tg::error!("invalid event")),
+		}
+	}
+}
+
 async fn poll_read_inner<H>(
 	handle: &H,
 	blob: tg::Blob,
@@ -354,23 +395,20 @@ impl Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.sse().map(|result| {
-			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
-			match event.event.as_deref() {
-				None => {
-					let data = serde_json::from_str(&event.data)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-					Ok(tg::blob::read::Event::Chunk(data))
-				},
-				Some("end") => Ok(tg::blob::read::Event::End),
-				Some("error") => {
-					let error = serde_json::from_str(&event.data)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-					Err(error)
-				},
-				_ => Err(tg::error!("invalid event")),
-			}
-		});
-		Ok(Some(output))
+		let stream = response
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			});
+		Ok(Some(stream))
 	}
 }

@@ -1,6 +1,5 @@
 use crate as tg;
 use futures::{Future, Stream};
-use std::path::PathBuf;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 mod either;
@@ -14,7 +13,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::artifact::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::Progress<tg::artifact::Id>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
+				+ Send
+				+ 'static,
 		>,
 	> + Send;
 
@@ -23,7 +24,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<PathBuf>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
+				+ Send
+				+ 'static,
+		>,
 	> + Send;
 
 	fn create_blob(
@@ -57,7 +62,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> + Send;
 
 	fn pull_build(
@@ -65,7 +72,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> + Send;
 
 	fn try_dequeue_build(
@@ -170,7 +179,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::object::Id,
 		arg: tg::object::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> + Send;
 
 	fn pull_object(
@@ -178,7 +189,9 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
 	> + Send;
 
 	fn check_package(

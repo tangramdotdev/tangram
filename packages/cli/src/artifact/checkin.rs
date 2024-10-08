@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tangram_client::{self as tg, Handle as _};
 
 /// Check in an artifact.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -49,9 +50,12 @@ impl Cli {
 		let stream = handle
 			.check_in_artifact(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create check in stream"))?;
-		let id = self.consume_progress_stream(stream).await?;
-		println!("{id}");
+			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
+		let output = self.render_progress_stream(stream).await?;
+
+		// Print the artifact.
+		println!("{}", output.artifact);
+
 		Ok(())
 	}
 }

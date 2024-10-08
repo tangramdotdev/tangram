@@ -22,7 +22,7 @@ impl Cli {
 		// Pull the object.
 		let arg = tg::object::pull::Arg { remote };
 		let stream = handle.pull_object(&args.object, arg).await?;
-		self.consume_progress_stream(stream).await?;
+		self.render_progress_stream(stream).await?;
 		Ok(())
 	}
 }

@@ -15,12 +15,21 @@ impl Cli {
 	pub async fn command_object_get(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let tg::object::get::Output { bytes, metadata } = handle.get_object(&args.object).await?;
+		eprintln!("{} complete {}", "info".blue().bold(), metadata.complete);
+		eprint!("{} count ", "info".blue().bold());
 		if let Some(count) = metadata.count {
-			eprintln!("{} count {count}", "info".blue().bold());
+			eprint!("{count}");
+		} else {
+			eprint!("∅");
 		}
+		eprintln!();
+		eprint!("{} weight ", "info".blue().bold());
 		if let Some(weight) = metadata.weight {
-			eprintln!("{} weight {weight}", "info".blue().bold());
+			eprint!("{weight}");
+		} else {
+			eprint!("∅");
 		}
+		eprintln!();
 		let mut stdout = tokio::io::stdout();
 		if stdout.is_tty() && !matches!(args.object, tg::object::Id::Leaf(_)) {
 			let json = serde_json::from_slice::<serde_json::Value>(&bytes)

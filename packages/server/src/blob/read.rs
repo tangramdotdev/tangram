@@ -180,34 +180,14 @@ impl Server {
 		{
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
-				let sse = stream.map(|result| match result {
-					Ok(tg::blob::read::Event::Chunk(data)) => {
-						let data = serde_json::to_string(&data).unwrap();
-						Ok::<_, tg::Error>(tangram_http::sse::Event {
-							data,
-							..Default::default()
-						})
-					},
-					Ok(tg::blob::read::Event::End) => {
-						let event = "end".to_owned();
-						Ok::<_, tg::Error>(tangram_http::sse::Event {
-							event: Some(event),
-							..Default::default()
-						})
-					},
-					Err(error) => {
-						let data = serde_json::to_string(&error).unwrap();
-						let event = "error".to_owned();
-						Ok::<_, tg::Error>(tangram_http::sse::Event {
-							data,
-							event: Some(event),
-							..Default::default()
-						})
-					},
+				let stream = stream.map(|result| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
 				});
-				let body = Outgoing::sse(sse);
+				let body = Outgoing::sse(stream);
 				(content_type, body)
 			},
+
 			_ => {
 				return Err(tg::error!(?accept, "invalid accept header"));
 			},

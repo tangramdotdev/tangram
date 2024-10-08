@@ -44,7 +44,7 @@ impl Server {
 	pub(super) async fn create_input_graph(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Arc<RwLock<Graph>>> {
 		// Make a best guess for the input.
 		let path = self.find_root(&arg.path).await.map_err(
@@ -106,7 +106,7 @@ impl Server {
 	async fn collect_input(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Arc<RwLock<Graph>>> {
 		let ignore = Ignore::new(IGNORE_FILES)
 			.await
@@ -128,7 +128,7 @@ impl Server {
 		path: &std::path::Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Node> {
 		let absolute_path = match &referrer {
 			_ if path.is_absolute() => path.to_owned(),
@@ -259,9 +259,6 @@ impl Server {
 			add_edge(node.clone(), edge).await;
 		}
 
-		// Send a new progress report.
-		progress.report_input_progress();
-
 		// Return the node.
 		Ok(Either::Left(node))
 	}
@@ -290,7 +287,7 @@ impl Server {
 		path: &std::path::Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
 		let metadata = referrer.read().await.metadata.clone();
 		if metadata.is_dir() {
@@ -337,7 +334,7 @@ impl Server {
 		path: &std::path::Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
 		// Get the directory entries.
 		let mut names = Vec::new();
@@ -420,7 +417,7 @@ impl Server {
 		path: &std::path::Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
 		if let Some(data) = xattr::get(path, tg::file::XATTR_NAME)
 			.map_err(|source| tg::error!(!source, "failed to read file xattr"))?
@@ -558,7 +555,7 @@ impl Server {
 		path: &std::path::Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let text = tokio::fs::read_to_string(path).await.map_err(
@@ -650,7 +647,7 @@ impl Server {
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let target = tokio::fs::read_link(path).await.map_err(
@@ -779,7 +776,7 @@ impl Server {
 		name: String,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: &super::ProgressState,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Node> {
 		if !referrer.read().await.metadata.is_dir() {
 			return Err(
@@ -915,7 +912,7 @@ impl Server {
 		let lockfile = if tg::package::is_root_module_path(path.as_ref()) {
 			// Try and find a lockfile.
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			crate::util::lockfile::try_get_lockfile_node_for_module_path(path.as_ref())
+			crate::lockfile::try_get_lockfile_node_for_module_path(path.as_ref())
 				.await
 				.map_err(
 					|source| tg::error!(!source, %path = path.display(), "failed to get lockfile for path"),

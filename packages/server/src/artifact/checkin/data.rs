@@ -47,7 +47,7 @@ impl Server {
 		// Read the target from the symlink.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let target = tokio::fs::read_link(path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), r#"failed to read the symlink at path"#,),
+			|source| tg::error!(!source, %path = path.display(), r#"failed to read the symlink at path"#),
 		)?;
 		drop(permit);
 

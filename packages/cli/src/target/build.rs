@@ -1,5 +1,5 @@
 use crate::Cli;
-use crossterm::style::Stylize as _;
+use crossterm::{self as ct, style::Stylize as _};
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use itertools::Itertools as _;
 use num::ToPrimitive;
@@ -403,12 +403,12 @@ where
 			let tree = self.root.to_tree(&spinner);
 
 			// Save the current position.
-			crossterm::execute!(std::io::stdout(), crossterm::cursor::SavePosition,).unwrap();
+			ct::execute!(std::io::stdout(), ct::cursor::SavePosition,).unwrap();
 
 			// Clear.
-			crossterm::execute!(
+			ct::execute!(
 				std::io::stdout(),
-				crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
+				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 			)
 			.unwrap();
 
@@ -419,13 +419,13 @@ where
 			tokio::time::sleep(Duration::from_millis(100)).await;
 
 			// Restore the cursor position.
-			crossterm::execute!(std::io::stdout(), crossterm::cursor::RestorePosition).unwrap();
+			ct::execute!(std::io::stdout(), ct::cursor::RestorePosition).unwrap();
 		}
 
 		// Clear.
-		crossterm::execute!(
+		ct::execute!(
 			std::io::stdout(),
-			crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
+			ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 		)
 		.unwrap();
 	}

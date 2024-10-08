@@ -88,7 +88,7 @@ impl Compiler {
 
 					// Try to find this module in an existing lockfile.
 					let Some((lockfile, node)) =
-						crate::util::lockfile::try_get_lockfile_node_for_module_path(
+						crate::lockfile::try_get_lockfile_node_for_module_path(
 							referrer_path.as_ref(),
 						)
 						.await?
@@ -109,15 +109,13 @@ impl Compiler {
 					};
 
 					let object = match object {
-						Either::Left(node) => {
-							crate::util::lockfile::create_artifact_for_lockfile_node(
-								&self.server,
-								&lockfile,
-								*node,
-							)
-							.await?
-							.into()
-						},
+						Either::Left(node) => crate::lockfile::create_artifact_for_lockfile_node(
+							&self.server,
+							&lockfile,
+							*node,
+						)
+						.await?
+						.into(),
 						Either::Right(object) => tg::Object::with_id(object.clone()),
 					};
 

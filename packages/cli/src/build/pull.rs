@@ -37,7 +37,7 @@ impl Cli {
 			targets: args.targets,
 		};
 		let stream = handle.pull_build(&args.build, arg).await?;
-		self.consume_progress_stream(stream).await?;
+		self.render_progress_stream(stream).await?;
 		Ok(())
 	}
 }

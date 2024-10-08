@@ -242,6 +242,34 @@ impl serde::de::Error for Error {
 	}
 }
 
+impl TryFrom<Error> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: Error) -> Result<Self, Self::Error> {
+		let data = serde_json::to_string(&value)
+			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+		let event = tangram_http::sse::Event {
+			event: Some("error".to_owned()),
+			data,
+			..Default::default()
+		};
+		Ok(event)
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for Error {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
+		if !value.event.as_ref().is_some_and(|event| event == "error") {
+			return Err(tg::error!("invalid event"));
+		}
+		let error = serde_json::from_str(&value.data)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+		Ok(error)
+	}
+}
+
 /// Create an [Error].
 ///
 /// Usage:

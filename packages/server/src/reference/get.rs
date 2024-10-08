@@ -1,8 +1,8 @@
 use crate::Server;
-use futures::TryStreamExt as _;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_either::Either;
+use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
@@ -30,16 +30,12 @@ impl Server {
 					path: path.clone(),
 				};
 				let mut stream = self.check_in_artifact(arg).await?;
-				let mut artifact = None;
-				let mut stream = pin!(stream);
-				while let Some(event) = stream.try_next().await? {
-					if let tg::Progress::End(output) = event {
-						artifact = Some(output);
-					}
-				}
-				let artifact =
-					artifact.ok_or_else(|| tg::error!("expected the artifact to be set"))?;
-				let item = Either::Right(artifact.into());
+				let output = pin!(stream)
+					.try_last()
+					.await?
+					.and_then(|event| event.try_unwrap_output().ok())
+					.ok_or_else(|| tg::error!("stream ended without output"))?;
+				let item = Either::Right(output.artifact.into());
 				let output = tg::reference::get::Output { item };
 				Ok(Some(output))
 			},

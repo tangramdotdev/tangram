@@ -203,44 +203,24 @@ impl Server {
 		{
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
-				let sse = stream.map(|result| match result {
-					Ok(tg::build::status::Event::Status(data)) => {
-						let data = serde_json::to_string(&data).unwrap();
-						Ok::<_, tg::Error>(tangram_http::sse::Event {
-							data,
-							..Default::default()
-						})
-					},
-					Ok(tg::build::status::Event::End) => {
-						let event = "end".to_owned();
-						Ok::<_, tg::Error>(tangram_http::sse::Event {
-							event: Some(event),
-							..Default::default()
-						})
-					},
-					Err(error) => {
-						let data = serde_json::to_string(&error).unwrap();
-						let event = "error".to_owned();
-						Ok::<_, tg::Error>(tangram_http::sse::Event {
-							data,
-							event: Some(event),
-							..Default::default()
-						})
-					},
+				let stream = stream.map(|result| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
 				});
-				let body = Outgoing::sse(sse);
-				(content_type, body)
+				(Some(content_type), Outgoing::sse(stream))
 			},
+
 			_ => {
 				return Err(tg::error!(?accept, "invalid accept header"));
 			},
 		};
 
 		// Create the response.
-		let response = http::Response::builder()
-			.header(http::header::CONTENT_TYPE, content_type.to_string())
-			.body(body)
-			.unwrap();
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
 
 		Ok(response)
 	}

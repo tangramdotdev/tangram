@@ -65,9 +65,10 @@ impl Cli {
 			.check_out_artifact(&args.artifact, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create check out stream"))?;
+		let output = self.render_progress_stream(stream).await?;
 
-		let path = self.consume_progress_stream(stream).await?;
-		println!("{}", path.display());
+		// Print the path.
+		println!("{}", output.path.display());
 
 		Ok(())
 	}

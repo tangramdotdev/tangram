@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{Stream, StreamExt as _};
+use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 pub type Arg = super::push::Arg;
@@ -9,7 +9,7 @@ impl tg::Object {
 		&self,
 		handle: &H,
 		arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static>
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
@@ -24,12 +24,13 @@ impl tg::Client {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::Progress<()>>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let method = http::Method::POST;
 		let uri = format!("/objects/{id}/pull");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
@@ -37,10 +38,20 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.sse().map(|result| {
-			let event = result.map_err(|source| tg::error!(!source, "failed to read an event"))?;
-			event.try_into()
-		});
-		Ok(output)
+		let stream = response
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			});
+		Ok(stream)
 	}
 }
