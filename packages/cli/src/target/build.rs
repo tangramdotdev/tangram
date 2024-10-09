@@ -1,14 +1,9 @@
+use std::path::PathBuf;
+
 use crate::Cli;
-use crossterm::{self as ct, style::Stylize as _};
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use crossterm::style::Stylize as _;
+use futures::TryStreamExt as _;
 use itertools::Itertools as _;
-use num::ToPrimitive;
-use std::{
-	fmt::Write as _,
-	path::PathBuf,
-	sync::{Arc, Mutex, Weak},
-	time::Duration,
-};
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_either::Either;
 
@@ -70,24 +65,6 @@ pub enum InnerOutput {
 	Detached(tg::build::Id),
 	Path(PathBuf),
 	Value(tg::Value),
-}
-
-struct Progress<H> {
-	root: Arc<Node<H>>,
-}
-
-struct Node<H> {
-	build: tg::Build,
-	handle: H,
-	state: Mutex<State<H>>,
-}
-
-struct State<H> {
-	children: Vec<Arc<Node<H>>>,
-	log: Option<String>,
-	parent: Option<Weak<Node<H>>>,
-	status: Option<tg::build::Status>,
-	title: String,
 }
 
 impl Cli {
@@ -281,12 +258,19 @@ impl Cli {
 		} else {
 			// Start the progress.
 			let progress_task = (!args.quiet).then(|| {
-				tokio::spawn({
-					let progress = Progress::new(build.clone(), &handle);
-					async move {
-						progress.run().await;
-					}
-				})
+				let handle = handle.clone();
+				let build = build.clone();
+				let expand_options = crate::view::tree::ExpandOptions {
+					depth: None,
+					object_children: false,
+					build_children: true,
+					collapse_builds_on_success: true,
+				};
+				tokio::spawn(Self::print_tree(
+					handle,
+					Either::Left(build),
+					expand_options,
+				))
 			});
 
 			// Spawn a task to attempt to cancel the build on the first interrupt signal and exit the process on the second.
@@ -369,333 +353,5 @@ impl Cli {
 		}
 
 		Ok(InnerOutput::Value(output))
-	}
-}
-
-impl<H> Progress<H>
-where
-	H: tg::Handle,
-{
-	pub fn new(root: tg::Build, handle: &H) -> Self {
-		let root = Node::new(root, handle, None);
-		Self { root }
-	}
-
-	pub async fn run(&self) {
-		loop {
-			// If the build is finished, then break.
-			let status = self.root.state.lock().unwrap().status;
-			if matches!(status, Some(tg::build::Status::Finished)) {
-				break;
-			}
-
-			// Get the spinner.
-			const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-			let now = std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH)
-				.unwrap()
-				.as_millis();
-			let position = (now / (1000 / 10)) % 10;
-			let position = position.to_usize().unwrap();
-			let spinner = SPINNER[position].to_string();
-
-			// Create the tree.
-			let tree = self.root.to_tree(&spinner);
-
-			// Save the current position.
-			ct::execute!(std::io::stdout(), ct::cursor::SavePosition,).unwrap();
-
-			// Clear.
-			ct::execute!(
-				std::io::stdout(),
-				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-			)
-			.unwrap();
-
-			// Print the tree.
-			tree.print();
-
-			// Sleep.
-			tokio::time::sleep(Duration::from_millis(100)).await;
-
-			// Restore the cursor position.
-			ct::execute!(std::io::stdout(), ct::cursor::RestorePosition).unwrap();
-		}
-
-		// Clear.
-		ct::execute!(
-			std::io::stdout(),
-			ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-		)
-		.unwrap();
-	}
-}
-
-impl<H> Node<H>
-where
-	H: tg::Handle,
-{
-	fn new(build: tg::Build, handle: &H, parent: Option<&Arc<Self>>) -> Arc<Self> {
-		let handle = handle.clone();
-		let children = Vec::new();
-		let log = None;
-		let parent = parent.map(Arc::downgrade);
-		let status = None;
-		let title = build.id().to_string();
-
-		let state = Mutex::new(State {
-			children,
-			log,
-			parent,
-			status,
-			title,
-		});
-		let node: Arc<Node<_>> = Arc::new(Self {
-			build,
-			handle,
-			state,
-		});
-
-		// Spawn tasks to update the node.
-		tokio::spawn({
-			let node = node.clone();
-			async move {
-				node.children().await;
-			}
-		});
-		tokio::spawn({
-			let node = node.clone();
-			async move {
-				node.log().await;
-			}
-		});
-		tokio::spawn({
-			let node = node.clone();
-			async move {
-				node.status().await;
-			}
-		});
-		tokio::spawn({
-			let node = node.clone();
-			async move {
-				node.title().await.ok();
-			}
-		});
-
-		node
-	}
-
-	fn to_tree(&self, spinner: &str) -> crate::tree::Tree {
-		let state = self.state.lock().unwrap();
-		let children = state.children.clone();
-		let status = state.status;
-		let log = state.log.clone();
-		let title = state.title.clone();
-		drop(state);
-		let indicator = match status {
-			Some(tg::build::Status::Created) => "⟳".yellow(),
-			Some(tg::build::Status::Dequeued) => "•".yellow(),
-			Some(tg::build::Status::Started) => spinner.blue(),
-			Some(tg::build::Status::Finished) => "✓".green(),
-			None => "?".red(),
-		};
-		let children = log
-			.map(|log| crate::tree::Tree {
-				title: log,
-				children: Vec::new(),
-			})
-			.into_iter()
-			.chain(children.into_iter().map(|child| child.to_tree(spinner)))
-			.collect();
-		let title = format!("{indicator} {title}");
-		crate::tree::Tree { title, children }
-	}
-
-	async fn children(self: &Arc<Self>) {
-		let arg = tg::build::children::get::Arg::default();
-		let Ok(mut children) = self.build.children(&self.handle, arg).await else {
-			return;
-		};
-		while let Ok(Some(child)) = children.try_next().await {
-			let node = Self::new(child, &self.handle, Some(self));
-			self.state.lock().unwrap().children.push(node);
-		}
-	}
-
-	async fn log(&self) {
-		let arg = tg::build::log::get::Arg {
-			position: Some(std::io::SeekFrom::Start(0)),
-			..Default::default()
-		};
-		let Ok(mut log) = self.build.log(&self.handle, arg).await else {
-			return;
-		};
-		let mut buf = String::new();
-		while let Ok(Some(chunk)) = log.try_next().await {
-			let Ok(string) = std::str::from_utf8(&chunk.bytes) else {
-				return;
-			};
-			buf.push_str(string);
-			let last_line = buf.lines().last().unwrap_or(buf.as_str());
-			self.state.lock().unwrap().log.replace(last_line.to_owned());
-		}
-	}
-
-	async fn status(self: &Arc<Self>) {
-		// Get the status stream.
-		let Ok(mut status) = self.build.status(&self.handle).await else {
-			return;
-		};
-
-		// Wait for the build to be finished.
-		while let Ok(Some(status)) = status.try_next().await {
-			self.state.lock().unwrap().status.replace(status);
-			if matches!(status, tg::build::Status::Finished) {
-				break;
-			}
-		}
-
-		// Remove the node from its parent.
-		if let Some(parent) = self
-			.state
-			.lock()
-			.unwrap()
-			.parent
-			.as_ref()
-			.and_then(Weak::upgrade)
-		{
-			let mut parent = parent.state.lock().unwrap();
-			let index = parent
-				.children
-				.iter()
-				.position(|child| Arc::ptr_eq(self, child))
-				.unwrap();
-			parent.children.remove(index);
-		}
-	}
-
-	async fn title(&self) -> tg::Result<()> {
-		let mut title = String::new();
-
-		// Get the target.
-		let target = self.build.target(&self.handle).await?;
-		let host = target.host(&self.handle).await?;
-
-		// If this is a builtin, use the first arg.
-		if host.as_str() == "builtin" {
-			let name = target
-				.args(&self.handle)
-				.await?
-				.first()
-				.and_then(|arg| arg.try_unwrap_string_ref().ok())
-				.cloned()
-				.ok_or_else(|| tg::error!("expected a string"))?;
-			write!(title, "{name}").unwrap();
-			self.state.lock().unwrap().title = title;
-			return Ok(());
-		}
-
-		// Get the referrer if this is not a root.
-		let parent = self
-			.state
-			.lock()
-			.unwrap()
-			.parent
-			.as_ref()
-			.and_then(Weak::upgrade);
-		if let Some(parent) = parent {
-			let referrer = parent
-				.build
-				.target(&self.handle)
-				.await?
-				.executable(&self.handle)
-				.await?
-				.clone()
-				.ok_or_else(|| tg::error!("expected an object"))?;
-			let referrer = match referrer {
-				tg::Artifact::Directory(_) => return Err(tg::error!("expected a file or symlink")),
-				tg::Artifact::File(file) => file,
-				tg::Artifact::Symlink(symlink) => {
-					let directory = symlink
-						.artifact(&self.handle)
-						.await?
-						.ok_or_else(|| tg::error!("expected an object"))?
-						.clone()
-						.try_unwrap_directory()
-						.map_err(|_| tg::error!("expected a directory"))?;
-					let path = symlink
-						.path(&self.handle)
-						.await?
-						.ok_or_else(|| tg::error!("expected a path"))?;
-					directory
-						.get(&self.handle, &path)
-						.await?
-						.try_unwrap_file()
-						.map_err(|_| tg::error!("expected a file"))?
-				},
-			};
-
-			let executable = target
-				.executable(&self.handle)
-				.await?
-				.clone()
-				.ok_or_else(|| tg::error!("expected an object"))?;
-			let object: tg::object::Id = match executable {
-				tg::Artifact::Directory(_) => return Err(tg::error!("expected a file or symlink")),
-				tg::Artifact::File(file) => file.id(&self.handle).await?.into(),
-				tg::Artifact::Symlink(symlink) => {
-					let artifact = symlink
-						.artifact(&self.handle)
-						.await?
-						.ok_or_else(|| tg::error!("expected an object"))?;
-					let path = symlink.path(&self.handle).await?;
-					if let Some(path) = path {
-						artifact
-							.try_unwrap_directory_ref()
-							.map_err(|_| tg::error!("expected a directory"))?
-							.get(&self.handle, path)
-							.await?
-							.id(&self.handle)
-							.await?
-							.into()
-					} else {
-						artifact.id(&self.handle).await?.into()
-					}
-				},
-			};
-
-			let dependencies: Vec<_> = referrer
-				.dependencies(&self.handle)
-				.await?
-				.into_iter()
-				.map(|(reference, dependency)| async move {
-					let id = dependency.object.id(&self.handle).await?;
-					Ok::<_, tg::Error>((reference, id))
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
-
-			if let Some(reference) = dependencies
-				.iter()
-				.find_map(|(reference, id)| (id == &object).then_some(reference))
-			{
-				write!(title, "{reference}").unwrap();
-			}
-		}
-
-		if host.as_str() == "js" {
-			let name = target
-				.args(&self.handle)
-				.await?
-				.first()
-				.and_then(|arg| arg.try_unwrap_string_ref().ok())
-				.cloned();
-			if let Some(name) = name {
-				write!(title, "#{name}").unwrap();
-			}
-		}
-		self.state.lock().unwrap().title = title;
-		Ok(())
 	}
 }
