@@ -1,14 +1,8 @@
 use crate::Cli;
-use crossterm::{self as ct, style::Stylize as _};
+use crossterm::style::Stylize as _;
 use futures::TryStreamExt as _;
 use itertools::Itertools as _;
-use num::ToPrimitive;
-use std::{
-	io::IsTerminal as _,
-	path::PathBuf,
-	sync::{Arc, Mutex, Weak},
-	time::Duration,
-};
+use std::path::PathBuf;
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_either::Either;
 
@@ -70,24 +64,6 @@ pub enum InnerOutput {
 	Detached(tg::build::Id),
 	Path(PathBuf),
 	Value(tg::Value),
-}
-
-struct Progress<H> {
-	root: Arc<Node<H>>,
-}
-
-struct Node<H> {
-	build: tg::Build,
-	handle: H,
-	state: Mutex<State<H>>,
-}
-
-struct State<H> {
-	children: Vec<Arc<Node<H>>>,
-	log: Option<String>,
-	parent: Option<Weak<Node<H>>>,
-	status: Option<tg::build::Status>,
-	title: String,
 }
 
 impl Cli {
@@ -304,12 +280,19 @@ impl Cli {
 		} else {
 			// Start the progress.
 			let progress_task = (!args.quiet).then(|| {
-				tokio::spawn({
-					let progress = Progress::new(build.clone(), &handle);
-					async move {
-						progress.run().await;
-					}
-				})
+				let handle = handle.clone();
+				let build = build.clone();
+				let expand_options = crate::view::tree::ExpandOptions {
+					depth: None,
+					object_children: false,
+					build_children: true,
+					collapse_builds_on_success: true,
+				};
+				tokio::spawn(Self::print_tree(
+					handle,
+					Either::Left(build),
+					expand_options,
+				))
 			});
 
 			// Spawn a task to attempt to cancel the build on the first interrupt signal and exit the process on the second.
@@ -392,216 +375,5 @@ impl Cli {
 		}
 
 		Ok(InnerOutput::Value(output))
-	}
-}
-
-impl<H> Progress<H>
-where
-	H: tg::Handle,
-{
-	pub fn new(root: tg::Build, handle: &H) -> Self {
-		let root = Node::new(root, handle, None);
-		Self { root }
-	}
-
-	pub async fn run(&self) {
-		let mut tty = std::io::stderr();
-		if !tty.is_terminal() {
-			return;
-		}
-		loop {
-			// If the build is finished, then break.
-			let status = self.root.state.lock().unwrap().status;
-			if matches!(status, Some(tg::build::Status::Finished)) {
-				break;
-			}
-
-			// Get the spinner.
-			const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-			let now = std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH)
-				.unwrap()
-				.as_millis();
-			let position = (now / (1000 / 10)) % 10;
-			let position = position.to_usize().unwrap();
-			let spinner = SPINNER[position].to_string();
-
-			// Create the tree.
-			let tree = self.root.to_tree(&spinner);
-
-			// Save the current position.
-			ct::execute!(tty, ct::cursor::SavePosition,).unwrap();
-
-			// Clear.
-			ct::execute!(
-				tty,
-				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-			)
-			.unwrap();
-
-			// Print the tree.
-			tree.print();
-
-			// Sleep.
-			tokio::time::sleep(Duration::from_millis(100)).await;
-
-			// Restore the cursor position.
-			ct::execute!(tty, ct::cursor::RestorePosition).unwrap();
-		}
-
-		// Clear.
-		ct::execute!(
-			tty,
-			ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-		)
-		.unwrap();
-	}
-}
-
-impl<H> Node<H>
-where
-	H: tg::Handle,
-{
-	fn new(build: tg::Build, handle: &H, parent: Option<&Arc<Self>>) -> Arc<Self> {
-		let handle = handle.clone();
-		let children = Vec::new();
-		let log = None;
-		let parent = parent.map(Arc::downgrade);
-		let status = None;
-		let title = build.id().to_string();
-
-		let state = Mutex::new(State {
-			children,
-			log,
-			parent,
-			status,
-			title,
-		});
-		let node: Arc<Node<_>> = Arc::new(Self {
-			build,
-			handle,
-			state,
-		});
-
-		// Spawn tasks to update the node.
-		tokio::spawn({
-			let node = node.clone();
-			async move {
-				node.children().await;
-			}
-		});
-		tokio::spawn({
-			let node = node.clone();
-			async move {
-				node.log().await;
-			}
-		});
-		tokio::spawn({
-			let node = node.clone();
-			async move {
-				node.status().await;
-			}
-		});
-		tokio::spawn({
-			let node = node.clone();
-			async move {
-				node.title().await.ok();
-			}
-		});
-
-		node
-	}
-
-	fn to_tree(&self, spinner: &str) -> crate::tree::Tree {
-		let state = self.state.lock().unwrap();
-		let children = state.children.clone();
-		let status = state.status;
-		let log = state.log.clone();
-		let title = state.title.clone();
-		drop(state);
-		let indicator = match status {
-			Some(tg::build::Status::Created) => "⟳".yellow(),
-			Some(tg::build::Status::Dequeued) => "•".yellow(),
-			Some(tg::build::Status::Started) => spinner.blue(),
-			Some(tg::build::Status::Finished) => "✓".green(),
-			None => "?".red(),
-		};
-		let children = log
-			.map(|log| crate::tree::Tree {
-				title: log,
-				children: Vec::new(),
-			})
-			.into_iter()
-			.chain(children.into_iter().map(|child| child.to_tree(spinner)))
-			.collect();
-		let title = format!("{indicator} {title}");
-		crate::tree::Tree { title, children }
-	}
-
-	async fn children(self: &Arc<Self>) {
-		let arg = tg::build::children::get::Arg::default();
-		let Ok(mut children) = self.build.children(&self.handle, arg).await else {
-			return;
-		};
-		while let Ok(Some(child)) = children.try_next().await {
-			let node = Self::new(child, &self.handle, Some(self));
-			self.state.lock().unwrap().children.push(node);
-		}
-	}
-
-	async fn log(&self) {
-		let arg = tg::build::log::get::Arg {
-			position: Some(std::io::SeekFrom::Start(0)),
-			..Default::default()
-		};
-		let Ok(mut log) = self.build.log(&self.handle, arg).await else {
-			return;
-		};
-		let mut buf = String::new();
-		while let Ok(Some(chunk)) = log.try_next().await {
-			let Ok(string) = std::str::from_utf8(&chunk.bytes) else {
-				return;
-			};
-			buf.push_str(string);
-			let last_line = buf.lines().last().unwrap_or(buf.as_str());
-			self.state.lock().unwrap().log.replace(last_line.to_owned());
-		}
-	}
-
-	async fn status(self: &Arc<Self>) {
-		// Get the status stream.
-		let Ok(mut status) = self.build.status(&self.handle).await else {
-			return;
-		};
-
-		// Wait for the build to be finished.
-		while let Ok(Some(status)) = status.try_next().await {
-			self.state.lock().unwrap().status.replace(status);
-			if matches!(status, tg::build::Status::Finished) {
-				break;
-			}
-		}
-
-		// Remove the node from its parent.
-		if let Some(parent) = self
-			.state
-			.lock()
-			.unwrap()
-			.parent
-			.as_ref()
-			.and_then(Weak::upgrade)
-		{
-			let mut parent = parent.state.lock().unwrap();
-			let index = parent
-				.children
-				.iter()
-				.position(|child| Arc::ptr_eq(self, child))
-				.unwrap();
-			parent.children.remove(index);
-		}
-	}
-
-	async fn title(&self) -> tg::Result<()> {
-		todo!()
 	}
 }

@@ -4,7 +4,6 @@ use crossterm as ct;
 use ratatui as tui;
 use std::{sync::Arc, time::Duration};
 use tangram_client as tg;
-use tangram_either::Either;
 
 mod app;
 mod commands;
@@ -12,9 +11,9 @@ mod data;
 mod detail;
 mod info;
 mod log;
-mod tree;
 mod util;
 
+pub mod tree;
 /// View a build or value.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -59,19 +58,16 @@ impl Cli {
 		};
 
 		// Get the node kind.
-		let node_kind = match item {
-			Either::Left(build) => self::tree::NodeKind::Build {
-				build,
-				remote: None,
-			},
-			Either::Right(object) => self::tree::NodeKind::Value {
-				name: None,
-				value: object.into(),
-			},
+		let expand_options = tree::ExpandOptions {
+			depth: None,
+			object_children: false,
+			build_children: false,
+			collapse_builds_on_success: false,
 		};
+		let tree = tree::Tree::new(&handle, item, expand_options);
 
 		// Start the viewer.
-		let viewer = Viewer::start(&handle, node_kind).await?;
+		let viewer = Viewer::start(&handle, tree).await?;
 
 		// Wait for the viewer to finish.
 		viewer.wait().await;
@@ -84,7 +80,7 @@ impl<H> Viewer<H>
 where
 	H: tg::Handle,
 {
-	pub async fn start(handle: &H, node_kind: self::tree::NodeKind) -> tg::Result<Self>
+	pub async fn start(handle: &H, tree: tree::Tree<H>) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
@@ -100,7 +96,7 @@ where
 
 		// Create the app.
 		let rect = terminal.get_frame().area();
-		let app = app::App::new(handle, node_kind, rect);
+		let app = app::App::new(handle, tree.get_selected(), tree, rect);
 
 		// Spawn the task.
 		let task = tokio::task::spawn_blocking({
