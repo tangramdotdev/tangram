@@ -62,7 +62,9 @@ pub async fn try_get_node_for_module_path(
 			continue;
 		}
 		visited.insert(node_index);
-		let node = &lockfile.nodes[node_index];
+		let Some(node) = lockfile.nodes.get(node_index) else {
+			continue;
+		};
 		match node {
 			tg::lockfile::Node::Directory { entries } => {
 				let children = entries.iter().filter_map(|(name, either)| {

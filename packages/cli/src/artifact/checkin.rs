@@ -6,6 +6,7 @@ use tangram_client::{self as tg, Handle as _};
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Args {
 	/// Check in the artifact faster by allowing it to be destroyed.
 	#[arg(long)]
