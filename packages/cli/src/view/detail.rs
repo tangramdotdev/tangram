@@ -1,5 +1,5 @@
 use super::{
-	app::Focus, commands::Commands, data::Data, info::Info, log::Log, tree::NodeKind,
+	app::Focus, commands::Commands, data::Data, info::Info, log::Log,
 	util::render_block_and_get_area,
 };
 use ratatui::prelude::*;
@@ -23,11 +23,12 @@ impl<H> Detail<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(handle: &H, item: &NodeKind, area: Rect) -> Arc<Self> {
+	#[allow(clippy::needless_pass_by_value)]
+	pub fn new(handle: &H, item: Either<tg::Build, tg::Value>, area: Rect) -> Arc<Self> {
 		let commands = Commands::detail();
 		let data = match &item {
-			NodeKind::Build { build, .. } => Some(Either::Left(Log::new(handle, build, area))),
-			NodeKind::Value { value, .. }
+			Either::Left(build) => Some(Either::Left(Log::new(handle, build, area))),
+			Either::Right(value)
 				if matches!(
 					value,
 					tg::Value::Object(tg::Object::File(_) | tg::Object::Leaf(_))
@@ -35,9 +36,9 @@ where
 			{
 				Some(Either::Right(Data::new(handle, value, area)))
 			},
-			_ => None,
+			Either::Right(_) => None,
 		};
-		let info = Info::new(handle, item, area);
+		let info = Info::new(handle, item.clone(), area);
 		let state = RwLock::new(State { focus: Focus::Tree });
 		let info = Arc::new(Self {
 			commands,
