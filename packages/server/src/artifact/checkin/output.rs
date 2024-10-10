@@ -922,12 +922,12 @@ impl Server {
 		&self,
 		dest: PathBuf,
 		output: &Arc<RwLock<Graph>>,
-		visited: &mut BTreeSet<PathBuf>,
+		visited: &mut BTreeSet<tg::artifact::Id>,
 	) -> tg::Result<()> {
-		if visited.contains(&dest) {
+		if visited.contains(&output.read().unwrap().id) {
 			return Ok(());
 		}
-		visited.insert(dest.clone());
+		visited.insert(output.read().unwrap().id.clone());
 
 		// If this is a file, write xattrs.
 		let data = output.read().unwrap().data.clone();
