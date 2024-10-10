@@ -1,16 +1,25 @@
-use super::{de::Error, Value};
-use serde::de::Error as _;
+use super::Value;
+use serde::ser::Error as _;
 use std::collections::BTreeMap;
 
 pub struct Serializer;
 
-pub struct SerializeSeq(Vec<serde_json::Value>);
+pub struct SerializeSeq {
+	values: Vec<serde_json::Value>,
+}
 
-pub struct SerializeTuple(Vec<serde_json::Value>);
+pub struct SerializeTuple {
+	values: Vec<serde_json::Value>,
+}
 
-pub struct SerializeTupleStruct(Vec<serde_json::Value>);
+pub struct SerializeTupleStruct {
+	values: Vec<serde_json::Value>,
+}
 
-pub struct SerializeTupleVariant(Vec<serde_json::Value>);
+pub struct SerializeTupleVariant {
+	values: Vec<serde_json::Value>,
+	variant: &'static str,
+}
 
 pub struct SerializeMap {
 	entries: serde_json::Map<String, serde_json::Value>,
@@ -23,6 +32,13 @@ pub struct SerializeStruct {
 
 pub struct SerializeStructVariant {
 	fields: BTreeMap<&'static str, serde_json::Value>,
+	variant: &'static str,
+}
+
+#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
+pub enum Error {
+	Json(serde_json::Error),
+	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl serde::Serializer for Serializer {
@@ -119,16 +135,16 @@ impl serde::Serializer for Serializer {
 	}
 
 	fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Null)
+		self.serialize_unit()
 	}
 
 	fn serialize_unit_variant(
 		self,
 		_name: &'static str,
 		_variant_index: u32,
-		_variant: &'static str,
+		variant: &'static str,
 	) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Null)
+		self.serialize_str(variant)
 	}
 
 	fn serialize_newtype_struct<T>(
@@ -146,21 +162,23 @@ impl serde::Serializer for Serializer {
 		self,
 		_name: &'static str,
 		_variant_index: u32,
-		_variant: &'static str,
+		variant: &'static str,
 		value: &T,
 	) -> Result<Self::Ok, Self::Error>
 	where
 		T: serde::Serialize + ?Sized,
 	{
-		value.serialize(self)
+		let map = BTreeMap::from([(variant.to_owned(), value.serialize(self)?)]);
+		let json = serde_json::to_string(&map)?;
+		Ok(Value::Text(json))
 	}
 
 	fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-		Ok(SerializeSeq(Vec::new()))
+		Ok(SerializeSeq { values: Vec::new() })
 	}
 
 	fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-		Ok(SerializeTuple(Vec::new()))
+		Ok(SerializeTuple { values: Vec::new() })
 	}
 
 	fn serialize_tuple_struct(
@@ -168,17 +186,20 @@ impl serde::Serializer for Serializer {
 		_name: &'static str,
 		_len: usize,
 	) -> Result<Self::SerializeTupleStruct, Self::Error> {
-		Ok(SerializeTupleStruct(Vec::new()))
+		Ok(SerializeTupleStruct { values: Vec::new() })
 	}
 
 	fn serialize_tuple_variant(
 		self,
 		_name: &'static str,
 		_variant_index: u32,
-		_variant: &'static str,
+		variant: &'static str,
 		_len: usize,
 	) -> Result<Self::SerializeTupleVariant, Self::Error> {
-		Ok(SerializeTupleVariant(Vec::new()))
+		Ok(SerializeTupleVariant {
+			values: Vec::new(),
+			variant,
+		})
 	}
 
 	fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
@@ -202,11 +223,12 @@ impl serde::Serializer for Serializer {
 		self,
 		_name: &'static str,
 		_variant_index: u32,
-		_variant: &'static str,
+		variant: &'static str,
 		_len: usize,
 	) -> Result<Self::SerializeStructVariant, Self::Error> {
 		Ok(SerializeStructVariant {
 			fields: BTreeMap::new(),
+			variant,
 		})
 	}
 }
@@ -221,12 +243,12 @@ impl serde::ser::SerializeSeq for SerializeSeq {
 		T: serde::Serialize + ?Sized,
 	{
 		let value = serde_json::to_value(value)?;
-		self.0.push(value);
+		self.values.push(value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.0)?;
+		let json = serde_json::to_string(&self.values)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -241,12 +263,12 @@ impl serde::ser::SerializeTuple for SerializeTuple {
 		T: serde::Serialize + ?Sized,
 	{
 		let value = serde_json::to_value(value)?;
-		self.0.push(value);
+		self.values.push(value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.0)?;
+		let json = serde_json::to_string(&self.values)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -261,12 +283,12 @@ impl serde::ser::SerializeTupleStruct for SerializeTupleStruct {
 		T: serde::Serialize + ?Sized,
 	{
 		let value = serde_json::to_value(value)?;
-		self.0.push(value);
+		self.values.push(value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.0)?;
+		let json = serde_json::to_string(&self.values)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -281,12 +303,13 @@ impl serde::ser::SerializeTupleVariant for SerializeTupleVariant {
 		T: serde::Serialize + ?Sized,
 	{
 		let value = serde_json::to_value(value)?;
-		self.0.push(value);
+		self.values.push(value);
 		Ok(())
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.0)?;
+		let map = BTreeMap::from([(self.variant, self.values)]);
+		let json = serde_json::to_string(&map)?;
 		Ok(Value::Text(json))
 	}
 }
@@ -362,7 +385,17 @@ impl serde::ser::SerializeStructVariant for SerializeStructVariant {
 	}
 
 	fn end(self) -> Result<Self::Ok, Self::Error> {
-		let json = serde_json::to_string(&self.fields)?;
+		let map = BTreeMap::from([(self.variant, self.fields)]);
+		let json = serde_json::to_string(&map)?;
 		Ok(Value::Text(json))
+	}
+}
+
+impl serde::ser::Error for Error {
+	fn custom<T>(msg: T) -> Self
+	where
+		T: std::fmt::Display,
+	{
+		Self::Other(msg.to_string().into())
 	}
 }

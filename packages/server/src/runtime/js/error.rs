@@ -1,10 +1,10 @@
 use super::{
-	convert::{from_v8, ToV8},
+	convert::{FromV8 as _, Serde, ToV8 as _},
 	State,
 };
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
-use tangram_client::{self as tg, error::Error};
+use tangram_client as tg;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,7 +32,7 @@ struct CallSite {
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
-	error: &Error,
+	error: &tg::Error,
 ) -> v8::Local<'s, v8::Value> {
 	error.to_v8(scope).unwrap()
 }
@@ -41,7 +41,7 @@ pub(super) fn from_exception<'s>(
 	state: &State,
 	scope: &mut v8::HandleScope<'s>,
 	exception: v8::Local<'s, v8::Value>,
-) -> Error {
+) -> tg::Error {
 	let context = scope.get_current_context();
 	let global = context.global(scope);
 	let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
@@ -56,7 +56,7 @@ pub(super) fn from_exception<'s>(
 		.instance_of(scope, error.into())
 		.unwrap_or_default()
 	{
-		return from_v8(scope, exception).unwrap();
+		return <_>::from_v8(scope, exception).unwrap();
 	}
 
 	// Get the message.
@@ -86,8 +86,11 @@ pub(super) fn from_exception<'s>(
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
 		.and_then(|exception| exception.get(scope, stack.into()))
-		.and_then(|value| serde_v8::from_v8::<StackTrace>(scope, value).ok())
-	{
+		.and_then(|value| {
+			<Serde<StackTrace>>::from_v8(scope, value)
+				.map(super::convert::Serde::into_inner)
+				.ok()
+		}) {
 		let stack = stack
 			.call_sites
 			.iter()
@@ -122,8 +125,9 @@ pub(super) fn from_exception<'s>(
 		.map(|cause| from_exception(state, scope, cause.into()))
 		.map(|error| Arc::new(error) as _);
 	let values = BTreeMap::new();
+
 	// Create the error.
-	Error {
+	tg::Error {
 		message,
 		location,
 		stack,

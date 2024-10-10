@@ -1,7 +1,4 @@
-use self::{
-	convert::{from_v8, ToV8},
-	syscall::syscall,
-};
+use self::syscall::syscall;
 use crate::{compiler::Compiler, Server};
 use futures::{
 	future::{self, LocalBoxFuture},
@@ -21,6 +18,8 @@ mod convert;
 mod error;
 mod syscall;
 
+pub use self::convert::{FromV8, Serde, ToV8};
+
 const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.heapsnapshot"));
 
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.js.map"));
@@ -32,7 +31,7 @@ pub struct Runtime {
 
 struct State {
 	build: tg::Build,
-	futures: RefCell<Futures>,
+	futures: RefCell<FuturesUnordered<LocalBoxFuture<'static, FutureOutput>>>,
 	global_source_map: Option<SourceMap>,
 	compiler: Compiler,
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
@@ -42,8 +41,6 @@ struct State {
 	remote: Option<String>,
 	server: Server,
 }
-
-type Futures = FuturesUnordered<LocalBoxFuture<'static, FutureOutput>>;
 
 struct FutureOutput {
 	promise_resolver: v8::Global<v8::PromiseResolver>,
@@ -307,13 +304,13 @@ impl Runtime {
 
 							// Get the result.
 							match v8::Local::<v8::Promise>::try_from(value) {
-								Err(_) => from_v8(scope, value),
+								Err(_) => <_>::from_v8(scope, value),
 								Ok(promise) => {
 									match promise.state() {
 										// If the promise is fulfilled, then return the result.
 										v8::PromiseState::Fulfilled => {
 											let value = promise.result(scope);
-											from_v8(scope, value)
+											<_>::from_v8(scope, value)
 										},
 
 										// If the promise is rejected, then return the error.

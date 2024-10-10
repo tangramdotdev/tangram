@@ -63,9 +63,6 @@ impl Cli {
 			// Save the cursor position.
 			ct::execute!(stdout, ct::cursor::SavePosition).unwrap();
 
-			// Restore the cursor position.
-			ct::execute!(stdout, ct::cursor::RestorePosition).unwrap();
-
 			// Render the indicators.
 			for indicator in indicators.values() {
 				eprint!("{}", indicator.title);
@@ -77,6 +74,9 @@ impl Cli {
 				}
 				eprintln!();
 			}
+
+			// Restore the cursor position.
+			ct::execute!(stdout, ct::cursor::RestorePosition).unwrap();
 		}
 
 		Err(tg::error!("stream ended without output"))

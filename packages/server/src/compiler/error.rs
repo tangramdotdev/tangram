@@ -1,4 +1,5 @@
 use super::SOURCE_MAP;
+use crate::runtime::js::{FromV8 as _, Serde, ToV8 as _};
 use num::ToPrimitive as _;
 use sourcemap::SourceMap;
 use std::{collections::BTreeMap, sync::Arc};
@@ -30,22 +31,9 @@ struct CallSite {
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
-	error: &tg::error::Error,
+	error: &tg::Error,
 ) -> v8::Local<'s, v8::Value> {
-	let context = scope.get_current_context();
-	let global = context.global(scope);
-	let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-	let tg = global.get(scope, tg.into()).unwrap();
-	let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-	let error_ = v8::String::new_external_onebyte_static(scope, "Error".as_bytes()).unwrap();
-	let error_ = tg.get(scope, error_.into()).unwrap();
-	let error_ = v8::Local::<v8::Function>::try_from(error_).unwrap();
-
-	let value = serde_v8::to_v8(scope, error).unwrap();
-	let value = value.to_object(scope).unwrap();
-	value.set_prototype(scope, error_.into());
-	value.into()
+	error.to_v8(scope).unwrap()
 }
 
 pub(super) fn from_exception<'s>(
@@ -62,8 +50,11 @@ pub(super) fn from_exception<'s>(
 	let error = tg.get(scope, error.into()).unwrap();
 	let error = v8::Local::<v8::Function>::try_from(error).unwrap();
 
-	if exception.instance_of(scope, error.into()).unwrap() {
-		return serde_v8::from_v8(scope, exception).unwrap();
+	if exception
+		.instance_of(scope, error.into())
+		.unwrap_or_default()
+	{
+		return <_>::from_v8(scope, exception).unwrap();
 	}
 
 	// Get the message.
@@ -81,8 +72,11 @@ pub(super) fn from_exception<'s>(
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
 		.and_then(|exception| exception.get(scope, stack.into()))
-		.and_then(|value| serde_v8::from_v8::<StackTrace>(scope, value).ok())
-	{
+		.and_then(|value| {
+			<Serde<StackTrace>>::from_v8(scope, value)
+				.map(crate::runtime::js::Serde::into_inner)
+				.ok()
+		}) {
 		let stack = stack
 			.call_sites
 			.iter()

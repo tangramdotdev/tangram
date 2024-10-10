@@ -4,25 +4,27 @@ use std::{collections::BTreeMap, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
 
-pub fn _to_v8<'a, T>(
-	scope: &mut v8::HandleScope<'a>,
-	value: &T,
-) -> tg::Result<v8::Local<'a, v8::Value>>
-where
-	T: ToV8,
-{
-	value.to_v8(scope)
-}
+mod artifact;
+mod blob;
+mod branch;
+mod build;
+mod checksum;
+mod directory;
+mod error;
+mod file;
+mod graph;
+mod leaf;
+mod module;
+mod mutation;
+mod object;
+mod reference;
+mod serde;
+mod symlink;
+mod target;
+mod template;
+mod value;
 
-pub fn from_v8<'a, T>(
-	scope: &mut v8::HandleScope<'a>,
-	value: v8::Local<'a, v8::Value>,
-) -> tg::Result<T>
-where
-	T: FromV8,
-{
-	T::from_v8(scope, value)
-}
+pub use self::serde::Serde;
 
 pub trait ToV8 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>>;
@@ -362,26 +364,6 @@ impl FromV8 for f64 {
 	}
 }
 
-impl ToV8 for String {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		Ok(v8::String::new(scope, self)
-			.ok_or_else(|| tg::error!("failed to create the string"))?
-			.into())
-	}
-}
-
-impl FromV8 for String {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		if !value.is_string() {
-			return Err(tg::error!("expected a string"));
-		}
-		Ok(value.to_rust_string_lossy(scope))
-	}
-}
-
 impl<T> ToV8 for Arc<T>
 where
 	T: ToV8,
@@ -399,7 +381,35 @@ where
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		Ok(Self::new(from_v8(scope, value)?))
+		Ok(Self::new(<_>::from_v8(scope, value)?))
+	}
+}
+
+impl<L, R> ToV8 for Either<L, R>
+where
+	L: ToV8,
+	R: ToV8,
+{
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		match self {
+			Either::Left(s) => s.to_v8(scope),
+			Either::Right(s) => s.to_v8(scope),
+		}
+	}
+}
+
+impl<L, R> FromV8 for Either<L, R>
+where
+	L: FromV8,
+	R: FromV8,
+{
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		<_>::from_v8(scope, value)
+			.map(Either::Left)
+			.or_else(|_| <_>::from_v8(scope, value).map(Either::Right))
 	}
 }
 
@@ -426,36 +436,8 @@ where
 		if value.is_null_or_undefined() {
 			Ok(None)
 		} else {
-			Ok(Some(from_v8(scope, value)?))
+			Ok(Some(<_>::from_v8(scope, value)?))
 		}
-	}
-}
-
-impl<L, R> ToV8 for Either<L, R>
-where
-	L: ToV8,
-	R: ToV8,
-{
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		match self {
-			Either::Left(s) => s.to_v8(scope),
-			Either::Right(s) => s.to_v8(scope),
-		}
-	}
-}
-
-impl<L, R> FromV8 for Either<L, R>
-where
-	L: FromV8,
-	R: FromV8,
-{
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		from_v8(scope, value)
-			.map(Either::Left)
-			.or_else(|_| from_v8(scope, value).map(Either::Right))
 	}
 }
 
@@ -483,7 +465,7 @@ where
 		let value0 = value
 			.get_index(scope, 0)
 			.ok_or_else(|| tg::error!("expected a value"))?;
-		let value0 = from_v8(scope, value0)
+		let value0 = <_>::from_v8(scope, value0)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
 		Ok((value0,))
 	}
@@ -519,11 +501,111 @@ where
 		let value1 = value
 			.get_index(scope, 1)
 			.ok_or_else(|| tg::error!("expected a value"))?;
-		let value0 = from_v8(scope, value0)
+		let value0 = <_>::from_v8(scope, value0)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
-		let value1 = from_v8(scope, value1)
+		let value1 = <_>::from_v8(scope, value1)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the second value"))?;
 		Ok((value0, value1))
+	}
+}
+
+impl<T1, T2, T3> ToV8 for (T1, T2, T3)
+where
+	T1: ToV8,
+	T2: ToV8,
+	T3: ToV8,
+{
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let value0 = self.0.to_v8(scope)?;
+		let value1 = self.1.to_v8(scope)?;
+		let value2 = self.2.to_v8(scope)?;
+		let value = v8::Array::new_with_elements(scope, &[value0, value1, value2]);
+		Ok(value.into())
+	}
+}
+
+impl<T1, T2, T3> FromV8 for (T1, T2, T3)
+where
+	T1: FromV8,
+	T2: FromV8,
+	T3: FromV8,
+{
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		let value = v8::Local::<v8::Array>::try_from(value)
+			.map_err(|source| tg::error!(!source, "expected an array"))?;
+		let value0 = value
+			.get_index(scope, 0)
+			.ok_or_else(|| tg::error!("expected a value"))?;
+		let value1 = value
+			.get_index(scope, 1)
+			.ok_or_else(|| tg::error!("expected a value"))?;
+		let value2 = value
+			.get_index(scope, 2)
+			.ok_or_else(|| tg::error!("expected a value"))?;
+		let value0 = <_>::from_v8(scope, value0)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
+		let value1 = <_>::from_v8(scope, value1)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the second value"))?;
+		let value2 = <_>::from_v8(scope, value2)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the third value"))?;
+		Ok((value0, value1, value2))
+	}
+}
+
+impl<T1, T2, T3, T4> ToV8 for (T1, T2, T3, T4)
+where
+	T1: ToV8,
+	T2: ToV8,
+	T3: ToV8,
+	T4: ToV8,
+{
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let value0 = self.0.to_v8(scope)?;
+		let value1 = self.1.to_v8(scope)?;
+		let value2 = self.2.to_v8(scope)?;
+		let value3 = self.3.to_v8(scope)?;
+		let value = v8::Array::new_with_elements(scope, &[value0, value1, value2, value3]);
+		Ok(value.into())
+	}
+}
+
+impl<T1, T2, T3, T4> FromV8 for (T1, T2, T3, T4)
+where
+	T1: FromV8,
+	T2: FromV8,
+	T3: FromV8,
+	T4: FromV8,
+{
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		let value = v8::Local::<v8::Array>::try_from(value)
+			.map_err(|source| tg::error!(!source, "expected an array"))?;
+		let value0 = value
+			.get_index(scope, 0)
+			.ok_or_else(|| tg::error!("expected a value"))?;
+		let value1 = value
+			.get_index(scope, 1)
+			.ok_or_else(|| tg::error!("expected a value"))?;
+		let value2 = value
+			.get_index(scope, 2)
+			.ok_or_else(|| tg::error!("expected a value"))?;
+		let value3 = value
+			.get_index(scope, 3)
+			.ok_or_else(|| tg::error!("expected a value"))?;
+		let value0 = <_>::from_v8(scope, value0)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
+		let value1 = <_>::from_v8(scope, value1)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the second value"))?;
+		let value2 = <_>::from_v8(scope, value2)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the third value"))?;
+		let value3 = <_>::from_v8(scope, value3)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the fourth value"))?;
+		Ok((value0, value1, value2, value3))
 	}
 }
 
@@ -566,7 +648,7 @@ where
 			let value = value
 				.get_index(scope, i.to_u32().unwrap())
 				.ok_or_else(|| tg::error!("expected a value"))?;
-			let value = from_v8(scope, value)
+			let value = <_>::from_v8(scope, value)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the value"))?;
 			output.push(value);
 		}
@@ -609,9 +691,9 @@ where
 		for i in 0..property_names.length() {
 			let key = property_names.get_index(scope, i).unwrap();
 			let value = value.get(scope, key).unwrap();
-			let key = from_v8(scope, key)
+			let key = <_>::from_v8(scope, key)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the key"))?;
-			let value = from_v8(scope, value)
+			let value = <_>::from_v8(scope, value)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the value"))?;
 			output.insert(key, value);
 		}
@@ -619,1540 +701,23 @@ where
 	}
 }
 
-impl ToV8 for serde_json::Value {
+impl ToV8 for String {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		serde_v8::to_v8(scope, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the value"))
+		Ok(v8::String::new(scope, self)
+			.ok_or_else(|| tg::error!("failed to create the string"))?
+			.into())
 	}
 }
 
-impl FromV8 for serde_json::Value {
+impl FromV8 for String {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		serde_v8::from_v8(scope, value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the value"))
-	}
-}
-
-impl ToV8 for toml::Value {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		serde_v8::to_v8(scope, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the value"))
-	}
-}
-
-impl FromV8 for toml::Value {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		serde_v8::from_v8(scope, value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the value"))
-	}
-}
-
-impl ToV8 for serde_yaml::Value {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		serde_v8::to_v8(scope, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the value"))
-	}
-}
-
-impl FromV8 for serde_yaml::Value {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		serde_v8::from_v8(scope, value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the value"))
-	}
-}
-
-impl ToV8 for tg::build::Id {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::build::Id {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::Value {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		match self {
-			Self::Null => Ok(v8::undefined(scope).into()),
-			Self::Bool(value) => value.to_v8(scope),
-			Self::Number(value) => value.to_v8(scope),
-			Self::String(value) => value.to_v8(scope),
-			Self::Array(value) => value.to_v8(scope),
-			Self::Map(value) => value.to_v8(scope),
-			Self::Object(value) => value.to_v8(scope),
-			Self::Bytes(value) => value.to_v8(scope),
-			Self::Mutation(value) => value.to_v8(scope),
-			Self::Template(value) => value.to_v8(scope),
+		if !value.is_string() {
+			return Err(tg::error!("expected a string"));
 		}
-	}
-}
-
-impl FromV8 for tg::Value {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tg.get(scope, leaf.into()).unwrap();
-		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
-
-		let branch = v8::String::new_external_onebyte_static(scope, "Branch".as_bytes()).unwrap();
-		let branch = tg.get(scope, branch.into()).unwrap();
-		let branch = v8::Local::<v8::Function>::try_from(branch).unwrap();
-
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
-		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
-
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
-		let file = tg.get(scope, file.into()).unwrap();
-		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
-
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
-		let symlink = tg.get(scope, symlink.into()).unwrap();
-		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
-
-		let graph = v8::String::new_external_onebyte_static(scope, "Graph".as_bytes()).unwrap();
-		let graph = tg.get(scope, graph.into()).unwrap();
-		let graph = v8::Local::<v8::Function>::try_from(graph).unwrap();
-
-		let target = v8::String::new_external_onebyte_static(scope, "Target".as_bytes()).unwrap();
-		let target = tg.get(scope, target.into()).unwrap();
-		let target = v8::Local::<v8::Function>::try_from(target).unwrap();
-
-		let mutation =
-			v8::String::new_external_onebyte_static(scope, "Mutation".as_bytes()).unwrap();
-		let mutation = tg.get(scope, mutation.into()).unwrap();
-		let mutation = v8::Local::<v8::Function>::try_from(mutation).unwrap();
-
-		let template =
-			v8::String::new_external_onebyte_static(scope, "Template".as_bytes()).unwrap();
-		let template = tg.get(scope, template.into()).unwrap();
-		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
-
-		if value.is_null_or_undefined() {
-			Ok(Self::Null)
-		} else if value.is_boolean() {
-			Ok(Self::Bool(from_v8(scope, value)?))
-		} else if value.is_number() {
-			Ok(Self::Number(from_v8(scope, value)?))
-		} else if value.is_string() {
-			Ok(Self::String(from_v8(scope, value)?))
-		} else if value.is_array() {
-			Ok(Self::Array(from_v8(scope, value)?))
-		} else if value.instance_of(scope, leaf.into()).unwrap()
-			|| value.instance_of(scope, branch.into()).unwrap()
-			|| value.instance_of(scope, directory.into()).unwrap()
-			|| value.instance_of(scope, file.into()).unwrap()
-			|| value.instance_of(scope, symlink.into()).unwrap()
-			|| value.instance_of(scope, graph.into()).unwrap()
-			|| value.instance_of(scope, target.into()).unwrap()
-		{
-			Ok(Self::Object(from_v8(scope, value)?))
-		} else if value.is_uint8_array() {
-			Ok(Self::Bytes(from_v8(scope, value)?))
-		} else if value.instance_of(scope, mutation.into()).unwrap() {
-			Ok(Self::Mutation(from_v8(scope, value)?))
-		} else if value.instance_of(scope, template.into()).unwrap() {
-			Ok(Self::Template(from_v8(scope, value)?))
-		} else if value.is_object() {
-			Ok(Self::Map(from_v8(scope, value)?))
-		} else {
-			return Err(tg::error!("invalid value"));
-		}
-	}
-}
-
-impl ToV8 for tg::Object {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		match self {
-			tg::Object::Leaf(leaf) => leaf.to_v8(scope),
-			tg::Object::Branch(branch) => branch.to_v8(scope),
-			tg::Object::Directory(directory) => directory.to_v8(scope),
-			tg::Object::File(file) => file.to_v8(scope),
-			tg::Object::Symlink(symlink) => symlink.to_v8(scope),
-			tg::Object::Graph(graph) => graph.to_v8(scope),
-			tg::Object::Target(target) => target.to_v8(scope),
-		}
-	}
-}
-
-impl FromV8 for tg::Object {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tg.get(scope, leaf.into()).unwrap();
-		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
-
-		let branch = v8::String::new_external_onebyte_static(scope, "Branch".as_bytes()).unwrap();
-		let branch = tg.get(scope, branch.into()).unwrap();
-		let branch = v8::Local::<v8::Function>::try_from(branch).unwrap();
-
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
-		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
-
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
-		let file = tg.get(scope, file.into()).unwrap();
-		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
-
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
-		let symlink = tg.get(scope, symlink.into()).unwrap();
-		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
-
-		let graph = v8::String::new_external_onebyte_static(scope, "Graph".as_bytes()).unwrap();
-		let graph = tg.get(scope, graph.into()).unwrap();
-		let graph = v8::Local::<v8::Function>::try_from(graph).unwrap();
-
-		let target = v8::String::new_external_onebyte_static(scope, "Target".as_bytes()).unwrap();
-		let target = tg.get(scope, target.into()).unwrap();
-		let target = v8::Local::<v8::Function>::try_from(target).unwrap();
-
-		if value.instance_of(scope, leaf.into()).unwrap() {
-			Ok(Self::Leaf(from_v8(scope, value)?))
-		} else if value.instance_of(scope, branch.into()).unwrap() {
-			Ok(Self::Branch(from_v8(scope, value)?))
-		} else if value.instance_of(scope, directory.into()).unwrap() {
-			Ok(Self::Directory(from_v8(scope, value)?))
-		} else if value.instance_of(scope, file.into()).unwrap() {
-			Ok(Self::File(from_v8(scope, value)?))
-		} else if value.instance_of(scope, symlink.into()).unwrap() {
-			Ok(Self::Symlink(from_v8(scope, value)?))
-		} else if value.instance_of(scope, graph.into()).unwrap() {
-			Ok(Self::Graph(from_v8(scope, value)?))
-		} else if value.instance_of(scope, target.into()).unwrap() {
-			Ok(Self::Target(from_v8(scope, value)?))
-		} else {
-			return Err(tg::error!("invalid object"));
-		}
-	}
-}
-
-impl ToV8 for tg::object::Id {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::object::Id {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::object::Object {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let (kind, value) = match self {
-			Self::Leaf(blob) => ("leaf", blob.to_v8(scope)?),
-			Self::Branch(blob) => ("branch", blob.to_v8(scope)?),
-			Self::Directory(directory) => ("directory", directory.to_v8(scope)?),
-			Self::File(file) => ("file", file.to_v8(scope)?),
-			Self::Symlink(symlink) => ("symlink", symlink.to_v8(scope)?),
-			Self::Graph(graph) => ("graph", graph.to_v8(scope)?),
-			Self::Target(target) => ("target", target.to_v8(scope)?),
-		};
-		let object = v8::Object::new(scope);
-		let key = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-		let kind = v8::String::new_external_onebyte_static(scope, kind.as_bytes()).unwrap();
-		object.set(scope, key.into(), kind.into());
-		let key = v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
-		object.set(scope, key.into(), value);
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::object::Object {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-		let key = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-		let kind = value.get(scope, key.into()).unwrap();
-		let kind = String::from_v8(scope, kind).unwrap();
-		let key = v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
-		let value = value.get(scope, key.into()).unwrap();
-		let value = match kind.as_str() {
-			"leaf" => Self::Leaf(from_v8(scope, value)?),
-			"branch" => Self::Branch(from_v8(scope, value)?),
-			"directory" => Self::Directory(from_v8(scope, value)?),
-			"file" => Self::File(from_v8(scope, value)?),
-			"symlink" => Self::Symlink(from_v8(scope, value)?),
-			"graph" => Self::Graph(from_v8(scope, value)?),
-			"target" => Self::Target(from_v8(scope, value)?),
-			_ => unreachable!(),
-		};
-		Ok(value)
-	}
-}
-
-impl<I, O> ToV8 for tg::object::State<I, O>
-where
-	I: ToV8,
-	O: ToV8,
-{
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		let key = v8::String::new_external_onebyte_static(scope, "id".as_bytes()).unwrap();
-		let value = self.id().to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		if self.id().is_none() {
-			let key = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
-			let value = self.object().to_v8(scope)?;
-			object.set(scope, key.into(), value);
-		}
-
-		Ok(object.into())
-	}
-}
-
-impl<I, O> FromV8 for tg::object::State<I, O>
-where
-	I: FromV8,
-	O: FromV8,
-{
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let id = v8::String::new_external_onebyte_static(scope, "id".as_bytes()).unwrap();
-		let id = value.get(scope, id.into()).unwrap();
-		let id = from_v8::<Option<I>>(scope, id)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the id"))?;
-
-		let object = if id.is_none() {
-			let object =
-				v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
-			let object = value.get(scope, object.into()).unwrap();
-			from_v8::<Option<O>>(scope, object)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?
-				.map(Arc::new)
-		} else {
-			None
-		};
-
-		Ok(Self::new(id, object))
-	}
-}
-
-impl ToV8 for tg::Blob {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		match self {
-			Self::Leaf(leaf) => leaf.to_v8(scope),
-			Self::Branch(branch) => branch.to_v8(scope),
-		}
-	}
-}
-
-impl FromV8 for tg::Blob {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tg.get(scope, leaf.into()).unwrap();
-		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
-
-		let branch = v8::String::new_external_onebyte_static(scope, "Branch".as_bytes()).unwrap();
-		let branch = tg.get(scope, branch.into()).unwrap();
-		let branch = v8::Local::<v8::Function>::try_from(branch).unwrap();
-
-		let blob = if value.instance_of(scope, leaf.into()).unwrap() {
-			Self::Leaf(from_v8(scope, value)?)
-		} else if value.instance_of(scope, branch.into()).unwrap() {
-			Self::Branch(from_v8(scope, value)?)
-		} else {
-			return Err(tg::error!("expected a leaf or branch"));
-		};
-
-		Ok(blob)
-	}
-}
-
-impl ToV8 for tg::Leaf {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tg.get(scope, leaf.into()).unwrap();
-		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
-
-		let state = self.state().read().unwrap().to_v8(scope)?;
-
-		let instance = leaf
-			.new_instance(scope, &[state])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-
-		Ok(instance.into())
-	}
-}
-
-impl FromV8 for tg::Leaf {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tg.get(scope, leaf.into()).unwrap();
-		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
-
-		if !value.instance_of(scope, leaf.into()).unwrap() {
-			return Err(tg::error!("expected a leaf"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let state = v8::String::new_external_onebyte_static(scope, "state".as_bytes()).unwrap();
-		let state = value.get(scope, state.into()).unwrap();
-		let state = from_v8(scope, state)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
-
-		Ok(Self::with_state(state))
-	}
-}
-
-impl ToV8 for tg::leaf::Id {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::leaf::Id {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::leaf::Object {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		let key = v8::String::new_external_onebyte_static(scope, "bytes".as_bytes()).unwrap();
-		let value = self.bytes.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::leaf::Object {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let bytes = v8::String::new_external_onebyte_static(scope, "bytes".as_bytes()).unwrap();
-		let bytes = value.get(scope, bytes.into()).unwrap();
-		let bytes = from_v8(scope, bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the bytes"))?;
-
-		Ok(Self { bytes })
-	}
-}
-
-impl ToV8 for tg::Branch {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let branch = v8::String::new_external_onebyte_static(scope, "Branch".as_bytes()).unwrap();
-		let branch = tg.get(scope, branch.into()).unwrap();
-		let branch = v8::Local::<v8::Function>::try_from(branch).unwrap();
-
-		let state = self.state().read().unwrap().to_v8(scope)?;
-
-		let instance = branch
-			.new_instance(scope, &[state])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-
-		Ok(instance.into())
-	}
-}
-
-impl FromV8 for tg::Branch {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let branch = v8::String::new_external_onebyte_static(scope, "Branch".as_bytes()).unwrap();
-		let branch = tg.get(scope, branch.into()).unwrap();
-		let branch = v8::Local::<v8::Function>::try_from(branch).unwrap();
-
-		if !value.instance_of(scope, branch.into()).unwrap() {
-			return Err(tg::error!("expected a branch"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let state = v8::String::new_external_onebyte_static(scope, "state".as_bytes()).unwrap();
-		let state = value.get(scope, state.into()).unwrap();
-		let state = from_v8(scope, state)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
-
-		Ok(Self::with_state(state))
-	}
-}
-
-impl ToV8 for tg::branch::Id {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::branch::Id {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::branch::Object {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		let key = v8::String::new_external_onebyte_static(scope, "children".as_bytes()).unwrap();
-		let value = self.children.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::branch::Object {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let children =
-			v8::String::new_external_onebyte_static(scope, "children".as_bytes()).unwrap();
-		let children = value.get(scope, children.into()).unwrap();
-		let children = from_v8(scope, children)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the children"))?;
-
-		Ok(Self { children })
-	}
-}
-
-impl ToV8 for tg::branch::Child {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		let key = v8::String::new_external_onebyte_static(scope, "blob".as_bytes()).unwrap();
-		let value = self.blob.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "size".as_bytes()).unwrap();
-		let value = self.size.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::branch::Child {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let blob = v8::String::new_external_onebyte_static(scope, "blob".as_bytes()).unwrap();
-		let blob = value.get(scope, blob.into()).unwrap();
-		let blob = from_v8(scope, blob)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the blob"))?;
-
-		let size = v8::String::new_external_onebyte_static(scope, "size".as_bytes()).unwrap();
-		let size = value.get(scope, size.into()).unwrap();
-		let size = from_v8(scope, size)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the size"))?;
-
-		Ok(Self { blob, size })
-	}
-}
-
-impl ToV8 for tg::Artifact {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		match self {
-			Self::Directory(directory) => directory.to_v8(scope),
-			Self::File(file) => file.to_v8(scope),
-			Self::Symlink(symlink) => symlink.to_v8(scope),
-		}
-	}
-}
-
-impl FromV8 for tg::Artifact {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
-		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
-
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
-		let file = tg.get(scope, file.into()).unwrap();
-		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
-
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
-		let symlink = tg.get(scope, symlink.into()).unwrap();
-		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
-
-		let artifact = if value.instance_of(scope, directory.into()).unwrap() {
-			Self::Directory(from_v8(scope, value)?)
-		} else if value.instance_of(scope, file.into()).unwrap() {
-			Self::File(from_v8(scope, value)?)
-		} else if value.instance_of(scope, symlink.into()).unwrap() {
-			Self::Symlink(from_v8(scope, value)?)
-		} else {
-			return Err(tg::error!("expected a directory, file, or symlink"));
-		};
-
-		Ok(artifact)
-	}
-}
-
-impl ToV8 for tg::Directory {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
-		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
-
-		let state = self.state().read().unwrap().to_v8(scope)?;
-
-		let instance = directory
-			.new_instance(scope, &[state])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-
-		Ok(instance.into())
-	}
-}
-
-impl FromV8 for tg::Directory {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
-		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
-
-		if !value.instance_of(scope, directory.into()).unwrap() {
-			return Err(tg::error!("expected a directory"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let state = v8::String::new_external_onebyte_static(scope, "state".as_bytes()).unwrap();
-		let state = value.get(scope, state.into()).unwrap();
-		let state = from_v8(scope, state)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
-
-		Ok(Self::with_state(state))
-	}
-}
-
-impl ToV8 for tg::directory::Id {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::directory::Id {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::directory::Object {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		match self {
-			tg::directory::Object::Normal { entries } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "entries".as_bytes()).unwrap();
-				let value = entries.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-
-			tg::directory::Object::Graph { graph, node } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
-				let value = graph.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "node".as_bytes()).unwrap();
-				let value = node.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-		}
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::directory::Object {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let graph = v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
-		let graph = value.get(scope, graph.into()).unwrap();
-		let graph = from_v8(scope, graph)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the graph"))?;
-		if let Some(graph) = graph {
-			let node = v8::String::new_external_onebyte_static(scope, "node ".as_bytes()).unwrap();
-			let node = value.get(scope, node.into()).unwrap();
-			let node = from_v8(scope, node)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the node "))?;
-			return Ok(Self::Graph { graph, node });
-		}
-
-		let entries = v8::String::new_external_onebyte_static(scope, "entries".as_bytes()).unwrap();
-		let entries = value.get(scope, entries.into()).unwrap();
-		let entries = from_v8(scope, entries)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the entries"))?;
-
-		Ok(Self::Normal { entries })
-	}
-}
-
-impl ToV8 for tg::File {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
-		let file = tg.get(scope, file.into()).unwrap();
-		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
-
-		let state = self.state().read().unwrap().to_v8(scope)?;
-
-		let instance = file
-			.new_instance(scope, &[state])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-
-		Ok(instance.into())
-	}
-}
-
-impl FromV8 for tg::File {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
-		let file = tg.get(scope, file.into()).unwrap();
-		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
-
-		if !value.instance_of(scope, file.into()).unwrap() {
-			return Err(tg::error!("expected a file"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let state = v8::String::new_external_onebyte_static(scope, "state".as_bytes()).unwrap();
-		let state = value.get(scope, state.into()).unwrap();
-		let state = from_v8(scope, state)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
-
-		Ok(Self::with_state(state))
-	}
-}
-
-impl ToV8 for tg::file::Id {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::file::Id {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::file::Object {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		match self {
-			tg::file::Object::Normal {
-				contents,
-				dependencies,
-				executable,
-			} => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "contents".as_bytes()).unwrap();
-				let value = contents.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key = v8::String::new_external_onebyte_static(scope, "dependencies".as_bytes())
-					.unwrap();
-				let value = dependencies.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes())
-					.unwrap();
-				let value = executable.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-
-			tg::file::Object::Graph { graph, node } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
-				let value = graph.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "node".as_bytes()).unwrap();
-				let value = node.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-		}
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::file::Object {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let graph = v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
-		let graph = value.get(scope, graph.into()).unwrap();
-		let graph = from_v8(scope, graph)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the graph"))?;
-		if let Some(graph) = graph {
-			let node = v8::String::new_external_onebyte_static(scope, "node ".as_bytes()).unwrap();
-			let node = value.get(scope, node.into()).unwrap();
-			let node = from_v8(scope, node)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the node "))?;
-			return Ok(Self::Graph { graph, node });
-		}
-
-		let contents =
-			v8::String::new_external_onebyte_static(scope, "contents".as_bytes()).unwrap();
-		let contents = value.get(scope, contents.into()).unwrap();
-		let contents = from_v8(scope, contents)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the contents"))?;
-
-		let dependencies =
-			v8::String::new_external_onebyte_static(scope, "dependencies".as_bytes()).unwrap();
-		let dependencies = value.get(scope, dependencies.into()).unwrap();
-		let dependencies = from_v8(scope, dependencies)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the dependencies"))?;
-
-		let executable =
-			v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
-		let executable = value.get(scope, executable.into()).unwrap();
-		let executable = from_v8(scope, executable)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the executable"))?;
-
-		Ok(Self::Normal {
-			contents,
-			dependencies,
-			executable,
-		})
-	}
-}
-
-impl ToV8 for tg::file::Dependency {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-		let key = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
-		let value = self.object.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		if let Some(tag) = &self.tag {
-			let key = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
-			let value = tag.to_string().to_v8(scope)?;
-			object.set(scope, key.into(), value);
-		}
-
-		Ok(value)
-	}
-}
-
-impl FromV8 for tg::file::Dependency {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-		let object = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
-		let object = value.get(scope, object.into()).unwrap();
-		let object = from_v8(scope, object)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
-
-		let tag = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
-		let tag = value.get(scope, tag.into()).unwrap();
-		let tag: Option<String> = from_v8(scope, tag)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the graph"))?;
-		let tag = tag
-			.map(|tag| tag.parse())
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
-		Ok(Self { object, tag })
-	}
-}
-
-impl ToV8 for tg::Symlink {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
-		let symlink = tg.get(scope, symlink.into()).unwrap();
-		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
-
-		let state = self.state().read().unwrap().to_v8(scope)?;
-
-		let instance = symlink
-			.new_instance(scope, &[state])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-
-		Ok(instance.into())
-	}
-}
-
-impl FromV8 for tg::Symlink {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
-		let symlink = tg.get(scope, symlink.into()).unwrap();
-		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
-
-		if !value.instance_of(scope, symlink.into()).unwrap() {
-			return Err(tg::error!("expected a symlink"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let state = v8::String::new_external_onebyte_static(scope, "state".as_bytes()).unwrap();
-		let state = value.get(scope, state.into()).unwrap();
-		let state = from_v8(scope, state)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
-
-		Ok(Self::with_state(state))
-	}
-}
-
-impl ToV8 for tg::symlink::Id {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::symlink::Id {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::symlink::Object {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		match self {
-			tg::symlink::Object::Normal { artifact, path } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
-				let value = artifact.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
-				let value = path.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-
-			tg::symlink::Object::Graph { graph, node } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
-				let value = graph.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "node".as_bytes()).unwrap();
-				let value = node.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-		}
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::symlink::Object {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let graph = v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
-		let graph = value.get(scope, graph.into()).unwrap();
-		let graph = from_v8(scope, graph)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the graph"))?;
-		if let Some(graph) = graph {
-			let node = v8::String::new_external_onebyte_static(scope, "node ".as_bytes()).unwrap();
-			let node = value.get(scope, node.into()).unwrap();
-			let node = from_v8(scope, node)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the node "))?;
-			return Ok(Self::Graph { graph, node });
-		}
-
-		let artifact =
-			v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
-		let artifact = value.get(scope, artifact.into()).unwrap();
-		let artifact = from_v8(scope, artifact)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the artifact"))?;
-
-		let path = v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
-		let path = value.get(scope, path.into()).unwrap();
-		let path = from_v8(scope, path)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
-
-		Ok(Self::Normal { artifact, path })
-	}
-}
-
-impl ToV8 for tg::Graph {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let graph = v8::String::new_external_onebyte_static(scope, "Graph".as_bytes()).unwrap();
-		let graph = tg.get(scope, graph.into()).unwrap();
-		let graph = v8::Local::<v8::Function>::try_from(graph).unwrap();
-
-		let state = self.state().read().unwrap().to_v8(scope)?;
-
-		let instance = graph
-			.new_instance(scope, &[state])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-
-		Ok(instance.into())
-	}
-}
-
-impl FromV8 for tg::Graph {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let graph = v8::String::new_external_onebyte_static(scope, "Graph".as_bytes()).unwrap();
-		let graph = tg.get(scope, graph.into()).unwrap();
-		let graph = v8::Local::<v8::Function>::try_from(graph).unwrap();
-
-		if !value.instance_of(scope, graph.into()).unwrap() {
-			return Err(tg::error!("expected a graph"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let state = v8::String::new_external_onebyte_static(scope, "state".as_bytes()).unwrap();
-		let state = value.get(scope, state.into()).unwrap();
-		let state = from_v8(scope, state)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
-
-		Ok(Self::with_state(state))
-	}
-}
-
-impl ToV8 for tg::graph::Id {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::graph::Id {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::graph::Object {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		let key = v8::String::new_external_onebyte_static(scope, "nodes".as_bytes()).unwrap();
-		let value = self.nodes.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::graph::Object {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let nodes = v8::String::new_external_onebyte_static(scope, "nodes".as_bytes()).unwrap();
-		let nodes = value.get(scope, nodes.into()).unwrap();
-		let nodes = from_v8(scope, nodes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the nodes"))?;
-
-		Ok(Self { nodes })
-	}
-}
-
-impl ToV8 for tg::graph::Node {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		match self {
-			tg::graph::Node::Directory(tg::graph::node::Directory { entries }) => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "directory".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "entries".as_bytes()).unwrap();
-				let value = entries.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-
-			tg::graph::Node::File(tg::graph::node::File {
-				contents,
-				dependencies,
-				executable,
-			}) => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "file".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "contents".as_bytes()).unwrap();
-				let value = contents.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key = v8::String::new_external_onebyte_static(scope, "dependencies".as_bytes())
-					.unwrap();
-
-				let value = dependencies.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes())
-					.unwrap();
-				let value = executable.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-
-			tg::graph::Node::Symlink(tg::graph::node::Symlink { artifact, path }) => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "symlink".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
-				let value = artifact.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
-				let value = path.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-		}
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::graph::Node {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let kind = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-		let kind = value.get(scope, kind.into()).unwrap();
-		let kind = from_v8(scope, kind)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the kind"))?;
-
-		match kind {
-			tg::graph::node::Kind::Directory => {
-				let entries =
-					v8::String::new_external_onebyte_static(scope, "entries".as_bytes()).unwrap();
-				let entries = value.get(scope, entries.into()).unwrap();
-				let entries = from_v8(scope, entries)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the entries"))?;
-
-				Ok(Self::Directory(tg::graph::node::Directory { entries }))
-			},
-
-			tg::graph::node::Kind::File => {
-				let contents =
-					v8::String::new_external_onebyte_static(scope, "contents".as_bytes()).unwrap();
-				let contents = value.get(scope, contents.into()).unwrap();
-				let contents = from_v8(scope, contents)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the contents"))?;
-
-				let dependencies =
-					v8::String::new_external_onebyte_static(scope, "dependencies".as_bytes())
-						.unwrap();
-				let dependencies = value.get(scope, dependencies.into()).unwrap();
-				let dependencies = from_v8(scope, dependencies).map_err(|source| {
-					tg::error!(!source, "failed to deserialize the dependencies")
-				})?;
-
-				let executable =
-					v8::String::new_external_onebyte_static(scope, "executable".as_bytes())
-						.unwrap();
-				let executable = value.get(scope, executable.into()).unwrap();
-				let executable = from_v8(scope, executable).map_err(|source| {
-					tg::error!(!source, "failed to deserialize the executable")
-				})?;
-
-				Ok(Self::File(tg::graph::node::File {
-					contents,
-					dependencies,
-					executable,
-				}))
-			},
-
-			tg::graph::node::Kind::Symlink => {
-				let artifact =
-					v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
-				let artifact = value.get(scope, artifact.into()).unwrap();
-				let artifact = from_v8(scope, artifact)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the artifact"))?;
-
-				let path =
-					v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
-				let path = value.get(scope, path.into()).unwrap();
-				let path = from_v8(scope, path)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
-
-				Ok(Self::Symlink(tg::graph::node::Symlink { artifact, path }))
-			},
-		}
-	}
-}
-
-impl ToV8 for tg::graph::node::Dependency {
-	fn to_v8<'a>(
-		&self,
-		scope: &mut v8::HandleScope<'a>,
-	) -> tangram_client::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-		let key = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
-		let value = self.object.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		if let Some(tag) = &self.tag {
-			let key = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
-			let value = tag.to_string().to_v8(scope)?;
-			object.set(scope, key.into(), value);
-		}
-
-		Ok(value)
-	}
-}
-
-impl FromV8 for tg::graph::node::Dependency {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tangram_client::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-		let object = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
-		let object = value.get(scope, object.into()).unwrap();
-		let object = from_v8(scope, object)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
-
-		let tag = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
-		let tag = value.get(scope, tag.into()).unwrap();
-		let tag: Option<String> = from_v8(scope, tag)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the graph"))?;
-		let tag = tag
-			.map(|tag| tag.parse())
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
-		Ok(Self { object, tag })
-	}
-}
-
-impl ToV8 for tg::Target {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let target = v8::String::new_external_onebyte_static(scope, "Target".as_bytes()).unwrap();
-		let target = tg.get(scope, target.into()).unwrap();
-		let target = v8::Local::<v8::Function>::try_from(target).unwrap();
-
-		let state = self.state().read().unwrap().to_v8(scope)?;
-
-		let instance = target
-			.new_instance(scope, &[state])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-
-		Ok(instance.into())
-	}
-}
-
-impl FromV8 for tg::Target {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let target = v8::String::new_external_onebyte_static(scope, "Target".as_bytes()).unwrap();
-		let target = tg.get(scope, target.into()).unwrap();
-		let target = v8::Local::<v8::Function>::try_from(target).unwrap();
-
-		if !value.instance_of(scope, target.into()).unwrap() {
-			return Err(tg::error!("expected a target"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let state = v8::String::new_external_onebyte_static(scope, "state".as_bytes()).unwrap();
-		let state = value.get(scope, state.into()).unwrap();
-		let state = from_v8(scope, state)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
-
-		Ok(Self::with_state(state))
-	}
-}
-
-impl ToV8 for tg::target::Id {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::target::Id {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::target::Object {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		let key = v8::String::new_external_onebyte_static(scope, "args".as_bytes()).unwrap();
-		let value = self.args.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "checksum".as_bytes()).unwrap();
-		let value = self.checksum.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
-		let value = self.env.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
-		let value = self.executable.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "host".as_bytes()).unwrap();
-		let value = self.host.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::target::Object {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let args = v8::String::new_external_onebyte_static(scope, "args".as_bytes()).unwrap();
-		let args = value.get(scope, args.into()).unwrap();
-		let args = from_v8(scope, args)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
-
-		let checksum =
-			v8::String::new_external_onebyte_static(scope, "checksum".as_bytes()).unwrap();
-		let checksum = value.get(scope, checksum.into()).unwrap();
-		let checksum = from_v8(scope, checksum)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the checksum"))?;
-
-		let env = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
-		let env = value.get(scope, env.into()).unwrap();
-		let env = from_v8(scope, env)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the env"))?;
-
-		let executable =
-			v8::String::new_external_onebyte_static(scope, "executable".as_bytes()).unwrap();
-		let executable = value.get(scope, executable.into()).unwrap();
-		let executable = from_v8(scope, executable)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the executable"))?;
-
-		let host = v8::String::new_external_onebyte_static(scope, "host".as_bytes()).unwrap();
-		let host = value.get(scope, host.into()).unwrap();
-		let host = from_v8(scope, host)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the host"))?;
-
-		Ok(Self {
-			args,
-			checksum,
-			env,
-			executable,
-			host,
-		})
+		Ok(value.to_rust_string_lossy(scope))
 	}
 }
 
@@ -2187,583 +752,56 @@ impl FromV8 for Bytes {
 	}
 }
 
-impl ToV8 for tg::Mutation {
+impl ToV8 for serde_json::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-		match self {
-			tg::Mutation::Unset => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "unset".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-			},
-			tg::Mutation::Set { value: value_ } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "set".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-				let key =
-					v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
-				let value = value_.clone().to_v8(scope).unwrap();
-				object.set(scope, key.into(), value);
-			},
-			tg::Mutation::SetIfUnset { value: value_ } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "set_if_unset".as_bytes())
-						.unwrap();
-				object.set(scope, key.into(), value.into());
-				let key =
-					v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
-				let value = value_.clone().to_v8(scope).unwrap();
-				object.set(scope, key.into(), value);
-			},
-			tg::Mutation::Prepend { values } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "prepend".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-				let key =
-					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
-				let value = values.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-			tg::Mutation::Append { values } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "append".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-				let key =
-					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
-				let value = values.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-			tg::Mutation::Prefix {
-				template,
-				separator,
-			} => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "prefix".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-				let key =
-					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
-				let value = template.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-				let key =
-					v8::String::new_external_onebyte_static(scope, "separator".as_bytes()).unwrap();
-				let value = separator.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-			tg::Mutation::Suffix {
-				template,
-				separator,
-			} => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "suffix".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-				let key =
-					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
-				let value = template.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-				let key =
-					v8::String::new_external_onebyte_static(scope, "separator".as_bytes()).unwrap();
-				let value = separator.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-		}
-
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let mutation =
-			v8::String::new_external_onebyte_static(scope, "Mutation".as_bytes()).unwrap();
-		let mutation = tg.get(scope, mutation.into()).unwrap();
-		let mutation = v8::Local::<v8::Function>::try_from(mutation).unwrap();
-
-		let instance = mutation
-			.new_instance(scope, &[object.into()])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-		Ok(instance.into())
+		let value = Serde::new(self);
+		let value = value.to_v8(scope)?;
+		Ok(value)
 	}
 }
 
-impl FromV8 for tg::Mutation {
+impl FromV8 for serde_json::Value {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let mutation =
-			v8::String::new_external_onebyte_static(scope, "Mutation".as_bytes()).unwrap();
-		let mutation = tg.get(scope, mutation.into()).unwrap();
-		let mutation = v8::Local::<v8::Function>::try_from(mutation).unwrap();
-
-		if !value.instance_of(scope, mutation.into()).unwrap() {
-			return Err(tg::error!("expected a mutation"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let inner = v8::String::new_external_onebyte_static(scope, "inner".as_bytes()).unwrap();
-		let inner = value.get(scope, inner.into()).unwrap();
-		let inner = inner.to_object(scope).unwrap();
-
-		let kind = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-		let kind = inner.get(scope, kind.into()).unwrap();
-		let kind = String::from_v8(scope, kind)?;
-
-		match kind.as_str() {
-			"unset" => Ok(tg::Mutation::Unset),
-			"set" => {
-				let value_ =
-					v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
-				let value_ = inner.get(scope, value_.into()).unwrap();
-				let value_ = from_v8(scope, value_)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the value_"))?;
-				let value_ = Box::new(value_);
-				Ok(tg::Mutation::Set { value: value_ })
-			},
-			"set_if_unset" => {
-				let value_ =
-					v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
-				let value_ = inner.get(scope, value_.into()).unwrap();
-				let value_ = from_v8(scope, value_)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the value_"))?;
-				let value_ = Box::new(value_);
-				Ok(tg::Mutation::SetIfUnset { value: value_ })
-			},
-			"prepend" => {
-				let values =
-					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
-				let values = inner.get(scope, values.into()).unwrap();
-				let values = from_v8(scope, values)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the values"))?;
-				Ok(tg::Mutation::Prepend { values })
-			},
-			"append" => {
-				let values =
-					v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
-				let values = inner.get(scope, values.into()).unwrap();
-				let values = from_v8(scope, values)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the values"))?;
-				Ok(tg::Mutation::Append { values })
-			},
-			"prefix" => {
-				let template =
-					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
-				let template = inner.get(scope, template.into()).unwrap();
-				let template = from_v8(scope, template)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the template"))?;
-				let separator =
-					v8::String::new_external_onebyte_static(scope, "separator".as_bytes()).unwrap();
-				let separator = inner.get(scope, separator.into()).unwrap();
-				let separator = from_v8(scope, separator)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the separator"))?;
-				Ok(tg::Mutation::Prefix {
-					template,
-					separator,
-				})
-			},
-			"suffix" => {
-				let template =
-					v8::String::new_external_onebyte_static(scope, "template".as_bytes()).unwrap();
-				let template = inner.get(scope, template.into()).unwrap();
-				let template = from_v8(scope, template)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the template"))?;
-				let separator =
-					v8::String::new_external_onebyte_static(scope, "separator".as_bytes()).unwrap();
-				let separator = inner.get(scope, separator.into()).unwrap();
-				let separator = from_v8(scope, separator)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the separator"))?;
-				Ok(tg::Mutation::Suffix {
-					template,
-					separator,
-				})
-			},
-			kind => Err(tg::error!(%kind, "invalid mutation kind")),
-		}
+		let value = Serde::from_v8(scope, value)?.into_inner();
+		Ok(value)
 	}
 }
 
-impl ToV8 for tg::Template {
+impl ToV8 for toml::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let template =
-			v8::String::new_external_onebyte_static(scope, "Template".as_bytes()).unwrap();
-		let template = tg.get(scope, template.into()).unwrap();
-		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
-
-		let components = self.components().to_v8(scope)?;
-
-		let instance = template
-			.new_instance(scope, &[components])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-
-		Ok(instance.into())
+		let value = Serde::new(self);
+		let value = value.to_v8(scope)?;
+		Ok(value)
 	}
 }
 
-impl FromV8 for tg::Template {
+impl FromV8 for toml::Value {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let template =
-			v8::String::new_external_onebyte_static(scope, "Template".as_bytes()).unwrap();
-		let template = tg.get(scope, template.into()).unwrap();
-		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
-
-		if !value.instance_of(scope, template.into()).unwrap() {
-			return Err(tg::error!("expected a template"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let components =
-			v8::String::new_external_onebyte_static(scope, "components".as_bytes()).unwrap();
-		let components = value.get(scope, components.into()).unwrap();
-		let components: Vec<tg::template::Component> = from_v8(scope, components)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the components"))?;
-
-		Ok(Self::with_components(components))
+		let value = Serde::from_v8(scope, value)?.into_inner();
+		Ok(value)
 	}
 }
 
-impl ToV8 for tg::template::Component {
+impl ToV8 for serde_yaml::Value {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		match self {
-			Self::String(string) => string.to_v8(scope),
-			Self::Artifact(artifact) => artifact.to_v8(scope),
-		}
+		let value = Serde::new(self);
+		let value = value.to_v8(scope)?;
+		Ok(value)
 	}
 }
 
-impl FromV8 for tg::template::Component {
+impl FromV8 for serde_yaml::Value {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
-		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
-
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
-		let file = tg.get(scope, file.into()).unwrap();
-		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
-
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
-		let symlink = tg.get(scope, symlink.into()).unwrap();
-		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
-
-		let component = if value.is_string() {
-			Self::String(from_v8(scope, value)?)
-		} else if value.instance_of(scope, directory.into()).unwrap()
-			|| value.instance_of(scope, file.into()).unwrap()
-			|| value.instance_of(scope, symlink.into()).unwrap()
-		{
-			Self::Artifact(from_v8(scope, value)?)
-		} else {
-			return Err(tg::error!("expected a string or artifact"));
-		};
-
-		Ok(component)
-	}
-}
-
-impl ToV8 for tg::artifact::archive::Format {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::artifact::archive::Format {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::blob::compress::Format {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::blob::compress::Format {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::Checksum {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::Checksum {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::checksum::Algorithm {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::checksum::Algorithm {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::Error {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let error = v8::String::new_external_onebyte_static(scope, "Error".as_bytes()).unwrap();
-		let error = tg.get(scope, error.into()).unwrap();
-		let error = v8::Local::<v8::Function>::try_from(error).unwrap();
-
-		let message = self.message.to_v8(scope)?;
-		let location = self.location.to_v8(scope)?;
-		let stack = self.stack.to_v8(scope)?;
-		let source = self.source.to_v8(scope)?;
-		let values = self.values.to_v8(scope)?;
-
-		let instance = error
-			.new_instance(scope, &[message, location, stack, source, values])
-			.ok_or_else(|| tg::error!("the constructor failed"))?;
-
-		Ok(instance.into())
-	}
-}
-
-impl FromV8 for tg::Error {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
-
-		let error = v8::String::new_external_onebyte_static(scope, "Error".as_bytes()).unwrap();
-		let error = tg.get(scope, error.into()).unwrap();
-		let error = v8::Local::<v8::Function>::try_from(error).unwrap();
-
-		if !value.instance_of(scope, error.into()).unwrap() {
-			return Err(tg::error!("expected an error"));
-		}
-		let value = value.to_object(scope).unwrap();
-
-		let message = v8::String::new_external_onebyte_static(scope, "message".as_bytes()).unwrap();
-		let message = value.get(scope, message.into()).unwrap();
-		let message = from_v8(scope, message)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the message"))?;
-
-		let location =
-			v8::String::new_external_onebyte_static(scope, "location".as_bytes()).unwrap();
-		let location = value.get(scope, location.into()).unwrap();
-		let location = from_v8(scope, location)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the location"))?;
-
-		let stack = v8::String::new_external_onebyte_static(scope, "stack".as_bytes()).unwrap();
-		let stack = value.get(scope, stack.into()).unwrap();
-		let stack = from_v8(scope, stack)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the stack"))?;
-
-		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
-		let source = value.get(scope, source.into()).unwrap();
-		let source = from_v8::<Option<tg::Error>>(scope, source)?.map(|error| Arc::new(error) as _);
-
-		let values = v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
-		let values: v8::Local<'_, v8::Value> = value.get(scope, values.into()).unwrap();
-		let values =
-			from_v8::<Option<BTreeMap<String, String>>>(scope, values)?.unwrap_or_default();
-
-		Ok(tg::Error {
-			message,
-			location,
-			stack,
-			source,
-			values,
-		})
-	}
-}
-
-impl ToV8 for tg::error::Location {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
-
-		let key = v8::String::new_external_onebyte_static(scope, "symbol".as_bytes()).unwrap();
-		let value = self.symbol.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
-		let value = self.source.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "line".as_bytes()).unwrap();
-		let value = self.line.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "column".as_bytes()).unwrap();
-		let value = self.column.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::error::Location {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-
-		let symbol = v8::String::new_external_onebyte_static(scope, "symbol".as_bytes()).unwrap();
-		let symbol = value.get(scope, symbol.into()).unwrap();
-		let symbol = from_v8(scope, symbol)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the symbol"))?;
-
-		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
-		let source = value.get(scope, source.into()).unwrap();
-		let source = from_v8(scope, source)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the source"))?;
-
-		let line = v8::String::new_external_onebyte_static(scope, "line".as_bytes()).unwrap();
-		let line = value.get(scope, line.into()).unwrap();
-		let line = from_v8(scope, line)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the line"))?;
-
-		let column = v8::String::new_external_onebyte_static(scope, "column".as_bytes()).unwrap();
-		let column = value.get(scope, column.into()).unwrap();
-		let column = from_v8(scope, column)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the column"))?;
-
-		Ok(Self {
-			symbol,
-			source,
-			line,
-			column,
-		})
-	}
-}
-
-impl ToV8 for tg::error::Source {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		serde_v8::to_v8(scope, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the value"))
-	}
-}
-
-impl FromV8 for tg::error::Source {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		serde_v8::from_v8(scope, value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the value"))
-	}
-}
-
-impl ToV8 for tg::graph::node::Kind {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::graph::node::Kind {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}
-
-impl ToV8 for tg::Module {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		serde_v8::to_v8(scope, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the value"))
-	}
-}
-
-impl FromV8 for tg::Module {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		serde_v8::from_v8(scope, value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the value"))
-	}
-}
-
-impl ToV8 for tg::Reference {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::Reference {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
+		let value = Serde::from_v8(scope, value)?.into_inner();
+		Ok(value)
 	}
 }

@@ -1,5 +1,9 @@
 use self::{document::Document, syscall::syscall};
-use crate::{tmp::Tmp, Server};
+use crate::{
+	runtime::js::{FromV8 as _, Serde, ToV8 as _},
+	tmp::Tmp,
+	Server,
+};
 use dashmap::DashMap;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt};
 use lsp::{notification::Notification as _, request::Request as _};
@@ -577,9 +581,10 @@ impl Compiler {
 			let scope = &mut v8::TryCatch::new(scope);
 
 			// Serialize the request.
-			let request = match serde_v8::to_v8(scope, &request)
-				.map_err(|source| tg::error!(!source, "failed to serialize the request"))
-			{
+			let result = Serde::new(request)
+				.to_v8(scope)
+				.map_err(|source| tg::error!(!source, "failed to serialize the request"));
+			let request = match result {
 				Ok(request) => request,
 				Err(error) => {
 					response_sender.send(Err(error)).unwrap();
@@ -600,9 +605,10 @@ impl Compiler {
 			let response = response.unwrap();
 
 			// Deserialize the response.
-			let response = match serde_v8::from_v8(scope, response)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the response"))
-			{
+			let result = Serde::from_v8(scope, response)
+				.map(crate::runtime::js::Serde::into_inner)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the response"));
+			let response = match result {
 				Ok(response) => response,
 				Err(error) => {
 					response_sender.send(Err(error)).unwrap();
@@ -717,7 +723,7 @@ impl Compiler {
 				..
 			} => {
 				let artifact = tg::artifact::Id::try_from(object.clone())
-					.map_err(|_| tg::error!("module must be an artifact"))?;
+					.map_err(|_| tg::error!("the module must be an artifact"))?;
 				if self.server.vfs.lock().unwrap().is_none() {
 					self.server
 						.check_out_artifact(&artifact, tg::artifact::checkout::Arg::default())
@@ -789,7 +795,9 @@ impl crate::Server {
 			.get(http::header::CONNECTION)
 			.is_some_and(|value| value == "upgrade")
 		{
-			return Err(tg::error!("expected connection header set to upgrade"));
+			return Err(tg::error!(
+				"expected the connection header to be set to upgrade"
+			));
 		}
 
 		// Ensure the upgrade header is set correctly.
@@ -798,7 +806,7 @@ impl crate::Server {
 			.get(http::header::UPGRADE)
 			.is_some_and(|value| value == "lsp")
 		{
-			return Err(tg::error!("expected upgrade header set to lsp"));
+			return Err(tg::error!("expected the upgrade header to be set to lsp"));
 		}
 
 		// Spawn the LSP.

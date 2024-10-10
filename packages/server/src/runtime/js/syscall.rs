@@ -1,7 +1,7 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
 use super::{
-	convert::{from_v8, FromV8, ToV8},
+	convert::{FromV8, ToV8},
 	error::capture_stack_trace,
 	FutureOutput, State,
 };
@@ -91,7 +91,7 @@ where
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
-	let args = from_v8(scope, args.into())
+	let args = <_>::from_v8(scope, args.into())
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Call the function.
@@ -131,7 +131,7 @@ where
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
-	let args = from_v8(scope, args.into())
+	let args = <_>::from_v8(scope, args.into())
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Move the promise resolver to the global scope.
