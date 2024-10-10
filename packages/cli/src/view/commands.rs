@@ -206,31 +206,19 @@ where
 			Command {
 				name: "Push".to_owned(),
 				description: "Replace the root with the selected item.".to_owned(),
-				keybindings: vec![
-					KeyBinding {
-						keycode: KeyCode::Char(']'),
-						modifiers: None,
-					},
-					KeyBinding {
-						keycode: KeyCode::Left,
-						modifiers: None,
-					},
-				],
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Enter,
+					modifiers: None,
+				}],
 				callback: Box::new(App::push),
 			},
 			Command {
 				name: "Pop".to_owned(),
 				description: "Return to the previous root.".to_owned(),
-				keybindings: vec![
-					KeyBinding {
-						keycode: KeyCode::Char('['),
-						modifiers: None,
-					},
-					KeyBinding {
-						keycode: KeyCode::Left,
-						modifiers: None,
-					},
-				],
+				keybindings: vec![KeyBinding {
+					keycode: KeyCode::Delete,
+					modifiers: None,
+				}],
 				callback: Box::new(App::pop),
 			},
 			Command {
