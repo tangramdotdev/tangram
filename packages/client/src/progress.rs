@@ -1,6 +1,6 @@
 use crate as tg;
 
-#[derive(derive_more::TryUnwrap, derive_more::Unwrap)]
+#[derive(Debug, Clone, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Event<T> {

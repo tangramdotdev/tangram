@@ -58,6 +58,7 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;

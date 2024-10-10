@@ -1,15 +1,3 @@
 {
-  "paths": {
-    ".": [
-      0
-    ]
-  },
-  "nodes": [
-    {
-      "kind": "directory",
-      "entries": {
-        "tangram.ts": null
-      }
-    }
-  ]
+  "nodes": []
 }
