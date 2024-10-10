@@ -102,9 +102,7 @@ export namespace path {
 			throw new Error("expected a non-empty string");
 		}
 		let component = path.components(pathArg)[0] as Component;
-		return (
-			Component.isNormal(component) || component === Component.Current
-		);
+		return Component.isNormal(component) || component === Component.Current;
 	};
 
 	export let join = (...paths: Array<string | undefined>): string => {

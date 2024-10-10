@@ -116,13 +116,58 @@ export class Symlink {
 	}
 
 	async artifact(): Promise<tg.Artifact | undefined> {
-		let object = await this.object();
-		return object.artifact;
+		const object = await this.object();
+		if (!("graph" in object)) {
+			return object.artifact;
+		} else {
+			const nodes = await object.graph.nodes();
+			const node = nodes[object.node];
+			tg.assert(node !== undefined, `invalid index ${object.node}`);
+			tg.assert(
+				node.kind === "symlink",
+				`expected a symlink node, got ${node}`,
+			);
+			const artifact = node.artifact;
+			if (artifact === undefined || tg.Artifact.is(artifact)) {
+				return artifact;
+			} else {
+				const node = nodes[artifact];
+				tg.assert(node !== undefined, `invalid index ${artifact}`);
+				switch (node.kind) {
+					case "directory": {
+						return new tg.Directory({
+							object: { graph: object.graph, node: artifact },
+						});
+					}
+					case "file": {
+						return new tg.File({
+							object: { graph: object.graph, node: artifact },
+						});
+					}
+					case "symlink": {
+						return new tg.Symlink({
+							object: { graph: object.graph, node: artifact },
+						});
+					}
+				}
+			}
+		}
 	}
 
 	async path(): Promise<string | undefined> {
-		let object = await this.object();
-		return object.path;
+		const object = await this.object();
+		if (!("graph" in object)) {
+			return object.path;
+		} else {
+			const nodes = await object.graph.nodes();
+			const node = nodes[object.node];
+			tg.assert(node !== undefined, `invalid index ${object.node}`);
+			tg.assert(
+				node.kind === "symlink",
+				`expected a symlink node, got ${node}`,
+			);
+			return node.path;
+		}
 	}
 
 	async resolve(
@@ -181,10 +226,12 @@ export namespace Symlink {
 
 	export type Id = string;
 
-	export type Object = {
-		artifact: tg.Artifact | undefined;
-		path: string | undefined;
-	};
+	export type Object =
+		| {
+				artifact: tg.Artifact | undefined;
+				path: string | undefined;
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type State = tg.Object.State<Symlink.Id, Symlink.Object>;
 }
