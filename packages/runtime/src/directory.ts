@@ -208,7 +208,6 @@ export class Directory {
 
 	async *[Symbol.asyncIterator](): AsyncIterator<[string, tg.Artifact]> {
 		const object = await this.object();
-
 		let entries: { [key: string]: tg.Artifact } | undefined;
 		if ("entries" in object) {
 			entries = object.entries;
