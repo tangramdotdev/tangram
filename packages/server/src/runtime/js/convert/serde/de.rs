@@ -1,3 +1,4 @@
+use num::ToPrimitive as _;
 use serde::{de::Error as _, Deserialize as _, Deserializer as _};
 
 pub struct Deserializer<'a, 's> {
@@ -115,7 +116,10 @@ impl<'de, 'a, 's> serde::Deserializer<'de> for Deserializer<'a, 's> {
 	{
 		if let Ok(value) = v8::Local::<v8::Number>::try_from(self.value) {
 			let value = value.number_value(self.scope).unwrap();
-			visitor.visit_f64(value)
+			let Some(value) = value.to_i64() else {
+				return Err(Error::custom("invalid value"));
+			};
+			visitor.visit_i64(value)
 		} else {
 			Err(Error::custom("invalid value"))
 		}
@@ -148,7 +152,10 @@ impl<'de, 'a, 's> serde::Deserializer<'de> for Deserializer<'a, 's> {
 	{
 		if let Ok(value) = v8::Local::<v8::Number>::try_from(self.value) {
 			let value = value.number_value(self.scope).unwrap();
-			visitor.visit_f64(value)
+			let Some(value) = value.to_u64() else {
+				return Err(Error::custom("invalid value"));
+			};
+			visitor.visit_u64(value)
 		} else {
 			Err(Error::custom("invalid value"))
 		}

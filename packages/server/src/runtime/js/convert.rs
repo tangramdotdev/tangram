@@ -57,8 +57,10 @@ impl FromV8 for () {
 		_scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		if !value.is_null_or_undefined() {
-			return Err(tg::error!("expected null or undefined"));
+		if !value.is_null_or_undefined()
+			&& !v8::Local::<v8::Array>::try_from(value).is_ok_and(|array| array.length() == 0)
+		{
+			return Err(tg::error!("expected null, undefined, or an empty array"));
 		}
 		Ok(())
 	}
