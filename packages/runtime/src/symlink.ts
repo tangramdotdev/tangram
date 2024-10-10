@@ -117,34 +117,37 @@ export class Symlink {
 
 	async artifact(): Promise<tg.Artifact | undefined> {
 		const object = await this.object();
-		if ("artifact" in object) {
+		if (!("graph" in object)) {
 			return object.artifact;
 		} else {
-			const graph = object.graph;
-			const nodes = await graph.nodes();
-			const symlinkNode = nodes[object.node];
-			tg.assert(symlinkNode !== undefined, `invalid index ${object.node}`);
+			const nodes = await object.graph.nodes();
+			const node = nodes[object.node];
+			tg.assert(node !== undefined, `invalid index ${object.node}`);
 			tg.assert(
-				symlinkNode.kind === "symlink",
-				`expected a symlink node, got ${symlinkNode}`,
+				node.kind === "symlink",
+				`expected a symlink node, got ${node}`,
 			);
-			const symlinkArtifact = symlinkNode.artifact;
-			if (symlinkArtifact === undefined || tg.Artifact.is(symlinkArtifact)) {
-				return symlinkArtifact;
+			const artifact = node.artifact;
+			if (artifact === undefined || tg.Artifact.is(artifact)) {
+				return artifact;
 			} else {
-				const node = nodes[symlinkArtifact];
-				tg.assert(node !== undefined, `invalid index ${symlinkArtifact}`);
+				const node = nodes[artifact];
+				tg.assert(node !== undefined, `invalid index ${artifact}`);
 				switch (node.kind) {
 					case "directory": {
 						return new tg.Directory({
-							object: { graph, node: symlinkArtifact },
+							object: { graph: object.graph, node: artifact },
 						});
 					}
 					case "file": {
-						return new tg.File({ object: { graph, node: symlinkArtifact } });
+						return new tg.File({
+							object: { graph: object.graph, node: artifact },
+						});
 					}
 					case "symlink": {
-						return new tg.Symlink({ object: { graph, node: symlinkArtifact } });
+						return new tg.Symlink({
+							object: { graph: object.graph, node: artifact },
+						});
 					}
 				}
 			}
@@ -153,18 +156,17 @@ export class Symlink {
 
 	async path(): Promise<string | undefined> {
 		const object = await this.object();
-		if ("path" in object) {
+		if (!("graph" in object)) {
 			return object.path;
 		} else {
-			const graph = object.graph;
-			const nodes = await graph.nodes();
-			const symlinkNode = nodes[object.node];
-			tg.assert(symlinkNode !== undefined, `invalid index ${object.node}`);
+			const nodes = await object.graph.nodes();
+			const node = nodes[object.node];
+			tg.assert(node !== undefined, `invalid index ${object.node}`);
 			tg.assert(
-				symlinkNode.kind === "symlink",
-				`expected a symlink node, got ${symlinkNode}`,
+				node.kind === "symlink",
+				`expected a symlink node, got ${node}`,
 			);
-			return symlinkNode.path;
+			return node.path;
 		}
 	}
 

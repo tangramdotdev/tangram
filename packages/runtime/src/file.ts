@@ -111,18 +111,15 @@ export class File {
 
 	async contents(): Promise<tg.Blob> {
 		const object = await this.object();
-		if ("contents" in object) {
+		if (!("graph" in object)) {
 			return object.contents;
 		} else {
 			const graph = object.graph;
 			const nodes = await graph.nodes();
-			const fileNode = nodes[object.node];
-			tg.assert(fileNode !== undefined, `invalid index ${object.node}`);
-			tg.assert(
-				fileNode.kind === "file",
-				`expected a file node, got ${fileNode}`,
-			);
-			return fileNode.contents;
+			const node = nodes[object.node];
+			tg.assert(node !== undefined, `invalid index ${object.node}`);
+			tg.assert(node.kind === "file", `expected a file node, got ${node}`);
+			return node.contents;
 		}
 	}
 
@@ -130,18 +127,15 @@ export class File {
 		{ [reference: string]: File.Dependency } | undefined
 	> {
 		const object = await this.object();
-		if ("dependencies" in object) {
+		if (!("graph" in object)) {
 			return object.dependencies;
 		} else {
 			const graph = object.graph;
 			const nodes = await graph.nodes();
-			const fileNode = nodes[object.node];
-			tg.assert(fileNode !== undefined, `invalid index ${object.node}`);
-			tg.assert(
-				fileNode.kind === "file",
-				`expected a file node, got ${fileNode}`,
-			);
-			const dependencies = fileNode.dependencies;
+			const node = nodes[object.node];
+			tg.assert(node !== undefined, `invalid index ${object.node}`);
+			tg.assert(node.kind === "file", `expected a file node, got ${node}`);
+			const dependencies = node.dependencies;
 			if (dependencies === undefined) {
 				return undefined;
 			}
@@ -174,12 +168,11 @@ export class File {
 					} else {
 						object = dependency.object;
 					}
-					tg.assert(object !== undefined);
-					const dep = {
+					const value = {
 						...dependency,
 						object,
 					};
-					return [reference, dep];
+					return [reference, value];
 				}),
 			);
 		}
@@ -196,18 +189,15 @@ export class File {
 
 	async executable(): Promise<boolean> {
 		const object = await this.object();
-		if ("executable" in object) {
+		if (!("graph" in object)) {
 			return object.executable;
 		} else {
 			const graph = object.graph;
 			const nodes = await graph.nodes();
-			const fileNode = nodes[object.node];
-			tg.assert(fileNode !== undefined, `invalid index ${object.node}`);
-			tg.assert(
-				fileNode.kind === "file",
-				`expected a file node, got ${fileNode}`,
-			);
-			return fileNode.executable;
+			const node = nodes[object.node];
+			tg.assert(node !== undefined, `invalid index ${object.node}`);
+			tg.assert(node.kind === "file", `expected a file node, got ${node}`);
+			return node.executable;
 		}
 	}
 
