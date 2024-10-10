@@ -116,13 +116,56 @@ export class Symlink {
 	}
 
 	async artifact(): Promise<tg.Artifact | undefined> {
-		let object = await this.object();
-		return object.artifact;
+		const object = await this.object();
+		if ("artifact" in object) {
+			return object.artifact;
+		} else {
+			const graph = object.graph;
+			const nodes = await graph.nodes();
+			const symlinkNode = nodes[object.node];
+			tg.assert(symlinkNode !== undefined, `invalid index ${object.node}`);
+			tg.assert(
+				symlinkNode.kind === "symlink",
+				`expected a symlink node, got ${symlinkNode}`,
+			);
+			const symlinkArtifact = symlinkNode.artifact;
+			if (symlinkArtifact === undefined || tg.Artifact.is(symlinkArtifact)) {
+				return symlinkArtifact;
+			} else {
+				const node = nodes[symlinkArtifact];
+				tg.assert(node !== undefined, `invalid index ${symlinkArtifact}`);
+				switch (node.kind) {
+					case "directory": {
+						return new tg.Directory({
+							object: { graph, node: symlinkArtifact },
+						});
+					}
+					case "file": {
+						return new tg.File({ object: { graph, node: symlinkArtifact } });
+					}
+					case "symlink": {
+						return new tg.Symlink({ object: { graph, node: symlinkArtifact } });
+					}
+				}
+			}
+		}
 	}
 
 	async path(): Promise<string | undefined> {
-		let object = await this.object();
-		return object.path;
+		const object = await this.object();
+		if ("path" in object) {
+			return object.path;
+		} else {
+			const graph = object.graph;
+			const nodes = await graph.nodes();
+			const symlinkNode = nodes[object.node];
+			tg.assert(symlinkNode !== undefined, `invalid index ${object.node}`);
+			tg.assert(
+				symlinkNode.kind === "symlink",
+				`expected a symlink node, got ${symlinkNode}`,
+			);
+			return symlinkNode.path;
+		}
 	}
 
 	async resolve(
@@ -181,10 +224,12 @@ export namespace Symlink {
 
 	export type Id = string;
 
-	export type Object = {
-		artifact: tg.Artifact | undefined;
-		path: string | undefined;
-	};
+	export type Object =
+		| {
+				artifact: tg.Artifact | undefined;
+				path: string | undefined;
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type State = tg.Object.State<Symlink.Id, Symlink.Object>;
 }

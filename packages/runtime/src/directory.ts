@@ -207,8 +207,51 @@ export class Directory {
 	}
 
 	async *[Symbol.asyncIterator](): AsyncIterator<[string, tg.Artifact]> {
-		let object = await this.object();
-		for (let [name, artifact] of Object.entries(object.entries)) {
+		const object = await this.object();
+
+		let entries: { [key: string]: tg.Artifact } | undefined;
+		if ("entries" in object) {
+			entries = object.entries;
+		} else {
+			const graph = object.graph;
+			const nodes = await graph.nodes();
+			const dirNode = nodes[object.node];
+			tg.assert(dirNode !== undefined, `invalid index ${object.node}`);
+			tg.assert(
+				dirNode.kind === "directory",
+				`expected a directory node, got ${dirNode}`,
+			);
+			entries = Object.fromEntries(
+				Object.entries(dirNode.entries).map(([name, value]) => {
+					let val: tg.Artifact | undefined;
+					if (tg.Artifact.is(value)) {
+						val = value;
+					} else {
+						const node = nodes[value];
+						tg.assert(node !== undefined, `invalid index ${value}`);
+						switch (node.kind) {
+							case "directory": {
+								val = new tg.Directory({ object: { graph, node: value } });
+								break;
+							}
+							case "file": {
+								val = new tg.File({ object: { graph, node: value } });
+								break;
+							}
+							case "symlink": {
+								val = new tg.Symlink({ object: { graph, node: value } });
+								break;
+							}
+						}
+					}
+					tg.assert(val !== undefined);
+					return [name, val];
+				}),
+			);
+		}
+		tg.assert(entries !== undefined, "could not resolve directory entries");
+
+		for (let [name, artifact] of Object.entries(entries)) {
 			yield [name, artifact];
 		}
 	}
@@ -217,7 +260,7 @@ export class Directory {
 export namespace Directory {
 	export type Arg = undefined | Directory | ArgObject;
 
-	type ArgObject = {
+	export type ArgObject = {
 		[key: string]:
 			| undefined
 			| string
@@ -229,9 +272,11 @@ export namespace Directory {
 
 	export type Id = string;
 
-	export type Object = {
-		entries: { [key: string]: tg.Artifact };
-	};
+	export type Object =
+		| {
+				entries: { [key: string]: tg.Artifact };
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type State = tg.Object.State<Directory.Id, Directory.Object>;
 }

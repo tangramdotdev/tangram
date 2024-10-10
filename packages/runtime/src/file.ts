@@ -44,10 +44,9 @@ export class File {
 				) {
 					return { contents: arg };
 				} else if (arg instanceof File) {
-					let object = await arg.object();
 					return {
-						contents: object.contents,
-						dependencies: object.dependencies,
+						contents: await arg.contents(),
+						dependencies: await arg.dependencies(),
 					};
 				} else {
 					return arg;
@@ -111,13 +110,79 @@ export class File {
 	}
 
 	async contents(): Promise<tg.Blob> {
-		return (await this.object()).contents;
+		const object = await this.object();
+		if ("contents" in object) {
+			return object.contents;
+		} else {
+			const graph = object.graph;
+			const nodes = await graph.nodes();
+			const fileNode = nodes[object.node];
+			tg.assert(fileNode !== undefined, `invalid index ${object.node}`);
+			tg.assert(
+				fileNode.kind === "file",
+				`expected a file node, got ${fileNode}`,
+			);
+			return fileNode.contents;
+		}
 	}
 
 	async dependencies(): Promise<
 		{ [reference: string]: File.Dependency } | undefined
 	> {
-		return (await this.object()).dependencies;
+		const object = await this.object();
+		if ("dependencies" in object) {
+			return object.dependencies;
+		} else {
+			const graph = object.graph;
+			const nodes = await graph.nodes();
+			const fileNode = nodes[object.node];
+			tg.assert(fileNode !== undefined, `invalid index ${object.node}`);
+			tg.assert(
+				fileNode.kind === "file",
+				`expected a file node, got ${fileNode}`,
+			);
+			const dependencies = fileNode.dependencies;
+			if (dependencies === undefined) {
+				return undefined;
+			}
+			return Object.fromEntries(
+				Object.entries(dependencies).map(([reference, dependency]) => {
+					let object: tg.Object | undefined;
+					if (typeof dependency.object === "number") {
+						const node = nodes[dependency.object];
+						tg.assert(node !== undefined, `invalid index ${dependency.object}`);
+						switch (node.kind) {
+							case "directory": {
+								object = new tg.Directory({
+									object: { graph, node: dependency.object },
+								});
+								break;
+							}
+							case "file": {
+								object = new tg.File({
+									object: { graph, node: dependency.object },
+								});
+								break;
+							}
+							case "symlink": {
+								object = new tg.Symlink({
+									object: { graph, node: dependency.object },
+								});
+								break;
+							}
+						}
+					} else {
+						object = dependency.object;
+					}
+					tg.assert(object !== undefined);
+					const dep = {
+						...dependency,
+						object,
+					};
+					return [reference, dep];
+				}),
+			);
+		}
 	}
 
 	async dependencyObjects(): Promise<Array<tg.Object>> {
@@ -130,7 +195,20 @@ export class File {
 	}
 
 	async executable(): Promise<boolean> {
-		return (await this.object()).executable;
+		const object = await this.object();
+		if ("executable" in object) {
+			return object.executable;
+		} else {
+			const graph = object.graph;
+			const nodes = await graph.nodes();
+			const fileNode = nodes[object.node];
+			tg.assert(fileNode !== undefined, `invalid index ${object.node}`);
+			tg.assert(
+				fileNode.kind === "file",
+				`expected a file node, got ${fileNode}`,
+			);
+			return fileNode.executable;
+		}
 	}
 
 	async size(): Promise<number> {
@@ -163,11 +241,13 @@ export namespace File {
 
 	export type Id = string;
 
-	export type Object = {
-		contents: tg.Blob;
-		dependencies: { [reference: string]: Dependency } | undefined;
-		executable: boolean;
-	};
+	export type Object =
+		| {
+				contents: tg.Blob;
+				dependencies: { [reference: string]: Dependency } | undefined;
+				executable: boolean;
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type Dependency = {
 		object: tg.Object;
