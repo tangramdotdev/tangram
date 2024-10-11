@@ -5406,6 +5406,7 @@ dependencies = [
  "tangram_ignore",
  "tangram_messenger",
  "tangram_semver",
+ "tangram_v8",
  "tangram_vfs",
  "tar",
  "time",
@@ -5434,6 +5435,19 @@ dependencies = [
  "serde_with",
  "tangram_either",
  "urlencoding",
+]
+
+[[package]]
+name = "tangram_v8"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "derive_more",
+ "num",
+ "serde",
+ "tangram_client",
+ "tangram_either",
+ "v8",
 ]
 
 [[package]]

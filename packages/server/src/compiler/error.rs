@@ -1,9 +1,9 @@
 use super::SOURCE_MAP;
-use crate::runtime::js::{FromV8 as _, Serde, ToV8 as _};
 use num::ToPrimitive as _;
 use sourcemap::SourceMap;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_client as tg;
+use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,7 +74,7 @@ pub(super) fn from_exception<'s>(
 		.and_then(|exception| exception.get(scope, stack.into()))
 		.and_then(|value| {
 			<Serde<StackTrace>>::from_v8(scope, value)
-				.map(crate::runtime::js::Serde::into_inner)
+				.map(Serde::into_inner)
 				.ok()
 		}) {
 		let stack = stack

@@ -12,13 +12,11 @@ use std::{
 	task::Poll,
 };
 use tangram_client as tg;
+use tangram_v8::{FromV8 as _, ToV8};
 use tokio::io::AsyncWriteExt as _;
 
-mod convert;
 mod error;
 mod syscall;
-
-pub use self::convert::{FromV8, Serde, ToV8};
 
 const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.heapsnapshot"));
 

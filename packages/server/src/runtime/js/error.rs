@@ -1,10 +1,8 @@
-use super::{
-	convert::{FromV8 as _, Serde, ToV8 as _},
-	State,
-};
+use super::State;
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 use tangram_client as tg;
+use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,7 +86,7 @@ pub(super) fn from_exception<'s>(
 		.and_then(|exception| exception.get(scope, stack.into()))
 		.and_then(|value| {
 			<Serde<StackTrace>>::from_v8(scope, value)
-				.map(super::convert::Serde::into_inner)
+				.map(Serde::into_inner)
 				.ok()
 		}) {
 		let stack = stack

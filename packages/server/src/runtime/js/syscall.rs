@@ -1,14 +1,11 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use super::{
-	convert::{FromV8, ToV8},
-	error::capture_stack_trace,
-	FutureOutput, State,
-};
+use super::{error::capture_stack_trace, FutureOutput, State};
 use futures::{Future, FutureExt as _};
 use itertools::Itertools as _;
 use std::rc::Rc;
 use tangram_client as tg;
+use tangram_v8::convert::{FromV8, ToV8};
 
 mod checksum;
 mod encoding;

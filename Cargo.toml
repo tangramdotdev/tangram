@@ -12,6 +12,7 @@ members = [
   "packages/semver",
   "packages/server",
   "packages/uri",
+  "packages/v8",
   "packages/vfs",
 ]
 resolver = "2"
@@ -128,6 +129,7 @@ tangram_messenger = { path = "packages/messenger" }
 tangram_semver = { path = "packages/semver" }
 tangram_server = { path = "packages/server" }
 tangram_uri = { path = "packages/uri" }
+tangram_v8 = { path = "packages/v8" }
 tangram_vfs = { path = "packages/vfs" }
 tar = { version = "0.4" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }

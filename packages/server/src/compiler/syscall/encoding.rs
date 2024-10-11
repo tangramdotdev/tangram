@@ -1,6 +1,7 @@
 use crate::compiler::Compiler;
 use bytes::Bytes;
 use tangram_client as tg;
+use tangram_v8::Serde;
 
 pub fn base64_decode(
 	_scope: &mut v8::HandleScope,
@@ -50,20 +51,21 @@ pub fn json_decode(
 	_scope: &mut v8::HandleScope,
 	_compiler: Compiler,
 	args: (String,),
-) -> tg::Result<serde_json::Value> {
+) -> tg::Result<Serde<serde_json::Value>> {
 	let (json,) = args;
 	let value = serde_json::from_str(&json)
 		.map_err(|source| tg::error!(!source, "failed to decode the string as json"))?;
+	let value = Serde::new(value);
 	Ok(value)
 }
 
 pub fn json_encode(
 	_scope: &mut v8::HandleScope,
 	_compiler: Compiler,
-	args: (serde_json::Value,),
+	args: (Serde<serde_json::Value>,),
 ) -> tg::Result<String> {
 	let (value,) = args;
-	let json = serde_json::to_string(&value)
+	let json = serde_json::to_string(&value.into_inner())
 		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(json)
 }
@@ -72,20 +74,21 @@ pub fn toml_decode(
 	_scope: &mut v8::HandleScope,
 	_compiler: Compiler,
 	args: (String,),
-) -> tg::Result<toml::Value> {
+) -> tg::Result<Serde<toml::Value>> {
 	let (toml,) = args;
 	let value = toml::from_str(&toml)
 		.map_err(|source| tg::error!(!source, "failed to decode the string as toml"))?;
+	let value = Serde::new(value);
 	Ok(value)
 }
 
 pub fn toml_encode(
 	_scope: &mut v8::HandleScope,
 	_compiler: Compiler,
-	args: (toml::Value,),
+	args: (Serde<toml::Value>,),
 ) -> tg::Result<String> {
 	let (value,) = args;
-	let toml = toml::to_string(&value)
+	let toml = toml::to_string(&value.into_inner())
 		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(toml)
 }
@@ -115,20 +118,21 @@ pub fn yaml_decode(
 	_scope: &mut v8::HandleScope,
 	_compiler: Compiler,
 	args: (String,),
-) -> tg::Result<serde_yaml::Value> {
+) -> tg::Result<Serde<serde_yaml::Value>> {
 	let (yaml,) = args;
 	let value = serde_yaml::from_str(&yaml)
 		.map_err(|source| tg::error!(!source, "failed to decode the string as yaml"))?;
+	let value = Serde::new(value);
 	Ok(value)
 }
 
 pub fn yaml_encode(
 	_scope: &mut v8::HandleScope,
 	_compiler: Compiler,
-	args: (serde_yaml::Value,),
+	args: (Serde<serde_yaml::Value>,),
 ) -> tg::Result<String> {
 	let (value,) = args;
-	let yaml = serde_yaml::to_string(&value)
+	let yaml = serde_yaml::to_string(&value.into_inner())
 		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(yaml)
 }

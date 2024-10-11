@@ -1,3 +1,4 @@
+pub use self::serde::Serde;
 use bytes::Bytes;
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, sync::Arc};
@@ -9,6 +10,7 @@ mod blob;
 mod branch;
 mod build;
 mod checksum;
+mod de;
 mod directory;
 mod error;
 mod file;
@@ -18,13 +20,12 @@ mod module;
 mod mutation;
 mod object;
 mod reference;
+mod ser;
 mod serde;
 mod symlink;
 mod target;
 mod template;
 mod value;
-
-pub use self::serde::Serde;
 
 pub trait ToV8 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>>;
@@ -751,59 +752,5 @@ impl FromV8 for Bytes {
 		};
 		let bytes = Bytes::copy_from_slice(slice);
 		Ok(bytes)
-	}
-}
-
-impl ToV8 for serde_json::Value {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let value = Serde::new(self);
-		let value = value.to_v8(scope)?;
-		Ok(value)
-	}
-}
-
-impl FromV8 for serde_json::Value {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = Serde::from_v8(scope, value)?.into_inner();
-		Ok(value)
-	}
-}
-
-impl ToV8 for toml::Value {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let value = Serde::new(self);
-		let value = value.to_v8(scope)?;
-		Ok(value)
-	}
-}
-
-impl FromV8 for toml::Value {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = Serde::from_v8(scope, value)?.into_inner();
-		Ok(value)
-	}
-}
-
-impl ToV8 for serde_yaml::Value {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let value = Serde::new(self);
-		let value = value.to_v8(scope)?;
-		Ok(value)
-	}
-}
-
-impl FromV8 for serde_yaml::Value {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = Serde::from_v8(scope, value)?.into_inner();
-		Ok(value)
 	}
 }

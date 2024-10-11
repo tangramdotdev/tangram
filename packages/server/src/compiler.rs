@@ -1,9 +1,5 @@
 use self::{document::Document, syscall::syscall};
-use crate::{
-	runtime::js::{FromV8 as _, Serde, ToV8 as _},
-	tmp::Tmp,
-	Server,
-};
+use crate::{tmp::Tmp, Server};
 use dashmap::DashMap;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt};
 use lsp::{notification::Notification as _, request::Request as _};
@@ -18,6 +14,7 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Stop;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 };
@@ -606,7 +603,7 @@ impl Compiler {
 
 			// Deserialize the response.
 			let result = Serde::from_v8(scope, response)
-				.map(crate::runtime::js::Serde::into_inner)
+				.map(Serde::into_inner)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the response"));
 			let response = match result {
 				Ok(response) => response,

@@ -1,9 +1,9 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
 use super::Compiler;
-use crate::runtime::js::{FromV8, ToV8};
 use itertools::Itertools as _;
 use tangram_client as tg;
+use tangram_v8::{FromV8, ToV8};
 
 mod document;
 mod encoding;

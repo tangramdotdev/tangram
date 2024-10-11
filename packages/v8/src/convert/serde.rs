@@ -1,15 +1,10 @@
-use self::{de::Deserializer, ser::Serializer};
-use super::{FromV8, ToV8};
+use super::{de::Deserializer, ser::Serializer, FromV8, ToV8};
 use tangram_client as tg;
-
-mod de;
-mod ser;
 
 pub struct Serde<T>(T);
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
-	Json(serde_json::Error),
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
