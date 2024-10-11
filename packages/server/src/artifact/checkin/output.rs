@@ -565,7 +565,7 @@ impl Server {
 		let hardlink_prohibited = if cfg!(target_os = "macos") {
 			static APP_DIR_RE: std::sync::LazyLock<regex::Regex> =
 				std::sync::LazyLock::new(|| regex::Regex::new(r"\.app/Contents/.+$").unwrap());
-			let path_string = path.display().to_string();
+			let path_string = path.normalize().display().to_string();
 			APP_DIR_RE.is_match(&path_string)
 		} else {
 			false
