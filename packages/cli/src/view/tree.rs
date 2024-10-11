@@ -1,3 +1,4 @@
+use super::commands::Commands;
 use futures::{
 	future::{self, BoxFuture},
 	stream::FuturesUnordered,
@@ -21,25 +22,60 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Task;
 
-use super::commands::Commands;
+pub struct Tree<H> {
+	pub(super) commands: Arc<Commands<H>>,
+	state: RwLock<State<H>>,
+}
+
+struct State<H> {
+	rect: Rect,
+	roots: Vec<Arc<RwLock<Node<H>>>>,
+	scroll: usize,
+	selected: Arc<RwLock<Node<H>>>,
+}
+
+struct Node<H> {
+	// Static data
+	options: Options,
+	provider: Provider,
+
+	// Dynamic data
+	build_children: Option<Vec<Arc<RwLock<Self>>>>,
+	indicator: Option<Indicator>,
+	log: Option<String>,
+	object_children: Option<Vec<Arc<RwLock<Self>>>>,
+	title: Option<String>,
+
+	// View data
+	is_root: bool,
+	parent: Option<Weak<RwLock<Self>>>,
+	selected: bool,
+
+	// Tasks
+	build_children_task: Option<Task<()>>,
+	log_task: Option<Task<()>>,
+	object_children_task: Option<Task<()>>,
+	status_task: Option<Task<()>>,
+	title_task: Option<Task<()>>,
+}
 
 #[derive(Copy, Clone, Debug)]
-pub struct ExpandOptions {
-	pub depth: Option<u32>,
-	pub object_children: bool,
-	pub build_children: bool,
+pub struct Options {
+	pub builds: bool,
 	pub collapse_builds_on_success: bool,
+	pub depth: Option<u32>,
+	pub objects: bool,
 }
 
 #[derive(Default)]
 pub struct Provider {
-	pub item: Option<Either<tg::Build, tg::Value>>,
-	pub name: Option<String>,
-	pub title: Option<Method<(), String>>,
-	pub build_children: Option<Method<tokio::sync::mpsc::UnboundedSender<Self>, ()>>,
-	pub object_children: Option<Method<(), Vec<Self>>>,
-	pub status: Option<Method<tokio::sync::watch::Sender<Indicator>, ()>>,
-	pub log: Option<Method<tokio::sync::watch::Sender<String>, ()>>,
+	build_children: Option<Method<tokio::sync::mpsc::UnboundedSender<Self>, ()>>,
+	item: Option<Either<tg::Build, tg::Value>>,
+	log: Option<Method<tokio::sync::watch::Sender<String>, ()>>,
+	name: Option<String>,
+	object_children: Option<Method<(), Vec<Self>>>,
+	status: Option<Method<tokio::sync::watch::Sender<Indicator>, ()>>,
+	title: Option<Method<(), String>>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -52,7 +88,7 @@ pub enum Indicator {
 	Succeeded,
 }
 
-type Method<T, U> = Box<dyn Sync + Send + FnMut(T) -> BoxFuture<'static, U>>;
+type Method<T, U> = Box<dyn FnMut(T) -> BoxFuture<'static, U> + Send + Sync>;
 
 impl Provider {
 	#[allow(clippy::needless_pass_by_value)]
@@ -368,52 +404,11 @@ impl Provider {
 	}
 }
 
-pub struct Tree<H> {
-	pub(super) commands: Arc<Commands<H>>,
-	state: RwLock<State<H>>,
-}
-
-struct State<H> {
-	rect: Rect,
-	scroll: usize,
-	roots: Vec<Arc<RwLock<Node<H>>>>,
-	selected: Arc<RwLock<Node<H>>>,
-}
-
-struct Node<H> {
-	// Static data
-	provider: Provider,
-	expand_options: ExpandOptions,
-
-	// Dynamic data
-	title: Option<String>,
-	build_children: Option<Vec<Arc<RwLock<Self>>>>,
-	object_children: Option<Vec<Arc<RwLock<Self>>>>,
-	indicator: Option<Indicator>,
-	log: Option<String>,
-
-	// View data
-	parent: Option<Weak<RwLock<Self>>>,
-	selected: bool,
-	is_root: bool,
-
-	// Tasks
-	build_children_task: Option<Task<()>>,
-	object_children_task: Option<Task<()>>,
-	status_task: Option<Task<()>>,
-	title_task: Option<Task<()>>,
-	log_task: Option<Task<()>>,
-}
-
 impl<H> Tree<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(
-		handle: &H,
-		item: Either<tg::Build, tg::Object>,
-		expand_options: ExpandOptions,
-	) -> Self {
+	pub fn new(handle: &H, item: Either<tg::Build, tg::Object>, expand_options: Options) -> Self {
 		let provider = match item {
 			Either::Left(build) => Provider::build(handle, None, None, build),
 			Either::Right(object) => Provider::object(handle, None, &object),
@@ -559,13 +554,13 @@ where
 
 			// Add the object children.
 			let object_children = node.object_children.iter().flatten().rev().cloned();
-			if node.expand_options.object_children {
+			if node.options.objects {
 				stack.extend(object_children);
 			}
 
 			// Add build children.
 			let build_children = node.build_children.iter().flatten().rev().cloned();
-			if node.expand_options.build_children {
+			if node.options.builds {
 				stack.extend(build_children);
 			}
 		}
@@ -620,7 +615,7 @@ where
 	H: tg::Handle,
 {
 	/// Expand children.
-	pub fn expand(&self, options: ExpandOptions) {
+	pub fn expand(&self, options: Options) {
 		Node::expand(&self.selected(), options);
 	}
 
@@ -679,12 +674,12 @@ where
 	fn new(
 		parent: Option<Arc<RwLock<Self>>>,
 		provider: Provider,
-		expand_options: ExpandOptions,
+		expand_options: Options,
 	) -> Arc<RwLock<Self>> {
 		let node = Node {
 			parent: parent.map(|parent| Arc::downgrade(&parent)),
 			provider,
-			expand_options,
+			options: expand_options,
 			title: None,
 			build_children: None,
 			object_children: None,
@@ -699,10 +694,10 @@ where
 			log_task: None,
 		};
 		let node = Arc::new(RwLock::new(node));
-		if expand_options.build_children {
+		if expand_options.builds {
 			Self::spawn_build_children_task(&node);
 		}
-		if expand_options.object_children {
+		if expand_options.objects {
 			Self::spawn_object_children_task(&node);
 		}
 		Self::spawn_title_task(&node);
@@ -760,27 +755,27 @@ impl<H> Node<H>
 where
 	H: tg::Handle,
 {
-	fn expand(self_: &Arc<RwLock<Self>>, options: ExpandOptions) {
-		self_.write().unwrap().expand_options = options;
+	fn expand(self_: &Arc<RwLock<Self>>, options: Options) {
+		self_.write().unwrap().options = options;
 		if matches!(options.depth, Some(0)) {
 			return;
 		}
-		if options.build_children {
+		if options.builds {
 			self_.write().unwrap().build_children.replace(Vec::new());
 			Self::spawn_build_children_task(self_);
 		}
-		if options.object_children {
+		if options.objects {
 			self_.write().unwrap().object_children.replace(Vec::new());
 			Self::spawn_object_children_task(self_);
 		}
 	}
 
 	fn is_collapsed(&self) -> bool {
-		!self.expand_options.build_children && !self.expand_options.object_children
+		!self.options.builds && !self.options.objects
 	}
 
 	fn collapse_build_children(&mut self) {
-		self.expand_options.build_children = false;
+		self.options.builds = false;
 		if let Some(task) = self.build_children_task.take() {
 			task.abort();
 		}
@@ -796,7 +791,7 @@ where
 	}
 
 	fn collapse_object_children(&mut self) {
-		self.expand_options.object_children = false;
+		self.options.objects = false;
 		if let Some(task) = self.object_children_task.take() {
 			task.abort();
 		}
@@ -903,7 +898,7 @@ where
 			let subtask = Task::spawn(|_| fut);
 			let parent = self_.clone();
 			async move {
-				if matches!(parent.read().unwrap().expand_options.depth, Some(0)) {
+				if matches!(parent.read().unwrap().options.depth, Some(0)) {
 					parent.write().unwrap().build_children.take();
 					return;
 				}
@@ -919,7 +914,7 @@ where
 							let Some(provider) = recv else {
 								break;
 							};
-							let mut options = parent.read().unwrap().expand_options;
+							let mut options = parent.read().unwrap().options;
 							options.depth = options.depth.map(|d| d.saturating_sub(1));
 							let child = Self::new(Some(parent.clone()), provider, options);
 
@@ -952,7 +947,7 @@ where
 		let task = Task::spawn({
 			let parent = self_.clone();
 			move |_| async move {
-				let mut options = parent.read().unwrap().expand_options;
+				let mut options = parent.read().unwrap().options;
 				if matches!(options.depth, Some(0)) {
 					parent.write().unwrap().object_children.take();
 					return;
@@ -1035,7 +1030,7 @@ where
 				let child = self_.read().unwrap();
 				let parent = child.parent();
 				let indicator = child.indicator;
-				let options = child.expand_options;
+				let options = child.options;
 				match (parent, indicator) {
 					(Some(parent), Some(Indicator::Succeeded))
 						if options.collapse_builds_on_success
@@ -1114,7 +1109,8 @@ where
 	H: tg::Handle,
 {
 	pub fn to_tree(&self) -> crate::tree::Tree {
-		use crossterm::style::Stylize;
+		use crossterm::style::Stylize as _;
+
 		let mut title = String::new();
 		match self.indicator {
 			Some(Indicator::Created) => write!(title, "{} ", "⟳".yellow()).unwrap(),
@@ -1145,14 +1141,14 @@ where
 			write!(title, " {log}").unwrap();
 		}
 
-		if self.expand_options.depth == Some(0) {
+		if self.options.depth == Some(0) {
 			return crate::tree::Tree {
 				title,
 				children: Vec::new(),
 			};
 		};
 		let mut children = Vec::new();
-		if self.expand_options.build_children {
+		if self.options.builds {
 			let build_children = self
 				.build_children
 				.iter()
@@ -1160,7 +1156,7 @@ where
 				.map(|child| child.read().unwrap().to_tree());
 			children.extend(build_children);
 		}
-		if self.expand_options.object_children {
+		if self.options.objects {
 			let object_children = self
 				.object_children
 				.iter()
@@ -1168,6 +1164,7 @@ where
 				.map(|child| child.read().unwrap().to_tree());
 			children.extend(object_children);
 		}
+
 		crate::tree::Tree { title, children }
 	}
 }
@@ -1201,7 +1198,7 @@ where
 	H: tg::Handle,
 {
 	fn render(self_: &Arc<RwLock<Self>>, area: Rect, buf: &mut Buffer) {
-		use ratatui::style::Stylize;
+		use ratatui::style::Stylize as _;
 
 		let ancestors = Self::ancestors(self_);
 		let is_last_child = Self::is_last_child(self_);

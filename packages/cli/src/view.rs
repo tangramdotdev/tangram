@@ -58,10 +58,10 @@ impl Cli {
 		};
 
 		// Get the node kind.
-		let expand_options = tree::ExpandOptions {
+		let expand_options = tree::Options {
 			depth: None,
-			object_children: false,
-			build_children: false,
+			objects: false,
+			builds: false,
 			collapse_builds_on_success: false,
 		};
 		let tree = tree::Tree::new(&handle, item, expand_options);

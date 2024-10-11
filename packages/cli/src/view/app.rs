@@ -287,10 +287,10 @@ where
 	}
 
 	pub fn expand_children(&self) {
-		let options = tree::ExpandOptions {
+		let options = tree::Options {
 			depth: Some(1),
-			object_children: true,
-			build_children: true,
+			objects: true,
+			builds: true,
 			collapse_builds_on_success: false,
 		};
 		self.tree.expand(options);

@@ -34,10 +34,10 @@ impl Cli {
 		let item = self.get_reference(&args.reference).await.map_err(
 			|source| tg::error!(!source, %reference = args.reference, "failed to get the reference"),
 		)?;
-		let expand_options = crate::view::tree::ExpandOptions {
+		let expand_options = crate::view::tree::Options {
 			depth: args.depth,
-			object_children: true,
-			build_children: true,
+			objects: true,
+			builds: true,
 			collapse_builds_on_success: true,
 		};
 		Self::print_tree(self.handle().await?.clone(), item, expand_options).await
@@ -46,7 +46,7 @@ impl Cli {
 	pub async fn print_tree(
 		handle: impl tg::Handle,
 		item: Either<tg::Build, tg::Object>,
-		expand_options: crate::view::tree::ExpandOptions,
+		expand_options: crate::view::tree::Options,
 	) -> tg::Result<()> {
 		let tree = crate::view::tree::Tree::new(&handle, item.clone(), expand_options);
 
