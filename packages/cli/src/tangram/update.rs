@@ -1,13 +1,13 @@
 use crate::Cli;
 use tangram_client as tg;
 
-/// Upgrade to the latest version of Tangram.
+/// Update Tangram to the latest version.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {}
 
 impl Cli {
-	pub async fn command_upgrade(&self, _args: Args) -> tg::Result<()> {
+	pub async fn command_tangram_update(&self, _args: Args) -> tg::Result<()> {
 		tokio::process::Command::new("/bin/sh")
 			.args(["-c", "curl -sSL https://www.tangram.dev/install.sh | sh"])
 			.status()

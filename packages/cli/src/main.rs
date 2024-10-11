@@ -27,9 +27,9 @@ mod push;
 mod remote;
 mod server;
 mod tag;
+mod tangram;
 mod target;
 mod tree;
-mod upgrade;
 mod view;
 
 struct Cli {
@@ -125,10 +125,11 @@ enum Command {
 	Serve(self::server::run::Args),
 	Server(self::server::Args),
 	Tag(self::tag::Args),
+	#[command(alias = "self")]
+	Tangram(self::tangram::Args),
 	Target(self::target::Args),
 	Tree(self::tree::Args),
 	Update(self::package::update::Args),
-	Upgrade(self::upgrade::Args),
 	View(self::view::Args),
 }
 
@@ -803,10 +804,10 @@ impl Cli {
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Tag(args) => self.command_tag(args).boxed(),
+			Command::Tangram(args) => self.command_tangram(args).boxed(),
 			Command::Target(args) => self.command_target(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),
-			Command::Upgrade(args) => self.command_upgrade(args).boxed(),
 			Command::View(args) => self.command_view(args).boxed(),
 		}
 		.await
