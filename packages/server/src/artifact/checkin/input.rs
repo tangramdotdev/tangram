@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{future, stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt};
+use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	path::{Path, PathBuf},

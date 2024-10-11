@@ -14,7 +14,7 @@ version = { workspace = true }
 workspace = true
 
 [[bin]]
-name = "tg"
+name = "tangram"
 path = "src/main.rs"
 
 [dependencies]

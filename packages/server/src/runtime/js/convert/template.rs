@@ -5,13 +5,13 @@ impl ToV8 for tg::Template {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let template =
 			v8::String::new_external_onebyte_static(scope, "Template".as_bytes()).unwrap();
-		let template = tg.get(scope, template.into()).unwrap();
+		let template = tangram.get(scope, template.into()).unwrap();
 		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
 
 		let components = self.components().to_v8(scope)?;
@@ -31,13 +31,13 @@ impl FromV8 for tg::Template {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let template =
 			v8::String::new_external_onebyte_static(scope, "Template".as_bytes()).unwrap();
-		let template = tg.get(scope, template.into()).unwrap();
+		let template = tangram.get(scope, template.into()).unwrap();
 		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
 
 		if !value.instance_of(scope, template.into()).unwrap() {
@@ -71,21 +71,21 @@ impl FromV8 for tg::template::Component {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let directory =
 			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
+		let directory = tangram.get(scope, directory.into()).unwrap();
 		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
 
 		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
-		let file = tg.get(scope, file.into()).unwrap();
+		let file = tangram.get(scope, file.into()).unwrap();
 		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
 
 		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
-		let symlink = tg.get(scope, symlink.into()).unwrap();
+		let symlink = tangram.get(scope, symlink.into()).unwrap();
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 
 		let component = if value.is_string() {

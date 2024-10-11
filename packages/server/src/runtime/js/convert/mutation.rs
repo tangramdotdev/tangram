@@ -97,13 +97,13 @@ impl ToV8 for tg::Mutation {
 
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let mutation =
 			v8::String::new_external_onebyte_static(scope, "Mutation".as_bytes()).unwrap();
-		let mutation = tg.get(scope, mutation.into()).unwrap();
+		let mutation = tangram.get(scope, mutation.into()).unwrap();
 		let mutation = v8::Local::<v8::Function>::try_from(mutation).unwrap();
 
 		let instance = mutation
@@ -120,13 +120,13 @@ impl FromV8 for tg::Mutation {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let mutation =
 			v8::String::new_external_onebyte_static(scope, "Mutation".as_bytes()).unwrap();
-		let mutation = tg.get(scope, mutation.into()).unwrap();
+		let mutation = tangram.get(scope, mutation.into()).unwrap();
 		let mutation = v8::Local::<v8::Function>::try_from(mutation).unwrap();
 
 		if !value.instance_of(scope, mutation.into()).unwrap() {

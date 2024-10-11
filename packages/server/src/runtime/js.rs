@@ -219,14 +219,15 @@ impl Runtime {
 			let context = v8::Local::new(scope, context.clone());
 			let scope = &mut v8::ContextScope::new(scope, context);
 
-			// Get the tg global.
-			let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-			let tg = context.global(scope).get(scope, tg.into()).unwrap();
-			let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+			// Get the Tangram global.
+			let tangram =
+				v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+			let tangram = context.global(scope).get(scope, tangram.into()).unwrap();
+			let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 			// Get the start function.
 			let start = v8::String::new_external_onebyte_static(scope, "start".as_bytes()).unwrap();
-			let start = tg.get(scope, start.into()).unwrap();
+			let start = tangram.get(scope, start.into()).unwrap();
 			let start = v8::Local::<v8::Function>::try_from(start).unwrap();
 
 			// Call the start function.

@@ -569,11 +569,11 @@ impl Compiler {
 
 		// Get the handle function.
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 		let handle = v8::String::new_external_onebyte_static(scope, "handle".as_bytes()).unwrap();
-		let handle = tg.get(scope, handle.into()).unwrap();
+		let handle = tangram.get(scope, handle.into()).unwrap();
 		let handle = v8::Local::<v8::Function>::try_from(handle).unwrap();
 
 		while let Some((request, response_sender)) = request_receiver.blocking_recv() {

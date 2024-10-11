@@ -17,8 +17,8 @@
 					"type": "boolean"
 				},
 				"tangram.path": {
-					"default": "tg",
-					"description": "Specify the path to the `tg` binary.",
+					"default": "tangram",
+					"description": "Specify the path to the Tangram binary.",
 					"scope": "window",
 					"type": "string"
 				}

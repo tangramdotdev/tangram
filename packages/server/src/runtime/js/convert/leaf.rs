@@ -5,12 +5,12 @@ impl ToV8 for tg::Leaf {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tg.get(scope, leaf.into()).unwrap();
+		let leaf = tangram.get(scope, leaf.into()).unwrap();
 		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
@@ -30,12 +30,12 @@ impl FromV8 for tg::Leaf {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tg.get(scope, leaf.into()).unwrap();
+		let leaf = tangram.get(scope, leaf.into()).unwrap();
 		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
 
 		if !value.instance_of(scope, leaf.into()).unwrap() {

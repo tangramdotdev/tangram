@@ -25,47 +25,47 @@ impl FromV8 for tg::Value {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tg.get(scope, leaf.into()).unwrap();
+		let leaf = tangram.get(scope, leaf.into()).unwrap();
 		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
 
 		let branch = v8::String::new_external_onebyte_static(scope, "Branch".as_bytes()).unwrap();
-		let branch = tg.get(scope, branch.into()).unwrap();
+		let branch = tangram.get(scope, branch.into()).unwrap();
 		let branch = v8::Local::<v8::Function>::try_from(branch).unwrap();
 
 		let directory =
 			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
+		let directory = tangram.get(scope, directory.into()).unwrap();
 		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
 
 		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
-		let file = tg.get(scope, file.into()).unwrap();
+		let file = tangram.get(scope, file.into()).unwrap();
 		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
 
 		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
-		let symlink = tg.get(scope, symlink.into()).unwrap();
+		let symlink = tangram.get(scope, symlink.into()).unwrap();
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 
 		let graph = v8::String::new_external_onebyte_static(scope, "Graph".as_bytes()).unwrap();
-		let graph = tg.get(scope, graph.into()).unwrap();
+		let graph = tangram.get(scope, graph.into()).unwrap();
 		let graph = v8::Local::<v8::Function>::try_from(graph).unwrap();
 
 		let target = v8::String::new_external_onebyte_static(scope, "Target".as_bytes()).unwrap();
-		let target = tg.get(scope, target.into()).unwrap();
+		let target = tangram.get(scope, target.into()).unwrap();
 		let target = v8::Local::<v8::Function>::try_from(target).unwrap();
 
 		let mutation =
 			v8::String::new_external_onebyte_static(scope, "Mutation".as_bytes()).unwrap();
-		let mutation = tg.get(scope, mutation.into()).unwrap();
+		let mutation = tangram.get(scope, mutation.into()).unwrap();
 		let mutation = v8::Local::<v8::Function>::try_from(mutation).unwrap();
 
 		let template =
 			v8::String::new_external_onebyte_static(scope, "Template".as_bytes()).unwrap();
-		let template = tg.get(scope, template.into()).unwrap();
+		let template = tangram.get(scope, template.into()).unwrap();
 		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
 
 		if value.is_null_or_undefined() {

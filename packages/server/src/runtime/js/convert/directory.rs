@@ -5,13 +5,13 @@ impl ToV8 for tg::Directory {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let directory =
 			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
+		let directory = tangram.get(scope, directory.into()).unwrap();
 		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
 
 		let state = self.state().read().unwrap().to_v8(scope)?;
@@ -31,13 +31,13 @@ impl FromV8 for tg::Directory {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-		let tg = global.get(scope, tg.into()).unwrap();
-		let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = global.get(scope, tangram.into()).unwrap();
+		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 		let directory =
 			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tg.get(scope, directory.into()).unwrap();
+		let directory = tangram.get(scope, directory.into()).unwrap();
 		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
 
 		if !value.instance_of(scope, directory.into()).unwrap() {

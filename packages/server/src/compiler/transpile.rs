@@ -198,7 +198,7 @@ impl TargetVisitor {
 			n.visit_mut_children_with(self);
 			return;
 		};
-		if !(&obj.sym == "tg" && &prop.sym == "target") {
+		if !((&obj.sym == "Tangram" || &obj.sym == "tg") && &prop.sym == "target") {
 			n.visit_mut_children_with(self);
 			return;
 		}

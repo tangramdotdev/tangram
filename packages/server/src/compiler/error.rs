@@ -42,12 +42,12 @@ pub(super) fn from_exception<'s>(
 ) -> tg::Error {
 	let context = scope.get_current_context();
 	let global = context.global(scope);
-	let tg = v8::String::new_external_onebyte_static(scope, "tg".as_bytes()).unwrap();
-	let tg = global.get(scope, tg.into()).unwrap();
-	let tg = v8::Local::<v8::Object>::try_from(tg).unwrap();
+	let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+	let tangram = global.get(scope, tangram.into()).unwrap();
+	let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 	let error = v8::String::new_external_onebyte_static(scope, "Error".as_bytes()).unwrap();
-	let error = tg.get(scope, error.into()).unwrap();
+	let error = tangram.get(scope, error.into()).unwrap();
 	let error = v8::Local::<v8::Function>::try_from(error).unwrap();
 
 	if exception

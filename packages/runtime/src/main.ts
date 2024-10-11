@@ -10,7 +10,9 @@ Object.defineProperties(globalThis, {
 	},
 });
 
-Object.assign(tg.template, tg);
+let Tangram = tg.template;
+Object.assign(Tangram, tg);
 Object.defineProperties(globalThis, {
-	tg: { value: tg.template },
+	Tangram: { value: Tangram },
+	tg: { value: Tangram },
 });

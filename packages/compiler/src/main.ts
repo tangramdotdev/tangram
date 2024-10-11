@@ -78,11 +78,12 @@ let handle = ({ kind, request }: Request): Response => {
 	}
 };
 
-let tg = {
+let Tangram = {
 	Error: Error_,
 	handle,
 };
 
 Object.defineProperties(globalThis, {
-	tg: { value: tg },
+	Tangram: { value: Tangram },
+	tg: { value: Tangram },
 });
