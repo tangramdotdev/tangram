@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{future, stream::FuturesUnordered, StreamExt, TryStreamExt};
+use futures::{future, stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt};
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	path::{Path, PathBuf},
@@ -264,21 +264,29 @@ impl Server {
 	}
 
 	async fn try_resolve_symlink_node(&self, mut node: Node) -> tg::Result<Option<Node>> {
+		let mut visited = BTreeSet::new();
 		loop {
 			let strong = match &node {
 				Either::Left(strong) => strong.clone(),
 				Either::Right(weak) => weak.upgrade().unwrap(),
 			};
 			let strong_ = strong.read().await;
+			if visited.contains(&strong_.arg.path) {
+				return Err(
+					tg::error!(%path = strong_.arg.path.display(), "too many levels of symbolic links"),
+				);
+			}
+			visited.insert(strong_.arg.path.clone());
 			if strong_.metadata.is_symlink() {
 				let Some(next) = strong_.edges.first().and_then(|edge| edge.graph.clone()) else {
 					return Ok(None);
 				};
 				node = next;
-			} else {
-				return Ok(Some(node));
+				continue;
 			}
+			break;
 		}
+		Ok(Some(node))
 	}
 
 	async fn get_edges(
@@ -322,7 +330,8 @@ impl Server {
 		} else if metadata.is_file() {
 			Box::pin(self.get_file_edges(referrer, path, arg, state, progress)).await
 		} else if metadata.is_symlink() {
-			Box::pin(self.get_symlink_edges(referrer, path, arg, state, progress)).await
+			let parent = referrer.read().await.parent.clone();
+			Box::pin(self.get_symlink_edges(parent, referrer, path, arg, state, progress)).await
 		} else {
 			Err(tg::error!("invalid file type"))
 		}
@@ -643,6 +652,7 @@ impl Server {
 
 	async fn get_symlink_edges(
 		&self,
+		parent: Option<Weak<RwLock<Graph>>>,
 		referrer: Arc<RwLock<Graph>>,
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
@@ -659,7 +669,7 @@ impl Server {
 			return Ok(Vec::new());
 		}
 
-		let parent = referrer.read().await.parent.clone().map(Either::Right);
+		let parent = parent.map(Either::Right);
 
 		// Get the absolute path of the target.
 		let target_absolute_path = path.parent().unwrap().join(&target);
@@ -846,16 +856,19 @@ impl Server {
 				parent: Some(Arc::downgrade(&referrer)),
 			}));
 
+			// Acquire a write lock on the node, to prevent concurrent readers from attempting to resolve through it before its edges have been explored.
+			let mut node = child.write().await;
+
 			// Update state.
 			state_.visited.insert(path.clone(), Arc::downgrade(&child));
 			drop(state_);
 
 			// Follow symlinks.
 			if metadata.is_symlink() {
-				let edges = self
-					.get_symlink_edges(child.clone(), &path, arg, state, progress)
+				let parent = Some(Arc::downgrade(&referrer.clone()));
+				node.edges = self
+					.get_symlink_edges(parent, child.clone(), &path, arg, state, progress)
 					.await?;
-				child.write().await.edges = edges;
 			}
 
 			// Update the referrer.
@@ -866,7 +879,7 @@ impl Server {
 				tag: None,
 			};
 			add_edge(referrer, edge).await;
-
+			drop(node);
 			Either::Left(child)
 		};
 
