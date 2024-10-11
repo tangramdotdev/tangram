@@ -122,10 +122,10 @@ impl FromV8 for tg::file::Object {
 		let graph = <_>::from_v8(scope, graph)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the graph"))?;
 		if let Some(graph) = graph {
-			let node = v8::String::new_external_onebyte_static(scope, "node ".as_bytes()).unwrap();
+			let node = v8::String::new_external_onebyte_static(scope, "node".as_bytes()).unwrap();
 			let node = value.get(scope, node.into()).unwrap();
 			let node = <_>::from_v8(scope, node)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the node "))?;
+				.map_err(|source| tg::error!(!source, "failed to deserialize the node"))?;
 			return Ok(Self::Graph { graph, node });
 		}
 
