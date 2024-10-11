@@ -1,13 +1,7 @@
-use super::{
-	input,
-	unify::{self, Id},
-};
+use super::{input, object};
 use crate::Server;
-use futures::{stream::FuturesUnordered, TryStreamExt};
-use itertools::Itertools;
 use std::{
 	collections::{BTreeMap, BTreeSet},
-	os::unix::fs::PermissionsExt,
 	path::PathBuf,
 	sync::Arc,
 };
@@ -15,246 +9,140 @@ use tangram_client as tg;
 use tangram_either::Either;
 
 impl Server {
-	// Create one giant lockfile for the entire graph, and return a table of nodes within that lockfile that correspond to path dependencies.
-	pub(super) async fn create_lockfile(
-		&self,
-		graph: &unify::Graph,
-		root: &Id,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<(tg::Lockfile, BTreeMap<PathBuf, usize>)> {
-		let mut paths = BTreeMap::new();
-
-		// Compute the new lockfile IDs and paths.
-		let mut stack = Vec::with_capacity(graph.nodes.len());
-		stack.push(root);
-		let mut ids = BTreeMap::new();
-		let mut counter = 0;
-		while let Some(old_id) = stack.pop() {
-			if ids.contains_key(old_id) {
-				continue;
-			}
-			let node = graph
-				.nodes
-				.get(old_id)
-				.ok_or_else(|| tg::error!("missing node in graph"))?;
-			match &node.object {
-				Either::Left(input) => {
-					// Get a new index for this node.
-					let index = counter;
-					counter += 1;
-					ids.insert(old_id, Either::Left(index));
-
-					// Add the path of this node to the paths table.
-					let input = input.read().await;
-					paths.insert(input.arg.path.clone(), index);
-				},
-				Either::Right(object) => {
-					ids.insert(old_id, Either::Right(object.clone()));
-				},
-			}
-			stack.extend(node.outgoing.values());
+	pub(super) async fn create_lockfile(&self, graph: &object::Graph) -> tg::Result<tg::Lockfile> {
+		let mut nodes = Vec::new();
+		for node in 0..graph.nodes.len() {
+			let node = self.create_lockfile_node(graph, node).await?;
+			nodes.push(node);
 		}
+		let nodes = self.strip_nodes(&nodes, 0);
+		Ok(tg::Lockfile { nodes })
+	}
 
-		// Compute the new dependencies for each node.
-		let dependencies = ids
+	async fn create_lockfile_node(
+		&self,
+		graph: &object::Graph,
+		node: usize,
+	) -> tg::Result<tg::lockfile::Node> {
+		let data = graph.nodes[node].data.as_ref().unwrap();
+		match data {
+			tg::artifact::Data::Directory(data) => {
+				self.create_lockfile_directory_node(graph, node, data).await
+			},
+			tg::artifact::Data::File(data) => {
+				self.create_lockfile_file_node(graph, node, data).await
+			},
+			tg::artifact::Data::Symlink(data) => {
+				self.create_lockfile_symlink_node2(graph, node, data).await
+			},
+		}
+	}
+
+	async fn create_lockfile_directory_node(
+		&self,
+		graph: &object::Graph,
+		node: usize,
+		_data: &tg::directory::Data,
+	) -> tg::Result<tg::lockfile::Node> {
+		let entries = graph.nodes[node]
+			.edges
 			.iter()
-			.filter_map(|(old_id, new_id)| {
-				if new_id.is_right() {
-					return None;
-				}
-				let node = graph.nodes.get(old_id).unwrap();
-				let dependencies = node
-					.outgoing
-					.iter()
-					.map(|(reference, old_id)| {
-						let object = ids.get(old_id).unwrap().clone();
-						let tag = graph.nodes.get(old_id).unwrap().tag.clone();
-						let dependency = tg::lockfile::Dependency { object, tag };
-						(reference.clone(), dependency)
-					})
-					.collect::<BTreeMap<_, _>>();
-				Some((*old_id, dependencies))
+			.map(|edge| {
+				let name = edge
+					.reference
+					.path()
+					.unwrap_path_ref()
+					.components()
+					.next()
+					.unwrap()
+					.as_os_str()
+					.to_str()
+					.unwrap()
+					.to_owned();
+				let entry = self.get_lockfile_entry(graph, edge.index);
+				(name, entry)
 			})
-			.collect::<BTreeMap<_, _>>();
-
-		// Create the nodes concurrently.
-		let mut nodes = dependencies
-			.into_iter()
-			.map(|(old_id, dependencies)| async {
-				let node = graph.nodes.get(old_id).unwrap();
-				let input = node.object.as_ref().unwrap_left().read().await.clone();
-
-				let node = if input.metadata.is_dir() {
-					let entries = dependencies
-						.iter()
-						.map(|(reference, dependency)| {
-							let name = reference
-								.path()
-								.try_unwrap_path_ref()
-								.map_err(
-									|_| tg::error!(%reference, "invalid input graph, expected a path"),
-								)?
-								.components()
-								.last()
-								.ok_or_else(
-									|| tg::error!(%reference, "invalid input graph, expected a non-empty path"),
-								)?;
-							let std::path::Component::Normal(name) = name else {
-								return Err(
-									tg::error!(%reference, "expected a normal path component"),
-								);
-							};
-							let name = name
-								.to_str()
-								.ok_or_else(|| tg::error!("invalid path"))?
-								.to_owned();
-							let id = match &dependency.object {
-								Either::Left(id) => Either::Left(*id),
-								Either::Right(tg::object::Id::Directory(id)) => {
-									Either::Right(id.clone().into())
-								},
-								Either::Right(tg::object::Id::File(id)) => {
-									Either::Right(id.clone().into())
-								},
-								Either::Right(tg::object::Id::Symlink(id)) => {
-									Either::Right(id.clone().into())
-								},
-								Either::Right(object) => {
-									return Err(tg::error!(
-										%kind = object.kind(),
-										"invalid input graph, expected an artifact"
-									))
-								},
-							};
-							Ok::<_, tg::Error>((name, id))
-						})
-						.try_collect()?;
-					tg::lockfile::Node::Directory { entries }
-				} else if input.metadata.is_file() {
-					self.create_lockfile_file_node(input, dependencies, progress)
-						.await?
-				} else if input.metadata.is_symlink() {
-					let dependency = dependencies.values().next().cloned();
-					self.create_lockfile_symlink_node(input, dependency).await?
-				} else {
-					return Err(tg::error!("unknown file type"));
-				};
-				let index = *ids.get(old_id).unwrap().as_ref().unwrap_left();
-				Ok::<_, tg::Error>((index, node))
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-		nodes.sort_unstable_by_key(|(k, _)| *k);
-		let nodes = nodes.into_iter().map(|(_, n)| n).collect();
-
-		// Create the lockfile.
-		let lockfile = tg::Lockfile { nodes };
-
-		Ok((lockfile, paths))
+			.collect();
+		Ok(tg::lockfile::Node::Directory { entries })
 	}
 
 	async fn create_lockfile_file_node(
 		&self,
-		input: input::Graph,
-		dependencies: BTreeMap<tg::Reference, tg::lockfile::Dependency>,
-		_progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		graph: &object::Graph,
+		node: usize,
+		data: &tg::file::Data,
 	) -> tg::Result<tg::lockfile::Node> {
-		let input::Graph { arg, metadata, .. } = input;
-
-		// Read the file contents.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let file = tokio::fs::File::open(&arg.path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read file"))?;
-		let output = self
-			.create_blob_inner(file, None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create blob"))?;
-		drop(permit);
-
-		// Sanity check.
-		if !dependencies.is_empty() && input.edges.is_empty() {
-			return Err(tg::error!("invalid input"));
-		}
-
-		let contents = Some(output.blob);
-		let executable = metadata.permissions().mode() & 0o111 != 0;
-
-		// Create the data.
+		let (contents, executable) = match data {
+			tg::file::Data::Graph { graph, node } => {
+				let file = tg::Graph::with_id(graph.clone()).object(self).await?.nodes[*node]
+					.clone()
+					.try_unwrap_file()
+					.unwrap();
+				let contents = file.contents.id(self).await?;
+				let executable = file.executable;
+				(contents, executable)
+			},
+			tg::file::Data::Normal {
+				contents,
+				executable,
+				..
+			} => (contents.clone(), *executable),
+		};
+		let dependencies = graph.nodes[node]
+			.edges
+			.iter()
+			.map(|edge| {
+				let reference = edge.reference.clone();
+				let tag = edge.tag.clone();
+				let object = self.get_lockfile_entry(graph, edge.index);
+				let dependency = tg::lockfile::Dependency { object, tag };
+				(reference, dependency)
+			})
+			.collect();
 		Ok(tg::lockfile::Node::File {
-			contents,
+			contents: Some(contents),
 			dependencies,
 			executable,
 		})
 	}
 
-	async fn create_lockfile_symlink_node(
+	async fn create_lockfile_symlink_node2(
 		&self,
-		input: input::Graph,
-		dependency: Option<tg::lockfile::Dependency>,
+		graph: &object::Graph,
+		node: usize,
+		data: &tg::symlink::Data,
 	) -> tg::Result<tg::lockfile::Node> {
-		let (artifact, path) = 'a: {
-			let edge = input.edges.first().unwrap();
-			let target = edge.reference.path().unwrap_path_ref().clone();
-
-			// If there is a dependency and it points outside the root, create a symlink with an artifact ID.
-			if let Some(dependency) = dependency {
-				if edge.node().unwrap().read().await.root.is_none() {
-					let artifact = Some(dependency.object);
-					break 'a (artifact, None);
-				}
-			}
-
-			// Unrender the target.
-			let target = target
-				.to_str()
-				.ok_or_else(|| tg::error!("the symlink target must be valid UTF-8"))?;
-			let artifacts_path = self.artifacts_path();
-			let artifacts_path = artifacts_path
-				.to_str()
-				.ok_or_else(|| tg::error!("the artifacts path must be valid UTF-8"))?;
-			let template = tg::template::Data::unrender(artifacts_path, target)?;
-
-			// Check if this is a relative path symlink.
-			if template.components.len() == 1 {
-				let path = template.components[0]
-					.try_unwrap_string_ref()
-					.ok()
-					.ok_or_else(|| tg::error!("invalid symlink"))?
-					.clone();
-				let path = path
-					.parse()
-					.map_err(|source| tg::error!(!source, "invalid symlink"))?;
-				break 'a (None, Some(path));
-			}
-
-			// Check if the symlink points within an artifact.
-			if template.components.len() == 2 {
-				let artifact = template.components[0]
-					.try_unwrap_artifact_ref()
-					.ok()
-					.ok_or_else(|| tg::error!("invalid symlink"))?
-					.clone();
-				let path = template.components[1]
-					.try_unwrap_string_ref()
-					.ok()
-					.ok_or_else(|| tg::error!("invalid sylink"))?
-					.clone();
-				let path = &path[1..];
-				let path = path
-					.parse()
-					.map_err(|source| tg::error!(!source, "invalid symlink"))?;
-				let artifact = Either::Right(artifact.into());
-				break 'a (Some(artifact), Some(path));
-			}
-
-			return Err(tg::error!("invalid symlink"));
+		let path = match data {
+			tg::symlink::Data::Graph { graph, node } => {
+				let symlink = tg::Graph::with_id(graph.clone()).object(self).await?.nodes[*node]
+					.clone()
+					.try_unwrap_symlink()
+					.unwrap();
+				symlink.path.map(PathBuf::from)
+			},
+			tg::symlink::Data::Normal { path, .. } => path.as_ref().map(PathBuf::from),
 		};
-
+		let artifact = graph.nodes[node]
+			.edges
+			.first()
+			.map(|edge| self.get_lockfile_entry(graph, edge.index));
 		Ok(tg::lockfile::Node::Symlink { artifact, path })
 	}
 
+	#[allow(clippy::unused_self)]
+	fn get_lockfile_entry(
+		&self,
+		graph: &object::Graph,
+		node: usize,
+	) -> Either<usize, tg::object::Id> {
+		match &graph.nodes[node].unify.object {
+			Either::Left(_) => Either::Left(node),
+			Either::Right(id) => Either::Right(id.clone()),
+		}
+	}
+}
+
+impl Server {
 	pub(super) async fn write_lockfiles(
 		&self,
 		input: Arc<tokio::sync::RwLock<input::Graph>>,
@@ -290,11 +178,7 @@ impl Server {
 				.await?
 				.is_some()
 		{
-			let root = *paths
-				.get(&input.read().await.arg.path)
-				.ok_or_else(|| tg::error!("missing workspace root in lockfile"))?;
-			let stripped_lockfile = self.strip_lockfile(lockfile, root)?;
-			let contents = serde_json::to_string_pretty(&stripped_lockfile)
+			let contents = serde_json::to_string_pretty(&lockfile)
 				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			let lockfile_path = arg.path.join(tg::package::LOCKFILE_FILE_NAME);
@@ -323,16 +207,21 @@ impl Server {
 		Ok(())
 	}
 
-	pub fn strip_lockfile(&self, lockfile: &tg::Lockfile, root: usize) -> tg::Result<tg::Lockfile> {
+	#[allow(clippy::unused_self)]
+	fn strip_nodes(
+		&self,
+		old_nodes: &[tg::lockfile::Node],
+		root: usize,
+	) -> Vec<tg::lockfile::Node> {
 		// Compute whether the nodes have transitive tag dependencies.
-		let mut has_tag_dependencies_ = vec![None; lockfile.nodes.len()];
-		has_tag_dependencies(lockfile, root, &mut has_tag_dependencies_);
+		let mut has_tag_dependencies_ = vec![None; old_nodes.len()];
+		has_tag_dependencies(old_nodes, root, &mut has_tag_dependencies_);
 
 		// Strip nodes that don't reference tag dependencies.
-		let mut new_nodes = Vec::with_capacity(lockfile.nodes.len());
-		let mut visited = vec![None; lockfile.nodes.len()];
-		strip_nodes(
-			lockfile,
+		let mut new_nodes = Vec::with_capacity(old_nodes.len());
+		let mut visited = vec![None; old_nodes.len()];
+		strip_nodes_inner(
+			old_nodes,
 			root,
 			&mut visited,
 			&mut new_nodes,
@@ -340,14 +229,13 @@ impl Server {
 		);
 
 		// Construct a new lockfile with only stripped nodes.
-		let nodes = new_nodes.into_iter().map(Option::unwrap).collect();
-		Ok(tg::Lockfile { nodes })
+		new_nodes.into_iter().map(Option::unwrap).collect()
 	}
 }
 
 // Return a list of neighbors, and whether the neighbor is referenced by tag.
-fn neighbors(lockfile: &tg::Lockfile, node: usize) -> Vec<(usize, bool)> {
-	match &lockfile.nodes[node] {
+fn neighbors(nodes: &[tg::lockfile::Node], node: usize) -> Vec<(usize, bool)> {
+	match &nodes[node] {
 		tg::lockfile::Node::Directory { entries } => entries
 			.values()
 			.filter_map(|entry| {
@@ -375,18 +263,18 @@ fn neighbors(lockfile: &tg::Lockfile, node: usize) -> Vec<(usize, bool)> {
 // Recursively compute the nodes that transitively reference tag dependencies.
 #[allow(clippy::match_on_vec_items)]
 fn has_tag_dependencies(
-	lockfile: &tg::Lockfile,
+	nodes: &[tg::lockfile::Node],
 	node: usize,
 	visited: &mut Vec<Option<bool>>,
 ) -> bool {
 	match visited[node] {
 		None => {
 			visited[node].replace(false);
-			for (neighbor, is_tag_dependency) in neighbors(lockfile, node) {
+			for (neighbor, is_tag_dependency) in neighbors(nodes, node) {
 				if is_tag_dependency {
 					visited[node].replace(true);
 				}
-				if has_tag_dependencies(lockfile, neighbor, visited) {
+				if has_tag_dependencies(nodes, neighbor, visited) {
 					visited[node].replace(true);
 				}
 			}
@@ -397,8 +285,8 @@ fn has_tag_dependencies(
 }
 
 // Recursively create a new list of nodes that have their path dependencies removed, while preserving nodes that transitively reference any tag dependencies.
-fn strip_nodes(
-	lockfile: &tg::Lockfile,
+fn strip_nodes_inner(
+	old_nodes: &[tg::lockfile::Node],
 	node: usize,
 	visited: &mut Vec<Option<usize>>,
 	new_nodes: &mut Vec<Option<tg::lockfile::Node>>,
@@ -415,16 +303,20 @@ fn strip_nodes(
 	visited[node].replace(new_node);
 	new_nodes.push(None);
 
-	match lockfile.nodes[node].clone() {
+	match old_nodes[node].clone() {
 		tg::lockfile::Node::Directory { entries } => {
 			let entries = entries
 				.into_iter()
 				.filter_map(|(name, entry)| {
 					let entry = match entry {
-						Either::Left(node) => {
-							strip_nodes(lockfile, node, visited, new_nodes, has_tag_dependencies)
-								.map(Either::Left)
-						},
+						Either::Left(node) => strip_nodes_inner(
+							old_nodes,
+							node,
+							visited,
+							new_nodes,
+							has_tag_dependencies,
+						)
+						.map(Either::Left),
 						Either::Right(id) => Some(Either::Right(id)),
 					};
 					Some((name, entry?))
@@ -443,8 +335,8 @@ fn strip_nodes(
 				.into_iter()
 				.filter_map(|(reference, dependency)| {
 					let object = match dependency.object {
-						Either::Left(node) => Either::Left(strip_nodes(
-							lockfile,
+						Either::Left(node) => Either::Left(strip_nodes_inner(
+							old_nodes,
 							node,
 							visited,
 							new_nodes,
@@ -469,7 +361,7 @@ fn strip_nodes(
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
 				Some(Either::Left(node)) => {
-					strip_nodes(lockfile, node, visited, new_nodes, has_tag_dependencies)
+					strip_nodes_inner(old_nodes, node, visited, new_nodes, has_tag_dependencies)
 						.map(Either::Left)
 				},
 				Some(Either::Right(id)) => Some(Either::Right(id)),

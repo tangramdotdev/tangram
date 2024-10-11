@@ -4,7 +4,7 @@ use tangram_client as tg;
 
 impl Server {
 	pub(super) async fn create_file_data(&self, path: &Path) -> tg::Result<tg::file::Data> {
-		if let Some(data) = xattr::get(path, tg::file::XATTR_NAME)
+		if let Some(data) = xattr::get(path, tg::file::XATTR_DATA_NAME)
 			.map_err(|source| tg::error!(!source, %path = path.display(), "failed to read xattr"))?
 		{
 			let data = serde_json::from_slice(&data)

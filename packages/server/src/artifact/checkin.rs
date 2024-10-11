@@ -10,9 +10,9 @@ use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tg::path::Ext as _;
 
-mod data;
 mod input;
 mod lockfile;
+mod object;
 mod output;
 mod unify;
 
@@ -124,21 +124,22 @@ impl Server {
 				.unify_dependencies(unification_graph, &root)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to unify the object graph"))?;
+
+			// Validate.
+			unification_graph.validate().await?;
 		}
 
-		// Validate.
-		unification_graph.validate().await?;
-
-		// Create the lock that is written to disk.
-		let (lockfile, paths) = self
-			.create_lockfile(&unification_graph, &root, progress)
+		// Create the object graph.
+		let object_graph = self
+			.create_object_graph(&root, unification_graph)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
+			.map_err(|source| tg::error!(!source, "failed to create object graph"))?;
 
-		// Get the output.
+		// Create the output graph.
 		let output = self
-			.collect_output(input.clone(), lockfile.clone(), paths.clone(), progress)
-			.await?;
+			.create_output_graph(&object_graph)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the output graph"))?;
 
 		// Get the artifact ID.
 		let artifact = self
@@ -151,15 +152,15 @@ impl Server {
 			if store_as != &artifact {
 				return Err(tg::error!("the checkouts directory is corrupted"));
 			}
-			self.write_output_to_database(output.clone(), &lockfile)
-				.await?;
+			self.write_output_to_database(output.clone()).await?;
 		} else {
 			// Copy or move files.
 			self.copy_or_move_to_checkouts_directory(output.clone(), progress)
 				.await?;
 
 			// Write lockfiles.
-			self.write_lockfiles(input.clone(), &lockfile, &paths)
+			let lockfile = self.create_lockfile(&object_graph).await?;
+			self.write_lockfiles(input.clone(), &lockfile, &object_graph.paths)
 				.await?;
 		}
 
@@ -235,44 +236,16 @@ impl Server {
 			return Ok(false);
 		}
 		drop(permit);
-
-		match id {
-			tg::artifact::Id::File(_) => {
-				// If we're storing a file, we can short circuit and read the file data from its xattr directly.
-				let data = self
-					.create_file_data(path.as_ref())
-					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to create the file data"))?;
-				self.write_data_to_database(data.into()).await.map_err(
-					|source| tg::error!(!source, %id, "failed to write the file to the database"),
-				)?;
-			},
-
-			tg::artifact::Id::Symlink(_) => {
-				// If we're storing a symlink, we can read its data directly.
-				let data = self.create_symlink_data(path.as_ref()).await.map_err(
-					|source| tg::error!(!source, %id, "failed to create the symlink data"),
-				)?;
-				self.write_data_to_database(data.into()).await.map_err(
-					|source| tg::error!(!source, %id, "failed to write the symlink to the database"),
-				)?;
-			},
-
-			tg::artifact::Id::Directory(_) => {
-				// Otherwise for directories, we need to recurse the object to collect its data.
-				let arg = tg::artifact::checkin::Arg {
-					deterministic: false,
-					destructive: false,
-					ignore: false,
-					locked: true,
-					path,
-				};
-				self.check_in_or_store_artifact_inner(arg.clone(), Some(id), None)
-					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to store the directory"))?;
-			},
-		}
-
+		let arg = tg::artifact::checkin::Arg {
+			deterministic: false,
+			destructive: false,
+			ignore: false,
+			locked: true,
+			path,
+		};
+		self.check_in_or_store_artifact_inner(arg.clone(), Some(id), None)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to store the artifact"))?;
 		Ok(true)
 	}
 }

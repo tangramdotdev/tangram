@@ -3,15 +3,21 @@ import path from "node:path";
 import { $ } from "bun";
 
 const fileSymbol = Symbol();
+const symlinkSymbol = Symbol();
 
 type Arg = {
-	[key: string]: undefined | string | File | Arg;
+	[key: string]: undefined | string | File | Symlink | Arg;
 };
 
 type File = {
 	[fileSymbol]: true;
 	contents: string;
 	executable?: boolean;
+};
+
+type Symlink = {
+	[symlinkSymbol]: true;
+	target: string;
 };
 
 export async function directory(...args: Array<Arg>): Promise<string> {
@@ -41,6 +47,8 @@ async function directoryInner(path: string, ...args: Array<Arg>) {
 						await fs.writeFile(newPath, value.contents, {
 							mode: value.executable ? 0o755 : 0o644,
 						});
+					} else if (symlinkSymbol in value) {
+						await $`ln -s ${value.target} ${newPath}`
 					} else {
 						await $`mkdir -p ${newPath}`;
 						await directoryInner(newPath, value);
@@ -59,6 +67,13 @@ export function file(arg: { contents: string; executable?: boolean }): File {
 	return {
 		[fileSymbol]: true,
 		...arg,
+	};
+}
+
+export function symlink(target: string): Symlink {
+	return {
+		[symlinkSymbol]: true,
+		target,
 	};
 }
 

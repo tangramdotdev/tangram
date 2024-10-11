@@ -1,6 +1,18 @@
 import { expect, test } from "bun:test";
 import Server from "../server.ts";
-import { compare, directory, file } from "../util.ts";
+import { compare, directory, file, symlink } from "../util.ts";
+
+// test("symlink", async () => {
+// 	await using server = await Server.start();
+// 	let dir = await directory({
+// 		"file": "text",
+// 		"link": symlink("file"),
+// 	});
+// 	let id = await server.tg`checkin ${dir}/link`
+// 		.text()
+// 		.then((t) => t.trim());
+// 		expect(id).toMatchSnapshot();
+// });
 
 test("file", async () => {
 	await using server = await Server.start();

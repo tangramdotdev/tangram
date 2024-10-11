@@ -327,7 +327,7 @@ impl vfs::Provider for Provider {
 		let Some(tg::Artifact::File(_)) = artifact else {
 			return Ok(Vec::new());
 		};
-		let var_name = vec![tg::file::XATTR_NAME.to_owned()];
+		let var_name = vec![tg::file::XATTR_DATA_NAME.to_owned()];
 		Ok(var_name)
 	}
 
@@ -341,7 +341,7 @@ impl vfs::Provider for Provider {
 		};
 
 		// Ensure the xattr name is supported.
-		if name != tg::file::XATTR_NAME {
+		if name != tg::file::XATTR_DATA_NAME {
 			return Ok(None);
 		}
 

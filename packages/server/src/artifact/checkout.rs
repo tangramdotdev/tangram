@@ -496,7 +496,7 @@ impl Server {
 		}
 
 		// Set the extended attributes.
-		let name = tg::file::XATTR_NAME;
+		let name = tg::file::XATTR_DATA_NAME;
 		let xattr = file.data(self).await?;
 		let json = serde_json::to_vec(&xattr)
 			.map_err(|error| tg::error!(source = error, "failed to serialize the dependencies"))?;
