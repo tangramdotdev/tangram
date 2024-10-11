@@ -282,10 +282,10 @@ impl Cli {
 			let progress_task = (!args.quiet).then(|| {
 				let handle = handle.clone();
 				let build = build.clone();
-				let expand_options = crate::view::tree::ExpandOptions {
+				let expand_options = crate::view::tree::Options {
 					depth: None,
-					object_children: false,
-					build_children: true,
+					objects: false,
+					builds: true,
 					collapse_builds_on_success: true,
 				};
 				tokio::spawn(Self::print_tree(
