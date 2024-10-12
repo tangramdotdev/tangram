@@ -5235,8 +5235,8 @@ dependencies = [
  "tangram_either",
  "tangram_futures",
  "tangram_http",
- "tangram_semver",
  "tangram_uri",
+ "tangram_version",
  "time",
  "tokio",
  "tokio-rustls",
@@ -5335,14 +5335,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_semver"
-version = "0.0.0"
-dependencies = [
- "derive_more",
- "winnow",
-]
-
-[[package]]
 name = "tangram_server"
 version = "0.0.0"
 dependencies = [
@@ -5405,8 +5397,8 @@ dependencies = [
  "tangram_http",
  "tangram_ignore",
  "tangram_messenger",
- "tangram_semver",
  "tangram_v8",
+ "tangram_version",
  "tangram_vfs",
  "tar",
  "time",
@@ -5448,6 +5440,14 @@ dependencies = [
  "tangram_client",
  "tangram_either",
  "v8",
+]
+
+[[package]]
+name = "tangram_version"
+version = "0.0.0"
+dependencies = [
+ "derive_more",
+ "winnow",
 ]
 
 [[package]]

@@ -234,7 +234,7 @@ fn get_reference_from_tag(tag: &tg::Tag) -> tg::Reference {
 	let is_semver = components.last().map_or(false, |component| {
 		component
 			.to_string()
-			.parse::<tangram_semver::Version>()
+			.parse::<tangram_version::Version>()
 			.is_ok()
 	});
 
@@ -250,7 +250,7 @@ fn get_reference_from_pattern(pattern: &tg::tag::Pattern) -> tg::Reference {
 	let components = pattern.components();
 	if matches!(
 		components.last(),
-		Some(tg::tag::pattern::Component::Semver(_))
+		Some(tg::tag::pattern::Component::Version(_))
 	) {
 		let mut components = components.clone();
 		let last = components.last_mut().unwrap();

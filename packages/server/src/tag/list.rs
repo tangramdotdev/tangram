@@ -6,7 +6,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tangram_semver::Version;
+use tangram_version::Version;
 
 impl Server {
 	pub async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
@@ -85,7 +85,7 @@ impl Server {
 					}
 				},
 
-				tg::tag::pattern::Component::Semver(pattern) => {
+				tg::tag::pattern::Component::Version(pattern) => {
 					let p = connection.p();
 					let statement = formatdoc!(
 						"

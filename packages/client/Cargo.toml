@@ -47,8 +47,8 @@ sync_wrapper = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
-tangram_semver = { workspace = true }
 tangram_uri = { workspace = true }
+tangram_version = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }

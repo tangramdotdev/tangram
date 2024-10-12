@@ -1,5 +1,5 @@
 [package]
-name = "tangram_semver"
+name = "tangram_version"
 
 description = { workspace = true }
 edition = { workspace = true }

@@ -1,6 +1,6 @@
 use crate as tg;
 use itertools::Itertools as _;
-use tangram_semver::Version;
+use tangram_version::Version;
 use winnow::{
 	ascii::{alphanumeric1, dec_uint},
 	combinator::{alt, opt, preceded, separated},
@@ -104,7 +104,7 @@ impl TryFrom<Pattern> for Tag {
 			.into_iter()
 			.map(|component| match component {
 				self::pattern::Component::Normal(component) => Ok(Component(component.0)),
-				self::pattern::Component::Semver(_) => Err(tg::error!(
+				self::pattern::Component::Version(_) => Err(tg::error!(
 					"pattern is not a tag if it has a semver component"
 				)),
 				self::pattern::Component::Glob => Err(tg::error!(

@@ -1,6 +1,5 @@
 use crate as tg;
 use itertools::Itertools as _;
-use tangram_semver as semver;
 
 #[derive(
 	Clone,
@@ -35,9 +34,9 @@ pub struct Pattern {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Component {
-	Normal(tg::tag::Component),
-	Semver(semver::Pattern),
 	Glob,
+	Normal(tg::tag::Component),
+	Version(tangram_version::Pattern),
 }
 
 impl Pattern {
@@ -84,8 +83,8 @@ impl Pattern {
 						return false;
 					}
 				},
-				Component::Semver(pattern) => {
-					let Ok(tag) = tag.as_str().parse::<semver::Version>() else {
+				Component::Version(pattern) => {
+					let Ok(tag) = tag.as_str().parse::<tangram_version::Version>() else {
 						return false;
 					};
 					if !pattern.matches(&tag) {
@@ -125,7 +124,7 @@ impl std::fmt::Display for Component {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Component::Normal(string) => write!(f, "{string}"),
-			Component::Semver(version) => write!(f, "{version}"),
+			Component::Version(version) => write!(f, "{version}"),
 			Component::Glob => write!(f, "*"),
 		}
 	}
@@ -142,7 +141,7 @@ impl std::str::FromStr for Component {
 			return Ok(Self::Normal(component));
 		}
 		if let Ok(pattern) = s.parse() {
-			return Ok(Self::Semver(pattern));
+			return Ok(Self::Version(pattern));
 		}
 		Err(tg::error!(%component = s, "invalid component"))
 	}
