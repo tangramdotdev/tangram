@@ -141,10 +141,8 @@ fn component(input: &mut &str) -> PResult<Component> {
 }
 
 fn string(input: &mut &str) -> PResult<Component> {
-	let component = take_while(1.., |ch: char| {
-		ch.is_alphanumeric() || ch == '_' || ch == '-'
-	})
-	.parse_next(input)?;
+	let component =
+		take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-').parse_next(input)?;
 	Ok(Component(component.to_owned()))
 }
 
@@ -174,15 +172,24 @@ fn dot_separated_identifier<'a>(input: &mut &'a str) -> PResult<&'a str> {
 #[cfg(test)]
 mod tests {
 	use crate::tg;
+
 	#[test]
 	fn tag() {
-		let tag: tg::Tag = "tag/1.0.0".parse().unwrap();
-		assert_eq!(
-			tag.components(),
-			&vec![
-				tg::tag::Component::new("tag".to_owned()),
-				tg::tag::Component::new("1.0.0".to_owned()),
-			]
-		);
+		let tag = "tag".parse::<tg::Tag>().unwrap();
+		let left = tag.components();
+		let right = &[tg::tag::Component::new("tag".to_owned())];
+		assert_eq!(left, right);
+
+		let tag = "tag/1.0.0".parse::<tg::Tag>().unwrap();
+		let left = tag.components();
+		let right = &[
+			tg::tag::Component::new("tag".to_owned()),
+			tg::tag::Component::new("1.0.0".to_owned()),
+		];
+		assert_eq!(left, right);
+
+		assert!("".parse::<tg::Tag>().is_err());
+		assert!("hello/".parse::<tg::Tag>().is_err());
+		assert!("hello//world".parse::<tg::Tag>().is_err());
 	}
 }
