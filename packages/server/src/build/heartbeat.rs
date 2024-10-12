@@ -85,7 +85,7 @@ impl Server {
 	pub(crate) async fn build_monitor_heartbeat_task_inner(
 		&self,
 		timeout: Duration,
-		limit: u64,
+		limit: usize,
 	) -> tg::Result<u64> {
 		// Get a database connection.
 		let connection = self

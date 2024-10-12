@@ -2,7 +2,7 @@ use self::config::{Config, DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE};
 use clap::{CommandFactory as _, Parser as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
-use num::ToPrimitive as _;
+use num::ToPrimitive;
 use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
 use tangram_client::{self as tg, Client};
 use tangram_either::Either;
@@ -462,9 +462,7 @@ impl Cli {
 			let concurrency = build
 				.concurrency
 				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-			let heartbeat_interval = build
-				.heartbeat_interval
-				.map_or(Duration::from_secs(1), Duration::from_secs_f64);
+			let heartbeat_interval = build.heartbeat_interval.unwrap_or(Duration::from_secs(1));
 			tangram_server::options::Build {
 				concurrency,
 				heartbeat_interval,
@@ -482,11 +480,9 @@ impl Cli {
 			Some(Some(config)) => Some(config),
 		};
 		let build_heartbeat_monitor = build_heartbeat_monitor.map(|config| {
-			let interval = config.interval.unwrap_or(1);
+			let interval = config.interval.unwrap_or(Duration::from_secs(1));
 			let limit = config.limit.unwrap_or(100);
-			let timeout = config.timeout.unwrap_or(600);
-			let interval = Duration::from_secs(interval);
-			let timeout = Duration::from_secs(timeout);
+			let timeout = config.timeout.unwrap_or(Duration::from_secs(60));
 			tangram_server::options::BuildHeartbeatMonitor {
 				interval,
 				limit,
@@ -571,7 +567,7 @@ impl Cli {
 		let object_indexer =
 			object_indexer.map(|object_indexer| tangram_server::options::ObjectIndexer {
 				batch_size: object_indexer.batch_size.unwrap_or(128),
-				timeout: object_indexer.timeout.unwrap_or(60.0),
+				timeout: object_indexer.timeout.unwrap_or(Duration::from_secs(60)),
 			});
 
 		// Create the remote options.
@@ -625,7 +621,7 @@ impl Cli {
 			Some(Some(config)) => Some(config),
 		};
 		let vfs = vfs.map(|config| {
-			let cache_ttl = config.cache_ttl.unwrap_or(10.0);
+			let cache_ttl = config.cache_ttl.unwrap_or(Duration::from_secs(10));
 			let cache_size = config.cache_size.unwrap_or(4096);
 			let database_connections = config.database_connections.unwrap_or(4);
 			tangram_server::options::Vfs {
@@ -1045,14 +1041,14 @@ impl Cli {
 
 		let file_descriptor_limit = match (file_descriptor_semaphore_size, file_descriptor_limit) {
 			// If neither is provided, use double the default size.
-			(None, None) => DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE.to_u64().unwrap() * 2,
+			(None, None) => DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE * 2,
 
 			// If just the size is set, use double the size.
-			(Some(size), None) => size.to_u64().unwrap() * 2,
+			(Some(size), None) => size * 2,
 
 			// If the limit is set, use it.
 			(None, Some(limit)) => {
-				let size = DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE.to_u64().unwrap();
+				let size = DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE;
 				if limit < size * 2 {
 					tracing::warn!(?size, limit, "the file descriptor limit is less than double the default file descriptor semaphore size");
 				}
@@ -1061,7 +1057,6 @@ impl Cli {
 
 			// If both are set, use the limit.
 			(Some(size), Some(limit)) => {
-				let size = size.to_u64().unwrap();
 				if size > limit / 2 {
 					tracing::warn!(?size, limit, "file descriptor semaphore size is greater than 50% of the file descriptor limit.");
 				}
@@ -1070,8 +1065,8 @@ impl Cli {
 		};
 
 		let new_fd_rlimit = libc::rlimit {
-			rlim_cur: file_descriptor_limit,
-			rlim_max: file_descriptor_limit,
+			rlim_cur: file_descriptor_limit.to_u64().unwrap(),
+			rlim_max: file_descriptor_limit.to_u64().unwrap(),
 		};
 		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
 		if ret != 0 {

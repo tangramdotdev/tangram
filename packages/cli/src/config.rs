@@ -1,3 +1,4 @@
+use serde_with::{serde_as, DurationSecondsWithFrac};
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use tangram_client::{self as tg, util::serde::is_false};
 use url::Url;
@@ -90,10 +91,12 @@ pub struct Config {
 	pub vfs: Option<Option<Vfs>>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Advanced {
 	/// The duration after which a build that is dequeued but not started may be dequeued again.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub build_dequeue_timeout: Option<Duration>,
 
 	/// Whether to duplicate build logs to the server's stderr.
@@ -106,7 +109,7 @@ pub struct Advanced {
 
 	/// Set the file descriptor limit for the server on startup.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub file_descriptor_limit: Option<u64>,
+	pub file_descriptor_limit: Option<usize>,
 
 	/// The maximum number of file descriptors the server will open at a time.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -125,19 +128,22 @@ pub struct Advanced {
 	pub write_build_logs_to_database: Option<bool>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct BuildHeartbeatMonitor {
 	/// The duration to pause when there are no builds that need to be canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub interval: Option<u64>,
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub interval: Option<Duration>,
 
 	/// The maximum number of builds that will be canceled at a time.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub limit: Option<u64>,
+	pub limit: Option<usize>,
 
 	/// The duration without a heartbeat before a build is canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub timeout: Option<u64>,
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -170,9 +176,9 @@ pub struct Build {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
 
-	/// The heartbeat interval, in seconds. Builds will send a heartbeat at this interval.
+	/// The interval at which heartbeats will be sent.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub heartbeat_interval: Option<f64>,
+	pub heartbeat_interval: Option<Duration>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -212,13 +218,15 @@ pub struct NatsMessenger {
 	pub url: Url,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ObjectIndexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_size: Option<u64>,
+	pub batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub timeout: Option<f64>,
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -258,9 +266,11 @@ pub enum TracingFormat {
 	Pretty,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Vfs {
-	pub cache_ttl: Option<f64>,
-	pub cache_size: Option<u64>,
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub cache_ttl: Option<Duration>,
+	pub cache_size: Option<usize>,
 	pub database_connections: Option<usize>,
 }

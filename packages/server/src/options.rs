@@ -57,7 +57,7 @@ pub struct Build {
 #[derive(Clone, Debug)]
 pub struct BuildHeartbeatMonitor {
 	pub interval: Duration,
-	pub limit: u64,
+	pub limit: usize,
 	pub timeout: Duration,
 }
 
@@ -67,7 +67,7 @@ pub struct BuildIndexer {}
 #[derive(Clone, Debug)]
 pub struct BuildDequeueMonitor {
 	pub interval: Duration,
-	pub limit: u64,
+	pub limit: usize,
 	pub timeout: Duration,
 }
 
@@ -101,8 +101,8 @@ pub struct NatsMessenger {
 
 #[derive(Clone, Debug)]
 pub struct ObjectIndexer {
-	pub batch_size: u64,
-	pub timeout: f64,
+	pub batch_size: usize,
+	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -113,7 +113,7 @@ pub struct Remote {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Vfs {
-	pub cache_ttl: f64,
-	pub cache_size: u64,
+	pub cache_ttl: Duration,
+	pub cache_size: usize,
 	pub database_connections: usize,
 }

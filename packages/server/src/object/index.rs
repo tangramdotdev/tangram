@@ -73,7 +73,7 @@ impl Server {
 			let limit = semaphore.available_permits();
 			let timeout = self.options.object_indexer.as_ref().unwrap().timeout;
 			let now = (time::OffsetDateTime::now_utc()).format(&Rfc3339).unwrap();
-			let time = (time::OffsetDateTime::now_utc() - Duration::from_secs_f64(timeout))
+			let time = (time::OffsetDateTime::now_utc() - timeout)
 				.format(&Rfc3339)
 				.unwrap();
 			let params = db::params![now, time, limit];
@@ -87,7 +87,6 @@ impl Server {
 
 				// If there are no objects enqueued for indexing, then wait to receive an object indexing event or for a timeout to pass.
 				Ok(_) => {
-					let timeout = Duration::from_secs_f64(timeout);
 					let timeout = tokio::time::sleep(timeout);
 					future::select(events.next(), pin!(timeout)).await;
 					continue;

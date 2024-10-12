@@ -11,7 +11,6 @@ use std::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
 	},
-	time::Duration,
 };
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
@@ -456,8 +455,8 @@ impl vfs::Provider for Provider {
 impl Provider {
 	pub async fn new(server: &Server, options: crate::options::Vfs) -> tg::Result<Self> {
 		// Create the cache.
-		let cache = moka::sync::CacheBuilder::new(options.cache_size)
-			.time_to_idle(Duration::from_secs_f64(options.cache_ttl))
+		let cache = moka::sync::CacheBuilder::new(options.cache_size.to_u64().unwrap())
+			.time_to_idle(options.cache_ttl)
 			.build_with_hasher(fnv::FnvBuildHasher::default());
 
 		// Create the database.
