@@ -46,7 +46,10 @@ pub struct Query {
 
 impl Reference {
 	pub fn with_uri(uri: uri::Reference) -> tg::Result<Self> {
-		let path = uri.path().parse()?;
+		let path = uri.path();
+		let path =
+			urlencoding::decode(path).map_err(|source| tg::error!(!source, "invalid path"))?;
+		let path = path.parse()?;
 		let query = uri
 			.query()
 			.map(|query| {

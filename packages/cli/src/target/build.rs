@@ -382,6 +382,7 @@ where
 	}
 
 	pub async fn run(&self) {
+		let mut tty = std::io::stdout();
 		loop {
 			// If the build is finished, then break.
 			let status = self.root.state.lock().unwrap().status;
@@ -403,11 +404,11 @@ where
 			let tree = self.root.to_tree(&spinner);
 
 			// Save the current position.
-			ct::execute!(std::io::stdout(), ct::cursor::SavePosition,).unwrap();
+			ct::execute!(tty, ct::cursor::SavePosition,).unwrap();
 
 			// Clear.
 			ct::execute!(
-				std::io::stdout(),
+				tty,
 				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 			)
 			.unwrap();
@@ -419,12 +420,12 @@ where
 			tokio::time::sleep(Duration::from_millis(100)).await;
 
 			// Restore the cursor position.
-			ct::execute!(std::io::stdout(), ct::cursor::RestorePosition).unwrap();
+			ct::execute!(tty, ct::cursor::RestorePosition).unwrap();
 		}
 
 		// Clear.
 		ct::execute!(
-			std::io::stdout(),
+			tty,
 			ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 		)
 		.unwrap();
