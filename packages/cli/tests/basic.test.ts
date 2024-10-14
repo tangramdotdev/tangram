@@ -51,17 +51,11 @@ test("cache hit after push", async () => {
 			`,
 		},
 	});
-	await server.tg`build ${dir}/hello`.quiet();
-	const numBuilds =
-		await $`sqlite3 ${server.dataPath}/database "select count(*) from builds;"`
-			.text()
-			.then((t) => t.trim());
-	expect(numBuilds).toBe("1");
-	const buildId =
-		await $`sqlite3 ${server.dataPath}/database "select id from builds limit 1;"`
-			.text()
-			.then((t) => t.trim());
-	await server.tg`push ${buildId}`.quiet();
+	const buildId = await server.tg`build ${dir}/hello -d`
+		.text()
+		.then((t) => t.trim());
+	await server.tg`build output ${buildId}`.quiet();
+	await server.tg`push ${buildId}`;
 	await server.stop();
 	await using freshServer = await Server.start({
 		remotes: { default: { url: remote.url } },
@@ -136,16 +130,10 @@ test("build alternate target after pushing build", async () => {
 	});
 	await server.tg`tag twoTargets ${dir}/twoTargets`;
 	await server.tg`push twoTargets`;
-	await server.tg`build twoTargets#five`.quiet();
-	const numBuilds =
-		await $`sqlite3 ${server.dataPath}/database "select count(*) from builds;"`
-			.text()
-			.then((t) => t.trim());
-	expect(numBuilds).toBe("1");
-	const buildId =
-		await $`sqlite3 ${server.dataPath}/database "select id from builds limit 1;"`
-			.text()
-			.then((t) => t.trim());
+	const buildId = await server.tg`build twoTargets#five -d`
+		.text()
+		.then((t) => t.trim());
+	await server.tg`build output ${buildId}`.quiet();
 	await server.tg`push ${buildId}`;
 	await server.stop();
 	await using freshServer = await Server.start({
