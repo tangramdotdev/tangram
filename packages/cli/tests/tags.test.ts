@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import Server from "./server.ts";
+import { directory } from "./util.ts";
 
 test("list tags with no result", async () => {
 	await using server = await Server.start();
@@ -7,63 +8,89 @@ test("list tags with no result", async () => {
 	expect(output).toBeEmpty();
 });
 
-// test("list tags with one result", async () => {
-// 	await using server = await Server.start();
-// 	await server.tg`tag five ${packages.path("five")}`;
-// 	const output = await server.tg`tag list five`.text().then((t) => t.trim());
-// 	expect(output).toBe("five");
-// });
+test("list tags with one result", async () => {
+	await using server = await Server.start();
+	let dir = await directory({
+		hello: {
+			"tangram.ts": `
+				export default tg.target(() => "Hello, World");
+			`,
+		},
+	});
+	await server.tg`tag hello ${dir}/hello`;
+	const output = await server.tg`tag list hello`.text().then((t) => t.trim());
+	expect(output).toBe("hello");
+});
 
-// test("list tags with no result", async () => {
-// 	await using remote = await Server.start({ registry: true });
-// 	await using server = await Server.start({ remotePath: remote.dataPath });
-// 	const output = await server.tg`tag list test`.text().then((t) => t.trim());
-// 	expect(output).toBeEmpty();
-// });
+test("list tags with no result with registry", async () => {
+	await using remote = await Server.start({ registry: true });
+	await using server = await Server.start({
+		remotes: { default: { url: remote.url } },
+	});
+	const output = await server.tg`tag list test`.text().then((t) => t.trim());
+	expect(output).toBeEmpty();
+});
 
-// test("list tags with one result", async () => {
-// 	await using remote = await Server.start({ registry: true });
-// 	await using server = await Server.start({ remotePath: remote.dataPath });
-// 	await server.tg`tag five ${packages.path("five")}`;
-// 	await server.tg`push five`;
-// 	const serverOutput = await server.tg`tag list five`
-// 		.text()
-// 		.then((t) => t.trim());
-// 	expect(serverOutput).toBe("five");
-// 	const remoteOutput = await remote.tg`tag list five`
-// 		.text()
-// 		.then((t) => t.trim());
-// 	expect(remoteOutput).toBe("five");
-// });
+test("list tags with one result with registry", async () => {
+	await using remote = await Server.start({ registry: true });
+	await using server = await Server.start({
+		remotes: { default: { url: remote.url } },
+	});
+	let dir = await directory({
+		hello: {
+			"tangram.ts": `
+				export default tg.target(() => "Hello, World");
+			`,
+		},
+	});
+	await server.tg`tag hello ${dir}/hello`;
+	await server.tg`push hello`;
+	const serverOutput = await server.tg`tag list hello`
+		.text()
+		.then((t) => t.trim());
+	expect(serverOutput).toBe("hello");
+	const remoteOutput = await remote.tg`tag list hello`
+		.text()
+		.then((t) => t.trim());
+	expect(remoteOutput).toBe("hello");
+});
 
-// test("build tagged package with path dependency", async () => {
-// 	// Create a remote server.
-// 	await using remote = await Server.start({ registry: true });
+test.todo("build tagged package with dependency", async () => {
+	await using remote = await Server.start({ registry: true });
+	await using server = await Server.start({
+		remotes: { default: { url: remote.url } },
+	});
+	let dir = await directory({
+		driver: {
+			"tangram.ts": `
+				import message from "message";
+				export default tg.target(() => message());
+			`,
+		},
+		message: {
+			"tangram.ts": `
+				export default tg.target(() => "Hello, World");
+			`,
+		},
+	});
 
-// 	// Create a server.
-// 	await using server = await Server.start({
-// 		remotePath: remote.dataPath,
-// 	});
+	// Tag and push both packages.
+	await server.tg`tag message ${dir}/message`;
+	await server.tg`push message`;
+	await server.tg`tag driver ${dir}/driver`;
+	await server.tg`push driver`;
 
-// 	// Tag and push both packages.
-// 	await server.tg`tag five ${packages.path("five")}`;
-// 	await server.tg`push five`;
-// 	await server.tg`tag importsFive ${packages.path("import_five_by_path")}`;
-// 	await server.tg`push importsFive`;
+	// Stop the server.
+	await server.stop();
 
-// 	// Stop the server.
-// 	await server.stop();
+	// Start a new server.
+	await using newServer = await Server.start({
+		remotes: { default: { url: remote.url } },
+	});
 
-// 	// Start a new server.
-// 	await using newServer = await Server.start({
-// 		remotePath: remote.dataPath,
-// 	});
+	// Build using just the tag.
+	const output = await newServer.tg`build driver`.text().then((t) => t.trim());
 
-// 	// Build using just the tag.
-// 	const output = await newServer.tg`build importsFive`
-// 		.text()
-// 		.then((t) => t.trim());
-
-// 	// We should have received the correct output without ever passing either path to the server.
-// 	expect(output).toBe("6");
-// });
+	// We should have received the correct output without ever passing either path to the server.
+	expect(output).toBe('"Hello, World"');
+});
