@@ -1,8 +1,8 @@
-use super::tree::NodeKind;
 use num::ToPrimitive;
 use ratatui::{self as tui, prelude::*};
 use std::sync::{Arc, RwLock};
 use tangram_client::{self as tg, handle::Ext as _};
+use tangram_either::Either;
 
 pub struct Info<H> {
 	handle: H,
@@ -20,7 +20,8 @@ impl<H> Info<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(handle: &H, node_kind: &NodeKind, area: Rect) -> Arc<Self> {
+	#[allow(clippy::needless_pass_by_value)]
+	pub fn new(handle: &H, item: Either<tg::Build, tg::Value>, area: Rect) -> Arc<Self> {
 		let state = State {
 			area,
 			scroll: 0,
@@ -33,22 +34,18 @@ where
 		});
 		tokio::spawn({
 			let info = info.clone();
-			let node_kind = node_kind.clone();
+			let item = item.clone();
 			async move {
-				let view = match node_kind {
-					NodeKind::Root => unreachable!(),
-
-					NodeKind::Build { build, .. } => {
-						match info.handle.get_build(build.id()).await {
-							Ok(output) => Box::new(output) as Box<dyn InfoViewExt>,
-							Err(error) => Box::new(error) as Box<dyn InfoViewExt>,
-						}
+				let view = match item {
+					Either::Left(build) => match info.handle.get_build(build.id()).await {
+						Ok(output) => Box::new(output) as Box<dyn InfoViewExt>,
+						Err(error) => Box::new(error) as Box<dyn InfoViewExt>,
 					},
 
-					NodeKind::Value {
-						value: tg::Value::Object(object),
-						..
-					} => match object.data(&info.handle).await {
+					Either::Right(tg::Value::Object(object)) => match object
+						.data(&info.handle)
+						.await
+					{
 						Ok(tg::object::Data::File(data)) => Box::new(data) as Box<dyn InfoViewExt>,
 						Ok(tg::object::Data::Directory(data)) => {
 							Box::new(data) as Box<dyn InfoViewExt>
@@ -67,7 +64,7 @@ where
 						Err(error) => Box::new(error) as Box<dyn InfoViewExt>,
 					},
 
-					NodeKind::Value { value, .. } => match value.data(&info.handle).await {
+					Either::Right(value) => match value.data(&info.handle).await {
 						Ok(data) => Box::new(data) as Box<dyn InfoViewExt>,
 						Err(error) => Box::new(error) as Box<dyn InfoViewExt>,
 					},
