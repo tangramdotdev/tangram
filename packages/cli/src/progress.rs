@@ -2,8 +2,9 @@ use crate::Cli;
 use crossterm::{self as ct, style::Stylize as _};
 use futures::{stream::TryStreamExt as _, Stream};
 use indexmap::IndexMap;
-use std::pin::pin;
+use std::{io::IsTerminal as _, pin::pin};
 use tangram_client as tg;
+use tangram_futures::stream::TryStreamExt as _;
 
 impl Cli {
 	pub async fn render_progress_stream<T>(
@@ -11,13 +12,21 @@ impl Cli {
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
 	) -> tg::Result<T> {
 		let mut indicators = IndexMap::new();
-		let mut stdout = std::io::stdout();
+		let mut tty = std::io::stderr();
 		let mut stream = pin!(stream);
+
+		if !tty.is_terminal() {
+			return stream
+				.try_last()
+				.await?
+				.and_then(|event| event.try_unwrap_output().ok())
+				.ok_or_else(|| tg::error!("stream ended without output"));
+		}
 
 		while let Some(event) = stream.try_next().await? {
 			// Clear.
 			ct::execute!(
-				stdout,
+				tty,
 				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 			)
 			.unwrap();
@@ -61,7 +70,7 @@ impl Cli {
 			}
 
 			// Save the cursor position.
-			ct::execute!(stdout, ct::cursor::SavePosition).unwrap();
+			ct::execute!(tty, ct::cursor::SavePosition).unwrap();
 
 			// Render the indicators.
 			for indicator in indicators.values() {
@@ -76,7 +85,7 @@ impl Cli {
 			}
 
 			// Restore the cursor position.
-			ct::execute!(stdout, ct::cursor::RestorePosition).unwrap();
+			ct::execute!(tty, ct::cursor::RestorePosition).unwrap();
 		}
 
 		Err(tg::error!("stream ended without output"))

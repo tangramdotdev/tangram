@@ -5,6 +5,7 @@ use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::{
 	fmt::Write as _,
+	io::IsTerminal as _,
 	path::PathBuf,
 	sync::{Arc, Mutex, Weak},
 	time::Duration,
@@ -382,7 +383,10 @@ where
 	}
 
 	pub async fn run(&self) {
-		let mut tty = std::io::stdout();
+		let mut tty = std::io::stderr();
+		if !tty.is_terminal() {
+			return;
+		}
 		loop {
 			// If the build is finished, then break.
 			let status = self.root.state.lock().unwrap().status;

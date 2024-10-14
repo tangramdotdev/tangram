@@ -1,12 +1,11 @@
-// import { expect, test } from "bun:test";
-// import * as packages from "./packages.ts";
-// import Server from "./server.ts";
+import { expect, test } from "bun:test";
+import Server from "./server.ts";
 
-// test("list tags with no result", async () => {
-// 	await using server = await Server.start();
-// 	const output = await server.tg`tag list test`.text().then((t) => t.trim());
-// 	expect(output).toBeEmpty();
-// });
+test("list tags with no result", async () => {
+	await using server = await Server.start();
+	const output = await server.tg`tag list test`.text().then((t) => t.trim());
+	expect(output).toBeEmpty();
+});
 
 // test("list tags with one result", async () => {
 // 	await using server = await Server.start();

@@ -4,12 +4,14 @@ import { directory } from "./util.ts";
 
 test("build a basic package", async () => {
 	await using server = await Server.start();
-	let hello = await directory({
-		"tangram.ts": `
-			export default tg.target(() => "Hello, World");
-		`,
+	let dir = await directory({
+		hello: {
+			"tangram.ts": `
+				export default tg.target(() => "Hello, World");
+			`,
+		},
 	});
-	const buildOutput = await server.tg`build ${hello}`
+	const buildOutput = await server.tg`build ${dir}/hello`
 		.text()
 		.then((t) => t.trim());
 	expect(buildOutput).toBe('"Hello, World"');
