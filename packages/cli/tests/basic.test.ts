@@ -61,8 +61,8 @@ test("cache hit after push", async () => {
 		remotes: { default: { url: remote.url } },
 	});
 	await freshServer.tg`build ${dir}/hello`.text();
-	const getOrigBuildId = await freshServer.tg`get ${buildId}`.text();
-	expect(getOrigBuildId).toMatch(buildId);
+	const getBuildIdOutput = await freshServer.tg`get ${buildId}`.text();
+	expect(getBuildIdOutput).toMatch(buildId);
 });
 
 test("push object to remote", async () => {
