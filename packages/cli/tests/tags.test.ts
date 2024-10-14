@@ -55,7 +55,7 @@ test("list tags with one result with registry", async () => {
 	expect(remoteOutput).toBe("hello");
 });
 
-test.todo("build tagged package with dependency", async () => {
+test("build tagged package with dependency", async () => {
 	await using remote = await Server.start({ registry: true });
 	await using server = await Server.start({
 		remotes: { default: { url: remote.url } },
@@ -73,24 +73,13 @@ test.todo("build tagged package with dependency", async () => {
 			`,
 		},
 	});
-
-	// Tag and push both packages.
 	await server.tg`tag message ${dir}/message`;
 	await server.tg`push message`;
 	await server.tg`tag driver ${dir}/driver`;
 	await server.tg`push driver`;
-
-	// Stop the server.
-	await server.stop();
-
-	// Start a new server.
 	await using newServer = await Server.start({
 		remotes: { default: { url: remote.url } },
 	});
-
-	// Build using just the tag.
 	const output = await newServer.tg`build driver`.text().then((t) => t.trim());
-
-	// We should have received the correct output without ever passing either path to the server.
 	expect(output).toBe('"Hello, World"');
 });
