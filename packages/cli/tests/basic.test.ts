@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { $ } from "bun";
 import Server from "./server.ts";
 import { directory } from "./util.ts";
 
