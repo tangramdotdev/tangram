@@ -354,7 +354,6 @@ impl Cli {
 
 		// Try to connect for up to one second. If the client is still not connected, then return an error.
 		for duration in [10, 20, 30, 50, 100, 300, 500] {
-			dbg!("hai");
 			if client.connect().await.is_ok() {
 				break;
 			}
