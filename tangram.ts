@@ -1,6 +1,6 @@
-import bun from "bun";
-import { cargo } from "rust";
-import * as std from "std";
+import bun from "bun" with { path: "../packages/packages/bun" };
+import { cargo } from "rust" with { path: "../packages/packages/rust" };
+import * as std from "std" with { path: "../packages/packages/std" };
 import { $ } from "std";
 
 import cargoToml from "./Cargo.toml" with { type: "file" };
