@@ -225,8 +225,8 @@ fn main() -> std::process::ExitCode {
 impl Cli {
 	async fn handle(&self) -> tg::Result<Either<Client, Server>> {
 		// If the handle has already been created, then return it.
-		if let Some(client) = self.handle.lock().unwrap().clone() {
-			return Ok(client);
+		if let Some(handle) = self.handle.lock().unwrap().clone() {
+			return Ok(handle);
 		}
 
 		// Create the handle.
@@ -277,15 +277,13 @@ impl Cli {
 			// Start the server.
 			self.start_server().await?;
 
-			// Try to connect for up to one second.
-			for _ in 0..10 {
+			// Try to connect for up to one second. If the client is still not connected, then return an error.
+			for duration in [10, 20, 30, 50, 100, 300, 500] {
 				if client.connect().await.is_ok() {
 					break;
 				}
-				tokio::time::sleep(Duration::from_millis(100)).await;
+				tokio::time::sleep(Duration::from_millis(duration)).await;
 			}
-
-			// If the client is not connected, then return an error.
 			if !client.connected().await {
 				return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
 			}
@@ -314,15 +312,13 @@ impl Cli {
 			// Start the server.
 			self.start_server().await?;
 
-			// Try to connect for up to one second.
-			for _ in 0..10 {
+			// Try to connect for up to one second. If the client is still not connected, then return an error.
+			for duration in [10, 20, 30, 50, 100, 300, 500] {
 				if client.connect().await.is_ok() {
 					break;
 				}
-				tokio::time::sleep(Duration::from_millis(100)).await;
+				tokio::time::sleep(Duration::from_millis(duration)).await;
 			}
-
-			// If the client is not connected, then return an error.
 			if !client.connected().await {
 				return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
 			}
@@ -356,8 +352,16 @@ impl Cli {
 		// Create the client.
 		let client = tg::Client::new(url);
 
-		// Attempt to connect to the server.
-		client.connect().await.ok();
+		// Try to connect for up to one second. If the client is still not connected, then return an error.
+		for duration in [10, 20, 30, 50, 100, 300, 500] {
+			if client.connect().await.is_ok() {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(duration)).await;
+		}
+		if !client.connected().await {
+			return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
+		}
 
 		Ok(client)
 	}
@@ -732,8 +736,8 @@ impl Cli {
 			return Err(tg::error!("failed to send SIGINT to the server"));
 		}
 
-		// Wait up to five seconds for the server to exit.
-		for _ in 0..50 {
+		// Wait up to one second for the server to exit.
+		for duration in [10, 20, 30, 50, 100, 300, 500] {
 			// If the server has exited, then return.
 			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
 			if ret != 0 {
@@ -741,18 +745,17 @@ impl Cli {
 			}
 
 			// Otherwise, sleep.
-			let duration = Duration::from_millis(100);
-			tokio::time::sleep(duration).await;
+			tokio::time::sleep(Duration::from_millis(duration)).await;
 		}
 
-		// If the server has still not exited, then send SIGTERM.
+		// If the server has still not exited, then send SIGTERM to the server.
 		let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGTERM) };
 		if ret != 0 {
 			return Err(tg::error!("failed to send SIGTERM to the server"));
 		}
 
 		// Wait up to one second for the server to exit.
-		for _ in 0..10 {
+		for duration in [10, 20, 30, 50, 100, 300, 500] {
 			// If the server has exited, then return.
 			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
 			if ret != 0 {
@@ -760,8 +763,7 @@ impl Cli {
 			}
 
 			// Otherwise, sleep.
-			let duration = Duration::from_millis(100);
-			tokio::time::sleep(duration).await;
+			tokio::time::sleep(Duration::from_millis(duration)).await;
 		}
 
 		// If the server has still not exited, then return an error.

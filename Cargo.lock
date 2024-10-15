@@ -5425,8 +5425,6 @@ dependencies = [
  "once_cell",
  "regex",
  "serde_with",
- "tangram_either",
- "urlencoding",
 ]
 
 [[package]]

@@ -1,8 +1,7 @@
 use self::builder::Builder;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use std::{borrow::Cow, ops::Range};
-use tangram_either::Either;
+use std::ops::Range;
 
 pub mod builder;
 
@@ -14,7 +13,7 @@ pub struct Reference {
 	string: String,
 	scheme: Option<Range<usize>>,
 	authority: Option<Range<usize>>,
-	path: Either<Range<usize>, String>,
+	path: Range<usize>,
 	query: Option<Range<usize>>,
 	fragment: Option<Range<usize>>,
 }
@@ -57,10 +56,7 @@ impl Reference {
 
 	#[must_use]
 	pub fn path(&self) -> &str {
-		match &self.path {
-			Either::Left(range) => &self.string[range.clone()],
-			Either::Right(string) => string,
-		}
+		&self.string[self.path.clone()]
 	}
 
 	#[must_use]
@@ -75,6 +71,12 @@ impl Reference {
 
 	#[must_use]
 	pub fn as_str(&self) -> &str {
+		self.string.as_str()
+	}
+}
+
+impl AsRef<str> for Reference {
+	fn as_ref(&self) -> &str {
 		self.string.as_str()
 	}
 }
@@ -96,11 +98,6 @@ impl std::str::FromStr for Reference {
 			.get(5)
 			.map(|m| m.range())
 			.ok_or(ParseError::Invalid)?;
-		let decoded = urlencoding::decode(&s[path.clone()]).map_err(ParseError::Utf8)?;
-		let path = match decoded {
-			Cow::Borrowed(_) => Either::Left(path),
-			Cow::Owned(path) => Either::Right(path),
-		};
 		let query = captures.get(7).map(|m| m.range());
 		let fragment = captures.get(9).map(|m| m.range());
 		Ok(Self {

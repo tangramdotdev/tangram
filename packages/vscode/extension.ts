@@ -60,7 +60,7 @@ class TangramLanguageClient {
 
 		let tangramConfig = vscode.workspace.getConfiguration("tangram");
 
-		let defaultPath = path.join(process.env.HOME!, ".tangram/bin/tg");
+		let defaultPath = path.join(process.env.HOME!, ".tangram/bin/tangram");
 
 		let serverOptions: ServerOptions = {
 			command: tangramConfig.get<string>("path", defaultPath),
@@ -74,8 +74,8 @@ class TangramLanguageClient {
 		let clientOptions: LanguageClientOptions = {
 			diagnosticCollectionName: "tangram",
 			documentSelector: [
-				{ language: "tangram-javascript", scheme: "file" },
 				{ language: "tangram-typescript", scheme: "file" },
+				{ language: "tangram-typescript", scheme: "tg" },
 			],
 			outputChannel: this.outputChannel,
 		};

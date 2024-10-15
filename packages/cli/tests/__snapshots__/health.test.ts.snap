@@ -1,6 +1,6 @@
 // Bun Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`server reports health 1`] = `
+exports[`health 1`] = `
 "{
   "builds": {
     "created": 0,
@@ -8,7 +8,7 @@ exports[`server reports health 1`] = `
     "started": 0
   },
   "database": {
-    "available_connections": 2
+    "available_connections": 10
   },
   "file_descriptor_semaphore": {
     "available_permits": 1024

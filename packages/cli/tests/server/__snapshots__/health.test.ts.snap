@@ -1,0 +1,19 @@
+// Bun Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`health 1`] = `
+"{
+  "builds": {
+    "created": 0,
+    "dequeued": 0,
+    "started": 0
+  },
+  "database": {
+    "available_connections": 1
+  },
+  "file_descriptor_semaphore": {
+    "available_permits": 1024
+  },
+  "version": "0.0.0"
+}
+"
+`;

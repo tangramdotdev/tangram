@@ -124,7 +124,7 @@ export namespace path {
 		if (components.length === 0) {
 			return "";
 		} else if (components[0] === Component.Root) {
-			return "/" + components.slice(1).join("/");
+			return `/${components.slice(1).join("/")}`;
 		} else {
 			return components.join("/");
 		}

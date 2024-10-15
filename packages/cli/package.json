@@ -1,0 +1,10 @@
+{
+	"name": "@tangramdotdev/cli",
+	"private": true,
+	"scripts": {
+		"check": "tsc && biome check tests",
+		"format": "biome check --write tests",
+		"test": "cargo build && bun test $@"
+	},
+	"type": "module"
+}
