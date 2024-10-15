@@ -42,6 +42,7 @@ impl Server {
 			kind: tg::module::Kind::Dts,
 			object: None,
 			path: Some("tangram.d.ts".into()),
+			tag: None,
 		};
 
 		// Create the compiler.

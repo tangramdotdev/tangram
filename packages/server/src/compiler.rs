@@ -630,7 +630,12 @@ impl Compiler {
 			let kind = tg::module::Kind::Dts;
 			let object = None;
 			let path = Some(path.to_owned());
-			return Ok(tg::Module { kind, object, path });
+			return Ok(tg::Module {
+				kind,
+				object,
+				path,
+				tag: None,
+			});
 		}
 
 		// Handle a path in the checkouts directory.
@@ -671,7 +676,12 @@ impl Compiler {
 			} else {
 				Some(path)
 			};
-			return Ok(tg::Module { kind, object, path });
+			return Ok(tg::Module {
+				kind,
+				object,
+				path,
+				tag: None,
+			});
 		}
 
 		tg::Module::with_path(path).await

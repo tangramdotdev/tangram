@@ -13,8 +13,8 @@ impl Compiler {
 	) -> tg::Result<tg::Module> {
 		let kind = import.kind;
 
-		// Get the object and path.
-		let (object, path) = 'a: {
+		// Get the object, tag, and path.
+		let (object, tag, path) = 'a: {
 			if let Some(referrer) = referrer {
 				if let Some(Either::Left(tg::object::Id::Directory(referrer_package))) =
 					&referrer.object
@@ -37,7 +37,7 @@ impl Compiler {
 						// If the import is internal to the package, then use the imported path in the existing package.
 						if path.is_internal() {
 							let object = Either::Left(referrer_package.clone().into());
-							break 'a (object, Some(path));
+							break 'a (object, None, Some(path));
 						}
 					}
 
@@ -48,13 +48,13 @@ impl Compiler {
 						.try_unwrap_file()
 						.ok()
 						.ok_or_else(|| tg::error!("expected a file"))?;
-					let object = referrer_file
+					let (object, tag) = referrer_file
 						.get_dependency(&self.server, &import.reference)
 						.await?;
 					let object = Either::Left(object);
 					let path = None;
 
-					(object, path)
+					(object, tag, path)
 				} else if let Some(Either::Right(referrer_package)) = &referrer.object {
 					let referrer_path = referrer
 						.path
@@ -78,12 +78,12 @@ impl Compiler {
 						// If the import is internal to the package, then use the imported path in the existing package.
 						if path.is_internal() {
 							let object = referrer_package.clone();
-							break 'a (Either::Right(object), Some(path));
+							break 'a (Either::Right(object), None, Some(path));
 						}
 
 						// Otherwise, return the path.
 						let object = referrer_package.clone().join(path).normalize();
-						break 'a (Either::Right(object), None);
+						break 'a (Either::Right(object), None, None);
 					}
 
 					// Try to find this module in an existing lockfile.
@@ -101,9 +101,9 @@ impl Compiler {
 					};
 
 					// Try to resolve using the node in the lockfile.
-					let Some(object) = dependencies
+					let Some((object, tag)) = dependencies
 						.get(&import.reference)
-						.map(|dependency| &dependency.object)
+						.map(|dependency| (&dependency.object, &dependency.tag))
 					else {
 						return Err(tg::error!("failed to resolve module"));
 					};
@@ -119,7 +119,7 @@ impl Compiler {
 						Either::Right(object) => tg::Object::with_id(object.clone()),
 					};
 
-					(Either::Left(object), None)
+					(Either::Left(object), tag.clone(), None)
 				} else {
 					return Err(tg::error!("the referrer must have an object"));
 				}
@@ -148,13 +148,13 @@ impl Compiler {
 				} else {
 					(object, None)
 				};
-				(Either::Left(object), path)
+				(Either::Left(object), None, path)
 			}
 		};
 
 		// If the kind is not known and the object and path refer to a package, then return its root module.
-		let (object, path) = if kind.is_some() {
-			(object, path)
+		let (object, tag, path) = if kind.is_some() {
+			(object, tag, path)
 		} else {
 			match object {
 				Either::Left(object) => {
@@ -182,12 +182,12 @@ impl Compiler {
 							.await?
 						{
 							let path = root_module_file_name.into();
-							(Either::Left(object_), Some(path))
+							(Either::Left(object_), tag, Some(path))
 						} else {
-							(Either::Left(object), path)
+							(Either::Left(object), tag, path)
 						}
 					} else {
-						(Either::Left(object), path)
+						(Either::Left(object), tag, path)
 					}
 				},
 
@@ -206,12 +206,12 @@ impl Compiler {
 								.await?
 						{
 							let path = root_module_file_name.parse().unwrap();
-							(Either::Right(object), Some(path))
+							(Either::Right(object), tag, Some(path))
 						} else {
-							(Either::Right(object), path)
+							(Either::Right(object), tag, path)
 						}
 					} else {
-						(Either::Right(object), path)
+						(Either::Right(object), tag, path)
 					}
 				},
 			}
@@ -288,7 +288,12 @@ impl Compiler {
 			Either::Left(object) => Either::Left(object.id(&self.server).await?),
 			Either::Right(object) => Either::Right(object),
 		});
-		let module = tg::Module { kind, object, path };
+		let module = tg::Module {
+			kind,
+			object,
+			path,
+			tag,
+		};
 
 		Ok(module)
 	}
