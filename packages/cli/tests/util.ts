@@ -38,8 +38,8 @@ async function directoryInner(path: string, ...args: Array<Arg>) {
 					await Bun.write(newPath, value);
 				} else if (typeof value === "object") {
 					if (fileSymbol in value) {
-						await Bun.write(newPath, value.contents, {
-							mode: value.executable ? 0o111 : 0o110,
+						await fs.writeFile(newPath, value.contents, {
+							mode: value.executable ? 0o755 : 0o644,
 						});
 					} else {
 						await $`mkdir -p ${newPath}`;
@@ -102,7 +102,6 @@ export async function compare(path1: string, path2: string): Promise<boolean> {
 		let executable1 = stat1.mode & 0o111;
 		let executable2 = stat2.mode & 0o111;
 		if (executable1 !== executable2) {
-			console.log("e");
 			return false;
 		}
 		return true;
