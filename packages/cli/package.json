@@ -4,7 +4,7 @@
 	"scripts": {
 		"check": "tsc && biome check tests",
 		"format": "biome check --write tests",
-		"test": "cargo build && bun test"
+		"test": "cargo build && bun test $@"
 	},
 	"type": "module"
 }
