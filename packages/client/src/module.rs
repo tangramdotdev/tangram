@@ -9,6 +9,7 @@ pub struct Module {
 	pub kind: Kind,
 	pub object: Option<Either<tg::object::Id, PathBuf>>,
 	pub path: Option<PathBuf>,
+	pub tag: Option<tg::Tag>,
 }
 
 #[derive(
@@ -83,6 +84,7 @@ impl Module {
 			kind,
 			object: Some(object),
 			path: Some(path),
+			tag: None,
 		};
 		Ok(Some(module))
 	}
@@ -119,6 +121,7 @@ impl Module {
 			kind,
 			object: package,
 			path: Some(path.to_owned()),
+			tag: None,
 		};
 
 		Ok(module)
