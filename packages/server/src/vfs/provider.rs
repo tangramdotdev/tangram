@@ -5,7 +5,7 @@ use futures::TryStreamExt as _;
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
-	os::unix::{ffi::OsStrExt, fs::MetadataExt as _},
+	os::unix::ffi::OsStrExt,
 	path::PathBuf,
 	sync::{
 		atomic::{AtomicU64, Ordering},
@@ -42,7 +42,6 @@ pub struct FileHandle {
 struct Node {
 	parent: u64,
 	artifact: Option<tg::Artifact>,
-	checkout: bool,
 	depth: u64,
 }
 
@@ -105,8 +104,7 @@ impl vfs::Provider for Provider {
 			return Ok(Some(id));
 		}
 
-		// If the parent is the root, then create a new node or lookup as a checkout.
-		let mut checkout = false;
+		// If the parent is the root, then create a new node.
 		let entry = 'a: {
 			if parent != vfs::ROOT_NODE_ID {
 				break 'a None;
@@ -115,8 +113,6 @@ impl vfs::Provider for Provider {
 				return Ok(None);
 			};
 			let artifact = tg::Artifact::with_id(artifact);
-			let exists = tokio::fs::try_exists(self.server.checkouts_path().join(name)).await;
-			checkout = matches!(exists, Ok(true));
 			Some((artifact, 1))
 		};
 
@@ -143,7 +139,7 @@ impl vfs::Provider for Provider {
 
 		// Insert the node.
 		let (artifact, depth) = entry.unwrap();
-		let id = self.put(parent, name, artifact, checkout, depth).await?;
+		let id = self.put(parent, name, artifact, depth).await?;
 
 		Ok(Some(id))
 	}
@@ -188,22 +184,8 @@ impl vfs::Provider for Provider {
 		match self.get(id).await? {
 			Node {
 				artifact: Some(tg::Artifact::File(file)),
-				checkout: false,
 				..
 			} => {
-				// First try and stat from the checkouts directory.
-				let artifact_id = file.id(&self.server).await.map_err(|error| {
-					tracing::error!(%error, "failed to get file's id");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
-				let checkout_path = self.server.checkouts_path().join(artifact_id.to_string());
-				if let Ok(metadata) = tokio::fs::metadata(checkout_path).await {
-					let size = metadata.size();
-					let executable = (metadata.mode() & libc::S_IEXEC.to_u32().unwrap()) != 0;
-					return Ok(vfs::Attrs::new(vfs::FileType::File { executable, size }));
-				}
-
-				// Otherwise use the object's data.
 				let executable = file.executable(&self.server).await.map_err(|error| {
 					tracing::error!(%error, "failed to get file's executable bit");
 					std::io::Error::from_raw_os_error(libc::EIO)
@@ -216,16 +198,13 @@ impl vfs::Provider for Provider {
 			},
 			Node {
 				artifact: Some(tg::Artifact::Directory(_)),
-				checkout: false,
 				..
 			}
 			| Node { artifact: None, .. } => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
 			Node {
 				artifact: Some(tg::Artifact::Symlink(_)),
-				checkout: false,
 				..
-			}
-			| Node { checkout: true, .. } => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
+			} => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
 		}
 	}
 
@@ -304,29 +283,11 @@ impl vfs::Provider for Provider {
 	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
 		// Get the node.
 		let Node {
-			artifact,
-			checkout,
-			depth,
-			..
+			artifact, depth, ..
 		} = self.get(id).await.map_err(|error| {
 			tracing::error!(%error, "failed to lookup node");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
-
-		// Handle the case that it is checked out.
-		if checkout {
-			let id = artifact.unwrap().id(&self.server).await.map_err(|error| {
-				tracing::error!(%error, "failed to get artifact id");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-			let target = PathBuf::from("../checkouts")
-				.join(id.to_string())
-				.as_os_str()
-				.as_bytes()
-				.to_vec()
-				.into();
-			return Ok(target);
-		}
 
 		// Ensure it is a symlink.
 		let Some(tg::Artifact::Symlink(symlink)) = artifact else {
@@ -491,7 +452,6 @@ impl Provider {
 					parent integer not null,
 					name text,
 					artifact text,
-					checkout integer not null,
 					depth integer not null
 				);
 
@@ -505,14 +465,15 @@ impl Provider {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into nodes (id, parent, checkout, depth)
-				values ({p}1, {p}1, {p}2, {p}3);
+				insert into nodes (id, parent, depth)
+				values ({p}1, {p}1, {p}2);
 			"
 		);
-		let params = db::params![vfs::ROOT_NODE_ID, false, 0];
+		let params = db::params![vfs::ROOT_NODE_ID, 0];
 		connection
 			.execute(statement, params)
 			.await
+			.inspect_err(|source| eprintln!("{source}"))
 			.map_err(|source| tg::error!(!source, "failed to insert the root node"))?;
 
 		// Create the provider.
@@ -563,13 +524,12 @@ impl Provider {
 		struct Row {
 			parent: u64,
 			artifact: Option<tg::artifact::Id>,
-			checkout: bool,
 			depth: u64,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select parent, artifact, checkout, depth
+				select parent, artifact, depth
 				from nodes
 				where id = {p}1;
 			"
@@ -586,12 +546,10 @@ impl Provider {
 		// Create the node.
 		let parent = row.parent;
 		let artifact = row.artifact.map(tg::Artifact::with_id);
-		let checkout = row.checkout;
 		let depth = row.depth;
 		let node = Node {
 			parent,
 			artifact,
-			checkout,
 			depth,
 		};
 
@@ -606,14 +564,12 @@ impl Provider {
 		parent: u64,
 		name: &str,
 		artifact: tg::Artifact,
-		checkout: bool,
 		depth: u64,
 	) -> std::io::Result<u64> {
 		// Create the node.
 		let node = Node {
 			parent,
 			artifact: Some(artifact.clone()),
-			checkout,
 			depth,
 		};
 
@@ -648,11 +604,11 @@ impl Provider {
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
-					insert into nodes (id, parent, name, artifact, checkout, depth)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
+					insert into nodes (id, parent, name, artifact, depth)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5)
 				"
 				);
-				let params = db::params![id, parent, name, artifact, checkout, depth];
+				let params = db::params![id, parent, name, artifact, depth];
 				if let Err(error) = connection.execute(statement, params).await {
 					tracing::error!(%error, %id, "failed to write node to the database");
 				}

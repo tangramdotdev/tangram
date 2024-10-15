@@ -161,9 +161,13 @@ where
 					let unique = request.header.unique;
 
 					// Handle the request.
-					let result = server.handle_request(request).await.inspect_err(|error| {
-						tracing::error!(?error, "request failed");
-					});
+					let result =
+						server
+							.handle_request(request.clone())
+							.await
+							.inspect_err(|error| {
+								tracing::error!(?error, "request failed");
+							});
 
 					// Write the response.
 					match result {
