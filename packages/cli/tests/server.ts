@@ -42,7 +42,7 @@ export default class Server {
 	}
 
 	async stop() {
-		this.process.kill();
+		this.process.kill(2);
 		await this.process.exited;
 		await $`rm -rf ${this.path}`;
 	}
