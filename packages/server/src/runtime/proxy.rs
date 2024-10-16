@@ -374,7 +374,7 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn health(&self) -> tg::Result<tg::server::Health> {
+	async fn health(&self) -> tg::Result<tg::Health> {
 		Err(tg::error!("forbidden"))
 	}
 

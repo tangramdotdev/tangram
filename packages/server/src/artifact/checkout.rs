@@ -116,7 +116,7 @@ impl Server {
 			}
 			if (path.as_ref() as &Path).starts_with(self.checkouts_path()) {
 				return Err(
-					tg::error!(%path = path.display(), "cannot check out into the checkouts directory"),
+					tg::error!(%path = path.display(), "cannot check out an artifact to the checkouts directory"),
 				);
 			}
 

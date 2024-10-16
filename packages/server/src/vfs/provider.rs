@@ -197,10 +197,9 @@ impl vfs::Provider for Provider {
 				Ok(vfs::Attrs::new(vfs::FileType::File { executable, size }))
 			},
 			Node {
-				artifact: Some(tg::Artifact::Directory(_)),
+				artifact: Some(tg::Artifact::Directory(_)) | None,
 				..
-			}
-			| Node { artifact: None, .. } => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
+			} => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
 			Node {
 				artifact: Some(tg::Artifact::Symlink(_)),
 				..

@@ -16,8 +16,10 @@ mod blob;
 mod build;
 mod cat;
 mod checksum;
+mod clean;
 mod config;
 mod get;
+mod health;
 mod lsp;
 mod object;
 mod package;
@@ -104,11 +106,12 @@ enum Command {
 	Checkin(self::artifact::checkin::Args),
 	Checkout(self::artifact::checkout::Args),
 	Checksum(self::checksum::Args),
-	Clean(self::server::clean::Args),
+	Clean(self::clean::Args),
 	Document(self::package::document::Args),
 	Download(self::blob::download::Args),
 	Format(self::package::format::Args),
 	Get(self::get::Args),
+	Health(self::health::Args),
 	Init(self::package::init::Args),
 	List(self::tag::list::Args),
 	Log(self::build::log::Args),
@@ -677,11 +680,7 @@ impl Cli {
 		// Get the log file path.
 		let log_path = path.join("log");
 
-		// Get the path to the current executable.
-		let executable = std::env::current_exe()
-			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
-
-		// Spawn the server.
+		// Create files for stdout and stderr.
 		let stdout = tokio::fs::OpenOptions::new()
 			.create(true)
 			.write(true)
@@ -700,8 +699,14 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
 			.into_std()
 			.await;
+
+		// Get the path to the current executable.
+		let executable = std::env::current_exe()
+			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
+
+		// Spawn the server.
 		tokio::process::Command::new(executable)
-			.args(["server", "run"])
+			.args(["serve"])
 			.current_dir(home)
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
@@ -781,11 +786,12 @@ impl Cli {
 			Command::Checkin(args) => self.command_artifact_checkin(args).boxed(),
 			Command::Checkout(args) => self.command_artifact_checkout(args).boxed(),
 			Command::Checksum(args) => self.command_checksum(args).boxed(),
-			Command::Clean(args) => self.command_server_clean(args).boxed(),
+			Command::Clean(args) => self.command_clean(args).boxed(),
 			Command::Document(args) => self.command_package_document(args).boxed(),
 			Command::Download(args) => self.command_blob_download(args).boxed(),
 			Command::Format(args) => self.command_package_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
+			Command::Health(args) => self.command_health(args).boxed(),
 			Command::Init(args) => self.command_package_init(args).boxed(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_build_log(args).boxed(),

@@ -463,7 +463,7 @@ where
 		}
 	}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::server::Health>> {
+	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
 		match self {
 			Either::Left(s) => s.health().left_future(),
 			Either::Right(s) => s.health().right_future(),

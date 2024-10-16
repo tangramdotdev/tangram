@@ -571,36 +571,36 @@ impl Server {
 			false
 		};
 
-		// If this is a file, we need to create a hardlink at checkouts/<file id> and create a symlink for its contents in blobs/<content id> -> ../checkouts/<file id>.
+		// If this is a file, we need to create a hardlink in the checkouts directory and create a symlink for its contents in the blobs directory that points to the corresponding entry in the checkouts directory.
 		if let tg::artifact::Data::File(file) = data {
-			// Get a file descriptor permit.
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-
-			// Get the destination of the hardlink.
-			let dst = self.checkouts_path().join(id.to_string());
-
 			// Create hard link to the file or copy as needed.
-			let result = if hardlink_prohibited {
-				tokio::fs::copy(path, &dst).await.map(|_| ())
+			let dst = self.checkouts_path().join(id.to_string());
+			if hardlink_prohibited {
+				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+				let result = tokio::fs::copy(path, &dst).await.map(|_| ());
+				match result {
+					Ok(()) => (),
+					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
+					Err(source) => {
+						let src = path.display();
+						let dst = dst.display();
+						return Err(tg::error!(!source, %src, %dst, "failed to copy"));
+					},
+				}
 			} else {
-				tokio::fs::hard_link(path, &dst).await
+				let result = tokio::fs::hard_link(path, &dst).await;
+				match result {
+					Ok(()) => (),
+					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
+					Err(source) => {
+						let src = path.display();
+						let dst = dst.display();
+						return Err(tg::error!(!source, %src, %dst, "failed to hardlink"));
+					},
+				}
 			};
-			match result {
-				Ok(()) => (),
-				Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
-				Err(source) => {
-					let src = path.display();
-					let dst = dst.display();
-					let error = if hardlink_prohibited {
-						tg::error!(!source, %src, %dst, "failed to copy file")
-					} else {
-						tg::error!(!source, %src, %dst, "failed to create hardlink")
-					};
-					return Err(error);
-				},
-			}
 
-			// Get the contents' blob ID.
+			// Get the contents' ID.
 			let contents = match file {
 				// If this is a normal file we have no work to do.
 				tg::file::Data::Normal { contents, .. } => contents,
@@ -616,17 +616,31 @@ impl Server {
 			};
 
 			// Create a symlink to the file in the blobs directory.
-			let symlink_target = PathBuf::from("../checkouts").join(id.to_string());
-			let symlink_path = self.blobs_path().join(contents.to_string());
-			match tokio::fs::symlink(&symlink_target, &symlink_path).await {
-				Ok(()) => (),
-				Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
-				Err(source) => {
-					return Err(
-						tg::error!(!source, %src = symlink_target.display(), %dst = symlink_path.display(), "failed to create blob symlink"),
-					)
-				},
-			}
+			let dst = self.blobs_path().join(contents.to_string());
+			if hardlink_prohibited {
+				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+				let result = tokio::fs::copy(path, &dst).await.map(|_| ());
+				match result {
+					Ok(()) => (),
+					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
+					Err(source) => {
+						let src = path.display();
+						let dst = dst.display();
+						return Err(tg::error!(!source, %src, %dst, "failed to copy"));
+					},
+				}
+			} else {
+				let result = tokio::fs::hard_link(path, &dst).await;
+				match result {
+					Ok(()) => (),
+					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
+					Err(source) => {
+						let src = path.display();
+						let dst = dst.display();
+						return Err(tg::error!(!source, %src, %dst, "failed to hardlink"));
+					},
+				}
+			};
 
 			// Since every file is a child of a directory we do not need to recurse over file dependencies and can bail early.
 			return Ok(());
@@ -813,7 +827,6 @@ impl Server {
 			}
 		} else if input.metadata.is_symlink() {
 			let target = 'a: {
-				// If the target is a root, then write ../../../../<target_id>
 				let edge = input.edges.first().unwrap();
 				if let Some(dependency) = edge.node() {
 					if dependency.read().await.root.is_none() && edge.reference.as_str() != "." {

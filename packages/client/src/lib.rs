@@ -27,6 +27,7 @@ pub use self::{
 	file::File,
 	graph::Graph,
 	handle::Handle,
+	health::Health,
 	id::Id,
 	import::Import,
 	leaf::Leaf,
@@ -51,6 +52,7 @@ pub mod blob;
 pub mod branch;
 pub mod build;
 pub mod checksum;
+pub mod clean;
 pub mod compiler;
 pub mod diagnostic;
 pub mod directory;
@@ -58,6 +60,7 @@ pub mod error;
 pub mod file;
 pub mod graph;
 pub mod handle;
+pub mod health;
 pub mod id;
 pub mod import;
 pub mod leaf;
@@ -74,7 +77,6 @@ pub mod range;
 pub mod reference;
 pub mod remote;
 pub mod runtime;
-pub mod server;
 pub mod symlink;
 pub mod tag;
 pub mod target;
@@ -850,7 +852,7 @@ impl tg::Handle for Client {
 		self.get_js_runtime_doc()
 	}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::server::Health>> {
+	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
 		self.health()
 	}
 

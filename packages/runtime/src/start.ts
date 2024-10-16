@@ -22,6 +22,7 @@ export let start = async (target: tg.Target): Promise<tg.Value> => {
 		}
 	}
 	let id = await executable.id();
+
 	// biome-ignore lint/security/noGlobalEval: workaround for https://github.com/oven-sh/bun/issues/14064.
 	let namespace = await eval(`import("${id}", { with: { kind: "${kind}" } })`);
 

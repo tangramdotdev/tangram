@@ -6,7 +6,7 @@ use tangram_either::Either;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn health(&self) -> tg::Result<tg::server::Health> {
+	pub async fn health(&self) -> tg::Result<tg::Health> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -37,7 +37,7 @@ impl Server {
 			.query_one_into::<Row>(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let builds = tg::server::health::Builds {
+		let builds = tg::health::Builds {
 			created,
 			dequeued,
 			started,
@@ -50,11 +50,11 @@ impl Server {
 			Either::Left(database) => database.pool().available().to_u64().unwrap(),
 			Either::Right(database) => database.pool().available().to_u64().unwrap(),
 		};
-		let database = tg::server::health::Database {
+		let database = tg::health::Database {
 			available_connections,
 		};
 
-		let file_descriptor_semaphore = tg::server::health::FileDescriptorSemaphore {
+		let file_descriptor_semaphore = tg::health::FileDescriptorSemaphore {
 			available_permits: self
 				.file_descriptor_semaphore
 				.available_permits()
@@ -62,7 +62,7 @@ impl Server {
 				.unwrap(),
 		};
 
-		let health = tg::server::Health {
+		let health = tg::Health {
 			builds: Some(builds),
 			database: Some(database),
 			file_descriptor_semaphore: Some(file_descriptor_semaphore),
@@ -74,17 +74,6 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_server_clean_request<H>(
-		handle: &H,
-		_request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>>
-	where
-		H: tg::Handle,
-	{
-		handle.clean().await?;
-		Ok(http::Response::builder().empty().unwrap())
-	}
-
 	pub(crate) async fn handle_server_health_request<H>(
 		handle: &H,
 		_request: http::Request<Incoming>,
