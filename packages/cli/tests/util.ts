@@ -1,6 +1,6 @@
-import { $ } from "bun";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { $ } from "bun";
 
 const fileSymbol = Symbol();
 
