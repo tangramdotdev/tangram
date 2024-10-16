@@ -99,9 +99,19 @@ impl Server {
 		}
 
 		// Canonicalize the path.
-		arg.path = tokio::fs::canonicalize(&arg.path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize path"))?;
+		let path = tokio::fs::canonicalize(
+			arg.path
+				.parent()
+				.ok_or_else(|| tg::error!("expected a parent path"))?,
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
+		.join(
+			arg.path
+				.file_name()
+				.ok_or_else(|| tg::error!("expected a non-empty path"))?,
+		);
+		arg.path = path;
 
 		// Collect the input.
 		let input = self

@@ -576,7 +576,7 @@ impl Server {
 					let data = graph.nodes[edge.index]
 						.data
 						.as_ref()
-						.ok_or_else(|| tg::error!(?edge, ?data, "edge not been solved"))
+						.ok_or_else(|| tg::error!(?edge, ?data, "missing data"))
 						.unwrap();
 					let metadata = self.compute_object_metadata(
 						graph,

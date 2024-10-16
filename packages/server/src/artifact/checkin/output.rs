@@ -823,7 +823,7 @@ impl Server {
 							.as_ref()
 							.and_then(|root| input.arg.path.diff(root))
 							.map_or_else(
-								|| PathBuf::from("../").join(id.to_string()),
+								|| PathBuf::from(id.to_string()),
 								|diff| {
 									let mut buf = PathBuf::new();
 									for component in diff.components() {
