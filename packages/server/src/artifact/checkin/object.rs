@@ -340,9 +340,7 @@ impl Server {
 				return Err(tg::error!("invalid symlink"));
 			};
 
-			let path = path.map(|path| {
-				path.strip_prefix("./").unwrap_or(&path).to_owned()
-			});
+			let path = path.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
 			let symlink = tg::graph::data::node::Symlink { artifact, path };
 			tg::graph::data::Node::Symlink(symlink)
 		} else {
@@ -385,8 +383,12 @@ impl Server {
 			if let Some(metadata) = xattr::get(path, tg::file::XATTR_METADATA_NAME)
 				.map_err(|source| tg::error!(!source, "failed to read xattr"))?
 			{
-				let metadata = serde_json::from_slice(&metadata)
+				let mut metadata: tg::object::Metadata = serde_json::from_slice(&metadata)
 					.map_err(|source| tg::error!(!source, "failed to deserialize metadata"))?;
+				metadata.count = metadata.count.map(|count| count - 1);
+				metadata.weight = metadata
+					.weight
+					.map(|weight| weight - data.serialize().unwrap().len().to_u64().unwrap());
 				file_metadata.insert(index, metadata);
 			}
 
