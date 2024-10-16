@@ -24,16 +24,22 @@ impl Server {
 		graph: &object::Graph,
 		node: usize,
 	) -> tg::Result<tg::lockfile::Node> {
-		let data = graph.nodes[node].data.as_ref().unwrap();
+		let data = if let Some(data) = graph.nodes[node].data.as_ref() {
+			data.clone()
+		} else {
+			let id = graph.nodes[node].id.clone().unwrap().try_into()?;
+			tg::Artifact::with_id(id).data(self).await?
+		};
 		match data {
 			tg::artifact::Data::Directory(data) => {
-				self.create_lockfile_directory_node(graph, node, data).await
+				self.create_lockfile_directory_node(graph, node, &data)
+					.await
 			},
 			tg::artifact::Data::File(data) => {
-				self.create_lockfile_file_node(graph, node, data).await
+				self.create_lockfile_file_node(graph, node, &data).await
 			},
 			tg::artifact::Data::Symlink(data) => {
-				self.create_lockfile_symlink_node2(graph, node, data).await
+				self.create_lockfile_symlink_node2(graph, node, &data).await
 			},
 		}
 	}

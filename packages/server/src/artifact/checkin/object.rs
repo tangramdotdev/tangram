@@ -262,7 +262,16 @@ impl Server {
 			let entries = edges
 				.into_iter()
 				.map(|(reference, _tag, id)| {
-					let name = reference.path().to_string();
+					let name = reference
+						.path()
+						.unwrap_path_ref()
+						.components()
+						.last()
+						.unwrap()
+						.as_os_str()
+						.to_str()
+						.unwrap()
+						.to_owned();
 					let id = id.map_right(|id| id.try_into().unwrap());
 					(name, id)
 				})
@@ -573,18 +582,16 @@ impl Server {
 			},
 			_ => {
 				for edge in &graph.nodes[index].edges {
-					let data = graph.nodes[edge.index]
-						.data
-						.as_ref()
-						.ok_or_else(|| tg::error!(?edge, ?data, "missing data"))
-						.unwrap();
-					let metadata = self.compute_object_metadata(
-						graph,
-						edge.index,
-						data,
-						file_metadata,
-						graph_metadata,
-					);
+					let metadata = graph.nodes[edge.index].metadata.unwrap_or_else(|| {
+						let data = graph.nodes[edge.index].data.as_ref().unwrap();
+						self.compute_object_metadata(
+							graph,
+							edge.index,
+							data,
+							file_metadata,
+							graph_metadata,
+						)
+					});
 					complete &= metadata.complete;
 					if let Some(c) = metadata.count {
 						count = count.map(|count| count + c);

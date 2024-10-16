@@ -1,5 +1,7 @@
 // Bun Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`symlink 1`] = `"sym_01ejhx3jsq523gdc0cwg7m5ghe0df2n490jzbje33f99hgxby0y290"`;
+
 exports[`file 1`] = `"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g"`;
 
 exports[`executable 1`] = `"fil_017ywcxv0d0f712w8c7z77szz4emsr533se6jjv27xrcj670k30av0"`;

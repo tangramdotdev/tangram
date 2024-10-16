@@ -48,7 +48,7 @@ async function directoryInner(path: string, ...args: Array<Arg>) {
 							mode: value.executable ? 0o755 : 0o644,
 						});
 					} else if (symlinkSymbol in value) {
-						await $`ln -s ${value.target} ${newPath}`
+						await $`ln -s ${value.target} ${newPath}`;
 					} else {
 						await $`mkdir -p ${newPath}`;
 						await directoryInner(newPath, value);
