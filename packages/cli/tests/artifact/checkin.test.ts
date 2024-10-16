@@ -2,13 +2,15 @@ import { expect, test } from "bun:test";
 import Server from "../server.ts";
 import { compare, directory, file, symlink } from "../util.ts";
 
-test("symlink", async () => {
+test("directory", async () => {
 	await using server = await Server.start();
+	console.log("path", server.path);
 	let dir = await directory({
-		file: "text",
-		link: symlink("file"),
+		"hello.txt": "hello, world!",
+		link: await symlink("hello.txt"),
+		"child/link": await symlink("../link"),
 	});
-	let id = await server.tg`checkin ${dir}/link`.text().then((t) => t.trim());
+	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
 	expect(id).toMatchSnapshot();
 });
 
@@ -20,6 +22,25 @@ test("file", async () => {
 	let id = await server.tg`checkin ${dir}/hello.txt`
 		.text()
 		.then((t) => t.trim());
+	expect(id).toMatchSnapshot();
+});
+
+test("symlink", async () => {
+	await using server = await Server.start();
+	let dir = await directory({
+		file: "text",
+		link: symlink("file"),
+	});
+	let id = await server.tg`checkin ${dir}/link`.text().then((t) => t.trim());
+	expect(id).toMatchSnapshot();
+});
+
+test("cycle", async () => {
+	await using server = await Server.start();
+	let dir = await directory({
+		link: await symlink("."),
+	});
+	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
 	expect(id).toMatchSnapshot();
 });
 

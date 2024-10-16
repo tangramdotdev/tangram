@@ -1,7 +1,11 @@
 // Bun Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`symlink 1`] = `"sym_01ejhx3jsq523gdc0cwg7m5ghe0df2n490jzbje33f99hgxby0y290"`;
-
 exports[`file 1`] = `"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g"`;
 
+exports[`symlink 1`] = `"sym_01ejhx3jsq523gdc0cwg7m5ghe0df2n490jzbje33f99hgxby0y290"`;
+
+exports[`cycle 1`] = `"dir_01jtzwbst0gs09fy5ee8jaj2py247t7wmfjsaegfm9y1ggv49m21j0"`;
+
 exports[`executable 1`] = `"fil_017ywcxv0d0f712w8c7z77szz4emsr533se6jjv27xrcj670k30av0"`;
+
+exports[`directory 1`] = `"dir_019400zf13yggz7dx563tajyet2vhxcj0rrgw2wx3yjrsvt51ygjb0"`;
