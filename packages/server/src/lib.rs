@@ -175,7 +175,7 @@ impl Server {
 				let initialize = Box::new(|connection: &sqlite::Connection| {
 					connection.pragma_update(None, "journal_mode", "wal")?;
 					connection.pragma_update(None, "busy_timeout", "86400000")?;
-					connection.pragma_update(None, "synchronous", "off")?;
+					connection.pragma_update(None, "synchronous", "normal")?;
 					Ok(())
 				});
 				let options = db::sqlite::Options {
