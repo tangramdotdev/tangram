@@ -15,11 +15,13 @@ pub enum Error {
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
-#[derive(Clone, Debug)]
 pub struct Options {
-	pub path: PathBuf,
 	pub connections: usize,
+	pub initialize: Initialize,
+	pub path: PathBuf,
 }
+
+type Initialize = Box<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
 
 pub struct Database {
 	pool: Pool<Connection>,
@@ -113,6 +115,7 @@ impl Connection {
 	pub async fn connect(options: &Options) -> Result<Self, Error> {
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let connection = sqlite::Connection::open(&options.path)?;
+		(options.initialize)(&connection)?;
 		tokio::task::spawn_blocking(|| Self::run(connection, receiver));
 		Ok(Self { sender })
 	}
