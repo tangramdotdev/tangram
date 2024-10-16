@@ -90,6 +90,7 @@ where
 		url: String,
 		port: u16,
 	) -> Result<Self, std::io::Error> {
+		// Create the server.
 		let provider = Provider::new(provider);
 		let server = Self(Arc::new(Inner {
 			path: path.as_ref().to_owned(),
@@ -114,8 +115,8 @@ where
 					.ok();
 			}
 		});
-
 		server.task.lock().unwrap().replace(task);
+
 		Ok(server)
 	}
 

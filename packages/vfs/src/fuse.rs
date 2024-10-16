@@ -7,15 +7,15 @@ use self::sys::{
 use crate::{FileType, Provider, Result};
 use futures::{future, FutureExt as _};
 use num::ToPrimitive as _;
-use std::io::Error;
-use std::pin::pin;
 use std::{
 	ffi::CString,
+	io::Error,
 	os::{
 		fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
 		unix::ffi::OsStrExt,
 	},
 	path::{Path, PathBuf},
+	pin::pin,
 	sync::{Arc, Mutex},
 };
 use tangram_futures::task::{Stop, Task};
@@ -85,13 +85,15 @@ where
 	P: Provider + Send + Sync + 'static,
 {
 	pub async fn start(provider: P, path: impl AsRef<Path>) -> Result<Self> {
+		// Create the server.
 		let path = path.as_ref().to_owned();
-		let vfs = Vfs(Arc::new(Inner {
+		let vfs = Self(Arc::new(Inner {
 			provider,
 			path,
 			task: Mutex::new(None),
 		}));
 
+		// Spawn the task.
 		let task = Task::spawn(|stop| {
 			let vfs = vfs.clone();
 			async move {
@@ -99,6 +101,7 @@ where
 			}
 		});
 		vfs.task.lock().unwrap().replace(task);
+
 		Ok(vfs)
 	}
 

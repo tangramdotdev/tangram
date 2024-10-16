@@ -1,8 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
 
-pub mod clean;
-pub mod health;
 pub mod restart;
 pub mod run;
 pub mod start;
@@ -19,8 +17,6 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
-	Clean(self::clean::Args),
-	Health(self::health::Args),
 	Restart(self::restart::Args),
 	Run(self::run::Args),
 	Start(self::start::Args),
@@ -31,12 +27,6 @@ pub enum Command {
 impl Cli {
 	pub async fn command_server(&self, args: Args) -> tg::Result<()> {
 		match args.command {
-			Command::Clean(args) => {
-				self.command_server_clean(args).await?;
-			},
-			Command::Health(args) => {
-				self.command_server_health(args).await?;
-			},
 			Command::Restart(args) => {
 				self.command_server_restart(args).await?;
 			},

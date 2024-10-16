@@ -234,7 +234,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> + Send;
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::server::Health>> + Send;
+	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> + Send;
 
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> + Send;
 

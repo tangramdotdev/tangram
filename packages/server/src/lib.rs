@@ -1,4 +1,4 @@
-use self::{database::Database, messenger::Messenger, runtime::Runtime, util::fs::remove};
+use self::{database::Database, messenger::Messenger, runtime::Runtime};
 use async_nats as nats;
 use dashmap::DashMap;
 use futures::{future, Future, FutureExt as _, Stream};
@@ -8,13 +8,13 @@ use itertools::Itertools as _;
 use std::{
 	collections::HashMap,
 	convert::Infallible,
-	os::fd::AsRawFd,
+	os::fd::AsRawFd as _,
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::{Arc, Mutex, RwLock},
 };
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, Database as _};
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
@@ -30,16 +30,15 @@ mod build;
 mod clean;
 mod compiler;
 mod database;
+mod health;
 mod lockfile;
 mod messenger;
-mod migrations;
 mod object;
 mod package;
 mod progress;
 mod reference;
 mod remote;
 mod runtime;
-mod server;
 mod tag;
 mod target;
 mod tmp;
@@ -124,20 +123,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
 		let lock_file = Mutex::new(Some(lock_file));
 
-		// Migrate the directory.
-		Self::migrate(&path).await?;
-
 		// Ensure the blobs directory exists.
 		let blobs_path = path.join("blobs");
 		tokio::fs::create_dir_all(&blobs_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the blobs directory"))?;
-
-		// Ensure the checkouts directory exists.
-		let checkouts_path = path.join("checkouts");
-		tokio::fs::create_dir_all(&checkouts_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the checkouts directory"))?;
 
 		// Ensure the logs directory exists.
 		let logs_path = path.join("logs");
@@ -188,6 +178,30 @@ impl Server {
 				let database = db::sqlite::Database::new(options)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+				let connection = database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				connection
+					.with(|connection| {
+						connection
+							.pragma_update(None, "journal_mode", "wal")
+							.map_err(|source| {
+								tg::error!(!source, "failed to set the journal mode")
+							})?;
+						connection
+							.pragma_update(None, "busy_timeout", "86400000")
+							.map_err(|source| {
+								tg::error!(!source, "failed to set the busy timeout")
+							})?;
+						connection
+							.pragma_update(None, "synchronous", "off")
+							.map_err(|source| {
+								tg::error!(!source, "failed to set the synchronous flag")
+							})?;
+						Ok::<_, tg::Error>(())
+					})
+					.await?;
 				Either::Left(database)
 			},
 			self::options::Database::Postgres(options) => {
@@ -261,6 +275,16 @@ impl Server {
 			vfs,
 		}));
 
+		// Migrate the database.
+		self::database::migrate(&server.database)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
+
+		// Spawn tasks to connect the remotes.
+		for remote in server.remotes.iter().map(|entry| entry.value().clone()) {
+			tokio::spawn(async move { remote.connect().await.ok() });
+		}
+
 		// Start the task.
 		let task = Task::spawn(|stop| {
 			let server = server.clone();
@@ -283,14 +307,36 @@ impl Server {
 	}
 
 	pub async fn task(&self, stop: Stop) -> tg::Result<()> {
-		// Spawn tasks to connect the remotes.
-		for remote in self.remotes.iter().map(|entry| entry.value().clone()) {
-			tokio::spawn(async move { remote.connect().await.ok() });
-		}
-
-		// Start the VFS if necessary.
+		// Start the VFS if enabled.
+		let artifacts_path = self.path.join("artifacts");
+		let checkouts_path = self.path.join("checkouts");
+		let artifacts_exists = tokio::fs::try_exists(&artifacts_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
+		let checkouts_exists = tokio::fs::try_exists(&checkouts_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
 		if let Some(options) = self.options.vfs {
-			// If the VFS is enabled, then start the VFS server.
+			if artifacts_exists && !checkouts_exists {
+				tokio::fs::rename(&artifacts_path, &checkouts_path)
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to move the artifacts directory to the checkouts path"
+						)
+					})?;
+			}
+			tokio::fs::create_dir_all(&artifacts_path)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the artifacts directory")
+				})?;
+			tokio::fs::create_dir_all(&checkouts_path)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the checkouts directory")
+				})?;
 			let kind = if cfg!(target_os = "macos") {
 				vfs::Kind::Nfs
 			} else if cfg!(target_os = "linux") {
@@ -308,15 +354,22 @@ impl Server {
 			if let Some(vfs) = vfs {
 				self.vfs.lock().unwrap().replace(vfs);
 			}
-		}
-
-		// If there is no VFS, then create a symlink from the artifacts directory to the checkouts directory.
-		if self.vfs.lock().unwrap().is_none() {
-			let artifacts_path = self.artifacts_path();
-			remove(&artifacts_path).await.ok();
-			tokio::fs::symlink("checkouts", artifacts_path)
+		} else {
+			if checkouts_exists {
+				tokio::fs::rename(&checkouts_path, &artifacts_path)
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to move the artifacts directory to the checkouts directory"
+						)
+					})?;
+			}
+			tokio::fs::create_dir_all(&artifacts_path)
 				.await
-				.map_err(|source|tg::error!(!source, "failed to create a symlink from the artifacts directory to the checkouts directory"))?;
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the artifacts directory")
+				})?;
 		}
 
 		// Add the runtimes.
@@ -438,7 +491,7 @@ impl Server {
 		// Remove the runtimes.
 		self.runtimes.write().unwrap().clear();
 
-		// Abort the checkouts.
+		// Abort the checkout tasks.
 		self.checkout_task_map.abort_all();
 		self.checkout_task_map.wait().await;
 
@@ -470,7 +523,11 @@ impl Server {
 
 	#[must_use]
 	pub fn checkouts_path(&self) -> PathBuf {
-		self.path.join("checkouts")
+		if self.vfs.lock().unwrap().is_some() {
+			self.path.join("checkouts")
+		} else {
+			self.artifacts_path()
+		}
 	}
 
 	#[must_use]
@@ -1093,7 +1150,7 @@ impl tg::Handle for Server {
 		self.get_js_runtime_doc()
 	}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::server::Health>> {
+	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
 		self.health()
 	}
 
