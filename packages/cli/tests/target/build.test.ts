@@ -106,3 +106,61 @@ test("cache hit after push", async () => {
 	});
 	await newServer.tg`get ${build}`.quiet();
 });
+
+test("import from pushed tag", async () => {
+	await using remote = await Server.start();
+	await using server = await Server.start({
+		remotes: { default: { url: remote.url } },
+	});
+	const dir = await directory({
+		foo: {
+			"tangram.ts": `
+				export default tg.target(() => "Hello, World");
+			`,
+		},
+		bar: {
+			"tangram.ts": `
+				import foo from "foo";
+				export default tg.target(() => foo());
+			`,
+		},
+	});
+
+	// Tag and push the first package.
+	await server.tg`tag foo ${dir}/foo`.quiet();
+	await server.tg`push foo`.quiet();
+
+	// Build the default target, push that build.
+	const fooBuildId = await server.tg`build foo -d`.text().then((t) => t.trim());
+	await server.tg`build output ${fooBuildId}`.quiet();
+	await server.tg`push ${fooBuildId}`.quiet();
+
+	// Tag and push the next package.
+	await server.tg`tag bar ${dir}/bar`.quiet();
+	await server.tg`push bar`.quiet();
+
+	// Push that build.
+	const origBarBuildId = await server.tg`build bar -d`
+		.text()
+		.then((t) => t.trim());
+	const origBarOutput = await server.tg`build output ${origBarBuildId}`
+		.text()
+		.then((t) => t.trim());
+	await server.tg`push ${origBarBuildId}`.quiet();
+
+	// Start a fresh server.
+	await server.stop();
+	await using newServer = await Server.start({
+		remotes: { default: { url: remote.url } },
+	});
+
+	// Use the new server to build the second package.
+	const newBarBuildId = await newServer.tg`build bar -d`
+		.text()
+		.then((t) => t.trim());
+	expect(newBarBuildId).toBe(origBarBuildId);
+	const newBarOutput = await newServer.tg`build output ${newBarBuildId}`
+		.text()
+		.then((t) => t.trim());
+	expect(newBarOutput).toBe(origBarOutput);
+});
