@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use futures::TryStreamExt as _;
 use indoc::formatdoc;
 use num::ToPrimitive;
+use rusqlite as sqlite;
 use std::{
 	os::unix::ffi::OsStrExt,
 	path::PathBuf,
@@ -425,9 +426,14 @@ impl Provider {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the database directory"))?;
 		let path = tmp.path.join("vfs");
+		let initialize = Box::new(|connection: &sqlite::Connection| {
+			connection.pragma_update(None, "journal_mode", "wal")?;
+			Ok(())
+		});
 		let database_options = db::sqlite::Options {
-			path,
 			connections: options.database_connections,
+			initialize,
+			path,
 		};
 		let database = db::sqlite::Database::new(database_options)
 			.await
@@ -436,14 +442,6 @@ impl Provider {
 			.connection(db::Priority::Low)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
-		connection
-			.with(|connection| {
-				connection
-					.pragma_update(None, "journal_mode", "wal")
-					.map_err(|source| tg::error!(!source, "failed to set the journal mode"))?;
-				Ok::<_, tg::Error>(())
-			})
-			.await?;
 		let statement = formatdoc!(
 			r#"
 				create table nodes (
@@ -458,9 +456,13 @@ impl Provider {
 			"#
 		);
 		connection
-			.execute(statement, Vec::new())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+			.with(move |connection| {
+				connection
+					.execute(&statement, [])
+					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+				Ok::<_, tg::Error>(())
+			})
+			.await?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"

@@ -5,6 +5,7 @@ use futures::{future, Future, FutureExt as _, Stream};
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools as _;
+use rusqlite as sqlite;
 use std::{
 	collections::HashMap,
 	convert::Infallible,
@@ -14,7 +15,7 @@ use std::{
 	sync::{Arc, Mutex, RwLock},
 };
 use tangram_client as tg;
-use tangram_database::{self as db, Database as _};
+use tangram_database as db;
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
@@ -171,37 +172,20 @@ impl Server {
 		// Create the database.
 		let database = match &options.database {
 			self::options::Database::Sqlite(options) => {
+				let initialize = Box::new(|connection: &sqlite::Connection| {
+					connection.pragma_update(None, "journal_mode", "wal")?;
+					connection.pragma_update(None, "busy_timeout", "86400000")?;
+					connection.pragma_update(None, "synchronous", "off")?;
+					Ok(())
+				});
 				let options = db::sqlite::Options {
-					path: path.join("database"),
 					connections: options.connections,
+					initialize,
+					path: path.join("database"),
 				};
 				let database = db::sqlite::Database::new(options)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
-				let connection = database
-					.connection(db::Priority::Low)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-				connection
-					.with(|connection| {
-						connection
-							.pragma_update(None, "journal_mode", "wal")
-							.map_err(|source| {
-								tg::error!(!source, "failed to set the journal mode")
-							})?;
-						connection
-							.pragma_update(None, "busy_timeout", "86400000")
-							.map_err(|source| {
-								tg::error!(!source, "failed to set the busy timeout")
-							})?;
-						connection
-							.pragma_update(None, "synchronous", "off")
-							.map_err(|source| {
-								tg::error!(!source, "failed to set the synchronous flag")
-							})?;
-						Ok::<_, tg::Error>(())
-					})
-					.await?;
 				Either::Left(database)
 			},
 			self::options::Database::Postgres(options) => {
