@@ -319,9 +319,6 @@ impl Server {
 						.ok()
 						.ok_or_else(|| tg::error!("invalid symlink"))?
 						.clone();
-					let path = path
-						.parse()
-						.map_err(|source| tg::error!(!source, "invalid symlink"))?;
 					break 'a (None, Some(path));
 				}
 
@@ -338,15 +335,14 @@ impl Server {
 						.ok_or_else(|| tg::error!("invalid sylink"))?
 						.clone();
 					let path = &path[1..];
-					let path = path
-						.parse()
-						.map_err(|source| tg::error!(!source, "invalid symlink"))?;
-					break 'a (Some(Either::Right(artifact)), Some(path));
+					break 'a (Some(Either::Right(artifact)), Some(path.to_owned()));
 				}
-
 				return Err(tg::error!("invalid symlink"));
 			};
 
+			let path = path.map(|path| {
+				path.strip_prefix("./").unwrap_or(&path).to_owned()
+			});
 			let symlink = tg::graph::data::node::Symlink { artifact, path };
 			tg::graph::data::Node::Symlink(symlink)
 		} else {
