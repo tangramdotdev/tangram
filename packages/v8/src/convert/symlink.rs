@@ -72,7 +72,10 @@ impl ToV8 for tg::symlink::Object {
 		let object = v8::Object::new(scope);
 
 		match self {
-			tg::symlink::Object::Normal { artifact, path } => {
+			tg::symlink::Object::Normal {
+				artifact,
+				subpath: path,
+			} => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
 				let value = artifact.to_v8(scope)?;
@@ -131,6 +134,9 @@ impl FromV8 for tg::symlink::Object {
 		let path = <_>::from_v8(scope, path)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
 
-		Ok(Self::Normal { artifact, path })
+		Ok(Self::Normal {
+			artifact,
+			subpath: path,
+		})
 	}
 }

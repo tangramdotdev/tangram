@@ -4,10 +4,7 @@ use std::collections::BTreeMap;
 /// An import in a module.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Import {
-	/// The kind.
 	pub kind: Option<tg::module::Kind>,
-
-	/// The reference.
 	pub reference: tg::Reference,
 }
 
