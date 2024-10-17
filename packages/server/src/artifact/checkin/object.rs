@@ -369,7 +369,11 @@ impl Server {
 		let dependencies = edges
 			.into_iter()
 			.map(|(reference, tag, object)| {
-				let dependency = tg::graph::data::node::Dependency { object, tag };
+				let dependency = tg::Referent {
+					item: object,
+					tag,
+					subpath: None,
+				};
 				(reference, dependency)
 			})
 			.collect();
@@ -468,10 +472,10 @@ impl Server {
 				} = file;
 				let dependencies = dependencies
 					.into_iter()
-					.map(|(reference, dependency)| {
-						let tg::graph::data::node::Dependency { object, tag } = dependency;
-						let object = object.unwrap_right();
-						(reference, tg::file::data::Dependency { object, tag })
+					.map(|(reference, referent)| {
+						let tg::Referent { item, tag, subpath } = referent;
+						let item = item.unwrap_right();
+						(reference, tg::Referent { item, tag, subpath })
 					})
 					.collect();
 				tg::file::Data::Normal {
@@ -515,8 +519,8 @@ impl Server {
 					}
 				},
 				tg::graph::data::Node::File(file) => {
-					for dependency in file.dependencies.values() {
-						if let Either::Right(id) = &dependency.object {
+					for referent in file.dependencies.values() {
+						if let Either::Right(id) = &referent.item {
 							let node = graph.objects.get(id).unwrap();
 							let metadata = graph.nodes[*node].metadata.unwrap();
 							complete &= metadata.complete;
