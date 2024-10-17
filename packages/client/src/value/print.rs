@@ -198,23 +198,7 @@ impl Printer {
 				let contents = contents.clone().into();
 				map.insert("contents".to_owned(), contents);
 				if !dependencies.is_empty() {
-					let dependencies = dependencies
-						.iter()
-						.map(|(reference, dependency)| {
-							let key = reference.to_string();
-							let mut map = BTreeMap::new();
-							map.insert(
-								"object".to_owned(),
-								tg::Value::Object(dependency.object.clone()),
-							);
-							if let Some(tag) = &dependency.tag {
-								let tag = tg::Value::String(tag.to_string());
-								map.insert("tag".to_owned(), tag);
-							}
-							(key, tg::Value::Map(map))
-						})
-						.collect();
-					map.insert("dependencies".to_owned(), tg::Value::Map(dependencies));
+					todo!()
 				}
 				if *executable {
 					map.insert("executable".to_owned(), true.into());
@@ -239,7 +223,10 @@ impl Printer {
 		let object = state.object().unwrap();
 		let mut map = BTreeMap::new();
 		match object.as_ref() {
-			tg::symlink::Object::Normal { artifact, path } => {
+			tg::symlink::Object::Normal {
+				artifact,
+				subpath: path,
+			} => {
 				if let Some(artifact) = &artifact {
 					map.insert("artifact".to_owned(), artifact.clone().into());
 				}
@@ -293,26 +280,7 @@ impl Printer {
 						} = file;
 						map.insert("contents".to_owned(), contents.clone().into());
 						if !dependencies.is_empty() {
-							let dependencies = dependencies
-								.iter()
-								.map(|(reference, dependency)| {
-									let key = reference.to_string();
-									let mut map = BTreeMap::new();
-									let object = match &dependency.object {
-										Either::Left(index) => {
-											tg::Value::Number(index.to_f64().unwrap())
-										},
-										Either::Right(object) => tg::Value::Object(object.clone()),
-									};
-									map.insert("object".to_owned(), object);
-									if let Some(tag) = &dependency.tag {
-										let tag = tg::Value::String(tag.to_string());
-										map.insert("tag".to_owned(), tag);
-									}
-									(key, tg::Value::Map(map))
-								})
-								.collect();
-							map.insert("dependencies".to_owned(), tg::Value::Map(dependencies));
+							todo!()
 						}
 						if *executable {
 							map.insert("executable".to_owned(), true.into());
@@ -435,5 +403,22 @@ impl Printer {
 		self.string += "tg.template(";
 		self.array(&components);
 		self.string.push(')');
+	}
+
+	fn referent<T>(&mut self, value: &tg::Referent<T>)
+	where
+		T: Clone + Into<tg::Value>,
+	{
+		// let mut map = BTreeMap::new();
+		// map.insert("item".to_owned(), value.item.clone().into());
+		// if let Some(subpath) = &value.subpath {
+		// 	let path = subpath.as_os_str().to_string_lossy().into();
+		// 	map.insert("path".to_owned(), path);
+		// }
+		// if let Some(tag) = &value.tag {
+		// 	let tag = tag.to_string().into();
+		// 	map.insert("tag".to_owned(), tag);
+		// }
+		todo!()
 	}
 }

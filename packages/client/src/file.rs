@@ -42,7 +42,7 @@ pub type State = tg::object::State<Id, Object>;
 pub enum Object {
 	Normal {
 		contents: tg::Blob,
-		dependencies: BTreeMap<tg::Reference, Dependency>,
+		dependencies: BTreeMap<tg::Reference, tg::Referent<tg::Object>>,
 		executable: bool,
 	},
 	Graph {
@@ -58,7 +58,7 @@ pub enum Data {
 		contents: tg::blob::Id,
 
 		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-		dependencies: BTreeMap<tg::Reference, data::Dependency>,
+		dependencies: BTreeMap<tg::Reference, tg::Referent<tg::object::Id>>,
 
 		#[serde(default, skip_serializing_if = "is_false")]
 		executable: bool,
@@ -68,22 +68,6 @@ pub enum Data {
 		graph: tg::graph::Id,
 		node: usize,
 	},
-}
-
-#[derive(Clone, Debug)]
-pub struct Dependency {
-	pub object: tg::Object,
-	pub tag: Option<tg::Tag>,
-}
-
-pub mod data {
-	use crate as tg;
-
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-	pub struct Dependency {
-		pub object: tg::object::Id,
-		pub tag: Option<tg::Tag>,
-	}
 }
 
 impl Id {
@@ -197,11 +181,12 @@ impl File {
 				let contents = contents.id(handle).await?.clone();
 				let dependencies = dependencies
 					.iter()
-					.map(|(reference, dependency)| async move {
-						let object = dependency.object.id(handle).await?;
-						let dependency = data::Dependency {
-							object,
-							tag: dependency.tag.clone(),
+					.map(|(reference, referent)| async move {
+						let object = referent.item.id(handle).await?;
+						let dependency = tg::Referent {
+							item: object,
+							subpath: None,
+							tag: referent.tag.clone(),
 						};
 						Ok::<_, tg::Error>((reference.clone(), dependency))
 					})
@@ -266,7 +251,7 @@ impl File {
 	pub async fn dependencies<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<BTreeMap<tg::Reference, Dependency>>
+	) -> tg::Result<BTreeMap<tg::Reference, tg::Referent<tg::Object>>>
 	where
 		H: tg::Handle,
 	{
@@ -285,8 +270,8 @@ impl File {
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				file.dependencies
 					.iter()
-					.map(|(reference, dependency)| {
-						let object = match &dependency.object {
+					.map(|(reference, referent)| {
+						let item = match &referent.item {
 							Either::Left(index) => {
 								let node = object
 									.nodes
@@ -308,11 +293,12 @@ impl File {
 							},
 							Either::Right(object) => object.clone(),
 						};
-						let dependency = Dependency {
-							object,
-							tag: dependency.tag.clone(),
+						let referent = tg::Referent {
+							item,
+							subpath: None,
+							tag: referent.tag.clone(),
 						};
-						Ok::<_, tg::Error>((reference.clone(), dependency))
+						Ok::<_, tg::Error>((reference.clone(), referent))
 					})
 					.try_collect()?
 			},
@@ -345,7 +331,7 @@ impl File {
 		let object = match object.as_ref() {
 			Object::Normal { dependencies, .. } => dependencies
 				.get(reference)
-				.map(|dependency| dependency.object.clone()),
+				.map(|dependency| dependency.item.clone()),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -356,10 +342,10 @@ impl File {
 					.try_unwrap_file_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let Some(dependency) = file.dependencies.get(reference) else {
+				let Some(referent) = file.dependencies.get(reference) else {
 					return Ok(None);
 				};
-				match &dependency.object {
+				match &referent.item {
 					Either::Left(index) => match object.nodes.get(*index) {
 						Some(tg::graph::Node::Directory(_)) => {
 							Some(tg::Directory::with_graph_and_node(graph.clone(), *index).into())
@@ -457,7 +443,7 @@ impl Data {
 				let contents = contents.clone().into();
 				let dependencies = dependencies
 					.values()
-					.map(|dependency| dependency.object.clone());
+					.map(|dependency| dependency.item.clone());
 				std::iter::once(contents).chain(dependencies).collect()
 			},
 			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
@@ -478,12 +464,13 @@ impl TryFrom<Data> for Object {
 				let contents = tg::Blob::with_id(contents);
 				let dependencies = dependencies
 					.into_iter()
-					.map(|(reference, dependency)| {
-						let dependency = Dependency {
-							object: tg::Object::with_id(dependency.object),
-							tag: dependency.tag.clone(),
+					.map(|(reference, referent)| {
+						let referent = tg::Referent {
+							item: tg::Object::with_id(referent.item),
+							subpath: None,
+							tag: referent.tag.clone(),
 						};
-						(reference, dependency)
+						(reference, referent)
 					})
 					.collect();
 				Ok(Self::Normal {

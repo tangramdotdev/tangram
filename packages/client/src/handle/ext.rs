@@ -9,6 +9,7 @@ use std::{
 	io::SeekFrom,
 	sync::{Arc, Mutex},
 };
+use tangram_either::Either;
 
 pub trait Ext: tg::Handle {
 	fn try_read_blob(
@@ -443,7 +444,8 @@ pub trait Ext: tg::Handle {
 	fn get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<tg::reference::get::Output>> + Send {
+	) -> impl Future<Output = tg::Result<tg::Referent<Either<tg::build::Id, tg::object::Id>>>> + Send
+	{
 		self.try_get_reference(reference).map(|result| {
 			result
 				.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the reference")))

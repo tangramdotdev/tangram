@@ -31,7 +31,7 @@ pub type State = tg::object::State<Id, Object>;
 pub enum Object {
 	Normal {
 		artifact: Option<tg::Artifact>,
-		path: Option<String>,
+		subpath: Option<String>,
 	},
 	Graph {
 		graph: tg::Graph,
@@ -159,7 +159,10 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Normal { artifact, path } => {
+			Object::Normal {
+				artifact,
+				subpath: path,
+			} => {
 				let artifact = if let Some(artifact) = &artifact {
 					Some(artifact.id(handle).await?)
 				} else {
@@ -180,7 +183,10 @@ impl Symlink {
 impl Symlink {
 	#[must_use]
 	pub fn with_artifact_and_path(artifact: Option<tg::Artifact>, path: Option<String>) -> Self {
-		Self::with_object(Object::Normal { artifact, path })
+		Self::with_object(Object::Normal {
+			artifact,
+			subpath: path,
+		})
 	}
 
 	#[must_use]
@@ -242,7 +248,7 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Normal { path, .. } => Ok(path.clone()),
+			Object::Normal { subpath: path, .. } => Ok(path.clone()),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -350,7 +356,10 @@ impl TryFrom<Data> for Object {
 		match data {
 			Data::Normal { artifact, path } => {
 				let artifact = artifact.map(tg::Artifact::with_id);
-				Ok(Self::Normal { artifact, path })
+				Ok(Self::Normal {
+					artifact,
+					subpath: path,
+				})
 			},
 			Data::Graph { graph, node } => {
 				let graph = tg::Graph::with_id(graph);
