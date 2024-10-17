@@ -121,8 +121,9 @@ impl Server {
 				let metadata = self.get_object_metadata(&id).await.map_err(
 					|source| tg::error!(!source, %object = id, "failed to get object metadata"),
 				)?;
-				graph.nodes[scc[0]].id.replace(id);
+				graph.nodes[scc[0]].id.replace(id.clone());
 				graph.nodes[scc[0]].metadata.replace(metadata);
+				graph.objects.insert(id.clone().into(), scc[0]);
 				continue;
 			}
 
@@ -157,10 +158,11 @@ impl Server {
 				);
 
 				// Update the graph.
-				let id = data.id()?;
+				let id: tg::object::Id = data.id()?.into();
 				graph.nodes[index].data.replace(data);
-				graph.nodes[index].id.replace(id.into());
+				graph.nodes[index].id.replace(id.clone());
 				graph.nodes[index].metadata.replace(metadata);
+				graph.objects.insert(id, index);
 			} else {
 				// Otherwise, construct an object graph.
 				let object_graph = tg::graph::data::Data {
@@ -210,10 +212,11 @@ impl Server {
 					);
 
 					// Update the graph.
-					let id = data.id()?;
+					let id: tg::object::Id = data.id()?.into();
 					graph.nodes[old_index].data.replace(data);
-					graph.nodes[old_index].id.replace(id.into());
+					graph.nodes[old_index].id.replace(id.clone());
 					graph.nodes[old_index].metadata.replace(metadata);
+					graph.objects.insert(id, old_index);
 				}
 			}
 		}
