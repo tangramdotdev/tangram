@@ -40,38 +40,50 @@ export type Resolved<T extends Unresolved<tg.Value>> = T extends
 export let resolve = async <T extends Unresolved<tg.Value>>(
 	value: T,
 ): Promise<Resolved<T>> => {
-	value = await value;
-	if (
-		value === undefined ||
-		typeof value === "boolean" ||
-		typeof value === "number" ||
-		typeof value === "string" ||
-		value instanceof tg.Leaf ||
-		value instanceof tg.Branch ||
-		value instanceof tg.Directory ||
-		value instanceof tg.File ||
-		value instanceof tg.Symlink ||
-		value instanceof tg.Graph ||
-		value instanceof tg.Target ||
-		value instanceof Uint8Array ||
-		value instanceof tg.Mutation ||
-		value instanceof tg.Template
-	) {
-		return value as unknown as Resolved<T>;
-	} else if (value instanceof Array) {
-		return (await Promise.all(
-			value.map((value) => resolve(value)),
-		)) as Resolved<T>;
-	} else if (typeof value === "object") {
-		return Object.fromEntries(
-			await Promise.all(
+	let inner = async (value, seen) => {
+		value = await value;
+		if (seen.has(value)) {
+			throw new Error("Cyclic reference detected");
+		}
+		seen.add(value);
+
+		if (
+			value === undefined ||
+			typeof value === "boolean" ||
+			typeof value === "number" ||
+			typeof value === "string" ||
+			value instanceof tg.Leaf ||
+			value instanceof tg.Branch ||
+			value instanceof tg.Directory ||
+			value instanceof tg.File ||
+			value instanceof tg.Symlink ||
+			value instanceof tg.Graph ||
+			value instanceof tg.Target ||
+			value instanceof Uint8Array ||
+			value instanceof tg.Mutation ||
+			value instanceof tg.Template
+		) {
+			seen.delete(value);
+			return value as unknown as Resolved<T>;
+		} else if (value instanceof Array) {
+			const resolvedArray = await Promise.all(
+				value.map((item) => inner(item, new Set(seen))),
+			);
+			seen.delete(value);
+			return resolvedArray as Resolved<T>;
+		} else if (typeof value === "object" && value !== null) {
+			const resolvedEntries = await Promise.all(
 				Object.entries(value).map(async ([key, value]) => [
 					key,
-					await resolve(value),
+					await inner(value, new Set(seen)),
 				]),
-			),
-		) as Resolved<T>;
-	} else {
-		throw new Error("invalid value to resolve");
-	}
+			);
+			seen.delete(value);
+			return Object.fromEntries(resolvedEntries) as Resolved<T>;
+		} else {
+			seen.delete(value);
+			throw new Error("invalid value to resolve");
+		}
+	};
+	return inner(value, new Set());
 };

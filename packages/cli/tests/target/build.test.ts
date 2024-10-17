@@ -106,3 +106,79 @@ test("cache hit after push", async () => {
 	});
 	await newServer.tg`get ${build}`.quiet();
 });
+
+test("cycle detection", async () => {
+	await using remote = await Server.start();
+	await using server = await Server.start({
+		remotes: { default: { url: remote.url } },
+	});
+	let dir = await directory({
+		notACycle: {
+			"tangram.ts": `
+				export default tg.target(async () => {
+				  let x = {};
+				  return { a: x, b: x };
+				});
+			`,
+		},
+		selfRef: {
+			"tangram.ts": `
+				export default tg.target(async () => {
+				  let x = {};
+				  x.a = x;
+				  return x;
+				});
+			`,
+		},
+		selfRefArray: {
+			"tangram.ts": `
+				export default tg.target(async () => {
+				  let x = {};
+				  x.a = [x];
+				  return x;
+				});
+			`,
+		},
+		selfRefNoResolve: {
+			"tangram.ts": `
+				export default tg.target(async() => {
+					let env: any = {};
+					env.x = env;
+					let target = await tg.target({
+						env
+					});
+					return await target.id();
+				});
+			`,
+		},
+		doubleRecursionFoo: {
+			"tangram.ts": `
+				import bar from "bar";
+				export default tg.target(() => bar());
+			`,
+		},
+		doubleRecursionBar: {
+			"tangram.ts": `
+			  import foo from "foo";
+				export default tg.target(() => foo());
+			`,
+		},
+	});
+	const notACycle = await server.tg`build ${dir}/notACycle`
+		.text()
+		.then((t) => t.trim());
+	const selfRef = server.tg`build ${dir}/selfRef`.text().then((t) => t.trim());
+	expect(selfRef).rejects.toThrow();
+	const selfRefArray = server.tg`build ${dir}/selfRefArray`
+		.text()
+		.then((t) => t.trim());
+	expect(selfRefArray).rejects.toThrow();
+	const selfRefNoResolve = server.tg`build ${dir}/selfRefNoResolve`
+		.text()
+		.then((t) => t.trim());
+	expect(selfRefNoResolve).rejects.toThrow();
+	const doubleRecursion = server.tg`build ${dir}/doubleRecursionFoo`
+		.text()
+		.then((t) => t.trim());
+	expect(doubleRecursion).rejects.toThrow();
+});
