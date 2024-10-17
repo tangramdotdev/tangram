@@ -309,18 +309,19 @@ impl Server {
 						let dependencies = file
 							.dependencies
 							.iter()
-							.map(|(reference, dependency)| {
-								let object = match &dependency.object {
+							.map(|(reference, referent)| {
+								let object = match &referent.item {
 									Either::Left(_node) => {
 										return Err(tg::error!("invalid graph"));
 									},
 									Either::Right(object) => object.clone(),
 								};
-								let dependency = tg::file::data::Dependency {
-									object,
-									tag: dependency.tag.clone(),
+								let referent = tg::Referent {
+									item: object.clone(),
+									tag: referent.tag.clone(),
+									subpath: todo!(),
 								};
-								Ok::<_, tg::Error>((reference.clone(), dependency))
+								Ok::<_, tg::Error>((reference.clone(), referent))
 							})
 							.try_collect()?;
 						tg::file::Data::Normal {
@@ -398,9 +399,10 @@ impl Server {
 				let object = self
 					.resolve_lockfile_dependency(object, graphs, indices)
 					.await?;
-				let dependency = tg::graph::data::node::Dependency {
-					object,
+				let dependency = tg::Referent {
+					item: object,
 					tag: dependency.tag,
+					subpath: todo!(),
 				};
 				Ok::<_, tg::Error>((reference, dependency))
 			})
@@ -481,16 +483,17 @@ impl Server {
 					let dependencies = node
 						.dependencies
 						.iter()
-						.map(|(reference, dependency)| {
-							let dependency = tg::file::data::Dependency {
-								object: dependency
-									.object
+						.map(|(reference, referent)| {
+							let referent = tg::Referent {
+								item: referent
+									.item
 									.clone()
 									.right()
 									.ok_or_else(|| tg::error!("expected an object id"))?,
-								tag: dependency.tag.clone(),
+								tag: referent.tag.clone(),
+								subpath: todo!(),
 							};
-							Ok::<_, tg::Error>((reference.clone(), dependency))
+							Ok::<_, tg::Error>((reference.clone(), referent))
 						})
 						.try_collect()?;
 					tg::file::Data::Normal {

@@ -454,11 +454,11 @@ impl Server {
 						.map_err(|_| tg::error!("expected a file"))?
 						.dependencies
 						.iter()
-						.map(|(reference, dependency)| {
+						.map(|(reference, referent)| {
 							let graph_ = graph_.clone();
 							let graph = graph.clone();
 							async move {
-								let object = match &dependency.object {
+								let item = match &referent.item {
 									Either::Left(node) => match &graph_.nodes[*node] {
 										tg::graph::node::Node::Directory(_) => {
 											tg::directory::Data::Graph { graph, node: *node }
@@ -478,9 +478,10 @@ impl Server {
 									},
 									Either::Right(object) => object.id(self).await?,
 								};
-								let dependency = tg::file::data::Dependency {
-									object,
-									tag: dependency.tag.clone(),
+								let dependency = tg::Referent {
+									item,
+									tag: referent.tag.clone(),
+									subpath: referent.subpath.clone(),
 								};
 								Ok::<_, tg::Error>((reference.clone(), dependency))
 							}
@@ -492,7 +493,7 @@ impl Server {
 			};
 			let edges = dependencies
 				.into_iter()
-				.map(|(reference, dependency)| {
+				.map(|(reference, referent)| {
 					let arg = arg.clone();
 					let referrer = referrer.clone();
 					async move {
@@ -501,7 +502,7 @@ impl Server {
 							.root
 							.clone()
 							.unwrap_or_else(|| referrer_.arg.path.clone());
-						let id = dependency.object;
+						let id = referent.item;
 						let path = reference
 							.path()
 							.try_unwrap_path_ref()
@@ -547,7 +548,7 @@ impl Server {
 							reference,
 							graph,
 							object: Some(id),
-							tag: dependency.tag,
+							tag: referent.tag,
 						};
 
 						Ok::<_, tg::Error>(edge)
