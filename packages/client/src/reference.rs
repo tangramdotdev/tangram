@@ -133,16 +133,24 @@ impl Reference {
 		self.query.as_ref()
 	}
 
-	pub async fn get<H>(&self, handle: &H) -> tg::Result<Either<tg::Build, tg::Object>>
+	pub async fn get<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<tg::Referent<Either<tg::Build, tg::Object>>>
 	where
 		H: tg::Handle,
 	{
-		handle.get_reference(self).await.map(|output| {
-			output
-				.item
-				.map_left(tg::Build::with_id)
-				.map_right(tg::Object::with_id)
-		})
+		handle
+			.get_reference(self)
+			.await
+			.map(|referent| tg::Referent {
+				item: referent
+					.item
+					.map_left(tg::Build::with_id)
+					.map_right(tg::Object::with_id),
+				subpath: referent.subpath,
+				tag: referent.tag,
+			})
 	}
 }
 

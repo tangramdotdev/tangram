@@ -4,7 +4,9 @@ interface ImportAttributes {
 	path?: string;
 }
 
-interface ImportMeta {}
+interface ImportMeta {
+	module: tg.Module;
+}
 
 // @ts-ignore
 declare let console: {
@@ -631,7 +633,6 @@ declare namespace tg {
 		};
 	}
 
-
 	export namespace path {
 		/** A path component. **/
 		export type Component =
@@ -659,28 +660,28 @@ declare namespace tg {
 		}
 
 		/** Split into path components */
-		export let components:  (path: string) => Array<Component>
-	
+		export let components: (path: string) => Array<Component>;
+
 		/** Normalize the path. */
-		export let normalize: (path: string) => string
+		export let normalize: (path: string) => string;
 
 		/** Return the parent path. */
-		export let parent: (path: string) => string | undefined
+		export let parent: (path: string) => string | undefined;
 
 		/** Returns true if the path is absolute.  */
-		export let isAbsolute: (path: string) => boolean
+		export let isAbsolute: (path: string) => boolean;
 
 		/** Returns true if the path points outside the current directory. */
-		export let isExternal: (path: string) => boolean
+		export let isExternal: (path: string) => boolean;
 
 		/** Returns true if the path points inside the current directory. */
-		export let isInternal: (path: string) => boolean
+		export let isInternal: (path: string) => boolean;
 
 		/** Join a list of paths together. */
-		export let join: (...paths: Array<string|undefined>) => string
+		export let join: (...paths: Array<string | undefined>) => string;
 
 		/** Convert an array of components into a path. */
-		export let fromComponents: (components: Array<path.Component>) => string
+		export let fromComponents: (components: Array<path.Component>) => string;
 	}
 
 	/** Create a mutation. */

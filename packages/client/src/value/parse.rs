@@ -202,7 +202,7 @@ fn object(input: &mut Input) -> PResult<tg::Object> {
 fn leaf(input: &mut Input) -> PResult<tg::leaf::Object> {
 	delimited(
 		("tg.leaf", whitespace, "(", whitespace),
-		bytes_arg,
+		leaf_arg,
 		(whitespace, ")"),
 	)
 	.map(|bytes| tg::leaf::Object { bytes })
@@ -277,16 +277,17 @@ fn file_arg(input: &mut Input) -> PResult<tg::file::Object> {
 				.ok()?
 				.iter()
 				.map(|(key, value)| {
-					let reference: tg::Reference = key.parse().ok()?;
-					let value = value.try_unwrap_map_ref().ok()?;
-					let object = value.get("object")?.try_unwrap_object_ref().ok()?.clone();
-					let tag = if let Some(tag) = value.get("tag") {
-						Some(tag.try_unwrap_string_ref().ok()?.parse().ok()?)
-					} else {
-						None
-					};
-					let dependency = tg::file::Dependency { object, tag };
-					Some((reference, dependency))
+					todo!()
+					// let reference: tg::Reference = key.parse().ok()?;
+					// let value = value.try_unwrap_map_ref().ok()?;
+					// let object = value.get("object")?.try_unwrap_object_ref().ok()?.clone();
+					// let tag = if let Some(tag) = value.get("tag") {
+					// 	Some(tag.try_unwrap_string_ref().ok()?.parse().ok()?)
+					// } else {
+					// 	None
+					// };
+					// let referent = tg::Referent { item, tag };
+					// Some((reference, referent))
 				})
 				.collect::<Option<_>>()?
 		} else {
@@ -330,7 +331,10 @@ fn symlink_arg(input: &mut Input) -> PResult<tg::symlink::Object> {
 		if path.is_none() && artifact.is_none() {
 			return None;
 		};
-		Some(tg::symlink::Object::Normal { artifact, path })
+		Some(tg::symlink::Object::Normal {
+			artifact,
+			subpath: path,
+		})
 	})
 	.parse_next(input)
 }
@@ -391,27 +395,28 @@ fn graph_arg(input: &mut Input) -> PResult<tg::graph::Object> {
 								.ok()?
 								.iter()
 								.map(|(key, value)| {
-									let reference: tg::Reference = key.parse().ok()?;
-									let dependency = value.try_unwrap_map_ref().ok()?;
-									let object = match dependency.get("object")? {
-										tg::Value::Number(number) => {
-											Either::Left(number.to_usize().unwrap())
-										},
-										tg::Value::Object(object) => Either::Right(object.clone()),
-										_ => return None,
-									};
-									let tag = match dependency.get("tag") {
-										Some(tag) => Some(
-											tag.try_unwrap_string_ref()
-												.ok()?
-												.as_str()
-												.parse()
-												.ok()?,
-										),
-										None => None,
-									};
-									let dependency = tg::graph::node::Dependency { object, tag };
-									Some((reference, dependency))
+									// let reference: tg::Reference = key.parse().ok()?;
+									// let dependency = value.try_unwrap_map_ref().ok()?;
+									// let object = match dependency.get("object")? {
+									// 	tg::Value::Number(number) => {
+									// 		Either::Left(number.to_usize().unwrap())
+									// 	},
+									// 	tg::Value::Object(object) => Either::Right(object.clone()),
+									// 	_ => return None,
+									// };
+									// let tag = match dependency.get("tag") {
+									// 	Some(tag) => Some(
+									// 		tag.try_unwrap_string_ref()
+									// 			.ok()?
+									// 			.as_str()
+									// 			.parse()
+									// 			.ok()?,
+									// 	),
+									// 	None => None,
+									// };
+									// let dependency = tg::graph::node::Dependency { object, tag };
+									// Some((reference, dependency))
+									todo!()
 								})
 								.collect::<Option<_>>()?
 						} else {
@@ -516,13 +521,13 @@ fn target_arg(input: &mut Input) -> PResult<tg::target::Object> {
 fn bytes(input: &mut Input) -> PResult<Bytes> {
 	delimited(
 		("tg.bytes", whitespace, "(", whitespace),
-		bytes_arg,
+		leaf_arg,
 		(whitespace, ")"),
 	)
 	.parse_next(input)
 }
 
-fn bytes_arg(input: &mut Input) -> PResult<Bytes> {
+fn leaf_arg(input: &mut Input) -> PResult<Bytes> {
 	string
 		.verify_map(|string| {
 			let bytes = data_encoding::BASE64.decode(string.as_bytes()).ok()?;

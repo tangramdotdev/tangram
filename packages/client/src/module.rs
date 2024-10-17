@@ -7,8 +7,7 @@ use tangram_either::Either;
 )]
 pub struct Module {
 	pub kind: Kind,
-	pub object: Option<Either<tg::object::Id, PathBuf>>,
-	pub path: Option<PathBuf>,
+	pub referent: tg::Referent<Either<tg::object::Id, PathBuf>>,
 }
 
 #[derive(
@@ -59,69 +58,75 @@ impl Module {
 	where
 		H: tg::Handle,
 	{
-		let Some(name) = tg::package::try_get_root_module_file_name(
-			handle,
-			package.as_ref().map_right(AsRef::as_ref),
-		)
-		.await?
-		else {
-			return Ok(None);
-		};
-		let kind = if name.ends_with("js") {
-			tg::module::Kind::Js
-		} else if name.ends_with("ts") {
-			tg::module::Kind::Ts
-		} else {
-			unreachable!()
-		};
-		let object = match package {
-			Either::Left(object) => Either::Left(object.id(handle).await?),
-			Either::Right(path) => Either::Right(path),
-		};
-		let path = name.into();
-		let module = Self {
-			kind,
-			object: Some(object),
-			path: Some(path),
-		};
-		Ok(Some(module))
+		// let Some(name) = tg::package::try_get_root_module_file_name(
+		// 	handle,
+		// 	package.as_ref().map_right(AsRef::as_ref),
+		// )
+		// .await?
+		// else {
+		// 	return Ok(None);
+		// };
+		// let kind = if name.ends_with("js") {
+		// 	tg::module::Kind::Js
+		// } else if name.ends_with("ts") {
+		// 	tg::module::Kind::Ts
+		// } else {
+		// 	unreachable!()
+		// };
+		// let item = match package {
+		// 	Either::Left(object) => Either::Left(object.id(handle).await?),
+		// 	Either::Right(path) => Either::Right(path),
+		// };
+		// let subpath = name.into();
+		// let referent = tg::Referent {
+		// 	object: Some(item),
+		// 	subpath: Some(path),
+
+		// };
+		// let module = Self {
+		// 	kind,
+		// 	referent,
+		// };
+		// Ok(Some(module))
+		todo!()
 	}
 
 	pub async fn with_path(path: impl AsRef<Path>) -> tg::Result<Self> {
-		let path = path.as_ref();
-		#[allow(clippy::case_sensitive_file_extension_comparisons)]
-		let kind = if path.extension().is_some_and(|extension| extension == "js") {
-			tg::module::Kind::Js
-		} else if path.extension().is_some_and(|extension| extension == "ts") {
-			tg::module::Kind::Ts
-		} else {
-			let metadata = tokio::fs::symlink_metadata(path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-			if metadata.is_dir() {
-				tg::module::Kind::Directory
-			} else if metadata.is_file() {
-				tg::module::Kind::File
-			} else if metadata.is_symlink() {
-				tg::module::Kind::Symlink
-			} else {
-				return Err(tg::error!("expected a directory, file, or symlink"));
-			}
-		};
-		let package = tg::package::try_get_nearest_package_path_for_path(path).await?;
-		let path = if let Some(package) = &package {
-			path.strip_prefix(package).unwrap()
-		} else {
-			path
-		};
-		let package = package.map(|package| Either::Right(package.to_owned()));
-		let module = Self {
-			kind,
-			object: package,
-			path: Some(path.to_owned()),
-		};
-
-		Ok(module)
+		// let path = path.as_ref();
+		// #[allow(clippy::case_sensitive_file_extension_comparisons)]
+		// let kind = if path.extension().is_some_and(|extension| extension == "js") {
+		// 	tg::module::Kind::Js
+		// } else if path.extension().is_some_and(|extension| extension == "ts") {
+		// 	tg::module::Kind::Ts
+		// } else {
+		// 	let metadata = tokio::fs::symlink_metadata(path)
+		// 		.await
+		// 		.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+		// 	if metadata.is_dir() {
+		// 		tg::module::Kind::Directory
+		// 	} else if metadata.is_file() {
+		// 		tg::module::Kind::File
+		// 	} else if metadata.is_symlink() {
+		// 		tg::module::Kind::Symlink
+		// 	} else {
+		// 		return Err(tg::error!("expected a directory, file, or symlink"));
+		// 	}
+		// };
+		// let package = tg::package::try_get_nearest_package_path_for_path(path).await?;
+		// let subpath = if let Some(package) = &package {
+		// 	path.strip_prefix(package).unwrap()
+		// } else {
+		// 	path
+		// };
+		// let package = package.map(|package| Either::Right(package.to_owned()));
+		// let referent = tg::Referent {
+		// 	item: package,
+		// 	subpath: Some(subpath.to_owned()),
+		// 	tag: None,
+		// };
+		// let module = Self { kind, referent };
+		// Ok(module)
+		todo!()
 	}
 }
 
