@@ -14,13 +14,14 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use time::format_description::well_known::Rfc3339;
 
+use super::object;
+
 #[derive(Clone, Debug)]
 pub struct Graph {
 	pub input: Arc<tokio::sync::RwLock<super::input::Graph>>,
 	pub id: tg::artifact::Id,
 	pub data: tg::artifact::Data,
-	pub lock_index: usize,
-	pub weight: usize,
+	pub metadata: tg::object::Metadata,
 	pub edges: Vec<Edge>,
 }
 
@@ -30,99 +31,66 @@ pub struct Edge {
 	pub graph: Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>,
 }
 
-type Node = Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>;
-
-struct State {
-	artifacts: BTreeMap<usize, tg::artifact::Data>,
-	paths: BTreeMap<PathBuf, usize>,
-	visited: BTreeMap<PathBuf, Weak<RwLock<Graph>>>,
-}
+pub type Node = Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>;
 
 impl Server {
-	pub(super) async fn collect_output(
+	pub(super) async fn create_output_graph(
 		&self,
-		input: Arc<tokio::sync::RwLock<super::input::Graph>>,
-		lockfile: tg::Lockfile,
-		paths: BTreeMap<PathBuf, usize>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		object_graph: &object::Graph,
 	) -> tg::Result<Arc<RwLock<Graph>>> {
-		let artifacts = self.create_artifact_data_for_lockfile(&lockfile).await?;
-		let mut state = State {
-			artifacts,
-			paths: paths.clone(),
-			visited: BTreeMap::new(),
-		};
+		let mut visited = BTreeMap::new();
 		let output = self
-			.collect_output_inner(input, &mut state, progress)
+			.create_output_graph_inner(object_graph, 0, &mut visited)
 			.await?
 			.unwrap_left();
-
 		Ok(output)
 	}
 
-	async fn collect_output_inner(
+	async fn create_output_graph_inner(
 		&self,
-		input: Arc<tokio::sync::RwLock<super::input::Graph>>,
-		state: &mut State,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		graph: &object::Graph,
+		node: usize,
+		visited: &mut BTreeMap<usize, Weak<RwLock<Graph>>>,
 	) -> tg::Result<Node> {
-		let path = input.read().await.arg.path.clone();
-		if let Some(node) = state.visited.get(&path) {
-			return Ok(Either::Right(node.clone()));
+		if let Some(visited) = visited.get(&node) {
+			return Ok(Either::Right(visited.clone()));
 		}
 
-		// Find the entry in the lockfile.
-		let lock_index = *state
-			.paths
-			.get(&path)
-			.ok_or_else(|| tg::error!(%path = path.display(), "missing path"))?;
-
-		// Get the data.
-		let data = state
-			.artifacts
-			.get(&lock_index)
-			.ok_or_else(|| tg::error!("missing artifact data"))?
+		let input = graph.nodes[node]
+			.unify
+			.object
+			.as_ref()
+			.unwrap_left()
 			.clone();
-
-		// Compute the ID.
-		let id = data.id()?;
-
-		// Create the output.
 		let output = Arc::new(RwLock::new(Graph {
-			input: input.clone(),
-			id: id.clone(),
-			data,
-			weight: 0,
-			lock_index,
+			input,
+			id: graph.nodes[node].id.clone().unwrap().try_into().unwrap(),
+			data: graph.nodes[node].data.clone().unwrap(),
+			metadata: graph.nodes[node].metadata.unwrap(),
 			edges: Vec::new(),
 		}));
-		state.visited.insert(path.clone(), Arc::downgrade(&output));
+		visited.insert(node, Arc::downgrade(&output));
 
-		// Recurse.
-		let input_dependencies = input
-			.read()
-			.await
-			.edges
-			.iter()
-			.filter_map(|edge| {
-				let child = edge.node()?;
-				Some((edge.reference.clone(), child))
-			})
-			.collect::<Vec<_>>();
-		for (reference, input) in input_dependencies {
-			let graph = Box::pin(self.collect_output_inner(input, state, progress)).await?;
-			let edge = Edge { reference, graph };
-			add_edge(output.clone(), edge).await;
+		let mut edges = Vec::new();
+		for edge in &graph.nodes[node].edges {
+			if graph.nodes[edge.index].unify.object.is_right() {
+				continue;
+			}
+			let node = Box::pin(self.create_output_graph_inner(graph, edge.index, visited)).await?;
+			let edge = Edge {
+				reference: edge.reference.clone(),
+				graph: node,
+			};
+			edges.push(edge);
 		}
 
+		output.write().unwrap().edges = edges;
 		Ok(Either::Left(output))
 	}
+}
 
-	pub async fn write_output_to_database(
-		&self,
-		output: Arc<RwLock<Graph>>,
-		_lockfile: &tg::Lockfile,
-	) -> tg::Result<()> {
+impl Server {
+	pub async fn write_output_to_database(&self, output: Arc<RwLock<Graph>>) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = self
 			.database
@@ -141,8 +109,10 @@ impl Server {
 		let mut visited = BTreeSet::new();
 		while let Some(output) = stack.pop() {
 			// Check if we've visited this node yet.
-			let data = output.read().unwrap().data.clone();
-			let id = data.id()?;
+			let (id, data, metadata) = {
+				let output = output.read().unwrap();
+				(output.id.clone(), output.data.clone(), output.metadata)
+			};
 			if visited.contains(&id) {
 				continue;
 			}
@@ -152,14 +122,21 @@ impl Server {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-					insert into objects (id, bytes, touched_at)
-					values ({p}1, {p}2, {p}3)
-					on conflict (id) do update set touched_at = {p}3;
+					insert into objects (id, bytes, complete, count, weight, touched_at)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
+					on conflict (id) do update set touched_at = {p}6;
 				"
 			);
 			let bytes = data.serialize()?;
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let params = db::params![id, bytes, now];
+			let params: Vec<tangram_database::Value> = db::params![
+				id,
+				bytes,
+				metadata.complete,
+				metadata.count,
+				metadata.weight,
+				now
+			];
 			transaction
 				.execute(statement, params)
 				.await
@@ -179,7 +156,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) async fn write_data_to_database(&self, data: tg::artifact::Data) -> tg::Result<()> {
+	pub(super) async fn _write_data_to_database(&self, data: tg::artifact::Data) -> tg::Result<()> {
 		let connection = self
 			.database
 			.connection(db::Priority::Low)
@@ -846,7 +823,7 @@ impl Server {
 							.as_ref()
 							.and_then(|root| input.arg.path.diff(root))
 							.map_or_else(
-								|| PathBuf::from("../").join(id.to_string()),
+								|| PathBuf::from(id.to_string()),
 								|diff| {
 									let mut buf = PathBuf::new();
 									for component in diff.components() {
@@ -972,8 +949,13 @@ impl Server {
 				if !metadata.is_file() {
 					return Err(tg::error!(%path = dest.display(), "expected a file"));
 				}
-				xattr::set(&dest, tg::file::XATTR_NAME, &json).map_err(
+				xattr::set(&dest, tg::file::XATTR_DATA_NAME, &json).map_err(
 					|source| tg::error!(!source, %path = dest.display(), "failed to write file data as an xattr"),
+				)?;
+				let metadata = serde_json::to_vec(&output.read().unwrap().metadata)
+					.map_err(|source| tg::error!(!source, "failed to serialize metadata"))?;
+				xattr::set(&dest, tg::file::XATTR_METADATA_NAME, &metadata).map_err(
+					|source| tg::error!(!source, %path = dest.display(), "failed to write file metadata as an xattr"),
 				)?;
 			},
 			tg::artifact::Data::Directory(_) => {
@@ -1090,17 +1072,4 @@ impl Graph {
 			}
 		}
 	}
-}
-
-async fn add_edge(node: Arc<RwLock<Graph>>, edge: Edge) {
-	let mut node = node.write().unwrap();
-	for existing_edge in &mut node.edges {
-		if existing_edge.reference == edge.reference {
-			if let Either::Left(strong) = &edge.graph {
-				existing_edge.graph = Either::Left(strong.clone());
-			}
-			return;
-		}
-	}
-	node.edges.push(edge);
 }

@@ -13,7 +13,8 @@ pub use self::builder::Builder;
 pub mod builder;
 
 /// The extended attribute name used to store file data.
-pub const XATTR_NAME: &str = "user.tangram";
+pub const XATTR_DATA_NAME: &str = "user.tangram.data";
+pub const XATTR_METADATA_NAME: &str = "user.tangram.metadata";
 
 #[derive(
 	Clone,

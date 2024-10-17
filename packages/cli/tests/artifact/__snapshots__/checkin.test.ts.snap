@@ -1,5 +1,73 @@
 // Bun Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`directory 1`] = `"dir_019400zf13yggz7dx563tajyet2vhxcj0rrgw2wx3yjrsvt51ygjb0"`;
+
+exports[`directory 2`] = `"{"entries":{"child":"dir_01vm1rf4hw6yr8pvj9pct7cmvfejb9m1kh0p9te9fzxt1r132dpqn0","hello.txt":"fil_01my5jh8zn8r1jmpm8j6286w0v65pqe95wmn116pvf6k18rkbbacf0","link":"sym_012wvrd2ne7t45g7424e0fqy3wfkkb0wk3k220qavx9p68yqspr380"}}"`;
+
+exports[`directory 3`] = `
+"{
+  "complete": true,
+  "count": 11,
+  "weight": 620
+}"
+`;
+
 exports[`file 1`] = `"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g"`;
 
+exports[`file 2`] = `"{"contents":"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0"}"`;
+
+exports[`file 3`] = `
+"{
+  "complete": true,
+  "count": 2,
+  "weight": 86
+}"
+`;
+
+exports[`symlink 1`] = `"sym_01ejhx3jsq523gdc0cwg7m5ghe0df2n490jzbje33f99hgxby0y290"`;
+
+exports[`symlink 2`] = `"{"artifact":"fil_019gsxqq56y3655ha3qt5rztxhgh3cxcwxts9sd6ge9t6qaevj92zg"}"`;
+
+exports[`symlink 3`] = `
+"{
+  "complete": true,
+  "count": 3,
+  "weight": 150
+}"
+`;
+
+exports[`cycle 1`] = `"dir_01jtzwbst0gs09fy5ee8jaj2py247t7wmfjsaegfm9y1ggv49m21j0"`;
+
+exports[`cycle 2`] = `"{"graph":"gph_01s75pva4t48fx6rjdjzae1tmezjfhfcg3s9k982hrjxevcnm4d5dg","node":1}"`;
+
+exports[`cycle 3`] = `
+"{
+  "complete": true,
+  "count": 2,
+  "weight": 162
+}"
+`;
+
+exports[`cyclic-path-dependencies 1`] = `"dir_01rzyxgmtg8dq78f6kaafxn4dvvmege488yh8q4zyn8hgd0228xf20"`;
+
+exports[`cyclic-path-dependencies 2`] = `"{"entries":{"dependency.tg.ts":"fil_01b3snp6y4yxpqzj373q2awafxqvvfy6k2n19f92d3ptn157dpxm70","tangram.ts":"fil_01ay4yr59c3bh5th3e5pdw243jjneywzyxx096qqzc1v6bmfs3he20"}}"`;
+
+exports[`cyclic-path-dependencies 3`] = `
+"{
+  "complete": true,
+  "count": 9,
+  "weight": 1629
+}"
+`;
+
 exports[`executable 1`] = `"fil_017ywcxv0d0f712w8c7z77szz4emsr533se6jjv27xrcj670k30av0"`;
+
+exports[`executable 2`] = `"{"contents":"lef_01nw9mkefnz6gtd8209qn3dq6996dwp9e9nq0h5dycka9wns0z69h0","executable":true}"`;
+
+exports[`executable 3`] = `
+"{
+  "complete": true,
+  "count": 2,
+  "weight": 91
+}"
+`;

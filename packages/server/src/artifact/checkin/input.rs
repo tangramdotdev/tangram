@@ -439,7 +439,7 @@ impl Server {
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
-		if let Some(data) = xattr::get(path, tg::file::XATTR_NAME)
+		if let Some(data) = xattr::get(path, tg::file::XATTR_DATA_NAME)
 			.map_err(|source| tg::error!(!source, "failed to read file xattr"))?
 		{
 			let xattr = serde_json::from_slice(&data)
