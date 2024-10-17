@@ -66,7 +66,7 @@ pub mod node {
 	#[derive(Clone, Debug)]
 	pub struct File {
 		pub contents: tg::Blob,
-		pub dependencies: BTreeMap<tg::Reference, Dependency>,
+		pub dependencies: BTreeMap<tg::Reference, tg::Referent<Either<usize, tg::Object>>>,
 		pub executable: bool,
 	}
 
@@ -74,12 +74,6 @@ pub mod node {
 	pub struct Symlink {
 		pub artifact: Option<Either<usize, tg::Artifact>>,
 		pub path: Option<String>,
-	}
-
-	#[derive(Clone, Debug)]
-	pub struct Dependency {
-		pub object: Either<usize, tg::Object>,
-		pub tag: Option<tg::Tag>,
 	}
 }
 
@@ -114,7 +108,7 @@ pub mod data {
 			pub contents: tg::blob::Id,
 
 			#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-			pub dependencies: BTreeMap<tg::Reference, Dependency>,
+			pub dependencies: BTreeMap<tg::Reference, tg::Referent<Either<usize, tg::object::Id>>>,
 
 			#[serde(default, skip_serializing_if = "is_false")]
 			pub executable: bool,
@@ -127,12 +121,6 @@ pub mod data {
 
 			#[serde(default, skip_serializing_if = "Option::is_none")]
 			pub path: Option<String>,
-		}
-
-		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-		pub struct Dependency {
-			pub object: Either<usize, tg::object::Id>,
-			pub tag: Option<tg::Tag>,
 		}
 
 		impl Node {
@@ -293,16 +281,17 @@ impl Node {
 				let contents = contents.id(handle).await?;
 				let dependencies = dependencies
 					.iter()
-					.map(|(reference, dependency)| async move {
-						let object = match &dependency.object {
+					.map(|(reference, referent)| async move {
+						let item = match &referent.item {
 							Either::Left(index) => Either::Left(*index),
 							Either::Right(object) => Either::Right(object.id(handle).await?),
 						};
-						let dependency = data::node::Dependency {
-							object,
-							tag: dependency.tag.clone(),
+						let referent = tg::Referent {
+							item,
+							subpath: None,
+							tag: referent.tag.clone(),
 						};
-						Ok::<_, tg::Error>((reference.clone(), dependency))
+						Ok::<_, tg::Error>((reference.clone(), referent))
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
@@ -375,8 +364,8 @@ impl Data {
 					..
 				}) => {
 					children.insert(contents.clone().into());
-					for dependency in dependencies.values() {
-						if let Either::Right(id) = &dependency.object {
+					for referent in dependencies.values() {
+						if let Either::Right(id) = &referent.item {
 							children.insert(id.clone());
 						}
 					}
@@ -457,13 +446,14 @@ impl TryFrom<data::Node> for Node {
 			}) => {
 				let contents = tg::Blob::with_id(contents);
 				let dependencies = dependencies
-					.iter()
-					.map(|(reference, dependency)| {
-						let dependency = node::Dependency {
-							object: dependency.object.clone().map_right(tg::Object::with_id),
-							tag: dependency.tag.clone(),
+					.into_iter()
+					.map(|(reference, referent)| {
+						let referent = tg::Referent {
+							item: referent.item.map_right(tg::Object::with_id),
+							subpath: referent.subpath,
+							tag: referent.tag,
 						};
-						(reference.clone(), dependency)
+						(reference, referent)
 					})
 					.collect();
 				let file = tg::graph::node::File {

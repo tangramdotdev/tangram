@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 pub struct Builder {
 	contents: tg::Blob,
-	dependencies: BTreeMap<tg::Reference, tg::file::Dependency>,
+	dependencies: BTreeMap<tg::Reference, tg::Referent<tg::Object>>,
 	executable: bool,
 }
 
@@ -26,7 +26,7 @@ impl Builder {
 	#[must_use]
 	pub fn dependencies(
 		mut self,
-		dependencies: impl IntoIterator<Item = (tg::Reference, tg::file::Dependency)>,
+		dependencies: impl IntoIterator<Item = (tg::Reference, tg::Referent<tg::Object>)>,
 	) -> Self {
 		self.dependencies = dependencies.into_iter().collect();
 		self
