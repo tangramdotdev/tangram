@@ -592,15 +592,20 @@ impl Server {
 		visited: &mut BTreeMap<tg::object::Id, Id>,
 	) -> tg::Result<BTreeMap<tg::Reference, Id>> {
 		let mut outgoing = BTreeMap::new();
-		for (reference, dependency) in file.dependencies(self).await? {
+		for (reference, referent) in file.dependencies(self).await? {
 			if let Ok(pat) = reference.path().try_unwrap_tag_ref() {
 				let id = Either::Left(get_reference_from_pattern(pat));
 				outgoing.insert(reference, id);
 			} else {
+				let object = match (&referent.item, referent.subpath) {
+					(tg::Object::Directory(directory), Some(subpath)) => directory.get(self, subpath).await?.into(),
+					(_, Some(_)) => return Err(tg::error!("unexpected subpath")),
+					(object, None) => object.clone(),
+				};
 				let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
 					graph,
-					&dependency.object,
-					dependency.tag,
+					&object,
+					referent.tag,
 					true,
 					visited,
 				))
