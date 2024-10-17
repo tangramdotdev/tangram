@@ -44,7 +44,7 @@ export default class Server {
 	async stop() {
 		this.process.kill(2);
 		await this.process.exited;
-		// await $`rm -rf ${this.path}`;
+		await $`rm -rf ${this.path}`;
 	}
 
 	get configPath() {
