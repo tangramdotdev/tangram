@@ -23,24 +23,17 @@ export const source = tg.target(() =>
 
 export default tg.target(async () => {
 	const host = std.triple.host();
-	const bunArtifact = bun({ host });
-
-	const nodeModules =
-		await $`bun install ${source()} --frozen-lockfile && cp -R node_modules $OUTPUT`
-			.env(bunArtifact)
-			.checksum("unsafe")
-			.then(tg.Directory.expect);
-	const sourceDir = tg.directory(source(), { node_modules: nodeModules });
-
 	const env = std.env.arg(
-		bunArtifact,
+		bun({ host }),
 		librustyv8(host),
 		linuxRuntimeComponents(),
 	);
 	return cargo.build({
-		useCargoVendor: true,
-		source: sourceDir,
+		buildInTree: true,
+		checksum: "unsafe",
+		source: source(),
 		env,
+		parallelJobs: 4,
 	});
 });
 
