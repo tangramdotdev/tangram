@@ -108,77 +108,65 @@ test("cache hit after push", async () => {
 });
 
 test("cycle detection", async () => {
-	await using remote = await Server.start();
-	await using server = await Server.start({
-		remotes: { default: { url: remote.url } },
-	});
+	await using server = await Server.start();
 	let dir = await directory({
-		notACycle: {
+		foo: {
 			"tangram.ts": `
-				export default tg.target(async () => {
-				  let x = {};
-				  return { a: x, b: x };
-				});
+				export let x = tg.target(() => x());
 			`,
 		},
-		selfRef: {
+		bar: {
 			"tangram.ts": `
-				export default tg.target(async () => {
-				  let x = {};
-				  x.a = x;
-				  return x;
-				});
+			  import baz from "baz";
+				export default tg.target(() => baz());
 			`,
 		},
-		selfRefArray: {
-			"tangram.ts": `
-				export default tg.target(async () => {
-				  let x = {};
-				  x.a = [x];
-				  return x;
-				});
-			`,
-		},
-		selfRefNoResolve: {
-			"tangram.ts": `
-				export default tg.target(async() => {
-					let env: any = {};
-					env.x = env;
-					let target = await tg.target({
-						env
-					});
-					return await target.id();
-				});
-			`,
-		},
-		doubleRecursionFoo: {
+		baz: {
 			"tangram.ts": `
 				import bar from "bar";
 				export default tg.target(() => bar());
 			`,
 		},
-		doubleRecursionBar: {
+	});
+	const foo = server.tg`build ${dir}/foo`.quiet();
+	expect((async () => await foo)()).rejects.toThrow();
+	const bar = server.tg`build ${dir}/bar`.quiet();
+	expect((async () => await bar)()).rejects.toThrow();
+});
+
+test("value cycle detection", async () => {
+	await using server = await Server.start();
+	let dir = await directory({
+		foo: {
 			"tangram.ts": `
-			  import foo from "foo";
-				export default tg.target(() => foo());
+				export default tg.target(async () => {
+					let x = {};
+					return { a: x, b: x };
+				});
+			`,
+		},
+		object: {
+			"tangram.ts": `
+				export default tg.target(async () => {
+					let x = {};
+					x.a = x;
+					return x;
+				});
+			`,
+		},
+		array: {
+			"tangram.ts": `
+				export default tg.target(async () => {
+					let x = [];
+					x[0] = x;
+					return x;
+				});
 			`,
 		},
 	});
-	const notACycle = await server.tg`build ${dir}/notACycle`
-		.text()
-		.then((t) => t.trim());
-	const selfRef = server.tg`build ${dir}/selfRef`.text().then((t) => t.trim());
-	expect(selfRef).rejects.toThrow();
-	const selfRefArray = server.tg`build ${dir}/selfRefArray`
-		.text()
-		.then((t) => t.trim());
-	expect(selfRefArray).rejects.toThrow();
-	const selfRefNoResolve = server.tg`build ${dir}/selfRefNoResolve`
-		.text()
-		.then((t) => t.trim());
-	expect(selfRefNoResolve).rejects.toThrow();
-	const doubleRecursion = server.tg`build ${dir}/doubleRecursionFoo`
-		.text()
-		.then((t) => t.trim());
-	expect(doubleRecursion).rejects.toThrow();
+	await server.tg`build ${dir}/foo`.quiet();
+	const object = server.tg`build ${dir}/object`.quiet();
+	await expect((async () => await object)()).rejects.toThrow();
+	const array = server.tg`build ${dir}/array`.quiet();
+	await expect((async () => await array)()).rejects.toThrow();
 });

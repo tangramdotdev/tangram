@@ -40,13 +40,18 @@ export type Resolved<T extends Unresolved<tg.Value>> = T extends
 export let resolve = async <T extends Unresolved<tg.Value>>(
 	value: T,
 ): Promise<Resolved<T>> => {
-	let inner = async (value, seen) => {
+	let inner = async <T extends Unresolved<tg.Value>>(
+		value: Unresolved<tg.Value>,
+		visited: Set<object>,
+	): Promise<Resolved<T>> => {
 		value = await value;
-		if (seen.has(value)) {
-			throw new Error("Cyclic reference detected");
+		if (typeof value === "object") {
+			if (visited.has(value)) {
+				throw new Error("cycle detected");
+			}
+			visited.add(value);
 		}
-		seen.add(value);
-
+		let output: Resolved<T>;
 		if (
 			value === undefined ||
 			typeof value === "boolean" ||
@@ -63,27 +68,27 @@ export let resolve = async <T extends Unresolved<tg.Value>>(
 			value instanceof tg.Mutation ||
 			value instanceof tg.Template
 		) {
-			seen.delete(value);
-			return value as unknown as Resolved<T>;
+			output = value as Resolved<T>;
 		} else if (value instanceof Array) {
-			const resolvedArray = await Promise.all(
-				value.map((item) => inner(item, new Set(seen))),
-			);
-			seen.delete(value);
-			return resolvedArray as Resolved<T>;
-		} else if (typeof value === "object" && value !== null) {
-			const resolvedEntries = await Promise.all(
-				Object.entries(value).map(async ([key, value]) => [
-					key,
-					await inner(value, new Set(seen)),
-				]),
-			);
-			seen.delete(value);
-			return Object.fromEntries(resolvedEntries) as Resolved<T>;
+			output = (await Promise.all(
+				value.map((item) => inner(item, new Set(visited))),
+			)) as Resolved<T>;
+		} else if (typeof value === "object") {
+			output = Object.fromEntries(
+				await Promise.all(
+					Object.entries(value).map(async ([key, value]) => {
+						value = await inner(value, new Set(visited));
+						return [key, value];
+					}),
+				),
+			) as Resolved<T>;
 		} else {
-			seen.delete(value);
 			throw new Error("invalid value to resolve");
 		}
+		if (typeof value === "object") {
+			visited.delete(value);
+		}
+		return output;
 	};
-	return inner(value, new Set());
+	return await inner(value, new Set());
 };

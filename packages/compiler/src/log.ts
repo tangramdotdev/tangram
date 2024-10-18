@@ -45,14 +45,15 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 		return "(circular)";
 	}
 	visited.add(value);
+	let output: string;
 	if (value instanceof Array) {
-		return `[${value
+		output = `[${value
 			.map((value) => stringifyInner(value, visited))
 			.join(", ")}]`;
 	} else if (value instanceof Error) {
-		return value.message;
+		output = value.message;
 	} else if (value instanceof Promise) {
-		return "(promise)";
+		output = "(promise)";
 	} else {
 		let string = "";
 		if (
@@ -73,6 +74,8 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 			string += " ";
 		}
 		string += "}";
-		return string;
+		output = string;
 	}
+	visited.delete(value);
+	return output;
 };
