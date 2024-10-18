@@ -27,6 +27,7 @@ pub struct Graph {
 #[derive(Clone, Debug)]
 pub struct Edge {
 	pub reference: tg::Reference,
+	pub subpath: Option<PathBuf>,
 	pub graph: Option<Node>,
 	pub object: Option<tg::object::Id>,
 	pub tag: Option<tg::Tag>,
@@ -242,6 +243,7 @@ impl Server {
 				};
 				let edge = Edge {
 					reference: tg::Reference::with_path(absolute_path.components().last().unwrap()),
+					subpath: None,
 					graph: Some(Either::Right(Arc::downgrade(&node))),
 					object: None,
 					tag: None,
@@ -330,6 +332,7 @@ impl Server {
 
 				let edge = Edge {
 					reference: tg::Reference::with_path(root_module_file_name),
+					subpath: None,
 					graph: Some(graph),
 					object: None,
 					tag: None,
@@ -418,6 +421,7 @@ impl Server {
 					let reference = tg::Reference::with_path(&name);
 					let edge = Edge {
 						reference,
+						subpath: None,
 						graph: Some(graph),
 						object: None,
 						tag: None,
@@ -516,38 +520,40 @@ impl Server {
 							.and_then(|path| path.diff(&root_path))
 							.map_or(false, |diff| diff.is_external());
 
-						let graph = if is_external_path {
-							None
-						} else if let Some(path) = path {
-							// Get the parent of the referrer.
-							let parent = referrer_
-								.parent
-								.as_ref()
-								.ok_or_else(|| tg::error!("expected a parent"))?
-								.clone();
+						// Recurse if necessary.
+						let (graph, subpath) = match path {
+							Some(path) if !is_external_path => {
+								// Get the parent of the referrer.
+								let parent = referrer_
+									.parent
+									.as_ref()
+									.ok_or_else(|| tg::error!("expected a parent"))?
+									.clone();
 
-							// Recurse.
-							let graph = self
-								.collect_input_inner(
-									Some(Either::Right(parent)),
-									path,
-									&arg,
-									state,
-									progress,
-								)
-								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to collect child input")
-								})?;
-
-							Some(graph)
-						} else {
-							None
+								// Collect the input of the referrent.
+								let graph = self
+									.collect_input_inner(
+										Some(Either::Right(parent)),
+										path,
+										&arg,
+										state,
+										progress,
+									)
+									.await
+									.map_err(|source| {
+										tg::error!(!source, "failed to collect child input")
+									})?;
+								let (graph, subpath) = root_node_with_subpath(graph).await;
+								(Some(graph), subpath)
+							},
+							_ => (None, None),
 						};
+
 						let edge = Edge {
 							reference,
 							graph,
 							object: Some(id),
+							subpath,
 							tag: referent.tag,
 						};
 
@@ -623,7 +629,8 @@ impl Server {
 							);
 						}
 
-						let graph = if is_external {
+						// Get the input of the referent.
+						let child = if is_external {
 							// If this is an external import, treat it as a root using the absolute path.
 							self.collect_input_inner(Some(Either::Left(referrer)), &absolute_path, &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						} else {
@@ -636,11 +643,14 @@ impl Server {
 							self.collect_input_inner(Some(Either::Right(parent)), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						};
 
+						let (graph, subpath) = root_node_with_subpath(child).await;
+
 						// Create the edge.
 						let edge = Edge {
 							reference,
 							graph: Some(graph),
 							object: None,
+							subpath,
 							tag: None,
 						};
 
@@ -651,6 +661,7 @@ impl Server {
 						reference: import.reference,
 						graph: None,
 						object: None,
+						subpath: None,
 						tag: None,
 					})
 				}
@@ -694,6 +705,7 @@ impl Server {
 				|source| tg::error!(!source, %path = target_absolute_path.display(), "failed to resolve symlink"),
 			)?;
 
+		// Collect the input of the target.
 		let child = if state
 			.read()
 			.await
@@ -712,10 +724,14 @@ impl Server {
 			Box::pin(self.collect_input_inner(parent, &target, arg, state, progress)).await?
 		};
 
+		// Get the root node and subpath.
+		let (graph, subpath) = root_node_with_subpath(child).await;
+
 		Ok(vec![Edge {
 			reference: tg::Reference::with_path(target),
-			graph: Some(child),
+			graph: Some(graph),
 			object: None,
+			subpath,
 			tag: None,
 		}])
 	}
@@ -881,6 +897,7 @@ impl Server {
 				reference,
 				graph: Some(Either::Left(child.clone())),
 				object: None,
+				subpath: None,
 				tag: None,
 			};
 			add_edge(referrer, edge).await;
@@ -1085,6 +1102,31 @@ async fn add_edge(node: Arc<RwLock<Graph>>, edge: Edge) {
 		}
 	}
 	node.edges.push(edge);
+}
+
+async fn root_node_with_subpath(child: Node) -> (Node, Option<PathBuf>) {
+	let mut strong = match child.clone() {
+		Either::Left(strong) => strong,
+		Either::Right(weak) => weak.upgrade().unwrap(),
+	};
+
+	// If this is a root node, return it.
+	let Some(root) = strong.read().await.root.clone() else {
+		return (child, None);
+	};
+
+	// Otherwise compute the subpath within the root.
+	let path = strong.read().await.arg.path.clone();
+	let subpath = root.diff(path).unwrap();
+
+	// Find the root.
+	loop {
+		let Some(parent) = strong.read().await.parent.clone() else {
+			let weak = Arc::downgrade(&strong);
+			return (Either::Right(weak), Some(subpath));
+		};
+		strong = parent.upgrade().unwrap();
+	}
 }
 
 impl State {
