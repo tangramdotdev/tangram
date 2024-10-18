@@ -20,19 +20,22 @@ export const source = tg.target(() =>
 	}),
 );
 
-export default tg.target(async () => {
+export default tg.target(() => {
 	const host = std.triple.host();
 	const env = std.env.arg(
 		bun({ host }),
 		librustyv8(cargoLock, host),
 		linuxRuntimeComponents(),
 	);
-	return cargo.build({
+	const output = cargo.build({
 		buildInTree: true,
 		checksum: "unsafe",
 		source: source(),
 		env,
 		parallelJobs: 4,
+	});
+	return tg.directory(output, {
+		["bin/tg"]: tg.symlink("tangram"),
 	});
 });
 
