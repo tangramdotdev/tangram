@@ -106,3 +106,67 @@ test("cache hit after push", async () => {
 	});
 	await newServer.tg`get ${build}`.quiet();
 });
+
+test("cycle detection", async () => {
+	await using server = await Server.start();
+	let dir = await directory({
+		foo: {
+			"tangram.ts": `
+				export let x = tg.target(() => x());
+			`,
+		},
+		bar: {
+			"tangram.ts": `
+			  import baz from "baz";
+				export default tg.target(() => baz());
+			`,
+		},
+		baz: {
+			"tangram.ts": `
+				import bar from "bar";
+				export default tg.target(() => bar());
+			`,
+		},
+	});
+	const foo = server.tg`build ${dir}/foo`.quiet();
+	expect((async () => await foo)()).rejects.toThrow();
+	const bar = server.tg`build ${dir}/bar`.quiet();
+	expect((async () => await bar)()).rejects.toThrow();
+});
+
+test("value cycle detection", async () => {
+	await using server = await Server.start();
+	let dir = await directory({
+		foo: {
+			"tangram.ts": `
+				export default tg.target(async () => {
+					let x = {};
+					return { a: x, b: x };
+				});
+			`,
+		},
+		object: {
+			"tangram.ts": `
+				export default tg.target(async () => {
+					let x = {};
+					x.a = x;
+					return x;
+				});
+			`,
+		},
+		array: {
+			"tangram.ts": `
+				export default tg.target(async () => {
+					let x = [];
+					x[0] = x;
+					return x;
+				});
+			`,
+		},
+	});
+	await server.tg`build ${dir}/foo`.quiet();
+	const object = server.tg`build ${dir}/object`.quiet();
+	await expect((async () => await object)()).rejects.toThrow();
+	const array = server.tg`build ${dir}/array`.quiet();
+	await expect((async () => await array)()).rejects.toThrow();
+});

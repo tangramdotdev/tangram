@@ -51,31 +51,32 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 		return "(circular)";
 	}
 	visited.add(value);
+	let output: string;
 	if (value instanceof Error) {
-		return value.message;
+		output = value.message;
 	} else if (value instanceof Promise) {
-		return "(promise)";
+		output = "(promise)";
 	} else if (value instanceof tg.Leaf) {
-		return stringifyState("leaf", value.state, visited);
+		output = stringifyState("leaf", value.state, visited);
 	} else if (value instanceof tg.Branch) {
-		return stringifyState("branch", value.state, visited);
+		output = stringifyState("branch", value.state, visited);
 	} else if (value instanceof tg.Directory) {
-		return stringifyState("directory", value.state, visited);
+		output = stringifyState("directory", value.state, visited);
 	} else if (value instanceof tg.File) {
-		return stringifyState("file", value.state, visited);
+		output = stringifyState("file", value.state, visited);
 	} else if (value instanceof tg.Symlink) {
-		return stringifyState("symlink", value.state, visited);
+		output = stringifyState("symlink", value.state, visited);
 	} else if (value instanceof tg.Graph) {
-		return stringifyState("graph", value.state, visited);
+		output = stringifyState("graph", value.state, visited);
 	} else if (value instanceof tg.Target) {
-		return stringifyState("target", value.state, visited);
+		output = stringifyState("target", value.state, visited);
 	} else if (value instanceof Uint8Array) {
 		let bytes = tg.encoding.hex.encode(value);
-		return `(bytes ${bytes})`;
+		output = `(bytes ${bytes})`;
 	} else if (value instanceof tg.Mutation) {
-		return `(mutation ${stringifyObject(value.inner, visited)})`;
+		output = `(mutation ${stringifyObject(value.inner, visited)})`;
 	} else if (value instanceof tg.Template) {
-		return `\`${value.components
+		output = `\`${value.components
 			.map((component) => {
 				if (typeof component === "string") {
 					return component;
@@ -85,7 +86,7 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 			})
 			.join("")}\``;
 	} else if (value instanceof Array) {
-		return `[${value
+		output = `[${value
 			.map((value) => stringifyInner(value, visited))
 			.join(", ")}]`;
 	} else {
@@ -108,8 +109,10 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 			string += " ";
 		}
 		string += "}";
-		return string;
+		output = string;
 	}
+	visited.delete(value);
+	return output;
 };
 
 let stringifyState = (
