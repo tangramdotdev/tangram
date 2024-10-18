@@ -1,4 +1,5 @@
 use super::Runtime;
+use byte_unit::Byte;
 use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use std::{
@@ -43,7 +44,7 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, %url, "failed to perform the request"))?
 			.error_for_status()
-			.map_err(|source| tg::error!(!source, %url, "expected a sucess status"))?;
+			.map_err(|source| tg::error!(!source, %url, "expected a success status"))?;
 
 		// Spawn a task to log progress.
 		let downloaded = Arc::new(AtomicU64::new(0));
@@ -60,12 +61,12 @@ impl Runtime {
 					let message = if let Some(content_length) = content_length {
 						let percent =
 							100.0 * downloaded.to_f64().unwrap() / content_length.to_f64().unwrap();
-						let downloaded = byte_unit::Byte::from_u64(downloaded);
-						let content_length = byte_unit::Byte::from_u64(content_length);
-						format!("downloading from \"{url}\": {downloaded} of {content_length} {percent:.2}%\n")
+						let downloaded = Byte::from_u64(downloaded);
+						let content_length = Byte::from_u64(content_length);
+						format!("downloading from \"{url}\": {downloaded:#} of {content_length:#} {percent:.2}%\n")
 					} else {
-						let downloaded = byte_unit::Byte::from_u64(downloaded);
-						format!("downloading from \"{url}\": {downloaded}\n")
+						let downloaded = Byte::from_u64(downloaded);
+						format!("downloading from \"{url}\": {downloaded:#}\n")
 					};
 					let arg = tg::build::log::post::Arg {
 						bytes: message.into(),

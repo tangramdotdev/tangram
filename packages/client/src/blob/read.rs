@@ -14,6 +14,10 @@ use serde_with::serde_as;
 use std::{
 	io::Cursor,
 	pin::{pin, Pin},
+	sync::{
+		atomic::{AtomicU64, Ordering::Relaxed},
+		Arc,
+	},
 };
 use sync_wrapper::SyncWrapper;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
@@ -50,7 +54,7 @@ pub struct Reader<H> {
 	blob: tg::Blob,
 	cursor: Option<Cursor<Bytes>>,
 	handle: H,
-	position: u64,
+	position: Arc<AtomicU64>,
 	read: Option<SyncWrapper<ReadFuture>>,
 	size: u64,
 }
@@ -107,7 +111,7 @@ where
 {
 	pub async fn new(handle: &H, blob: tg::Blob) -> tg::Result<Self> {
 		let cursor = None;
-		let position = 0;
+		let position = Arc::new(AtomicU64::new(0));
 		let read = None;
 		let size = blob.size(handle).await?;
 		let handle = handle.clone();
@@ -121,12 +125,16 @@ where
 		})
 	}
 
-	pub fn position(&self) -> u64 {
-		self.position
+	pub fn position(&self) -> Arc<AtomicU64> {
+		self.position.clone()
+	}
+
+	pub fn size(&self) -> u64 {
+		self.size
 	}
 
 	pub fn end(&self) -> bool {
-		self.position == self.size
+		self.position.load(Relaxed) == self.size
 	}
 }
 
@@ -145,7 +153,7 @@ where
 		if this.cursor.is_none() && this.read.is_none() {
 			let handle = this.handle.clone();
 			let blob = this.blob.clone();
-			let position = this.position;
+			let position = this.position.clone();
 			let read = SyncWrapper::new(
 				async move { poll_read_inner(&handle, blob, position).await }.boxed(),
 			);
@@ -177,7 +185,8 @@ where
 		let position = cursor.position().to_usize().unwrap();
 		let n = std::cmp::min(buf.remaining(), bytes.len() - position);
 		buf.put_slice(&bytes[position..position + n]);
-		this.position += n as u64;
+		this.position
+			.store(this.position.load(Relaxed) + n as u64, Relaxed);
 		let position = position + n;
 		cursor.set_position(position as u64);
 		if position == cursor.get_ref().len() {
@@ -202,7 +211,7 @@ where
 		if this.cursor.is_none() && this.read.is_none() {
 			let handle = this.handle.clone();
 			let blob = this.blob.clone();
-			let position = this.position;
+			let position = this.position.clone();
 			let read = SyncWrapper::new(
 				async move { poll_read_inner(&handle, blob, position).await }.boxed(),
 			);
@@ -237,7 +246,8 @@ where
 
 	fn consume(self: Pin<&mut Self>, amt: usize) {
 		let this = self.get_mut();
-		this.position += amt.to_u64().unwrap();
+		this.position
+			.store(this.position.load(Relaxed) + amt.to_u64().unwrap(), Relaxed);
 		let cursor = this.cursor.as_mut().unwrap();
 		cursor.advance(amt);
 		let empty = cursor.position() == cursor.get_ref().len().to_u64().unwrap();
@@ -288,7 +298,7 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 async fn poll_read_inner<H>(
 	handle: &H,
 	blob: tg::Blob,
-	position: u64,
+	position: Arc<AtomicU64>,
 ) -> tg::Result<Option<Cursor<Bytes>>>
 where
 	H: tg::Handle,
@@ -310,16 +320,16 @@ where
 				} else {
 					handle.get_object(&id.unwrap().into()).await?.bytes.clone()
 				};
-				if position < current_blob_position + bytes.len().to_u64().unwrap() {
+				if position.load(Relaxed) < current_blob_position + bytes.len().to_u64().unwrap() {
 					let mut cursor = Cursor::new(bytes.clone());
-					cursor.set_position(position - current_blob_position);
+					cursor.set_position(position.load(Relaxed) - current_blob_position);
 					break Ok(Some(cursor));
 				}
 				return Ok(None);
 			},
 			tg::Blob::Branch(branch) => {
 				for child in branch.children(handle).await?.iter() {
-					if position < current_blob_position + child.size {
+					if position.load(Relaxed) < current_blob_position + child.size {
 						current_blob = child.blob.clone();
 						continue 'a;
 					}
@@ -341,7 +351,9 @@ where
 		let position = match seek {
 			std::io::SeekFrom::Start(seek) => seek.to_i64().unwrap(),
 			std::io::SeekFrom::End(seek) => this.size.to_i64().unwrap() + seek,
-			std::io::SeekFrom::Current(seek) => this.position.to_i64().unwrap() + seek,
+			std::io::SeekFrom::Current(seek) => {
+				this.position.load(Relaxed).to_i64().unwrap() + seek
+			},
 		};
 		let position = position.to_u64().ok_or(std::io::Error::other(
 			"attempted to seek to a negative or overflowing position",
@@ -353,14 +365,15 @@ where
 		}
 		if let Some(cursor) = this.cursor.as_mut() {
 			let leaf_position = position.to_i64().unwrap()
-				- (this.position.to_i64().unwrap() - cursor.position().to_i64().unwrap());
+				- (this.position.load(Relaxed).to_i64().unwrap()
+					- cursor.position().to_i64().unwrap());
 			if leaf_position >= 0 && leaf_position < cursor.get_ref().len().to_i64().unwrap() {
 				cursor.set_position(leaf_position.to_u64().unwrap());
 			} else {
 				this.cursor.take();
 			}
 		}
-		this.position = position;
+		this.position.store(position, Relaxed);
 		Ok(())
 	}
 
@@ -368,7 +381,7 @@ where
 		self: Pin<&mut Self>,
 		_cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<std::io::Result<u64>> {
-		std::task::Poll::Ready(Ok(self.position))
+		std::task::Poll::Ready(Ok(self.position.load(Relaxed)))
 	}
 }
 
