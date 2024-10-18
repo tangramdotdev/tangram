@@ -94,13 +94,23 @@ fn main() {
 
 	// Install dependencies.
 	println!("cargo:rerun-if-changed=../../bun.lockb");
-	std::process::Command::new("bun")
-		.args(["install", "--frozen-lockfile"])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
-		.unwrap();
+	let node_modules_path = out_dir_path.join("node_modules");
+	let node_path = if let Ok(node_path) = std::env::var("NODE_PATH") {
+		PathBuf::from(node_path)
+	} else {
+		std::process::Command::new("bun")
+			.args(["install", "--frozen-lockfile"])
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+		PathBuf::from(std::env::var("CARGO_WORKSPACE_DIR").unwrap()).join("node_modules")
+	};
+	if node_modules_path.is_symlink() {
+		std::fs::remove_file(&node_modules_path).unwrap();
+	}
+	std::os::unix::fs::symlink(&node_path, &node_modules_path).unwrap();
 
 	// Create the lib path.
 	let lib_path = out_dir_path.join("lib");
@@ -115,18 +125,24 @@ fn main() {
 	.unwrap();
 
 	// Copy the typescript libraries.
-	let paths = glob::glob("../../node_modules/typescript/lib/lib.es*.d.ts").unwrap();
+	let paths = glob::glob(
+		node_modules_path
+			.join("typescript/lib/lib.es*.d.ts")
+			.to_str()
+			.unwrap(),
+	)
+	.unwrap();
 	for path in paths {
 		let path = path.unwrap();
 		std::fs::copy(&path, lib_path.join(path.file_name().unwrap())).unwrap();
 	}
 	std::fs::copy(
-		"../../node_modules/typescript/lib/lib.decorators.d.ts",
+		node_modules_path.join("typescript/lib/lib.decorators.d.ts"),
 		lib_path.join("lib.decorators.d.ts"),
 	)
 	.unwrap();
 	std::fs::copy(
-		"../../node_modules/typescript/lib/lib.decorators.legacy.d.ts",
+		node_modules_path.join("typescript/lib/lib.decorators.legacy.d.ts"),
 		lib_path.join("lib.decorators.legacy.d.ts"),
 	)
 	.unwrap();
