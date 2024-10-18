@@ -16,27 +16,27 @@ fn main() {
 	let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
 
 	// Get the dash and env binaries.
-	let version = "v2024.06.20";
+	let version = "v2024.10.03";
 	let binaries = [
 		(
 			"dash_aarch64_linux",
 			"./bin/dash",
-			"7fd88a5e0e6800424b4ed36927861564eea99699ede9f81bc12729ec405ac193",
+			"d1e6ed42b0596507ebfa9ce231e2f42cc67f823cc56c0897c126406004636ce7",
 		),
 		(
 			"dash_x86_64_linux",
 			"./bin/dash",
-			"42afecad2eadf0d07745d9a047743931b270f555cc5ab8937f957e85e040dc02",
+			"d23258e559012dc66cc82d9def66b51e9c41f9fb88f8e9e6a5bd19d231028a64",
 		),
 		(
 			"env_aarch64_linux",
 			"./bin/env",
-			"a3497e17fac0fb9fa8058157b5cd25d55c5c8379e317ce25c56dfd509d8dc4b4",
+			"b2985354036c4deea9b107f099d853ac2d7c91a095dc285922f6dab72ae1474c",
 		),
 		(
 			"env_x86_64_linux",
 			"./bin/env",
-			"78a971736d9e66c7bdffa81a24a7f9842b566fdd1609fe7c628ac00dccc16dda",
+			"fceb5be5a7d6f59a026817ebb17be2bcc294d753f1528cbc921eb9015b9ff87b",
 		),
 	];
 	for (name, path, expected) in binaries {
@@ -95,7 +95,7 @@ fn main() {
 	// Install dependencies.
 	println!("cargo:rerun-if-changed=../../bun.lockb");
 	std::process::Command::new("bun")
-		.args(["install"])
+		.args(["install", "--frozen-lockfile"])
 		.status()
 		.unwrap()
 		.success()
