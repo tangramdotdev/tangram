@@ -1,6 +1,7 @@
 import bun from "bun" with { path: "../packages/packages/bun" };
 import { cargo } from "rust" with { path: "../packages/packages/rust" };
 import * as std from "std" with { path: "../packages/packages/std" };
+import { $ } from "std" with { path: "../packages/packages/std" };
 
 import cargoToml from "./Cargo.toml" with { type: "file" };
 import cargoLock from "./Cargo.lock" with { type: "file" };
@@ -20,19 +21,23 @@ export const source = tg.target(() =>
 	}),
 );
 
-export default tg.target(() => {
+export default tg.target(async () => {
 	const host = std.triple.host();
+	const bunArtifact = bun({ host });
+	const nodeModules =
+		await $`bun install ${source()} --frozen-lockfile && cp -R node_modules $OUTPUT`
+			.env(bunArtifact)
+			.checksum("unsafe")
+			.then(tg.Directory.expect);
 	const env = std.env.arg(
-		bun({ host }),
+		bunArtifact,
 		librustyv8(cargoLock, host),
 		linuxRuntimeComponents(),
+		{ NODE_PATH: nodeModules },
 	);
 	const output = cargo.build({
-		buildInTree: true,
-		checksum: "unsafe",
 		source: source(),
 		env,
-		parallelJobs: 4,
 	});
 	return tg.directory(output, {
 		["bin/tg"]: tg.symlink("tangram"),
