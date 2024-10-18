@@ -10,16 +10,16 @@ struct State {
 	graph: Graph,
 
 	// The edge that we are currently following.
-	edge: Edge,
+	edge: Unresolved,
 
 	// A work queue of edges we will have to follow, in depth-first order.
-	queue: im::Vector<Edge>,
+	queue: im::Vector<Unresolved>,
 
 	// A lazily-initialized set of packages to try.
 	objects: Option<im::Vector<(tg::Tag, tg::Object)>>,
 
 	// A list of visited edges.
-	visited: im::HashSet<Edge>,
+	visited: im::HashSet<Unresolved>,
 }
 
 // A graph of packages.
@@ -42,7 +42,7 @@ pub struct Node {
 	pub errors: Vec<tg::Error>,
 
 	// Direct dependencies.
-	pub outgoing: BTreeMap<tg::Reference, Id>,
+	pub edges: BTreeMap<tg::Reference, Edge>,
 
 	// The underlying object.
 	pub object: Either<Arc<tokio::sync::RwLock<input::Graph>>, tg::object::Id>,
@@ -53,8 +53,9 @@ pub struct Node {
 
 pub(super) type Id = Either<tg::Reference, usize>;
 
+// An un-resolved reference in the graph.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(super) struct Edge {
+pub(super) struct Unresolved {
 	// The source node of the edge.
 	pub src: Id,
 
@@ -63,6 +64,13 @@ pub(super) struct Edge {
 
 	// The constraint the referrer places on the dependency.
 	pub reference: tg::Reference,
+}
+
+// An edge in the graph.
+#[derive(Clone, Debug)]
+pub(super) struct Edge {
+	pub referent: Id,
+	pub subpath: Option<PathBuf>,
 }
 
 impl Server {
@@ -95,11 +103,11 @@ impl Server {
 			.insert(input.read().await.arg.path.clone(), id.clone());
 
 		// Get the outgoing edges.
-		let mut outgoing = BTreeMap::new();
+		let mut edges = BTreeMap::new();
 
 		// Add dependencies.
-		let edges = input.read().await.edges.clone();
-		'outer: for edge in edges {
+		let input_edges = input.read().await.edges.clone();
+		'outer: for edge in input_edges {
 			if let Some(input) = edge.node() {
 				let id = Box::pin(self.create_unification_graph_from_input(
 					input.clone(),
@@ -107,7 +115,12 @@ impl Server {
 					visited_graph_nodes,
 				))
 				.await?;
-				outgoing.insert(edge.reference.clone(), id);
+				let reference = edge.reference.clone();
+				let edge = Edge {
+					referent: id,
+					subpath: edge.subpath,
+				};
+				edges.insert(reference, edge);
 				continue;
 			}
 
@@ -125,7 +138,12 @@ impl Server {
 					self.create_unification_node_from_object(graph, id.clone())
 						.await?
 				};
-				outgoing.insert(edge.reference.clone(), id);
+				let reference = edge.reference.clone();
+				let edge = Edge {
+					referent: id,
+					subpath: edge.subpath.clone(),
+				};
+				edges.insert(reference, edge);
 				continue;
 			}
 
@@ -138,17 +156,17 @@ impl Server {
 				let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[node] else {
 					break 'a;
 				};
-				let Some(dependency) = dependencies.get(&edge.reference) else {
+				let Some(referrent) = dependencies.get(&edge.reference) else {
 					if input.read().await.arg.locked {
 						return Err(tg::error!("lockfile is out of date"))?;
 					};
 					break 'a;
 				};
-				let Either::Right(object) = &dependency.object else {
+				let Either::Right(object) = &referrent.item else {
 					break 'a;
 				};
 
-				let id = if let Some(tag) = &dependency.tag {
+				let id = if let Some(tag) = &referrent.tag {
 					let unify = true;
 					self.create_unification_node_from_tagged_object(
 						graph,
@@ -161,7 +179,12 @@ impl Server {
 					self.create_unification_node_from_object(graph, object.clone())
 						.await?
 				};
-				outgoing.insert(edge.reference.clone(), id);
+				let reference = edge.reference.clone();
+				let edge = Edge {
+					referent: id,
+					subpath: edge.subpath,
+				};
+				edges.insert(reference, edge);
 				continue 'outer;
 			}
 
@@ -174,11 +197,21 @@ impl Server {
 					let id = self
 						.create_unification_node_from_object(graph, object.clone())
 						.await?;
-					outgoing.insert(edge.reference.clone(), id);
+					let reference = edge.reference.clone();
+					let edge = Edge {
+						referent: id,
+						subpath: edge.subpath,
+					};
+					edges.insert(reference, edge);
 				},
 				tg::reference::Path::Tag(pattern) => {
-					let id = get_reference_from_pattern(pattern);
-					outgoing.insert(edge.reference.clone(), Either::Left(id));
+					let id = Either::Left(get_reference_from_pattern(pattern));
+					let reference = edge.reference.clone();
+					let edge = Edge {
+						referent: id,
+						subpath: edge.subpath,
+					};
+					edges.insert(reference, edge);
 				},
 				tg::reference::Path::Path(_) => return Err(tg::error!("unimplemented")),
 			}
@@ -187,7 +220,7 @@ impl Server {
 		// Create the node.
 		let node = Node {
 			errors: Vec::new(),
-			outgoing,
+			edges,
 			object: Either::Left(input.clone()),
 			tag: None,
 		};
@@ -210,7 +243,7 @@ impl Server {
 		// Create a node.
 		let node = Node {
 			errors: Vec::new(),
-			outgoing: BTreeMap::new(),
+			edges: BTreeMap::new(),
 			object: Either::Right(object),
 			tag: None,
 		};
@@ -271,7 +304,7 @@ impl Server {
 		// Get the overrides.
 		let mut overrides: BTreeMap<Id, BTreeMap<String, tg::Reference>> = BTreeMap::new();
 		let root_node = graph.nodes.get_mut(root).unwrap();
-		for (reference, node) in &root_node.outgoing {
+		for (reference, edge) in &root_node.edges {
 			let Some(overrides_) = reference
 				.query()
 				.as_ref()
@@ -280,23 +313,23 @@ impl Server {
 				continue;
 			};
 			overrides
-				.entry(node.clone())
+				.entry(edge.referent.clone())
 				.or_default()
 				.extend(overrides_);
 		}
 
 		// Get the list of unsolved edges from the root.
 		let mut queue = graph
-			.outgoing(root.clone())
+			.edges(root.clone())
 			.filter(|edge| {
 				let Some(node) = graph.nodes.get(&edge.dst) else {
 					return false;
 				};
 
 				let solved = node
-					.outgoing
+					.edges
 					.values()
-					.all(|dst| graph.nodes.contains_key(dst));
+					.all(|edge| graph.nodes.contains_key(&edge.referent));
 
 				!solved
 			})
@@ -371,7 +404,7 @@ impl Server {
 			{
 				Ok(dst) => {
 					// Add the direct dependencies to the queue.
-					let edges = current.graph.outgoing(dst.clone());
+					let edges = current.graph.edges(dst.clone());
 					current.queue.extend(edges);
 				},
 				Err(error) => {
@@ -402,7 +435,7 @@ impl Server {
 			// Add any un-walked edges.
 			let edges = current
 				.graph
-				.outgoing(current.edge.dst.clone())
+				.edges(current.edge.dst.clone())
 				.filter(|edge| !current.visited.contains(edge));
 			current.queue.extend(edges);
 			return;
@@ -537,7 +570,7 @@ impl Server {
 		);
 
 		visited.insert(object_id.clone(), id.clone());
-		let outgoing = match object {
+		let edges = match object {
 			tg::Object::Directory(directory) if unify => {
 				self.get_unify_directory_edges(graph, directory, visited)
 					.await?
@@ -554,7 +587,7 @@ impl Server {
 
 		let node = Node {
 			errors: Vec::new(),
-			outgoing,
+			edges,
 			object: Either::Right(object_id),
 			tag,
 		};
@@ -568,8 +601,8 @@ impl Server {
 		graph: &mut Graph,
 		directory: &tg::Directory,
 		visited: &mut BTreeMap<tg::object::Id, Id>,
-	) -> tg::Result<BTreeMap<tg::Reference, Id>> {
-		let mut outgoing = BTreeMap::new();
+	) -> tg::Result<BTreeMap<tg::Reference, Edge>> {
+		let mut edges = BTreeMap::new();
 		for (name, object) in directory.entries(self).await? {
 			let reference = tg::Reference::with_path(name);
 			let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
@@ -580,9 +613,13 @@ impl Server {
 				visited,
 			))
 			.await?;
-			outgoing.insert(reference, id);
+			let edge = Edge {
+				referent: id,
+				subpath: None,
+			};
+			edges.insert(reference, edge);
 		}
-		Ok(outgoing)
+		Ok(edges)
 	}
 
 	async fn get_unify_file_edges(
@@ -590,15 +627,21 @@ impl Server {
 		graph: &mut Graph,
 		file: &tg::File,
 		visited: &mut BTreeMap<tg::object::Id, Id>,
-	) -> tg::Result<BTreeMap<tg::Reference, Id>> {
-		let mut outgoing = BTreeMap::new();
+	) -> tg::Result<BTreeMap<tg::Reference, Edge>> {
+		let mut edges = BTreeMap::new();
 		for (reference, referent) in file.dependencies(self).await? {
 			if let Ok(pat) = reference.path().try_unwrap_tag_ref() {
 				let id = Either::Left(get_reference_from_pattern(pat));
-				outgoing.insert(reference, id);
+				let edge = Edge {
+					referent: id,
+					subpath: None,
+				};
+				edges.insert(reference, edge);
 			} else {
-				let object = match (&referent.item, referent.subpath) {
-					(tg::Object::Directory(directory), Some(subpath)) => directory.get(self, subpath).await?.into(),
+				let object = match (&referent.item, &referent.subpath) {
+					(tg::Object::Directory(directory), Some(subpath)) => {
+						directory.get(self, subpath).await?.into()
+					},
 					(_, Some(_)) => return Err(tg::error!("unexpected subpath")),
 					(object, None) => object.clone(),
 				};
@@ -610,10 +653,14 @@ impl Server {
 					visited,
 				))
 				.await?;
-				outgoing.insert(reference, id);
+				let edge = Edge {
+					referent: id,
+					subpath: referent.subpath,
+				};
+				edges.insert(reference, edge);
 			}
 		}
-		Ok(outgoing)
+		Ok(edges)
 	}
 
 	async fn get_unify_symlink_edges(
@@ -621,8 +668,8 @@ impl Server {
 		graph: &mut Graph,
 		symlink: &tg::Symlink,
 		visited: &mut BTreeMap<tg::object::Id, Id>,
-	) -> tg::Result<BTreeMap<tg::Reference, Id>> {
-		let mut outgoing = BTreeMap::new();
+	) -> tg::Result<BTreeMap<tg::Reference, Edge>> {
+		let mut edges = BTreeMap::new();
 		if let Some(artifact) = symlink.artifact(self).await? {
 			let reference = tg::Reference::with_object(&artifact.id(self).await?.into());
 			let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
@@ -633,13 +680,17 @@ impl Server {
 				visited,
 			))
 			.await?;
-			outgoing.insert(reference, id);
+			let edge = Edge {
+				referent: id,
+				subpath: None,
+			};
+			edges.insert(reference, edge);
 		}
-		Ok(outgoing)
+		Ok(edges)
 	}
 }
 
-fn try_backtrack(state: &mut Vec<State>, edge: &Edge) -> Option<State> {
+fn try_backtrack(state: &mut Vec<State>, edge: &Unresolved) -> Option<State> {
 	// Find the index of the state where the node was first added.
 	let position = state
 		.iter()
@@ -661,8 +712,8 @@ impl Graph {
 		for node in self.nodes.values() {
 			let errors_ = node.errors.iter().cloned();
 			errors.extend(errors_);
-			for (reference, id) in &node.outgoing {
-				if !self.nodes.contains_key(id) {
+			for (reference, edge) in &node.edges {
+				if !self.nodes.contains_key(&edge.referent) {
 					let referrer = match &node.object {
 						Either::Left(input) => input.read().await.arg.path.display().to_string(),
 						Either::Right(object) => object.to_string(),
@@ -684,16 +735,16 @@ impl Graph {
 		Err(last_error.unwrap())
 	}
 
-	pub fn outgoing(&self, src: Id) -> impl Iterator<Item = Edge> + '_ {
+	pub fn edges(&self, src: Id) -> impl Iterator<Item = Unresolved> + '_ {
 		self.nodes
 			.get(&src)
 			.unwrap()
-			.outgoing
+			.edges
 			.iter()
-			.map(move |(dependency, dst)| Edge {
+			.map(move |(reference, edge)| Unresolved {
 				src: src.clone(),
-				dst: dst.clone(),
-				reference: dependency.clone(),
+				dst: edge.referent.clone(),
+				reference: reference.clone(),
 			})
 	}
 
