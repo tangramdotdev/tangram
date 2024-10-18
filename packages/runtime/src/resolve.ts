@@ -1,5 +1,6 @@
 import * as tg from "./index.ts";
 import type { MaybePromise } from "./util.ts";
+import * as im from "immutable";
 
 export type Unresolved<T extends tg.Value> = MaybePromise<
 	T extends
@@ -42,14 +43,14 @@ export let resolve = async <T extends Unresolved<tg.Value>>(
 ): Promise<Resolved<T>> => {
 	let inner = async <T extends Unresolved<tg.Value>>(
 		value: Unresolved<tg.Value>,
-		visited: Set<object>,
+		visited: im.Set<object>,
 	): Promise<Resolved<T>> => {
 		value = await value;
 		if (typeof value === "object") {
 			if (visited.has(value)) {
 				throw new Error("cycle detected");
 			}
-			visited.add(value);
+			visited = visited.add(value);
 		}
 		let output: Resolved<T>;
 		if (
@@ -71,13 +72,13 @@ export let resolve = async <T extends Unresolved<tg.Value>>(
 			output = value as Resolved<T>;
 		} else if (value instanceof Array) {
 			output = (await Promise.all(
-				value.map((item) => inner(item, new Set(visited))),
+				value.map((item) => inner(item, visited)),
 			)) as Resolved<T>;
 		} else if (typeof value === "object") {
 			output = Object.fromEntries(
 				await Promise.all(
 					Object.entries(value).map(async ([key, value]) => {
-						value = await inner(value, new Set(visited));
+						value = await inner(value, visited);
 						return [key, value];
 					}),
 				),
@@ -86,9 +87,9 @@ export let resolve = async <T extends Unresolved<tg.Value>>(
 			throw new Error("invalid value to resolve");
 		}
 		if (typeof value === "object") {
-			visited.delete(value);
+			visited = visited.delete(value);
 		}
 		return output;
 	};
-	return await inner(value, new Set());
+	return await inner(value, im.Set());
 };

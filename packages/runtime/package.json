@@ -5,5 +5,8 @@
 		"check": "tsc && biome check src",
 		"format": "biome check --write src"
 	},
-	"type": "module"
+	"type": "module",
+	"dependencies": {
+		"immutable": "^4.3.7"
+	}
 }
