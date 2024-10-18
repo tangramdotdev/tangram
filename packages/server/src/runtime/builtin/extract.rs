@@ -1,5 +1,8 @@
 use super::Runtime;
 use crate::tmp::Tmp;
+use byte_unit::Byte;
+use num::ToPrimitive;
+use std::time::Duration;
 use tangram_client as tg;
 use tokio_util::io::SyncIoBridge;
 
@@ -7,7 +10,7 @@ impl Runtime {
 	pub async fn extract(
 		&self,
 		build: &tg::Build,
-		_remote: Option<String>,
+		remote: Option<String>,
 	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
@@ -40,7 +43,38 @@ impl Runtime {
 		};
 
 		// Create the reader.
-		let reader = blob.reader(server).await?;
+		let reader = blob.progress_reader(server).await?;
+		let extracted = reader.position();
+		let content_length = reader.size();
+		let log_task = tokio::spawn({
+			let server = server.clone();
+			let build = build.clone();
+			let remote = remote.clone();
+			async move {
+				loop {
+					let extracted = extracted.load(std::sync::atomic::Ordering::Relaxed);
+					let percent =
+						100.0 * extracted.to_f64().unwrap() / content_length.to_f64().unwrap();
+					let extracted = Byte::from_u64(extracted);
+					let content_length = Byte::from_u64(content_length);
+					let message =
+						format!("extracting: {extracted:#} of {content_length:#} {percent:.2}%\n");
+					let arg = tg::build::log::post::Arg {
+						bytes: message.into(),
+						remote: remote.clone(),
+					};
+					let result = build.add_log(&server, arg).await;
+					if result.is_err() {
+						break;
+					}
+					tokio::time::sleep(Duration::from_secs(1)).await;
+				}
+			}
+		});
+		let log_task_abort_handle = log_task.abort_handle();
+		scopeguard::defer! {
+			log_task_abort_handle.abort();
+		};
 
 		// Create a temporary path.
 		let tmp = Tmp::new(server);
@@ -76,6 +110,16 @@ impl Runtime {
 		})
 		.await
 		.unwrap()?;
+
+		log_task.abort();
+
+		// Log that the extraction finished.
+		let message = format!("finished extracting\n");
+		let arg = tg::build::log::post::Arg {
+			bytes: message.into(),
+			remote: remote.clone(),
+		};
+		build.add_log(server, arg).await.ok();
 
 		// Check in the extracted artifact.
 		let arg = tg::artifact::checkin::Arg {
