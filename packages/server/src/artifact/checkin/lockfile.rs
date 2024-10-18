@@ -100,9 +100,10 @@ impl Server {
 			.map(|edge| {
 				let reference = edge.reference.clone();
 				let tag = edge.tag.clone();
-				let object = self.get_lockfile_entry(graph, edge.index);
-				let dependency = tg::lockfile::Dependency { object, tag };
-				(reference, dependency)
+				let item = self.get_lockfile_entry(graph, edge.index);
+				let subpath = edge.subpath.clone();
+				let referent = tg::Referent { item, tag, subpath };
+				(reference, referent)
 			})
 			.collect();
 		Ok(tg::lockfile::Node::File {
@@ -251,9 +252,9 @@ fn neighbors(nodes: &[tg::lockfile::Node], node: usize) -> Vec<(usize, bool)> {
 			.collect(),
 		tg::lockfile::Node::File { dependencies, .. } => dependencies
 			.values()
-			.filter_map(|dependency| {
-				let node = *dependency.object.as_ref().left()?;
-				Some((node, dependency.tag.is_some()))
+			.filter_map(|referent| {
+				let node = *referent.item.as_ref().left()?;
+				Some((node, referent.tag.is_some()))
 			})
 			.collect(),
 		tg::lockfile::Node::Symlink { artifact, .. } => {
@@ -339,8 +340,8 @@ fn strip_nodes_inner(
 		} => {
 			let dependencies = dependencies
 				.into_iter()
-				.filter_map(|(reference, dependency)| {
-					let object = match dependency.object {
+				.filter_map(|(reference, referent)| {
+					let item = match referent.item {
 						Either::Left(node) => Either::Left(strip_nodes_inner(
 							old_nodes,
 							node,
@@ -350,8 +351,9 @@ fn strip_nodes_inner(
 						)?),
 						Either::Right(id) => Either::Right(id),
 					};
-					let tag = dependency.tag;
-					Some((reference, tg::lockfile::Dependency { object, tag }))
+					let tag = referent.tag;
+					let subpath = referent.subpath;
+					Some((reference, tg::Referent { item, subpath, tag }))
 				})
 				.collect();
 

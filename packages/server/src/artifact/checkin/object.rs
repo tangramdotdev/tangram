@@ -29,6 +29,7 @@ pub struct Node {
 pub struct Edge {
 	pub index: usize,
 	pub reference: tg::Reference,
+	pub subpath: Option<PathBuf>,
 	pub tag: Option<tg::Tag>,
 }
 
@@ -90,14 +91,21 @@ impl Server {
 		});
 
 		// Recurse.
-		for (reference, node) in &graph.nodes.get(node).unwrap().outgoing {
-			let dependency_index =
-				Box::pin(self.create_object_graph_inner(node, graph, indices, nodes, paths)).await;
-			let tag = graph.nodes.get(node).unwrap().tag.clone();
+		for (reference, edge) in &graph.nodes.get(node).unwrap().edges {
+			let dependency_index = Box::pin(self.create_object_graph_inner(
+				&edge.referent,
+				graph,
+				indices,
+				nodes,
+				paths,
+			))
+			.await;
+			let referrent = graph.nodes.get(&edge.referent).unwrap();
 			let edge = Edge {
 				index: dependency_index,
 				reference: reference.clone(),
-				tag,
+				subpath: edge.subpath.clone(),
+				tag: referrent.tag.clone(),
 			};
 			nodes[index].edges.push(edge);
 		}
@@ -232,14 +240,10 @@ impl Server {
 		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Get the input metadata, or skip if the node is an object.
-		let (path, metadata, is_root) = match graph.nodes[index].unify.object.clone() {
+		let (path, metadata) = match graph.nodes[index].unify.object.clone() {
 			Either::Left(input) => {
 				let input = input.read().await;
-				(
-					input.arg.path.clone(),
-					input.metadata.clone(),
-					input.root.is_none(),
-				)
+				(input.arg.path.clone(), input.metadata.clone())
 			},
 			Either::Right(_) => {
 				return Err(tg::error!("expected a node"));
@@ -256,7 +260,12 @@ impl Server {
 					let id = graph.nodes[edge.index].id.clone().unwrap();
 					Either::Right(id)
 				};
-				(edge.reference.clone(), edge.tag.clone(), id)
+				(
+					edge.reference.clone(),
+					id,
+					edge.tag.clone(),
+					edge.subpath.clone(),
+				)
 			})
 			.collect::<Vec<_>>();
 
@@ -264,7 +273,7 @@ impl Server {
 		let node = if metadata.is_dir() {
 			let entries = edges
 				.into_iter()
-				.map(|(reference, _tag, id)| {
+				.map(|(reference, id, _tag, _subpath)| {
 					let name = reference
 						.path()
 						.unwrap_path_ref()
@@ -294,15 +303,20 @@ impl Server {
 			)?;
 			drop(permit);
 
-			let dependency = edges.first().cloned();
+			let edge = edges.first().cloned();
 			let (artifact, path) = 'a: {
-				// If there is a dependency and it points outside the root, create a symlink with an artifact ID.
-				if is_root {
-					let artifact = dependency
-						.ok_or_else(|| tg::error!("expected a dependency"))?
-						.2;
-					let artifact = artifact.map_right(|id| id.try_into().unwrap());
-					break 'a (Some(artifact), None);
+				// If there is an edge, use it to construct the symlink.
+				if let Some((_reference, id, _tag, subpath)) = edge {
+					let artifact = id.map_right(|object| match object {
+						tg::object::Id::Directory(a) => a.into(),
+						tg::object::Id::File(a) => a.into(),
+						tg::object::Id::Symlink(a) => a.into(),
+						_ => unreachable!(),
+					});
+					break 'a (
+						Some(artifact),
+						subpath.map(|p| p.to_str().unwrap().to_owned()),
+					);
 				}
 
 				// Unrender the target.
@@ -360,19 +374,20 @@ impl Server {
 		metadata: std::fs::Metadata,
 		edges: Vec<(
 			tg::Reference,
-			Option<tg::Tag>,
 			Either<usize, tg::object::Id>,
+			Option<tg::Tag>,
+			Option<PathBuf>,
 		)>,
 		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
 	) -> tg::Result<tg::graph::data::node::File> {
 		// Compute the dependencies, which will be shared in all cases.
 		let dependencies = edges
 			.into_iter()
-			.map(|(reference, tag, object)| {
+			.map(|(reference, object, tag, subpath)| {
 				let dependency = tg::Referent {
 					item: object,
 					tag,
-					subpath: None,
+					subpath,
 				};
 				(reference, dependency)
 			})

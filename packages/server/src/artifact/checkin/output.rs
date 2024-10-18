@@ -310,16 +310,16 @@ impl Server {
 							.dependencies
 							.iter()
 							.map(|(reference, referent)| {
-								let object = match &referent.item {
+								let item = match &referent.item {
 									Either::Left(_node) => {
 										return Err(tg::error!("invalid graph"));
 									},
 									Either::Right(object) => object.clone(),
 								};
 								let referent = tg::Referent {
-									item: object.clone(),
+									item,
 									tag: referent.tag.clone(),
-									subpath: todo!(),
+									subpath: referent.subpath.clone(),
 								};
 								Ok::<_, tg::Error>((reference.clone(), referent))
 							})
@@ -386,7 +386,7 @@ impl Server {
 	async fn create_file_node(
 		&self,
 		contents: Option<tg::blob::Id>,
-		dependencies: BTreeMap<tg::Reference, tg::lockfile::Dependency>,
+		dependencies: BTreeMap<tg::Reference, tg::Referent<tg::lockfile::Entry>>,
 		executable: bool,
 		graphs: &[tg::graph::Data],
 		indices: &BTreeMap<usize, (usize, usize)>,
@@ -394,15 +394,15 @@ impl Server {
 		let contents = contents.ok_or_else(|| tg::error!("incomplete lockfile"))?;
 		let dependencies = dependencies
 			.into_iter()
-			.map(|(reference, dependency)| async move {
-				let object = dependency.object.clone();
-				let object = self
-					.resolve_lockfile_dependency(object, graphs, indices)
+			.map(|(reference, referent)| async move {
+				let item = referent.item.clone();
+				let item = self
+					.resolve_lockfile_dependency(item, graphs, indices)
 					.await?;
 				let dependency = tg::Referent {
-					item: object,
-					tag: dependency.tag,
-					subpath: todo!(),
+					item,
+					subpath: referent.subpath,
+					tag: referent.tag,
 				};
 				Ok::<_, tg::Error>((reference, dependency))
 			})
@@ -491,7 +491,7 @@ impl Server {
 									.right()
 									.ok_or_else(|| tg::error!("expected an object id"))?,
 								tag: referent.tag.clone(),
-								subpath: todo!(),
+								subpath: referent.subpath.clone(),
 							};
 							Ok::<_, tg::Error>((reference.clone(), referent))
 						})
@@ -728,7 +728,7 @@ impl<'a> petgraph::visit::IntoNeighbors for GraphImpl<'a> {
 			tg::lockfile::Node::File { dependencies, .. } => Box::new(
 				dependencies
 					.values()
-					.filter_map(|dependency| dependency.object.as_ref().left().copied()),
+					.filter_map(|referent| referent.item.as_ref().left().copied()),
 			),
 			tg::lockfile::Node::Symlink { artifact, .. } => Box::new(
 				artifact

@@ -22,7 +22,7 @@ pub enum Node {
 		contents: Option<tg::blob::Id>,
 
 		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-		dependencies: BTreeMap<tg::Reference, Dependency>,
+		dependencies: BTreeMap<tg::Reference, tg::Referent<Entry>>,
 
 		#[serde(default, skip_serializing_if = "is_false")]
 		executable: bool,
@@ -38,14 +38,6 @@ pub enum Node {
 }
 
 pub type Entry = Either<usize, tg::object::Id>;
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Dependency {
-	pub object: Entry,
-
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub tag: Option<tg::Tag>,
-}
 
 impl Lockfile {
 	pub async fn try_read(path: &Path) -> tg::Result<Option<Self>> {
@@ -70,7 +62,7 @@ impl Node {
 			Self::Directory { entries } => entries.values().cloned().collect(),
 			Self::File { dependencies, .. } => dependencies
 				.values()
-				.map(|dependency: &Dependency| dependency.object.clone())
+				.map(|dependency| dependency.item.clone())
 				.collect(),
 			Self::Symlink { artifact, .. } => {
 				let Some(artifact) = artifact else {
