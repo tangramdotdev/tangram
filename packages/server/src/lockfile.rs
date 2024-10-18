@@ -73,8 +73,8 @@ pub async fn try_get_node_for_module_path(
 				queue.extend(children);
 			},
 			tg::lockfile::Node::File { dependencies, .. } => {
-				let children = dependencies.iter().filter_map(|(reference, dependency)| {
-					if dependency.tag.is_some() {
+				let children = dependencies.iter().filter_map(|(reference, referent)| {
+					if referent.tag.is_some() {
 						return None;
 					}
 					let path = reference
@@ -83,7 +83,7 @@ pub async fn try_get_node_for_module_path(
 						.ok()
 						.or_else(|| reference.query()?.path.as_ref())?;
 					let path = node_path.join(path);
-					let index = *dependency.object.as_ref().left()?;
+					let index = *referent.item.as_ref().left()?;
 					Some((index, path))
 				});
 				queue.extend(children);
@@ -214,11 +214,11 @@ async fn filter_lockfile_inner(
 		tg::lockfile::Node::File { dependencies, .. } => {
 			let dependencies_ = dependencies
 				.iter()
-				.map(|(reference, dependency)| {
+				.map(|(reference, referent)| {
 					let reference = reference.clone();
-					let object = dependency.object.clone();
+					let item = referent.item.clone();
 					async move {
-						let object = match object {
+						let item = match item {
 							Either::Left(index) => Either::Left(
 								Box::pin(filter_lockfile_inner(lockfile, index, visited, nodes))
 									.await?,
@@ -226,9 +226,10 @@ async fn filter_lockfile_inner(
 							Either::Right(id) => Either::Right(id.clone()),
 						};
 
-						let dependency = tg::lockfile::Dependency {
-							object,
-							tag: dependency.tag.clone(),
+						let dependency = tg::Referent {
+							item,
+							subpath: referent.subpath.clone(),
+							tag: referent.tag.clone(),
 						};
 
 						Ok::<_, tg::Error>((reference, dependency))
