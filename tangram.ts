@@ -1,7 +1,6 @@
 import bun from "bun" with { path: "../packages/packages/bun" };
 import { cargo } from "rust" with { path: "../packages/packages/rust" };
 import * as std from "std" with { path: "../packages/packages/std" };
-import { $ } from "std" with { path: "../packages/packages/std" };
 
 import cargoToml from "./Cargo.toml" with { type: "file" };
 import cargoLock from "./Cargo.lock" with { type: "file" };
@@ -25,7 +24,7 @@ export default tg.target(async () => {
 	const host = std.triple.host();
 	const env = std.env.arg(
 		bun({ host }),
-		librustyv8(host),
+		librustyv8(cargoLock, host),
 		linuxRuntimeComponents(),
 	);
 	return cargo.build({
@@ -37,29 +36,49 @@ export default tg.target(async () => {
 	});
 });
 
-export const librustyv8 = tg.target(async (hostArg?: string) => {
-	const host = hostArg ?? (await std.triple.host());
-	let os;
-	if (std.triple.os(host) === "darwin") {
-		os = "apple-darwin";
-	} else if (std.triple.os(host) === "linux") {
-		os = "unknown-linux-gnu";
-	} else {
-		throw new Error(`unsupported host ${host}`);
+export const librustyv8 = tg.target(
+	async (lockfile: tg.File, hostArg?: string) => {
+		const host = hostArg ?? (await std.triple.host());
+		let os;
+		if (std.triple.os(host) === "darwin") {
+			os = "apple-darwin";
+		} else if (std.triple.os(host) === "linux") {
+			os = "unknown-linux-gnu";
+		} else {
+			throw new Error(`unsupported host ${host}`);
+		}
+		const checksum = "unsafe";
+		const file = `librusty_v8_release_${std.triple.arch(host)}-${os}.a.gz`;
+		const version = await getRustyV8Version(lockfile);
+		const lib = await std
+			.download({
+				checksum,
+				decompress: true,
+				url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
+			})
+			.then(tg.File.expect);
+		return {
+			RUSTY_V8_ARCHIVE: lib,
+		};
+	},
+);
+
+const getRustyV8Version = async (lockfile: tg.File) => {
+	const v8 = await lockfile
+		.text()
+		.then((t) => tg.encoding.toml.decode(t))
+		.then((toml) =>
+			(toml as CargoLock).package.find((pkg) => pkg.name === "v8"),
+		);
+	if (v8 === undefined) {
+		throw new Error("Could not find v8 dependency in lockfile");
 	}
-	const checksum = "unsafe";
-	const file = `librusty_v8_release_${std.triple.arch(host)}-${os}.a.gz`;
-	const lib = await std
-		.download({
-			checksum,
-			decompress: true,
-			url: `https://github.com/denoland/rusty_v8/releases/download/v129.0.0/${file}`,
-		})
-		.then(tg.File.expect);
-	return {
-		RUSTY_V8_ARCHIVE: lib,
-	};
-});
+	return v8.version;
+};
+
+type CargoLock = {
+	package: Array<{ name: string; version: string }>;
+};
 
 export const linuxRuntimeComponents = tg.target(async () => {
 	const version = "v2024.10.03";
