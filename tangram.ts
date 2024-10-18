@@ -38,6 +38,7 @@ export default tg.target(async () => {
 	const output = cargo.build({
 		source: source(),
 		env,
+		parallelJobs: 4,
 	});
 	return tg.directory(output, {
 		["bin/tg"]: tg.symlink("tangram"),
