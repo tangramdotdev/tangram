@@ -277,17 +277,9 @@ fn file_arg(input: &mut Input) -> PResult<tg::file::Object> {
 				.ok()?
 				.iter()
 				.map(|(key, value)| {
-					todo!()
-					// let reference: tg::Reference = key.parse().ok()?;
-					// let value = value.try_unwrap_map_ref().ok()?;
-					// let object = value.get("object")?.try_unwrap_object_ref().ok()?.clone();
-					// let tag = if let Some(tag) = value.get("tag") {
-					// 	Some(tag.try_unwrap_string_ref().ok()?.parse().ok()?)
-					// } else {
-					// 	None
-					// };
-					// let referent = tg::Referent { item, tag };
-					// Some((reference, referent))
+					let reference: tg::Reference = key.parse().ok()?;
+					let referent: tg::Referent<_> = value.parse().ok()?;
+					Some((reference, referent))
 				})
 				.collect::<Option<_>>()?
 		} else {

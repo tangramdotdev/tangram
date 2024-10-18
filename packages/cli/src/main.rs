@@ -137,9 +137,6 @@ enum Command {
 }
 
 fn main() -> std::process::ExitCode {
-	// Initialize V8.
-	Cli::initialize_v8();
-
 	// Parse the args.
 	let args = Args::parse();
 
@@ -152,19 +149,6 @@ fn main() -> std::process::ExitCode {
 			return 1.into();
 		},
 	};
-
-	// Initialize tracing.
-	Cli::initialize_tracing(config.as_ref());
-
-	// Set the file descriptor limit.
-	Cli::set_file_descriptor_limit(config.as_ref())
-		.inspect_err(|_| {
-			eprintln!(
-				"{} failed to set the file descriptor limit",
-				"warning".yellow().bold(),
-			);
-		})
-		.ok();
 
 	// Create the handle.
 	let handle = Mutex::new(None);
@@ -190,6 +174,25 @@ fn main() -> std::process::ExitCode {
 
 		_ => args.mode.unwrap_or_default(),
 	};
+
+	// Handle server mode initialization.
+	if matches!(mode, Mode::Server) {
+		// Initialize V8.
+		Cli::initialize_v8();
+
+		// Set the file descriptor limit.
+		Cli::set_file_descriptor_limit(config.as_ref())
+			.inspect_err(|_| {
+				eprintln!(
+					"{} failed to set the file descriptor limit",
+					"warning".yellow().bold(),
+				);
+			})
+			.ok();
+	}
+
+	// Initialize tracing.
+	Cli::initialize_tracing(config.as_ref());
 
 	// Create the CLI.
 	let cli = Cli {
