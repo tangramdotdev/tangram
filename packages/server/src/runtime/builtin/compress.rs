@@ -1,9 +1,9 @@
 use super::Runtime;
 use byte_unit::Byte;
-use num::ToPrimitive;
-use std::pin::Pin;
-use std::time::Duration;
+use num::ToPrimitive as _;
+use std::{pin::Pin, time::Duration};
 use tangram_client as tg;
+use tangram_futures::read::SharedPositionReader;
 use tokio::io::AsyncRead;
 
 impl Runtime {
@@ -39,24 +39,26 @@ impl Runtime {
 			.parse::<tg::blob::compress::Format>()
 			.map_err(|source| tg::error!(!source, "invalid format"))?;
 
-		let reader = blob.progress_reader(server).await?;
+		// Create the reader.
+		let reader = blob.reader(server).await?;
+		let reader = SharedPositionReader::new(reader)
+			.await
+			.map_err(|source| tg::error!(!source, "io error"))?;
+
 		// Spawn a task to log progress.
-		let compressed = reader.position();
-		let content_length = reader.size();
+		let position = reader.shared_position();
+		let size = blob.size(server).await?;
 		let log_task = tokio::spawn({
 			let server = server.clone();
 			let build = build.clone();
 			let remote = remote.clone();
 			async move {
 				loop {
-					let compressed = compressed.load(std::sync::atomic::Ordering::Relaxed);
-					let percent =
-						100.0 * compressed.to_f64().unwrap() / content_length.to_f64().unwrap();
-					let compressed = Byte::from_u64(compressed);
-					let content_length = Byte::from_u64(content_length);
-					let message = format!(
-						"compressing: {compressed:#} of {content_length:#} {percent:.2}%\n"
-					);
+					let position = position.load(std::sync::atomic::Ordering::Relaxed);
+					let percent = 100.0 * position.to_f64().unwrap() / size.to_f64().unwrap();
+					let position = Byte::from_u64(position);
+					let size = Byte::from_u64(size);
+					let message = format!("compressing: {position:#} of {size:#} {percent:.2}%\n");
 					let arg = tg::build::log::post::Arg {
 						bytes: message.into(),
 						remote: remote.clone(),
@@ -94,7 +96,7 @@ impl Runtime {
 		log_task.abort();
 
 		// Log that the compression finished.
-		let message = format!("finished compressing\n");
+		let message = "finished compressing\n";
 		let arg = tg::build::log::post::Arg {
 			bytes: message.into(),
 			remote: remote.clone(),

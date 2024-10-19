@@ -1,9 +1,10 @@
 use super::Runtime;
 use crate::tmp::Tmp;
 use byte_unit::Byte;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::time::Duration;
 use tangram_client as tg;
+use tangram_futures::read::SharedPositionReader;
 use tokio_util::io::SyncIoBridge;
 
 impl Runtime {
@@ -43,22 +44,24 @@ impl Runtime {
 		};
 
 		// Create the reader.
-		let reader = blob.progress_reader(server).await?;
-		let extracted = reader.position();
-		let content_length = reader.size();
+		let reader = blob.reader(server).await?;
+		let reader = SharedPositionReader::new(reader)
+			.await
+			.map_err(|source| tg::error!(!source, "io error"))?;
+
+		let position = reader.shared_position();
+		let size = blob.size(server).await?;
 		let log_task = tokio::spawn({
 			let server = server.clone();
 			let build = build.clone();
 			let remote = remote.clone();
 			async move {
 				loop {
-					let extracted = extracted.load(std::sync::atomic::Ordering::Relaxed);
-					let percent =
-						100.0 * extracted.to_f64().unwrap() / content_length.to_f64().unwrap();
-					let extracted = Byte::from_u64(extracted);
-					let content_length = Byte::from_u64(content_length);
-					let message =
-						format!("extracting: {extracted:#} of {content_length:#} {percent:.2}%\n");
+					let position = position.load(std::sync::atomic::Ordering::Relaxed);
+					let percent = 100.0 * position.to_f64().unwrap() / size.to_f64().unwrap();
+					let position = Byte::from_u64(position);
+					let size = Byte::from_u64(size);
+					let message = format!("extracting: {position:#} of {size:#} {percent:.2}%\n");
 					let arg = tg::build::log::post::Arg {
 						bytes: message.into(),
 						remote: remote.clone(),
@@ -114,7 +117,7 @@ impl Runtime {
 		log_task.abort();
 
 		// Log that the extraction finished.
-		let message = format!("finished extracting\n");
+		let message = "finished extracting\n";
 		let arg = tg::build::log::post::Arg {
 			bytes: message.into(),
 			remote: remote.clone(),

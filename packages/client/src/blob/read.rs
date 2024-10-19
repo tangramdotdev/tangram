@@ -1,6 +1,5 @@
 use crate::{
 	self as tg,
-	blob::read_progress::ProgressReader,
 	handle::Ext as _,
 	util::serde::{BytesBase64, SeekFromString},
 	Client,
@@ -81,13 +80,6 @@ impl tg::Blob {
 		H: tg::Handle,
 	{
 		Reader::new(handle, self.clone()).await
-	}
-
-	pub async fn progress_reader<H>(&self, handle: &H) -> tg::Result<ProgressReader<H>>
-	where
-		H: tg::Handle,
-	{
-		ProgressReader::new(self.reader(handle).await.unwrap())
 	}
 
 	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
