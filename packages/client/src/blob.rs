@@ -12,6 +12,7 @@ pub mod create;
 pub mod decompress;
 pub mod download;
 pub mod read;
+pub mod read_progress;
 
 /// A blob kind.
 #[derive(Clone, Copy, Debug)]
