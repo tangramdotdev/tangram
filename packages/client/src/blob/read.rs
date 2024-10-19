@@ -125,6 +125,10 @@ where
 		self.position
 	}
 
+	pub fn size(&self) -> u64 {
+		self.size
+	}
+
 	pub fn end(&self) -> bool {
 		self.position == self.size
 	}
