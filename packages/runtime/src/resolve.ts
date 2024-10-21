@@ -1,6 +1,6 @@
+import * as im from "immutable";
 import * as tg from "./index.ts";
 import type { MaybePromise } from "./util.ts";
-import * as im from "immutable";
 
 export type Unresolved<T extends tg.Value> = MaybePromise<
 	T extends

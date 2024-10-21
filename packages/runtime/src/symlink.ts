@@ -24,14 +24,47 @@ export class Symlink {
 
 	static async new(...args: tg.Args<Symlink.Arg>): Promise<Symlink> {
 		let arg = await Symlink.arg(...args);
-		let artifact = arg.artifact;
-		let path = arg.path !== undefined ? arg.path : undefined;
-		let object = { artifact, path };
-		return new Symlink({ object });
+		if (!("graph" in arg)) {
+			let artifact = arg.artifact;
+			let path = arg.path !== undefined ? arg.path : undefined;
+			let object = { artifact, path };
+			return new Symlink({ object });
+		} else {
+			return new Symlink({ object: arg });
+		}
 	}
 
 	static async arg(...args: tg.Args<Symlink.Arg>): Promise<Symlink.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
+
+		// If there are no args, just return immediately.
+		if (resolved.length === 0) {
+			return {};
+		}
+
+		// If there is a single arg and it's a graph object, return immediately.
+		if (resolved.length === 1) {
+			const singleArg = resolved[0];
+			if (
+				singleArg !== undefined &&
+				typeof singleArg === "object" &&
+				"graph" in singleArg
+			) {
+				return singleArg;
+			}
+		}
+
+		// Make sure none of the arguments are graph objects.
+		if (
+			resolved.some(
+				(arg) => arg !== undefined && typeof arg === "object" && "graph" in arg,
+			)
+		) {
+			throw new Error(
+				"Cannot mix graph and symlink objects or use multiple graph objects to construct symlinks",
+			);
+		}
+
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {
@@ -74,7 +107,10 @@ export class Symlink {
 				}
 			}),
 		);
-		let mutations = await tg.Args.createMutations(objects);
+		let mutations = await tg.Args.createMutations(objects, {
+			artifact: "set",
+			path: "set",
+		});
 		let arg = await tg.Args.applyMutations(mutations);
 		return arg;
 	}
@@ -219,10 +255,12 @@ export namespace Symlink {
 		| Symlink
 		| ArgObject;
 
-	export type ArgObject = {
-		artifact?: tg.Artifact | undefined;
-		path?: string | undefined;
-	};
+	export type ArgObject =
+		| {
+				artifact?: tg.Artifact | undefined;
+				path?: string | undefined;
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type Id = string;
 

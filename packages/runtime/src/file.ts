@@ -22,16 +22,48 @@ export class File {
 
 	static async new(...args: tg.Args<File.Arg>): Promise<File> {
 		let arg = await File.arg(...args);
-		let contents = await tg.blob(arg.contents);
-		let dependencies = arg.dependencies ?? {};
-		let executable = arg.executable ?? false;
-		return new File({
-			object: { contents, dependencies, executable },
-		});
+		if (!("graph" in arg)) {
+			let contents = await tg.blob(arg.contents);
+			let dependencies = arg.dependencies ?? {};
+			let executable = arg.executable ?? false;
+			return new File({
+				object: { contents, dependencies, executable },
+			});
+		} else {
+			return new File({ object: arg });
+		}
 	}
 
 	static async arg(...args: tg.Args<File.Arg>): Promise<File.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
+		// If there are no args, just return immediately.
+		if (resolved.length === 0) {
+			return {};
+		}
+
+		// If there is a single arg and it's a graph object, return immediately.
+		if (resolved.length === 1) {
+			const singleArg = resolved[0];
+			if (
+				singleArg !== undefined &&
+				typeof singleArg === "object" &&
+				"graph" in singleArg
+			) {
+				return singleArg;
+			}
+		}
+
+		// Make sure none of the arguments are graph objects.
+		if (
+			resolved.some(
+				(arg) => arg !== undefined && typeof arg === "object" && "graph" in arg,
+			)
+		) {
+			throw new Error(
+				"Cannot mix graph and file objects or use multiple graph objects to construct files",
+			);
+		}
+
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {
@@ -223,11 +255,13 @@ export namespace File {
 		| tg.File
 		| ArgObject;
 
-	export type ArgObject = {
-		contents?: tg.Blob.Arg | undefined;
-		dependencies?: { [reference: string]: Dependency } | undefined;
-		executable?: boolean | undefined;
-	};
+	export type ArgObject =
+		| {
+				contents?: tg.Blob.Arg | undefined;
+				dependencies?: { [reference: string]: Dependency } | undefined;
+				executable?: boolean | undefined;
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type Id = string;
 
