@@ -10,10 +10,6 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub artifact: tg::artifact::Id,
 
-	/// Whether to bundle the artifact before checkout.
-	#[arg(long)]
-	pub bundle: bool,
-
 	/// Whether to overwrite an existing file system object at the path.
 	#[arg(short, long, requires = "path")]
 	pub force: bool,
@@ -23,8 +19,8 @@ pub struct Args {
 	pub path: Option<PathBuf>,
 
 	/// Whether to check out the artifact's references.
-	#[arg(long, default_value_t = true)]
-	pub references: bool,
+	#[arg(long)]
+	pub dependencies: Option<bool>,
 }
 
 impl Cli {
@@ -42,10 +38,9 @@ impl Cli {
 
 		// Check out the artifact.
 		let arg = tg::artifact::checkout::Arg {
-			bundle: path.is_some(),
 			force: args.force,
 			path,
-			dependencies: true,
+			dependencies: args.dependencies.unwrap_or(true),
 		};
 		let stream = handle
 			.check_out_artifact(&args.artifact, arg)
