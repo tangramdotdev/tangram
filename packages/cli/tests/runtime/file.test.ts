@@ -65,7 +65,6 @@ describe("constructor", () => {
         });
       `,
 		});
-		// FIXME - just snapshot the object?
 		const result = await server.tg`build ${dir}`.text().then((t) => t.trim());
 		expect(result).toBe(`["hello",false,]`);
 	});
