@@ -324,15 +324,17 @@ declare namespace tg {
 
 		export type Arg = undefined | tg.Directory | ArgObject;
 
-		type ArgObject = {
-			[key: string]:
-				| undefined
-				| string
-				| Uint8Array
-				| tg.Blob
-				| tg.Artifact
-				| ArgObject;
-		};
+		type ArgObject =
+			| {
+					[key: string]:
+						| undefined
+						| string
+						| Uint8Array
+						| tg.Blob
+						| tg.Artifact
+						| ArgObject;
+			  }
+			| { graph: tg.Graph; node: number };
 	}
 
 	/** Create a file. */
@@ -390,11 +392,13 @@ declare namespace tg {
 			| tg.File
 			| ArgObject;
 
-		type ArgObject = {
-			contents?: tg.Blob.Arg | undefined;
-			dependencies?: { [reference: string]: Dependency } | undefined;
-			executable?: boolean | undefined;
-		};
+		type ArgObject =
+			| {
+					contents?: tg.Blob.Arg | undefined;
+					dependencies?: { [reference: string]: Dependency } | undefined;
+					executable?: boolean | undefined;
+			  }
+			| { graph: tg.Graph; node: number };
 
 		export type Dependency = {
 			object: tg.Object;
@@ -443,10 +447,12 @@ declare namespace tg {
 			| tg.Symlink
 			| ArgObject;
 
-		type ArgObject = {
-			artifact?: tg.Artifact | undefined;
-			path?: string | undefined;
-		};
+		type ArgObject =
+			| {
+					artifact?: tg.Artifact | undefined;
+					path?: string | undefined;
+			  }
+			| { graph: tg.Graph; node: number };
 	}
 
 	/** Create a graph. */
