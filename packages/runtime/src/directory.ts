@@ -26,14 +26,12 @@ export class Directory {
 		...args: Array<tg.Unresolved<MaybeNestedArray<Directory.Arg>>>
 	): Promise<Directory> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		// // // Catch a graph object.
-		// if (resolved.length === 1) {
-		// 	const singleArg = resolved[0];
-		// 	if (singleArg !== undefined && typeof singleArg === "object" && "graph" in singleArg) {
-		// 		const object = { graph: singleArg.graph, node: singleArg.node };
-		// 		return new Directory({ object })
-		// 	}
-		// }
+		if (resolved.length === 1) {
+			const singleArg = resolved[0];
+			if (isGraphObject(singleArg)) {
+				return new Directory({ object: singleArg });
+			}
+		}
 
 		let entries = await resolved.reduce<
 			Promise<{ [key: string]: tg.Artifact }>
@@ -63,10 +61,11 @@ export class Directory {
 					entries = await reduce(Promise.resolve(entries), argEntry);
 				}
 			} else if (typeof arg === "object") {
-				// // Make sure it's not a graph object. If it is, error.
-				// if ("graph" in arg) {
-				// 	throw new Error("Graph objects must be the only argument to the directory constructor");
-				// }
+				if (isGraphObject(arg)) {
+					throw new Error(
+						"Graph objects must be the only argument to the directory constructor",
+					);
+				}
 
 				// If the arg is an object, then apply each entry.
 				for (let [key, value] of Object.entries(arg)) {
@@ -270,20 +269,34 @@ export class Directory {
 	}
 }
 
+const isGraphObject = (
+	obj: unknown,
+): obj is { graph: tg.Graph; node: number } => {
+	return (
+		obj !== undefined &&
+		typeof obj === "object" &&
+		obj !== null &&
+		"graph" in obj &&
+		obj.graph instanceof tg.Graph &&
+		"node" in obj &&
+		typeof obj.node === "number"
+	);
+};
+
 export namespace Directory {
 	export type Arg = undefined | Directory | ArgObject;
 
-	// TODO - how do we do the graph variant? It's ambiguous with ArgObject.
-
-	export type ArgObject = {
-		[key: string]:
-			| undefined
-			| string
-			| Uint8Array
-			| tg.Blob
-			| tg.Artifact
-			| ArgObject;
-	};
+	export type ArgObject =
+		| {
+				[key: string]:
+					| undefined
+					| string
+					| Uint8Array
+					| tg.Blob
+					| tg.Artifact
+					| ArgObject;
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type Id = string;
 
