@@ -9,9 +9,6 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub bundle: bool,
-
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub dependencies: bool,
 
@@ -85,7 +82,6 @@ impl tg::Client {
 impl Default for Arg {
 	fn default() -> Self {
 		Self {
-			bundle: false,
 			force: false,
 			path: None,
 			dependencies: true,

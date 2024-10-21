@@ -2,21 +2,22 @@ use crate::{tmp::Tmp, Server};
 use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use std::{
-	collections::BTreeSet,
-	ffi::OsStr,
+	collections::{BTreeMap, BTreeSet},
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::Arc,
 };
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::{stream::TryStreamExt as _, task::Task};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tg::path::Ext as _;
 
 struct InnerArg<'a> {
 	arg: &'a tg::artifact::checkout::Arg,
 	artifact: &'a tg::Artifact,
-	depth: usize,
+	checkouts_path: &'a PathBuf,
 	existing_artifact: Option<&'a tg::Artifact>,
 	files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
 	path: &'a PathBuf,
@@ -61,10 +62,44 @@ impl Server {
 			let arg = arg.clone();
 			let files = Arc::new(DashMap::default());
 			let progress = progress.clone();
+
 			async move {
-				server
-					.check_out_artifact_with_files(&id, &arg, files, &progress)
-					.await
+				// Compute the checkouts path.
+				let checkouts_path = server
+					.get_checkouts_directory_for_path(&id, arg.path.as_deref())
+					.await?;
+
+				// Checkout the artifact.
+				let output = server
+					.check_out_artifact_with_files(&id, &arg, &checkouts_path, files, &progress)
+					.await?;
+
+				if let Some(path) = arg.path {
+					// Create the lockfile for external checkouts.
+					let artifact = tg::Artifact::with_id(id.clone());
+					let lockfile = server
+						.create_lockfile_with_artifact(&artifact)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
+
+					// Write the lockfile if it is not empty.
+					if !lockfile.nodes.is_empty() {
+						let lockfile_path = if matches!(artifact, tg::Artifact::Directory(_)) {
+							path.join("tangram.lock")
+						} else {
+							path.parent().unwrap().join("tangram.lock")
+						};
+						let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
+						let contents = serde_json::to_vec(&lockfile).map_err(|source| {
+							tg::error!(!source, "failed to serialize lockfile")
+						})?;
+						tokio::fs::write(&lockfile_path, &contents).await.map_err(
+							|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write lockfile"),
+						)?;
+					}
+				}
+
+				Ok(output)
 			}
 		};
 		let internal = arg.path.is_none();
@@ -87,20 +122,12 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: &tg::artifact::checkout::Arg,
+		checkouts_path: &PathBuf,
 		files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
 	) -> tg::Result<tg::artifact::checkout::Output> {
+		// Get the artifact.
 		let artifact = tg::Artifact::with_id(id.clone());
-
-		// Bundle the artifact if requested.
-		let artifact = if arg.bundle {
-			artifact
-				.bundle(self)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to bundle the artifact"))?
-		} else {
-			artifact
-		};
 
 		if let Some(path) = arg.path.clone() {
 			if !path.is_absolute() {
@@ -137,12 +164,12 @@ impl Server {
 
 			// Perform the checkout.
 			let arg = InnerArg {
-				path: &path,
-				artifact: &artifact,
-				existing_artifact: existing_artifact.as_ref(),
-				depth: 0,
 				arg,
+				artifact: &artifact,
+				checkouts_path,
+				existing_artifact: existing_artifact.as_ref(),
 				files,
+				path: &path,
 				progress,
 			};
 			self.check_out_inner(arg).await?;
@@ -154,7 +181,7 @@ impl Server {
 		} else {
 			// Get the path in the checkouts directory.
 			let id = artifact.id(self).await?;
-			let path = self.checkouts_path().join(id.to_string());
+			let path = checkouts_path.join(id.to_string());
 			let artifact_path = self.artifacts_path().join(id.to_string());
 
 			// If there is already a file system object at the path, then return.
@@ -168,47 +195,48 @@ impl Server {
 				return Ok(output);
 			}
 
-			// If the VFS is enabled and `force` is `false`, then return.
-			if self.options.vfs.is_some() && !arg.force {
-				let output = tg::artifact::checkout::Output {
-					path: artifact_path,
-				};
-				return Ok(output);
-			}
-
 			// Create a tmp.
-			let tmp = Tmp::new(self);
+			let tmp = (checkouts_path == &self.checkouts_path()).then(|| Tmp::new(self));
 
 			// Perform the checkout to the tmp.
 			let files = Arc::new(DashMap::default());
 			let arg = InnerArg {
-				path: &tmp.path,
-				artifact: &artifact,
-				existing_artifact: None,
-				depth: 0,
 				arg,
+				artifact: &artifact,
+				checkouts_path,
+				existing_artifact: None,
 				files,
+				path: tmp.as_ref().map_or(&path, |tmp| &tmp.path),
 				progress,
 			};
 			self.check_out_inner(arg).await?;
 
-			// Move the checkout to the checkouts directory.
-			match tokio::fs::rename(&tmp, &path).await {
-				Ok(()) => (),
-				// If the entry in the checkouts directory exists, then remove the checkout to the tmp.
-				Err(ref error)
-					if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
-				{
-					crate::util::fs::remove(&tmp).await.ok();
-				},
+			if let Some(parent) = path.parent() {
+				tokio::fs::create_dir_all(parent)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create output directory"))?;
+			}
 
-				// Otherwise, return the error.
-				Err(source) => {
-					return Err(
-						tg::error!(!source, %tmp = tmp.path.display(), %path = path.display(), "failed to move the checkout to the checkouts directory"),
-					);
-				},
-			};
+			// Move the checkout to the checkouts directory.
+			if let Some(tmp) = tmp {
+				match tokio::fs::rename(&tmp, &path).await {
+					Ok(()) => (),
+
+					// If the entry in the checkouts directory exists, then remove the checkout to the tmp.
+					Err(ref error)
+						if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
+					{
+						crate::util::fs::remove(&tmp).await.ok();
+					},
+
+					// Otherwise, return the error.
+					Err(source) => {
+						return Err(
+							tg::error!(!source, %tmp = tmp.path.display(), %path = path.display(), "failed to move the checkout to the checkouts directory"),
+						);
+					},
+				};
+			}
 
 			// Create the output.
 			let output = tg::artifact::checkout::Output {
@@ -223,7 +251,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			depth,
+			checkouts_path,
 			existing_artifact,
 			files,
 			path,
@@ -245,7 +273,7 @@ impl Server {
 		let arg_ = InnerArg {
 			arg,
 			artifact,
-			depth,
+			checkouts_path,
 			existing_artifact,
 			files,
 			path,
@@ -294,12 +322,13 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			depth,
+			checkouts_path,
 			existing_artifact,
 			files,
 			path,
 			progress,
 		} = arg;
+
 		let directory = artifact
 			.try_unwrap_directory_ref()
 			.ok()
@@ -363,7 +392,7 @@ impl Server {
 					let arg = InnerArg {
 						arg,
 						artifact,
-						depth: depth + 1,
+						checkouts_path,
 						existing_artifact: existing_artifact.as_ref(),
 						files,
 						path: &entry_path,
@@ -385,12 +414,14 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
+			checkouts_path,
 			existing_artifact,
 			files,
 			path,
 			progress,
 			..
 		} = arg;
+
 		let file = artifact
 			.try_unwrap_file_ref()
 			.ok()
@@ -418,12 +449,12 @@ impl Server {
 			.try_collect::<BTreeSet<_>>()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?;
+
 		if arg.dependencies && !dependencies.is_empty() {
 			dependencies
 				.iter()
 				.map(|artifact| async {
 					let arg = tg::artifact::checkout::Arg {
-						bundle: false,
 						force: false,
 						path: None,
 						dependencies: true,
@@ -431,6 +462,7 @@ impl Server {
 					Box::pin(self.check_out_artifact_with_files(
 						artifact,
 						&arg,
+						checkouts_path,
 						files.clone(),
 						progress,
 					))
@@ -458,7 +490,7 @@ impl Server {
 		}
 
 		// Attempt to use the file from an internal checkout.
-		let internal_checkout_path = self.checkouts_path().join(id.to_string());
+		let internal_checkout_path = checkouts_path.join(id.to_string());
 		if arg.path.is_none() {
 			// If this checkout is internal, then create a hard link.
 			let result = tokio::fs::hard_link(&internal_checkout_path, path).await;
@@ -514,12 +546,13 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			depth,
+			checkouts_path,
 			existing_artifact,
 			files,
 			path,
 			progress,
 		} = arg;
+
 		let symlink = artifact
 			.try_unwrap_symlink_ref()
 			.ok()
@@ -536,35 +569,33 @@ impl Server {
 			None => (),
 		};
 
+		// Get the symlink's data.
+		let artifact = symlink.artifact(self).await?;
+		let path_ = symlink.path(self).await?;
+
 		// Check out the symlink's artifact if necessary.
 		if arg.dependencies {
-			if let Some(artifact) = symlink.artifact(self).await? {
-				if arg.path.is_some() {
-					return Err(tg::error!(
-						r#"cannot perform an external check out of a symlink with an artifact"#
-					));
-				}
+			if let Some(artifact) = &artifact {
 				let id = artifact.id(self).await?;
 				let arg = tg::artifact::checkout::Arg::default();
-				Box::pin(self.check_out_artifact_with_files(&id, &arg, files, progress)).await?;
+				Box::pin(self.check_out_artifact_with_files(
+					&id,
+					&arg,
+					checkouts_path,
+					files,
+					progress,
+				))
+				.await?;
 			}
 		}
 
 		// Render the target.
 		let mut target = PathBuf::new();
-		let artifact = symlink.artifact(self).await?;
-		let path_ = symlink.subpath(self).await?;
-		if let Some(artifact) = artifact.as_ref() {
-			for _ in 0..depth {
-				target.push(std::path::Component::ParentDir);
-			}
-			target = target.join("../../.tangram/artifacts");
-			let id = &artifact.id(self).await?.to_string();
-			let component = std::path::Component::Normal(OsStr::new(id));
-			target.push(component);
+		if artifact.is_some() {
+			target.push(path.diff(checkouts_path).unwrap().parent().unwrap());
 		}
-		if let Some(path) = path_.as_ref() {
-			target = target.join(path.clone());
+		if let Some(path) = path_ {
+			target.push(path);
 		}
 
 		// Create the symlink.
@@ -573,6 +604,31 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 
 		Ok(())
+	}
+}
+
+impl Server {
+	#[allow(clippy::unused_self, clippy::unused_async)]
+	async fn get_checkouts_directory_for_path(
+		&self,
+		artifact: &tg::artifact::Id,
+		output_path: Option<&Path>,
+	) -> tg::Result<PathBuf> {
+		let Some(output_path) = output_path else {
+			return Ok(self.checkouts_path());
+		};
+
+		if !output_path.is_absolute() {
+			return Err(tg::error!(%path = output_path.display(), "expected an absolute path"));
+		}
+
+		let checkouts_path = if let tg::artifact::Id::Directory(_) = artifact {
+			output_path.join(".tangram/artifacts")
+		} else {
+			output_path.parent().unwrap().join(".tangram/artifacts")
+		};
+
+		Ok(checkouts_path)
 	}
 }
 
@@ -634,5 +690,297 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+impl Server {
+	async fn create_lockfile_with_artifact(
+		&self,
+		artifact: &tg::Artifact,
+	) -> tg::Result<tg::Lockfile> {
+		let mut nodes = Vec::new();
+		let mut visited = BTreeMap::new();
+		let mut graphs = BTreeMap::new();
+		self.get_or_create_lockfile_node_with_artifact(
+			artifact,
+			&mut nodes,
+			&mut visited,
+			&mut graphs,
+		)
+		.await?;
+
+		let nodes = nodes.into_iter().map(Option::unwrap).collect::<Vec<_>>();
+		let nodes = self.strip_lockfile_nodes(&nodes, 0);
+
+		Ok(tg::Lockfile { nodes })
+	}
+
+	async fn get_or_create_lockfile_node_with_artifact(
+		&self,
+		artifact: &tg::Artifact,
+		nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		visited: &mut BTreeMap<tg::artifact::Id, usize>,
+		graphs: &mut BTreeMap<tg::graph::Id, Vec<usize>>,
+	) -> tg::Result<usize> {
+		let id = artifact.id(self).await?;
+		if let Some(visited) = visited.get(&id) {
+			return Ok(*visited);
+		}
+		let index = nodes.len();
+		nodes.push(None);
+		visited.insert(id, index);
+
+		let node = match artifact {
+			tg::Artifact::Directory(directory) => match &*directory.object(self).await? {
+				tg::directory::Object::Graph { graph, node } => {
+					let nodes = Box::pin(
+						self.create_lockfile_node_with_graph(graph, nodes, visited, graphs),
+					)
+					.await?;
+
+					return Ok(nodes[*node]);
+				},
+				tg::directory::Object::Normal { entries } => {
+					let mut entries_ = BTreeMap::new();
+					for (name, artifact) in entries {
+						let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+							artifact, nodes, visited, graphs,
+						))
+						.await?;
+						entries_.insert(name.clone(), Either::Left(index));
+					}
+					tg::lockfile::Node::Directory { entries: entries_ }
+				},
+			},
+
+			tg::Artifact::File(file) => match &*file.object(self).await? {
+				tg::file::Object::Graph { graph, node } => {
+					let nodes = Box::pin(
+						self.create_lockfile_node_with_graph(graph, nodes, visited, graphs),
+					)
+					.await?;
+					return Ok(nodes[*node]);
+				},
+				tg::file::Object::Normal {
+					contents,
+					dependencies,
+					executable,
+				} => {
+					let mut dependencies_ = BTreeMap::new();
+					for (reference, dependency) in dependencies {
+						let object = match &dependency.object {
+							tg::Object::Directory(directory) => {
+								let artifact = directory.clone().into();
+								let index =
+									Box::pin(self.get_or_create_lockfile_node_with_artifact(
+										&artifact, nodes, visited, graphs,
+									))
+									.await?;
+								Either::Left(index)
+							},
+							tg::Object::File(file) => {
+								let artifact = file.clone().into();
+								let index =
+									Box::pin(self.get_or_create_lockfile_node_with_artifact(
+										&artifact, nodes, visited, graphs,
+									))
+									.await?;
+								Either::Left(index)
+							},
+							tg::Object::Symlink(symlink) => {
+								let artifact = symlink.clone().into();
+								let index =
+									Box::pin(self.get_or_create_lockfile_node_with_artifact(
+										&artifact, nodes, visited, graphs,
+									))
+									.await?;
+								Either::Left(index)
+							},
+							object => Either::Right(object.id(self).await?),
+						};
+						let dependency = tg::lockfile::Dependency {
+							object,
+							tag: dependency.tag.clone(),
+						};
+						dependencies_.insert(reference.clone(), dependency);
+					}
+					let contents = Some(contents.id(self).await?);
+					tg::lockfile::Node::File {
+						contents,
+						dependencies: dependencies_,
+						executable: *executable,
+					}
+				},
+			},
+
+			tg::Artifact::Symlink(symlink) => match &*symlink.object(self).await? {
+				tg::symlink::Object::Graph { graph, node } => {
+					let nodes = Box::pin(
+						self.create_lockfile_node_with_graph(graph, nodes, visited, graphs),
+					)
+					.await?;
+					return Ok(nodes[*node]);
+				},
+				tg::symlink::Object::Normal { artifact, path } => {
+					let artifact = if let Some(artifact) = artifact {
+						let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+							artifact, nodes, visited, graphs,
+						))
+						.await?;
+						Some(Either::Left(index))
+					} else {
+						None
+					};
+					let path = path.as_ref().map(PathBuf::from);
+					tg::lockfile::Node::Symlink { artifact, path }
+				},
+			},
+		};
+
+		nodes[index].replace(node);
+
+		Ok(index)
+	}
+
+	async fn create_lockfile_node_with_graph(
+		&self,
+		graph: &tg::Graph,
+		nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		visited: &mut BTreeMap<tg::artifact::Id, usize>,
+		graphs: &mut BTreeMap<tg::graph::Id, Vec<usize>>,
+	) -> tg::Result<Vec<usize>> {
+		let id = graph.id(self).await?;
+		if let Some(existing) = graphs.get(&id) {
+			return Ok(existing.clone());
+		}
+
+		// Get the graph object.
+		let object = graph.object(self).await?;
+
+		// Assign indices.
+		let mut indices = Vec::with_capacity(object.nodes.len());
+		for node in 0..object.nodes.len() {
+			let id = match object.nodes[node].kind() {
+				tg::artifact::Kind::Directory => {
+					tg::Directory::with_graph_and_node(graph.clone(), node)
+						.id(self)
+						.await?
+						.into()
+				},
+				tg::artifact::Kind::File => tg::Directory::with_graph_and_node(graph.clone(), node)
+					.id(self)
+					.await?
+					.into(),
+				tg::artifact::Kind::Symlink => {
+					tg::Directory::with_graph_and_node(graph.clone(), node)
+						.id(self)
+						.await?
+						.into()
+				},
+			};
+
+			let index = visited.get(&id).copied().unwrap_or_else(|| {
+				let index = nodes.len();
+				visited.insert(id, index);
+				nodes.push(None);
+				index
+			});
+			indices.push(index);
+		}
+		graphs.insert(id.clone(), indices.clone());
+
+		// Create nodes
+		for (old_index, node) in object.nodes.iter().enumerate() {
+			let node = match node {
+				tg::graph::Node::Directory(directory) => {
+					let mut entries = BTreeMap::new();
+					for (name, entry) in &directory.entries {
+						let index = match entry {
+							Either::Left(index) => indices[*index],
+							Either::Right(artifact) => {
+								Box::pin(self.get_or_create_lockfile_node_with_artifact(
+									artifact, nodes, visited, graphs,
+								))
+								.await?
+							},
+						};
+						entries.insert(name.clone(), Either::Left(index));
+					}
+					tg::lockfile::Node::Directory { entries }
+				},
+
+				tg::graph::Node::File(file) => {
+					let mut dependencies = BTreeMap::new();
+					for (reference, dependency) in &file.dependencies {
+						let object = match &dependency.object {
+							Either::Left(index) => Either::Left(indices[*index]),
+							Either::Right(object) => match object {
+								tg::Object::Directory(artifact) => {
+									let artifact = artifact.clone().into();
+									let index =
+										Box::pin(self.get_or_create_lockfile_node_with_artifact(
+											&artifact, nodes, visited, graphs,
+										))
+										.await?;
+									Either::Left(index)
+								},
+								tg::Object::File(artifact) => {
+									let artifact = artifact.clone().into();
+									let index =
+										Box::pin(self.get_or_create_lockfile_node_with_artifact(
+											&artifact, nodes, visited, graphs,
+										))
+										.await?;
+									Either::Left(index)
+								},
+								tg::Object::Symlink(artifact) => {
+									let artifact = artifact.clone().into();
+									let index =
+										Box::pin(self.get_or_create_lockfile_node_with_artifact(
+											&artifact, nodes, visited, graphs,
+										))
+										.await?;
+									Either::Left(index)
+								},
+								object => Either::Right(object.id(self).await?),
+							},
+						};
+						let dependency = tg::lockfile::Dependency {
+							object,
+							tag: dependency.tag.clone(),
+						};
+						dependencies.insert(reference.clone(), dependency);
+					}
+					let contents = file.contents.id(self).await?;
+					let executable = file.executable;
+					tg::lockfile::Node::File {
+						contents: Some(contents),
+						dependencies,
+						executable,
+					}
+				},
+
+				tg::graph::Node::Symlink(symlink) => {
+					let artifact = match &symlink.artifact {
+						Some(Either::Left(index)) => Some(indices[*index]),
+						Some(Either::Right(artifact)) => {
+							let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+								artifact, nodes, visited, graphs,
+							))
+							.await?;
+							Some(index)
+						},
+						None => None,
+					};
+					let artifact = artifact.map(Either::Left);
+					let path = symlink.path.clone().map(PathBuf::from);
+					tg::lockfile::Node::Symlink { artifact, path }
+				},
+			};
+			let index = indices[old_index];
+			nodes[index].replace(node);
+		}
+
+		Ok(indices)
 	}
 }
