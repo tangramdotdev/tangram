@@ -1,0 +1,11 @@
+// Bun Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`constructor string 1`] = `"{"artifact":null,"path":"hello",}"`;
+
+exports[`constructor artifact 1`] = `"{"artifact":fil_011ha7t8w6e20epbfm71yyaqzqgv7ypm24thgs2awqbj67fycra150,"path":null,}"`;
+
+exports[`constructor object 1`] = `"{"artifact":dir_01vzsmc304fn7x92tzs48chcm35b6mtfgz3j9bgry8hd0y8h59gzgg,"path":"hello",}"`;
+
+exports[`constructor variadic overwrites completely 1`] = `"[dir_01tr0h205a3bmedm8smte5j8mk8ewmm0wzf0pwrnk1nn3wcvevvpd0,"hello",]"`;
+
+exports[`constructor graph 1`] = `"[dir_012er0x782axvp42narzyz58f81c474ktnsqak8r4cek3ech37cqq0,"hello",]"`;

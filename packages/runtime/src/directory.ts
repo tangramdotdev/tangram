@@ -25,7 +25,17 @@ export class Directory {
 	static async new(
 		...args: Array<tg.Unresolved<MaybeNestedArray<Directory.Arg>>>
 	): Promise<Directory> {
-		let entries = await (await Promise.all(args.map(tg.resolve))).reduce<
+		let resolved = await Promise.all(args.map(tg.resolve));
+		// // // Catch a graph object.
+		// if (resolved.length === 1) {
+		// 	const singleArg = resolved[0];
+		// 	if (singleArg !== undefined && typeof singleArg === "object" && "graph" in singleArg) {
+		// 		const object = { graph: singleArg.graph, node: singleArg.node };
+		// 		return new Directory({ object })
+		// 	}
+		// }
+
+		let entries = await resolved.reduce<
 			Promise<{ [key: string]: tg.Artifact }>
 		>(async function reduce(promiseEntries, arg) {
 			let entries = await promiseEntries;
@@ -53,6 +63,11 @@ export class Directory {
 					entries = await reduce(Promise.resolve(entries), argEntry);
 				}
 			} else if (typeof arg === "object") {
+				// // Make sure it's not a graph object. If it is, error.
+				// if ("graph" in arg) {
+				// 	throw new Error("Graph objects must be the only argument to the directory constructor");
+				// }
+
 				// If the arg is an object, then apply each entry.
 				for (let [key, value] of Object.entries(arg)) {
 					// Separate the first normal path component from the trailing path components.
@@ -257,6 +272,8 @@ export class Directory {
 
 export namespace Directory {
 	export type Arg = undefined | Directory | ArgObject;
+
+	// TODO - how do we do the graph variant? It's ambiguous with ArgObject.
 
 	export type ArgObject = {
 		[key: string]:
