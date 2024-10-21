@@ -15,7 +15,7 @@ impl Server {
 			let node = self.create_lockfile_node(graph, node).await?;
 			nodes.push(node);
 		}
-		let nodes = self.strip_nodes(&nodes, 0);
+		let nodes = self.strip_lockfile_nodes(&nodes, 0);
 		Ok(tg::Lockfile { nodes })
 	}
 
@@ -185,6 +185,10 @@ impl Server {
 				.await?
 				.is_some()
 		{
+			if lockfile.nodes.is_empty() {
+				return Ok(());
+			}
+
 			let contents = serde_json::to_string_pretty(&lockfile)
 				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
@@ -215,7 +219,7 @@ impl Server {
 	}
 
 	#[allow(clippy::unused_self)]
-	fn strip_nodes(
+	pub fn strip_lockfile_nodes(
 		&self,
 		old_nodes: &[tg::lockfile::Node],
 		root: usize,
