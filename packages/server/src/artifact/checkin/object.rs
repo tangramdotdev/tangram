@@ -123,7 +123,7 @@ impl Server {
 				)?;
 				graph.nodes[scc[0]].id.replace(id.clone());
 				graph.nodes[scc[0]].metadata.replace(metadata);
-				graph.objects.insert(id.clone().into(), scc[0]);
+				graph.objects.insert(id.clone(), scc[0]);
 				continue;
 			}
 

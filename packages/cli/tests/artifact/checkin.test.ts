@@ -4,15 +4,16 @@ import { compare, directory, file, symlink } from "../util.ts";
 
 test("directory", async () => {
 	await using server = await Server.start();
-	console.log("path", server.path);
 	let dir = await directory({
 		"hello.txt": "hello, world!",
 		link: await symlink("hello.txt"),
 		"child/link": await symlink("../link"),
 	});
 	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
@@ -27,13 +28,14 @@ test("file", async () => {
 	let id = await server.tg`checkin ${dir}/hello.txt`
 		.text()
 		.then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
-
 });
 
 test("symlink", async () => {
@@ -43,8 +45,10 @@ test("symlink", async () => {
 		link: symlink("file"),
 	});
 	let id = await server.tg`checkin ${dir}/link`.text().then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
@@ -57,8 +61,10 @@ test("cycle", async () => {
 		link: await symlink("."),
 	});
 	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
@@ -72,8 +78,10 @@ test("cyclic-path-dependencies", async () => {
 		"dependency.tg.ts": 'import * as root from "./tangram.ts"',
 	});
 	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
@@ -88,8 +96,10 @@ test("executable", async () => {
 	let id = await server.tg`checkin ${dir}/executable`
 		.text()
 		.then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
