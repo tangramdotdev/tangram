@@ -353,6 +353,54 @@ impl Server {
 			}
 		}
 
+		// Attempt to set the logs depth?
+		if build.logs_depth.is_none() {
+			// Attempt to get the log depth.
+			let log_depth = log_metadata.as_ref().and_then(|metadata| metadata.depth);
+			// Attempt to compute the logs depth.
+			let outputs_log_depth = children.iter().try_fold(1, |depth, output| match output {
+				Some(output) => {
+					if let Some(odepth) = output.logs_depth {
+						Some(std::cmp::max(odepth, depth))
+					} else {
+						None
+					}
+				},
+				None => None,
+			});
+
+			// Set the logs depth if possible.
+			if let Some(mut depth) = outputs_log_depth {
+				if let Some(log_depth) = log_depth {
+					depth = std::cmp::max(log_depth, depth);
+				}
+				// Get a database connection.
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+				// Set the logs depth.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						update builds
+						set logs_depth = {p}1
+						where id = {p}2;
+					"
+				);
+				let params = db::params![depth, id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Drop the connection.
+				drop(connection);
+			}
+		}
+
 		// Attempt to set the logs weight if necessary.
 		if build.logs_weight.is_none() {
 			// Attempt to get the log weight.
@@ -529,6 +577,68 @@ impl Server {
 					"
 				);
 				let params = db::params![count, id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Drop the connection.
+				drop(connection);
+			}
+		}
+
+		// Attempt to set the outcomes depth if necessary.
+		if build.outcomes_depth.is_none() {
+			// Attempt to get the outcome depth.
+			let outcome_depth = outcome_metadata.as_ref().and_then(|metadata| {
+				metadata
+					.iter()
+					.try_fold(1, |depth, metadata| match metadata {
+						Some(data) => {
+							if let Some(mdepth) = data.depth {
+								Some(std::cmp::max(mdepth, depth))
+							} else {
+								None
+							}
+						},
+						None => None,
+					})
+			});
+
+			// Attempt to compute the outcomes depth.
+			let outputs_outcome_depth = children.iter().try_fold(1, |depth, output| match output {
+				Some(output) => {
+					if let Some(odepth) = output.outcomes_depth {
+						Some(std::cmp::max(odepth, depth))
+					} else {
+						None
+					}
+				},
+				None => None,
+			});
+
+			// Set the outcomes depth if possible.
+			if let Some(mut depth) = outputs_outcome_depth {
+				if let Some(outcome_depth) = outcome_depth {
+					depth = std::cmp::max(outcome_depth, depth);
+				}
+				// Get a database connection.
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+				// Set the outcomes depth.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						update builds
+						set outcomes_depth = {p}1
+						where id = {p}2;
+					"
+				);
+				let params = db::params![depth, id];
 				connection
 					.execute(statement, params)
 					.await
@@ -729,6 +839,53 @@ impl Server {
 					"
 				);
 				let params = db::params![count, id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Drop the connection.
+				drop(connection);
+			}
+		}
+
+		// Attempt to set the targets depth if necessary.
+		if build.targets_depth.is_none() {
+			// Attempt to get the target depth.
+			let target_depth = target_metadata.as_ref().and_then(|metadata| metadata.depth);
+			let outputs_target_depth = children.iter().try_fold(1, |depth, output| match output {
+				Some(output) => {
+					if let Some(odepth) = output.targets_depth {
+						Some(std::cmp::max(odepth, depth))
+					} else {
+						None
+					}
+				},
+				None => None,
+			});
+
+			// Set the targets depth if possible.
+			if let Some(mut depth) = outputs_target_depth {
+				if let Some(target_depth) = target_depth {
+					depth = std::cmp::max(target_depth, depth);
+				}
+				// Get a database connection.
+				let connection = self
+					.database
+					.connection(db::Priority::Low)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+				// Set the targets depth.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						update builds
+						set targets_depth = {p}1
+						where id = {p}2;
+					"
+				);
+				let params = db::params![depth, id];
 				connection
 					.execute(statement, params)
 					.await
