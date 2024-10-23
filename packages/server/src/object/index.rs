@@ -137,12 +137,13 @@ impl Server {
 			children: bool,
 			complete: bool,
 			count: Option<u64>,
+			depth: Option<u64>,
 			weight: Option<u64>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select bytes, children, complete, count, weight
+				select bytes, children, complete, count, depth, weight
 				from objects
 				where id = {p}1;
 			"
@@ -153,6 +154,7 @@ impl Server {
 			children,
 			complete,
 			count,
+			depth,
 			weight,
 		} = connection
 			.query_one_into::<Row>(statement, params)
@@ -242,7 +244,7 @@ impl Server {
 				.sum::<Option<u64>>();
 
 			// Set the count if possible.
-			if count.is_some() {
+			if let Some(count) = count {
 				// Set the count.
 				let p = connection.p();
 				let statement = formatdoc!(
@@ -260,6 +262,40 @@ impl Server {
 			}
 		}
 
+		if depth.is_none() {
+			let depth = children_metadata.iter().try_fold(1, |depth, metadata| {
+				// Attempt to fold values, bailing out with None if any are None
+				match metadata {
+					Some(data) => {
+						if let Some(mdepth) = data.depth {
+							Some(std::cmp::max(mdepth, depth))
+						} else {
+							None // Bail out if metadata.depth is None
+						}
+					},
+					None => None, // Bail out early if metadata itself is None
+				}
+			});
+
+			// Set the depth if possible.
+			if let Some(depth) = depth {
+				// Set the depth.
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						update objects
+						set depth = {p}1
+						where id = {p}2;
+					"
+				);
+				let params = db::params![depth, id];
+				connection
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+		}
+
 		// Attempt to set the weight if necessary.
 		if weight.is_none() {
 			// Attempt to compute the weight.
@@ -270,7 +306,7 @@ impl Server {
 				.sum::<Option<u64>>();
 
 			// Set the weight if possible.
-			if weight.is_some() {
+			if let Some(weight) = weight {
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
