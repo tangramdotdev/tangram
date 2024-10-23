@@ -136,6 +136,8 @@ test("many concurrent clients", async () => {
 
 test.only("consistent ids across concurrent clients", async () => {
 	await using server = await Server.start({
+		build_indexer: null,
+		object_indexer: null,
 		tracing: { filter: "tangram_server=debug" },
 	});
 
