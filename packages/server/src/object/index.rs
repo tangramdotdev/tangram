@@ -174,7 +174,10 @@ impl Server {
 			.map(|id| async move { self.try_get_object_metadata(&id).await })
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
-			.await?;
+			.await
+			.map_err(|source| {
+				tg::error!(!source, ?id, "failed to get children metadata for object")
+			})?;
 
 		// Get a database connection.
 		let mut connection = self

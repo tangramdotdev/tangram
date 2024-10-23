@@ -93,6 +93,8 @@ impl Server {
 		store_as: Option<&tg::artifact::Id>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
+		tracing::debug!(?arg, ?store_as, "checkin_or_store_artifact_inner");
+
 		// Verify the path is absolute.
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(%path = arg.path.display(), "expected an absolute path"));
@@ -111,6 +113,7 @@ impl Server {
 				.file_name()
 				.ok_or_else(|| tg::error!("expected a non-empty path"))?,
 		);
+		tracing::debug!(?path, "canonicalized path");
 		arg.path = path;
 
 		// Collect the input.
@@ -121,12 +124,14 @@ impl Server {
 				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect the input"),
 			)?;
 		self.select_lockfiles(input.clone()).await?;
+		tracing::debug!("collected input");
 
 		// Construct the graph for unification.
 		let (mut unification_graph, root) = self
 			.create_unification_graph(input.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to construct the object graph"))?;
+		tracing::debug!("created unification graph");
 
 		// Unify.
 		if !arg.deterministic {
@@ -137,6 +142,7 @@ impl Server {
 
 			// Validate.
 			unification_graph.validate().await?;
+			tracing::debug!("validated unification graph");
 		}
 
 		// Create the object graph.
@@ -144,12 +150,14 @@ impl Server {
 			.create_object_graph(&root, unification_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create object graph"))?;
+		tracing::debug!("created object graph");
 
 		// Create the output graph.
 		let output = self
 			.create_output_graph(&object_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output graph"))?;
+		tracing::debug!("created output graph");
 
 		// Get the artifact ID.
 		let artifact = self
@@ -160,22 +168,29 @@ impl Server {
 		if let Some(store_as) = store_as {
 			// Store if requested.
 			if store_as != &artifact {
-				return Err(tg::error!("the checkouts directory is corrupted"));
+				return Err(tg::error!(
+					?store_as,
+					?artifact,
+					"the checkouts directory is corrupted"
+				));
 			}
 			self.write_output_to_database(output.clone()).await?;
 		} else {
 			// Copy or move files.
 			self.copy_or_move_to_checkouts_directory(output.clone(), progress)
 				.await?;
+			tracing::debug!("copy_or_move complete");
 
 			// Write lockfiles.
 			let lockfile = self.create_lockfile(&object_graph).await?;
 			self.write_lockfiles(input.clone(), &lockfile, &object_graph.paths)
 				.await?;
+			tracing::debug!("lockfiles written");
 		}
 
 		// Create the output.
 		let output = tg::artifact::checkin::Output { artifact };
+		tracing::debug!(?output, "created output");
 
 		Ok(output)
 	}

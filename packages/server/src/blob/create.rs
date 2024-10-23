@@ -322,7 +322,9 @@ impl Server {
 
 		// Verify the ID is the same.
 		if output.blob != *blob {
-			return Err(tg::error!("failed to store the blob"));
+			return Err(
+				tg::error!(?expected = blob, ?actual = output.blob, "failed to store the blob"),
+			);
 		}
 
 		// Commit the transaction.

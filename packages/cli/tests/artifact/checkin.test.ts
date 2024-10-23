@@ -11,8 +11,10 @@ test("directory", async () => {
 		"child/link": await symlink("../link"),
 	});
 	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
@@ -27,13 +29,14 @@ test("file", async () => {
 	let id = await server.tg`checkin ${dir}/hello.txt`
 		.text()
 		.then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
-
 });
 
 test("symlink", async () => {
@@ -43,8 +46,10 @@ test("symlink", async () => {
 		link: symlink("file"),
 	});
 	let id = await server.tg`checkin ${dir}/link`.text().then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
@@ -57,8 +62,10 @@ test("cycle", async () => {
 		link: await symlink("."),
 	});
 	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
@@ -72,8 +79,10 @@ test("cyclic-path-dependencies", async () => {
 		"dependency.tg.ts": 'import * as root from "./tangram.ts"',
 	});
 	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
@@ -88,8 +97,10 @@ test("executable", async () => {
 	let id = await server.tg`checkin ${dir}/executable`
 		.text()
 		.then((t) => t.trim());
-	let data =await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata =await server.tg`object metadata ${id}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
 
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
@@ -106,3 +117,42 @@ test("roundtrip directory", async () => {
 	const equal = await compare(path, dir);
 	expect(equal).toBeTrue();
 });
+
+test("many concurrent clients", async () => {
+	await using server = await Server.start({
+		tracing: { filter: "tangram_server=debug" },
+	});
+
+	let path = "/Users/benlovy/Downloads/node-v20.18.0-darwin-x64/lib";
+	let iterations = 7;
+	const ids = await Promise.all(
+		Array.from(Array(iterations).keys()).map(async (_) => {
+			return await server.tg`checkin ${path}`.text().then((t) => t.trim());
+		}),
+	);
+	const allEqual = ids.every((el) => el === ids[0]);
+	expect(allEqual).toBeTrue();
+}, 60000);
+
+test.only("consistent ids across concurrent clients", async () => {
+	await using server = await Server.start({
+		tracing: { filter: "tangram_server=debug" },
+	});
+
+	let path = "/Users/benlovy/Downloads/node-v20.18.0-darwin-x64";
+	let iterations = 6;
+	const ids = await Promise.all(
+		Array.from(Array(iterations).keys()).map(async (_) => {
+			return await server.tg`checkin ${path}`.text().then((t) => t.trim());
+		}),
+	);
+	const allEqual = ids.every((el) => el === ids[0]);
+
+	const uniqueIds = new Set(ids);
+	for (const id of uniqueIds) {
+		const getOutput = await server.tg`get ${id}`.text().then((t) => t.trim());
+		console.log(`get ${id}: ${getOutput}`);
+	}
+
+	expect(allEqual).toBeTrue();
+}, 60000);
