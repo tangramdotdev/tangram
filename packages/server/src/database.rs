@@ -156,6 +156,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				children integer not null default 0,
 				complete integer not null default 0,
 				count integer,
+				depth integer,
 				index_status text,
 				index_started_at text,
 				touched_at text,
