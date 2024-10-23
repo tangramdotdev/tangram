@@ -116,3 +116,19 @@ test("roundtrip directory", async () => {
 	const equal = await compare(path, dir);
 	expect(equal).toBeTrue();
 });
+
+test("depth", async () => {
+	await using server = await Server.start();
+	let dir = await directory({
+		"nested/directory/executable": file({ contents: "", executable: true }),
+	});
+	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
+	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
+	let metadata = await server.tg`object metadata ${id}`
+		.text()
+		.then((t) => t.trim());
+
+	expect(id).toMatchSnapshot();
+	expect(data).toMatchSnapshot();
+	expect(metadata).toMatchSnapshot();
+});

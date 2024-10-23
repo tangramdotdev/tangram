@@ -89,12 +89,13 @@ impl Server {
 			bytes: Option<Bytes>,
 			complete: bool,
 			count: Option<u64>,
+			depth: Option<u64>,
 			weight: Option<u64>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select bytes, complete, count, weight
+				select bytes, complete, count, depth, weight
 				from objects
 				where id = {p}1;
 			",
@@ -120,6 +121,7 @@ impl Server {
 			metadata: tg::object::Metadata {
 				complete: row.complete,
 				count: row.count,
+				depth: row.depth,
 				weight: row.weight,
 			},
 		};
