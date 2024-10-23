@@ -122,9 +122,9 @@ impl Server {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-					insert into objects (id, bytes, complete, count, weight, touched_at)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
-					on conflict (id) do update set touched_at = {p}6;
+					insert into objects (id, bytes, complete, count, depth, weight, touched_at)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
+					on conflict (id) do update set touched_at = {p}7;
 				"
 			);
 			let bytes = data.serialize()?;
@@ -134,6 +134,7 @@ impl Server {
 				bytes,
 				metadata.complete,
 				metadata.count,
+				metadata.depth,
 				metadata.weight,
 				now
 			];

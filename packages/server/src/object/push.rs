@@ -8,6 +8,7 @@ use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 struct InnerOutput {
 	count: u64,
+	depth: u64,
 	weight: u64,
 }
 
@@ -88,7 +89,7 @@ impl Server {
 		progress.increment("bytes", size);
 
 		// Recurse into the incomplete children.
-		let (incomplete_count, incomplete_weight) = output
+		let (incomplete_count, incomplete_depth, incomplete_weight) = output
 			.incomplete
 			.into_iter()
 			.map(|object| async move {
@@ -98,8 +99,12 @@ impl Server {
 			.try_collect::<Vec<_>>()
 			.await?
 			.into_iter()
-			.fold((0, 0), |(count, weight), output| {
-				(count + output.count, weight + output.weight)
+			.fold((0, 0, 0), |(count, depth, weight), output| {
+				(
+					count + output.count,
+					std::cmp::max(1 + output.depth, depth),
+					weight + output.weight,
+				)
 			});
 
 		// If the count is set, then add the count not yet added.
@@ -114,9 +119,14 @@ impl Server {
 
 		// Compute the count and weight from this call.
 		let count = metadata.count.unwrap_or_else(|| 1 + incomplete_count);
+		let depth = metadata.depth.unwrap_or_else(|| 1 + incomplete_depth);
 		let weight = metadata.weight.unwrap_or_else(|| size + incomplete_weight);
 
-		Ok(InnerOutput { count, weight })
+		Ok(InnerOutput {
+			count,
+			depth,
+			weight,
+		})
 	}
 }
 
