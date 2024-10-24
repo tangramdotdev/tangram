@@ -1,7 +1,7 @@
-use crate::{self as tg, path::Ext as _};
+use crate as tg;
 use bytes::Bytes;
 use itertools::Itertools as _;
-use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 use tangram_either::Either;
 
 #[derive(
@@ -31,7 +31,7 @@ pub type State = tg::object::State<Id, Object>;
 pub enum Object {
 	Normal {
 		artifact: Option<tg::Artifact>,
-		subpath: Option<String>,
+		subpath: Option<PathBuf>,
 	},
 	Graph {
 		graph: tg::Graph,
@@ -47,7 +47,7 @@ pub enum Data {
 		artifact: Option<tg::artifact::Id>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		path: Option<String>,
+		subpath: Option<PathBuf>,
 	},
 
 	Graph {
@@ -159,17 +159,14 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Normal {
-				artifact,
-				subpath: path,
-			} => {
+			Object::Normal { artifact, subpath } => {
 				let artifact = if let Some(artifact) = &artifact {
 					Some(artifact.id(handle).await?)
 				} else {
 					None
 				};
-				let path = path.clone();
-				Ok(Data::Normal { artifact, path })
+				let subpath = subpath.clone();
+				Ok(Data::Normal { artifact, subpath })
 			},
 			Object::Graph { graph, node } => {
 				let graph = graph.id(handle).await?;
@@ -182,11 +179,11 @@ impl Symlink {
 
 impl Symlink {
 	#[must_use]
-	pub fn with_artifact_and_path(artifact: Option<tg::Artifact>, path: Option<String>) -> Self {
-		Self::with_object(Object::Normal {
-			artifact,
-			subpath: path,
-		})
+	pub fn with_artifact_and_subpath(
+		artifact: Option<tg::Artifact>,
+		subpath: Option<PathBuf>,
+	) -> Self {
+		Self::with_object(Object::Normal { artifact, subpath })
 	}
 
 	#[must_use]
@@ -242,13 +239,13 @@ impl Symlink {
 		}
 	}
 
-	pub async fn path<H>(&self, handle: &H) -> tg::Result<Option<String>>
+	pub async fn subpath<H>(&self, handle: &H) -> tg::Result<Option<PathBuf>>
 	where
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Normal { subpath: path, .. } => Ok(path.clone()),
+			Object::Normal { subpath, .. } => Ok(subpath.clone()),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -259,7 +256,7 @@ impl Symlink {
 					.try_unwrap_symlink_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
-				Ok(symlink.path.clone())
+				Ok(symlink.subpath.clone())
 			},
 		}
 	}
@@ -288,7 +285,7 @@ impl Symlink {
 			from_artifact = Box::pin(symlink.resolve_from(handle, None)).await?;
 		}
 		let from_path = if let Some(from) = from {
-			from.path(handle).await?.clone()
+			from.subpath(handle).await?.clone()
 		} else {
 			None
 		};
@@ -296,7 +293,7 @@ impl Symlink {
 		if let Some(tg::artifact::Artifact::Symlink(symlink)) = artifact {
 			artifact = Box::pin(symlink.resolve_from(handle, None)).await?;
 		}
-		let path = self.path(handle).await?.clone();
+		let path = self.subpath(handle).await?.clone();
 		if artifact.is_some() && from_artifact.is_some() {
 			return Err(tg::error!(
 				"expected no `from` value when `artifact` is set"
@@ -306,11 +303,10 @@ impl Symlink {
 			return Ok(artifact);
 		} else if artifact.is_none() && path.is_some() {
 			if let Some(tg::artifact::Artifact::Directory(directory)) = from_artifact {
-				let path = PathBuf::from_str(&from_path.unwrap_or_default())
-					.unwrap()
+				let path = from_path
+					.unwrap_or_default()
 					.join("..")
-					.join(path.as_ref().unwrap())
-					.normalize();
+					.join(path.as_ref().unwrap());
 				return directory.try_get(handle, &path).await;
 			}
 			return Err(tg::error!("expected a directory"));
@@ -354,12 +350,9 @@ impl TryFrom<Data> for Object {
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		match data {
-			Data::Normal { artifact, path } => {
+			Data::Normal { artifact, subpath } => {
 				let artifact = artifact.map(tg::Artifact::with_id);
-				Ok(Self::Normal {
-					artifact,
-					subpath: path,
-				})
+				Ok(Self::Normal { artifact, subpath })
 			},
 			Data::Graph { graph, node } => {
 				let graph = tg::Graph::with_id(graph);

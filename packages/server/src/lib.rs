@@ -34,6 +34,7 @@ mod database;
 mod health;
 mod lockfile;
 mod messenger;
+mod module;
 mod object;
 mod package;
 mod progress;
@@ -1100,7 +1101,8 @@ impl tg::Handle for Server {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
+	{
 		self.try_get_reference(reference)
 	}
 

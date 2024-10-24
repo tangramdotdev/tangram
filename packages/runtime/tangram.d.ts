@@ -662,26 +662,17 @@ declare namespace tg {
 		/** Split into path components */
 		export let components: (path: string) => Array<Component>;
 
-		/** Normalize the path. */
-		export let normalize: (path: string) => string;
-
-		/** Return the parent path. */
-		export let parent: (path: string) => string | undefined;
+		/** Convert an array of components into a path. */
+		export let fromComponents: (components: Array<path.Component>) => string;
 
 		/** Returns true if the path is absolute.  */
 		export let isAbsolute: (path: string) => boolean;
 
-		/** Returns true if the path points outside the current directory. */
-		export let isExternal: (path: string) => boolean;
-
-		/** Returns true if the path points inside the current directory. */
-		export let isInternal: (path: string) => boolean;
-
 		/** Join a list of paths together. */
 		export let join: (...paths: Array<string | undefined>) => string;
 
-		/** Convert an array of components into a path. */
-		export let fromComponents: (components: Array<path.Component>) => string;
+		/** Return the parent path. */
+		export let parent: (path: string) => string | undefined;
 	}
 
 	/** Create a mutation. */

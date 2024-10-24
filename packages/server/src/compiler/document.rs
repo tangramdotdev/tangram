@@ -120,13 +120,13 @@ impl Compiler {
 		document.text = None;
 
 		// Set the document's modified time.
-		let Some(Either::Right(object)) = &module.object else {
+		let tg::module::Item::Path(path) = &module.referent.item else {
 			return Err(tg::error!("invalid module"));
 		};
-		let path = if let Some(path) = &module.path {
-			object.join(path.clone())
+		let path = if let Some(subpath) = &module.referent.subpath {
+			path.join(subpath)
 		} else {
-			object.clone()
+			path.clone()
 		};
 		let metadata = tokio::fs::metadata(&path)
 			.await

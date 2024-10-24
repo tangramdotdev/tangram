@@ -143,7 +143,7 @@ impl Runtime {
 				// Render the target.
 				let mut target = PathBuf::new();
 				let artifact = symlink.artifact(server).await?;
-				let path = symlink.path(server).await?;
+				let path = symlink.subpath(server).await?;
 				if let Some(artifact) = artifact.as_ref() {
 					for _ in 0..depth - 1 {
 						target.push("..");
@@ -154,10 +154,7 @@ impl Runtime {
 				if let Some(path) = path.as_ref() {
 					target.push(path);
 				}
-				let target = target
-					.to_str()
-					.ok_or_else(|| tg::error!(%target = target.display(), "invalid path"))?;
-				let symlink = tg::Symlink::with_artifact_and_path(None, Some(target.to_owned()));
+				let symlink = tg::Symlink::with_artifact_and_subpath(None, Some(target));
 				Ok(symlink.into())
 			},
 		}

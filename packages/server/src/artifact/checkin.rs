@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{util::path::Ext as _, Server};
 use futures::{future::BoxFuture, Stream, StreamExt as _};
 use std::{
 	path::PathBuf,
@@ -8,7 +8,6 @@ use std::{
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-use tg::path::Ext as _;
 
 mod input;
 mod lockfile;

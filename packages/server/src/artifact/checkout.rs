@@ -553,7 +553,7 @@ impl Server {
 		// Render the target.
 		let mut target = PathBuf::new();
 		let artifact = symlink.artifact(self).await?;
-		let path_ = symlink.path(self).await?;
+		let path_ = symlink.subpath(self).await?;
 		if let Some(artifact) = artifact.as_ref() {
 			for _ in 0..depth {
 				target.push(std::path::Component::ParentDir);
