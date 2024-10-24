@@ -4,7 +4,6 @@ import { compare, directory, file, symlink } from "../util.ts";
 
 test("directory", async () => {
 	await using server = await Server.start();
-	console.log("path", server.path);
 	let dir = await directory({
 		"hello.txt": "hello, world!",
 		link: await symlink("hello.txt"),
