@@ -15,11 +15,7 @@ pub async fn try_get_lockfile_node_for_module_path(
 		return Err(tg::error!(%path = path.display(), "expected an absolute module path"));
 	}
 
-	let ancestors = path
-		.parent()
-		.ok_or_else(|| tg::error!(%path = path.display(), "expected a non-root absolute path"))?
-		.ancestors()
-		.skip(1);
+	let ancestors = path.ancestors().skip(1);
 
 	for ancestor in ancestors {
 		let lockfile_path = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
@@ -28,6 +24,7 @@ pub async fn try_get_lockfile_node_for_module_path(
 			let lockfile = tg::Lockfile::try_read(&lockfile_path).await?.ok_or_else(
 				|| tg::error!(%path = lockfile_path.display(), "failed to read lockfile"),
 			)?;
+			eprintln!("read lockfile: {}", lockfile_path.display());
 			if let Some(node) =
 				try_get_node_for_module_path(path, &lockfile, &lockfile_path).await?
 			{
@@ -35,7 +32,6 @@ pub async fn try_get_lockfile_node_for_module_path(
 			}
 		}
 	}
-
 	Ok(None)
 }
 
@@ -44,6 +40,11 @@ pub async fn try_get_node_for_module_path(
 	lockfile: &tg::Lockfile,
 	lockfile_path: &Path,
 ) -> tg::Result<Option<usize>> {
+	if lockfile.nodes.is_empty() {
+		eprintln!("lockfile is empty");
+		return Ok(None);
+	}
+
 	let root_path = lockfile_path
 		.parent()
 		.ok_or_else(|| tg::error!("expected a lockfile path"))?
@@ -55,6 +56,7 @@ pub async fn try_get_node_for_module_path(
 	let mut visited = BTreeSet::new();
 
 	while let Some((node_index, node_path)) = queue.pop_front() {
+		eprintln!("checking node {node_index}: {}", node_path.display());
 		if read_link(&node_path).await? == path {
 			return Ok(Some(node_index));
 		}

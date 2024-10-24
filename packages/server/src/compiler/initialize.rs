@@ -20,6 +20,11 @@ impl Compiler {
 				text_document_sync: Some(lsp::TextDocumentSyncCapability::Options(
 					lsp::TextDocumentSyncOptions {
 						open_close: Some(true),
+						save: Some(lsp::TextDocumentSyncSaveOptions::SaveOptions(
+							lsp::SaveOptions {
+								include_text: Some(true),
+							},
+						)),
 						change: Some(lsp::TextDocumentSyncKind::INCREMENTAL),
 						..Default::default()
 					},

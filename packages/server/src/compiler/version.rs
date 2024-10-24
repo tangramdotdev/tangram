@@ -1,6 +1,5 @@
 use super::{document::Document, Compiler};
 use tangram_client as tg;
-use tangram_either::Either;
 
 impl Compiler {
 	pub async fn get_module_version(&self, module: &tg::Module) -> tg::Result<i32> {
@@ -51,10 +50,11 @@ impl Compiler {
 
 		// Get or create the document.
 		let mut document = entry.or_insert(Document {
-			open: false,
-			version: 0,
+			dirty: false,
 			modified: Some(modified),
+			open: false,
 			text: None,
+			version: 0,
 		});
 
 		// Update the modified time if necessary.

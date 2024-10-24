@@ -55,3 +55,17 @@ pub fn version(
 		Ok(version.to_string())
 	})
 }
+
+pub fn has_invalidated_resolutions(
+	_scope: &mut v8::HandleScope,
+	compiler: Compiler,
+	args: (tg::Module,),
+) -> tg::Result<bool> {
+	let (module,) = args;
+	let Some(document) = compiler.documents.get(&module) else {
+		return Ok(false);
+	};
+
+	// We consider resolutions to be invalid if the document has no more pending changes, which is only true when the document has been opened, or has been saved after receiving edits.
+	Ok(!document.dirty)
+}

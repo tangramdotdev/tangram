@@ -74,8 +74,14 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 		return sourceFile;
 	},
 
-	hasInvalidatedResolutions: (_fileName) => {
-		return false;
+	hasInvalidatedResolutions: (fileName)=> {
+		try {
+			let module = moduleFromFileName(fileName);
+			return syscall("has_invalidated_resolutions", module);
+		} catch (error) {
+			log(error);
+			return false;
+		}
 	},
 
 	readFile: () => {

@@ -1,7 +1,6 @@
 use super::Compiler;
 use lsp_types as lsp;
 use tangram_client as tg;
-use tangram_either::Either;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +14,7 @@ pub type Response = serde_json::Value;
 #[derive(Clone, Debug)]
 pub struct Document {
 	pub open: bool,
+	pub dirty: bool,
 	pub version: i32,
 	pub modified: Option<std::time::SystemTime>,
 	pub text: Option<String>,
@@ -59,11 +59,31 @@ impl Compiler {
 	) -> tg::Result<()> {
 		let document = Document {
 			open: true,
+			dirty: false,
 			version,
 			modified: None,
 			text: Some(text),
 		};
+
+		// Insert the document.
 		self.documents.insert(module.clone(), document);
+
+		// Check in the object if necessary.
+		// Check in the object if necessary.
+		let tg::module::Item::Path(package_path) = module.referent.item.clone() else {
+			return Ok(());
+		};
+		let arg = tg::artifact::checkin::Arg {
+			path: package_path.clone(),
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+		};
+		tg::Artifact::check_in(&self.server, arg).await.map_err(
+			|source| tg::error!(!source, %package = package_path.display(), "failed to check in package"),
+		)?;
+
 		Ok(())
 	}
 
@@ -87,6 +107,9 @@ impl Compiler {
 
 		// Update the version.
 		document.version = version;
+
+		// Mark the document as dirty.
+		document.dirty = true;
 
 		// Convert the range to bytes.
 		let range = if let Some(range) = range {
@@ -116,12 +139,15 @@ impl Compiler {
 		// Mark the document as closed.
 		document.open = false;
 
+		// Mark the document as clean.
+		document.dirty = false;
+
 		// Clear the document's text.
 		document.text = None;
 
-		// Set the document's modified time.
+		// Set the document's modified time if it is a path module.
 		let tg::module::Item::Path(path) = &module.referent.item else {
-			return Err(tg::error!("invalid module"));
+			return Ok(());
 		};
 		let path = if let Some(subpath) = &module.referent.subpath {
 			path.join(subpath)
@@ -136,6 +162,32 @@ impl Compiler {
 		})?;
 		document.modified = Some(modified);
 
+		Ok(())
+	}
+
+	// Close a document.
+	pub async fn save_document(&self, module: &tg::Module) -> tg::Result<()> {
+		// Mark the document as clean.
+		let mut document = self
+			.documents
+			.get_mut(module)
+			.ok_or_else(|| tg::error!("failed to get document"))?;
+		document.dirty = false;
+
+		// Check in the object if necessary.
+		let tg::module::Item::Path(package_path) = module.referent.item.clone() else {
+			return Ok(());
+		};
+		let arg = tg::artifact::checkin::Arg {
+			path: package_path.clone(),
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+		};
+		tg::Artifact::check_in(&self.server, arg).await.map_err(
+			|source| tg::error!(!source, %package = package_path.display(), "failed to check in package"),
+		)?;
 		Ok(())
 	}
 }
@@ -201,10 +253,20 @@ impl Compiler {
 
 	pub(super) async fn handle_did_save_notification(
 		&self,
-		_params: lsp::DidSaveTextDocumentParams,
+		params: lsp::DidSaveTextDocumentParams,
 	) -> tg::Result<()> {
+		eprintln!("handle_did_save_notification");
+
+		// Get the module.
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
+
+		// Save the module.
+		self.save_document(&module).await?;
+		eprintln!("saved document");
+
 		// Update all diagnostics.
 		self.update_diagnostics().await?;
+		eprintln!("updated diagnostics");
 
 		Ok(())
 	}

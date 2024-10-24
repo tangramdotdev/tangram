@@ -2,7 +2,7 @@ use super::{input, object};
 use crate::Server;
 use std::{
 	collections::{BTreeMap, BTreeSet},
-	path::PathBuf,
+	path::{Path, PathBuf},
 	sync::Arc,
 };
 use tangram_client as tg;
@@ -199,6 +199,7 @@ impl Server {
 			tokio::fs::write(&lockfile_path, &contents)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
+			eprintln!("wrote lockfile: {}", lockfile_path.display());
 			return Ok(());
 		}
 
@@ -224,9 +225,9 @@ impl Server {
 		old_nodes: &[tg::lockfile::Node],
 		root: usize,
 	) -> Vec<tg::lockfile::Node> {
-		// Compute whether the nodes have transitive tag dependencies.
-		let mut has_tag_dependencies_ = vec![None; old_nodes.len()];
-		has_tag_dependencies(old_nodes, root, &mut has_tag_dependencies_);
+		// Compute whether the nodes have transitive tag dependencies. Note: the path of the root doesn't matter and using Option<&Path> is a little overkill.
+		let mut should_retain = vec![None; old_nodes.len()];
+		check_if_references_module(old_nodes, "".as_ref(), root, &mut should_retain);
 
 		// Strip nodes that don't reference tag dependencies.
 		let mut new_nodes = Vec::with_capacity(old_nodes.len());
@@ -236,7 +237,7 @@ impl Server {
 			root,
 			&mut visited,
 			&mut new_nodes,
-			&has_tag_dependencies_,
+			&should_retain,
 		);
 
 		// Construct a new lockfile with only stripped nodes.
@@ -244,50 +245,53 @@ impl Server {
 	}
 }
 
-// Return a list of neighbors, and whether the neighbor is referenced by tag.
-fn neighbors(nodes: &[tg::lockfile::Node], node: usize) -> Vec<(usize, bool)> {
-	match &nodes[node] {
-		tg::lockfile::Node::Directory { entries } => entries
-			.values()
-			.filter_map(|entry| {
-				let node = *entry.as_ref().left()?;
-				Some((node, false))
-			})
-			.collect(),
-		tg::lockfile::Node::File { dependencies, .. } => dependencies
-			.values()
-			.filter_map(|referent| {
-				let node = *referent.item.as_ref().left()?;
-				Some((node, referent.tag.is_some()))
-			})
-			.collect(),
-		tg::lockfile::Node::Symlink { artifact, .. } => {
-			if let Some(Either::Left(node)) = artifact {
-				vec![(*node, false)]
-			} else {
-				Vec::new()
-			}
-		},
-	}
-}
-
 // Recursively compute the nodes that transitively reference tag dependencies.
 #[allow(clippy::match_on_vec_items)]
-fn has_tag_dependencies(
+fn check_if_references_module(
 	nodes: &[tg::lockfile::Node],
+	path: &Path,
 	node: usize,
 	visited: &mut Vec<Option<bool>>,
 ) -> bool {
 	match visited[node] {
 		None => {
-			visited[node].replace(false);
-			for (neighbor, is_tag_dependency) in neighbors(nodes, node) {
-				if is_tag_dependency {
-					visited[node].replace(true);
-				}
-				if has_tag_dependencies(nodes, neighbor, visited) {
-					visited[node].replace(true);
-				}
+			match &nodes[node] {
+				tg::lockfile::Node::Directory { entries } => {
+					visited[node].replace(false);
+					let retain = entries.iter().any(|(name, entry)| {
+						let node = *entry.as_ref().left().unwrap();
+						check_if_references_module(nodes, name.as_ref(), node, visited)
+					});
+					visited[node].replace(retain);
+				},
+				tg::lockfile::Node::File { dependencies, .. } => {
+					visited[node].replace(tg::package::is_module_path(path));
+					let retain = dependencies
+						.iter()
+						.filter_map(|(reference, entry)| {
+							let path = reference
+								.item()
+								.try_unwrap_path_ref()
+								.ok()
+								.or_else(|| reference.options()?.path.as_ref())?;
+							let node = *entry.item.as_ref().left()?;
+							Some((path, node))
+						})
+						.any(|(path, node)| check_if_references_module(nodes, path, node, visited));
+					if retain {
+						visited[node].replace(retain);
+					}
+				},
+				tg::lockfile::Node::Symlink {
+					artifact: Some(Either::Left(artifact)),
+					subpath: Some(subpath),
+				} => {
+					visited[node].replace(tg::package::is_module_path(subpath));
+					check_if_references_module(nodes, subpath, *artifact, visited);
+				},
+				tg::lockfile::Node::Symlink { .. } => {
+					visited[node].replace(false);
+				},
 			}
 			visited[node].unwrap()
 		},
@@ -301,9 +305,9 @@ fn strip_nodes_inner(
 	node: usize,
 	visited: &mut Vec<Option<usize>>,
 	new_nodes: &mut Vec<Option<tg::lockfile::Node>>,
-	has_tag_dependencies: &[Option<bool>],
+	should_retain: &[Option<bool>],
 ) -> Option<usize> {
-	if !has_tag_dependencies[node].unwrap() {
+	if !should_retain[node].unwrap() {
 		return None;
 	}
 	if let Some(visited) = visited[node] {
@@ -320,14 +324,10 @@ fn strip_nodes_inner(
 				.into_iter()
 				.filter_map(|(name, entry)| {
 					let entry = match entry {
-						Either::Left(node) => strip_nodes_inner(
-							old_nodes,
-							node,
-							visited,
-							new_nodes,
-							has_tag_dependencies,
-						)
-						.map(Either::Left),
+						Either::Left(node) => {
+							strip_nodes_inner(old_nodes, node, visited, new_nodes, should_retain)
+								.map(Either::Left)
+						},
 						Either::Right(id) => Some(Either::Right(id)),
 					};
 					Some((name, entry?))
@@ -351,7 +351,7 @@ fn strip_nodes_inner(
 							node,
 							visited,
 							new_nodes,
-							has_tag_dependencies,
+							should_retain,
 						)?),
 						Either::Right(id) => Either::Right(id),
 					};
@@ -373,7 +373,7 @@ fn strip_nodes_inner(
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
 				Some(Either::Left(node)) => {
-					strip_nodes_inner(old_nodes, node, visited, new_nodes, has_tag_dependencies)
+					strip_nodes_inner(old_nodes, node, visited, new_nodes, should_retain)
 						.map(Either::Left)
 				},
 				Some(Either::Right(id)) => Some(Either::Right(id)),
