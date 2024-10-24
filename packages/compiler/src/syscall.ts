@@ -49,4 +49,7 @@ declare global {
 
 	/** Get the version of a module. */
 	function syscall(name: "module_version", module: Module): string;
+
+	/** Return if a module's resolutions are out of date */
+	function syscall(name: "has_invalidated_resolutions", mode: Module): boolean;
 }

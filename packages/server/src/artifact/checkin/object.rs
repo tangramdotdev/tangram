@@ -1,3 +1,4 @@
+use super::unify;
 use crate::Server;
 use num::ToPrimitive;
 use std::{
@@ -7,8 +8,6 @@ use std::{
 };
 use tangram_client::{self as tg, handle::Ext};
 use tangram_either::Either;
-
-use super::unify;
 
 pub struct Graph {
 	pub indices: BTreeMap<unify::Id, usize>,

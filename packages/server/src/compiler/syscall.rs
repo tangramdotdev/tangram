@@ -37,6 +37,9 @@ pub fn syscall<'s>(
 		"module_load" => sync(scope, &args, self::module::load),
 		"module_resolve" => sync(scope, &args, self::module::resolve),
 		"module_version" => sync(scope, &args, self::module::version),
+		"has_invalidated_resolutions" => {
+			sync(scope, &args, self::module::has_invalidated_resolutions)
+		},
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 

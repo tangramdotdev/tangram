@@ -14,7 +14,6 @@ test("directory", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
-
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -32,7 +31,6 @@ test("file", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
-
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -49,7 +47,6 @@ test("symlink", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
-
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -65,7 +62,6 @@ test("cycle", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
-
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -82,7 +78,6 @@ test("cyclic-path-dependencies", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
-
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -100,7 +95,6 @@ test("executable", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
-
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
