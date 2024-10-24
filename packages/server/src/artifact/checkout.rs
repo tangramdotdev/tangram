@@ -1,3 +1,4 @@
+use crate::util::path::Ext as _;
 use crate::{tmp::Tmp, Server};
 use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
@@ -12,7 +13,6 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::{stream::TryStreamExt as _, task::Task};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-use tg::path::Ext as _;
 
 struct InnerArg<'a> {
 	arg: &'a tg::artifact::checkout::Arg,
@@ -571,7 +571,7 @@ impl Server {
 
 		// Get the symlink's data.
 		let artifact = symlink.artifact(self).await?;
-		let path_ = symlink.path(self).await?;
+		let subpath = symlink.subpath(self).await?;
 
 		// Check out the symlink's artifact if necessary.
 		if arg.dependencies {
@@ -594,7 +594,7 @@ impl Server {
 		if artifact.is_some() {
 			target.push(path.diff(checkouts_path).unwrap().parent().unwrap());
 		}
-		if let Some(path) = path_ {
+		if let Some(path) = subpath {
 			target.push(path);
 		}
 
@@ -767,8 +767,8 @@ impl Server {
 					executable,
 				} => {
 					let mut dependencies_ = BTreeMap::new();
-					for (reference, dependency) in dependencies {
-						let object = match &dependency.object {
+					for (reference, referent) in dependencies {
+						let item = match &referent.item {
 							tg::Object::Directory(directory) => {
 								let artifact = directory.clone().into();
 								let index =
@@ -798,9 +798,10 @@ impl Server {
 							},
 							object => Either::Right(object.id(self).await?),
 						};
-						let dependency = tg::lockfile::Dependency {
-							object,
-							tag: dependency.tag.clone(),
+						let dependency = tg::Referent {
+							item,
+							subpath: referent.subpath.clone(),
+							tag: referent.tag.clone(),
 						};
 						dependencies_.insert(reference.clone(), dependency);
 					}
@@ -821,7 +822,7 @@ impl Server {
 					.await?;
 					return Ok(nodes[*node]);
 				},
-				tg::symlink::Object::Normal { artifact, path } => {
+				tg::symlink::Object::Normal { artifact, subpath } => {
 					let artifact = if let Some(artifact) = artifact {
 						let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
 							artifact, nodes, visited, graphs,
@@ -831,8 +832,8 @@ impl Server {
 					} else {
 						None
 					};
-					let path = path.as_ref().map(PathBuf::from);
-					tg::lockfile::Node::Symlink { artifact, path }
+					let subpath = subpath.as_ref().map(PathBuf::from);
+					tg::lockfile::Node::Symlink { artifact, subpath }
 				},
 			},
 		};
@@ -911,8 +912,8 @@ impl Server {
 
 				tg::graph::Node::File(file) => {
 					let mut dependencies = BTreeMap::new();
-					for (reference, dependency) in &file.dependencies {
-						let object = match &dependency.object {
+					for (reference, referent) in &file.dependencies {
+						let item = match &referent.item {
 							Either::Left(index) => Either::Left(indices[*index]),
 							Either::Right(object) => match object {
 								tg::Object::Directory(artifact) => {
@@ -945,10 +946,9 @@ impl Server {
 								object => Either::Right(object.id(self).await?),
 							},
 						};
-						let dependency = tg::lockfile::Dependency {
-							object,
-							tag: dependency.tag.clone(),
-						};
+						let subpath = referent.subpath.clone();
+						let tag = referent.tag.clone();
+						let dependency = tg::Referent { item, subpath, tag };
 						dependencies.insert(reference.clone(), dependency);
 					}
 					let contents = file.contents.id(self).await?;
@@ -973,8 +973,8 @@ impl Server {
 						None => None,
 					};
 					let artifact = artifact.map(Either::Left);
-					let path = symlink.path.clone().map(PathBuf::from);
-					tg::lockfile::Node::Symlink { artifact, path }
+					let subpath = symlink.subpath.clone().map(PathBuf::from);
+					tg::lockfile::Node::Symlink { artifact, subpath }
 				},
 			};
 			let index = indices[old_index];
