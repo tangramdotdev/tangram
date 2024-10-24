@@ -88,6 +88,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				id text primary key,
 				complete integer not null default 0,
 				count integer,
+				depth integer not null,
 				heartbeat_at text,
 				host text not null,
 				index_status text,
