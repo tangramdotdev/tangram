@@ -24,47 +24,26 @@ export class Symlink {
 
 	static async new(...args: tg.Args<Symlink.Arg>): Promise<Symlink> {
 		let arg = await Symlink.arg(...args);
-		if (!("graph" in arg)) {
-			let artifact = arg.artifact;
-			let path = arg.path !== undefined ? arg.path : undefined;
-			let object = { artifact, path };
-			return new Symlink({ object });
-		} else {
+		if ("graph" in arg) {
 			return new Symlink({ object: arg });
 		}
+		let artifact = arg.artifact;
+		let path = arg.path !== undefined ? arg.path : undefined;
+		let object = { artifact, path };
+		return new Symlink({ object });
 	}
 
 	static async arg(...args: tg.Args<Symlink.Arg>): Promise<Symlink.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-
-		// If there are no args, just return immediately.
-		if (resolved.length === 0) {
-			return {};
-		}
-
-		// If there is a single arg and it's a graph object, return immediately.
 		if (resolved.length === 1) {
-			const singleArg = resolved[0];
-			if (
-				singleArg !== undefined &&
-				typeof singleArg === "object" &&
-				"graph" in singleArg
-			) {
-				return singleArg;
+			const arg = resolved[0];
+			if (typeof arg === "object" && "graph" in arg) {
+				return arg;
 			}
 		}
-
-		// Make sure none of the arguments are graph objects.
-		if (
-			resolved.some(
-				(arg) => arg !== undefined && typeof arg === "object" && "graph" in arg,
-			)
-		) {
-			throw new Error(
-				"Cannot mix graph and symlink objects or use multiple graph objects to construct symlinks",
-			);
+		if (resolved.some((arg) => typeof arg === "object" && "graph" in arg)) {
+			throw new Error("only a single graph arg is supported");
 		}
-
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {

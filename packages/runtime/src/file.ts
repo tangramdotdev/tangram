@@ -22,48 +22,29 @@ export class File {
 
 	static async new(...args: tg.Args<File.Arg>): Promise<File> {
 		let arg = await File.arg(...args);
-		if (!("graph" in arg)) {
-			let contents = await tg.blob(arg.contents);
-			let dependencies = arg.dependencies ?? {};
-			let executable = arg.executable ?? false;
-			return new File({
-				object: { contents, dependencies, executable },
-			});
-		} else {
+		if ("graph" in arg) {
 			return new File({ object: arg });
 		}
+		let contents = await tg.blob(arg.contents);
+		let dependencies = arg.dependencies ?? {};
+		let executable = arg.executable ?? false;
+		const object = { contents, dependencies, executable };
+		return new File({
+			object,
+		});
 	}
 
 	static async arg(...args: tg.Args<File.Arg>): Promise<File.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		// If there are no args, just return immediately.
-		if (resolved.length === 0) {
-			return {};
-		}
-
-		// If there is a single arg and it's a graph object, return immediately.
 		if (resolved.length === 1) {
-			const singleArg = resolved[0];
-			if (
-				singleArg !== undefined &&
-				typeof singleArg === "object" &&
-				"graph" in singleArg
-			) {
-				return singleArg;
+			const arg = resolved[0];
+			if (typeof arg === "object" && "graph" in arg) {
+				return arg;
 			}
 		}
-
-		// Make sure none of the arguments are graph objects.
-		if (
-			resolved.some(
-				(arg) => arg !== undefined && typeof arg === "object" && "graph" in arg,
-			)
-		) {
-			throw new Error(
-				"Cannot mix graph and file objects or use multiple graph objects to construct files",
-			);
+		if (resolved.some((arg) => typeof arg === "object" && "graph" in arg)) {
+			throw new Error("only a single graph arg is supported");
 		}
-
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {

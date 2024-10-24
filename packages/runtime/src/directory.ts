@@ -27,12 +27,11 @@ export class Directory {
 	): Promise<Directory> {
 		let resolved = await Promise.all(args.map(tg.resolve));
 		if (resolved.length === 1) {
-			const singleArg = resolved[0];
-			if (isGraphObject(singleArg)) {
-				return new Directory({ object: singleArg });
+			const arg = resolved[0];
+			if (isGraphArg(arg)) {
+				return new Directory({ object: arg });
 			}
 		}
-
 		let entries = await resolved.reduce<
 			Promise<{ [key: string]: tg.Artifact }>
 		>(async function reduce(promiseEntries, arg) {
@@ -61,10 +60,8 @@ export class Directory {
 					entries = await reduce(Promise.resolve(entries), argEntry);
 				}
 			} else if (typeof arg === "object") {
-				if (isGraphObject(arg)) {
-					throw new Error(
-						"Graph objects must be the only argument to the directory constructor",
-					);
+				if (isGraphArg(arg)) {
+					throw new Error("nested graph args are not allowed");
 				}
 
 				// If the arg is an object, then apply each entry.
@@ -269,11 +266,8 @@ export class Directory {
 	}
 }
 
-const isGraphObject = (
-	obj: unknown,
-): obj is { graph: tg.Graph; node: number } => {
+const isGraphArg = (obj: unknown): obj is { graph: tg.Graph; node: number } => {
 	return (
-		obj !== undefined &&
 		typeof obj === "object" &&
 		obj !== null &&
 		"graph" in obj &&
