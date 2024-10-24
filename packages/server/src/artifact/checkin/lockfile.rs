@@ -119,7 +119,7 @@ impl Server {
 		node: usize,
 		data: &tg::symlink::Data,
 	) -> tg::Result<tg::lockfile::Node> {
-		let path = match data {
+		let subpath = match data {
 			tg::symlink::Data::Graph { graph, node } => {
 				let symlink = tg::Graph::with_id(graph.clone()).object(self).await?.nodes[*node]
 					.clone()
@@ -133,7 +133,7 @@ impl Server {
 			.edges
 			.first()
 			.map(|edge| self.get_lockfile_entry(graph, edge.index));
-		Ok(tg::lockfile::Node::Symlink { artifact, path })
+		Ok(tg::lockfile::Node::Symlink { artifact, subpath })
 	}
 
 	#[allow(clippy::unused_self)]
@@ -369,7 +369,7 @@ fn strip_nodes_inner(
 			});
 		},
 
-		tg::lockfile::Node::Symlink { artifact, path } => {
+		tg::lockfile::Node::Symlink { artifact, subpath } => {
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
 				Some(Either::Left(node)) => {
@@ -381,7 +381,7 @@ fn strip_nodes_inner(
 			};
 
 			// Create the node.
-			new_nodes[new_node].replace(tg::lockfile::Node::Symlink { artifact, path });
+			new_nodes[new_node].replace(tg::lockfile::Node::Symlink { artifact, subpath });
 		},
 	}
 

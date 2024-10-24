@@ -259,9 +259,14 @@ impl Server {
 							.await?;
 						nodes.push(tg::graph::data::Node::File(node));
 					},
-					tg::lockfile::Node::Symlink { artifact, path } => {
+					tg::lockfile::Node::Symlink { artifact, subpath } => {
 						let node = self
-							.create_symlink_node(artifact.clone(), path.clone(), &graphs, &indices)
+							.create_symlink_node(
+								artifact.clone(),
+								subpath.clone(),
+								&graphs,
+								&indices,
+							)
 							.await?;
 						nodes.push(tg::graph::data::Node::Symlink(node));
 					},
