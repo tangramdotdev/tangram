@@ -24,6 +24,9 @@ export class Symlink {
 
 	static async new(...args: tg.Args<Symlink.Arg>): Promise<Symlink> {
 		let arg = await Symlink.arg(...args);
+		if ("graph" in arg) {
+			return new Symlink({ object: arg });
+		}
 		let artifact = arg.artifact;
 		let path = arg.path !== undefined ? arg.path : undefined;
 		let object = { artifact, path };
@@ -32,6 +35,15 @@ export class Symlink {
 
 	static async arg(...args: tg.Args<Symlink.Arg>): Promise<Symlink.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
+		if (resolved.length === 1) {
+			const arg = resolved[0];
+			if (typeof arg === "object" && "graph" in arg) {
+				return arg;
+			}
+		}
+		if (resolved.some((arg) => typeof arg === "object" && "graph" in arg)) {
+			throw new Error("only a single graph arg is supported");
+		}
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {
@@ -74,7 +86,10 @@ export class Symlink {
 				}
 			}),
 		);
-		let mutations = await tg.Args.createMutations(objects);
+		let mutations = await tg.Args.createMutations(objects, {
+			artifact: "set",
+			path: "set",
+		});
 		let arg = await tg.Args.applyMutations(mutations);
 		return arg;
 	}
@@ -219,10 +234,12 @@ export namespace Symlink {
 		| Symlink
 		| ArgObject;
 
-	export type ArgObject = {
-		artifact?: tg.Artifact | undefined;
-		path?: string | undefined;
-	};
+	export type ArgObject =
+		| {
+				artifact?: tg.Artifact | undefined;
+				path?: string | undefined;
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type Id = string;
 

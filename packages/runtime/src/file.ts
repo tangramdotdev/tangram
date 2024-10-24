@@ -22,16 +22,29 @@ export class File {
 
 	static async new(...args: tg.Args<File.Arg>): Promise<File> {
 		let arg = await File.arg(...args);
+		if ("graph" in arg) {
+			return new File({ object: arg });
+		}
 		let contents = await tg.blob(arg.contents);
 		let dependencies = arg.dependencies ?? {};
 		let executable = arg.executable ?? false;
+		const object = { contents, dependencies, executable };
 		return new File({
-			object: { contents, dependencies, executable },
+			object,
 		});
 	}
 
 	static async arg(...args: tg.Args<File.Arg>): Promise<File.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
+		if (resolved.length === 1) {
+			const arg = resolved[0];
+			if (typeof arg === "object" && "graph" in arg) {
+				return arg;
+			}
+		}
+		if (resolved.some((arg) => typeof arg === "object" && "graph" in arg)) {
+			throw new Error("only a single graph arg is supported");
+		}
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
 			flattened.map(async (arg) => {
@@ -223,11 +236,13 @@ export namespace File {
 		| tg.File
 		| ArgObject;
 
-	export type ArgObject = {
-		contents?: tg.Blob.Arg | undefined;
-		dependencies?: { [reference: string]: Dependency } | undefined;
-		executable?: boolean | undefined;
-	};
+	export type ArgObject =
+		| {
+				contents?: tg.Blob.Arg | undefined;
+				dependencies?: { [reference: string]: Dependency } | undefined;
+				executable?: boolean | undefined;
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type Id = string;
 
