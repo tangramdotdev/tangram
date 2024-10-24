@@ -1,4 +1,7 @@
-use self::{parse::parse, print::print};
+use self::{
+	parse::parse,
+	print::{Printer, Style},
+};
 use crate as tg;
 use bytes::Bytes;
 use futures::{
@@ -140,7 +143,11 @@ impl Value {
 	}
 
 	pub fn to_string_pretty(&self) -> String {
-		print(self, true)
+		let mut string = String::new();
+		let style = Style::Pretty { indentation: "\t" };
+		let mut printer = Printer::new(&mut string, style);
+		printer.value(self).unwrap();
+		string
 	}
 }
 
@@ -173,7 +180,11 @@ impl Data {
 
 impl std::fmt::Display for Value {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", print(self, false))
+		let mut string = String::new();
+		let style = Style::Compact;
+		let mut printer = Printer::new(&mut string, style);
+		printer.value(self)?;
+		write!(f, "{string}")
 	}
 }
 

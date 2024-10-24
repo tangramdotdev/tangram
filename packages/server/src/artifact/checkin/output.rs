@@ -1,4 +1,5 @@
-use crate::{tmp::Tmp, Server};
+use super::object;
+use crate::{tmp::Tmp, util::path::Ext as _, Server};
 use futures::{future, stream::FuturesUnordered, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools;
@@ -9,12 +10,9 @@ use std::{
 	sync::{Arc, RwLock, Weak},
 };
 use tangram_client as tg;
-use tangram_client::path::Ext as _;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use time::format_description::well_known::Rfc3339;
-
-use super::object;
 
 #[derive(Clone, Debug)]
 pub struct Graph {
@@ -343,7 +341,7 @@ impl Server {
 						let artifact = symlink.artifact.clone().map(Either::unwrap_right);
 						tg::symlink::Data::Normal {
 							artifact,
-							path: symlink.path.clone(),
+							subpath: symlink.subpath.clone(),
 						}
 						.into()
 					} else {
@@ -437,14 +435,8 @@ impl Server {
 		} else {
 			None
 		};
-		let path = path
-			.map(|path| {
-				path.to_str()
-					.map(ToOwned::to_owned)
-					.ok_or_else(|| tg::error!(%path = path.display(), "invalid path"))
-			})
-			.transpose()?;
-		Ok(tg::graph::data::node::Symlink { artifact, path })
+		let subpath = path;
+		Ok(tg::graph::data::node::Symlink { artifact, subpath })
 	}
 
 	async fn resolve_lockfile_dependency(
@@ -514,7 +506,7 @@ impl Server {
 								.ok_or_else(|| tg::error!("expected an artifact ID"))
 						})
 						.transpose()?,
-					path: node.path.clone(),
+					subpath: node.subpath.clone(),
 				}
 				.id()?
 				.into(),
@@ -577,8 +569,7 @@ impl Server {
 		let hardlink_prohibited = if cfg!(target_os = "macos") {
 			static APP_DIR_RE: std::sync::LazyLock<regex::Regex> =
 				std::sync::LazyLock::new(|| regex::Regex::new(r"\.app/Contents/.+$").unwrap());
-			let path_string = path.normalize().display().to_string();
-			APP_DIR_RE.is_match(&path_string)
+			APP_DIR_RE.is_match(path.to_string_lossy().as_ref())
 		} else {
 			false
 		};
@@ -834,7 +825,7 @@ impl Server {
 					continue;
 				}
 				let diff = input_.read().await.arg.path.diff(&input.arg.path).unwrap();
-				let dest = dest.join(&diff).normalize();
+				let dest = dest.join(&diff);
 				Box::pin(self.copy_or_move_all(dest, output, visited, progress)).await?;
 			}
 		} else if input.metadata.is_symlink() {

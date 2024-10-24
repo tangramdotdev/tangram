@@ -34,7 +34,7 @@ impl Import {
 						.map(|(key, value)| (key, serde_json::Value::String(value)))
 						.collect(),
 				);
-				let attributes = serde_json::from_value::<tg::reference::Query>(attributes)
+				let attributes = serde_json::from_value::<tg::reference::Options>(attributes)
 					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
 				let name = reference
 					.query()
@@ -52,11 +52,16 @@ impl Import {
 					.query()
 					.and_then(|query| query.remote.clone())
 					.or(attributes.remote);
-				let query = tg::reference::Query {
+				let subpath = reference
+					.query()
+					.and_then(|query| query.subpath.clone())
+					.or(attributes.subpath);
+				let query = tg::reference::Options {
 					name,
 					overrides,
 					path,
 					remote,
+					subpath,
 				};
 				let query = serde_urlencoded::to_string(query)
 					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;

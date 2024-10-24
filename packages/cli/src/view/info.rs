@@ -339,13 +339,15 @@ impl InfoViewExt for tg::file::Data {
 impl InfoViewExt for tg::symlink::Data {
 	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
 		let rows = match self {
-			tg::symlink::Data::Normal { artifact, path, .. } => {
+			tg::symlink::Data::Normal {
+				artifact, subpath, ..
+			} => {
 				let mut rows = vec![];
 				if let Some(artifact) = artifact {
 					rows.push(("artifact", artifact.to_string()));
 				}
-				if let Some(path) = path {
-					rows.push(("path", path.to_string()));
+				if let Some(subpath) = subpath {
+					rows.push(("subpath", subpath.to_string_lossy().into_owned()));
 				}
 				rows
 			},

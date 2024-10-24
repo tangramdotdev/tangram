@@ -5219,6 +5219,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "indoc",
  "itertools 0.13.0",
  "lsp-types",
  "mime",

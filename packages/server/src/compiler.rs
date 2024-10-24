@@ -2,8 +2,7 @@ use self::{document::Document, syscall::syscall};
 use crate::{tmp::Tmp, Server};
 use dashmap::DashMap;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt};
-use lsp::{notification::Notification as _, request::Request as _};
-use lsp_types as lsp;
+use lsp_types::{self as lsp, notification::Notification as _, request::Request as _};
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
 	path::{Path, PathBuf},
@@ -628,9 +627,14 @@ impl Compiler {
 		// Handle a path in the library tmp.
 		if let Ok(path) = path.strip_prefix(&self.library_tmp.path) {
 			let kind = tg::module::Kind::Dts;
-			let object = None;
-			let path = Some(path.to_owned());
-			return Ok(tg::Module { kind, object, path });
+			let item = tg::module::Item::Path(path.to_owned());
+			let referent = tg::Referent {
+				item,
+				subpath: None,
+				tag: None,
+			};
+			let module = tg::Module { kind, referent };
+			return Ok(module);
 		}
 
 		// Handle a path in the checkouts directory.
@@ -664,14 +668,20 @@ impl Compiler {
 				.parse()
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
-			let object = Some(Either::Left(object));
-			let path = path.components().skip(1).collect::<PathBuf>();
-			let path = if path.as_os_str().is_empty() {
+			let item = tg::module::Item::Object(object);
+			let subpath = path.components().skip(1).collect::<PathBuf>();
+			let subpath = if subpath.as_os_str().is_empty() {
 				None
 			} else {
-				Some(path)
+				Some(subpath)
 			};
-			return Ok(tg::Module { kind, object, path });
+			let referent = tg::Referent {
+				item,
+				subpath,
+				tag: None,
+			};
+			let module = tg::Module { kind, referent };
+			return Ok(module);
 		}
 
 		tg::Module::with_path(path).await
@@ -681,7 +691,10 @@ impl Compiler {
 		match module {
 			tg::Module {
 				kind: tg::module::Kind::Dts,
-				path: Some(path),
+				referent: tg::Referent {
+					item: tg::module::Item::Path(path),
+					..
+				},
 				..
 			} => {
 				let contents = self::load::LIBRARY
@@ -715,8 +728,12 @@ impl Compiler {
 			},
 
 			tg::Module {
-				object: Some(Either::Left(object)),
-				path,
+				referent:
+					tg::Referent {
+						item: tg::module::Item::Object(object),
+						subpath,
+						..
+					},
 				..
 			} => {
 				let artifact = tg::artifact::Id::try_from(object.clone())
@@ -729,33 +746,37 @@ impl Compiler {
 						.try_collect::<()>()
 						.await?;
 				}
-				let path = if let Some(path) = path {
+				let path = if let Some(subpath) = subpath {
 					self.server
 						.checkouts_path()
 						.join(object.to_string())
-						.join(path)
+						.join(subpath)
 				} else {
 					self.server.checkouts_path().join(object.to_string())
 				};
 				let path = path.display();
-				Ok(format!("file://{path}").parse().unwrap())
+				let uri = format!("file://{path}").parse().unwrap();
+				Ok(uri)
 			},
 
 			tg::Module {
-				object: Some(Either::Right(object)),
-				path,
+				referent:
+					tg::Referent {
+						item: tg::module::Item::Path(path),
+						subpath,
+						..
+					},
 				..
 			} => {
-				let path = if let Some(path) = path {
-					object.clone().join(path.clone())
+				let path = if let Some(subpath) = subpath {
+					path.clone().join(subpath.clone())
 				} else {
-					object.clone()
+					path.clone()
 				};
 				let path = path.display();
-				Ok(format!("file://{path}").parse().unwrap())
+				let uri = format!("file://{path}").parse().unwrap();
+				Ok(uri)
 			},
-
-			_ => Err(tg::error!("invalid module")),
 		}
 	}
 }

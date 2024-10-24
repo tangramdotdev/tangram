@@ -353,9 +353,9 @@ impl Directory {
 
 			// If the artifact is a symlink, then resolve it.
 			if let tg::Artifact::Symlink(symlink) = &artifact {
-				let from = tg::Symlink::with_artifact_and_path(
+				let from = tg::Symlink::with_artifact_and_subpath(
 					Some(self.clone().into()),
-					Some(current_path.to_str().unwrap().to_owned()),
+					Some(current_path.clone()),
 				);
 				match Box::pin(symlink.resolve_from(handle, Some(from)))
 					.await

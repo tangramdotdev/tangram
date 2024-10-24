@@ -304,7 +304,7 @@ impl Server {
 			drop(permit);
 
 			let edge = edges.first().cloned();
-			let (artifact, path) = 'a: {
+			let (artifact, subpath) = 'a: {
 				// If there is an edge, use it to construct the symlink.
 				if let Some((_reference, id, _tag, subpath)) = edge {
 					let artifact = id.map_right(|object| match object {
@@ -313,10 +313,7 @@ impl Server {
 						tg::object::Id::Symlink(a) => a.into(),
 						_ => unreachable!(),
 					});
-					break 'a (
-						Some(artifact),
-						subpath.map(|p| p.to_str().unwrap().to_owned()),
-					);
+					break 'a (Some(artifact), subpath);
 				}
 
 				// Unrender the target.
@@ -331,12 +328,13 @@ impl Server {
 
 				// Check if this is a relative path symlink.
 				if template.components.len() == 1 {
-					let path = template.components[0]
+					let subpath = template.components[0]
 						.try_unwrap_string_ref()
 						.ok()
 						.ok_or_else(|| tg::error!("invalid symlink"))?
 						.clone();
-					break 'a (None, Some(path));
+					let subpath = PathBuf::from(subpath);
+					break 'a (None, Some(subpath));
 				}
 
 				// Check if the symlink points within an artifact.
@@ -346,19 +344,20 @@ impl Server {
 						.ok()
 						.ok_or_else(|| tg::error!("invalid symlink"))?
 						.clone();
-					let path = template.components[1]
+					let subpath = template.components[1]
 						.try_unwrap_string_ref()
 						.ok()
 						.ok_or_else(|| tg::error!("invalid sylink"))?
 						.clone();
-					let path = &path[1..];
-					break 'a (Some(Either::Right(artifact)), Some(path.to_owned()));
+					let subpath = PathBuf::from(&subpath[1..].to_owned());
+					break 'a (Some(Either::Right(artifact)), Some(subpath));
 				}
 				return Err(tg::error!("invalid symlink"));
 			};
 
-			let path = path.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
-			let symlink = tg::graph::data::node::Symlink { artifact, path };
+			let subpath = subpath.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
+			let symlink = tg::graph::data::node::Symlink { artifact, subpath };
+
 			tg::graph::data::Node::Symlink(symlink)
 		} else {
 			return Err(tg::error!("invalid file type"));
@@ -490,7 +489,7 @@ impl Server {
 					.map(|(reference, referent)| {
 						let tg::Referent { item, tag, subpath } = referent;
 						let item = item.unwrap_right();
-						(reference, tg::Referent { item, tag, subpath })
+						(reference, tg::Referent { item, subpath, tag })
 					})
 					.collect();
 				tg::file::Data::Normal {
@@ -501,9 +500,9 @@ impl Server {
 				.into()
 			},
 			tg::graph::data::Node::Symlink(symlink) => {
-				let tg::graph::data::node::Symlink { artifact, path } = symlink;
+				let tg::graph::data::node::Symlink { artifact, subpath } = symlink;
 				let artifact = artifact.map(Either::unwrap_right);
-				tg::symlink::Data::Normal { artifact, path }.into()
+				tg::symlink::Data::Normal { artifact, subpath }.into()
 			},
 		}
 	}

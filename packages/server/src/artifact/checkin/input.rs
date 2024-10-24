@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{util::path::Ext as _, Server};
 use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use std::{
 	collections::{BTreeMap, BTreeSet},
@@ -8,7 +8,6 @@ use std::{
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_ignore::Ignore;
-use tg::path::Ext as _;
 use tokio::sync::RwLock;
 
 const IGNORE_FILES: [&str; 2] = [".tgignore", ".gitignore"];
@@ -126,7 +125,7 @@ impl Server {
 	async fn collect_input_inner(
 		&self,
 		referrer: Option<Node>,
-		path: &std::path::Path,
+		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
@@ -306,7 +305,7 @@ impl Server {
 	async fn get_edges(
 		&self,
 		referrer: Arc<RwLock<Graph>>,
-		path: &std::path::Path,
+		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
@@ -354,7 +353,7 @@ impl Server {
 	async fn get_directory_edges(
 		&self,
 		referrer: Arc<RwLock<Graph>>,
-		path: &std::path::Path,
+		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
@@ -438,7 +437,7 @@ impl Server {
 	async fn get_file_edges(
 		&self,
 		referrer: Arc<RwLock<Graph>>,
-		path: &std::path::Path,
+		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
@@ -518,7 +517,11 @@ impl Server {
 							.as_ref()
 							.map(|path| referrer_.arg.path.parent().unwrap().join(path))
 							.and_then(|path| path.diff(&root_path))
-							.map_or(false, |diff| diff.is_external());
+							.map_or(false, |diff| {
+								diff.components().next().is_some_and(|component| {
+									matches!(component, std::path::Component::ParentDir)
+								})
+							});
 
 						// Recurse if necessary.
 						let (graph, subpath) = match path {
@@ -579,7 +582,7 @@ impl Server {
 	async fn get_module_edges(
 		&self,
 		referrer: Arc<RwLock<Graph>>,
-		path: &std::path::Path,
+		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
@@ -619,7 +622,7 @@ impl Server {
 						};
 
 						let absolute_path = path.parent().unwrap().join(import_path.strip_prefix("./").unwrap_or(import_path));
-						let is_external = absolute_path.diff(&root_path).map_or(false, |path| path.is_external());
+						let is_external = absolute_path.diff(&root_path).map_or(false, |path| path.components().next().is_some_and(|component| matches!(component, std::path::Component::ParentDir)));
 
 						// If the import is of a module and points outside the root, return an error.
 						if (import_path.is_absolute() ||
@@ -739,7 +742,7 @@ impl Server {
 	async fn get_or_create_input_node(
 		&self,
 		referrer: Option<Node>,
-		path: &std::path::Path,
+		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 	) -> tg::Result<Node> {
@@ -1133,8 +1136,12 @@ impl State {
 	fn find_root(&self, path: &Path) -> Option<(PathBuf, Arc<RwLock<Graph>>)> {
 		self.roots.iter().find_map(|(root, node)| {
 			let diff = path.diff(root);
-			diff.map_or(false, |root| root.is_internal())
-				.then(|| (root.clone(), node.clone()))
+			diff.map_or(false, |path| {
+				path.components()
+					.next()
+					.is_some_and(|component| !matches!(component, std::path::Component::ParentDir))
+			})
+			.then(|| (root.clone(), node.clone()))
 		})
 	}
 }

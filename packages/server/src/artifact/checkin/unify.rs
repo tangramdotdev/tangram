@@ -4,29 +4,11 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
 
-#[derive(Clone, Debug)]
-struct State {
-	// The current graph.
-	graph: Graph,
-
-	// The edge that we are currently following.
-	edge: Unresolved,
-
-	// A work queue of edges we will have to follow, in depth-first order.
-	queue: im::Vector<Unresolved>,
-
-	// A lazily-initialized set of packages to try.
-	objects: Option<im::Vector<(tg::Tag, tg::Object)>>,
-
-	// A list of visited edges.
-	visited: im::HashSet<Unresolved>,
-}
-
 // A graph of packages.
 #[derive(Clone, Default, Debug)]
-pub(super) struct Graph {
+pub struct Graph {
 	// A counter used to create IDs for nodes that don't have a repository ID.
-	counter: usize,
+	pub counter: usize,
 
 	// The set of nodes in the graph.
 	pub nodes: im::HashMap<Id, Node>,
@@ -51,11 +33,11 @@ pub struct Node {
 	pub tag: Option<tg::Tag>,
 }
 
-pub(super) type Id = Either<tg::Reference, usize>;
+pub type Id = Either<tg::Reference, usize>;
 
 // An un-resolved reference in the graph.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(super) struct Unresolved {
+pub struct Unresolved {
 	// The source node of the edge.
 	pub src: Id,
 
@@ -68,13 +50,31 @@ pub(super) struct Unresolved {
 
 // An edge in the graph.
 #[derive(Clone, Debug)]
-pub(super) struct Edge {
+pub struct Edge {
 	pub referent: Id,
 	pub subpath: Option<PathBuf>,
 }
 
+#[derive(Clone, Debug)]
+struct State {
+	// The current graph.
+	graph: Graph,
+
+	// The edge that we are currently following.
+	edge: Unresolved,
+
+	// A work queue of edges we will have to follow, in depth-first order.
+	queue: im::Vector<Unresolved>,
+
+	// A lazily-initialized set of packages to try.
+	objects: Option<im::Vector<(tg::Tag, tg::Object)>>,
+
+	// A list of visited edges.
+	visited: im::HashSet<Unresolved>,
+}
+
 impl Server {
-	pub(super) async fn create_unification_graph(
+	pub async fn create_unification_graph(
 		&self,
 		input: Arc<tokio::sync::RwLock<input::Graph>>,
 	) -> tg::Result<(Graph, Id)> {
@@ -190,10 +190,10 @@ impl Server {
 
 			// Otherwise, create partial nodes.
 			match edge.reference.path() {
-				tg::reference::Path::Build(_) => {
+				tg::reference::Item::Build(_) => {
 					return Err(tg::error!(%reference = edge.reference, "invalid reference"))
 				},
-				tg::reference::Path::Object(object) => {
+				tg::reference::Item::Object(object) => {
 					let id = self
 						.create_unification_node_from_object(graph, object.clone())
 						.await?;
@@ -204,7 +204,7 @@ impl Server {
 					};
 					edges.insert(reference, edge);
 				},
-				tg::reference::Path::Tag(pattern) => {
+				tg::reference::Item::Tag(pattern) => {
 					let id = Either::Left(get_reference_from_pattern(pattern));
 					let reference = edge.reference.clone();
 					let edge = Edge {
@@ -213,7 +213,7 @@ impl Server {
 					};
 					edges.insert(reference, edge);
 				},
-				tg::reference::Path::Path(_) => return Err(tg::error!("unimplemented")),
+				tg::reference::Item::Path(_) => return Err(tg::error!("unimplemented")),
 			}
 		}
 
@@ -296,11 +296,7 @@ fn get_reference_from_pattern(pattern: &tg::tag::Pattern) -> tg::Reference {
 }
 
 impl Server {
-	pub(super) async fn unify_dependencies(
-		&self,
-		mut graph: Graph,
-		root: &Id,
-	) -> tg::Result<Graph> {
+	pub async fn unify_dependencies(&self, mut graph: Graph, root: &Id) -> tg::Result<Graph> {
 		// Get the overrides.
 		let mut overrides: BTreeMap<Id, BTreeMap<String, tg::Reference>> = BTreeMap::new();
 		let root_node = graph.nodes.get_mut(root).unwrap();

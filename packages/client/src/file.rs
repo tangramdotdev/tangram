@@ -311,7 +311,7 @@ impl File {
 		&self,
 		handle: &H,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Object>
+	) -> tg::Result<tg::Referent<tg::Object>>
 	where
 		H: tg::Handle,
 	{
@@ -324,15 +324,13 @@ impl File {
 		&self,
 		handle: &H,
 		reference: &tg::Reference,
-	) -> tg::Result<Option<tg::Object>>
+	) -> tg::Result<Option<tg::Referent<tg::Object>>>
 	where
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let object = match object.as_ref() {
-			Object::Normal { dependencies, .. } => dependencies
-				.get(reference)
-				.map(|dependency| dependency.item.clone()),
+		let referent = match object.as_ref() {
+			Object::Normal { dependencies, .. } => dependencies.get(reference).cloned(),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -346,24 +344,29 @@ impl File {
 				let Some(referent) = file.dependencies.get(reference) else {
 					return Ok(None);
 				};
-				match &referent.item {
-					Either::Left(index) => match object.nodes.get(*index) {
+				let item = match referent.item.clone() {
+					Either::Left(index) => match object.nodes.get(index) {
 						Some(tg::graph::Node::Directory(_)) => {
-							Some(tg::Directory::with_graph_and_node(graph.clone(), *index).into())
+							tg::Directory::with_graph_and_node(graph.clone(), index).into()
 						},
 						Some(tg::graph::Node::File(_)) => {
-							Some(tg::File::with_graph_and_node(graph.clone(), *index).into())
+							tg::File::with_graph_and_node(graph.clone(), index).into()
 						},
 						Some(tg::graph::Node::Symlink(_)) => {
-							Some(tg::Symlink::with_graph_and_node(graph.clone(), *index).into())
+							tg::Symlink::with_graph_and_node(graph.clone(), index).into()
 						},
 						None => return Err(tg::error!("invalid index")),
 					},
-					Either::Right(object) => Some(object.clone()),
-				}
+					Either::Right(object) => object,
+				};
+				Some(tg::Referent {
+					item,
+					subpath: referent.subpath.clone(),
+					tag: referent.tag.clone(),
+				})
 			},
 		};
-		Ok(object)
+		Ok(referent)
 	}
 
 	pub async fn executable<H>(&self, handle: &H) -> tg::Result<bool>
