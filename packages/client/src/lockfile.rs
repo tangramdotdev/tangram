@@ -33,7 +33,7 @@ pub enum Node {
 		artifact: Option<Entry>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		path: Option<PathBuf>,
+		subpath: Option<PathBuf>,
 	},
 }
 

@@ -169,9 +169,9 @@ async fn filter_lockfile_inner(
 			dependencies: BTreeMap::new(),
 			executable: *executable,
 		},
-		tg::lockfile::Node::Symlink { path, .. } => tg::lockfile::Node::Symlink {
+		tg::lockfile::Node::Symlink { subpath, .. } => tg::lockfile::Node::Symlink {
 			artifact: None,
-			path: path.clone(),
+			subpath: subpath.clone(),
 		},
 	};
 
