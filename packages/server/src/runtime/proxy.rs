@@ -1,8 +1,8 @@
-use crate::Server;
+use crate::{util::path::Ext as _, Server};
 use futures::{stream, Future, Stream, TryStreamExt as _};
 use std::{path::PathBuf, sync::Arc};
 use tangram_client as tg;
-use tg::path::Ext as _;
+use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 #[derive(Clone)]
@@ -347,7 +347,7 @@ impl tg::Handle for Proxy {
 	async fn try_get_reference(
 		&self,
 		_reference: &tg::Reference,
-	) -> tg::Result<Option<tg::reference::get::Output>> {
+	) -> tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>> {
 		Err(tg::error!("forbidden"))
 	}
 

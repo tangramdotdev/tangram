@@ -64,7 +64,7 @@ impl Cli {
 		}
 
 		// If the reference has a tag, then put it.
-		if let tg::reference::Path::Tag(pattern) = args.reference.path() {
+		if let tg::reference::Item::Tag(pattern) = args.reference.path() {
 			if let Ok(tag) = pattern.clone().try_into() {
 				let arg = tg::tag::put::Arg {
 					force: args.force,

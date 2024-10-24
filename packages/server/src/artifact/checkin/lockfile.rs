@@ -102,7 +102,7 @@ impl Server {
 				let tag = edge.tag.clone();
 				let item = self.get_lockfile_entry(graph, edge.index);
 				let subpath = edge.subpath.clone();
-				let referent = tg::Referent { item, tag, subpath };
+				let referent = tg::Referent { item, subpath, tag };
 				(reference, referent)
 			})
 			.collect();
@@ -125,9 +125,9 @@ impl Server {
 					.clone()
 					.try_unwrap_symlink()
 					.unwrap();
-				symlink.path.map(PathBuf::from)
+				symlink.subpath.map(PathBuf::from)
 			},
-			tg::symlink::Data::Normal { path, .. } => path.as_ref().map(PathBuf::from),
+			tg::symlink::Data::Normal { subpath, .. } => subpath.as_ref().map(PathBuf::from),
 		};
 		let artifact = graph.nodes[node]
 			.edges

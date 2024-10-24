@@ -56,6 +56,11 @@ impl Tag {
 	pub fn components(&self) -> &Vec<Component> {
 		&self.components
 	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		self.string.as_str()
+	}
 }
 
 impl Component {

@@ -40,8 +40,11 @@ impl Server {
 		// Create the module.
 		let module = tg::Module {
 			kind: tg::module::Kind::Dts,
-			object: None,
-			path: Some("tangram.d.ts".into()),
+			referent: tg::Referent {
+				item: tg::module::Item::Path("tangram.d.ts".into()),
+				subpath: None,
+				tag: None,
+			},
 		};
 
 		// Create the compiler.

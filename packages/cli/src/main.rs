@@ -902,16 +902,15 @@ impl Cli {
 		eprintln!("{title}: {}", diagnostic.message);
 		let mut string = String::new();
 		if let Some(location) = &diagnostic.location {
-			match &location.module.object {
-				Some(Either::Left(object)) => {
-					write!(string, "{object}").unwrap();
-				},
-				Some(Either::Right(path)) => {
+			match &location.module.referent.item {
+				tg::module::Item::Path(path) => {
 					write!(string, "{}", path.display()).unwrap();
 				},
-				None => {},
+				tg::module::Item::Object(object) => {
+					write!(string, "{object}").unwrap();
+				},
 			}
-			if let Some(path) = &location.module.path {
+			if let Some(path) = &location.module.referent.subpath {
 				write!(string, ":{}", path.display()).unwrap();
 			}
 			let mut string = if string.is_empty() {
@@ -958,19 +957,16 @@ impl Cli {
 		&self,
 		reference: &tg::Reference,
 	) -> tg::Result<Either<tg::Build, tg::Object>> {
-		let handle = self.handle().await?;
+		// let handle = self.handle().await?;
+		// let mut reference = reference.clone();
 
-		// If the reference has a path, then canonicalize it.
-		let reference = if let tg::reference::Path::Path(path) = reference.path() {
-			let path = tokio::fs::canonicalize(&path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-			tg::Reference::with_path(path)
-		} else {
-			reference.clone()
-		};
+		// // If the reference has a path, then make it absolute.
+		// reference.path = std::path::absolute(&args.path)
+		// 	.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 
-		reference.get(&handle).await
+		// reference.get(&handle).await
+
+		todo!()
 	}
 
 	/// Initialize V8.
@@ -981,9 +977,6 @@ impl Cli {
 		// Initialize the platform.
 		let platform = v8::new_default_platform(0, true);
 		v8::V8::initialize_platform(platform.make_shared());
-
-		// Set flags.
-		v8::V8::set_flags_from_string("--harmony-import-attributes");
 
 		// Initialize V8.
 		v8::V8::initialize();
@@ -1069,7 +1062,7 @@ impl Cli {
 			// If both are set, use the limit.
 			(Some(size), Some(limit)) => {
 				if size > limit / 2 {
-					tracing::warn!(?size, limit, "file descriptor semaphore size is greater than 50% of the file descriptor limit.");
+					tracing::warn!(?size, limit, "file descriptor semaphore size is greater than 50% of the file descriptor limit");
 				}
 				limit
 			},

@@ -40,7 +40,7 @@ pub struct Object {
 
 pub mod node {
 	use crate as tg;
-	use std::collections::BTreeMap;
+	use std::{collections::BTreeMap, path::PathBuf};
 	use tangram_either::Either;
 
 	#[derive(Clone, Debug, derive_more::TryUnwrap)]
@@ -73,7 +73,7 @@ pub mod node {
 	#[derive(Clone, Debug)]
 	pub struct Symlink {
 		pub artifact: Option<Either<usize, tg::Artifact>>,
-		pub path: Option<String>,
+		pub subpath: Option<PathBuf>,
 	}
 }
 
@@ -87,7 +87,7 @@ pub mod data {
 
 	pub mod node {
 		use crate::{self as tg, util::serde::is_false};
-		use std::collections::BTreeMap;
+		use std::{collections::BTreeMap, path::PathBuf};
 		use tangram_either::Either;
 
 		#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -120,7 +120,7 @@ pub mod data {
 			pub artifact: Option<Either<usize, tg::artifact::Id>>,
 
 			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub path: Option<String>,
+			pub subpath: Option<PathBuf>,
 		}
 
 		impl Node {
@@ -304,7 +304,7 @@ impl Node {
 				}))
 			},
 
-			Self::Symlink(tg::graph::node::Symlink { artifact, path }) => {
+			Self::Symlink(tg::graph::node::Symlink { artifact, subpath }) => {
 				let artifact = if let Some(artifact) = artifact {
 					Some(match artifact {
 						Either::Left(index) => Either::Left(*index),
@@ -313,10 +313,10 @@ impl Node {
 				} else {
 					None
 				};
-				let path = path.clone();
+				let subpath = subpath.clone();
 				Ok(data::Node::Symlink(tg::graph::data::node::Symlink {
 					artifact,
-					path,
+					subpath,
 				}))
 			},
 		}
@@ -464,9 +464,9 @@ impl TryFrom<data::Node> for Node {
 				let node = Node::File(file);
 				Ok(node)
 			},
-			data::Node::Symlink(tg::graph::data::node::Symlink { artifact, path }) => {
+			data::Node::Symlink(tg::graph::data::node::Symlink { artifact, subpath }) => {
 				let artifact = artifact.map(|either| either.map_right(tg::Artifact::with_id));
-				let symlink = tg::graph::node::Symlink { artifact, path };
+				let symlink = tg::graph::node::Symlink { artifact, subpath };
 				let node = Node::Symlink(symlink);
 				Ok(node)
 			},

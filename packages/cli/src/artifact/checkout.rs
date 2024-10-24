@@ -31,24 +31,10 @@ impl Cli {
 	pub async fn command_artifact_checkout(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the path.
+		// Get the absolute path.
 		let path = if let Some(path) = args.path {
-			let current = std::env::current_dir()
-				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
-			let path = current.join(&path);
-			let parent = path
-				.parent()
-				.ok_or_else(|| tg::error!("the path must have a parent directory"))?;
-			let parent = tokio::fs::canonicalize(parent)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-			tokio::fs::create_dir_all(&parent)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the parent directory"))?;
-			let file_name = path
-				.file_name()
-				.ok_or_else(|| tg::error!("the path must have a file name"))?;
-			let path = parent.join(file_name);
+			let path = std::path::absolute(path)
+				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 			Some(path)
 		} else {
 			None

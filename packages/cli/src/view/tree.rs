@@ -696,13 +696,13 @@ where
 					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
 				}
-				let path = symlink.path(&self.handle).await?.clone();
-				if let Some(path) = path {
+				let subpath = symlink.subpath(&self.handle).await?.clone();
+				if let Some(subpath) = subpath {
 					let parent = Some(self);
 					let index = children.len();
 					let kind = NodeKind::Value {
-						name: Some("path".into()),
-						value: path.into(),
+						name: Some("subpath".into()),
+						value: subpath.to_string_lossy().into_owned().into(),
 					};
 					let child = Self::new(&self.handle, parent, index, kind);
 					children.push(child);
@@ -743,8 +743,8 @@ where
 							let child = Self::new(&self.handle, parent, index, kind);
 							children.push(child);
 
-							for (reference, dependency) in &file.dependencies {
-								if let Either::Right(object) = &dependency.object {
+							for (reference, referent) in &file.dependencies {
+								if let Either::Right(object) = &referent.item {
 									let parent = Some(self);
 									let index = children.len();
 									let kind = NodeKind::Value {
@@ -1031,7 +1031,7 @@ where
 						.try_unwrap_directory()
 						.map_err(|_| tg::error!("expected a directory"))?;
 					let path = symlink
-						.path(&self.handle)
+						.subpath(&self.handle)
 						.await?
 						.ok_or_else(|| tg::error!("expected a path"))?;
 					directory
@@ -1065,8 +1065,8 @@ where
 				.dependencies(&self.handle)
 				.await?
 				.into_iter()
-				.map(|(reference, dependency)| async move {
-					let id = dependency.object.id(&self.handle).await?;
+				.map(|(reference, referent)| async move {
+					let id = referent.item.id(&self.handle).await?;
 					Ok::<_, tg::Error>((reference, id))
 				})
 				.collect::<FuturesUnordered<_>>()

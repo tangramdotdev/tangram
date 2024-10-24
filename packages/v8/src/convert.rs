@@ -1,7 +1,7 @@
 pub use self::serde::Serde;
 use bytes::Bytes;
 use num::ToPrimitive as _;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -20,6 +20,7 @@ mod module;
 mod mutation;
 mod object;
 mod reference;
+mod referent;
 mod ser;
 mod serde;
 mod symlink;
@@ -721,6 +722,31 @@ impl FromV8 for String {
 			return Err(tg::error!("expected a string"));
 		}
 		Ok(value.to_rust_string_lossy(scope))
+	}
+}
+
+impl ToV8 for PathBuf {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let string = self
+			.to_str()
+			.ok_or_else(|| tg::error!("path is not a string"))?;
+		let string = v8::String::new(scope, string)
+			.ok_or_else(|| tg::error!("failed to create the string"))?;
+		Ok(string.into())
+	}
+}
+
+impl FromV8 for PathBuf {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		if !value.is_string() {
+			return Err(tg::error!("expected a string"));
+		}
+		let string = value.to_rust_string_lossy(scope);
+		let path = Self::from(string);
+		Ok(path)
 	}
 }
 

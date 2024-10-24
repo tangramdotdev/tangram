@@ -2,7 +2,6 @@ use crate::{compiler::Compiler, Server};
 use std::{collections::HashSet, path::PathBuf};
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::path::Ext as _;
 
 impl Server {
 	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
@@ -59,7 +58,7 @@ impl Server {
 				.ok()
 				.or_else(|| import.reference.query()?.path.as_ref());
 			if let Some(import_path) = import_path {
-				let path = path.join(import_path).normalize();
+				let path = path.join(import_path);
 				let exists = tokio::fs::try_exists(&path).await.map_err(
 					|source| tg::error!(!source, %path = path.display(), "failed to check if file exists"),
 				)?;

@@ -9,19 +9,27 @@ impl Server {
 	pub async fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> tg::Result<Option<tg::reference::get::Output>> {
+	) -> tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>> {
 		match &reference.path() {
-			tg::reference::Path::Build(build) => {
+			tg::reference::Item::Build(build) => {
 				let item = Either::Left(build.clone());
-				let output = tg::reference::get::Output { item };
+				let output = tg::Referent {
+					item,
+					subpath: None,
+					tag: None,
+				};
 				Ok(Some(output))
 			},
-			tg::reference::Path::Object(object) => {
+			tg::reference::Item::Object(object) => {
 				let item = Either::Right(object.clone());
-				let output = tg::reference::get::Output { item };
+				let output = tg::Referent {
+					item,
+					subpath: None,
+					tag: None,
+				};
 				Ok(Some(output))
 			},
-			tg::reference::Path::Path(path) => {
+			tg::reference::Item::Path(path) => {
 				let arg = tg::artifact::checkin::Arg {
 					destructive: false,
 					deterministic: false,
@@ -36,17 +44,25 @@ impl Server {
 					.and_then(|event| event.try_unwrap_output().ok())
 					.ok_or_else(|| tg::error!("stream ended without output"))?;
 				let item = Either::Right(output.artifact.into());
-				let output = tg::reference::get::Output { item };
+				let output = tg::Referent {
+					item,
+					subpath: None,
+					tag: None,
+				};
 				Ok(Some(output))
 			},
-			tg::reference::Path::Tag(tag) => {
+			tg::reference::Item::Tag(tag) => {
 				let Some(tg::tag::get::Output {
 					item: Some(item), ..
 				}) = self.try_get_tag(tag).await?
 				else {
 					return Ok(None);
 				};
-				let output = tg::reference::get::Output { item };
+				let output = tg::Referent {
+					item,
+					subpath: None,
+					tag: None,
+				};
 				Ok(Some(output))
 			},
 		}
@@ -64,7 +80,7 @@ impl Server {
 	{
 		let path = path.join("/").parse()?;
 		let query = request.query_params().transpose()?;
-		let reference = tg::Reference::with_path_and_query(&path, query.as_ref());
+		let reference = tg::Reference::with_item_and_options(&path, query.as_ref());
 		let Some(output) = handle.try_get_reference(&reference).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};

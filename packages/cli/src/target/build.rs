@@ -105,6 +105,12 @@ impl Cli {
 				println!("{}", path.display());
 			},
 			InnerOutput::Value(value) => {
+				let stdout = std::io::stdout();
+				let value = if stdout.is_terminal() {
+					value.to_string_pretty()
+				} else {
+					value.to_string()
+				};
 				println!("{value}");
 			},
 		}
@@ -140,7 +146,7 @@ impl Cli {
 							let artifact = Some(package.clone().into());
 							let path = Some(name.parse().unwrap());
 							executable =
-								Some(tg::Symlink::with_artifact_and_path(artifact, path).into());
+								Some(tg::Symlink::with_artifact_and_subpath(artifact, path).into());
 							break;
 						}
 					}
@@ -629,7 +635,7 @@ where
 						.try_unwrap_directory()
 						.map_err(|_| tg::error!("expected a directory"))?;
 					let path = symlink
-						.path(&self.handle)
+						.subpath(&self.handle)
 						.await?
 						.ok_or_else(|| tg::error!("expected a path"))?;
 					directory
@@ -653,7 +659,7 @@ where
 						.artifact(&self.handle)
 						.await?
 						.ok_or_else(|| tg::error!("expected an object"))?;
-					let path = symlink.path(&self.handle).await?;
+					let path = symlink.subpath(&self.handle).await?;
 					if let Some(path) = path {
 						artifact
 							.try_unwrap_directory_ref()
@@ -673,8 +679,8 @@ where
 				.dependencies(&self.handle)
 				.await?
 				.into_iter()
-				.map(|(reference, dependency)| async move {
-					let id = dependency.object.id(&self.handle).await?;
+				.map(|(reference, referent)| async move {
+					let id = referent.item.id(&self.handle).await?;
 					Ok::<_, tg::Error>((reference, id))
 				})
 				.collect::<FuturesUnordered<_>>()

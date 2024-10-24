@@ -15,10 +15,9 @@ impl Cli {
 	pub async fn command_package_update(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Canonicalize the path.
-		let path = tokio::fs::canonicalize(&args.path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+		// Get the absolute path.
+		let path = std::path::absolute(&args.path)
+			.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 
 		// Remove an existing lockfile.
 		tokio::fs::remove_file(path.clone().join("tangram.lock"))

@@ -301,7 +301,7 @@ impl vfs::Provider for Provider {
 			tracing::error!("failed to get the symlink's artifact");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
-		let Ok(path) = symlink.path(&self.server).await else {
+		let Ok(path) = symlink.subpath(&self.server).await else {
 			tracing::error!("failed to get the symlink's path");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
