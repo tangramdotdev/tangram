@@ -389,6 +389,7 @@ impl Server {
 				let mut metadata: tg::object::Metadata = serde_json::from_slice(&metadata)
 					.map_err(|source| tg::error!(!source, "failed to deserialize metadata"))?;
 				metadata.count = metadata.count.map(|count| count - 1);
+				metadata.depth = metadata.depth.map(|depth| depth - 1);
 				metadata.weight = metadata
 					.weight
 					.map(|weight| weight - data.serialize().unwrap().len().to_u64().unwrap());
@@ -429,10 +430,11 @@ impl Server {
 		)?;
 		drop(permit);
 
-		// For files only, we need to keep track of the count and weight when reading the file.
+		// For files only, we need to keep track of the count, depth, and weight when reading the file.
 		let file_metadata_ = tg::object::Metadata {
 			complete: false,
 			count: Some(output.count),
+			depth: Some(output.depth),
 			weight: Some(output.weight),
 		};
 		file_metadata.insert(index, file_metadata_);
@@ -495,6 +497,7 @@ impl Server {
 	) -> tg::object::Metadata {
 		let mut complete = true;
 		let mut count = 1;
+		let mut depth = 1;
 		let mut weight = data.serialize().unwrap().len().to_u64().unwrap();
 
 		for node in &data.nodes {
@@ -506,6 +509,7 @@ impl Server {
 							let metadata = graph.nodes[*node].metadata.unwrap();
 							complete &= metadata.complete;
 							count += metadata.count.unwrap_or(0);
+							depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
 							weight += metadata.weight.unwrap_or(0);
 						}
 					}
@@ -517,6 +521,7 @@ impl Server {
 							let metadata = graph.nodes[*node].metadata.unwrap();
 							complete &= metadata.complete;
 							count += metadata.count.unwrap_or(0);
+							depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
 							weight += metadata.weight.unwrap_or(0);
 						}
 					}
@@ -527,6 +532,7 @@ impl Server {
 						let metadata = graph.nodes[*node].metadata.unwrap();
 						complete &= metadata.complete;
 						count += metadata.count.unwrap_or(0);
+						depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
 						weight += metadata.weight.unwrap_or(0);
 					}
 				},
@@ -536,6 +542,7 @@ impl Server {
 		tg::object::Metadata {
 			complete,
 			count: Some(count),
+			depth: Some(depth),
 			weight: Some(weight),
 		}
 	}
@@ -554,13 +561,14 @@ impl Server {
 		}
 
 		let mut complete = true;
-		let (count, weight) = match (file_metadata.get(&index), data) {
-			(Some(existing), _) => (existing.count, existing.weight),
-			(None, tg::artifact::Data::File(_)) => (None, None),
-			_ => (Some(0), Some(0)),
+		let (count, depth, weight) = match (file_metadata.get(&index), data) {
+			(Some(existing), _) => (existing.count, existing.depth, existing.weight),
+			(None, tg::artifact::Data::File(_)) => (None, None, None),
+			_ => (Some(0), Some(0), Some(0)),
 		};
 
 		let mut count = count.map(|count| count + 1);
+		let mut depth = depth.map(|depth| depth + 1);
 		let data_size = data.serialize().unwrap().len().to_u64().unwrap();
 		let mut weight = weight.map(|weight| weight + data_size);
 
@@ -574,6 +582,11 @@ impl Server {
 					count = count.map(|count| count + c);
 				} else {
 					count.take();
+				}
+				if let Some(d) = metadata.depth {
+					depth = depth.map(|depth| std::cmp::max(depth, d + 1));
+				} else {
+					depth.take();
 				}
 				if let Some(w) = metadata.weight {
 					weight = weight.map(|weight| weight + w);
@@ -599,6 +612,11 @@ impl Server {
 					} else {
 						count.take();
 					}
+					if let Some(d) = metadata.depth {
+						depth = depth.map(|depth| std::cmp::max(depth, d + 1));
+					} else {
+						depth.take();
+					}
 					if let Some(w) = metadata.weight {
 						weight = weight.map(|weight| weight + w);
 					} else {
@@ -610,6 +628,7 @@ impl Server {
 		tg::object::Metadata {
 			complete,
 			count,
+			depth,
 			weight,
 		}
 	}

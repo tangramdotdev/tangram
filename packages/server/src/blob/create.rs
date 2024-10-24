@@ -20,6 +20,7 @@ const MAX_LEAF_SIZE: u32 = 131_072;
 pub struct InnerOutput {
 	pub blob: tg::blob::Id,
 	pub count: u64,
+	pub depth: u64,
 	pub size: u64,
 	pub weight: u64,
 }
@@ -93,13 +94,13 @@ impl Server {
 						let p = transaction.p();
 						let statement = formatdoc!(
 							"
-								insert into objects (id, bytes, complete, count, weight, touched_at)
-								values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
-								on conflict (id) do update set touched_at = {p}6;
+								insert into objects (id, bytes, complete, count, depth, weight, touched_at)
+								values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
+								on conflict (id) do update set touched_at = {p}7;
 							"
 						);
 						let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-						let params = db::params![&id, &data.bytes, 1, 1, size, now];
+						let params = db::params![&id, &data.bytes, 1, 1, 1, size, now];
 						transaction
 							.execute(statement, params)
 							.await
@@ -117,6 +118,7 @@ impl Server {
 				let output = InnerOutput {
 					blob,
 					count: 1,
+					depth: 1,
 					size,
 					weight: size,
 				};
@@ -134,16 +136,17 @@ impl Server {
 					if chunk.len() == MAX_BRANCH_CHILDREN {
 						stream::once(async {
 							// Create the branch data.
-							let (size, count, weight) =
-								chunk
-									.iter()
-									.fold((0, 0, 0), |(size, count, weight), output| {
-										(
-											size + output.size,
-											count + output.count,
-											weight + output.weight,
-										)
-									});
+							let (size, count, depth, weight) = chunk.iter().fold(
+								(0, 0, 0, 0),
+								|(size, count, depth, weight), output| {
+									(
+										size + output.size,
+										count + output.count,
+										std::cmp::max(depth, output.depth),
+										weight + output.weight,
+									)
+								},
+							);
 							let children = chunk
 								.into_iter()
 								.map(|output| tg::branch::child::Data {
@@ -156,6 +159,7 @@ impl Server {
 							let id = tg::branch::Id::new(&bytes);
 
 							let count = count + 1;
+							let depth = depth + 1;
 							let weight = weight + bytes.len().to_u64().unwrap();
 
 							// Write to the destination if necessary.
@@ -163,13 +167,13 @@ impl Server {
 								let p = transaction.p();
 								let statement = formatdoc!(
 									"
-										insert into objects (id, bytes, complete, count, weight, touched_at)
-										values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
-										on conflict (id) do update set touched_at = {p}6;
+										insert into objects (id, bytes, complete, count, depth, weight, touched_at)
+										values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
+										on conflict (id) do update set touched_at = {p}7;
 									"
 								);
 								let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-								let params = db::params![&id, &bytes, 1, count, weight, now];
+								let params = db::params![&id, &bytes, 1, count, depth, weight, now];
 								transaction
 									.execute(statement, params)
 									.await
@@ -182,6 +186,7 @@ impl Server {
 							let output = InnerOutput {
 								blob,
 								count,
+								depth,
 								size,
 								weight,
 							};
@@ -203,6 +208,7 @@ impl Server {
 				let bytes = Bytes::default();
 				let blob = tg::leaf::Id::new(&bytes).into();
 				let count = 1;
+				let depth = 1;
 				let weight = 0;
 
 				// Write to the destination if necessary.
@@ -210,13 +216,13 @@ impl Server {
 					let p = transaction.p();
 					let statement = formatdoc!(
 						"
-							insert into objects (id, bytes, complete, count, weight, touched_at)
-							values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
-							on conflict (id) do update set touched_at = {p}6;
+							insert into objects (id, bytes, complete, count, depth, weight, touched_at)
+							values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
+							on conflict (id) do update set touched_at = {p}7;
 						"
 					);
 					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-					let params = db::params![&blob, &bytes, 1, count, weight, now];
+					let params = db::params![&blob, &bytes, 1, count, depth, weight, now];
 					transaction
 						.execute(statement, params)
 						.await
@@ -226,6 +232,7 @@ impl Server {
 				InnerOutput {
 					blob,
 					count: 1,
+					depth: 1,
 					size: 0,
 					weight: 0,
 				}
@@ -234,14 +241,15 @@ impl Server {
 			1 => output[0].clone(),
 
 			_ => {
-				// Get the size, count, weight, and children.
-				let (size, count, weight) =
+				// Get the size, count, depth, weight, and children.
+				let (size, count, depth, weight) =
 					output
 						.iter()
-						.fold((0, 0, 0), |(size, count, weight), output| {
+						.fold((0, 0, 0, 0), |(size, count, depth, weight), output| {
 							(
 								size + output.size,
 								count + output.count,
+								std::cmp::max(depth, output.depth),
 								weight + output.weight,
 							)
 						});
@@ -258,6 +266,7 @@ impl Server {
 				let bytes = data.serialize()?;
 				let blob = tg::branch::Id::new(&bytes).into();
 				let count = count + 1;
+				let depth = depth + 1;
 				let weight = weight + bytes.len().to_u64().unwrap();
 
 				// Write to the destination if necessary.
@@ -265,13 +274,13 @@ impl Server {
 					let p = transaction.p();
 					let statement = formatdoc!(
 						"
-							insert into objects (id, bytes, complete, count, weight, touched_at)
-							values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6)
-							on conflict (id) do update set touched_at = {p}6;
+							insert into objects (id, bytes, complete, count, depth, weight, touched_at)
+							values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
+							on conflict (id) do update set touched_at = {p}7;
 						"
 					);
 					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-					let params = db::params![&blob, &bytes, 1, count, weight, now];
+					let params = db::params![&blob, &bytes, 1, count, depth, weight, now];
 					transaction
 						.execute(statement, params)
 						.await
@@ -281,6 +290,7 @@ impl Server {
 				InnerOutput {
 					blob,
 					count,
+					depth,
 					size,
 					weight,
 				}

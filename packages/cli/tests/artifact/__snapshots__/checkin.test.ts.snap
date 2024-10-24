@@ -8,6 +8,7 @@ exports[`directory 3`] = `
 "{
   "complete": true,
   "count": 11,
+  "depth": 6,
   "weight": 620
 }"
 `;
@@ -20,6 +21,7 @@ exports[`file 3`] = `
 "{
   "complete": true,
   "count": 2,
+  "depth": 2,
   "weight": 86
 }"
 `;
@@ -32,6 +34,7 @@ exports[`symlink 3`] = `
 "{
   "complete": true,
   "count": 3,
+  "depth": 3,
   "weight": 150
 }"
 `;
@@ -44,6 +47,7 @@ exports[`cycle 3`] = `
 "{
   "complete": true,
   "count": 2,
+  "depth": 2,
   "weight": 162
 }"
 `;
@@ -56,6 +60,7 @@ exports[`cyclic-path-dependencies 3`] = `
 "{
   "complete": true,
   "count": 9,
+  "depth": 3,
   "weight": 1629
 }"
 `;
@@ -68,6 +73,20 @@ exports[`executable 3`] = `
 "{
   "complete": true,
   "count": 2,
+  "depth": 2,
   "weight": 91
+}"
+`;
+
+exports[`depth 1`] = `"dir_01fkx1ydhprxsxq7peg3vzwasgb1z94hcmn5gjxqnn3dmm6vr9xt30"`;
+
+exports[`depth 2`] = `"{"entries":{"nested":"dir_01t197hbevadkmr7bgvn0e633151e2rs4gecrk5010eae98ds5b5m0"}}"`;
+
+exports[`depth 3`] = `
+"{
+  "complete": true,
+  "count": 5,
+  "depth": 5,
+  "weight": 347
 }"
 `;

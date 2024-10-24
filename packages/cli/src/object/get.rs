@@ -23,6 +23,13 @@ impl Cli {
 			eprint!("∅");
 		}
 		eprintln!();
+		eprint!("{} depth ", "info".blue().bold());
+		if let Some(depth) = metadata.depth {
+			eprint!("{depth}");
+		} else {
+			eprint!("∅");
+		}
+		eprintln!();
 		eprint!("{} weight ", "info".blue().bold());
 		if let Some(weight) = metadata.weight {
 			eprint!("{weight}");
