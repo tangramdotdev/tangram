@@ -956,17 +956,21 @@ impl Cli {
 	async fn get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> tg::Result<Either<tg::Build, tg::Object>> {
-		// let handle = self.handle().await?;
-		// let mut reference = reference.clone();
-
-		// // If the reference has a path, then make it absolute.
-		// reference.path = std::path::absolute(&args.path)
-		// 	.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
-
-		// reference.get(&handle).await
-
-		todo!()
+	) -> tg::Result<tg::Referent<Either<tg::Build, tg::Object>>> {
+		let handle = self.handle().await?;
+		let mut item = reference.item().clone();
+		let mut options = reference.options().cloned();
+		if let tg::reference::Item::Path(path) = &mut item {
+			*path = std::path::absolute(&path)
+				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
+		}
+		if let Some(path) = options.as_mut().and_then(|options| options.path.as_mut()) {
+			*path = std::path::absolute(&path)
+				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
+		}
+		let reference = tg::Reference::with_item_and_options(&item, options.as_ref());
+		let referent = reference.get(&handle).await?;
+		Ok(referent)
 	}
 
 	/// Initialize V8.

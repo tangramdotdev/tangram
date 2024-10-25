@@ -78,10 +78,10 @@ pub async fn try_get_node_for_module_path(
 						return None;
 					}
 					let path = reference
-						.path()
+						.item()
 						.try_unwrap_path_ref()
 						.ok()
-						.or_else(|| reference.query()?.path.as_ref())?;
+						.or_else(|| reference.options()?.path.as_ref())?;
 					let path = node_path.join(path);
 					let index = *referent.item.as_ref().left()?;
 					Some((index, path))

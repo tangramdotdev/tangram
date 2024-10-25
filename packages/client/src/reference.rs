@@ -135,12 +135,12 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn path(&self) -> &Item {
+	pub fn item(&self) -> &Item {
 		&self.item
 	}
 
 	#[must_use]
-	pub fn query(&self) -> Option<&Options> {
+	pub fn options(&self) -> Option<&Options> {
 		self.options.as_ref()
 	}
 

@@ -189,7 +189,7 @@ impl Server {
 			}
 
 			// Otherwise, create partial nodes.
-			match edge.reference.path() {
+			match edge.reference.item() {
 				tg::reference::Item::Build(_) => {
 					return Err(tg::error!(%reference = edge.reference, "invalid reference"))
 				},
@@ -302,7 +302,7 @@ impl Server {
 		let root_node = graph.nodes.get_mut(root).unwrap();
 		for (reference, edge) in &root_node.edges {
 			let Some(overrides_) = reference
-				.query()
+				.options()
 				.as_ref()
 				.and_then(|query| query.overrides.clone())
 			else {
@@ -382,7 +382,7 @@ impl Server {
 		let reference = overrides
 			.get(&current.edge.src)
 			.and_then(|overrides| {
-				let name = current.edge.reference.query().as_ref()?.name.as_ref()?;
+				let name = current.edge.reference.options().as_ref()?.name.as_ref()?;
 				overrides.get(name)
 			})
 			.unwrap_or(&current.edge.reference)
@@ -449,7 +449,7 @@ impl Server {
 
 		// Validate the constraint.
 		match reference
-			.path()
+			.item()
 			.try_unwrap_tag_ref()
 			.map(|pat| pat.matches(tag))
 		{
@@ -479,12 +479,12 @@ impl Server {
 		if objects.is_none() {
 			// Get the tag pattern and remote if necessary.
 			let pattern = reference
-				.path()
+				.item()
 				.try_unwrap_tag_ref()
 				.map_err(|_| tg::error!(%reference, "expected a tag pattern"))?
 				.clone();
 			let remote = reference
-				.query()
+				.options()
 				.as_ref()
 				.and_then(|query| query.remote.clone());
 
@@ -626,7 +626,7 @@ impl Server {
 	) -> tg::Result<BTreeMap<tg::Reference, Edge>> {
 		let mut edges = BTreeMap::new();
 		for (reference, referent) in file.dependencies(self).await? {
-			if let Ok(pat) = reference.path().try_unwrap_tag_ref() {
+			if let Ok(pat) = reference.item().try_unwrap_tag_ref() {
 				let id = Either::Left(get_reference_from_pattern(pat));
 				let edge = Edge {
 					referent: id,

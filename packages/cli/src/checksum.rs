@@ -18,9 +18,18 @@ pub struct Args {
 impl Cli {
 	pub async fn command_checksum(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let item = self.get_reference(&args.reference).await?;
-		let Either::Right(object) = item else {
+		let referent = self.get_reference(&args.reference).await?;
+		let Either::Right(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
+		};
+		let object = if let Some(subpath) = &referent.subpath {
+			let directory = object
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			directory.get(&handle, subpath).await?.into()
+		} else {
+			object
 		};
 		if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
 			let artifact = artifact.id(&handle).await?;

@@ -34,9 +34,22 @@ impl Cli {
 		let remote = Some(args.remote.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the reference.
-		let item = self.get_reference(&args.reference).await?;
-
-		// Get the item as an ID.
+		let referent = self.get_reference(&args.reference).await?;
+		let item = match referent.item {
+			Either::Left(build) => Either::Left(build),
+			Either::Right(object) => {
+				let object = if let Some(subpath) = &referent.subpath {
+					let directory = object
+						.try_unwrap_directory()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a directory"))?;
+					directory.get(&handle, subpath).await?.into()
+				} else {
+					object
+				};
+				Either::Right(object)
+			},
+		};
 		let item = match item {
 			Either::Left(build) => Either::Left(build.id().clone()),
 			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
@@ -64,7 +77,7 @@ impl Cli {
 		}
 
 		// If the reference has a tag, then put it.
-		if let tg::reference::Item::Tag(pattern) = args.reference.path() {
+		if let tg::reference::Item::Tag(pattern) = args.reference.item() {
 			if let Ok(tag) = pattern.clone().try_into() {
 				let arg = tg::tag::put::Arg {
 					force: args.force,
