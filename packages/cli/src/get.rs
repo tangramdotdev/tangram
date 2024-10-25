@@ -14,20 +14,33 @@ pub struct Args {
 impl Cli {
 	pub async fn command_get(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let item = self.get_reference(&args.reference).await?;
-		let id = match &item {
-			Either::Left(build) => Either::Left(build.id()),
-			Either::Right(object) => Either::Right(object.id(&handle).await?),
+		let referent = self.get_reference(&args.reference).await?;
+		let item = match referent.item {
+			Either::Left(build) => Either::Left(build),
+			Either::Right(object) => {
+				let object = if let Some(subpath) = &referent.subpath {
+					let directory = object
+						.try_unwrap_directory()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a directory"))?;
+					directory.get(&handle, subpath).await?.into()
+				} else {
+					object
+				};
+				Either::Right(object)
+			},
 		};
-		eprintln!("{} {id}", "info".blue().bold());
+		let item = match item {
+			Either::Left(build) => Either::Left(build.id().clone()),
+			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
+		};
+		eprintln!("{} {item}", "info".blue().bold());
 		match item {
 			Either::Left(build) => {
-				let build = build.id().clone();
 				self.command_build_get(crate::build::get::Args { build })
 					.await?;
 			},
 			Either::Right(object) => {
-				let object = object.id(&handle).await?.clone();
 				self.command_object_get(crate::object::get::Args { object })
 					.await?;
 			},

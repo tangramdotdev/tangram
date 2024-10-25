@@ -18,7 +18,7 @@ impl Compiler {
 			None => {
 				let object = import
 					.reference
-					.path()
+					.item()
 					.try_unwrap_object_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("an import with no referrer must specify an object"))?
@@ -26,7 +26,7 @@ impl Compiler {
 				let item = tg::module::Item::Object(object);
 				let subpath = import
 					.reference
-					.query()
+					.options()
 					.and_then(|query| query.subpath.clone());
 				let tag = None;
 				tg::Referent { item, subpath, tag }

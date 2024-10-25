@@ -667,10 +667,10 @@ impl Server {
 
 			let path_ = edge
 				.reference
-				.path()
+				.item()
 				.try_unwrap_path_ref()
 				.ok()
-				.or_else(|| edge.reference.query()?.path.as_ref())
+				.or_else(|| edge.reference.options()?.path.as_ref())
 				.cloned()
 				.ok_or_else(|| tg::error!("expected a path dependency"))?;
 			// We could use metadata from the input, or the data, this avoids having to acquire a lock.
@@ -877,7 +877,7 @@ impl Server {
 				}
 
 				// Otherwise use the reference.
-				edge.reference.path().unwrap_path_ref().clone()
+				edge.reference.item().unwrap_path_ref().clone()
 			};
 
 			tokio::fs::symlink(&target, &dest)
@@ -1017,10 +1017,10 @@ impl Server {
 				input.read().await.root.as_ref()?;
 				let path = edge
 					.reference
-					.path()
+					.item()
 					.try_unwrap_path_ref()
 					.ok()
-					.or_else(|| edge.reference.query()?.path.as_ref())?;
+					.or_else(|| edge.reference.options()?.path.as_ref())?;
 				Some((path.clone(), child.clone()))
 			})
 			.collect::<FuturesUnordered<_>>()

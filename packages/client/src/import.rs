@@ -37,23 +37,23 @@ impl Import {
 				let attributes = serde_json::from_value::<tg::reference::Options>(attributes)
 					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
 				let name = reference
-					.query()
+					.options()
 					.and_then(|query| query.name.clone())
 					.or(attributes.name);
 				let overrides = reference
-					.query()
+					.options()
 					.and_then(|query| query.overrides.clone())
 					.or(attributes.overrides);
 				let path = reference
-					.query()
+					.options()
 					.and_then(|query| query.path.clone())
 					.or(attributes.path);
 				let remote = reference
-					.query()
+					.options()
 					.and_then(|query| query.remote.clone())
 					.or(attributes.remote);
 				let subpath = reference
-					.query()
+					.options()
 					.and_then(|query| query.subpath.clone())
 					.or(attributes.subpath);
 				let query = tg::reference::Options {

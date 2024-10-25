@@ -56,7 +56,7 @@ impl Server {
 			.map(|edge| {
 				let name = edge
 					.reference
-					.path()
+					.item()
 					.unwrap_path_ref()
 					.components()
 					.next()

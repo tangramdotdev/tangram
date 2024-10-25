@@ -41,7 +41,22 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let item = self.get_reference(&args.reference).await?;
+		let referent = self.get_reference(&args.reference).await?;
+		let item = match referent.item {
+			Either::Left(build) => Either::Left(build),
+			Either::Right(object) => {
+				let object = if let Some(subpath) = &referent.subpath {
+					let directory = object
+						.try_unwrap_directory()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a directory"))?;
+					directory.get(&handle, subpath).await?.into()
+				} else {
+					object
+				};
+				Either::Right(object)
+			},
+		};
 
 		// Get the node kind.
 		let node_kind = match item {

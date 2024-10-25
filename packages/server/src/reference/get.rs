@@ -10,7 +10,7 @@ impl Server {
 		&self,
 		reference: &tg::Reference,
 	) -> tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>> {
-		match &reference.path() {
+		match &reference.item() {
 			tg::reference::Item::Build(build) => {
 				let item = Either::Left(build.clone());
 				let output = tg::Referent {

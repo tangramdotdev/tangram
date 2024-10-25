@@ -198,10 +198,10 @@ impl Server {
 			.filter_map(|edge| {
 				let child = edge.node()?;
 				edge.reference
-					.path()
+					.item()
 					.try_unwrap_path_ref()
 					.ok()
-					.or_else(|| edge.reference.query()?.path.as_ref())
+					.or_else(|| edge.reference.options()?.path.as_ref())
 					.map(|_| (edge.reference.clone(), child))
 			})
 			.collect::<Vec<_>>();

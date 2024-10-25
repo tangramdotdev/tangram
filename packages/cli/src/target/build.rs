@@ -130,32 +130,44 @@ impl Cli {
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the reference.
-		let item = self.get_reference(&reference).await?;
+		let referent = self.get_reference(&reference).await?;
+		let Either::Right(object) = referent.item else {
+			return Err(tg::error!("expected an object"));
+		};
+		let object = if let Some(subpath) = &referent.subpath {
+			let directory = object
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			directory.get(&handle, subpath).await?.into()
+		} else {
+			object
+		};
 
 		// Create the target.
-		let target = if let Either::Right(tg::Object::Target(target)) = item {
+		let target = if let tg::Object::Target(target) = object {
 			// If the object is a target, then use it.
 			target
 		} else {
 			// Otherwise, the object must be a directory containing a root module or a file.
-			let executable = match item {
-				Either::Right(tg::Object::Directory(package)) => {
+			let executable = match object {
+				tg::Object::Directory(directory) => {
 					let mut executable = None;
 					for name in tg::package::ROOT_MODULE_FILE_NAMES {
-						if package.try_get_entry(&handle, name).await?.is_some() {
-							let artifact = Some(package.clone().into());
+						if directory.try_get_entry(&handle, name).await?.is_some() {
+							let artifact = Some(directory.clone().into());
 							let path = Some(name.parse().unwrap());
 							executable =
 								Some(tg::Symlink::with_artifact_and_subpath(artifact, path).into());
 							break;
 						}
 					}
-					let package = package.id(&handle).await?;
+					let package = directory.id(&handle).await?;
 					executable.ok_or_else(
 						|| tg::error!(%package, "expected the directory to contain a root module"),
 					)?
 				},
-				Either::Right(tg::Object::File(executable)) => executable.into(),
+				tg::Object::File(executable) => executable.into(),
 				_ => {
 					return Err(tg::error!("expected a directory or a file"));
 				},

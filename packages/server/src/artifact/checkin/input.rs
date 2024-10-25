@@ -507,10 +507,10 @@ impl Server {
 							.unwrap_or_else(|| referrer_.arg.path.clone());
 						let id = referent.item;
 						let path = reference
-							.path()
+							.item()
 							.try_unwrap_path_ref()
 							.ok()
-							.or_else(|| reference.query()?.path.as_ref());
+							.or_else(|| reference.options()?.path.as_ref());
 
 						// Don't follow paths that point outside the root.
 						let is_external_path = path
@@ -607,10 +607,10 @@ impl Server {
 					// Follow path dependencies.
 					let import_path = import
 						.reference
-						.path()
+						.item()
 						.try_unwrap_path_ref()
 						.ok()
-						.or_else(|| import.reference.query()?.path.as_ref());
+						.or_else(|| import.reference.options()?.path.as_ref());
 					if let Some(import_path) = import_path {
 						// Create the reference.
 						let reference = import.reference.clone();

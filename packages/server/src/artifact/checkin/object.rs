@@ -275,7 +275,7 @@ impl Server {
 				.into_iter()
 				.map(|(reference, id, _tag, _subpath)| {
 					let name = reference
-						.path()
+						.item()
 						.unwrap_path_ref()
 						.components()
 						.last()

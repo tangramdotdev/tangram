@@ -53,10 +53,10 @@ impl Server {
 		for import in analysis.imports {
 			let import_path = import
 				.reference
-				.path()
+				.item()
 				.try_unwrap_path_ref()
 				.ok()
-				.or_else(|| import.reference.query()?.path.as_ref());
+				.or_else(|| import.reference.options()?.path.as_ref());
 			if let Some(import_path) = import_path {
 				let path = path.join(import_path);
 				let exists = tokio::fs::try_exists(&path).await.map_err(
