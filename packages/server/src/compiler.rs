@@ -10,7 +10,6 @@ use std::{
 	sync::{Arc, Mutex},
 };
 use tangram_client as tg;
-use tangram_either::Either;
 use tangram_futures::task::Stop;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
@@ -684,7 +683,10 @@ impl Compiler {
 			return Ok(module);
 		}
 
-		tg::Module::with_path(path).await
+		// Create the module.
+		let module = self.server.module_for_path(path).await?;
+
+		Ok(module)
 	}
 
 	async fn lsp_uri_for_module(&self, module: &tg::Module) -> tg::Result<lsp::Uri> {

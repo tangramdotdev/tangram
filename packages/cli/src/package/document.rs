@@ -53,17 +53,17 @@ impl Cli {
 		} else {
 			object
 		};
-		let tg::Object::Directory(directory) = object else {
+		let Ok(package) = tg::Directory::try_from(object) else {
 			return Err(tg::error!("expected a directory"));
 		};
+		let package = package.id(&handle).await?;
 
-		// Document the package.
-		let package = directory.id(&handle).await?;
+		// Document the module.
 		let arg = tg::package::document::Arg { package, remote };
-		let doc = handle.document_package(arg).await?;
+		let output = handle.document_package(arg).await?;
 
 		// Serialize the output.
-		let output = serde_json::to_string_pretty(&doc)
+		let output = serde_json::to_string_pretty(&output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
 
 		// Print the output.

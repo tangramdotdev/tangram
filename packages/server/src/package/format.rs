@@ -14,12 +14,12 @@ impl Server {
 
 		// Format the modules recursively.
 		let mut visited = HashSet::default();
-		self.format_module(path, &mut visited).await?;
+		self.format_package_inner(path, &mut visited).await?;
 
 		Ok(())
 	}
 
-	async fn format_module(
+	async fn format_package_inner(
 		&self,
 		path: PathBuf,
 		visited: &mut HashSet<PathBuf, fnv::FnvBuildHasher>,
@@ -63,7 +63,7 @@ impl Server {
 					|source| tg::error!(!source, %path = path.display(), "failed to check if file exists"),
 				)?;
 				if exists {
-					Box::pin(self.format_module(path, visited)).await?;
+					Box::pin(self.format_package_inner(path, visited)).await?;
 				}
 			}
 		}

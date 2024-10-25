@@ -198,15 +198,7 @@ impl std::fmt::Display for Source {
 				write!(f, "internal:{}", path.display())?;
 			},
 			Source::Module(module) => {
-				todo!()
-				// write!(f, "{}", module.kind)?;
-				// if let Some(object) = &module.object {
-				// 	let object = object.as_ref().map_right(|path| path.display());
-				// 	write!(f, ":{object}")?;
-				// }
-				// if let Some(path) = &module.path {
-				// 	write!(f, ":{}", path.display())?;
-				// }
+				write!(f, "{module}")?;
 			},
 		}
 		Ok(())
