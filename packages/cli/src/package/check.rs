@@ -41,12 +41,12 @@ impl Cli {
 		} else {
 			object
 		};
-		let tg::Object::Directory(directory) = object else {
+		let Ok(package) = tg::Directory::try_from(object) else {
 			return Err(tg::error!("expected a directory"));
 		};
+		let package = package.id(&handle).await?;
 
-		// Check the package.
-		let package = directory.id(&handle).await?;
+		// Check the module.
 		let arg = tg::package::check::Arg { package, remote };
 		let output = handle.check_package(arg).await?;
 
