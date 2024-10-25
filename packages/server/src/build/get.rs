@@ -38,6 +38,7 @@ impl Server {
 				select
 					id,
 					count,
+					depth,
 					host,
 					log,
 					logs_complete,
@@ -109,6 +110,7 @@ impl Server {
 					let arg = tg::build::put::Arg {
 						id: output.id.clone(),
 						children,
+						depth: output.depth,
 						host: output.host.clone(),
 						log: output.log.clone(),
 						outcome: output.outcome.clone(),

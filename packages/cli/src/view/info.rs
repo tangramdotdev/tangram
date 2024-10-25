@@ -141,6 +141,7 @@ impl InfoViewExt for tg::build::get::Output {
 		if let Some(count) = self.count {
 			rows.push(("count", count.to_string()));
 		}
+		rows.push(("depth", self.depth.to_string()));
 		if let Some(log) = &self.log {
 			rows.push(("log", log.to_string()));
 		}

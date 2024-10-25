@@ -36,6 +36,7 @@ impl Server {
 				"
 					insert into builds (
 						id,
+						depth,
 						host,
 						log,
 						outcome,
@@ -60,24 +61,27 @@ impl Server {
 						{p}9,
 						{p}10,
 						{p}11,
-						{p}12
+						{p}12,
+						{p}13
 					)
 					on conflict (id) do update set
-						host = {p}2,
-						log = {p}3,
-						outcome = {p}4,
-						retry = {p}5,
-						status = {p}6,
-						target = {p}7,
-						touched_at = {p}8,
-						created_at = {p}9,
-						dequeued_at = {p}10,
-						started_at = {p}11,
-						finished_at = {p}12;
+						depth = {p}2,
+						host = {p}3,
+						log = {p}4,
+						outcome = {p}5,
+						retry = {p}6,
+						status = {p}7,
+						target = {p}8,
+						touched_at = {p}9,
+						created_at = {p}10,
+						dequeued_at = {p}11,
+						started_at = {p}12,
+						finished_at = {p}13;
 				"
 			);
 			let params = db::params![
 				id,
+				arg.depth,
 				arg.host,
 				arg.log,
 				arg.outcome,
