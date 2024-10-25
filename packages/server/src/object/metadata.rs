@@ -86,7 +86,7 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select complete, count, weight
+				select complete, count, depth, weight
 				from objects
 				where id = {p}1;
 			",
