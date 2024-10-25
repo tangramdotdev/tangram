@@ -264,16 +264,15 @@ impl Server {
 
 		if depth.is_none() {
 			let depth = children_metadata.iter().try_fold(1, |depth, metadata| {
-				// Attempt to fold values, bailing out with None if any are None
 				match metadata {
 					Some(data) => {
 						if let Some(mdepth) = data.depth {
 							Some(std::cmp::max(mdepth, depth))
 						} else {
-							None // Bail out if metadata.depth is None
+							None
 						}
 					},
-					None => None, // Bail out early if metadata itself is None
+					None => None,
 				}
 			});
 
