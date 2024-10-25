@@ -41,7 +41,6 @@ pub async fn try_get_node_for_module_path(
 	lockfile_path: &Path,
 ) -> tg::Result<Option<usize>> {
 	if lockfile.nodes.is_empty() {
-		eprintln!("lockfile is empty");
 		return Ok(None);
 	}
 
@@ -56,7 +55,6 @@ pub async fn try_get_node_for_module_path(
 	let mut visited = BTreeSet::new();
 
 	while let Some((node_index, node_path)) = queue.pop_front() {
-		eprintln!("checking node {node_index}: {}", node_path.display());
 		if read_link(&node_path).await? == path {
 			return Ok(Some(node_index));
 		}

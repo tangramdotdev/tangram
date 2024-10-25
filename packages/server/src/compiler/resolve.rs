@@ -1,5 +1,9 @@
 use super::Compiler;
-use std::path::Path;
+use crate::{
+	lockfile::{create_artifact_for_lockfile_node, try_get_lockfile_node_for_module_path},
+	util::path::Ext,
+};
+use std::path::{Path, PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -42,7 +46,85 @@ impl Compiler {
 					},
 				..
 			}) => {
-				todo!()
+				// Get the path of the referrer.
+				let referrer_path = subpath
+					.as_ref()
+					.map_or(path.to_owned(), |subpath| path.join(subpath));
+
+				// Get the path of the import, if it exists.
+				let import_path = import
+					.reference
+					.item()
+					.try_unwrap_path_ref()
+					.ok()
+					.or_else(|| import.reference.options()?.path.as_ref());
+				if let Some(import_path) = import_path {
+					// Canonicalize the import path.
+					let module_path = referrer_path.join(import_path);
+					let module_path = tokio::fs::canonicalize(&module_path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+
+					// Check if this is in the same module.
+					let subpath = module_path.diff(path).unwrap();
+					if subpath.starts_with("..") {
+						'a: {
+							// Find the root module.
+							for ancestor in module_path.ancestors().skip(1) {
+								let root_module_path = tg::package::try_get_root_module_file_name(
+									&self.server,
+									Either::Right(ancestor),
+								)
+								.await?;
+								if root_module_path.is_some() {
+									let item = tg::module::Item::Path(ancestor.to_owned());
+									let subpath = Some(ancestor.diff(&module_path).unwrap());
+									let tag = None;
+									break 'a tg::Referent { item, subpath, tag };
+								}
+							}
+							return Err(tg::error!("failed to resolve the module"));
+						}
+					} else {
+						let item = tg::module::Item::Path(path.clone());
+						let subpath = Some(subpath);
+						let tag = None;
+						tg::Referent { item, subpath, tag }
+					}
+				} else {
+					// Find the module within an existing lockfile.
+					let (lockfile, node) = try_get_lockfile_node_for_module_path(&referrer_path)
+						.await?
+						.ok_or_else(
+							|| tg::error!(%referrer = referrer_path.display(), "failed to find lockfile for referrer"),
+						)?;
+					let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[node]
+					else {
+						return Err(tg::error!("expected a file node"));
+					};
+
+					// Resolve using the lockfile.
+					let referent = dependencies.get(&import.reference)
+						.ok_or_else(|| tg::error!(%reference = import.reference, %referrer = referrer_path.display(), "failed to resolve import"))?;
+
+					let object = match &referent.item {
+						Either::Left(node) => {
+							create_artifact_for_lockfile_node(&self.server, &lockfile, *node)
+								.await?
+								.id(&self.server)
+								.await?
+								.into()
+						},
+						Either::Right(id) => id.clone(),
+					};
+
+					let item = tg::module::Item::Object(object);
+					tg::Referent {
+						item,
+						subpath: referent.subpath.clone(),
+						tag: referent.tag.clone(),
+					}
+				}
 			},
 
 			// Handle an object referrer.
@@ -235,5 +317,114 @@ impl Compiler {
 		let module = tg::Module { kind, referent };
 
 		Ok(module)
+	}
+
+	async fn resolve_module_at_path(
+		&self,
+		package: &Path,
+		referrer: &Path,
+		import: &tg::Import,
+	) -> tg::Result<tg::Referent<tg::module::Item>> {
+		// Get the referrer within some lockfile.
+		let module_path = package.join(referrer);
+
+		// Get the lockfile and its path.
+		let (lockfile_path, lockfile) = 'a: {
+			for ancestor in module_path.ancestors().skip(1) {
+				let lockfile_path = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
+				let exists = tokio::fs::try_exists(&lockfile_path).await.map_err(
+					|source| tg::error!(!source, %package = ancestor.display(), "failed to check if lockfile exists"),
+				)?;
+				if exists {
+					let contents = tokio::fs::read_to_string(&lockfile_path).await.map_err(
+						|source| tg::error!(!source, %path = lockfile_path.display(), "failed to read lockfile"),
+					)?;
+					let lockfile = serde_json::from_str::<tg::Lockfile>(&contents).map_err(
+						|source| tg::error!(!source, %path = lockfile_path.display(), "failed to deserialize lockfile"),
+					)?;
+					break 'a (lockfile_path, lockfile);
+				}
+			}
+			return Err(tg::error!(%module = module_path.display(), "failed to find lockfile"));
+		};
+
+		// Find the referrer in the lockfile.
+		let module_index = self
+			.find_node_in_lockfile(&lockfile_path, &lockfile, &module_path)
+			.await?;
+		let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[module_index] else {
+			return Err(
+				tg::error!(%lockfile = lockfile_path.display(), %node = module_index, "expected a file node"),
+			);
+		};
+
+		// Get the import path.
+		let import_path = import
+			.reference
+			.item()
+			.try_unwrap_path_ref()
+			.ok()
+			.or_else(|| import.reference.options()?.path.as_ref());
+
+		match dependencies.get(&import.reference) {
+			// If this points to another node in the lockfile,
+			Some(tg::Referent {
+				item: Either::Left(index),
+				subpath,
+				..
+			}) => {
+				// let (package, subpath) = self.
+				todo!()
+			},
+
+			// Resolve objects normally.
+			Some(tg::Referent {
+				item: Either::Right(object),
+				subpath,
+				tag,
+			}) => Ok(tg::Referent {
+				item: tg::module::Item::Object(object.clone()),
+				subpath: subpath.clone(),
+				tag: tag.clone(),
+			}),
+
+			None => {
+				// If this is a path dependency but not in the dependencies table for the node, then it is an artifact dependency.
+				if let Some(import_path) = import_path {
+					let item = module_path.join(import_path);
+					return Ok(tg::Referent {
+						item: tg::module::Item::Path(item),
+						subpath: import
+							.reference
+							.options()
+							.and_then(|query| query.subpath.clone()),
+						tag: None,
+					});
+				};
+
+				// Otherwise we cannot resolve this reference.
+				Err(
+					tg::error!(%module = module_path.display(), %import = import.reference, "failed to resolve import"),
+				)
+			},
+		}
+	}
+
+	async fn find_node_in_lockfile(
+		&self,
+		lockfile_path: &Path,
+		lockfile: &tg::Lockfile,
+		path: &Path,
+	) -> tg::Result<usize> {
+		todo!()
+	}
+
+	async fn find_package_path_in_lockfile(
+		&self,
+		search_node: usize,
+		lockfile_path: &Path,
+		lockfile: &tg::Lockfile,
+	) -> tg::Result<PathBuf> {
+		todo!()
 	}
 }
