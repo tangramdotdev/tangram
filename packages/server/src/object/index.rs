@@ -263,18 +263,12 @@ impl Server {
 		}
 
 		if depth.is_none() {
-			let depth = children_metadata.iter().try_fold(1, |depth, metadata| {
-				match metadata {
-					Some(data) => {
-						if let Some(mdepth) = data.depth {
-							Some(std::cmp::max(mdepth, depth))
-						} else {
-							None
-						}
-					},
+			let depth = children_metadata
+				.iter()
+				.try_fold(1, |depth, metadata| match metadata {
+					Some(data) => data.depth.map(|d| std::cmp::max(d, depth)),
 					None => None,
-				}
-			});
+				});
 
 			// Set the depth if possible.
 			if let Some(depth) = depth {

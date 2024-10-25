@@ -710,7 +710,7 @@ impl Server {
 		.await?;
 
 		let nodes = nodes.into_iter().map(Option::unwrap).collect::<Vec<_>>();
-		let nodes = self.strip_lockfile_nodes(&nodes, 0);
+		let nodes = self.strip_lockfile_nodes(&nodes, 0)?;
 
 		Ok(tg::Lockfile { nodes })
 	}

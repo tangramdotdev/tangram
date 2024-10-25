@@ -243,7 +243,7 @@ impl Server {
 				let edge = Edge {
 					reference: tg::Reference::with_path(absolute_path.components().last().unwrap()),
 					subpath: None,
-					graph: Some(Either::Right(Arc::downgrade(&node))),
+					graph: Some(Either::Left(node.clone())),
 					object: None,
 					tag: None,
 				};
@@ -339,7 +339,6 @@ impl Server {
 				return Ok(vec![edge]);
 			}
 
-			// This future is quite large, so we explicitly box it.
 			Box::pin(self.get_directory_edges(referrer, path, arg, state, progress)).await
 		} else if metadata.is_file() {
 			Box::pin(self.get_file_edges(referrer, path, arg, state, progress)).await
@@ -646,7 +645,7 @@ impl Server {
 							self.collect_input_inner(Some(Either::Right(parent)), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						};
 
-						let (graph, subpath) = root_node_with_subpath(child).await;
+						let (graph, subpath) = root_node_with_subpath(child.clone()).await;
 
 						// Create the edge.
 						let edge = Edge {
@@ -1120,7 +1119,7 @@ async fn root_node_with_subpath(child: Node) -> (Node, Option<PathBuf>) {
 
 	// Otherwise compute the subpath within the root.
 	let path = strong.read().await.arg.path.clone();
-	let subpath = root.diff(path).unwrap();
+	let subpath = path.diff(root).unwrap();
 
 	// Find the root.
 	loop {
