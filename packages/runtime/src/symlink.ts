@@ -199,18 +199,15 @@ export class Symlink {
 			artifact = await artifact.resolve();
 		}
 		let path = await this.path();
-
 		if (artifact !== undefined && fromArtifact !== undefined) {
 			throw new Error("expected no `from` value when `artifact` is set");
 		}
-
 		if (artifact !== undefined && !path) {
 			return artifact;
 		} else if (artifact === undefined && path) {
 			if (!(fromArtifact instanceof tg.Directory)) {
 				throw new Error("expected a directory");
 			}
-
 			return await fromArtifact.tryGet(
 				tg.path.normalize(tg.path.join(fromPath, "..", path)),
 			);
