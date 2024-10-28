@@ -145,6 +145,37 @@ impl Server {
 					tg::error!(!source, "failed to put the artifact into the database")
 				})?;
 
+			// Insert the object's children into the database.
+			data.children()
+				.iter()
+				.map(|child| {
+					let id = id.clone();
+					let transaction = &transaction;
+					async move {
+						let statement = formatdoc!(
+							"
+								insert into object_children (object, child)
+								values ({p}1, {p}2)
+								on conflict (object, child) do nothing;
+							"
+						);
+						let params = db::params![id, child];
+						transaction
+							.execute(statement, params)
+							.await
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to put the object children into the database"
+								)
+							})
+							.ok()
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.collect::<Vec<_>>()
+				.await;
+
 			stack.extend(output.read().unwrap().edges.iter().map(Edge::node));
 		}
 
