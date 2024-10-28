@@ -285,6 +285,42 @@ impl Visitor {
 				ast::Expr::Lit(ast::Lit::Str(value)) => {
 					serde_json::Value::String(value.value.to_string())
 				},
+				ast::Expr::Array(ast::ArrayLit { elems, .. }) => {
+					let mut array = Vec::new();
+					for elem in elems {
+						let Some(elem) = elem else {
+							self.errors
+								.push(Error::new("array holes are not allowed", &loc));
+							continue;
+						};
+						let value = match elem.expr.as_ref() {
+							ast::Expr::Lit(ast::Lit::Null(_)) => serde_json::Value::Null,
+							ast::Expr::Lit(ast::Lit::Bool(value)) => {
+								serde_json::Value::Bool(value.value)
+							},
+							ast::Expr::Lit(ast::Lit::Num(value)) => {
+								let Some(value) = serde_json::Number::from_f64(value.value) else {
+									self.errors
+										.push(Error::new("invalid number in array", &loc));
+									continue;
+								};
+								serde_json::Value::Number(value)
+							},
+							ast::Expr::Lit(ast::Lit::Str(value)) => {
+								serde_json::Value::String(value.value.to_string())
+							},
+							_ => {
+								self.errors.push(Error::new(
+									"array elements must be valid JSON values",
+									&loc,
+								));
+								continue;
+							},
+						};
+						array.push(value);
+					}
+					serde_json::Value::Array(array)
+				},
 				_ => {
 					self.errors
 						.push(Error::new("values must be valid JSON", &loc));
