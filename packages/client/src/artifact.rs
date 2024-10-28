@@ -5,7 +5,7 @@ use futures::{
 	TryStreamExt as _,
 };
 use std::{
-	collections::HashSet,
+	collections::{BTreeSet, HashSet},
 	sync::{Arc, Mutex},
 };
 
@@ -260,6 +260,14 @@ impl Data {
 			Self::Directory(artifact) => artifact.serialize(),
 			Self::File(artifact) => artifact.serialize(),
 			Self::Symlink(artifact) => artifact.serialize(),
+		}
+	}
+
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		match self {
+			Self::Directory(artifact) => artifact.children(),
+			Self::File(artifact) => artifact.children(),
+			Self::Symlink(artifact) => artifact.children(),
 		}
 	}
 }
