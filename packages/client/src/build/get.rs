@@ -80,7 +80,7 @@ impl Output {
 				if let tg::build::outcome::Data::Succeeded(value) = outcome {
 					value.children()
 				} else {
-					vec![]
+					[].into()
 				}
 			})
 			.into_iter()

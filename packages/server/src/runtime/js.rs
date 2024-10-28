@@ -124,7 +124,7 @@ impl Runtime {
 			let remote = remote.clone();
 			async move {
 				while let Some(string) = log_receiver.recv().await {
-					if server.options.advanced.write_build_logs_to_stderr {
+					if server.config.advanced.write_build_logs_to_stderr {
 						tokio::io::stderr()
 							.write_all(string.as_bytes())
 							.await

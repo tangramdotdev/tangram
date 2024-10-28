@@ -292,7 +292,7 @@ impl Server {
 		}
 
 		// Log.
-		if self.options.advanced.write_build_logs_to_database {
+		if self.config.advanced.write_build_logs_to_database {
 			self.try_add_build_log_to_database(id, arg.bytes).await?;
 		} else {
 			self.try_add_build_log_to_file(id, arg.bytes).await?;

@@ -43,14 +43,14 @@ mod remote;
 mod runtime;
 mod tag;
 mod target;
-mod tmp;
+mod temp;
 mod user;
 mod util;
 mod vfs;
 
-pub use self::options::Options;
+pub use self::config::Config;
 
-pub mod options;
+pub mod config;
 
 /// A server.
 #[derive(Clone)]
@@ -63,12 +63,12 @@ pub struct Inner {
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
 	checkout_task_map: CheckoutTaskMap,
+	config: Config,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
-	options: Options,
 	path: PathBuf,
 	remotes: DashMap<String, tg::Client>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
@@ -94,7 +94,7 @@ type CheckoutTaskMap =
 	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
 
 impl Server {
-	pub async fn start(options: Options) -> tg::Result<Server> {
+	pub async fn start(options: Config) -> tg::Result<Server> {
 		// Ensure the path exists.
 		let path = options.path.clone();
 		tokio::fs::create_dir_all(&path)
@@ -137,11 +137,11 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the logs directory"))?;
 
-		// Ensure the tmp directory exists.
-		let tmp_path = path.join("tmp");
-		tokio::fs::create_dir_all(&tmp_path)
+		// Ensure the temp directory exists.
+		let temp_path = path.join("tmp");
+		tokio::fs::create_dir_all(&temp_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the tmp directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
@@ -172,7 +172,7 @@ impl Server {
 
 		// Create the database.
 		let database = match &options.database {
-			self::options::Database::Sqlite(options) => {
+			self::config::Database::Sqlite(options) => {
 				let initialize = Box::new(|connection: &sqlite::Connection| {
 					connection.pragma_update(None, "journal_mode", "wal")?;
 					connection.pragma_update(None, "busy_timeout", "86400000")?;
@@ -189,7 +189,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
 				Either::Left(database)
 			},
-			self::options::Database::Postgres(options) => {
+			self::config::Database::Postgres(options) => {
 				let options = db::postgres::Options {
 					url: options.url.clone(),
 					connections: options.connections,
@@ -212,10 +212,10 @@ impl Server {
 
 		// Create the messenger.
 		let messenger = match &options.messenger {
-			self::options::Messenger::Memory => {
+			self::config::Messenger::Memory => {
 				Messenger::Left(tangram_messenger::memory::Messenger::new())
 			},
-			self::options::Messenger::Nats(nats) => {
+			self::config::Messenger::Nats(nats) => {
 				let client = nats::connect(nats.url.to_string())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the NATS client"))?;
@@ -252,7 +252,7 @@ impl Server {
 			local_pool_handle,
 			lock_file,
 			messenger,
-			options,
+			config: options,
 			path,
 			remotes,
 			runtimes,
@@ -294,16 +294,16 @@ impl Server {
 	pub async fn task(&self, stop: Stop) -> tg::Result<()> {
 		// Start the VFS if enabled.
 		let artifacts_path = self.path.join("artifacts");
-		let checkouts_path = self.path.join("checkouts");
+		let cache_path = self.path.join("cache");
 		let artifacts_exists = tokio::fs::try_exists(&artifacts_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
-		let checkouts_exists = tokio::fs::try_exists(&checkouts_path)
+		let checkouts_exists = tokio::fs::try_exists(&cache_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
-		if let Some(options) = self.options.vfs {
+		if let Some(options) = self.config.vfs {
 			if artifacts_exists && !checkouts_exists {
-				tokio::fs::rename(&artifacts_path, &checkouts_path)
+				tokio::fs::rename(&artifacts_path, &cache_path)
 					.await
 					.map_err(|source| {
 						tg::error!(
@@ -317,7 +317,7 @@ impl Server {
 				.map_err(|source| {
 					tg::error!(!source, "failed to create the artifacts directory")
 				})?;
-			tokio::fs::create_dir_all(&checkouts_path)
+			tokio::fs::create_dir_all(&cache_path)
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to create the checkouts directory")
@@ -341,7 +341,7 @@ impl Server {
 			}
 		} else {
 			if checkouts_exists {
-				tokio::fs::rename(&checkouts_path, &artifacts_path)
+				tokio::fs::rename(&cache_path, &artifacts_path)
 					.await
 					.map_err(|source| {
 						tg::error!(
@@ -401,19 +401,16 @@ impl Server {
 
 		// Start the build heartbeat monitor task.
 		let build_heartbeat_monitor_task =
-			self.options
-				.build_heartbeat_monitor
-				.as_ref()
-				.map(|options| {
-					tokio::spawn({
-						let server = self.clone();
-						let options = options.clone();
-						async move { server.build_heartbeat_monitor_task(&options).await }
-					})
-				});
+			self.config.build_heartbeat_monitor.as_ref().map(|options| {
+				tokio::spawn({
+					let server = self.clone();
+					let options = options.clone();
+					async move { server.build_heartbeat_monitor_task(&options).await }
+				})
+			});
 
 		// Start the build indexer task.
-		let build_indexer_task = if self.options.build_indexer.is_some() {
+		let build_indexer_task = if self.config.build_indexer.is_some() {
 			Some(tokio::spawn({
 				let server = self.clone();
 				async move { server.build_indexer_task().await }
@@ -423,7 +420,7 @@ impl Server {
 		};
 
 		// Start the object indexer task.
-		let object_indexer_task = if self.options.object_indexer.is_some() {
+		let object_indexer_task = if self.config.object_indexer.is_some() {
 			Some(tokio::spawn({
 				let server = self.clone();
 				async move { server.object_indexer_task().await }
@@ -433,7 +430,7 @@ impl Server {
 		};
 
 		// Start the build spawn task.
-		let build_spawn_task = if self.options.build.is_some() {
+		let build_spawn_task = if self.config.build.is_some() {
 			Some(tokio::spawn({
 				let server = self.clone();
 				async move { server.build_spawn_task().await }
@@ -443,7 +440,7 @@ impl Server {
 		};
 
 		// Serve.
-		Self::serve(self.clone(), self.options.url.clone(), stop.clone()).await?;
+		Self::serve(self.clone(), self.config.url.clone(), stop.clone()).await?;
 
 		// Abort the build spawn task.
 		if let Some(task) = build_spawn_task {
@@ -507,9 +504,9 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn checkouts_path(&self) -> PathBuf {
+	pub fn cache_path(&self) -> PathBuf {
 		if self.vfs.lock().unwrap().is_some() {
-			self.path.join("checkouts")
+			self.path.join("cache")
 		} else {
 			self.artifacts_path()
 		}
@@ -526,7 +523,7 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn tmp_path(&self) -> PathBuf {
+	pub fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
 	}
 }
@@ -839,6 +836,13 @@ impl Server {
 		tracing::trace!(?id, status = ?response.status(), "sending response");
 
 		response
+	}
+}
+
+impl Drop for Inner {
+	fn drop(&mut self) {
+		println!("drop");
+		self.task.lock().unwrap().as_ref().unwrap().abort();
 	}
 }
 

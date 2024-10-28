@@ -47,7 +47,7 @@ impl Server {
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		if let Some(path) = arg
 			.path
-			.diff(self.checkouts_path())
+			.diff(self.cache_path())
 			.filter(|path| matches!(path.components().next(), Some(std::path::Component::CurDir)))
 		{
 			let components = path.components().collect::<Vec<_>>();
@@ -237,7 +237,7 @@ impl Server {
 	pub(crate) async fn try_store_artifact_inner(&self, id: &tg::artifact::Id) -> tg::Result<bool> {
 		// Check if the artifact exists in the checkouts directory.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let path = self.checkouts_path().join(id.to_string());
+		let path = self.cache_path().join(id.to_string());
 		let exists = tokio::fs::try_exists(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check if the file exists"))?;

@@ -1,7 +1,8 @@
+import type * as tg from "./index.ts";
+
 export type Module = {
 	kind: Module.Kind;
-	object: string | undefined;
-	path: string | undefined;
+	referent: tg.Referent<tg.Object>;
 };
 
 export namespace Module {

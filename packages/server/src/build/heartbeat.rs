@@ -69,7 +69,7 @@ impl Server {
 
 	pub async fn build_heartbeat_monitor_task(
 		&self,
-		options: &crate::options::BuildHeartbeatMonitor,
+		options: &crate::config::BuildHeartbeatMonitor,
 	) {
 		loop {
 			let result = self

@@ -66,7 +66,7 @@ impl Server {
 			builds: Some(builds),
 			database: Some(database),
 			file_descriptor_semaphore: Some(file_descriptor_semaphore),
-			version: self.options.version.clone(),
+			version: self.config.version.clone(),
 		};
 
 		Ok(health)

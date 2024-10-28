@@ -1,9 +1,9 @@
-use self::config::{Config, DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE};
+use self::config::Config;
 use clap::{CommandFactory as _, Parser as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
-use num::ToPrimitive;
-use std::{collections::BTreeMap, fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
+use num::ToPrimitive as _;
+use std::{fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
 use tangram_client::{self as tg, Client};
 use tangram_either::Either;
 use tangram_server::Server;
@@ -381,285 +381,257 @@ impl Cli {
 			.or(self.config.as_ref().and_then(|config| config.path.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 
-		// Get the url.
-		let url = self
+		// Create the default config.
+		let database = tangram_server::config::Database::Sqlite(
+			tangram_server::config::SqliteDatabase::with_path(&path),
+		);
+		let remotes = [(
+			"default".to_owned(),
+			tangram_server::config::Remote {
+				build: false,
+				client: tg::Client::new(Url::parse("https://api.tangram.dev").unwrap()),
+			},
+		)]
+		.into();
+		let url = tangram_server::Config::default_url_for_path(&path);
+		let mut config = tangram_server::Config {
+			advanced: tangram_server::config::Advanced::default(),
+			authentication: None,
+			build: Some(tangram_server::config::Build::default()),
+			build_heartbeat_monitor: Some(tangram_server::config::BuildHeartbeatMonitor::default()),
+			build_indexer: Some(tangram_server::config::BuildIndexer::default()),
+			database,
+			messenger: tangram_server::config::Messenger::default(),
+			object_indexer: Some(tangram_server::config::ObjectIndexer::default()),
+			path,
+			remotes,
+			url,
+			version: None,
+			vfs: Some(tangram_server::config::Vfs::default()),
+		};
+
+		// Set the url.
+		if let Some(url) = self
 			.args
 			.url
 			.clone()
 			.or(self.config.as_ref().and_then(|config| config.url.clone()))
-			.unwrap_or_else(|| {
-				let path = path.join("socket");
-				let path = path.to_str().unwrap();
-				let path = urlencoding::encode(path);
-				format!("http+unix://{path}").parse().unwrap()
-			});
+		{
+			config.url = url;
+		}
 
-		// Create the advanced options.
-		let build_dequeue_timeout = self
+		// Set the advanced options.
+		if let Some(advanced) = self
 			.config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.build_dequeue_timeout);
-		let error_trace_options = self
-			.config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.error_trace_options.clone())
-			.unwrap_or_default();
-		let file_descriptor_semaphore_size = self
-			.config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.file_descriptor_semaphore_size)
-			.unwrap_or(DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE);
-		let preserve_temp_directories = self
-			.config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.preserve_temp_directories)
-			.unwrap_or(false);
-		let write_build_logs_to_file = self
-			.config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.write_build_logs_to_database)
-			.unwrap_or(false);
-		let write_build_logs_to_stderr = self
-			.config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.duplicate_build_logs_to_stderr)
-			.unwrap_or(false);
+		{
+			if let Some(build_dequeue_timeout) = advanced.build_dequeue_timeout {
+				config.advanced.build_dequeue_timeout = build_dequeue_timeout;
+			}
+			if let Some(error_trace_options) = advanced.error_trace_options.clone() {
+				config.advanced.error_trace_options = error_trace_options;
+			}
+			if let Some(file_descriptor_semaphore_size) = advanced.file_descriptor_semaphore_size {
+				config.advanced.file_descriptor_semaphore_size = file_descriptor_semaphore_size;
+			}
+			if let Some(preserve_temp_directories) = advanced.preserve_temp_directories {
+				config.advanced.preserve_temp_directories = preserve_temp_directories;
+			}
+			if let Some(write_build_logs_to_database) = advanced.write_build_logs_to_database {
+				config.advanced.write_build_logs_to_database = write_build_logs_to_database;
+			}
+			if let Some(write_build_logs_to_stderr) = advanced.write_build_logs_to_stderr {
+				config.advanced.write_build_logs_to_stderr = write_build_logs_to_stderr;
+			}
+		}
 
-		let advanced = tangram_server::options::Advanced {
-			build_dequeue_timeout,
-			error_trace_options,
-			file_descriptor_semaphore_size,
-			preserve_temp_directories,
-			write_build_logs_to_database: write_build_logs_to_file,
-			write_build_logs_to_stderr,
-		};
-
-		// Create the authentication options.
-		let authentication =
-			self.config
-				.as_ref()
-				.and_then(|config| config.authentication.as_ref())
-				.map(|authentication| {
-					let providers = authentication.providers.as_ref().map(|providers| {
-						let github = providers.github.as_ref().map(|client| {
-							tangram_server::options::Oauth {
-								auth_url: client.auth_url.clone(),
-								client_id: client.client_id.clone(),
-								client_secret: client.client_secret.clone(),
-								redirect_url: client.redirect_url.clone(),
-								token_url: client.token_url.clone(),
-							}
-						});
-						tangram_server::options::AuthenticationProviders { github }
+		// Set the authentication options.
+		if let Some(authentication) = self
+			.config
+			.as_ref()
+			.and_then(|config| config.authentication.as_ref())
+		{
+			let mut authentication_ = tangram_server::config::Authentication::default();
+			if let Some(providers) = authentication.providers.as_ref() {
+				if let Some(github) = providers.github.as_ref() {
+					authentication_.providers.github = Some(tangram_server::config::Oauth {
+						auth_url: github.auth_url.clone(),
+						client_id: github.client_id.clone(),
+						client_secret: github.client_secret.clone(),
+						redirect_url: github.redirect_url.clone(),
+						token_url: github.token_url.clone(),
 					});
-					tangram_server::options::Authentication { providers }
-				})
-				.unwrap_or_default();
-
-		// Create the build options.
-		let build = match self.config.as_ref().and_then(|config| config.build.clone()) {
-			None => Some(crate::config::Build::default()),
-			Some(None) => None,
-			Some(Some(config)) => Some(config),
-		};
-		let build = build.map(|build| {
-			let concurrency = build
-				.concurrency
-				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-			let heartbeat_interval = build.heartbeat_interval.unwrap_or(Duration::from_secs(1));
-			tangram_server::options::Build {
-				concurrency,
-				heartbeat_interval,
+				}
 			}
-		});
+			config.authentication = Some(authentication_);
+		}
 
-		// Create the build heartbeat monitor options.
-		let build_heartbeat_monitor = self
-			.config
-			.as_ref()
-			.and_then(|config| config.build_heartbeat_monitor.clone());
-		let build_heartbeat_monitor = match build_heartbeat_monitor {
-			None => Some(crate::config::BuildHeartbeatMonitor::default()),
-			Some(None) => None,
-			Some(Some(config)) => Some(config),
-		};
-		let build_heartbeat_monitor = build_heartbeat_monitor.map(|config| {
-			let interval = config.interval.unwrap_or(Duration::from_secs(1));
-			let limit = config.limit.unwrap_or(100);
-			let timeout = config.timeout.unwrap_or(Duration::from_secs(60));
-			tangram_server::options::BuildHeartbeatMonitor {
-				interval,
-				limit,
-				timeout,
+		// Set the build options.
+		if let Some(build) = self.config.as_ref().and_then(|config| config.build.clone()) {
+			let mut build_ = tangram_server::config::Build::default();
+			if let Some(concurrency) = build.as_ref().and_then(|config| config.concurrency) {
+				build_.concurrency = concurrency;
 			}
-		});
+			if let Some(heartbeat_interval) =
+				build.as_ref().and_then(|config| config.heartbeat_interval)
+			{
+				build_.heartbeat_interval = heartbeat_interval;
+			}
+			config.build = Some(build_);
+		}
 
-		// Create the build indexer options.
-		let build_indexer = self
+		// Set the build heartbeat monitor options.
+		if let Some(build_heartbeat_monitor) = self
 			.config
 			.as_ref()
-			.and_then(|config| config.build_indexer.clone());
-		let build_indexer = match build_indexer {
-			None => Some(crate::config::BuildIndexer::default()),
-			Some(None) => None,
-			Some(Some(config)) => Some(config),
-		};
-		let build_indexer = build_indexer.map(|_| tangram_server::options::BuildIndexer {});
+			.and_then(|config| config.build_heartbeat_monitor.clone())
+		{
+			let mut build_heartbeat_monitor_ =
+				tangram_server::config::BuildHeartbeatMonitor::default();
+			if let Some(interval) = build_heartbeat_monitor
+				.as_ref()
+				.and_then(|config| config.interval)
+			{
+				build_heartbeat_monitor_.interval = interval;
+			}
+			if let Some(limit) = build_heartbeat_monitor
+				.as_ref()
+				.and_then(|config| config.limit)
+			{
+				build_heartbeat_monitor_.limit = limit;
+			}
+			if let Some(timeout) = build_heartbeat_monitor
+				.as_ref()
+				.and_then(|config| config.timeout)
+			{
+				build_heartbeat_monitor_.timeout = timeout;
+			}
+			config.build_heartbeat_monitor = Some(build_heartbeat_monitor_);
+		}
 
-		// Create the database options.
-		let database = self
+		// Set the build indexer options.
+		if self
 			.config
 			.as_ref()
-			.and_then(|config| config.database.as_ref())
-			.map_or_else(
-				|| {
-					tangram_server::options::Database::Sqlite(
-						tangram_server::options::SqliteDatabase {
-							connections: std::thread::available_parallelism().unwrap().get(),
-						},
-					)
+			.and_then(|config| config.build_indexer.clone())
+			.is_some()
+		{
+			let build_indexer = tangram_server::config::BuildIndexer::default();
+			config.build_indexer = Some(build_indexer);
+		}
+
+		// Set the database options.
+		if let Some(database) = self
+			.config
+			.as_ref()
+			.and_then(|config| config.database.clone())
+		{
+			config.database = match database {
+				self::config::Database::Sqlite(database) => {
+					let mut database_ =
+						tangram_server::config::SqliteDatabase::with_path(&config.path);
+					if let Some(connections) = database.connections {
+						database_.connections = connections;
+					}
+					if let Some(path) = database.path {
+						database_.path = path;
+					}
+					tangram_server::config::Database::Sqlite(database_)
 				},
-				|database| match database {
-					crate::config::Database::Sqlite(sqlite) => {
-						let connections = sqlite
-							.connections
-							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-						tangram_server::options::Database::Sqlite(
-							tangram_server::options::SqliteDatabase { connections },
-						)
-					},
-					crate::config::Database::Postgres(postgres) => {
-						let url = postgres.url.clone();
-						let connections = postgres
-							.connections
-							.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
-						tangram_server::options::Database::Postgres(
-							tangram_server::options::PostgresDatabase { url, connections },
-						)
-					},
+				self::config::Database::Postgres(database) => {
+					let mut database_ = tangram_server::config::PostgresDatabase::default();
+					if let Some(connections) = database.connections {
+						database_.connections = connections;
+					}
+					if let Some(url) = database.url {
+						database_.url = url;
+					}
+					tangram_server::config::Database::Postgres(database_)
 				},
-			);
+			};
+		}
 
-		// Create the messenger options.
-		let messenger = self
+		// Set the messenger options.
+		if let Some(messenger) = self
 			.config
 			.as_ref()
-			.and_then(|config| config.messenger.as_ref())
-			.map_or_else(
-				|| tangram_server::options::Messenger::Memory,
-				|messenger| match messenger {
-					crate::config::Messenger::Memory => tangram_server::options::Messenger::Memory,
-					crate::config::Messenger::Nats(nats) => {
-						let url = nats.url.clone();
-						tangram_server::options::Messenger::Nats(
-							tangram_server::options::NatsMessenger { url },
-						)
-					},
+			.and_then(|config| config.messenger.clone())
+		{
+			config.messenger = match messenger {
+				self::config::Messenger::Memory => tangram_server::config::Messenger::Memory,
+				self::config::Messenger::Nats(messenger) => {
+					let mut messenger_ = tangram_server::config::NatsMessenger::default();
+					if let Some(url) = messenger.url {
+						messenger_.url = url;
+					}
+					tangram_server::config::Messenger::Nats(messenger_)
 				},
-			);
+			}
+		}
 
-		// Create the object indexer options.
-		let object_indexer = self
+		// Set the object indexer options.
+		if let Some(object_indexer) = self
 			.config
 			.as_ref()
-			.and_then(|config| config.object_indexer.clone());
-		let object_indexer = match object_indexer {
-			None => Some(crate::config::ObjectIndexer::default()),
-			Some(None) => None,
-			Some(Some(config)) => Some(config),
-		};
-		let object_indexer =
-			object_indexer.map(|object_indexer| tangram_server::options::ObjectIndexer {
-				batch_size: object_indexer.batch_size.unwrap_or(128),
-				timeout: object_indexer.timeout.unwrap_or(Duration::from_secs(60)),
-			});
+			.and_then(|config| config.object_indexer.clone())
+		{
+			let mut object_indexer_ = tangram_server::config::ObjectIndexer::default();
+			if let Some(batch_size) = object_indexer.as_ref().and_then(|config| config.batch_size) {
+				object_indexer_.batch_size = batch_size;
+			}
+			if let Some(timeout) = object_indexer.as_ref().and_then(|config| config.timeout) {
+				object_indexer_.timeout = timeout;
+			}
+			config.object_indexer = Some(object_indexer_);
+		}
 
-		// Create the remote options.
-		let mut remotes = BTreeMap::new();
-		let name = "default".to_owned();
-		let remote = tangram_server::options::Remote {
-			build: false,
-			client: tg::Client::new(Url::parse("https://api.tangram.dev").unwrap()),
-		};
-		remotes.insert(name, remote);
+		// Set the remote options.
 		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.remotes.as_ref())
 		{
 			None => (),
-			Some(None) => remotes.clear(),
+			Some(None) => config.remotes.clear(),
 			Some(Some(remotes_)) => {
 				for (name, remote) in remotes_ {
 					match remote {
 						None => {
-							remotes.remove(name);
+							config.remotes.remove(name);
 						},
 						Some(remote) => {
 							let name = name.clone();
 							let build = remote.build.unwrap_or_default();
 							let url = remote.url.clone();
 							let client = tg::Client::new(url);
-							let remote = tangram_server::options::Remote { build, client };
-							remotes.insert(name, remote);
+							let remote = tangram_server::config::Remote { build, client };
+							config.remotes.insert(name, remote);
 						},
 					}
 				}
 			},
 		}
 
-		// Get the version.
-		let version = Some(crate::Args::command().get_version().unwrap().to_owned());
-
-		// Create the vfs options.
-		let vfs = self.config.as_ref().and_then(|config| config.vfs.clone());
-		let vfs = match vfs {
-			None => {
-				if cfg!(target_os = "macos") {
-					None
-				} else {
-					Some(crate::config::Vfs::default())
-				}
-			},
-			Some(None) => None,
-			Some(Some(config)) => Some(config),
-		};
-		let vfs = vfs.map(|config| {
-			let cache_ttl = config.cache_ttl.unwrap_or(Duration::from_secs(10));
-			let cache_size = config.cache_size.unwrap_or(4096);
-			let database_connections = config.database_connections.unwrap_or(4);
-			tangram_server::options::Vfs {
-				cache_ttl,
-				cache_size,
-				database_connections,
+		// Set the vfs options.
+		if let Some(vfs) = self.config.as_ref().and_then(|config| config.vfs.clone()) {
+			let mut vfs_ = tangram_server::config::Vfs::default();
+			if let Some(cache_ttl) = vfs.as_ref().and_then(|config| config.cache_ttl) {
+				vfs_.cache_ttl = cache_ttl;
 			}
-		});
-
-		// Create the options.
-		let options = tangram_server::Options {
-			advanced,
-			authentication,
-			build,
-			build_heartbeat_monitor,
-			build_indexer,
-			database,
-			messenger,
-			object_indexer,
-			path,
-			remotes,
-			url,
-			version,
-			vfs,
-		};
+			if let Some(cache_size) = vfs.as_ref().and_then(|config| config.cache_size) {
+				vfs_.cache_size = cache_size;
+			}
+			if let Some(database_connections) =
+				vfs.as_ref().and_then(|config| config.database_connections)
+			{
+				vfs_.database_connections = database_connections;
+			}
+			config.vfs = Some(vfs_);
+		}
 
 		// Start the server.
-		let server = tangram_server::Server::start(options)
+		let server = tangram_server::Server::start(config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the server"))?;
 
@@ -1049,14 +1021,14 @@ impl Cli {
 
 		let file_descriptor_limit = match (file_descriptor_semaphore_size, file_descriptor_limit) {
 			// If neither is provided, use double the default size.
-			(None, None) => DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE * 2,
+			(None, None) => 1024 * 2,
 
 			// If just the size is set, use double the size.
 			(Some(size), None) => size * 2,
 
 			// If the limit is set, use it.
 			(None, Some(limit)) => {
-				let size = DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE;
+				let size = 1024;
 				if limit < size * 2 {
 					tracing::warn!(?size, limit, "the file descriptor limit is less than double the default file descriptor semaphore size");
 				}
@@ -1066,7 +1038,7 @@ impl Cli {
 			// If both are set, use the limit.
 			(Some(size), Some(limit)) => {
 				if size > limit / 2 {
-					tracing::warn!(?size, limit, "file descriptor semaphore size is greater than 50% of the file descriptor limit");
+					tracing::warn!(?size, limit, "the file descriptor semaphore size is greater than half of the file descriptor limit");
 				}
 				limit
 			},

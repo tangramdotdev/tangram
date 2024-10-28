@@ -10,7 +10,10 @@ use std::{
 	sync::Arc,
 };
 
+pub use self::{builder::Builder, data::Data};
+
 pub mod build;
+pub mod builder;
 
 #[derive(
 	Clone,
@@ -40,25 +43,42 @@ pub struct Object {
 	pub args: tg::value::Array,
 	pub checksum: Option<tg::Checksum>,
 	pub env: tg::value::Map,
-	pub executable: Option<tg::Artifact>,
+	pub executable: Option<Executable>,
 	pub host: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Data {
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub args: tg::value::data::Array,
+#[derive(Clone, Debug, derive_more::From)]
+pub enum Executable {
+	Artifact(tg::Artifact),
+	Module(tg::Module),
+}
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub checksum: Option<tg::Checksum>,
+pub mod data {
+	use super::*;
 
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub env: tg::value::data::Map,
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	pub struct Data {
+		#[serde(default, skip_serializing_if = "Vec::is_empty")]
+		pub args: tg::value::data::Array,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub executable: Option<tg::artifact::Id>,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		pub checksum: Option<tg::Checksum>,
 
-	pub host: String,
+		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+		pub env: tg::value::data::Map,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		pub executable: Option<tg::target::data::Executable>,
+
+		pub host: String,
+	}
+
+	#[derive(Clone, Debug, derive_more::Display, serde::Deserialize, serde::Serialize)]
+	#[serde(untagged)]
+	pub enum Executable {
+		Artifact(tg::artifact::Id),
+		Module(tg::Module),
+	}
 }
 
 impl Id {
@@ -187,7 +207,13 @@ impl Target {
 			.try_collect()
 			.await?;
 		let executable = if let Some(executable) = object.executable.as_ref() {
-			Some(executable.id(handle).await?)
+			let executable = match executable {
+				Executable::Artifact(artifact) => {
+					data::Executable::Artifact(artifact.id(handle).await?)
+				},
+				Executable::Module(module) => data::Executable::Module(module.clone()),
+			};
+			Some(executable)
 		} else {
 			None
 		};
@@ -236,7 +262,7 @@ impl Target {
 	pub async fn executable<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Artifact>>>
+	) -> tg::Result<impl std::ops::Deref<Target = Option<Executable>>>
 	where
 		H: tg::Handle,
 	{
@@ -266,10 +292,23 @@ impl Data {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		std::iter::empty()
-			.chain(self.executable.clone().map(Into::into))
+			.chain(self.executable.iter().flat_map(data::Executable::children))
 			.chain(self.args.iter().flat_map(tg::value::Data::children))
 			.chain(self.env.values().flat_map(tg::value::Data::children))
 			.collect()
+	}
+}
+
+impl data::Executable {
+	#[must_use]
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		match self {
+			data::Executable::Artifact(id) => [id.clone().into()].into(),
+			data::Executable::Module(module) => match &module.referent.item {
+				tg::module::Item::Path(_) => [].into(),
+				tg::module::Item::Object(id) => [id.clone()].into(),
+			},
+		}
 	}
 }
 
@@ -284,7 +323,7 @@ impl TryFrom<Data> for Object {
 			.into_iter()
 			.map(|(key, data)| Ok::<_, tg::Error>((key, data.try_into()?)))
 			.try_collect()?;
-		let executable = data.executable.map(tg::Artifact::with_id);
+		let executable = data.executable.map(TryInto::try_into).transpose()?;
 		let host = data.host;
 		Ok(Self {
 			args,
@@ -293,6 +332,17 @@ impl TryFrom<Data> for Object {
 			executable,
 			host,
 		})
+	}
+}
+
+impl TryFrom<data::Executable> for Executable {
+	type Error = tg::Error;
+
+	fn try_from(data: data::Executable) -> std::result::Result<Self, Self::Error> {
+		match data {
+			data::Executable::Artifact(id) => Ok(Self::Artifact(tg::Artifact::with_id(id))),
+			data::Executable::Module(module) => Ok(Self::Module(module)),
+		}
 	}
 }
 
@@ -315,65 +365,8 @@ impl std::str::FromStr for Id {
 	}
 }
 
-#[derive(Clone, Debug)]
-pub struct Builder {
-	args: Vec<tg::Value>,
-	checksum: Option<tg::Checksum>,
-	env: BTreeMap<String, tg::Value>,
-	executable: Option<tg::Artifact>,
-	host: String,
-}
-
-impl Builder {
-	#[must_use]
-	pub fn new(host: impl Into<String>) -> Self {
-		Self {
-			args: Vec::new(),
-			checksum: None,
-			env: BTreeMap::new(),
-			executable: None,
-			host: host.into(),
-		}
-	}
-
-	#[must_use]
-	pub fn args(mut self, args: Vec<tg::Value>) -> Self {
-		self.args = args;
-		self
-	}
-
-	#[must_use]
-	pub fn checksum(mut self, checksum: impl Into<Option<tg::Checksum>>) -> Self {
-		self.checksum = checksum.into();
-		self
-	}
-
-	#[must_use]
-	pub fn env(mut self, env: BTreeMap<String, tg::Value>) -> Self {
-		self.env = env;
-		self
-	}
-
-	#[must_use]
-	pub fn executable(mut self, executable: impl Into<Option<tg::Artifact>>) -> Self {
-		self.executable = executable.into();
-		self
-	}
-
-	#[must_use]
-	pub fn host(mut self, host: String) -> Self {
-		self.host = host;
-		self
-	}
-
-	#[must_use]
-	pub fn build(self) -> Target {
-		Target::with_object(Object {
-			args: self.args,
-			checksum: self.checksum,
-			env: self.env,
-			executable: self.executable,
-			host: self.host,
-		})
+impl From<tg::File> for Executable {
+	fn from(value: tg::File) -> Self {
+		Self::Artifact(value.into())
 	}
 }

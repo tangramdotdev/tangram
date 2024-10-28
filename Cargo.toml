@@ -10,6 +10,7 @@ members = [
   "packages/ignore",
   "packages/messenger",
   "packages/server",
+  "packages/temp",
   "packages/uri",
   "packages/v8",
   "packages/version",
@@ -74,6 +75,7 @@ im = "15"
 include_dir = "0.7"
 indexmap = "2"
 indoc = "2"
+insta = { version = "1", features = ["yaml"] }
 itertools = "0.13"
 libc = "0.2"
 lsp-types = "0.97"
@@ -87,6 +89,7 @@ once_cell = "1"
 petgraph = "0.6"
 pin-project = "1"
 proptest = "1"
+rand = "0.8"
 ratatui = "0.29"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = [
@@ -127,6 +130,7 @@ tangram_http = { path = "packages/http" }
 tangram_ignore = { path = "packages/ignore" }
 tangram_messenger = { path = "packages/messenger" }
 tangram_server = { path = "packages/server" }
+tangram_temp = { path = "packages/temp" }
 tangram_uri = { path = "packages/uri" }
 tangram_v8 = { path = "packages/v8" }
 tangram_version = { path = "packages/version" }

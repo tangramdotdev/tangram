@@ -138,3 +138,18 @@ impl FromV8 for tg::target::Object {
 		})
 	}
 }
+
+impl ToV8 for tg::target::Executable {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		todo!()
+	}
+}
+
+impl FromV8 for tg::target::Executable {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		todo!()
+	}
+}
