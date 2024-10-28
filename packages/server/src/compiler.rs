@@ -1,5 +1,5 @@
 use self::{document::Document, syscall::syscall};
-use crate::{tmp::Tmp, Server};
+use crate::{temp::Temp, Server};
 use dashmap::DashMap;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt};
 use lsp_types::{self as lsp, notification::Notification as _, request::Request as _};
@@ -53,8 +53,8 @@ pub struct Inner {
 	/// The documents.
 	documents: DashMap<tg::Module, Document, fnv::FnvBuildHasher>,
 
-	/// The library tmp.
-	library_tmp: Tmp,
+	/// The library temp.
+	library_temp: Temp,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
@@ -115,7 +115,7 @@ impl Compiler {
 	pub fn new(server: &crate::Server, main_runtime_handle: tokio::runtime::Handle) -> Self {
 		let diagnostics = tokio::sync::RwLock::new(BTreeMap::new());
 		let documents = DashMap::default();
-		let library_tmp = Tmp::new(server);
+		let library_temp = Temp::new(server);
 		let request_sender = Mutex::new(None);
 		let request_thread = Mutex::new(None);
 		let sender = std::sync::RwLock::new(None);
@@ -123,7 +123,7 @@ impl Compiler {
 		Self(Arc::new(Inner {
 			diagnostics,
 			documents,
-			library_tmp,
+			library_temp,
 			main_runtime_handle,
 			request_sender,
 			request_thread,
@@ -623,8 +623,8 @@ impl Compiler {
 		}
 		let path = Path::new(uri.path().as_str());
 
-		// Handle a path in the library tmp.
-		if let Ok(path) = path.strip_prefix(&self.library_tmp.path) {
+		// Handle a path in the library temp.
+		if let Ok(path) = path.strip_prefix(&self.library_temp.path) {
 			let kind = tg::module::Kind::Dts;
 			let item = tg::module::Item::Path(path.to_owned());
 			let referent = tg::Referent {
@@ -637,7 +637,7 @@ impl Compiler {
 		}
 
 		// Handle a path in the checkouts directory.
-		if let Ok(path) = path.strip_prefix(self.server.checkouts_path()) {
+		if let Ok(path) = path.strip_prefix(self.server.cache_path()) {
 			#[allow(clippy::case_sensitive_file_extension_comparisons)]
 			let kind = if path.extension().is_some_and(|extension| extension == "js") {
 				tg::module::Kind::Js
@@ -703,15 +703,15 @@ impl Compiler {
 					.get_file(path)
 					.ok_or_else(|| tg::error!("invalid path"))?
 					.contents();
-				let path = self.library_tmp.path.join(path);
+				let path = self.library_temp.path.join(path);
 				let exists = tokio::fs::try_exists(&path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
 				if !exists {
-					tokio::fs::create_dir_all(&self.library_tmp.path)
+					tokio::fs::create_dir_all(&self.library_temp.path)
 						.await
 						.map_err(|source| {
-							tg::error!(!source, "failed create the library tmp directory")
+							tg::error!(!source, "failed create the library temp directory")
 						})?;
 					tokio::fs::write(&path, contents)
 						.await
@@ -750,11 +750,11 @@ impl Compiler {
 				}
 				let path = if let Some(subpath) = subpath {
 					self.server
-						.checkouts_path()
+						.cache_path()
 						.join(object.to_string())
 						.join(subpath)
 				} else {
-					self.server.checkouts_path().join(object.to_string())
+					self.server.cache_path().join(object.to_string())
 				};
 				let path = path.display();
 				let uri = format!("file://{path}").parse().unwrap();

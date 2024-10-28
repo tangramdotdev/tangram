@@ -10,7 +10,7 @@ use futures::{
 };
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tangram_either::Either;
 
 pub use self::data::*;
@@ -164,16 +164,16 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
 			Self::Null | Self::Bool(_) | Self::Number(_) | Self::String(_) | Self::Bytes(_) => {
-				vec![]
+				[].into()
 			},
 			Self::Array(array) => array.iter().flat_map(Self::children).collect(),
 			Self::Map(map) => map.values().flat_map(Self::children).collect(),
 			Self::Mutation(mutation) => mutation.children(),
 			Self::Template(template) => template.children(),
-			Self::Object(id) => vec![id.clone()],
+			Self::Object(id) => [id.clone()].into(),
 		}
 	}
 }

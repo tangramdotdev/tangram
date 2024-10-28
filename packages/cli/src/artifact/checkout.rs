@@ -14,7 +14,7 @@ pub struct Args {
 	#[arg(short, long, requires = "path")]
 	pub force: bool,
 
-	/// The path to check out the artifact to. The default is the artifact's ID in the checkouts directory.
+	/// The path to check out the artifact to.
 	#[arg(index = 2)]
 	pub path: Option<PathBuf>,
 

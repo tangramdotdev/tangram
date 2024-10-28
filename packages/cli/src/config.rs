@@ -3,9 +3,6 @@ use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use tangram_client::{self as tg, util::serde::is_false};
 use url::Url;
 
-/// The value to use for the file descriptor semaphore if none is provided.
-pub(crate) const DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE: usize = 1024;
-
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Config {
 	/// Advanced configuration.
@@ -99,10 +96,6 @@ pub struct Advanced {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub build_dequeue_timeout: Option<Duration>,
 
-	/// Whether to duplicate build logs to the server's stderr.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub duplicate_build_logs_to_stderr: Option<bool>,
-
 	/// Options for rendering error traces.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error_trace_options: Option<tg::error::TraceOptions>,
@@ -126,6 +119,10 @@ pub struct Advanced {
 	/// Whether to write build logs to the database instead of files.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_build_logs_to_database: Option<bool>,
+
+	/// Whether to write build logs to the server's stderr.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_build_logs_to_stderr: Option<bool>,
 }
 
 #[serde_as]
@@ -184,8 +181,19 @@ pub struct Build {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Database {
-	Sqlite(SqliteDatabase),
 	Postgres(PostgresDatabase),
+	Sqlite(SqliteDatabase),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct PostgresDatabase {
+	/// The number of connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connections: Option<usize>,
+
+	/// The URL.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Url>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -193,16 +201,10 @@ pub struct SqliteDatabase {
 	/// The number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
-}
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct PostgresDatabase {
-	/// The URL.
-	pub url: Url,
-
-	/// The number of connections.
+	/// The path.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
+	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -215,7 +217,8 @@ pub enum Messenger {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct NatsMessenger {
-	pub url: Url,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Url>,
 }
 
 #[serde_as]
@@ -231,12 +234,12 @@ pub struct ObjectIndexer {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Remote {
-	/// The server's url.
-	pub url: Url,
-
 	/// Enable remote builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub build: Option<bool>,
+
+	/// The server's url.
+	pub url: Url,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

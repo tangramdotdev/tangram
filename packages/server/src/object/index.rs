@@ -20,7 +20,7 @@ impl Server {
 			.boxed();
 
 		let permits = self
-			.options
+			.config
 			.object_indexer
 			.as_ref()
 			.unwrap()
@@ -71,7 +71,7 @@ impl Server {
 				"
 			);
 			let limit = semaphore.available_permits();
-			let timeout = self.options.object_indexer.as_ref().unwrap().timeout;
+			let timeout = self.config.object_indexer.as_ref().unwrap().timeout;
 			let now = (time::OffsetDateTime::now_utc()).format(&Rfc3339).unwrap();
 			let time = (time::OffsetDateTime::now_utc() - timeout)
 				.format(&Rfc3339)

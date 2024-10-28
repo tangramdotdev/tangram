@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate as tg;
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use itertools::Itertools as _;
@@ -115,9 +117,9 @@ impl Mutation {
 
 impl Data {
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
-			Self::Unset => vec![],
+			Self::Unset => [].into(),
 			Self::Set { value } | Self::SetIfUnset { value } => value.children(),
 			Self::Prepend { values } | Self::Append { values } => {
 				values.iter().flat_map(tg::value::Data::children).collect()

@@ -449,7 +449,10 @@ where
 			self.map_entry("env", |s| s.map(&object.env))?;
 		}
 		if let Some(executable) = &object.executable {
-			self.map_entry("executable", |s| s.artifact(executable))?;
+			self.map_entry("executable", |s| match executable {
+				tg::target::Executable::Artifact(artifact) => s.artifact(artifact),
+				tg::target::Executable::Module(module) => todo!(),
+			})?;
 		}
 		self.map_entry("host", |s| s.string(&object.host))?;
 		self.finish_map()?;

@@ -7,10 +7,10 @@ use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 impl Server {
 	pub async fn clean(&self) -> tg::Result<()> {
 		// Clean the temporary directory.
-		tokio::fs::remove_dir_all(self.tmp_path())
+		tokio::fs::remove_dir_all(self.temp_path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to remove the temporary directory"))?;
-		tokio::fs::create_dir_all(self.tmp_path())
+		tokio::fs::create_dir_all(self.temp_path())
 			.await
 			.map_err(|error| {
 				tg::error!(source = error, "failed to recreate the temporary directory")

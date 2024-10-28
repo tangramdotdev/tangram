@@ -783,7 +783,11 @@ where
 				let index = 0;
 				let kind = NodeKind::Value {
 					name: Some("executable".into()),
-					value: executable.clone().into(),
+					value: match executable.as_ref() {
+						None => tg::Value::Null,
+						Some(tg::target::Executable::Artifact(artifact)) => artifact.clone().into(),
+						Some(tg::target::Executable::Module(module)) => todo!(),
+					},
 				};
 				let executable = Self::new(&self.handle, parent, index, kind);
 
@@ -1001,100 +1005,68 @@ where
 			return Ok(());
 		}
 
-		// Get the referrer if this is not a root.
-		'a: {
-			let Some(parent) = self.parent() else {
-				break 'a;
-			};
+		// // Get the parent if this is not a root.
+		// 'a: {
+		// 	let Some(parent) = self.parent() else {
+		// 		break 'a;
+		// 	};
+		// 	let NodeKind::Build { build: parent, .. } = parent.state.read().unwrap().kind.clone()
+		// 	else {
+		// 		break 'a;
+		// 	};
+		// 	let parent = parent.target(&self.handle).await?;
+		// 	let parent = parent
+		// 		.executable(&self.handle)
+		// 		.await?
+		// 		.clone()
+		// 		.ok_or_else(|| tg::error!("expected an executable"))?;
 
-			let NodeKind::Build { build, .. } = parent.state.read().unwrap().kind.clone() else {
-				break 'a;
-			};
+		// 	// Get the executable.
+		// 	let executable = target
+		// 		.executable(&self.handle)
+		// 		.await?
+		// 		.clone()
+		// 		.ok_or_else(|| tg::error!("expected an object"))?;
 
-			// Get the referrer.
-			let referrer = build
-				.target(&self.handle)
-				.await?
-				.executable(&self.handle)
-				.await?
-				.clone()
-				.ok_or_else(|| tg::error!("expected an object"))?;
-			let referrer = match referrer {
-				tg::Artifact::Directory(_) => return Err(tg::error!("expected a file or symlink")),
-				tg::Artifact::File(file) => file,
-				tg::Artifact::Symlink(symlink) => {
-					let directory = symlink
-						.artifact(&self.handle)
-						.await?
-						.ok_or_else(|| tg::error!("expected an object"))?
-						.clone()
-						.try_unwrap_directory()
-						.map_err(|_| tg::error!("expected a directory"))?;
-					let path = symlink
-						.subpath(&self.handle)
-						.await?
-						.ok_or_else(|| tg::error!("expected a path"))?;
-					directory
-						.get(&self.handle, &path)
-						.await?
-						.try_unwrap_file()
-						.map_err(|_| tg::error!("expected a file"))?
-				},
-			};
+		// 	// Get the parent's dependencies.
+		// 	let dependencies: Vec<_> = parent
+		// 		.dependencies(&self.handle)
+		// 		.await?
+		// 		.into_iter()
+		// 		.map(|(reference, referent)| async move {
+		// 			let id = referent.item.id(&self.handle).await?;
+		// 			Ok::<_, tg::Error>((reference, id))
+		// 		})
+		// 		.collect::<FuturesUnordered<_>>()
+		// 		.try_collect()
+		// 		.await?;
 
-			// Get the object.
-			let executable = target
-				.executable(&self.handle)
-				.await?
-				.clone()
-				.ok_or_else(|| tg::error!("expected an object"))?;
-			let object: tg::object::Id = match executable {
-				tg::Artifact::Directory(_) => return Err(tg::error!("expected a file or symlink")),
-				tg::Artifact::File(file) => file.id(&self.handle).await?.into(),
-				tg::Artifact::Symlink(symlink) => symlink
-					.artifact(&self.handle)
-					.await?
-					.ok_or_else(|| tg::error!("expected an object"))?
-					.id(&self.handle)
-					.await?
-					.into(),
-			};
+		// 	// Find the object in the dependencies.
+		// 	if let Some(reference) = dependencies
+		// 		.iter()
+		// 		.find_map(|(reference, id)| (id == &object).then_some(reference))
+		// 	{
+		// 		write!(title, "{reference}").unwrap();
+		// 	}
+		// }
 
-			// Get the referrer's dependencies.
-			let dependencies: Vec<_> = referrer
-				.dependencies(&self.handle)
-				.await?
-				.into_iter()
-				.map(|(reference, referent)| async move {
-					let id = referent.item.id(&self.handle).await?;
-					Ok::<_, tg::Error>((reference, id))
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
+		// if host.as_str() == "js" {
+		// 	let name = target
+		// 		.args(&self.handle)
+		// 		.await?
+		// 		.first()
+		// 		.and_then(|arg| arg.try_unwrap_string_ref().ok())
+		// 		.cloned();
+		// 	if let Some(name) = name {
+		// 		write!(title, "#{name}").unwrap();
+		// 	}
+		// }
 
-			// Find the object in the dependencies.
-			if let Some(reference) = dependencies
-				.iter()
-				.find_map(|(reference, id)| (id == &object).then_some(reference))
-			{
-				write!(title, "{reference}").unwrap();
-			}
-		}
+		// self.state.write().unwrap().title.replace(title);
 
-		if host.as_str() == "js" {
-			let name = target
-				.args(&self.handle)
-				.await?
-				.first()
-				.and_then(|arg| arg.try_unwrap_string_ref().ok())
-				.cloned();
-			if let Some(name) = name {
-				write!(title, "#{name}").unwrap();
-			}
-		}
-		self.state.write().unwrap().title.replace(title);
-		Ok(())
+		// Ok(())
+
+		todo!()
 	}
 
 	async fn set_value_title(&self, name: Option<String>, value: tg::Value) -> tg::Result<()> {

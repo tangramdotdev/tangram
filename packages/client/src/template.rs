@@ -1,7 +1,7 @@
 use crate as tg;
 use futures::{stream::FuturesOrdered, Future, TryStreamExt as _};
 use itertools::Itertools as _;
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::BTreeSet};
 
 pub use self::component::Component;
 
@@ -108,7 +108,7 @@ impl TryFrom<Data> for Template {
 
 impl Data {
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		self.components
 			.iter()
 			.filter_map(|component| match component {

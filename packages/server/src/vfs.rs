@@ -22,7 +22,7 @@ impl Server {
 		server: &crate::Server,
 		kind: Kind,
 		path: &Path,
-		options: crate::options::Vfs,
+		options: crate::config::Vfs,
 	) -> tg::Result<Self> {
 		// Remove a file at the path if one exists.
 		tokio::fs::remove_file(path).await.ok();

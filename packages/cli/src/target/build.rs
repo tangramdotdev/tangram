@@ -1,10 +1,9 @@
 use crate::Cli;
 use crossterm::{self as ct, style::Stylize as _};
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::TryStreamExt as _;
 use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::{
-	fmt::Write as _,
 	io::IsTerminal as _,
 	path::PathBuf,
 	sync::{Arc, Mutex, Weak},
@@ -157,8 +156,9 @@ impl Cli {
 						if directory.try_get_entry(&handle, name).await?.is_some() {
 							let artifact = Some(directory.clone().into());
 							let path = Some(name.parse().unwrap());
-							executable =
-								Some(tg::Symlink::with_artifact_and_subpath(artifact, path).into());
+							executable = Some(tg::target::Executable::Artifact(
+								tg::Symlink::with_artifact_and_subpath(artifact, path).into(),
+							));
 							break;
 						}
 					}
@@ -598,127 +598,6 @@ where
 	}
 
 	async fn title(&self) -> tg::Result<()> {
-		let mut title = String::new();
-
-		// Get the target.
-		let target = self.build.target(&self.handle).await?;
-		let host = target.host(&self.handle).await?;
-
-		// If this is a builtin, use the first arg.
-		if host.as_str() == "builtin" {
-			let name = target
-				.args(&self.handle)
-				.await?
-				.first()
-				.and_then(|arg| arg.try_unwrap_string_ref().ok())
-				.cloned()
-				.ok_or_else(|| tg::error!("expected a string"))?;
-			write!(title, "{name}").unwrap();
-			self.state.lock().unwrap().title = title;
-			return Ok(());
-		}
-
-		// Get the referrer if this is not a root.
-		let parent = self
-			.state
-			.lock()
-			.unwrap()
-			.parent
-			.as_ref()
-			.and_then(Weak::upgrade);
-		if let Some(parent) = parent {
-			let referrer = parent
-				.build
-				.target(&self.handle)
-				.await?
-				.executable(&self.handle)
-				.await?
-				.clone()
-				.ok_or_else(|| tg::error!("expected an object"))?;
-			let referrer = match referrer {
-				tg::Artifact::Directory(_) => return Err(tg::error!("expected a file or symlink")),
-				tg::Artifact::File(file) => file,
-				tg::Artifact::Symlink(symlink) => {
-					let directory = symlink
-						.artifact(&self.handle)
-						.await?
-						.ok_or_else(|| tg::error!("expected an object"))?
-						.clone()
-						.try_unwrap_directory()
-						.map_err(|_| tg::error!("expected a directory"))?;
-					let path = symlink
-						.subpath(&self.handle)
-						.await?
-						.ok_or_else(|| tg::error!("expected a path"))?;
-					directory
-						.get(&self.handle, &path)
-						.await?
-						.try_unwrap_file()
-						.map_err(|_| tg::error!("expected a file"))?
-				},
-			};
-
-			let executable = target
-				.executable(&self.handle)
-				.await?
-				.clone()
-				.ok_or_else(|| tg::error!("expected an object"))?;
-			let object: tg::object::Id = match executable {
-				tg::Artifact::Directory(_) => return Err(tg::error!("expected a file or symlink")),
-				tg::Artifact::File(file) => file.id(&self.handle).await?.into(),
-				tg::Artifact::Symlink(symlink) => {
-					let artifact = symlink
-						.artifact(&self.handle)
-						.await?
-						.ok_or_else(|| tg::error!("expected an object"))?;
-					let path = symlink.subpath(&self.handle).await?;
-					if let Some(path) = path {
-						artifact
-							.try_unwrap_directory_ref()
-							.map_err(|_| tg::error!("expected a directory"))?
-							.get(&self.handle, path)
-							.await?
-							.id(&self.handle)
-							.await?
-							.into()
-					} else {
-						artifact.id(&self.handle).await?.into()
-					}
-				},
-			};
-
-			let dependencies: Vec<_> = referrer
-				.dependencies(&self.handle)
-				.await?
-				.into_iter()
-				.map(|(reference, referent)| async move {
-					let id = referent.item.id(&self.handle).await?;
-					Ok::<_, tg::Error>((reference, id))
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
-
-			if let Some(reference) = dependencies
-				.iter()
-				.find_map(|(reference, id)| (id == &object).then_some(reference))
-			{
-				write!(title, "{reference}").unwrap();
-			}
-		}
-
-		if host.as_str() == "js" {
-			let name = target
-				.args(&self.handle)
-				.await?
-				.first()
-				.and_then(|arg| arg.try_unwrap_string_ref().ok())
-				.cloned();
-			if let Some(name) = name {
-				write!(title, "#{name}").unwrap();
-			}
-		}
-		self.state.lock().unwrap().title = title;
-		Ok(())
+		todo!()
 	}
 }

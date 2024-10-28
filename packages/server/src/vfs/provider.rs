@@ -1,4 +1,4 @@
-use crate::{tmp::Tmp, Server};
+use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::TryStreamExt as _;
@@ -27,7 +27,7 @@ pub struct Provider {
 	pending_nodes: Arc<DashMap<u64, Node, fnv::FnvBuildHasher>>,
 	server: Server,
 	#[allow(dead_code)]
-	tmp: Tmp,
+	temp: Temp,
 }
 
 pub struct DirectoryHandle {
@@ -431,18 +431,18 @@ impl vfs::Provider for Provider {
 }
 
 impl Provider {
-	pub async fn new(server: &Server, options: crate::options::Vfs) -> tg::Result<Self> {
+	pub async fn new(server: &Server, options: crate::config::Vfs) -> tg::Result<Self> {
 		// Create the cache.
 		let cache = moka::sync::CacheBuilder::new(options.cache_size.to_u64().unwrap())
 			.time_to_idle(options.cache_ttl)
 			.build_with_hasher(fnv::FnvBuildHasher::default());
 
 		// Create the database.
-		let tmp = Tmp::new(server);
-		tokio::fs::create_dir_all(&tmp)
+		let temp = Temp::new(server);
+		tokio::fs::create_dir_all(&temp)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the database directory"))?;
-		let path = tmp.path.join("vfs");
+		let path = temp.path.join("vfs");
 		let initialize = Box::new(|connection: &sqlite::Connection| {
 			connection.pragma_update(None, "journal_mode", "wal")?;
 			Ok(())
@@ -510,7 +510,7 @@ impl Provider {
 			file_handles,
 			pending_nodes,
 			server,
-			tmp,
+			temp,
 		};
 
 		Ok(provider)

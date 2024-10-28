@@ -1,5 +1,5 @@
 use crate::util::path::Ext as _;
-use crate::{tmp::Tmp, Server};
+use crate::{temp::Temp, Server};
 use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use std::{
@@ -141,7 +141,7 @@ impl Server {
 					tg::error!(%path = path.display(), "there is already a file system object at the path"),
 				);
 			}
-			if (path.as_ref() as &Path).starts_with(self.checkouts_path()) {
+			if (path.as_ref() as &Path).starts_with(self.cache_path()) {
 				return Err(
 					tg::error!(%path = path.display(), "cannot check out an artifact to the checkouts directory"),
 				);
@@ -195,8 +195,8 @@ impl Server {
 				return Ok(output);
 			}
 
-			// Create a tmp.
-			let tmp = (checkouts_path == &self.checkouts_path()).then(|| Tmp::new(self));
+			// Create a temp.
+			let temp = (checkouts_path == &self.cache_path()).then(|| Temp::new(self));
 
 			// Perform the checkout to the tmp.
 			let files = Arc::new(DashMap::default());
@@ -206,7 +206,7 @@ impl Server {
 				checkouts_path,
 				existing_artifact: None,
 				files,
-				path: tmp.as_ref().map_or(&path, |tmp| &tmp.path),
+				path: temp.as_ref().map_or(&path, |tmp| &tmp.path),
 				progress,
 			};
 			self.check_out_inner(arg).await?;
@@ -218,7 +218,7 @@ impl Server {
 			}
 
 			// Move the checkout to the checkouts directory.
-			if let Some(tmp) = tmp {
+			if let Some(tmp) = temp {
 				match tokio::fs::rename(&tmp, &path).await {
 					Ok(()) => (),
 
@@ -428,14 +428,8 @@ impl Server {
 			.ok_or_else(|| tg::error!("expected a file"))?;
 
 		// Handle an existing artifact at the path.
-		match &existing_artifact {
-			// If there is an existing file system object at the path, then remove it and continue.
-			Some(_) => {
-				crate::util::fs::remove(path).await.ok();
-			},
-
-			// If there is no file system object at this path, then continue.
-			None => (),
+		if existing_artifact.is_some() {
+			crate::util::fs::remove(path).await.ok();
 		};
 
 		// Check out the file's dependencies.
@@ -559,14 +553,8 @@ impl Server {
 			.ok_or_else(|| tg::error!("expected a symlink"))?;
 
 		// Handle an existing artifact at the path.
-		match &existing_artifact {
-			// If there is an existing file system object at the path, then remove it and continue.
-			Some(_) => {
-				crate::util::fs::remove(&path).await.ok();
-			},
-
-			// If there is no file system object at this path, then continue.
-			None => (),
+		if existing_artifact.is_some() {
+			crate::util::fs::remove(&path).await.ok();
 		};
 
 		// Get the symlink's data.
@@ -615,7 +603,7 @@ impl Server {
 		output_path: Option<&Path>,
 	) -> tg::Result<PathBuf> {
 		let Some(output_path) = output_path else {
-			return Ok(self.checkouts_path());
+			return Ok(self.cache_path());
 		};
 
 		if !output_path.is_absolute() {

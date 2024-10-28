@@ -1,5 +1,5 @@
 use super::object;
-use crate::{tmp::Tmp, util::path::Ext as _, Server};
+use crate::{temp::Temp, util::path::Ext as _, Server};
 use futures::{future, stream::FuturesUnordered, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools;
@@ -547,7 +547,7 @@ impl Server {
 impl Server {
 	pub async fn write_links(&self, output: Arc<RwLock<Graph>>) -> tg::Result<()> {
 		let path = self
-			.checkouts_path()
+			.cache_path()
 			.join(output.read().unwrap().id.to_string());
 		let mut visited = BTreeSet::new();
 		self.write_links_inner(&path, output, &mut visited).await?;
@@ -582,7 +582,7 @@ impl Server {
 		// If this is a file, we need to create a hardlink in the checkouts directory and create a symlink for its contents in the blobs directory that points to the corresponding entry in the checkouts directory.
 		if let tg::artifact::Data::File(file) = data {
 			// Create hard link to the file or copy as needed.
-			let dst = self.checkouts_path().join(id.to_string());
+			let dst = self.cache_path().join(id.to_string());
 			if hardlink_prohibited {
 				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 				let result = tokio::fs::copy(path, &dst).await.map(|_| ());
@@ -759,7 +759,7 @@ impl Server {
 			let input = output.read().unwrap().input.clone();
 			if input.read().await.root.is_none() {
 				// Create a temp.
-				let temp = Tmp::new(self);
+				let temp = Temp::new(self);
 
 				// Copy or move to the temp.
 				let mut visited = BTreeSet::new();
@@ -775,7 +775,7 @@ impl Server {
 
 				// Rename to the checkouts directory.
 				let artifact = output.read().unwrap().data.id()?;
-				let dest = self.checkouts_path().join(artifact.to_string());
+				let dest = self.cache_path().join(artifact.to_string());
 
 				match tokio::fs::rename(&temp.path, &dest).await {
 					Ok(()) => (),

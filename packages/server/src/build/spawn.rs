@@ -22,7 +22,7 @@ impl Server {
 					.boxed(),
 			)
 			.chain(
-				self.options
+				self.config
 					.remotes
 					.iter()
 					.filter(|(_, remote)| remote.build)
@@ -166,7 +166,7 @@ impl Server {
 
 		// Log an error if one occurred.
 		if let Err(error) = &result {
-			let options = &self.options.advanced.error_trace_options;
+			let options = &self.config.advanced.error_trace_options;
 			let trace = error.trace(options);
 			let bytes = trace.to_string().into();
 			let arg = tg::build::log::post::Arg {
@@ -186,7 +186,7 @@ impl Server {
 	}
 
 	async fn heartbeat_task(&self, build: tg::Build, remote: Option<String>) -> tg::Result<()> {
-		let interval = self.options.build.as_ref().unwrap().heartbeat_interval;
+		let interval = self.config.build.as_ref().unwrap().heartbeat_interval;
 		loop {
 			let arg = tg::build::heartbeat::Arg {
 				remote: remote.clone(),

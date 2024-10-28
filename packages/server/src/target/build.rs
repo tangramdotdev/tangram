@@ -207,7 +207,7 @@ impl Server {
 		let build = tg::Build::with_id(build_id.clone());
 
 		// Create the build's log if necessary.
-		if !self.options.advanced.write_build_logs_to_database {
+		if !self.config.advanced.write_build_logs_to_database {
 			let path = self.logs_path().join(build_id.to_string());
 			tokio::fs::File::create(&path).await.map_err(
 				|source| tg::error!(!source, %path = path.display(), "failed to create the log file"),

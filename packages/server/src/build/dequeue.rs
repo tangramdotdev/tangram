@@ -51,11 +51,7 @@ impl Server {
 				"
 			);
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let timeout = self
-				.options
-				.advanced
-				.build_dequeue_timeout
-				.unwrap_or(Duration::from_secs(3600));
+			let timeout = self.config.advanced.build_dequeue_timeout;
 			let time = (time::OffsetDateTime::now_utc() - timeout)
 				.format(&Rfc3339)
 				.unwrap();
