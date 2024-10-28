@@ -14,6 +14,7 @@ struct InnerOutput {
 struct Metadata {
 	build_count: Option<u64>,
 	object_count: Option<u64>,
+	object_depth: Option<u64>,
 	object_weight: Option<u64>,
 }
 
@@ -110,6 +111,7 @@ impl Server {
 		let put_arg = tg::build::put::Arg {
 			id: build.clone(),
 			children,
+			depth: output.depth,
 			host: output.host,
 			log: output.log.clone(),
 			outcome: output.outcome,
@@ -228,7 +230,7 @@ impl Server {
 		arg: &tg::build::push::Arg,
 	) -> tg::Result<Metadata> {
 		let build_count = if arg.recursive { output.count } else { Some(1) };
-		let (object_count, object_weight) = if arg.recursive {
+		let (object_count, object_depth, object_weight) = if arg.recursive {
 			// If the push is recursive, then use the logs', outcomes', and targets' counts and weights.
 			let logs_count = if arg.logs { output.logs_count } else { Some(0) };
 			let outcomes_count = if arg.outcomes {
@@ -246,6 +248,23 @@ impl Server {
 				.chain(Some(outcomes_count))
 				.chain(Some(targets_count))
 				.sum::<Option<u64>>();
+			let logs_depth = if arg.logs { output.logs_depth } else { Some(0) };
+			let outcomes_depth = if arg.outcomes {
+				output.outcomes_depth
+			} else {
+				Some(0)
+			};
+			let targets_depth = if arg.targets {
+				output.targets_depth
+			} else {
+				Some(0)
+			};
+			let depth = std::iter::empty()
+				.chain(Some(logs_depth))
+				.chain(Some(outcomes_depth))
+				.chain(Some(targets_depth))
+				.max()
+				.unwrap();
 			let logs_weight = if arg.logs {
 				output.logs_weight
 			} else {
@@ -266,24 +285,24 @@ impl Server {
 				.chain(Some(outcomes_weight))
 				.chain(Some(targets_weight))
 				.sum::<Option<u64>>();
-			(count, weight)
+			(count, depth, weight)
 		} else {
-			// If the push is not recursive, then use the count and weight of the log, outcome, and target.
-			let (log_count, log_weight) = if arg.logs {
+			// If the push is not recursive, then use the count, depth, and weight of the log, outcome, and target.
+			let (log_count, log_depth, log_weight) = if arg.logs {
 				if let Some(log) = output.log.as_ref() {
 					if let Some(metadata) = src.try_get_object_metadata(&log.clone().into()).await?
 					{
-						(metadata.count, metadata.weight)
+						(metadata.count, metadata.depth, metadata.weight)
 					} else {
-						(Some(0), Some(0))
+						(Some(0), Some(0), Some(0))
 					}
 				} else {
-					(Some(0), Some(0))
+					(Some(0), Some(0), Some(0))
 				}
 			} else {
-				(Some(0), Some(0))
+				(Some(0), Some(0), Some(0))
 			};
-			let (outcome_count, outcome_weight) = if arg.outcomes {
+			let (outcome_count, outcome_depth, outcome_weight) = if arg.outcomes {
 				if let Some(tg::build::outcome::Data::Succeeded(output)) = output.outcome.as_ref() {
 					let metadata = output
 						.children()
@@ -296,25 +315,37 @@ impl Server {
 						.iter()
 						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.count))
 						.sum::<Option<u64>>();
+					let depth = metadata.iter().try_fold(0, |depth, metadata| {
+						match metadata {
+							Some(data) => {
+								if let Some(mdepth) = data.depth {
+									Some(std::cmp::max(mdepth, depth))
+								} else {
+									None // Bail out if metadata.depth is None
+								}
+							},
+							None => None, // Bail out early if metadata itself is None
+						}
+					});
 					let weight = metadata
 						.iter()
 						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.weight))
 						.sum::<Option<u64>>();
-					(count, weight)
+					(count, depth, weight)
 				} else {
-					(Some(0), Some(0))
+					(Some(0), Some(0), Some(0))
 				}
 			} else {
-				(Some(0), Some(0))
+				(Some(0), Some(0), Some(0))
 			};
-			let (target_count, target_weight) = {
+			let (target_count, target_depth, target_weight) = {
 				if let Some(metadata) = src
 					.try_get_object_metadata(&output.target.clone().into())
 					.await?
 				{
-					(metadata.count, metadata.weight)
+					(metadata.count, metadata.depth, metadata.weight)
 				} else {
-					(Some(0), Some(0))
+					(Some(0), Some(0), Some(0))
 				}
 			};
 			let count = std::iter::empty()
@@ -322,16 +353,23 @@ impl Server {
 				.chain(Some(outcome_count))
 				.chain(Some(target_count))
 				.sum::<Option<u64>>();
+			let depth = std::iter::empty()
+				.chain(Some(log_depth))
+				.chain(Some(outcome_depth))
+				.chain(Some(target_depth))
+				.max()
+				.unwrap();
 			let weight = std::iter::empty()
 				.chain(Some(log_weight))
 				.chain(Some(outcome_weight))
 				.chain(Some(target_weight))
 				.sum::<Option<u64>>();
-			(count, weight)
+			(count, depth, weight)
 		};
 		Ok(Metadata {
 			build_count,
 			object_count,
+			object_depth,
 			object_weight,
 		})
 	}

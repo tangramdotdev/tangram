@@ -36,6 +36,10 @@ impl Server {
 			if cycle {
 				return Err(tg::error!("cycle detected"));
 			}
+			let depth_overflow = self.detect_depth_overflow(parent).await?;
+			if depth_overflow {
+				return Err(tg::error!("the build graph is too deep"));
+			}
 		}
 
 		// Get a local build if one exists that satisfies the retry constraint.
@@ -185,6 +189,7 @@ impl Server {
 		let put_arg = tg::build::put::Arg {
 			id: build_id.clone(),
 			children: Vec::new(),
+			depth: 1,
 			host: host.clone(),
 			log: None,
 			outcome: None,
@@ -255,6 +260,68 @@ impl Server {
 		let output = tg::target::build::Output { build: build_id };
 
 		Ok(Some(output))
+	}
+
+	async fn detect_depth_overflow(&self, parent: &tg::build::Id) -> tg::Result<bool> {
+		let connection = self
+			.database
+			.connection(db::Priority::Low)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		let p = connection.p();
+
+		#[derive(serde::Deserialize, serde::Serialize)]
+		struct Row {
+			id: tg::build::Id,
+			depth: u64,
+		}
+		let statement = formatdoc!(
+			"
+				with recursive ancestors as (
+					select b.id, b.depth
+					from builds b
+					join build_children c on b.id = c.child
+					where c.child = {p}1
+
+					union all
+
+					select b.id, b.depth
+					from ancestors a
+					join build_children c on a.id = c.child
+					join builds b on c.build = b.id
+				)
+				select id, depth from ancestors;
+			"
+		);
+		let params = db::params![parent];
+		let ancestors = connection
+			.query_all_into::<Row>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		let max_depth = ancestors.iter().map(|row| row.depth).max();
+		let ancestors = ancestors.iter().map(|row| row.id.clone()).collect_vec();
+		let ancestors = serde_json::to_string(&ancestors).unwrap();
+		if let Some(max_depth) = max_depth {
+			if max_depth >= 100 {
+				return Ok(true);
+			}
+			let statement = formatdoc!(
+				"
+					update builds
+					set depth = depth + 1
+					where id in (select value from json_each({p}1));
+				"
+			);
+			let params = db::params![ancestors];
+			connection
+				.execute(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+		// Drop the connection.
+		drop(connection);
+		Ok(false)
 	}
 
 	async fn detect_build_cycle(
