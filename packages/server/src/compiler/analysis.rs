@@ -5,7 +5,7 @@ use std::{
 	rc::Rc,
 };
 use swc::ecma::{ast, visit::VisitWith};
-use swc_core as swc;
+use swc_core::{self as swc, common::Spanned};
 use tangram_client as tg;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -115,10 +115,9 @@ impl swc::ecma::visit::Visit for Visitor {
 			let Some(init) = init.as_deref() else {
 				continue;
 			};
-			let Some(object) = init.as_object() else {
+			let Some(metadata) = self.to_json(init) else {
 				continue;
 			};
-			let metadata = self.object_to_json(object);
 			let Ok(metadata) = serde_json::from_value(metadata) else {
 				continue;
 			};
@@ -250,86 +249,70 @@ impl Visitor {
 		self.imports.insert(import);
 	}
 
-	fn object_to_json(&mut self, object: &ast::ObjectLit) -> serde_json::Value {
-		let mut output = serde_json::Map::new();
-		let loc = self.source_map.lookup_char_pos(object.span.lo);
-		for prop in &object.props {
-			let Some(prop) = prop.as_prop() else {
-				self.errors
-					.push(Error::new("spread properties are not allowed", &loc));
-				continue;
-			};
-			let Some(key_value) = prop.as_key_value() else {
-				self.errors
-					.push(Error::new("only key-value properties are allowed", &loc));
-				continue;
-			};
-			let key = match &key_value.key {
-				ast::PropName::Ident(ident) => ident.sym.to_string(),
-				ast::PropName::Str(value) => value.value.to_string(),
-				_ => {
-					self.errors.push(Error::new("keys must be strings", &loc));
-					continue;
-				},
-			};
-			let value = match key_value.value.as_ref() {
-				ast::Expr::Lit(ast::Lit::Null(_)) => serde_json::Value::Null,
-				ast::Expr::Lit(ast::Lit::Bool(value)) => serde_json::Value::Bool(value.value),
-				ast::Expr::Lit(ast::Lit::Num(value)) => {
-					let Some(value) = serde_json::Number::from_f64(value.value) else {
-						self.errors.push(Error::new("invalid number", &loc));
+	fn to_json(&mut self, expr: &ast::Expr) -> Option<serde_json::Value> {
+		let loc = self.source_map.lookup_char_pos(expr.span_lo());
+		match expr {
+			ast::Expr::Lit(ast::Lit::Null(_)) => Some(serde_json::Value::Null),
+			ast::Expr::Lit(ast::Lit::Bool(value)) => Some(serde_json::Value::Bool(value.value)),
+			ast::Expr::Lit(ast::Lit::Num(value)) => {
+				let Some(value) = serde_json::Number::from_f64(value.value) else {
+					self.errors.push(Error::new("invalid number", &loc));
+					return None;
+				};
+				Some(serde_json::Value::Number(value))
+			},
+			ast::Expr::Lit(ast::Lit::Str(value)) => {
+				Some(serde_json::Value::String(value.value.to_string()))
+			},
+			ast::Expr::Array(ast::ArrayLit { elems, .. }) => {
+				let mut array = Vec::new();
+				for elem in elems {
+					let Some(elem) = elem else {
+						self.errors
+							.push(Error::new("array holes are not allowed", &loc));
 						continue;
 					};
-					serde_json::Value::Number(value)
-				},
-				ast::Expr::Lit(ast::Lit::Str(value)) => {
-					serde_json::Value::String(value.value.to_string())
-				},
-				ast::Expr::Array(ast::ArrayLit { elems, .. }) => {
-					let mut array = Vec::new();
-					for elem in elems {
-						let Some(elem) = elem else {
-							self.errors
-								.push(Error::new("array holes are not allowed", &loc));
+					let Some(value) = self.to_json(elem.expr.as_ref()) else {
+						return None;
+					};
+					array.push(value);
+				}
+				Some(serde_json::Value::Array(array))
+			},
+			ast::Expr::Object(ast::ObjectLit { props, .. }) => {
+				let mut output = serde_json::Map::new();
+				for prop in props {
+					let Some(prop) = prop.as_prop() else {
+						self.errors
+							.push(Error::new("spread properties are not allowed", &loc));
+						continue;
+					};
+					let Some(key_value) = prop.as_key_value() else {
+						self.errors
+							.push(Error::new("only key-value properties are allowed", &loc));
+						continue;
+					};
+					let key = match &key_value.key {
+						ast::PropName::Ident(ident) => ident.sym.to_string(),
+						ast::PropName::Str(value) => value.value.to_string(),
+						_ => {
+							self.errors.push(Error::new("keys must be strings", &loc));
 							continue;
-						};
-						let value = match elem.expr.as_ref() {
-							ast::Expr::Lit(ast::Lit::Null(_)) => serde_json::Value::Null,
-							ast::Expr::Lit(ast::Lit::Bool(value)) => {
-								serde_json::Value::Bool(value.value)
-							},
-							ast::Expr::Lit(ast::Lit::Num(value)) => {
-								let Some(value) = serde_json::Number::from_f64(value.value) else {
-									self.errors
-										.push(Error::new("invalid number in array", &loc));
-									continue;
-								};
-								serde_json::Value::Number(value)
-							},
-							ast::Expr::Lit(ast::Lit::Str(value)) => {
-								serde_json::Value::String(value.value.to_string())
-							},
-							_ => {
-								self.errors.push(Error::new(
-									"array elements must be valid JSON values",
-									&loc,
-								));
-								continue;
-							},
-						};
-						array.push(value);
-					}
-					serde_json::Value::Array(array)
-				},
-				_ => {
-					self.errors
-						.push(Error::new("values must be valid JSON", &loc));
-					continue;
-				},
-			};
-			output.insert(key, value);
+						},
+					};
+					let Some(value) = self.to_json(key_value.value.as_ref()) else {
+						return None;
+					};
+					output.insert(key, value);
+				}
+				Some(serde_json::Value::Object(output))
+			},
+			_ => {
+				self.errors
+					.push(Error::new("values must be valid JSON", &loc));
+				None
+			},
 		}
-		serde_json::Value::Object(output)
 	}
 }
 
