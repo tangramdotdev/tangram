@@ -209,7 +209,7 @@ impl Server {
 
 		for child in children {
 			// Skip any paths outside the workspace.
-			if child.read().await.root.is_none() {
+			if child.read().await.parent.is_none() {
 				continue;
 			}
 			Box::pin(self.write_lockfiles_inner(child, lockfile, paths, visited)).await?;

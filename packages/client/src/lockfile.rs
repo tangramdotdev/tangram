@@ -54,22 +54,3 @@ impl Lockfile {
 		Ok(Some(lockfile))
 	}
 }
-
-impl Node {
-	#[must_use]
-	pub fn children(&self) -> Vec<Either<usize, tg::object::Id>> {
-		match self {
-			Self::Directory { entries } => entries.values().cloned().collect(),
-			Self::File { dependencies, .. } => dependencies
-				.values()
-				.map(|dependency| dependency.item.clone())
-				.collect(),
-			Self::Symlink { artifact, .. } => {
-				let Some(artifact) = artifact else {
-					return Vec::new();
-				};
-				vec![artifact.clone()]
-			},
-		}
-	}
-}

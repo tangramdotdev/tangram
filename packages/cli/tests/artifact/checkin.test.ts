@@ -14,6 +14,7 @@ test("directory", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
+
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -31,6 +32,7 @@ test("file", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
+
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -47,6 +49,7 @@ test("symlink", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
+
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -62,6 +65,7 @@ test("cycle", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
+
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -78,6 +82,7 @@ test("cyclic-path-dependencies", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
+
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -95,6 +100,7 @@ test("executable", async () => {
 	let metadata = await server.tg`object metadata ${id}`
 		.text()
 		.then((t) => t.trim());
+
 	expect(id).toMatchSnapshot();
 	expect(data).toMatchSnapshot();
 	expect(metadata).toMatchSnapshot();
@@ -111,18 +117,55 @@ test("roundtrip directory", async () => {
 	expect(equal).toBeTrue();
 });
 
-test("depth", async () => {
+test("non empty lockfile", async () => {
 	await using server = await Server.start();
-	let dir = await directory({
-		"nested/directory/executable": file({ contents: "", executable: true }),
+	let dependency = await directory({
+		"tangram.ts": "export default tg.target(async () => 42);",
 	});
-	let id = await server.tg`checkin ${dir}`.text().then((t) => t.trim());
-	let data = await server.tg`get ${id}`.text().then((t) => t.trim());
-	let metadata = await server.tg`object metadata ${id}`
-		.text()
-		.then((t) => t.trim());
-
-	expect(id).toMatchSnapshot();
-	expect(data).toMatchSnapshot();
-	expect(metadata).toMatchSnapshot();
+	await server.tg`tag dependency ${dependency}`;
+	let referrer = await directory({
+		"tangram.ts": `
+			import dependency from "dependency";
+			export default tg.target(async () => dependency());
+		`,
+	});
+	let id = await server.tg`checkin ${referrer}`;
+	let lockfile: Lockfile = JSON.parse(
+		await Bun.file(`${referrer}/tangram.lock`).text(),
+	);
+	expect(lockfile.nodes.length > 0).toBeTrue();
+	let node = lockfile.nodes[1];
+	if (!node) {
+		expect(false).toBeTrue();
+	} else if (node.kind === "file") {
+		let dependencies = node.dependencies ? node.dependencies : {};
+		expect(dependencies["dependency"]?.tag === "dependency");
+	} else {
+		expect(false).toBeTrue();
+	}
 });
+
+type Lockfile = {
+	nodes: Array<Node>;
+};
+type Node =
+	| {
+			kind: "directory";
+			entries: { [name: string]: number | string };
+	  }
+	| {
+			kind: "file";
+			contents?: string;
+			executable?: boolean;
+			dependencies?: { [reference: string]: Dependency };
+	  }
+	| {
+			kind: "symlink";
+			artifact?: number | string;
+			path?: string;
+	  };
+
+type Dependency = {
+	object: number | string;
+	tag?: string;
+};

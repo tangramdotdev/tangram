@@ -32,6 +32,14 @@ pub struct Edge {
 	pub tag: Option<tg::Tag>,
 }
 
+#[derive(Clone, Debug)]
+struct RemappedEdge {
+	pub id: Either<usize, tg::object::Id>,
+	pub reference: tg::Reference,
+	pub subpath: Option<PathBuf>,
+	pub tag: Option<tg::Tag>,
+}
+
 impl Server {
 	pub(super) async fn create_object_graph(
 		&self,
@@ -259,12 +267,13 @@ impl Server {
 					let id = graph.nodes[edge.index].id.clone().unwrap();
 					Either::Right(id)
 				};
-				(
-					edge.reference.clone(),
+				let edge = RemappedEdge {
+					reference: edge.reference.clone(),
 					id,
-					edge.tag.clone(),
-					edge.subpath.clone(),
-				)
+					tag: edge.tag.clone(),
+					subpath: edge.subpath.clone(),
+				};
+				edge
 			})
 			.collect::<Vec<_>>();
 
@@ -272,8 +281,9 @@ impl Server {
 		let node = if metadata.is_dir() {
 			let entries = edges
 				.into_iter()
-				.map(|(reference, id, _tag, _subpath)| {
-					let name = reference
+				.map(|edge| {
+					let name = edge
+						.reference
 						.item()
 						.unwrap_path_ref()
 						.components()
@@ -283,7 +293,7 @@ impl Server {
 						.to_str()
 						.unwrap()
 						.to_owned();
-					let id = id.map_right(|id| id.try_into().unwrap());
+					let id = edge.id.map_right(|id| id.try_into().unwrap());
 					(name, id)
 				})
 				.collect();
@@ -295,67 +305,20 @@ impl Server {
 				.await?;
 			tg::graph::data::Node::File(file)
 		} else if metadata.is_symlink() {
-			// Read the symlink
-			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let target = tokio::fs::read_link(&path).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to read symlink"),
-			)?;
-			drop(permit);
-
-			let edge = edges.first().cloned();
-			let (artifact, subpath) = 'a: {
-				// If there is an edge, use it to construct the symlink.
-				if let Some((_reference, id, _tag, subpath)) = edge {
-					let artifact = id.map_right(|object| match object {
-						tg::object::Id::Directory(a) => a.into(),
-						tg::object::Id::File(a) => a.into(),
-						tg::object::Id::Symlink(a) => a.into(),
-						_ => unreachable!(),
-					});
-					break 'a (Some(artifact), subpath);
-				}
-
-				// Unrender the target.
-				let target = target
-					.to_str()
-					.ok_or_else(|| tg::error!("the symlink target must be valid UTF-8"))?;
-				let artifacts_path = self.artifacts_path();
-				let artifacts_path = artifacts_path
-					.to_str()
-					.ok_or_else(|| tg::error!("the artifacts path must be valid UTF-8"))?;
-				let template = tg::template::Data::unrender(artifacts_path, target)?;
-
-				// Check if this is a relative path symlink.
-				if template.components.len() == 1 {
-					let subpath = template.components[0]
-						.try_unwrap_string_ref()
-						.ok()
-						.ok_or_else(|| tg::error!("invalid symlink"))?
-						.clone();
-					let subpath = PathBuf::from(subpath);
-					break 'a (None, Some(subpath));
-				}
-
-				// Check if the symlink points within an artifact.
-				if template.components.len() == 2 {
-					let artifact = template.components[0]
-						.try_unwrap_artifact_ref()
-						.ok()
-						.ok_or_else(|| tg::error!("invalid symlink"))?
-						.clone();
-					let subpath = template.components[1]
-						.try_unwrap_string_ref()
-						.ok()
-						.ok_or_else(|| tg::error!("invalid sylink"))?
-						.clone();
-					let subpath = PathBuf::from(&subpath[1..].to_owned());
-					break 'a (Some(Either::Right(artifact)), Some(subpath));
-				}
-				return Err(tg::error!("invalid symlink"));
+			let edge = edges.first().cloned().unwrap();
+			let artifact = edge.id.map_right(|object| match object {
+				tg::object::Id::Directory(a) => a.into(),
+				tg::object::Id::File(a) => a.into(),
+				tg::object::Id::Symlink(a) => a.into(),
+				_ => unreachable!(),
+			});
+			let subpath = edge
+				.subpath
+				.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
+			let symlink = tg::graph::data::node::Symlink {
+				artifact: Some(artifact),
+				subpath,
 			};
-
-			let subpath = subpath.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
-			let symlink = tg::graph::data::node::Symlink { artifact, subpath };
 
 			tg::graph::data::Node::Symlink(symlink)
 		} else {
@@ -370,24 +333,19 @@ impl Server {
 		path: &Path,
 		index: usize,
 		metadata: std::fs::Metadata,
-		edges: Vec<(
-			tg::Reference,
-			Either<usize, tg::object::Id>,
-			Option<tg::Tag>,
-			Option<PathBuf>,
-		)>,
+		edges: Vec<RemappedEdge>,
 		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
 	) -> tg::Result<tg::graph::data::node::File> {
 		// Compute the dependencies, which will be shared in all cases.
 		let dependencies = edges
 			.into_iter()
-			.map(|(reference, object, tag, subpath)| {
+			.map(|edge| {
 				let dependency = tg::Referent {
-					item: object,
-					tag,
-					subpath,
+					item: edge.id,
+					tag: edge.tag,
+					subpath: edge.subpath,
 				};
-				(reference, dependency)
+				(edge.reference, dependency)
 			})
 			.collect();
 

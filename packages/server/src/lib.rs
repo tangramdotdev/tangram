@@ -569,8 +569,7 @@ impl Server {
 impl Server {
 	async fn listen(
 		url: &Url,
-	) -> tg::Result<tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>>
-	{
+	) -> tg::Result<tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>> {
 		let listener = match url.scheme() {
 			"http+unix" => {
 				let path = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
