@@ -1,10 +1,86 @@
 use crate::{Config, Server};
 use futures::FutureExt as _;
 use insta::assert_snapshot;
-use std::{future::Future, panic::AssertUnwindSafe, path::Path, pin::pin};
+use std::{future::Future, panic::AssertUnwindSafe};
 use tangram_client as tg;
-use tangram_futures::stream::TryStreamExt as _;
-use tangram_temp::{self as temp, artifact, Temp};
+use tangram_temp::{self as temp, artifact, symlink, Temp};
+
+#[tokio::test]
+async fn cyclic_dependencies() -> tg::Result<()> {
+	test(
+		artifact!({
+			"directory": {
+				"foo": {
+					"tangram.ts": r#"import * as bar from "../bar""#,
+				},
+				"bar": {
+					"tangram.ts": r#"import * as foo from "../foo""#,
+				},
+			},
+		}),
+		"directory/foo",
+		|_, _, output| async move {
+			eprintln!("{output}");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn directory() -> tg::Result<()> {
+	test(
+		artifact!({
+			"directory": {
+				"hello.txt": "Hello, world!",
+				"link": symlink!("hello.txt"),
+				"subdirectory": {
+					"sublink": symlink!("../link"),
+				}
+			}
+		}),
+		"directory",
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+		tg.directory({
+			"graph": tg.graph({
+				"nodes": [
+					{
+						"kind": "symlink",
+						"artifact": 3,
+						"subpath": "hello.txt",
+					},
+					{
+						"kind": "symlink",
+						"artifact": 3,
+						"subpath": "link",
+					},
+					{
+						"kind": "directory",
+						"entries": {
+							"sublink": 1,
+						},
+					},
+					{
+						"kind": "directory",
+						"entries": {
+							"hello.txt": tg.file({
+								"contents": tg.leaf("Hello, world!"),
+							}),
+							"link": 0,
+							"subdirectory": 2,
+						},
+					},
+				],
+			}),
+			"node": 3,
+		})
+		"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
 
 #[tokio::test]
 async fn readme() -> tg::Result<()> {
@@ -65,7 +141,13 @@ where
 		artifact
 			.to_path(directory.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the artifact"))?;
+			.map_err(
+				|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
+			)
+			.inspect_err(|error| {
+				eprintln!("path: {}", directory.path().display());
+				eprintln!("{error}");
+			})?;
 		let arg = tg::artifact::checkin::Arg {
 			destructive: false,
 			deterministic: false,

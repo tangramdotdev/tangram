@@ -5,6 +5,7 @@ use indoc::formatdoc;
 use itertools::Itertools;
 use std::{
 	collections::{BTreeMap, BTreeSet},
+	ffi::OsStr,
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
 	sync::{Arc, RwLock, Weak},
@@ -26,6 +27,7 @@ pub struct Graph {
 #[derive(Clone, Debug)]
 pub struct Edge {
 	pub reference: tg::Reference,
+	pub subpath: Option<PathBuf>,
 	pub graph: Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>,
 }
 
@@ -50,18 +52,22 @@ impl Server {
 		node: usize,
 		visited: &mut BTreeMap<usize, Weak<RwLock<Graph>>>,
 	) -> tg::Result<Node> {
+		// Check if this output node has been visited.
 		if let Some(visited) = visited.get(&node) {
 			return Ok(Either::Right(visited.clone()));
 		}
 
+		// Get the corresponding input node.
 		let input = graph.nodes[node]
 			.unify
 			.object
 			.as_ref()
 			.unwrap_left()
 			.clone();
+
+		// Create the output node.
 		let output = Arc::new(RwLock::new(Graph {
-			input,
+			input: input.clone(),
 			id: graph.nodes[node].id.clone().unwrap().try_into().unwrap(),
 			data: graph.nodes[node].data.clone().unwrap(),
 			metadata: graph.nodes[node].metadata.unwrap(),
@@ -69,20 +75,26 @@ impl Server {
 		}));
 		visited.insert(node, Arc::downgrade(&output));
 
+		// Create the output edges.
 		let mut edges = Vec::new();
 		for edge in &graph.nodes[node].edges {
 			if graph.nodes[edge.index].unify.object.is_right() {
 				continue;
 			}
+
 			let node = Box::pin(self.create_output_graph_inner(graph, edge.index, visited)).await?;
 			let edge = Edge {
 				reference: edge.reference.clone(),
+				subpath: edge.subpath.clone(),
 				graph: node,
 			};
 			edges.push(edge);
 		}
 
+		// Update the output edges.
 		output.write().unwrap().edges = edges;
+
+		// Return the created node.
 		Ok(Either::Left(output))
 	}
 }
@@ -185,366 +197,10 @@ impl Server {
 
 		Ok(())
 	}
-
-	pub(super) async fn _write_data_to_database(&self, data: tg::artifact::Data) -> tg::Result<()> {
-		let connection = self
-			.database
-			.connection(db::Priority::Low)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into objects (id, bytes, complete, touched_at)
-				values ({p}1, {p}2, {p}3, {p}4)
-				on conflict (id) do update set touched_at = {p}4;
-			"
-		);
-		let id = data.id()?;
-		let bytes = data.serialize()?;
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![id, bytes, 0, now];
-		connection
-			.execute(statement, params)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to put the artifact into the database")
-			})?;
-		Ok(())
-	}
 }
 
 impl Server {
-	pub(crate) async fn create_artifact_data_for_lockfile(
-		&self,
-		lockfile: &tg::lockfile::Lockfile,
-	) -> tg::Result<BTreeMap<usize, tg::artifact::Data>> {
-		let mut graphs = Vec::new();
-		let mut indices = BTreeMap::new();
-
-		for (graph_index, scc) in petgraph::algo::tarjan_scc(GraphImpl(lockfile))
-			.into_iter()
-			.enumerate()
-		{
-			let mut nodes = Vec::with_capacity(scc.len());
-
-			// Create new indices for each node.
-			for (node_index, lockfile_index) in scc.iter().copied().enumerate() {
-				indices.insert(lockfile_index, (graph_index, node_index));
-			}
-
-			// Convert nodes.
-			for lockfile_index in scc {
-				match &lockfile.nodes[lockfile_index] {
-					tg::lockfile::Node::Directory { entries } => {
-						let node = self
-							.create_directory_node(entries.clone(), &graphs, &indices)
-							.await?;
-						nodes.push(tg::graph::data::Node::Directory(node));
-					},
-					tg::lockfile::Node::File {
-						contents,
-						dependencies,
-						executable,
-						..
-					} => {
-						let node = self
-							.create_file_node(
-								contents.clone(),
-								dependencies.clone(),
-								*executable,
-								&graphs,
-								&indices,
-							)
-							.await?;
-						nodes.push(tg::graph::data::Node::File(node));
-					},
-					tg::lockfile::Node::Symlink { artifact, subpath } => {
-						let node = self
-							.create_symlink_node(
-								artifact.clone(),
-								subpath.clone(),
-								&graphs,
-								&indices,
-							)
-							.await?;
-						nodes.push(tg::graph::data::Node::Symlink(node));
-					},
-				}
-			}
-
-			// Create the graph.
-			let graph = tg::graph::data::Data { nodes };
-
-			// Store the graph.
-			let id = graph.id()?;
-			let bytes = graph.serialize()?;
-			let arg = tg::object::put::Arg { bytes };
-			self.put_object(&id.into(), arg).await?;
-
-			graphs.push(graph);
-		}
-
-		// Create artifact data.
-		let mut artifacts = BTreeMap::new();
-		for (lockfile_index, (graph_index, node_index)) in indices {
-			let graph = &graphs[graph_index];
-			let graph_id = graph.id()?;
-			let data = match &graph.nodes[node_index] {
-				tg::graph::data::Node::Directory(directory) => {
-					if graph.nodes.len() == 1 {
-						let entries = directory
-							.entries
-							.iter()
-							.map(|(name, either)| (name.clone(), either.clone().unwrap_right()))
-							.collect();
-						tg::directory::Data::Normal { entries }.into()
-					} else {
-						tg::directory::Data::Graph {
-							graph: graph_id,
-							node: node_index,
-						}
-						.into()
-					}
-				},
-				tg::graph::data::Node::File(file) => {
-					if graph.nodes.len() == 1 {
-						let dependencies = file
-							.dependencies
-							.iter()
-							.map(|(reference, referent)| {
-								let item = match &referent.item {
-									Either::Left(_node) => {
-										return Err(tg::error!("invalid graph"));
-									},
-									Either::Right(object) => object.clone(),
-								};
-								let referent = tg::Referent {
-									item,
-									tag: referent.tag.clone(),
-									subpath: referent.subpath.clone(),
-								};
-								Ok::<_, tg::Error>((reference.clone(), referent))
-							})
-							.try_collect()?;
-						tg::file::Data::Normal {
-							contents: file.contents.clone(),
-							dependencies,
-							executable: file.executable,
-						}
-						.into()
-					} else {
-						tg::file::Data::Graph {
-							graph: graph_id,
-							node: node_index,
-						}
-						.into()
-					}
-				},
-				tg::graph::data::Node::Symlink(symlink) => {
-					if graph.nodes.len() == 1 {
-						let artifact = symlink.artifact.clone().map(Either::unwrap_right);
-						tg::symlink::Data::Normal {
-							artifact,
-							subpath: symlink.subpath.clone(),
-						}
-						.into()
-					} else {
-						tg::symlink::Data::Graph {
-							graph: graph_id,
-							node: node_index,
-						}
-						.into()
-					}
-				},
-			};
-			artifacts.insert(lockfile_index, data);
-		}
-
-		Ok(artifacts)
-	}
-
-	async fn create_directory_node(
-		&self,
-		entries: BTreeMap<String, tg::lockfile::Entry>,
-		graphs: &[tg::graph::Data],
-		indices: &BTreeMap<usize, (usize, usize)>,
-	) -> tg::Result<tg::graph::data::node::Directory> {
-		let mut entries_ = BTreeMap::new();
-		for (name, entry) in entries {
-			let entry = self
-				.resolve_lockfile_dependency(entry, graphs, indices)
-				.await?
-				.map_right(|object| match object {
-					tg::object::Id::Directory(id) => id.into(),
-					tg::object::Id::File(id) => id.into(),
-					tg::object::Id::Symlink(id) => id.into(),
-					_ => unreachable!(),
-				});
-			entries_.insert(name, entry);
-		}
-		Ok(tg::graph::data::node::Directory { entries: entries_ })
-	}
-
-	async fn create_file_node(
-		&self,
-		contents: Option<tg::blob::Id>,
-		dependencies: BTreeMap<tg::Reference, tg::Referent<tg::lockfile::Entry>>,
-		executable: bool,
-		graphs: &[tg::graph::Data],
-		indices: &BTreeMap<usize, (usize, usize)>,
-	) -> tg::Result<tg::graph::data::node::File> {
-		let contents = contents.ok_or_else(|| tg::error!("incomplete lockfile"))?;
-		let dependencies = dependencies
-			.into_iter()
-			.map(|(reference, referent)| async move {
-				let item = referent.item.clone();
-				let item = self
-					.resolve_lockfile_dependency(item, graphs, indices)
-					.await?;
-				let dependency = tg::Referent {
-					item,
-					subpath: referent.subpath,
-					tag: referent.tag,
-				};
-				Ok::<_, tg::Error>((reference, dependency))
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-		Ok(tg::graph::data::node::File {
-			contents,
-			dependencies,
-			executable,
-		})
-	}
-
-	async fn create_symlink_node(
-		&self,
-		artifact: Option<tg::lockfile::Entry>,
-		path: Option<PathBuf>,
-		graphs: &[tg::graph::Data],
-		indices: &BTreeMap<usize, (usize, usize)>,
-	) -> tg::Result<tg::graph::data::node::Symlink> {
-		let artifact = if let Some(artifact) = artifact {
-			let artifact = self
-				.resolve_lockfile_dependency(artifact, graphs, indices)
-				.await?
-				.map_right(|object| match object {
-					tg::object::Id::Directory(id) => id.into(),
-					tg::object::Id::File(id) => id.into(),
-					tg::object::Id::Symlink(id) => id.into(),
-					_ => unreachable!(),
-				});
-			Some(artifact)
-		} else {
-			None
-		};
-		let subpath = path;
-		Ok(tg::graph::data::node::Symlink { artifact, subpath })
-	}
-
-	async fn resolve_lockfile_dependency(
-		&self,
-		dependency: Either<usize, tg::object::Id>,
-		graphs: &[tg::graph::Data],
-		indices: &BTreeMap<usize, (usize, usize)>,
-	) -> tg::Result<Either<usize, tg::object::Id>> {
-		let Either::Left(lockfile_index) = dependency else {
-			return Ok(dependency);
-		};
-		let (graph_index, node_index) = indices.get(&lockfile_index).copied().unwrap();
-		if graph_index == graphs.len() {
-			return Ok(Either::Left(node_index));
-		}
-
-		let graph = &graphs[graph_index];
-		if graph.nodes.len() == 1 {
-			let id = match &graph.nodes[node_index] {
-				tg::graph::data::Node::Directory(node) => tg::directory::Data::Normal {
-					entries: node
-						.entries
-						.clone()
-						.into_iter()
-						.map(|(name, either)| {
-							let object = either
-								.right()
-								.ok_or_else(|| tg::error!("expected an object id"))?;
-							Ok::<_, tg::Error>((name, object))
-						})
-						.try_collect()?,
-				}
-				.id()?
-				.into(),
-				tg::graph::data::Node::File(node) => {
-					let dependencies = node
-						.dependencies
-						.iter()
-						.map(|(reference, referent)| {
-							let referent = tg::Referent {
-								item: referent
-									.item
-									.clone()
-									.right()
-									.ok_or_else(|| tg::error!("expected an object id"))?,
-								tag: referent.tag.clone(),
-								subpath: referent.subpath.clone(),
-							};
-							Ok::<_, tg::Error>((reference.clone(), referent))
-						})
-						.try_collect()?;
-					tg::file::Data::Normal {
-						contents: node.contents.clone(),
-						dependencies,
-						executable: node.executable,
-					}
-					.id()?
-					.into()
-				},
-				tg::graph::data::Node::Symlink(node) => tg::symlink::Data::Normal {
-					artifact: node
-						.artifact
-						.clone()
-						.map(|object| {
-							object
-								.right()
-								.ok_or_else(|| tg::error!("expected an artifact ID"))
-						})
-						.transpose()?,
-					subpath: node.subpath.clone(),
-				}
-				.id()?
-				.into(),
-			};
-			return Ok(Either::Right(id));
-		}
-
-		let object_id = match &graph.nodes[node_index].kind() {
-			tg::artifact::Kind::Directory => tg::directory::Data::Graph {
-				graph: graph.id()?,
-				node: node_index,
-			}
-			.id()?
-			.into(),
-			tg::artifact::Kind::File => tg::file::Data::Graph {
-				graph: graph.id()?,
-				node: node_index,
-			}
-			.id()?
-			.into(),
-			tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
-				graph: graph.id()?,
-				node: node_index,
-			}
-			.id()?
-			.into(),
-		};
-
-		Ok(Either::Right(object_id))
-	}
-}
-
-impl Server {
+	/// Write hardlinks in the cache directory.
 	pub async fn write_links(&self, output: Arc<RwLock<Graph>>) -> tg::Result<()> {
 		let path = self
 			.cache_path()
@@ -661,7 +317,7 @@ impl Server {
 			let input = child_output.read().unwrap().input.clone();
 
 			// Skip any children that are roots.
-			if input.read().await.root.is_none() {
+			if input.read().await.parent.is_none() {
 				continue;
 			}
 
@@ -684,6 +340,336 @@ impl Server {
 		}
 
 		Ok(())
+	}
+}
+
+impl Server {
+	pub(crate) async fn _create_artifact_data_for_lockfile(
+		&self,
+		lockfile: &tg::lockfile::Lockfile,
+	) -> tg::Result<BTreeMap<usize, tg::artifact::Data>> {
+		let mut graphs = Vec::new();
+		let mut indices = BTreeMap::new();
+
+		for (graph_index, scc) in petgraph::algo::tarjan_scc(GraphImpl(lockfile))
+			.into_iter()
+			.enumerate()
+		{
+			let mut nodes = Vec::with_capacity(scc.len());
+
+			// Create new indices for each node.
+			for (node_index, lockfile_index) in scc.iter().copied().enumerate() {
+				indices.insert(lockfile_index, (graph_index, node_index));
+			}
+
+			// Convert nodes.
+			for lockfile_index in scc {
+				match &lockfile.nodes[lockfile_index] {
+					tg::lockfile::Node::Directory { entries } => {
+						let node = self
+							._create_directory_node(entries.clone(), &graphs, &indices)
+							.await?;
+						nodes.push(tg::graph::data::Node::Directory(node));
+					},
+					tg::lockfile::Node::File {
+						contents,
+						dependencies,
+						executable,
+						..
+					} => {
+						let node = self
+							._create_file_node(
+								contents.clone(),
+								dependencies.clone(),
+								*executable,
+								&graphs,
+								&indices,
+							)
+							.await?;
+						nodes.push(tg::graph::data::Node::File(node));
+					},
+					tg::lockfile::Node::Symlink { artifact, subpath } => {
+						let node = self
+							._create_symlink_node(
+								artifact.clone(),
+								subpath.clone(),
+								&graphs,
+								&indices,
+							)
+							.await?;
+						nodes.push(tg::graph::data::Node::Symlink(node));
+					},
+				}
+			}
+
+			// Create the graph.
+			let graph = tg::graph::data::Data { nodes };
+
+			// Store the graph.
+			let id = graph.id()?;
+			let bytes = graph.serialize()?;
+			let arg = tg::object::put::Arg { bytes };
+			self.put_object(&id.into(), arg).await?;
+
+			graphs.push(graph);
+		}
+
+		// Create artifact data.
+		let mut artifacts = BTreeMap::new();
+		for (lockfile_index, (graph_index, node_index)) in indices {
+			let graph = &graphs[graph_index];
+			let graph_id = graph.id()?;
+			let data = match &graph.nodes[node_index] {
+				tg::graph::data::Node::Directory(directory) => {
+					if graph.nodes.len() == 1 {
+						let entries = directory
+							.entries
+							.iter()
+							.map(|(name, either)| (name.clone(), either.clone().unwrap_right()))
+							.collect();
+						tg::directory::Data::Normal { entries }.into()
+					} else {
+						tg::directory::Data::Graph {
+							graph: graph_id,
+							node: node_index,
+						}
+						.into()
+					}
+				},
+				tg::graph::data::Node::File(file) => {
+					if graph.nodes.len() == 1 {
+						let dependencies = file
+							.dependencies
+							.iter()
+							.map(|(reference, referent)| {
+								let item = match &referent.item {
+									Either::Left(_node) => {
+										return Err(tg::error!("invalid graph"));
+									},
+									Either::Right(object) => object.clone(),
+								};
+								let referent = tg::Referent {
+									item,
+									tag: referent.tag.clone(),
+									subpath: referent.subpath.clone(),
+								};
+								Ok::<_, tg::Error>((reference.clone(), referent))
+							})
+							.try_collect()?;
+						tg::file::Data::Normal {
+							contents: file.contents.clone(),
+							dependencies,
+							executable: file.executable,
+						}
+						.into()
+					} else {
+						tg::file::Data::Graph {
+							graph: graph_id,
+							node: node_index,
+						}
+						.into()
+					}
+				},
+				tg::graph::data::Node::Symlink(symlink) => {
+					if graph.nodes.len() == 1 {
+						let artifact = symlink.artifact.clone().map(Either::unwrap_right);
+						tg::symlink::Data::Normal {
+							artifact,
+							subpath: symlink.subpath.clone(),
+						}
+						.into()
+					} else {
+						tg::symlink::Data::Graph {
+							graph: graph_id,
+							node: node_index,
+						}
+						.into()
+					}
+				},
+			};
+			artifacts.insert(lockfile_index, data);
+		}
+
+		Ok(artifacts)
+	}
+
+	async fn _create_directory_node(
+		&self,
+		entries: BTreeMap<String, tg::lockfile::Entry>,
+		graphs: &[tg::graph::Data],
+		indices: &BTreeMap<usize, (usize, usize)>,
+	) -> tg::Result<tg::graph::data::node::Directory> {
+		let mut entries_ = BTreeMap::new();
+		for (name, entry) in entries {
+			let entry = self
+				._resolve_lockfile_dependency(entry, graphs, indices)
+				.await?
+				.map_right(|object| match object {
+					tg::object::Id::Directory(id) => id.into(),
+					tg::object::Id::File(id) => id.into(),
+					tg::object::Id::Symlink(id) => id.into(),
+					_ => unreachable!(),
+				});
+			entries_.insert(name, entry);
+		}
+		Ok(tg::graph::data::node::Directory { entries: entries_ })
+	}
+
+	async fn _create_file_node(
+		&self,
+		contents: Option<tg::blob::Id>,
+		dependencies: BTreeMap<tg::Reference, tg::Referent<tg::lockfile::Entry>>,
+		executable: bool,
+		graphs: &[tg::graph::Data],
+		indices: &BTreeMap<usize, (usize, usize)>,
+	) -> tg::Result<tg::graph::data::node::File> {
+		let contents = contents.ok_or_else(|| tg::error!("incomplete lockfile"))?;
+		let dependencies = dependencies
+			.into_iter()
+			.map(|(reference, referent)| async move {
+				let item = referent.item.clone();
+				let item = self
+					._resolve_lockfile_dependency(item, graphs, indices)
+					.await?;
+				let dependency = tg::Referent {
+					item,
+					subpath: referent.subpath,
+					tag: referent.tag,
+				};
+				Ok::<_, tg::Error>((reference, dependency))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
+		Ok(tg::graph::data::node::File {
+			contents,
+			dependencies,
+			executable,
+		})
+	}
+
+	async fn _create_symlink_node(
+		&self,
+		artifact: Option<tg::lockfile::Entry>,
+		path: Option<PathBuf>,
+		graphs: &[tg::graph::Data],
+		indices: &BTreeMap<usize, (usize, usize)>,
+	) -> tg::Result<tg::graph::data::node::Symlink> {
+		let artifact = if let Some(artifact) = artifact {
+			let artifact = self
+				._resolve_lockfile_dependency(artifact, graphs, indices)
+				.await?
+				.map_right(|object| match object {
+					tg::object::Id::Directory(id) => id.into(),
+					tg::object::Id::File(id) => id.into(),
+					tg::object::Id::Symlink(id) => id.into(),
+					_ => unreachable!(),
+				});
+			Some(artifact)
+		} else {
+			None
+		};
+		let subpath = path;
+		Ok(tg::graph::data::node::Symlink { artifact, subpath })
+	}
+
+	async fn _resolve_lockfile_dependency(
+		&self,
+		dependency: Either<usize, tg::object::Id>,
+		graphs: &[tg::graph::Data],
+		indices: &BTreeMap<usize, (usize, usize)>,
+	) -> tg::Result<Either<usize, tg::object::Id>> {
+		let Either::Left(lockfile_index) = dependency else {
+			return Ok(dependency);
+		};
+		let (graph_index, node_index) = indices.get(&lockfile_index).copied().unwrap();
+		if graph_index == graphs.len() {
+			return Ok(Either::Left(node_index));
+		}
+
+		let graph = &graphs[graph_index];
+		if graph.nodes.len() == 1 {
+			let id = match &graph.nodes[node_index] {
+				tg::graph::data::Node::Directory(node) => tg::directory::Data::Normal {
+					entries: node
+						.entries
+						.clone()
+						.into_iter()
+						.map(|(name, either)| {
+							let object = either
+								.right()
+								.ok_or_else(|| tg::error!("expected an object id"))?;
+							Ok::<_, tg::Error>((name, object))
+						})
+						.try_collect()?,
+				}
+				.id()?
+				.into(),
+				tg::graph::data::Node::File(node) => {
+					let dependencies = node
+						.dependencies
+						.iter()
+						.map(|(reference, referent)| {
+							let referent = tg::Referent {
+								item: referent
+									.item
+									.clone()
+									.right()
+									.ok_or_else(|| tg::error!("expected an object id"))?,
+								tag: referent.tag.clone(),
+								subpath: referent.subpath.clone(),
+							};
+							Ok::<_, tg::Error>((reference.clone(), referent))
+						})
+						.try_collect()?;
+					tg::file::Data::Normal {
+						contents: node.contents.clone(),
+						dependencies,
+						executable: node.executable,
+					}
+					.id()?
+					.into()
+				},
+				tg::graph::data::Node::Symlink(node) => tg::symlink::Data::Normal {
+					artifact: node
+						.artifact
+						.clone()
+						.map(|object| {
+							object
+								.right()
+								.ok_or_else(|| tg::error!("expected an artifact ID"))
+						})
+						.transpose()?,
+					subpath: node.subpath.clone(),
+				}
+				.id()?
+				.into(),
+			};
+			return Ok(Either::Right(id));
+		}
+
+		let object_id = match &graph.nodes[node_index].kind() {
+			tg::artifact::Kind::Directory => tg::directory::Data::Graph {
+				graph: graph.id()?,
+				node: node_index,
+			}
+			.id()?
+			.into(),
+			tg::artifact::Kind::File => tg::file::Data::Graph {
+				graph: graph.id()?,
+				node: node_index,
+			}
+			.id()?
+			.into(),
+			tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
+				graph: graph.id()?,
+				node: node_index,
+			}
+			.id()?
+			.into(),
+		};
+
+		Ok(Either::Right(object_id))
 	}
 }
 
@@ -757,7 +743,7 @@ impl Server {
 			}
 			visited.insert(id.clone());
 			let input = output.read().unwrap().input.clone();
-			if input.read().await.root.is_none() {
+			if input.read().await.parent.is_none() {
 				// Create a temp.
 				let temp = Temp::new(self);
 
@@ -826,7 +812,8 @@ impl Server {
 			for edge in dependencies {
 				let output = edge.node();
 				let input_ = output.read().unwrap().input.clone();
-				if input_.read().await.root.is_none() {
+				// Skip roots.
+				if input_.read().await.parent.is_none() {
 					continue;
 				}
 				let diff = input_.read().await.arg.path.diff(&input.arg.path).unwrap();
@@ -834,52 +821,7 @@ impl Server {
 				Box::pin(self.copy_or_move_all(dest, output, visited, progress)).await?;
 			}
 		} else if input.metadata.is_symlink() {
-			let target = 'a: {
-				let edge = input.edges.first().unwrap();
-				if let Some(dependency) = edge.node() {
-					if dependency.read().await.root.is_none() && edge.reference.as_str() != "." {
-						let id = output
-							.read()
-							.unwrap()
-							.edges
-							.first()
-							.unwrap()
-							.node()
-							.read()
-							.unwrap()
-							.id
-							.clone();
-						let target = input
-							.root
-							.as_ref()
-							.and_then(|root| input.arg.path.diff(root))
-							.map_or_else(
-								|| PathBuf::from(id.to_string()),
-								|diff| {
-									let mut buf = PathBuf::new();
-									for component in diff.components() {
-										if matches!(
-											component,
-											std::path::Component::ParentDir
-												| std::path::Component::CurDir
-										) {
-											buf.push(std::path::Component::ParentDir);
-											continue;
-										}
-										break;
-									}
-									buf.push(id.to_string());
-									buf
-								},
-							);
-						break 'a target;
-					}
-				}
-
-				// Otherwise use the reference.
-				edge.reference.item().unwrap_path_ref().clone()
-			};
-
+			let target = self.get_symlink_target(output.clone()).await?;
 			tokio::fs::symlink(&target, &dest)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create symlink"))?;
@@ -1014,7 +956,12 @@ impl Server {
 			.map(|edge| async move {
 				let child = edge.node();
 				let input = child.read().unwrap().input.clone();
-				input.read().await.root.as_ref()?;
+
+				// Skip roots.
+				if input.read().await.parent.is_none() {
+					return None;
+				}
+
 				let path = edge
 					.reference
 					.item()
@@ -1029,7 +976,7 @@ impl Server {
 			.await;
 		for (subpath, output_) in dependencies {
 			let input = output_.read().unwrap().input.clone();
-			if input.read().await.root.is_none() {
+			if input.read().await.parent.is_none() {
 				continue;
 			}
 			let dest = if matches!(
@@ -1044,6 +991,49 @@ impl Server {
 		}
 
 		Ok(())
+	}
+
+	async fn get_symlink_target(&self, symlink: Arc<RwLock<Graph>>) -> tg::Result<PathBuf> {
+		// Find how deep this node is in the output tree.
+		let mut input = symlink.read().unwrap().input.clone();
+		let mut depth = 0;
+		loop {
+			let Some(parent) = input.read().await.parent.clone() else {
+				break;
+			};
+			depth += 1;
+			input = parent.upgrade().unwrap();
+		}
+
+		// Get the outgoing edge.
+		let output_edge = symlink
+			.read()
+			.unwrap()
+			.edges
+			.first()
+			.ok_or_else(|| tg::error!("invalid symlink node"))?
+			.clone();
+
+		// Create the target.
+		let id = output_edge.node().read().unwrap().id.to_string();
+		let subpath = output_edge
+			.subpath
+			.map(|subpath| {
+				subpath
+					.strip_prefix("./")
+					.map(ToOwned::to_owned)
+					.unwrap_or(subpath)
+			})
+			.unwrap_or_default();
+
+		let components = (0..depth)
+			.map(|_| std::path::Component::ParentDir)
+			.chain(std::iter::once(std::path::Component::Normal(OsStr::new(
+				&id,
+			))))
+			.chain(subpath.components());
+
+		Ok(components.collect())
 	}
 }
 
@@ -1102,5 +1092,20 @@ impl Graph {
 				},
 			}
 		}
+	}
+}
+
+impl Edge {
+	#[allow(dead_code)]
+	pub(super) async fn print(&self) {
+		eprint!("({}", self.reference);
+		let node = self.node();
+		let input = node.read().unwrap().input.clone();
+		eprint!(" id: {}", node.read().unwrap().id);
+		eprint!(" path: {}", input.read().await.arg.path.display());
+		if let Some(subpath) = &self.subpath {
+			eprint!(" subpath: {}", subpath.display());
+		}
+		eprintln!(")");
 	}
 }

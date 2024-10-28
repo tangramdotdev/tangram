@@ -16,7 +16,6 @@ const IGNORE_FILES: [&str; 2] = [".tgignore", ".gitignore"];
 pub struct Graph {
 	pub arg: tg::artifact::checkin::Arg,
 	pub edges: Vec<Edge>,
-	pub root: Option<PathBuf>,
 	pub is_direct_dependency: bool,
 	pub metadata: std::fs::Metadata,
 	pub lockfile: Option<(Arc<tg::Lockfile>, usize)>,
@@ -36,8 +35,8 @@ pub type Node = Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>;
 
 struct State {
 	ignore: Ignore,
-	roots: BTreeMap<PathBuf, Arc<RwLock<Graph>>>,
-	visited: BTreeMap<PathBuf, Weak<RwLock<Graph>>>,
+	roots: Vec<Arc<RwLock<Graph>>>,
+	visited: BTreeMap<PathBuf, Arc<RwLock<Graph>>>,
 }
 
 impl Server {
@@ -74,7 +73,6 @@ impl Server {
 			self.collect_input(arg_, progress).await?
 		};
 		Graph::validate(input.clone()).await?;
-
 		Ok(input)
 	}
 
@@ -114,7 +112,7 @@ impl Server {
 
 		let state = RwLock::new(State {
 			ignore,
-			roots: BTreeMap::new(),
+			roots: Vec::new(),
 			visited: BTreeMap::new(),
 		});
 
@@ -122,6 +120,7 @@ impl Server {
 
 		Ok(input.await?.unwrap_left())
 	}
+
 	async fn collect_input_inner(
 		&self,
 		referrer: Option<Node>,
@@ -130,176 +129,120 @@ impl Server {
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Node> {
-		let absolute_path = match &referrer {
-			_ if path.is_absolute() => path.to_owned(),
-			Some(Either::Left(strong)) => strong.read().await.arg.path.join(path),
-			Some(Either::Right(weak)) => weak.upgrade().unwrap().read().await.arg.path.join(path),
-			None => return Err(tg::error!("expeccted a referrer")),
-		};
-		let absolute_path = {
-			let parent = absolute_path.parent().unwrap();
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let parent = tokio::fs::canonicalize(parent).await.map_err(
-				|source| tg::error!(!source, %path = parent.display(), %full = absolute_path.display(), %relative = path.display(), "failed to canonicalize the path"),
-			)?;
-			parent.join(absolute_path.components().last().unwrap())
-		};
-
-		// Search for the parent.
-		let parent = if path.is_absolute() {
-			referrer.map(|referrer| (referrer, false))
+		// Get the full path.
+		let path = if path.is_absolute() {
+			// If the absolute path is provided, use it.
+			path.to_owned()
 		} else {
-			let mut created = true;
-
-			// Find the parent directory.
-			let mut parent_dir = match referrer {
-				Some(Either::Left(strong)) => strong,
-				Some(Either::Right(weak)) => weak.upgrade().unwrap(),
-				None => return Err(tg::error!("expected a referrer")),
-			};
-
-			// Walk the components of the path.
-			let mut components = path.components().peekable();
-			while let Some(component) = components.next() {
-				let is_end = components.peek().is_none();
-				parent_dir = match component {
-					// Ignore "." components.
-					std::path::Component::CurDir => continue,
-
-					// Try and get the parent of the current node.
-					std::path::Component::ParentDir => {
-						created = true;
-						if parent_dir.read().await.metadata.is_file() {
-							return Err(
-								tg::error!(%path = absolute_path.display(), "expected a directory or symlink"),
-							);
-						}
-
-						let parent_dir = parent_dir.read().await.parent.clone().ok_or_else(
-							|| tg::error!(%path = path.display(), "cannot checkin relative path that points outside of a root directory"),
-						)?;
-
-						parent_dir.upgrade().unwrap()
-					},
-
-					// If this is the last component, do nothing.
-					std::path::Component::Normal(name) if is_end => {
-						if name.to_str().is_none() {
-							return Err(tg::error!("invalid file name"));
-						}
-						break;
-					},
-
-					// Otherwise get or create intermediate directories.
-					std::path::Component::Normal(name) => {
-						created = true;
-						let name = name
-							.to_str()
-							.ok_or_else(|| tg::error!("invalid file name"))?
-							.to_owned();
-						let parent = self
-							.get_or_create_intermediate_input_node(
-								parent_dir.clone(),
-								name,
-								arg,
-								state,
-								progress,
-							)
-							.await?;
-						match parent {
-							Either::Left(strong) => strong,
-							Either::Right(weak) => weak.upgrade().unwrap(),
-						}
-					},
-
-					// Error for root/prefix components.
-					_ => {
-						return Err(tg::error!(%path = path.display(), "unexpected path component"))
-					},
-				}
-			}
-
-			Some((Either::Left(parent_dir), created))
-		};
-
-		// First, get or create the node that we're returning.
-		let node = self
-			.get_or_create_input_node(parent.clone().map(|p| p.0), &absolute_path, arg, state)
-			.await?;
-
-		// If this is a weak reference, return it immediately.
-		let node = match node {
-			Either::Left(node) => node,
-			Either::Right(_) => return Ok(node),
-		};
-
-		// Add to the parent if necessary.
-		if let Some((parent, created)) = parent {
-			if created {
-				let parent = match parent {
-					Either::Left(strong) => strong,
-					Either::Right(weak) => weak.upgrade().unwrap(),
-				};
-				let edge = Edge {
-					reference: tg::Reference::with_path(absolute_path.components().last().unwrap()),
-					subpath: None,
-					graph: Some(Either::Left(node.clone())),
-					object: None,
-					tag: None,
-				};
-				add_edge(parent, edge).await;
-			}
-		}
-
-		// Recurse.
-		let edges = self
-			.get_edges(node.clone(), absolute_path.as_ref(), arg, state, progress)
-			.await?;
-
-		for edge in edges {
-			add_edge(node.clone(), edge).await;
-		}
-
-		// Return the node.
-		Ok(Either::Left(node))
-	}
-
-	async fn try_resolve_symlink_node(
-		&self,
-		mut node: Node,
-		arg: &tg::artifact::checkin::Arg,
-		state: &RwLock<State>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<Option<Node>> {
-		let mut visited = BTreeSet::new();
-		loop {
-			let strong = match &node {
-				Either::Left(strong) => strong.clone(),
+			let referrer = match referrer.ok_or_else(|| tg::error!("expected a referrer"))? {
+				Either::Left(strong) => strong,
 				Either::Right(weak) => weak.upgrade().unwrap(),
 			};
-			let path = strong.read().await.arg.path.clone();
-			if visited.contains(&path) {
-				return Err(
-					tg::error!(%path = path.display(), "too many levels of symbolic links"),
-				);
-			}
-			visited.insert(path.clone());
-			if strong.read().await.metadata.is_symlink() {
-				// It's possible this symlink hasn't been explored yet.
-				let edges = self
-					.get_symlink_edges(strong.clone(), path.as_ref(), arg, state, progress)
-					.await?;
-				strong.write().await.edges = edges.clone();
+			let referrer_path = referrer.read().await.arg.path.clone();
+			referrer_path.join(path.strip_prefix("./").unwrap_or(path))
+		};
+		let parent = path.parent().unwrap();
+		let file_name = path.file_name().unwrap();
 
-				let Some(next) = edges.first().and_then(|edge| edge.graph.clone()) else {
-					return Ok(None);
-				};
-				node = next;
-				continue;
-			}
-			break;
+		// Canonicalize the parent and join with the file name.
+		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+		let absolute_path = tokio::fs::canonicalize(parent)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = parent.display(), "failed to canonicalize the path"),
+			)?
+			.join(file_name);
+		drop(permit);
+
+		// Get the file system metadata.
+		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+		let metadata = tokio::fs::symlink_metadata(&absolute_path).await.map_err(
+			|source| tg::error!(!source, %path = absolute_path.display(), "failed to get file system metadata"),
+		)?;
+		drop(permit);
+
+		// Validate.
+		if !(metadata.is_dir() || metadata.is_file() || metadata.is_symlink()) {
+			return Err(tg::error!(%path = absolute_path.display(), "invalid file type"));
 		}
-		Ok(Some(node))
+
+		// Get a write lock on the state to avoid a race condition.
+		let mut state_ = state.write().await;
+
+		// Check if this path has already been visited and return it.
+		if let Some(node) = state_.visited.get(&absolute_path) {
+			return Ok(Either::Right(Arc::downgrade(node)));
+		}
+
+		// Lookup the parent if it exists.
+		let parent = absolute_path
+			.parent()
+			.and_then(|parent| state_.visited.get(parent).map(Arc::downgrade));
+
+		// Create a new node.
+		let arg_ = tg::artifact::checkin::Arg {
+			path: absolute_path.clone(),
+			..arg.clone()
+		};
+		let node = Arc::new(RwLock::new(Graph {
+			arg: arg_,
+			edges: Vec::new(),
+			is_direct_dependency: false,
+			metadata: metadata.clone(),
+			lockfile: None,
+			parent: parent.clone(),
+		}));
+		state_.visited.insert(absolute_path.clone(), node.clone());
+
+		// Update the roots if necessary. This may result in dangling directories that also need to be collected.
+		let dangling = if parent.is_none() {
+			state_
+				.add_root_and_return_dangling_directories(node.clone())
+				.await
+		} else {
+			Vec::new()
+		};
+
+		// Release the state.
+		drop(state_);
+
+		// Collect any dangling directories.
+		for dangling in dangling {
+			Box::pin(self.collect_input_inner(None, &dangling, arg, state, progress))
+				.await
+				.map_err(
+					|source| tg::error!(!source, %path = dangling.display(), "failed to collect dangling directory"),
+				)?;
+		}
+
+		// If this is a module file, ensure the parent is collected.
+		if metadata.is_file() && tg::package::is_module_path(&absolute_path) {
+			let parent = absolute_path.parent().unwrap().to_owned();
+			let parent = Box::pin(self.collect_input_inner(None, &parent, arg, state, progress))
+				.await
+				.map_err(
+					|source| tg::error!(!source, %path = absolute_path.display(), "failed to collect input of parent"),
+				)?;
+			let parent = match parent {
+				Either::Left(strong) => Arc::downgrade(&strong),
+				Either::Right(weak) => weak,
+			};
+			node.write().await.parent.replace(parent);
+		}
+
+		// Get the edges.
+		let edges = self
+			.get_edges(node.clone(), &absolute_path, arg, state, progress)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = absolute_path.display(), "failed to get edges"),
+			)?;
+
+		// Update the node.
+		node.write().await.edges = edges;
+
+		// Return the created node.
+		Ok(Either::Left(node))
 	}
 
 	async fn get_edges(
@@ -499,11 +442,13 @@ impl Server {
 					let arg = arg.clone();
 					let referrer = referrer.clone();
 					async move {
-						let referrer_ = referrer.read().await;
-						let root_path = referrer_
-							.root
-							.clone()
-							.unwrap_or_else(|| referrer_.arg.path.clone());
+						let root_path = get_root_node(Either::Left(referrer.clone()))
+							.await
+							.read()
+							.await
+							.arg
+							.path
+							.clone();
 						let id = referent.item;
 						let path = reference
 							.item()
@@ -512,9 +457,10 @@ impl Server {
 							.or_else(|| reference.options()?.path.as_ref());
 
 						// Don't follow paths that point outside the root.
+						let referrer_path = referrer.read().await.arg.path.clone();
 						let is_external_path = path
 							.as_ref()
-							.map(|path| referrer_.arg.path.parent().unwrap().join(path))
+							.map(|path| referrer_path.parent().unwrap().join(path))
 							.and_then(|path| path.diff(&root_path))
 							.map_or(false, |diff| {
 								diff.components().next().is_some_and(|component| {
@@ -526,7 +472,9 @@ impl Server {
 						let (graph, subpath) = match path {
 							Some(path) if !is_external_path => {
 								// Get the parent of the referrer.
-								let parent = referrer_
+								let parent = referrer
+									.read()
+									.await
 									.parent
 									.as_ref()
 									.ok_or_else(|| tg::error!("expected a parent"))?
@@ -545,7 +493,8 @@ impl Server {
 									.map_err(|source| {
 										tg::error!(!source, "failed to collect child input")
 									})?;
-								let (graph, subpath) = root_node_with_subpath(graph).await;
+								let (graph, subpath) =
+									root_node_with_subpath(referrer.clone(), graph).await;
 								(Some(graph), subpath)
 							},
 							_ => (None, None),
@@ -615,10 +564,13 @@ impl Server {
 						let reference = import.reference.clone();
 
 						// Check if the import points outside the package.
-						let root_path = {
-							let referrer = referrer.read().await;
-							referrer.root.clone().unwrap_or_else(|| referrer.arg.path.clone())
-						};
+						let root_path = get_root_node(Either::Left(referrer.clone()))
+							.await
+							.read()
+							.await
+							.arg
+							.path
+							.clone();
 
 						let absolute_path = path.parent().unwrap().join(import_path.strip_prefix("./").unwrap_or(import_path));
 						let is_external = absolute_path.diff(&root_path).map_or(false, |path| path.components().next().is_some_and(|component| matches!(component, std::path::Component::ParentDir)));
@@ -634,7 +586,7 @@ impl Server {
 						// Get the input of the referent.
 						let child = if is_external {
 							// If this is an external import, treat it as a root using the absolute path.
-							self.collect_input_inner(Some(Either::Left(referrer)), &absolute_path, &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
+							self.collect_input_inner(Some(Either::Left(referrer.clone())), &absolute_path, &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						} else {
 							// Otherwise, treat it as a relative path.
 
@@ -645,7 +597,7 @@ impl Server {
 							self.collect_input_inner(Some(Either::Right(parent)), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						};
 
-						let (graph, subpath) = root_node_with_subpath(child.clone()).await;
+						let (graph, subpath) = root_node_with_subpath(referrer.clone(), child.clone()).await;
 
 						// Create the edge.
 						let edge = Edge {
@@ -701,21 +653,21 @@ impl Server {
 
 		// Get the absolute path of the target.
 		let target_absolute_path = path.parent().unwrap().join(&target);
-		let target_absolute_path = tokio::fs::canonicalize(path.join(&target_absolute_path))
+		let target_absolute_path = tokio::fs::canonicalize(&target_absolute_path.parent().unwrap())
 			.await
-			.map_err(
-				|source| tg::error!(!source, %path = target_absolute_path.display(), "failed to resolve symlink"),
-			)?;
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
+			.join(target_absolute_path.file_name().unwrap());
 
 		// Collect the input of the target.
 		let child = if state
 			.read()
 			.await
-			.find_root(&target_absolute_path)
+			.find_root_of_path(&target_absolute_path)
+			.await
 			.is_none()
 		{
 			Box::pin(self.collect_input_inner(
-				Some(Either::Left(referrer)),
+				Some(Either::Left(referrer.clone())),
 				&target_absolute_path,
 				arg,
 				state,
@@ -727,7 +679,7 @@ impl Server {
 		};
 
 		// Get the root node and subpath.
-		let (graph, subpath) = root_node_with_subpath(child).await;
+		let (graph, subpath) = root_node_with_subpath(referrer.clone(), child).await;
 
 		Ok(vec![Edge {
 			reference: tg::Reference::with_path(target),
@@ -736,190 +688,6 @@ impl Server {
 			subpath,
 			tag: None,
 		}])
-	}
-
-	async fn get_or_create_input_node(
-		&self,
-		referrer: Option<Node>,
-		path: &Path,
-		arg: &tg::artifact::checkin::Arg,
-		state: &RwLock<State>,
-	) -> tg::Result<Node> {
-		let mut state_ = state.write().await;
-
-		// Avoid a subtle race condition by checking if this path has been added yet.
-		if let Some(weak) = state_.visited.get(path) {
-			return Ok(Either::Right(weak.clone()));
-		}
-
-		// Get the root.
-		let root = state_.find_root(path);
-
-		// This should never happen, but if it does it means the code is incorrect higher up.
-		if let Some((root_path, _node)) = &root {
-			if root_path == path {
-				return Err(tg::error!(%path = path.display(), "multiple instances of a root"));
-			}
-		}
-
-		// If this isn't a root, get the parent.
-		let parent = if root.is_none() {
-			None
-		} else {
-			let referrer = referrer
-				.ok_or_else(|| tg::error!(%path = path.display(), "expected a referrer"))?;
-			let parent = match referrer {
-				Either::Left(strong) => Arc::downgrade(&strong),
-				Either::Right(weak) => weak.clone(),
-			};
-			Some(parent)
-		};
-
-		// Get the file system metadata.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let metadata = tokio::fs::symlink_metadata(path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to get the file's metadata"),
-		)?;
-		drop(permit);
-
-		// Validate.
-		if !(metadata.is_dir() || metadata.is_file() || metadata.is_symlink()) {
-			return Err(tg::error!(%path = path.display(), "invalid file type"));
-		}
-
-		// Create the node.
-		let path = path.to_owned();
-		let node = Arc::new(RwLock::new(Graph {
-			arg: tg::artifact::checkin::Arg {
-				path: path.clone(),
-				..arg.clone()
-			},
-			edges: Vec::new(),
-			root: root.as_ref().map(|(path, _)| path.clone()),
-			is_direct_dependency: false,
-			metadata: metadata.clone(),
-			lockfile: None,
-			parent,
-		}));
-
-		// Add to the roots if necessary.
-		if root.is_none() {
-			state_.roots.insert(path.clone(), node.clone());
-		}
-
-		// Update the state.
-		state_.visited.insert(path, Arc::downgrade(&node));
-		drop(state_);
-
-		Ok(Either::Left(node))
-	}
-
-	async fn get_or_create_intermediate_input_node(
-		&self,
-		referrer: Arc<RwLock<Graph>>,
-		name: String,
-		arg: &tg::artifact::checkin::Arg,
-		state: &RwLock<State>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<Node> {
-		if !referrer.read().await.metadata.is_dir() {
-			return Err(
-				tg::error!(%path = referrer.read().await.arg.path.display(), "expected a directory"),
-			);
-		}
-
-		let child = 'a: {
-			// Check for an existing child.
-			let reference = tg::Reference::with_path(&name);
-			let child = referrer
-				.read()
-				.await
-				.edges
-				.iter()
-				.find(|edge| edge.reference == reference)
-				.map(|edge| {
-					edge.graph
-						.clone()
-						.ok_or_else(|| tg::error!("expected a child node"))
-				})
-				.transpose()?;
-			if let Some(child) = child {
-				break 'a child;
-			};
-
-			// Get the referrer's path and root.
-			let referrer_path = referrer.read().await.arg.path.clone();
-			let referrer_root = referrer.read().await.root.clone();
-
-			// Lock the state to avoid TOCTOU races.
-			let mut state_ = state.write().await;
-
-			// Create the absolute path.
-			let path = referrer_path.join(name);
-			// Check if a node has already been created.
-			if let Some(node) = state_.visited.get(&path) {
-				break 'a Either::Right(node.clone());
-			}
-
-			// Add the referrer as a root if necessary.
-			if referrer_root.is_none() {
-				state_.roots.insert(referrer_path.clone(), referrer.clone());
-			}
-
-			// Get the root path.
-			let root = referrer_root.unwrap_or_else(|| referrer_path.clone());
-
-			// Get the metadata.
-			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to get metadata"),
-			)?;
-			drop(permit);
-
-			// Create the child node.
-			let child = Arc::new(RwLock::new(Graph {
-				arg: tg::artifact::checkin::Arg {
-					path: path.clone(),
-					..arg.clone()
-				},
-				edges: Vec::new(),
-				root: Some(root),
-				is_direct_dependency: false,
-				metadata: metadata.clone(),
-				lockfile: None,
-				parent: Some(Arc::downgrade(&referrer)),
-			}));
-
-			// Update state.
-			state_.visited.insert(path.clone(), Arc::downgrade(&child));
-			drop(state_);
-
-			// Update the referrer.
-			let edge = Edge {
-				reference,
-				graph: Some(Either::Left(child.clone())),
-				object: None,
-				subpath: None,
-				tag: None,
-			};
-			add_edge(referrer, edge).await;
-			Either::Left(child)
-		};
-
-		let child = self
-			.try_resolve_symlink_node(child, arg, state, progress)
-			.await?
-			.ok_or_else(|| tg::error!("failed to resolve symlink"))?;
-
-		let strong = match &child {
-			Either::Left(strong) => strong.clone(),
-			Either::Right(weak) => weak.upgrade().unwrap(),
-		};
-		if !strong.read().await.metadata.is_dir() {
-			return Err(tg::error!("expected a directory"));
-		}
-
-		Ok(child)
 	}
 }
 
@@ -1031,27 +799,42 @@ impl Edge {
 impl Graph {
 	#[allow(dead_code)]
 	pub(super) async fn print(self_: Arc<RwLock<Graph>>) {
-		let mut stack = vec![(Either::Left(self_), 0)];
-		while let Some((node, depth)) = stack.pop() {
+		let mut visited = BTreeSet::new();
+		let mut stack: Vec<(Node, usize, Option<PathBuf>)> = vec![(Either::Left(self_), 0, None)];
+		while let Some((node, depth, subpath)) = stack.pop() {
 			for _ in 0..depth {
 				eprint!("  ");
 			}
 			match node {
 				Either::Left(strong) => {
 					let path = strong.read().await.arg.path.clone();
-					eprintln!("* strong {path:#?} {:x?}", Arc::as_ptr(&strong));
-					stack.extend(
-						strong
-							.read()
-							.await
-							.edges
-							.iter()
-							.filter_map(|edge| Some((edge.graph.clone()?, depth + 1))),
-					);
+					if let Some(subpath) = subpath {
+						eprintln!(
+							"* strong {path:#?} {} {:x?}",
+							subpath.display(),
+							Arc::as_ptr(&strong)
+						);
+					} else {
+						eprintln!("* strong {path:#?} {:x?}", Arc::as_ptr(&strong));
+					}
+					if !visited.contains(&path) {
+						visited.insert(path);
+						stack.extend(strong.read().await.edges.iter().filter_map(|edge| {
+							Some((edge.graph.clone()?, depth + 1, edge.subpath.clone()))
+						}));
+					}
 				},
 				Either::Right(weak) => {
 					let path = weak.upgrade().unwrap().read().await.arg.path.clone();
-					eprintln!("* weak {path:#?} {:x?}", Weak::as_ptr(&weak));
+					if let Some(subpath) = subpath {
+						eprintln!(
+							"* weak {path:#?} {} {:x?}",
+							subpath.display(),
+							Weak::as_ptr(&weak)
+						);
+					} else {
+						eprintln!("* weak {path:#?} {:x?}", Weak::as_ptr(&weak));
+					}
 				},
 			}
 		}
@@ -1078,14 +861,27 @@ impl Graph {
 		}
 
 		for (path, node) in &paths {
-			if node.read().await.root.is_none() {
+			let Some(parent) = node.read().await.parent.clone() else {
 				continue;
-			}
-			let parent = path.parent().ok_or_else(
-				|| tg::error!(%path = path.display(), "expected path to have a parent"),
-			)?;
-			let root = node.read().await.root.clone().unwrap();
-			let _parent = paths.get(parent)
+			};
+			let parent = parent
+				.upgrade()
+				.ok_or_else(
+					|| tg::error!(%node = path.display(), "internal error, parent went out of scope"),
+				)?
+				.read()
+				.await
+				.arg
+				.path
+				.clone();
+			let root = get_root_node(Either::Left(node.clone()))
+				.await
+				.read()
+				.await
+				.arg
+				.path
+				.clone();
+			let _parent = paths.get(&parent)
 				.ok_or_else(|| tg::error!(%root = root.display(), %path = path.display(), %parent = parent.display(), "missing parent node"))?;
 		}
 
@@ -1093,54 +889,107 @@ impl Graph {
 	}
 }
 
-async fn add_edge(node: Arc<RwLock<Graph>>, edge: Edge) {
-	let mut node = node.write().await;
-	for existing_edge in &mut node.edges {
-		if existing_edge.reference == edge.reference {
-			if let Some(Either::Left(strong)) = &edge.graph {
-				existing_edge.graph.replace(Either::Left(strong.clone()));
-			}
-			return;
+impl Edge {
+	#[allow(dead_code)]
+	pub(super) async fn print(&self) {
+		eprint!("({}", self.reference);
+		if let Some(node) = self.node() {
+			eprint!(" path: {}", node.read().await.arg.path.display());
 		}
+		if let Some(subpath) = &self.subpath {
+			eprint!(" subpath: {}", subpath.display());
+		}
+		eprintln!(")");
 	}
-	node.edges.push(edge);
 }
 
-async fn root_node_with_subpath(child: Node) -> (Node, Option<PathBuf>) {
-	let mut strong = match child.clone() {
+async fn root_node_with_subpath(
+	referrer: Arc<RwLock<Graph>>,
+	child: Node,
+) -> (Node, Option<PathBuf>) {
+	let root = get_root_node(child.clone()).await;
+	let strong = match child.clone() {
 		Either::Left(strong) => strong,
 		Either::Right(weak) => weak.upgrade().unwrap(),
 	};
 
 	// If this is a root node, return it.
-	let Some(root) = strong.read().await.root.clone() else {
+	if strong.read().await.parent.is_none() {
 		return (child, None);
-	};
+	}
 
 	// Otherwise compute the subpath within the root.
 	let path = strong.read().await.arg.path.clone();
-	let subpath = path.diff(root).unwrap();
+	let root_path = root.read().await.arg.path.clone();
+	let subpath = path.diff(&root_path).unwrap();
 
-	// Find the root.
-	loop {
-		let Some(parent) = strong.read().await.parent.clone() else {
-			let weak = Arc::downgrade(&strong);
-			return (Either::Right(weak), Some(subpath));
-		};
-		strong = parent.upgrade().unwrap();
-	}
+	// If the root is shared with the referrer, return a weak reference. Otherwise return a strong reference.
+	let referrer_root = get_root_node(Either::Left(referrer).clone()).await;
+	let root = if Arc::ptr_eq(&referrer_root, &root) {
+		Either::Right(Arc::downgrade(&root))
+	} else {
+		Either::Left(root)
+	};
+
+	(root, Some(subpath))
 }
 
 impl State {
-	fn find_root(&self, path: &Path) -> Option<(PathBuf, Arc<RwLock<Graph>>)> {
-		self.roots.iter().find_map(|(root, node)| {
-			let diff = path.diff(root);
-			diff.map_or(false, |path| {
-				path.components()
-					.next()
-					.is_some_and(|component| !matches!(component, std::path::Component::ParentDir))
-			})
-			.then(|| (root.clone(), node.clone()))
-		})
+	// Add a new node as a root to the state, and then return the paths of any nodes
+	async fn add_root_and_return_dangling_directories(
+		&mut self,
+		node: Arc<RwLock<Graph>>,
+	) -> Vec<PathBuf> {
+		let new_path = node.read().await.arg.path.clone();
+
+		// Update any nodes of the graph that are children.
+		let mut roots = Vec::with_capacity(self.roots.len() + 1);
+		let mut dangling = Vec::new();
+		for root in &self.roots {
+			let old_path = root.read().await.arg.path.clone();
+			let diff = new_path.diff(&old_path).unwrap();
+			if let Ok(child) = diff.strip_prefix("./") {
+				let dangling_directory = new_path.join(child.ancestors().last().unwrap());
+				dangling.push(dangling_directory);
+			} else {
+				roots.push(root.clone());
+			}
+		}
+		// Add the new node to the new list of roots.
+		roots.push(node);
+
+		// Update the list of roots.
+		self.roots = roots;
+
+		// Return any dangling directories.
+		dangling
+	}
+
+	async fn find_root_of_path(&self, path: &Path) -> Option<Arc<RwLock<Graph>>> {
+		for root in &self.roots {
+			if path
+				.diff(&root.read().await.arg.path)
+				.map_or(false, |path| {
+					path.components().next().is_some_and(|component| {
+						!matches!(component, std::path::Component::ParentDir)
+					})
+				}) {
+				return Some(root.clone());
+			}
+		}
+		None
+	}
+}
+
+async fn get_root_node(mut node: Node) -> Arc<RwLock<Graph>> {
+	loop {
+		let strong = match node {
+			Either::Left(strong) => strong,
+			Either::Right(weak) => weak.upgrade().unwrap(),
+		};
+		let Some(parent) = strong.read().await.parent.clone() else {
+			return strong;
+		};
+		node = Either::Right(parent);
 	}
 }

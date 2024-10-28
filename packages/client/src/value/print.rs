@@ -388,7 +388,7 @@ where
 			self.map_entry("nodes", |s| {
 				s.start_array()?;
 				for node in &object.nodes {
-					match node {
+					s.array_value(|s| match node {
 						tg::graph::Node::Directory(directory) => {
 							s.start_map()?;
 							s.map_entry("kind", |s| s.string("directory"))?;
@@ -410,9 +410,10 @@ where
 								s.finish_map()?;
 								Ok(())
 							})?;
-							s.finish_map()?;
+							s.finish_map()
 						},
 						tg::graph::Node::File(file) => {
+							s.start_map()?;
 							s.map_entry("kind", |s| s.string("file"))?;
 							s.map_entry("contents", |s| s.blob(&file.contents))?;
 							if !file.dependencies.is_empty() {
@@ -451,8 +452,10 @@ where
 							if file.executable {
 								s.map_entry("executable", |s| s.bool(file.executable))?;
 							}
+							s.finish_map()
 						},
 						tg::graph::Node::Symlink(symlink) => {
+							s.start_map()?;
 							s.map_entry("kind", |s| s.string("symlink"))?;
 							if let Some(artifact) = &symlink.artifact {
 								s.map_entry("artifact", |s| {
@@ -472,8 +475,9 @@ where
 									s.string(subpath.to_string_lossy().as_ref())
 								})?;
 							}
+							s.finish_map()
 						},
-					}
+					})?;
 				}
 				s.finish_array()?;
 				Ok(())

@@ -53,7 +53,7 @@ impl Artifact {
 				}
 			},
 			Self::Symlink { target } => {
-				tokio::fs::symlink(&path, target.as_ref()).await?;
+				tokio::fs::symlink(target.as_ref(), path).await?;
 			},
 		}
 		Ok(())
@@ -238,7 +238,9 @@ macro_rules! file {
 #[macro_export]
 macro_rules! symlink {
 	($target:expr) => {{
-		$crate::artifact::Artifact::Symlink { target: $target }
+		$crate::artifact::Artifact::Symlink {
+			target: $target.into(),
+		}
 	}};
 }
 
