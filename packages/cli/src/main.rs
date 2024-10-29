@@ -219,7 +219,6 @@ fn main() -> std::process::ExitCode {
 	builder.enable_all();
 	let runtime = builder.build().unwrap();
 	let result = runtime.block_on(future);
-	runtime.shutdown_background();
 
 	// Handle the result.
 	match result {

@@ -4,8 +4,7 @@ use futures::{
 use itertools::Itertools as _;
 use std::pin::pin;
 
-pub use self::{row::Row, value::Value};
-pub use pool::Priority;
+pub use self::{pool::Priority, row::Row, value::Value};
 
 pub mod either;
 pub mod pool;
