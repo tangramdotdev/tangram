@@ -594,6 +594,7 @@ impl Server {
 			let stream = match future::select(pin!(accept), pin!(stop.stopped())).await {
 				future::Either::Left((result, _)) => result?,
 				future::Either::Right(((), _)) => {
+					println!("stopping");
 					break;
 				},
 			};
