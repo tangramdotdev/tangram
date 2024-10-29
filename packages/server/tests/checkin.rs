@@ -8,14 +8,13 @@ use tangram_temp::{artifact, Temp};
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+// #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test]
 async fn test() -> Result {
-	println!("wow");
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
 	defer! {
-		println!("hi");
 		server.stop();
 	}
 	let directory = Temp::new();
@@ -40,6 +39,5 @@ async fn test() -> Result {
 		.and_then(|event| event.try_unwrap_output().ok())
 		.ok_or_else(|| tg::error!("stream ended without output"))?;
 	assert_yaml_snapshot!(output);
-	println!("bottom");
 	Ok(())
 }

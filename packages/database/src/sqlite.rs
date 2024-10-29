@@ -143,7 +143,6 @@ impl Connection {
 				},
 			}
 		}
-		println!("shutting down sqlite thread")
 	}
 
 	pub async fn with<F, T, E>(&self, f: F) -> Result<T, E>
