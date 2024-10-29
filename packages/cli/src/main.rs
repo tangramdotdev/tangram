@@ -1,4 +1,4 @@
-use self::config::{Config, DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE};
+use self::config::{Config, DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE, DEFAULT_MAX_BUILD_DEPTH};
 use clap::{CommandFactory as _, Parser as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
@@ -470,9 +470,11 @@ impl Cli {
 				.concurrency
 				.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
 			let heartbeat_interval = build.heartbeat_interval.unwrap_or(Duration::from_secs(1));
+			let max_build_depth = build.max_build_depth.unwrap_or(DEFAULT_MAX_BUILD_DEPTH);
 			tangram_server::options::Build {
 				concurrency,
 				heartbeat_interval,
+				max_build_depth,
 			}
 		});
 

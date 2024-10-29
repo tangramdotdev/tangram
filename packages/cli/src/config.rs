@@ -6,6 +6,9 @@ use url::Url;
 /// The value to use for the file descriptor semaphore if none is provided.
 pub(crate) const DEFAULT_FILE_DESCRIPTOR_SEMAPHORE_SIZE: usize = 1024;
 
+/// The value to use for the maximum build depth if none is provided.
+pub(crate) const DEFAULT_MAX_BUILD_DEPTH: u64 = 4096;
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Config {
 	/// Advanced configuration.
@@ -179,6 +182,10 @@ pub struct Build {
 	/// The interval at which heartbeats will be sent.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub heartbeat_interval: Option<Duration>,
+
+	/// The maximum allowed build depth.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_build_depth: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

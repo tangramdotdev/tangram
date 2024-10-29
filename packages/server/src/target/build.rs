@@ -303,7 +303,7 @@ impl Server {
 		let ancestors = ancestors.iter().map(|row| row.id.clone()).collect_vec();
 		let ancestors = serde_json::to_string(&ancestors).unwrap();
 		if let Some(max_depth) = max_depth {
-			if max_depth >= 100 {
+			if max_depth >= self.options.build.as_ref().unwrap().max_build_depth {
 				return Ok(true);
 			}
 			let statement = formatdoc!(

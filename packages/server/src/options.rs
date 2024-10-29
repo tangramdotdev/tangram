@@ -52,6 +52,7 @@ pub struct Oauth {
 pub struct Build {
 	pub concurrency: usize,
 	pub heartbeat_interval: Duration,
+	pub max_build_depth: u64,
 }
 
 #[derive(Clone, Debug)]
