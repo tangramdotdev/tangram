@@ -839,13 +839,6 @@ impl Server {
 	}
 }
 
-impl Drop for Inner {
-	fn drop(&mut self) {
-		println!("drop");
-		self.task.lock().unwrap().as_ref().unwrap().abort();
-	}
-}
-
 impl tg::Handle for Server {
 	fn check_in_artifact(
 		&self,
