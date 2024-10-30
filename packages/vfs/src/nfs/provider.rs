@@ -131,7 +131,7 @@ where
 				return Ok(None);
 			};
 			if id >= (1 << 63) {
-				tracing::warn!("the upper half of the node address space is reserved for extended attribute nodes.");
+				tracing::warn!("the upper half of the node address space is reserved for extended attribute nodes");
 				return Ok(None);
 			}
 			Ok(Some(id))
@@ -170,7 +170,7 @@ where
 		} else {
 			let id = self.inner.open(handle).await?;
 			if id >= (1 << 63) {
-				tracing::warn!("the upper half of the node address space is reserved for extended attribute nodes.");
+				tracing::warn!("the upper half of the node address space is reserved for extended attribute nodes");
 				return Err(Error::from_raw_os_error(libc::EIO));
 			}
 			Ok(id)
@@ -218,7 +218,7 @@ where
 		} else {
 			let id = self.inner.opendir(handle).await?;
 			if id >= (1 << 63) {
-				tracing::warn!("the upper half of the node address space is reserved for extended attribute nodes.");
+				tracing::warn!("the upper half of the node address space is reserved for extended attribute nodes");
 				return Err(Error::from_raw_os_error(libc::EIO));
 			}
 			Ok(id)

@@ -1,0 +1,9 @@
+---
+source: packages/server/src/artifact/checkin/tests.rs
+expression: output
+---
+tg.directory({
+	"README.md": tg.file({
+		"contents": tg.leaf("Hello, World!"),
+	}),
+})

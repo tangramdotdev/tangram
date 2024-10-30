@@ -156,6 +156,14 @@ impl Directory {
 		Ok(id)
 	}
 
+	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.children())
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
@@ -368,6 +376,16 @@ impl Directory {
 		}
 
 		Ok(Some(artifact))
+	}
+}
+
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Normal { entries } => entries.values().cloned().map(Into::into).collect(),
+			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+		}
 	}
 }
 

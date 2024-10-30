@@ -160,6 +160,14 @@ impl Artifact {
 		}
 	}
 
+	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.children())
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
@@ -247,28 +255,40 @@ impl Artifact {
 	}
 }
 
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Directory(directory) => directory.children(),
+			Self::File(file) => file.children(),
+			Self::Symlink(symlink) => symlink.children(),
+		}
+	}
+}
+
 impl Data {
 	pub fn id(&self) -> tg::Result<Id> {
 		match self {
-			Self::Directory(artifact) => Ok(artifact.id()?.into()),
-			Self::File(artifact) => Ok(artifact.id()?.into()),
-			Self::Symlink(artifact) => Ok(artifact.id()?.into()),
+			Self::Directory(directory) => Ok(directory.id()?.into()),
+			Self::File(file) => Ok(file.id()?.into()),
+			Self::Symlink(symlink) => Ok(symlink.id()?.into()),
 		}
 	}
 
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		match self {
-			Self::Directory(artifact) => artifact.serialize(),
-			Self::File(artifact) => artifact.serialize(),
-			Self::Symlink(artifact) => artifact.serialize(),
+			Self::Directory(directory) => directory.serialize(),
+			Self::File(file) => file.serialize(),
+			Self::Symlink(symlink) => symlink.serialize(),
 		}
 	}
 
+	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
-			Self::Directory(artifact) => artifact.children(),
-			Self::File(artifact) => artifact.children(),
-			Self::Symlink(artifact) => artifact.children(),
+			Self::Directory(directory) => directory.children(),
+			Self::File(file) => file.children(),
+			Self::Symlink(symlink) => symlink.children(),
 		}
 	}
 }

@@ -15,7 +15,7 @@ use std::{
 	path::PathBuf,
 };
 use tangram_client as tg;
-use tangram_futures::task::Stop;
+use tangram_futures::task::Task;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
@@ -113,8 +113,8 @@ impl Runtime {
 
 		// Start the proxy server.
 		let proxy = Proxy::new(server.clone(), build.id().clone(), remote.clone(), None);
-		let stop = Stop::new();
-		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_url.clone(), stop));
+		let listener = Server::listen(&proxy_server_url).await?;
+		let proxy_task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 
 		// Render the executable.
 		let Some(tg::target::Executable::Artifact(executable)) =
@@ -454,8 +454,9 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to join the log task"))?
 			.map_err(|source| tg::error!(!source, "the log task failed"))?;
 
-		// Abort the proxy task.
-		proxy_task.abort();
+		// Stop the proxy task.
+		proxy_task.stop();
+		proxy_task.wait().await.unwrap();
 
 		// Return an error if the process did not exit successfully.
 		if !exit_status.success() {

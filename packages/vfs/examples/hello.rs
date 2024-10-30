@@ -23,18 +23,20 @@ enum Command {
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct Fuse {
+	#[arg(index = 1)]
 	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct Nfs {
-	#[arg(long)]
-	pub url: String,
+	#[arg(short, long)]
+	pub host: String,
 
-	#[arg(short)]
-	pub port: u16,
-
+	#[arg(index = 1)]
 	pub path: PathBuf,
+
+	#[arg(short, long)]
+	pub port: u16,
 }
 
 const HELLO_WORLD: &[u8] = b"Hello, world!\n";
@@ -71,7 +73,6 @@ impl Provider {
 impl tangram_vfs::Provider for Provider {
 	async fn lookup(&self, handle: u64, name: &str) -> Result<Option<u64>> {
 		tracing::debug!(?handle, ?name, "lookup");
-
 		if handle != ROOT_NODE_ID {
 			return Err(Error::from_raw_os_error(libc::ENOENT));
 		}
@@ -126,7 +127,7 @@ impl tangram_vfs::Provider for Provider {
 	}
 
 	async fn readlink(&self, handle: u64) -> Result<Bytes> {
-		tracing::debug!(?handle, "link");
+		tracing::debug!(?handle, "readlink");
 		if handle != LINK_NODE_ID {
 			return Err(Error::from_raw_os_error(libc::EIO));
 		}
@@ -199,18 +200,17 @@ async fn main() -> Result<()> {
 		.with_writer(std::io::stderr)
 		.with_filter(filter);
 	tracing_subscriber::registry().with(layer).init();
-
 	let Args { command } = <Args as clap::Parser>::parse();
 	match command {
 		Command::Fuse(Fuse { path }) => fuse(path).await?,
-		Command::Nfs(Nfs { url, port, path }) => nfs(url, port, path).await?,
+		Command::Nfs(Nfs { host, port, path }) => nfs(path, host, port).await?,
 	}
 	Ok(())
 }
 
 async fn fuse(path: PathBuf) -> Result<()> {
 	let provider = Provider::new();
-	let server = tangram_vfs::fuse::Vfs::start(provider, path).await?;
+	let server = tangram_vfs::fuse::Server::start(provider, &path).await?;
 	tokio::spawn({
 		let server = server.clone();
 		async move {
@@ -224,9 +224,9 @@ async fn fuse(path: PathBuf) -> Result<()> {
 	Ok(())
 }
 
-async fn nfs(url: String, port: u16, path: PathBuf) -> Result<()> {
+async fn nfs(path: PathBuf, host: String, port: u16) -> Result<()> {
 	let provider = Provider::new();
-	let server = tangram_vfs::nfs::Vfs::start(provider, path, url, port).await?;
+	let server = tangram_vfs::nfs::Server::start(provider, &path, &host, port).await?;
 	tokio::spawn({
 		let server = server.clone();
 		async move {

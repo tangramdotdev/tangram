@@ -1,7 +1,7 @@
 use crate as tg;
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 use tokio::io::AsyncRead;
 
 pub use self::read::Reader;
@@ -160,6 +160,26 @@ impl Blob {
 				let size = children.iter().map(|child| child.size).sum();
 				Ok(size)
 			},
+		}
+	}
+}
+
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Leaf(leaf) => leaf.children(),
+			Self::Branch(branch) => branch.children(),
+		}
+	}
+}
+
+impl Data {
+	#[must_use]
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		match self {
+			Self::Leaf(leaf) => leaf.children(),
+			Self::Branch(branch) => branch.children(),
 		}
 	}
 }

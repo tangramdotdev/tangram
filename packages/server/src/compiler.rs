@@ -841,7 +841,7 @@ impl crate::Server {
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);
 				let task = handle.lsp(input, output);
-				future::select(pin!(task), pin!(stop.stopped()))
+				future::select(pin!(task), pin!(stop.wait()))
 					.map(|output| match output {
 						future::Either::Left((Err(error), _)) => Err(error),
 						_ => Ok(()),

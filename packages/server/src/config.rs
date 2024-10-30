@@ -120,7 +120,6 @@ pub struct Vfs {
 impl Config {
 	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {
-		let n = std::thread::available_parallelism().unwrap();
 		let advanced = Advanced::default();
 		let authentication = None;
 		let build = None;
@@ -154,7 +153,7 @@ impl Config {
 		let path = path.as_ref().join("socket");
 		let path = path.to_str().unwrap();
 		let path = urlencoding::encode(path);
-		format!("http+unix://{}", path).parse().unwrap()
+		format!("http+unix://{path}").parse().unwrap()
 	}
 }
 
@@ -207,7 +206,7 @@ impl Default for PostgresDatabase {
 		let n = std::thread::available_parallelism().unwrap();
 		Self {
 			connections: n.into(),
-			url: format!("postgres://localhost:5432").parse().unwrap(),
+			url: "postgres://localhost:5432".parse().unwrap(),
 		}
 	}
 }
@@ -223,7 +222,7 @@ impl Default for ObjectIndexer {
 
 impl Default for NatsMessenger {
 	fn default() -> Self {
-		let url = format!("nats://localhost:4222").parse().unwrap();
+		let url = "nats://localhost:4222".parse().unwrap();
 		Self { url }
 	}
 }

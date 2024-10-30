@@ -17,7 +17,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
-use tangram_futures::task::Stop;
+use tangram_futures::task::Task;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
@@ -198,8 +198,8 @@ impl Runtime {
 			remote.clone(),
 			Some(path_map),
 		);
-		let stop = Stop::new();
-		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_host_url.clone(), stop));
+		let listener = Server::listen(&proxy_server_host_url).await?;
+		let proxy_task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 
 		// Render the executable.
 		let Some(tg::target::Executable::Artifact(executable)) =
@@ -762,8 +762,9 @@ impl Runtime {
 			},
 		};
 
-		// Abort the proxy task.
-		proxy_task.abort();
+		// Stop the proxy task.
+		proxy_task.stop();
+		proxy_task.wait().await.unwrap();
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(&output_host_path)

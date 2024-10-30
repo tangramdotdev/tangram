@@ -135,6 +135,14 @@ impl Branch {
 		Ok(id)
 	}
 
+	pub async fn children_<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.children())
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
@@ -170,6 +178,16 @@ impl Branch {
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.children))
+	}
+}
+
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		self.children
+			.iter()
+			.map(|child| child.blob.clone().into())
+			.collect()
 	}
 }
 

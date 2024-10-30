@@ -316,16 +316,9 @@ impl Server {
 						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.count))
 						.sum::<Option<u64>>();
 					let depth = metadata.iter().try_fold(0, |depth, metadata| {
-						match metadata {
-							Some(data) => {
-								if let Some(mdepth) = data.depth {
-									Some(std::cmp::max(mdepth, depth))
-								} else {
-									None // Bail out if metadata.depth is None
-								}
-							},
-							None => None, // Bail out early if metadata itself is None
-						}
+						metadata
+							.and_then(|metadata| metadata.depth)
+							.map(|d| depth.max(d))
 					});
 					let weight = metadata
 						.iter()
