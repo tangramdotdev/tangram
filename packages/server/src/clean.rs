@@ -79,7 +79,7 @@ impl Server {
 				let statement = formatdoc!(
 					"
 						delete from build_children
-						where object = {p}1;
+						where build = {p}1;
 					"
 				);
 				let params = db::params![id];
@@ -93,7 +93,7 @@ impl Server {
 				let statement = formatdoc!(
 					"
 						delete from build_objects
-						where object = {p}1;
+						where build = {p}1;
 					"
 				);
 				let params = db::params![id];
