@@ -1,7 +1,4 @@
-use self::{
-	parse::parse,
-	print::{Printer, Style},
-};
+use self::{parse::parse, print::Printer};
 use crate as tg;
 use bytes::Bytes;
 use futures::{
@@ -142,10 +139,9 @@ impl Value {
 		Ok(data)
 	}
 
-	pub fn to_string_pretty(&self) -> String {
+	pub fn print(&self, options: self::print::Options) -> String {
 		let mut string = String::new();
-		let style = Style::Pretty { indentation: "\t" };
-		let mut printer = Printer::new(&mut string, style);
+		let mut printer = Printer::new(&mut string, options);
 		printer.value(self).unwrap();
 		string
 	}
@@ -171,20 +167,23 @@ impl Data {
 			},
 			Self::Array(array) => array.iter().flat_map(Self::children).collect(),
 			Self::Map(map) => map.values().flat_map(Self::children).collect(),
+			Self::Object(object) => [object.clone()].into(),
 			Self::Mutation(mutation) => mutation.children(),
 			Self::Template(template) => template.children(),
-			Self::Object(id) => [id.clone()].into(),
 		}
 	}
 }
 
 impl std::fmt::Display for Value {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let mut string = String::new();
-		let style = Style::Compact;
-		let mut printer = Printer::new(&mut string, style);
+		let style = self::print::Style::Compact;
+		let options = self::print::Options {
+			recursive: false,
+			style,
+		};
+		let mut printer = Printer::new(f, options);
 		printer.value(self)?;
-		write!(f, "{string}")
+		Ok(())
 	}
 }
 

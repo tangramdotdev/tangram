@@ -233,6 +233,14 @@ impl Graph {
 		Ok(id)
 	}
 
+	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.children())
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
@@ -331,6 +339,42 @@ impl Node {
 			Self::File(_) => tg::artifact::Kind::File,
 			Self::Symlink(_) => tg::artifact::Kind::Symlink,
 		}
+	}
+}
+
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		let mut children = Vec::new();
+		for node in &self.nodes {
+			match node {
+				Node::Directory(tg::graph::node::Directory { entries }) => {
+					for either in entries.values() {
+						if let Either::Right(id) = either {
+							children.push(id.clone().into());
+						}
+					}
+				},
+				Node::File(tg::graph::node::File {
+					contents,
+					dependencies,
+					..
+				}) => {
+					children.push(contents.clone().into());
+					for referent in dependencies.values() {
+						if let Either::Right(id) = &referent.item {
+							children.push(id.clone());
+						}
+					}
+				},
+				Node::Symlink(tg::graph::node::Symlink { artifact, .. }) => {
+					if let Some(Either::Right(id)) = artifact {
+						children.push(id.clone().into());
+					}
+				},
+			}
+		}
+		children
 	}
 }
 

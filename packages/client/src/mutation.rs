@@ -1,8 +1,7 @@
-use std::collections::BTreeSet;
-
 use crate as tg;
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use itertools::Itertools as _;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Debug)]
 pub enum Mutation {
@@ -58,6 +57,17 @@ pub enum Data {
 }
 
 impl Mutation {
+	pub fn objects(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Unset => vec![],
+			Self::Set { value } | Self::SetIfUnset { value } => value.objects(),
+			Self::Prepend { values } | Self::Append { values } => {
+				values.iter().flat_map(tg::Value::objects).collect()
+			},
+			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.objects(),
+		}
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
@@ -101,17 +111,6 @@ impl Mutation {
 				separator: separator.clone(),
 			},
 		})
-	}
-
-	pub fn objects(&self) -> Vec<tg::object::Handle> {
-		match self {
-			Self::Unset => vec![],
-			Self::Set { value } | Self::SetIfUnset { value } => value.objects(),
-			Self::Prepend { values } | Self::Append { values } => {
-				values.iter().flat_map(tg::Value::objects).collect()
-			},
-			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.objects(),
-		}
 	}
 }
 

@@ -887,7 +887,7 @@ where
 
 				// Read children from the stream. If an error occurs, attempt to reconnect.
 				loop {
-					let stopped = stop.stopped();
+					let stopped = stop.wait();
 					let child = match future::select(pin!(stopped), stream.next()).await {
 						// If the task is stopped or the stream is ended, return.
 						future::Either::Left(_) | future::Either::Right((None, _)) => {
@@ -935,7 +935,7 @@ where
 				};
 
 				loop {
-					let stopped = stop.stopped();
+					let stopped = stop.wait();
 					let status = match future::select(pin!(stopped), stream.next()).await {
 						future::Either::Left(_) | future::Either::Right((None, _)) => return,
 						future::Either::Right((Some(Err(error)), _)) => {
@@ -1122,22 +1122,22 @@ where
 		// Wait for all the tasks.
 		let title_task = self.state.write().unwrap().title_task.take();
 		if let Some(task) = title_task {
-			task.wait().await.ok();
+			task.wait().await.unwrap();
 		}
 
 		let status_task = self.state.write().unwrap().status_task.take();
 		if let Some(task) = status_task {
-			task.wait().await.ok();
+			task.wait().await.unwrap();
 		}
 
 		let build_children_task = self.state.write().unwrap().build_children_task.take();
 		if let Some(task) = build_children_task {
-			task.wait().await.ok();
+			task.wait().await.unwrap();
 		}
 
 		let object_children_task = self.state.write().unwrap().object_children_task.take();
 		if let Some(task) = object_children_task {
-			task.wait().await.ok();
+			task.wait().await.unwrap();
 		}
 
 		// Wait for the chilren.

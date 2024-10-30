@@ -182,6 +182,14 @@ impl Target {
 		Ok(id)
 	}
 
+	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.children())
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
@@ -274,6 +282,27 @@ impl Target {
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.host))
+	}
+}
+
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		std::iter::empty()
+			.chain(self.executable.iter().flat_map(Executable::children))
+			.chain(self.args.iter().flat_map(tg::Value::objects))
+			.chain(self.env.values().flat_map(tg::Value::objects))
+			.collect()
+	}
+}
+
+impl Executable {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Artifact(artifact) => [artifact.clone().into()].into(),
+			Self::Module(module) => todo!(),
+		}
 	}
 }
 

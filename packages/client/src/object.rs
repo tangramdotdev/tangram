@@ -1,5 +1,6 @@
 use crate as tg;
 use bytes::Bytes;
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{collections::BTreeSet, sync::Arc};
 
 pub use self::metadata::Metadata;
@@ -168,6 +169,74 @@ impl Handle {
 		}
 	}
 
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Object>
+	where
+		H: tg::Handle,
+	{
+		match self {
+			Self::Leaf(leaf) => leaf.load(handle).await.map(Into::into),
+			Self::Branch(branch) => branch.load(handle).await.map(Into::into),
+			Self::Directory(directory) => directory.load(handle).await.map(Into::into),
+			Self::File(file) => file.load(handle).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.load(handle).await.map(Into::into),
+			Self::Graph(graph) => graph.load(handle).await.map(Into::into),
+			Self::Target(target) => target.load(handle).await.map(Into::into),
+		}
+	}
+
+	pub async fn load_recursive<H>(&self, handle: &H) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		self.load(handle).await?;
+		self.children(handle)
+			.await?
+			.iter()
+			.map(|object| async {
+				object.load_recursive(handle).await?;
+				Ok::<_, tg::Error>(())
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<()>()
+			.await?;
+		Ok(())
+	}
+
+	pub fn unload(&self) {
+		match self {
+			Self::Leaf(leaf) => leaf.unload(),
+			Self::Branch(branch) => branch.unload(),
+			Self::Directory(directory) => directory.unload(),
+			Self::File(file) => file.unload(),
+			Self::Symlink(symlink) => symlink.unload(),
+			Self::Graph(graph) => graph.unload(),
+			Self::Target(target) => target.unload(),
+		}
+	}
+
+	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
+	where
+		H: tg::Handle,
+	{
+		match self {
+			Self::Leaf(directory) => directory.store(handle).await.map(Into::into),
+			Self::Branch(branch) => branch.store(handle).await.map(Into::into),
+			Self::Directory(directory) => directory.store(handle).await.map(Into::into),
+			Self::File(file) => file.store(handle).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.store(handle).await.map(Into::into),
+			Self::Graph(graph) => graph.store(handle).await.map(Into::into),
+			Self::Target(target) => target.store(handle).await.map(Into::into),
+		}
+	}
+
+	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.children())
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: crate::Handle,
@@ -198,20 +267,6 @@ impl Data {
 		}
 	}
 
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<self::Id> {
-		match self {
-			Self::Leaf(data) => data.children(),
-			Self::Branch(data) => data.children(),
-			Self::Directory(data) => data.children(),
-			Self::File(data) => data.children(),
-			Self::Symlink(data) => data.children(),
-			Self::Graph(data) => data.children(),
-			Self::Target(data) => data.children(),
-		}
-	}
-
-	#[allow(dead_code)]
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		match self {
 			Self::Leaf(data) => Ok(data.serialize()?),
@@ -269,6 +324,36 @@ impl<I, O> State<I, O> {
 	#[must_use]
 	pub fn object(&self) -> Option<&Arc<O>> {
 		self.object.as_ref()
+	}
+}
+
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Leaf(leaf) => leaf.children(),
+			Self::Branch(branch) => branch.children(),
+			Self::Directory(directory) => directory.children(),
+			Self::File(file) => file.children(),
+			Self::Symlink(symlink) => symlink.children(),
+			Self::Graph(graph) => graph.children(),
+			Self::Target(target) => target.children(),
+		}
+	}
+}
+
+impl Data {
+	#[must_use]
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		match self {
+			Self::Leaf(leaf) => leaf.children(),
+			Self::Branch(branch) => branch.children(),
+			Self::Directory(directory) => directory.children(),
+			Self::File(file) => file.children(),
+			Self::Symlink(symlink) => symlink.children(),
+			Self::Graph(graph) => graph.children(),
+			Self::Target(target) => target.children(),
+		}
 	}
 }
 

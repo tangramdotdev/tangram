@@ -7,8 +7,13 @@ use tangram_either::Either;
 pub struct Printer<W> {
 	first: bool,
 	indent: u32,
-	style: Style,
+	options: Options,
 	writer: W,
+}
+
+pub struct Options {
+	pub recursive: bool,
+	pub style: Style,
 }
 
 #[derive(derive_more::IsVariant)]
@@ -21,17 +26,17 @@ impl<W> Printer<W>
 where
 	W: std::fmt::Write,
 {
-	pub fn new(writer: W, style: Style) -> Self {
+	pub fn new(writer: W, options: Options) -> Self {
 		Self {
 			first: true,
 			indent: 0,
-			style,
+			options,
 			writer,
 		}
 	}
 
 	fn indent(&mut self) -> Result {
-		if let Style::Pretty { indentation } = &self.style {
+		if let Style::Pretty { indentation } = &self.options.style {
 			for _ in 0..self.indent {
 				write!(self.writer, "{indentation}")?;
 			}
@@ -50,12 +55,12 @@ where
 		if !self.first {
 			write!(self.writer, ",")?;
 		}
-		if self.style.is_pretty() {
+		if self.options.style.is_pretty() {
 			writeln!(self.writer)?;
 			self.indent()?;
 		}
 		write!(self.writer, "\"{key}\":")?;
-		if self.style.is_pretty() {
+		if self.options.style.is_pretty() {
 			write!(self.writer, " ")?;
 		}
 		f(self)?;
@@ -65,7 +70,7 @@ where
 
 	fn finish_map(&mut self) -> Result {
 		self.indent -= 1;
-		if !self.first && self.style.is_pretty() {
+		if !self.first && self.options.style.is_pretty() {
 			write!(self.writer, ",")?;
 			writeln!(self.writer)?;
 			self.indent()?;
@@ -86,7 +91,7 @@ where
 		if !self.first {
 			write!(self.writer, ",")?;
 		}
-		if self.style.is_pretty() {
+		if self.options.style.is_pretty() {
 			writeln!(self.writer)?;
 			self.indent()?;
 		}
@@ -97,7 +102,7 @@ where
 
 	fn finish_array(&mut self) -> Result {
 		self.indent -= 1;
-		if !self.first && self.style.is_pretty() {
+		if !self.first && self.options.style.is_pretty() {
 			write!(self.writer, ",")?;
 			writeln!(self.writer)?;
 			self.indent()?;
@@ -168,6 +173,14 @@ where
 		}
 	}
 
+	fn artifact(&mut self, value: &tg::Artifact) -> Result {
+		match value {
+			tg::Artifact::Directory(directory) => self.directory(directory),
+			tg::Artifact::File(file) => self.file(file),
+			tg::Artifact::Symlink(symlink) => self.symlink(symlink),
+		}
+	}
+
 	fn blob(&mut self, value: &tg::Blob) -> Result {
 		match value {
 			tg::Blob::Leaf(leaf) => self.leaf(leaf),
@@ -177,25 +190,42 @@ where
 
 	fn leaf(&mut self, value: &tg::Leaf) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			write!(self.writer, "{id}")?;
-			return Ok(());
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.leaf_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
-		let bytes = data_encoding::BASE64.encode(&object.bytes);
+		Ok(())
+	}
+
+	fn leaf_object(&mut self, object: &tg::leaf::Object) -> Result {
 		write!(self.writer, "tg.leaf(")?;
-		self.string(&bytes)?;
+		if let Ok(string) = String::from_utf8(object.bytes.to_vec()) {
+			self.string(&string)?;
+		}
 		write!(self.writer, ")")?;
 		Ok(())
 	}
 
 	fn branch(&mut self, value: &tg::Branch) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			write!(self.writer, "{id}")?;
-			return Ok(());
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.branch_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
+		Ok(())
+	}
+
+	fn branch_object(&mut self, object: &tg::branch::Object) -> Result {
 		write!(self.writer, "tg.branch(")?;
 		self.start_map()?;
 		for child in &object.children {
@@ -207,24 +237,24 @@ where
 		Ok(())
 	}
 
-	fn artifact(&mut self, value: &tg::Artifact) -> Result {
-		match value {
-			tg::Artifact::Directory(directory) => self.directory(directory),
-			tg::Artifact::File(file) => self.file(file),
-			tg::Artifact::Symlink(symlink) => self.symlink(symlink),
-		}
-	}
-
 	fn directory(&mut self, value: &tg::Directory) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			write!(self.writer, "{id}")?;
-			return Ok(());
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.directory_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
+		Ok(())
+	}
+
+	fn directory_object(&mut self, object: &tg::directory::Object) -> Result {
 		write!(self.writer, "tg.directory(")?;
 		self.start_map()?;
-		match object.as_ref() {
+		match object {
 			tg::directory::Object::Normal { entries } => {
 				for (name, artifact) in entries {
 					self.map_entry(name, |s| s.artifact(artifact))?;
@@ -242,14 +272,22 @@ where
 
 	fn file(&mut self, value: &tg::File) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			write!(self.writer, "{id}")?;
-			return Ok(());
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.file_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
+		Ok(())
+	}
+
+	fn file_object(&mut self, object: &tg::file::Object) -> Result {
 		write!(self.writer, "tg.file(")?;
 		self.start_map()?;
-		match object.as_ref() {
+		match object {
 			tg::file::Object::Normal {
 				contents,
 				dependencies,
@@ -295,14 +333,22 @@ where
 
 	fn symlink(&mut self, value: &tg::Symlink) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			write!(self.writer, "{id}")?;
-			return Ok(());
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.symlink_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
+		Ok(())
+	}
+
+	fn symlink_object(&mut self, object: &tg::symlink::Object) -> Result {
 		write!(self.writer, "tg.symlink(")?;
 		self.start_map()?;
-		match object.as_ref() {
+		match object {
 			tg::symlink::Object::Normal { artifact, subpath } => {
 				if let Some(artifact) = &artifact {
 					self.map_entry("artifact", |s| s.artifact(artifact))?;
@@ -323,11 +369,19 @@ where
 
 	fn graph(&mut self, value: &tg::Graph) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			write!(self.writer, "{id}")?;
-			return Ok(());
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.graph_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
+		Ok(())
+	}
+
+	fn graph_object(&mut self, object: &tg::graph::Object) -> Result {
 		write!(self.writer, "tg.graph(")?;
 		self.start_map()?;
 		if !object.nodes.is_empty() {
@@ -432,11 +486,19 @@ where
 
 	fn target(&mut self, value: &tg::Target) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			write!(self.writer, "{id}")?;
-			return Ok(());
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.target_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
+		Ok(())
+	}
+
+	fn target_object(&mut self, object: &tg::target::Object) -> Result {
 		write!(self.writer, "tg.target(")?;
 		self.start_map()?;
 		if !object.args.is_empty() {

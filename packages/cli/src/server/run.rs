@@ -25,7 +25,7 @@ impl Cli {
 		});
 
 		// Wait for the server.
-		server.wait().await?;
+		server.wait().await;
 
 		Ok(())
 	}

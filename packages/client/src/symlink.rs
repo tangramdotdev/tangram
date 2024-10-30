@@ -153,6 +153,14 @@ impl Symlink {
 		Ok(id)
 	}
 
+	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.children())
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
@@ -317,6 +325,16 @@ impl Symlink {
 			return Err(tg::error!("expected a directory"));
 		}
 		Err(tg::error!("invalid symlink"))
+	}
+}
+
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Normal { artifact, .. } => artifact.clone().into_iter().map_into().collect(),
+			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+		}
 	}
 }
 

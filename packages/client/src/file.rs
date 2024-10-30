@@ -168,6 +168,14 @@ impl File {
 		Ok(id)
 	}
 
+	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.children())
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
@@ -417,6 +425,26 @@ impl File {
 		H: tg::Handle,
 	{
 		self.contents(handle).await?.text(handle).await
+	}
+}
+
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Normal {
+				contents,
+				dependencies,
+				..
+			} => {
+				let contents = contents.clone().into();
+				let dependencies = dependencies
+					.values()
+					.map(|dependency| dependency.item.clone());
+				std::iter::once(contents).chain(dependencies).collect()
+			},
+			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+		}
 	}
 }
 

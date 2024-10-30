@@ -74,7 +74,7 @@ impl Cli {
 		let viewer = Viewer::start(&handle, node_kind).await?;
 
 		// Wait for the viewer to finish.
-		viewer.wait().await?;
+		viewer.wait().await;
 
 		Ok(())
 	}
@@ -119,10 +119,10 @@ where
 		self.app.stop();
 	}
 
-	pub async fn wait(mut self) -> tg::Result<()> {
+	pub async fn wait(mut self) {
 		// Get the task.
 		let Some(task) = self.task.take() else {
-			return Ok(());
+			return;
 		};
 
 		// Join the task.
@@ -130,8 +130,6 @@ where
 
 		// Join the app.
 		self.app.wait().await;
-
-		Ok(())
 	}
 
 	fn task(

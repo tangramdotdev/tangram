@@ -92,7 +92,7 @@ impl Server {
 		let stream = stream::once(future).filter_map(|option| future::ready(option.transpose()));
 
 		// Stop the stream when the server stops.
-		let stop = async move { stop.stopped().await };
+		let stop = async move { stop.wait().await };
 		let stream = stream.take_until(stop);
 
 		// Create the body.

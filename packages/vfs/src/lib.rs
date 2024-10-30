@@ -8,29 +8,29 @@ pub const ROOT_NODE_ID: u64 = 1;
 
 /// A virtual filesystem provider.
 pub trait Provider {
+	/// Close an open file handle.
+	fn close(&self, handle: u64) -> impl Future<Output = ()> + Send;
+
+	/// Get the attributes for a node.
+	fn getattr(&self, id: u64) -> impl Future<Output = Result<Attrs>> + Send;
+
+	/// Get the value for an extended attribute for a node.
+	fn getxattr(&self, id: u64, name: &str) -> impl Future<Output = Result<Option<Bytes>>> + Send;
+
+	/// List extended attributes for a node.
+	fn listxattrs(&self, id: u64) -> impl Future<Output = Result<Vec<String>>> + Send;
+
 	/// Look up a node.
 	fn lookup(&self, id: u64, name: &str) -> impl Future<Output = Result<Option<u64>>> + Send;
 
 	/// Look up a node's parent.
 	fn lookup_parent(&self, id: u64) -> impl Future<Output = Result<u64>> + Send;
 
-	/// Get the attributes for a node.
-	fn getattr(&self, id: u64) -> impl Future<Output = Result<Attrs>> + Send;
-
-	/// List extended attributes for a node.
-	fn listxattrs(&self, id: u64) -> impl Future<Output = Result<Vec<String>>> + Send;
-
-	/// Get the value for an extended attribute for a node.
-	fn getxattr(&self, id: u64, name: &str) -> impl Future<Output = Result<Option<Bytes>>> + Send;
+	/// Open a file.
+	fn open(&self, id: u64) -> impl Future<Output = Result<u64>> + Send;
 
 	/// Open a directory.
 	fn opendir(&self, id: u64) -> impl Future<Output = Result<u64>> + Send;
-
-	/// Read from a directory.
-	fn readdir(&self, id: u64) -> impl Future<Output = Result<Vec<(String, u64)>>> + Send;
-
-	/// Open a file.
-	fn open(&self, id: u64) -> impl Future<Output = Result<u64>> + Send;
 
 	/// Read from a file.
 	fn read(
@@ -40,11 +40,11 @@ pub trait Provider {
 		length: u64,
 	) -> impl Future<Output = Result<Bytes>> + Send;
 
+	/// Read from a directory.
+	fn readdir(&self, handle: u64) -> impl Future<Output = Result<Vec<(String, u64)>>> + Send;
+
 	/// Read from a symlink.
 	fn readlink(&self, id: u64) -> impl Future<Output = Result<Bytes>> + Send;
-
-	/// Close an open file handle.
-	fn close(&self, id: u64) -> impl Future<Output = ()> + Send;
 }
 
 #[derive(Clone, Copy, Debug)]

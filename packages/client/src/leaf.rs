@@ -132,6 +132,14 @@ impl Leaf {
 		Ok(id)
 	}
 
+	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.children())
+	}
+
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
@@ -158,6 +166,13 @@ impl Leaf {
 	}
 }
 
+impl Object {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		vec![]
+	}
+}
+
 impl Data {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		Ok(self.bytes.clone())
@@ -171,7 +186,7 @@ impl Data {
 
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		BTreeSet::new()
+		[].into()
 	}
 }
 

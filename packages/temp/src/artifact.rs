@@ -1,4 +1,4 @@
-use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{
 	borrow::Cow,
 	collections::BTreeMap,
@@ -21,15 +21,15 @@ pub enum Artifact {
 }
 
 impl Artifact {
-	pub async fn to_path(&self, path: impl AsRef<Path>) -> std::io::Result<()> {
+	pub async fn to_path(&self, path: &Path) -> std::io::Result<()> {
 		match self {
 			Self::Directory { entries } => {
 				tokio::fs::create_dir(&path).await?;
 				entries
 					.iter()
 					.map(|(name, artifact)| async {
-						let path = path.as_ref().join(name.as_ref());
-						artifact.to_path(&path).boxed_local().await?;
+						let path = path.join(name.as_ref());
+						artifact.to_path(&path).await?;
 						Ok::<_, std::io::Error>(())
 					})
 					.collect::<FuturesUnordered<_>>()
@@ -59,7 +59,7 @@ impl Artifact {
 		Ok(())
 	}
 
-	pub async fn matches(&self, path: impl AsRef<Path>) -> std::io::Result<bool> {
+	pub async fn matches(&self, path: &Path) -> std::io::Result<bool> {
 		let metadata = match tokio::fs::symlink_metadata(&path).await {
 			Ok(metadata) => metadata,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -88,8 +88,8 @@ impl Artifact {
 					return Ok(false);
 				}
 				for (name, artifact) in entries {
-					let path = path.as_ref().join(name.as_ref());
-					if !artifact.matches(&path).boxed_local().await? {
+					let path = path.join(name.as_ref());
+					if !Box::pin(artifact.matches(&path)).await? {
 						return Ok(false);
 					}
 				}

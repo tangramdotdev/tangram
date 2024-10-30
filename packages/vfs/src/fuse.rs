@@ -11,10 +11,10 @@ use std::{
 	ffi::CString,
 	io::Error,
 	os::{
-		fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
-		unix::ffi::OsStrExt,
+		fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
+		unix::ffi::OsStrExt as _,
 	},
-	path::{Path, PathBuf},
+	path::Path,
 	pin::pin,
 	sync::{Arc, Mutex},
 };
@@ -23,10 +23,9 @@ use zerocopy::{FromBytes as _, IntoBytes as _};
 
 pub mod sys;
 
-pub struct Vfs<P>(Arc<Inner<P>>);
+pub struct Server<P>(Arc<Inner<P>>);
 
 pub struct Inner<P> {
-	path: PathBuf,
 	provider: P,
 	task: Mutex<Option<Task<()>>>,
 }
@@ -80,76 +79,123 @@ enum Response {
 	ReleaseDir,
 }
 
-impl<P> Vfs<P>
+impl<P> Server<P>
 where
 	P: Provider + Send + Sync + 'static,
 {
-	pub async fn start(provider: P, path: impl AsRef<Path>) -> Result<Self> {
+	pub async fn start(provider: P, path: &Path) -> Result<Self> {
 		// Create the server.
-		let path = path.as_ref().to_owned();
-		let vfs = Self(Arc::new(Inner {
+		let server = Self(Arc::new(Inner {
 			provider,
-			path,
 			task: Mutex::new(None),
 		}));
 
-		// Spawn the task.
-		let task = Task::spawn(|stop| {
-			let vfs = vfs.clone();
-			async move {
-				vfs.task(stop).await.ok();
-			}
-		});
-		vfs.task.lock().unwrap().replace(task);
-
-		Ok(vfs)
-	}
-
-	pub fn stop(&self) {
-		let task = self.task.lock().unwrap();
-		if let Some(task) = task.as_ref() {
-			task.stop();
-		}
-	}
-
-	pub async fn wait(self) {
-		let task = self.task.lock().unwrap().take();
-		if let Some(task) = task {
-			task.wait().await.ok();
-		}
-	}
-
-	async fn task(&self, stop: Stop) -> Result<()> {
 		// Unmount.
-		self.unmount()
-			.await
-			.inspect_err(|error| tracing::warn!(%error, "failed to unmount"))
-			.ok();
+		Self::unmount(path).await.ok();
 
 		// Mount.
-		let fd = self
-			.mount()
+		let fd = Self::mount(path)
 			.await
-			.inspect_err(|error| tracing::error!("failed to mount {error}"))?;
-
-		// Create the task tracker.
-		let task_tracker = tokio_util::task::TaskTracker::new();
+			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
 
 		// Create the request channel.
-		let (request_sender, request_receiver) = async_channel::bounded(10);
+		let (request_sender, request_receiver) = async_channel::unbounded();
 
-		// Spawn the request task.
+		// Spawn the request reader task.
 		tokio::task::spawn_blocking({
 			let fd = fd.clone();
 			move || {
-				Self::request_task(fd, request_sender).inspect_err(|error| tracing::error!(%error))
+				Self::request_reader_task(fd, request_sender)
+					.inspect_err(|error| tracing::error!(%error))
 			}
 		});
 
+		// Spawn the request handler task.
+		let request_handler_task = Task::spawn(|stop| {
+			let server = server.clone();
+			let path = path.to_owned();
+			async move {
+				server
+					.request_handler_task(fd, &path, request_receiver, stop)
+					.await;
+			}
+		});
+
+		let shutdown = async move {
+			request_handler_task.stop();
+			request_handler_task.wait().await.unwrap();
+		};
+
+		// Spawn the task.
+		let task = Task::spawn(|stop| async move {
+			stop.wait().await;
+			shutdown.await;
+		});
+		server.task.lock().unwrap().replace(task);
+
+		Ok(server)
+	}
+
+	pub fn stop(&self) {
+		self.task.lock().unwrap().as_ref().unwrap().stop();
+	}
+
+	pub async fn wait(&self) {
+		let task = self.task.lock().unwrap().clone().unwrap();
+		task.wait().await.unwrap();
+	}
+
+	#[allow(clippy::needless_pass_by_value)]
+	fn request_reader_task(fd: Arc<OwnedFd>, sender: async_channel::Sender<Request>) -> Result<()> {
+		// Create the request buffer.
+		let mut buffer = vec![0u8; 1024 * 1024 + 4096];
+
+		loop {
+			// Read.
+			let n = unsafe { libc::read(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
+
+			// Handle a read error.
+			if n < 0 {
+				let error = std::io::Error::last_os_error();
+				match error.raw_os_error() {
+					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {
+						continue;
+					},
+					Some(libc::ENODEV) => {
+						return Ok(());
+					},
+					_ => {
+						return Err(error);
+					},
+				}
+			}
+			let n = n.to_usize().unwrap();
+
+			// Deserialize the request.
+			let request = Self::deserialize_request(&buffer[..n])?;
+
+			// Send the request.
+			let result = sender.send_blocking(request);
+			if result.is_err() {
+				return Ok(());
+			}
+		}
+	}
+
+	async fn request_handler_task(
+		&self,
+		fd: Arc<OwnedFd>,
+		path: &Path,
+		receiver: async_channel::Receiver<Request>,
+		stop: Stop,
+	) {
+		// Create the task tracker.
+		let task_tracker = tokio_util::task::TaskTracker::new();
+
 		// Handle each request.
 		loop {
-			let read = request_receiver.recv().map(|r| r.unwrap());
-			let stop = stop.stopped();
+			let read = receiver.recv().map(|r| r.unwrap());
+			let stop = stop.wait();
 			let future::Either::Left((request, _)) = future::select(pin!(read), pin!(stop)).await
 			else {
 				break;
@@ -199,51 +245,10 @@ where
 		task_tracker.close();
 		task_tracker.wait().await;
 
-		// Unmount.
-		self.unmount()
+		Self::unmount(path)
 			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
 			.ok();
-
-		Ok(())
-	}
-
-	#[allow(clippy::needless_pass_by_value)]
-	fn request_task(fd: Arc<OwnedFd>, sender: async_channel::Sender<Request>) -> Result<()> {
-		// Create the request buffer.
-		let mut buffer = vec![0u8; 1024 * 1024 + 4096];
-
-		loop {
-			// Read.
-			let n = unsafe { libc::read(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
-
-			// Handle a read error.
-			if n < 0 {
-				let error = std::io::Error::last_os_error();
-				if matches!(
-					error.raw_os_error(),
-					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN)
-				) {
-					continue;
-				} else if matches!(error.raw_os_error(), Some(libc::ENODEV)) {
-					return Ok(());
-				}
-				return Err(error);
-			}
-			let n = n.to_usize().unwrap();
-
-			// Copy the request.
-			let bytes = &buffer[..n];
-
-			// Deserialize the request.
-			let request = Self::deserialize_request(bytes)?;
-
-			// Send the request.
-			let result = sender.send_blocking(request);
-			if result.is_err() {
-				return Ok(());
-			}
-		}
 	}
 
 	fn deserialize_request(buffer: &[u8]) -> Result<Request> {
@@ -594,9 +599,7 @@ where
 		Err(Error::from_raw_os_error(libc::ENOSYS))
 	}
 
-	async fn mount(&self) -> Result<Arc<OwnedFd>> {
-		let path = &self.path;
-
+	async fn mount(path: &Path) -> Result<Arc<OwnedFd>> {
 		unsafe {
 			// Create the file socket pair.
 			let mut fds = [0, 0];
@@ -698,8 +701,7 @@ where
 		}
 	}
 
-	async fn unmount(&self) -> Result<()> {
-		let path = &self.path;
+	async fn unmount(path: &Path) -> Result<()> {
 		tokio::process::Command::new("fusermount3")
 			.args(["-u"])
 			.arg(path)
@@ -830,13 +832,13 @@ fn write_response(fd: RawFd, unique: u64, response: &Response) -> std::io::Resul
 	Ok(())
 }
 
-impl<P> Clone for Vfs<P> {
+impl<P> Clone for Server<P> {
 	fn clone(&self) -> Self {
 		Self(self.0.clone())
 	}
 }
 
-impl<P> std::ops::Deref for Vfs<P> {
+impl<P> std::ops::Deref for Server<P> {
 	type Target = Inner<P>;
 
 	fn deref(&self) -> &Self::Target {

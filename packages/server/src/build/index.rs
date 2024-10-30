@@ -358,15 +358,11 @@ impl Server {
 			// Attempt to get the log depth.
 			let log_depth = log_metadata.as_ref().and_then(|metadata| metadata.depth);
 			// Attempt to compute the logs depth.
-			let outputs_log_depth = children.iter().try_fold(1, |depth, output| match output {
-				Some(output) => {
-					if let Some(odepth) = output.logs_depth {
-						Some(std::cmp::max(odepth, depth))
-					} else {
-						None
-					}
-				},
-				None => None,
+			let outputs_log_depth = children.iter().try_fold(1, |depth, output| {
+				output
+					.as_ref()
+					.and_then(|output| output.logs_depth)
+					.map(|d| depth.max(d))
 			});
 
 			// Set the logs depth if possible.
@@ -591,30 +587,19 @@ impl Server {
 		if build.outcomes_depth.is_none() {
 			// Attempt to get the outcome depth.
 			let outcome_depth = outcome_metadata.as_ref().and_then(|metadata| {
-				metadata
-					.iter()
-					.try_fold(1, |depth, metadata| match metadata {
-						Some(data) => {
-							if let Some(mdepth) = data.depth {
-								Some(std::cmp::max(mdepth, depth))
-							} else {
-								None
-							}
-						},
-						None => None,
-					})
+				metadata.iter().try_fold(1, |depth, metadata| {
+					metadata
+						.and_then(|metadata| metadata.depth)
+						.map(|d| depth.max(d))
+				})
 			});
 
 			// Attempt to compute the outcomes depth.
-			let outputs_outcome_depth = children.iter().try_fold(1, |depth, output| match output {
-				Some(output) => {
-					if let Some(odepth) = output.outcomes_depth {
-						Some(std::cmp::max(odepth, depth))
-					} else {
-						None
-					}
-				},
-				None => None,
+			let outputs_outcome_depth = children.iter().try_fold(1, |depth, output| {
+				output
+					.as_ref()
+					.and_then(|output| output.outcomes_depth)
+					.map(|d| depth.max(d))
 			});
 
 			// Set the outcomes depth if possible.
@@ -853,15 +838,11 @@ impl Server {
 		if build.targets_depth.is_none() {
 			// Attempt to get the target depth.
 			let target_depth = target_metadata.as_ref().and_then(|metadata| metadata.depth);
-			let outputs_target_depth = children.iter().try_fold(1, |depth, output| match output {
-				Some(output) => {
-					if let Some(odepth) = output.targets_depth {
-						Some(std::cmp::max(odepth, depth))
-					} else {
-						None
-					}
-				},
-				None => None,
+			let outputs_target_depth = children.iter().try_fold(1, |depth, output| {
+				output
+					.as_ref()
+					.and_then(|output| output.targets_depth)
+					.map(|d| depth.max(d))
 			});
 
 			// Set the targets depth if possible.

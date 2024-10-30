@@ -704,7 +704,7 @@ impl Server {
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.stopped().await };
+		let stop = async move { stop.wait().await };
 		let stream = stream.take_until(stop);
 
 		// Create the body.

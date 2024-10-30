@@ -117,7 +117,7 @@ where
 			.map(|entry| entry.value().clone())
 			.collect_vec();
 		for task in tasks {
-			task.wait().await.ok();
+			task.wait().await.unwrap();
 		}
 	}
 }
@@ -138,7 +138,7 @@ impl Stop {
 		*self.0.subscribe().borrow()
 	}
 
-	pub async fn stopped(&self) {
+	pub async fn wait(&self) {
 		self.0
 			.subscribe()
 			.wait_for(|stop| *stop)

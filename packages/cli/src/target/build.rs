@@ -106,7 +106,11 @@ impl Cli {
 			InnerOutput::Value(value) => {
 				let stdout = std::io::stdout();
 				let value = if stdout.is_terminal() {
-					value.to_string_pretty()
+					let options = tg::value::print::Options {
+						recursive: false,
+						style: tg::value::print::Style::Pretty { indentation: "\t" },
+					};
+					value.print(options)
 				} else {
 					value.to_string()
 				};

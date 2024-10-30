@@ -13,6 +13,8 @@ mod input;
 mod lockfile;
 mod object;
 mod output;
+#[cfg(test)]
+mod tests;
 mod unify;
 
 impl Server {
