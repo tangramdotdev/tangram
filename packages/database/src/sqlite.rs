@@ -17,25 +17,29 @@ pub enum Error {
 
 pub struct DatabaseOptions {
 	pub connections: usize,
-	pub initialize: Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>,
+	pub initialize: Initialize,
 	pub path: PathBuf,
 }
 
-pub struct ConnectionOptions {
-	pub flags: rusqlite::OpenFlags,
-	pub initialize: Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>,
-	pub path: PathBuf,
-}
+type Initialize = Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
 
 pub struct Database {
+	#[allow(dead_code)]
 	options: DatabaseOptions,
 	read_pool: Pool<Connection>,
 	write_pool: Pool<Connection>,
 }
 
 pub struct Connection {
+	#[allow(dead_code)]
 	options: ConnectionOptions,
 	sender: tokio::sync::mpsc::UnboundedSender<ConnectionMessage>,
+}
+
+pub struct ConnectionOptions {
+	pub flags: rusqlite::OpenFlags,
+	pub initialize: Initialize,
+	pub path: PathBuf,
 }
 
 pub struct Transaction<'a> {
@@ -105,6 +109,14 @@ pub struct Json<T>(pub T);
 
 impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
+		let write_pool = Pool::new();
+		let options_ = ConnectionOptions {
+			flags: rusqlite::OpenFlags::empty(),
+			initialize: options.initialize.clone(),
+			path: options.path.clone(),
+		};
+		let connection = Connection::connect(options_).await?;
+		write_pool.add(connection);
 		let read_pool = Pool::new();
 		for _ in 0..options.connections {
 			let options = ConnectionOptions {
@@ -115,14 +127,6 @@ impl Database {
 			let connection = Connection::connect(options).await?;
 			read_pool.add(connection);
 		}
-		let write_pool = Pool::new();
-		let options_ = ConnectionOptions {
-			flags: rusqlite::OpenFlags::empty(),
-			initialize: options.initialize.clone(),
-			path: options.path.clone(),
-		};
-		let connection = Connection::connect(options_).await?;
-		write_pool.add(connection);
 		let database = Self {
 			options,
 			read_pool,
