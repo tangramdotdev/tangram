@@ -111,7 +111,7 @@ impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
 		let write_pool = Pool::new();
 		let options_ = ConnectionOptions {
-			flags: rusqlite::OpenFlags::empty(),
+			flags: rusqlite::OpenFlags::default(),
 			initialize: options.initialize.clone(),
 			path: options.path.clone(),
 		};
@@ -119,8 +119,12 @@ impl Database {
 		write_pool.add(connection);
 		let read_pool = Pool::new();
 		for _ in 0..options.connections {
+			let mut flags = rusqlite::OpenFlags::default();
+			flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_CREATE);
+			flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE);
+			flags.insert(rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY);
 			let options = ConnectionOptions {
-				flags: rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+				flags,
 				initialize: options.initialize.clone(),
 				path: options.path.clone(),
 			};
