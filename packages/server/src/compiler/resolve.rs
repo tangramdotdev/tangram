@@ -1,5 +1,5 @@
 use super::Compiler;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
 
