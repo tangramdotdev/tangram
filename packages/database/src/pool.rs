@@ -19,8 +19,9 @@ struct Request<T> {
 	sender: tokio::sync::oneshot::Sender<T>,
 }
 
-#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Priority {
+	#[default]
 	Low,
 	High,
 }

@@ -2,7 +2,7 @@ use super::commands::Commands;
 use futures::{
 	future::{self, BoxFuture},
 	stream::FuturesUnordered,
-	FutureExt, StreamExt, TryStreamExt,
+	FutureExt as _, StreamExt as _,
 };
 use num::ToPrimitive;
 use ratatui::{
@@ -14,7 +14,7 @@ use ratatui::{
 };
 use std::{
 	collections::BTreeMap,
-	fmt::Write,
+	fmt::Write as _,
 	pin,
 	sync::{Arc, RwLock, Weak},
 };

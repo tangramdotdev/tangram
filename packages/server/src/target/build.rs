@@ -47,7 +47,7 @@ impl Server {
 			// Get a database connection.
 			let connection = self
 				.database
-				.connection(db::Priority::Low)
+				.connection()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -265,7 +265,7 @@ impl Server {
 	async fn detect_depth_overflow(&self, parent: &tg::build::Id) -> tg::Result<bool> {
 		let connection = self
 			.database
-			.connection(db::Priority::Low)
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let p = connection.p();
@@ -319,8 +319,10 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
+
 		// Drop the connection.
 		drop(connection);
+
 		Ok(false)
 	}
 
@@ -331,7 +333,7 @@ impl Server {
 	) -> tg::Result<bool> {
 		let connection = self
 			.database
-			.connection(db::Priority::Low)
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
