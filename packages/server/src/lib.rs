@@ -311,7 +311,7 @@ impl Server {
 			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path, options)
 				.await
 				.inspect_err(|source| {
-					tracing::error!(%source, "failed to start the VFS");
+					tracing::error!(?source, "failed to start the VFS");
 				})
 				.ok();
 			if let Some(vfs) = vfs {
