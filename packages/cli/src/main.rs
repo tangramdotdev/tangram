@@ -393,6 +393,11 @@ impl Cli {
 		)]
 		.into();
 		let url = tangram_server::Config::default_url_for_path(&path);
+		let vfs = if cfg!(target_os = "linux") {
+			Some(tangram_server::config::Vfs::default())
+		} else {
+			None
+		};
 		let mut config = tangram_server::Config {
 			advanced: tangram_server::config::Advanced::default(),
 			authentication: None,
@@ -406,7 +411,7 @@ impl Cli {
 			remotes,
 			url,
 			version: None,
-			vfs: Some(tangram_server::config::Vfs::default()),
+			vfs,
 		};
 
 		// Set the url.

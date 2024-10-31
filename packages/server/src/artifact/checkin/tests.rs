@@ -42,40 +42,40 @@ async fn directory() -> tg::Result<()> {
 		"directory",
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
-		tg.directory({
-			"graph": tg.graph({
-				"nodes": [
-					{
-						"kind": "symlink",
-						"artifact": 3,
-						"subpath": "hello.txt",
-					},
-					{
-						"kind": "symlink",
-						"artifact": 3,
-						"subpath": "link",
-					},
-					{
-						"kind": "directory",
-						"entries": {
-							"sublink": 1,
-						},
-					},
-					{
-						"kind": "directory",
-						"entries": {
-							"hello.txt": tg.file({
-								"contents": tg.leaf("Hello, world!"),
-							}),
-							"link": 0,
-							"subdirectory": 2,
-						},
-					},
-				],
-			}),
-			"node": 3,
-		})
-		"#);
+				tg.directory({
+					"graph": tg.graph({
+						"nodes": [
+							{
+								"kind": "symlink",
+								"artifact": 3,
+								"subpath": "hello.txt",
+							},
+							{
+								"kind": "symlink",
+								"artifact": 3,
+								"subpath": "link",
+							},
+							{
+								"kind": "directory",
+								"entries": {
+									"sublink": 1,
+								},
+							},
+							{
+								"kind": "directory",
+								"entries": {
+									"hello.txt": tg.file({
+										"contents": tg.leaf("Hello, world!"),
+									}),
+									"link": 0,
+									"subdirectory": 2,
+								},
+							},
+						],
+					}),
+					"node": 3,
+				})
+			"#);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -87,18 +87,18 @@ async fn readme() -> tg::Result<()> {
 	test(
 		artifact!({
 			"directory": {
-				"README.md": "Hello, World!!",
+				"README.md": "Hello, World!",
 			}
 		}),
 		"directory",
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
-   tg.directory({
-   	"README.md": tg.file({
-   		"contents": tg.leaf("Hello, World!!"),
-   	}),
-   })
-   "#);
+				tg.directory({
+					"README.md": tg.file({
+						"contents": tg.leaf("Hello, World!"),
+					}),
+				})
+			"#);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -138,16 +138,9 @@ where
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
 		let directory = Temp::new();
-		artifact
-			.to_path(directory.as_ref())
-			.await
-			.map_err(
-				|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
-			)
-			.inspect_err(|error| {
-				eprintln!("path: {}", directory.path().display());
-				eprintln!("{error}");
-			})?;
+		artifact.to_path(directory.as_ref()).await.map_err(
+			|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
+		)?;
 		let arg = tg::artifact::checkin::Arg {
 			destructive: false,
 			deterministic: false,
