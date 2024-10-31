@@ -8,11 +8,13 @@ use tangram_either::Either;
 
 pub type Error = db::either::Error<db::sqlite::Error, db::postgres::Error>;
 
-pub type Options = Either<db::sqlite::Options, db::postgres::Options>;
-
 pub type Database = Either<db::sqlite::Database, db::postgres::Database>;
 
+pub type DatabaseOptions = Either<db::sqlite::DatabaseOptions, db::postgres::DatabaseOptions>;
+
 pub type Connection = Either<db::sqlite::Connection, db::postgres::Connection>;
+
+pub type ConnectionOptions = Either<db::sqlite::ConnectionOptions, db::postgres::ConnectionOptions>;
 
 pub type Transaction<'a> = Either<db::sqlite::Transaction<'a>, db::postgres::Transaction<'a>>;
 
@@ -26,7 +28,7 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 	let version = match database {
 		Either::Left(database) => {
 			let connection = database
-				.connection(db::Priority::Low)
+				.connection()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 			connection
@@ -61,7 +63,7 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 		match database {
 			Either::Left(database) => {
 				let connection = database
-					.connection(db::Priority::Low)
+					.connection()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 				connection
@@ -200,7 +202,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 	);
 	let database = database.as_ref().unwrap_left();
 	let connection = database
-		.connection(db::Priority::Low)
+		.connection()
 		.await
 		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 	connection

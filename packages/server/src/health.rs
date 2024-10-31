@@ -10,7 +10,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection(db::Priority::Low)
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 
@@ -47,7 +47,10 @@ impl Server {
 		drop(connection);
 
 		let available_connections = match &self.database {
-			Either::Left(database) => database.pool().available().to_u64().unwrap(),
+			Either::Left(database) => {
+				database.read_pool().available().to_u64().unwrap()
+					+ database.write_pool().available().to_u64().unwrap()
+			},
 			Either::Right(database) => database.pool().available().to_u64().unwrap(),
 		};
 		let database = tg::health::Database {

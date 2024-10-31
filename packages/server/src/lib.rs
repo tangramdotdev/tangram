@@ -173,13 +173,13 @@ impl Server {
 		// Create the database.
 		let database = match &options.database {
 			self::config::Database::Sqlite(options) => {
-				let initialize = Box::new(|connection: &sqlite::Connection| {
+				let initialize = Arc::new(|connection: &sqlite::Connection| {
 					connection.pragma_update(None, "journal_mode", "wal")?;
 					connection.pragma_update(None, "busy_timeout", "86400000")?;
 					connection.pragma_update(None, "synchronous", "normal")?;
 					Ok(())
 				});
-				let options = db::sqlite::Options {
+				let options = db::sqlite::DatabaseOptions {
 					connections: options.connections,
 					initialize,
 					path: path.join("database"),
@@ -190,7 +190,7 @@ impl Server {
 				Either::Left(database)
 			},
 			self::config::Database::Postgres(options) => {
-				let options = db::postgres::Options {
+				let options = db::postgres::DatabaseOptions {
 					url: options.url.clone(),
 					connections: options.connections,
 				};
@@ -569,7 +569,8 @@ impl Server {
 impl Server {
 	async fn listen(
 		url: &Url,
-	) -> tg::Result<tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>> {
+	) -> tg::Result<tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>>
+	{
 		let listener = match url.scheme() {
 			"http+unix" => {
 				let path = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;

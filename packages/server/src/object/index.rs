@@ -37,7 +37,7 @@ impl Server {
 			}
 
 			// Attempt to get an object to index.
-			let connection = match self.database.connection(db::Priority::Low).await {
+			let connection = match self.database.write_connection().await {
 				Ok(connection) => connection,
 				Err(error) => {
 					tracing::error!(?error, "failed to get a database connection");
@@ -126,7 +126,7 @@ impl Server {
 		// Get a short lived database connection.
 		let connection = self
 			.database
-			.connection(db::Priority::Low)
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -163,6 +163,7 @@ impl Server {
 		let Some(bytes) = bytes else {
 			return Ok(());
 		};
+
 		drop(connection);
 
 		// Deserialize the object.
@@ -181,7 +182,7 @@ impl Server {
 		// Get a database connection.
 		let mut connection = self
 			.database
-			.connection(db::Priority::Low)
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -433,7 +434,7 @@ impl Server {
 		// Get a database connection.
 		let mut connection = self
 			.database
-			.connection(db::Priority::Low)
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
