@@ -365,14 +365,14 @@ impl Server {
 		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
 		{
 			let triple = "x86_64-darwin".to_owned();
-			let runtime = self::runtime::darwin::Runtime::new(server);
+			let runtime = self::runtime::darwin::Runtime::new(&server);
 			let runtime = self::runtime::Runtime::Darwin(runtime);
 			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 		{
 			let triple = "x86_64-linux".to_owned();
-			let runtime = self::runtime::linux::Runtime::new(server).await?;
+			let runtime = self::runtime::linux::Runtime::new(&server).await?;
 			let runtime = self::runtime::Runtime::Linux(runtime);
 			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
