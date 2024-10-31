@@ -176,6 +176,10 @@ pub struct Build {
 	/// The interval at which heartbeats will be sent.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub heartbeat_interval: Option<Duration>,
+
+	/// The maximum build depth.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_depth: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

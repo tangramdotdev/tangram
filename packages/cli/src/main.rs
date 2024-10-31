@@ -477,6 +477,9 @@ impl Cli {
 			{
 				build_.heartbeat_interval = heartbeat_interval;
 			}
+			if let Some(max_depth) = build.as_ref().and_then(|config| config.max_depth) {
+				build_.max_depth = max_depth;
+			}
 			config.build = Some(build_);
 		}
 
