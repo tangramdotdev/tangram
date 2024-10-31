@@ -2,7 +2,7 @@ use crate::Cli;
 use crossterm::style::Stylize as _;
 use futures::TryStreamExt as _;
 use itertools::Itertools as _;
-use std::path::PathBuf;
+use std::{io::IsTerminal as _, path::PathBuf};
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_either::Either;
 
