@@ -31,7 +31,7 @@ pub struct Tree {
 
 impl Cli {
 	pub async fn command_tree(&self, args: Args) -> tg::Result<()> {
-		let item = self.get_reference(&args.reference).await.map_err(
+		let referent = self.get_reference(&args.reference).await.map_err(
 			|source| tg::error!(!source, %reference = args.reference, "failed to get the reference"),
 		)?;
 		let expand_options = crate::view::tree::Options {
@@ -40,7 +40,7 @@ impl Cli {
 			builds: true,
 			collapse_builds_on_success: true,
 		};
-		Self::print_tree(self.handle().await?.clone(), item, expand_options).await
+		Self::print_tree(self.handle().await?.clone(), todo!(), expand_options).await
 	}
 
 	pub async fn print_tree(

@@ -4,6 +4,7 @@ use crossterm as ct;
 use ratatui as tui;
 use std::{sync::Arc, time::Duration};
 use tangram_client as tg;
+use tangram_either::Either;
 
 mod app;
 mod commands;
