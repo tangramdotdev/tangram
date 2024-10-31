@@ -10,6 +10,7 @@ pub type Error = db::either::Error<db::sqlite::Error, db::postgres::Error>;
 
 pub type Database = Either<db::sqlite::Database, db::postgres::Database>;
 
+#[allow(clippy::module_name_repetitions)]
 pub type DatabaseOptions = Either<db::sqlite::DatabaseOptions, db::postgres::DatabaseOptions>;
 
 pub type Connection = Either<db::sqlite::Connection, db::postgres::Connection>;
@@ -63,7 +64,7 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 		match database {
 			Either::Left(database) => {
 				let connection = database
-					.connection()
+					.write_connection()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 				connection
@@ -202,7 +203,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 	);
 	let database = database.as_ref().unwrap_left();
 	let connection = database
-		.connection()
+		.write_connection()
 		.await
 		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 	connection
