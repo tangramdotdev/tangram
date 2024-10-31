@@ -56,6 +56,7 @@ pub struct Oauth {
 pub struct Build {
 	pub concurrency: usize,
 	pub heartbeat_interval: Duration,
+	pub max_depth: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -176,6 +177,7 @@ impl Default for Build {
 		Self {
 			concurrency: n.into(),
 			heartbeat_interval: Duration::from_secs(1),
+			max_depth: 4096,
 		}
 	}
 }
