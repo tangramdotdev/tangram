@@ -122,7 +122,7 @@ impl Server {
 		}
 	}
 
-	async fn index_object(&self, id: &tg::object::Id) -> tg::Result<()> {
+	pub async fn index_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		// Get a short lived database connection.
 		let connection = self
 			.database
