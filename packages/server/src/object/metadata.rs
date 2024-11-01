@@ -29,25 +29,6 @@ impl Server {
 			return Ok(Some(output));
 		};
 
-		// If the object is an artifact, then try to store it.
-		if let Ok(artifact) = tg::artifact::Id::try_from(id.clone()) {
-			let stored = self
-				.artifact_store_task_map
-				.get_or_spawn(artifact.clone(), |_| {
-					self.try_store_artifact_future(&artifact)
-				})
-				.wait()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for the task"))??;
-			if stored {
-				let output = self
-					.try_get_object_metadata_local_database(id)
-					.await?
-					.ok_or_else(|| tg::error!("expected the object to exist"))?;
-				return Ok(Some(output));
-			}
-		}
-
 		// If the object is a blob, then try to store it.
 		if let Ok(blob) = tg::blob::Id::try_from(id.clone()) {
 			let server = self.clone();

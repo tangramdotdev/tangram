@@ -83,15 +83,14 @@ impl Server {
 		}
 
 		// Check in the artifact.
-		self.check_in_or_store_artifact_inner(arg.clone(), None, progress)
+		self.check_in_artifact_inner(arg.clone(), progress)
 			.await
 	}
 
 	// Check in the artifact.
-	async fn check_in_or_store_artifact_inner(
+	async fn check_in_artifact_inner(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
-		store_as: Option<&tg::artifact::Id>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Verify the path is absolute.
@@ -158,22 +157,17 @@ impl Server {
 			.await?
 			.ok_or_else(|| tg::error!(%path = arg.path.display(), "missing path in output"))?;
 
-		if let Some(store_as) = store_as {
-			// Store if requested.
-			if store_as != &artifact {
-				return Err(tg::error!("the checkouts directory is corrupted"));
-			}
-			self.write_output_to_database(output.clone()).await?;
-		} else {
-			// Copy or move files.
-			self.copy_or_move_to_checkouts_directory(output.clone(), progress)
-				.await?;
+		// Copy or move files.
+		self.copy_or_move_to_checkouts_directory(output.clone(), progress)
+			.await?;
 
-			// Write lockfiles.
-			let lockfile = self.create_lockfile(&object_graph).await?;
-			self.write_lockfiles(input.clone(), &lockfile, &object_graph.paths)
-				.await?;
-		}
+		// Write lockfiles.
+		let lockfile = self.create_lockfile(&object_graph).await?;
+		self.write_lockfiles(input.clone(), &lockfile, &object_graph.paths)
+			.await?;
+
+		// Write the artifact data to the database.
+		self.write_output_to_database(output.clone()).await?;
 
 		// Create the output.
 		let output = tg::artifact::checkin::Output { artifact };
@@ -225,39 +219,6 @@ impl Server {
 			}
 		}
 		Ok(None)
-	}
-
-	pub(crate) fn try_store_artifact_future(
-		&self,
-		id: &tg::artifact::Id,
-	) -> BoxFuture<'static, tg::Result<bool>> {
-		let server = self.clone();
-		let id = id.clone();
-		Box::pin(async move { server.try_store_artifact_inner(&id).await })
-	}
-
-	pub(crate) async fn try_store_artifact_inner(&self, id: &tg::artifact::Id) -> tg::Result<bool> {
-		// Check if the artifact exists in the checkouts directory.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let path = self.cache_path().join(id.to_string());
-		let exists = tokio::fs::try_exists(&path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to check if the file exists"))?;
-		if !exists {
-			return Ok(false);
-		}
-		drop(permit);
-		let arg = tg::artifact::checkin::Arg {
-			deterministic: false,
-			destructive: false,
-			ignore: false,
-			locked: true,
-			path,
-		};
-		self.check_in_or_store_artifact_inner(arg.clone(), Some(id), None)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to store the artifact"))?;
-		Ok(true)
 	}
 }
 
