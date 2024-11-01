@@ -255,33 +255,6 @@ impl Server {
 	) -> tg::Result<Vec<Edge>> {
 		let metadata = referrer.read().await.metadata.clone();
 		if metadata.is_dir() {
-			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let root_module_file_name =
-				tg::package::try_get_root_module_file_name_for_package_path(path).await?;
-			drop(permit);
-			if let Some(root_module_file_name) = root_module_file_name {
-				let graph = Box::pin(self.collect_input_inner(
-					Some(Either::Left(referrer.clone())),
-					root_module_file_name.as_ref(),
-					arg,
-					state,
-					progress,
-				))
-				.await
-				.map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to collect package input"),
-				)?;
-
-				let edge = Edge {
-					reference: tg::Reference::with_path(root_module_file_name),
-					subpath: None,
-					graph: Some(graph),
-					object: None,
-					tag: None,
-				};
-				return Ok(vec![edge]);
-			}
-
 			Box::pin(self.get_directory_edges(referrer, path, arg, state, progress)).await
 		} else if metadata.is_file() {
 			Box::pin(self.get_file_edges(referrer, path, arg, state, progress)).await
