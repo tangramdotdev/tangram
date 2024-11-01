@@ -6,6 +6,112 @@ use tangram_client as tg;
 use tangram_temp::{self as temp, artifact, symlink, Temp};
 
 #[tokio::test]
+async fn nested_packages() -> tg::Result<()> {
+	test(
+		artifact!({
+			"foo": {
+				"tangram.ts": r#"
+					import * as bar from "./bar";
+					import * as baz from "./baz";
+				"#,
+				"bar": {
+					"tangram.ts": r#"
+						import * as baz from "../baz";
+					"#,
+				},
+				"baz": {
+					"tangram.ts": "",
+				}
+			},
+		}),
+		"foo",
+		|_, _, output| async move {
+			eprintln!("{output}");
+			assert_snapshot!(output, @r#""#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn package_with_submodules() -> tg::Result<()> {
+	test(
+		artifact!({
+			"package": {
+				"tangram.ts": r#"import * as foo from "./foo.tg.ts";"#,
+				"foo.tg.ts": r#"import * as root from "./tangram.ts";"#,
+			}
+		}),
+		"package",
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+			tg.directory({
+				"graph": tg.graph({
+					"nodes": [
+						{
+							"kind": "file",
+							"contents": tg.leaf("import * as foo from "./foo.tg.ts";"),
+							"dependencies": {
+								"./foo.tg.ts": {
+									"item": 1,
+									"subpath": "./foo.tg.ts",
+								},
+							},
+						},
+						{
+							"kind": "directory",
+							"entries": {
+								"tangram.ts": 0,
+							},
+						},
+					],
+				}),
+				"node": 1,
+			})
+			"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn symlink() -> tg::Result<()> {
+	test(
+		artifact!({
+			"directory": {
+				"link": symlink!("."),
+			}
+		}),
+		"directory",
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+			tg.directory({
+				"graph": tg.graph({
+					"nodes": [
+						{
+							"kind": "symlink",
+							"artifact": 1,
+						},
+						{
+							"kind": "directory",
+							"entries": {
+								"link": 0,
+							},
+						},
+					],
+				}),
+				"node": 1,
+			})
+			"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn cyclic_dependencies() -> tg::Result<()> {
 	test(
 		artifact!({
@@ -20,7 +126,45 @@ async fn cyclic_dependencies() -> tg::Result<()> {
 		}),
 		"directory/foo",
 		|_, _, output| async move {
-			eprintln!("{output}");
+			assert_snapshot!(output, @r#"
+		tg.directory({
+			"graph": tg.graph({
+				"nodes": [
+					{
+						"kind": "file",
+						"contents": tg.leaf("import * as foo from "../foo""),
+						"dependencies": {
+							"../foo": {
+								"item": 3,
+							},
+						},
+					},
+					{
+						"kind": "directory",
+						"entries": {
+							"tangram.ts": 0,
+						},
+					},
+					{
+						"kind": "file",
+						"contents": tg.leaf("import * as bar from "../bar""),
+						"dependencies": {
+							"../bar": {
+								"item": 1,
+							},
+						},
+					},
+					{
+						"kind": "directory",
+						"entries": {
+							"tangram.ts": 2,
+						},
+					},
+				],
+			}),
+			"node": 3,
+		})
+		"#);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -83,7 +227,7 @@ async fn directory() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn readme() -> tg::Result<()> {
+async fn file() -> tg::Result<()> {
 	test(
 		artifact!({
 			"directory": {
@@ -106,7 +250,7 @@ async fn readme() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn default_module() -> tg::Result<()> {
+async fn package() -> tg::Result<()> {
 	test(
 		artifact!({
 			"directory": {

@@ -9,6 +9,7 @@ use std::{
 use tangram_client::{self as tg, handle::Ext};
 use tangram_either::Either;
 
+#[derive(Debug)]
 pub struct Graph {
 	pub indices: BTreeMap<unify::Id, usize>,
 	pub nodes: Vec<Node>,
@@ -16,6 +17,7 @@ pub struct Graph {
 	pub objects: BTreeMap<tg::object::Id, usize>,
 }
 
+#[derive(Debug)]
 pub struct Node {
 	pub data: Option<tg::artifact::Data>,
 	pub id: Option<tg::object::Id>,
@@ -124,6 +126,7 @@ impl Server {
 		let mut graph_metadata = BTreeMap::new();
 		let mut file_metadata = BTreeMap::new();
 
+		// Partition the graph into its strongly connected components.
 		for scc in petgraph::algo::tarjan_scc(&*graph) {
 			// Special case: the node is a bare object.
 			if scc.len() == 1 && graph.nodes[scc[0]].unify.object.is_right() {
@@ -192,6 +195,7 @@ impl Server {
 				let bytes = object_graph.serialize()?;
 				let arg = tg::object::put::Arg { bytes };
 				self.put_object(&id.clone().into(), arg).await?;
+
 				graph_metadata.insert(id.clone(), metadata);
 
 				for old_index in scc {

@@ -255,18 +255,14 @@ impl Compiler {
 		&self,
 		params: lsp::DidSaveTextDocumentParams,
 	) -> tg::Result<()> {
-		eprintln!("handle_did_save_notification");
-
 		// Get the module.
 		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Save the module.
 		self.save_document(&module).await?;
-		eprintln!("saved document");
 
 		// Update all diagnostics.
 		self.update_diagnostics().await?;
-		eprintln!("updated diagnostics");
 
 		Ok(())
 	}
