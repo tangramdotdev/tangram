@@ -6,6 +6,42 @@ use tangram_client as tg;
 use tangram_temp::{self as temp, artifact, symlink, Temp};
 
 #[tokio::test]
+async fn simple_path_dependency() -> tg::Result<()> {
+	test(
+		artifact!({
+			"foo": {
+				"tangram.ts": r#"import * as bar from "../bar";"#,
+			},
+			"bar": {
+				"tangram.ts": "",
+			},
+		}),
+		"foo",
+		|_, _, output| async move {
+			eprintln!("{output}");
+			assert_snapshot!(output, @r#"
+			tg.directory({
+				"tangram.ts": tg.file({
+					"contents": tg.leaf("import * as bar from "../bar";"),
+					"dependencies": {
+						"../bar": {
+							"item": tg.directory({
+								"tangram.ts": tg.file({
+									"contents": tg.leaf(""),
+								}),
+							}),
+						},
+					},
+				}),
+			})
+			"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn nested_packages() -> tg::Result<()> {
 	test(
 		artifact!({
@@ -26,8 +62,62 @@ async fn nested_packages() -> tg::Result<()> {
 		}),
 		"foo",
 		|_, _, output| async move {
-			eprintln!("{output}");
-			assert_snapshot!(output, @r#""#);
+			assert_snapshot!(output, @r#"
+			tg.directory({
+				"graph": tg.graph({
+					"nodes": [
+						{
+							"kind": "file",
+							"contents": tg.leaf("
+									import * as baz from "../baz";
+							"),
+							"dependencies": {
+								"../baz": {
+									"item": 3,
+									"subpath": "./baz",
+								},
+							},
+						},
+						{
+							"kind": "directory",
+							"entries": {
+								"tangram.ts": 0,
+							},
+						},
+						{
+							"kind": "file",
+							"contents": tg.leaf("
+								import * as bar from "./bar";
+								import * as baz from "./baz";
+							"),
+							"dependencies": {
+								"./bar": {
+									"item": 3,
+									"subpath": "./bar",
+								},
+								"./baz": {
+									"item": 3,
+									"subpath": "./baz",
+								},
+							},
+						},
+						{
+							"kind": "directory",
+							"entries": {
+								"bar": 1,
+								"baz": tg.directory({
+										"tangram.ts": tg.file({
+											"contents": tg.leaf(""),
+										}),
+								}),
+								"tangram.ts": 2,
+							},
+						},
+					],
+				}),
+				"node": 3,
+			})
+		"#);
 			Ok::<_, tg::Error>(())
 		},
 	)
