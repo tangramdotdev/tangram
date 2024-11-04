@@ -39,11 +39,15 @@ impl Compiler {
 				..
 			} => {
 				let object = if let Some(subpath) = subpath {
+					let subpath = subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
 					let tg::object::Id::Directory(directory) = object else {
 						return Err(tg::error!("object with subpath must be a directory"));
 					};
 					let directory = tg::Directory::with_id(directory.clone());
-					let artifact = directory.get(&self.server, subpath).await?;
+					let artifact = directory
+						.get(&self.server, subpath)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get directory entry"))?;
 					artifact.id(&self.server).await?.clone().into()
 				} else {
 					object.clone()
@@ -63,80 +67,86 @@ impl Compiler {
 		};
 
 		// If the kind is not known and the referent is a directory with a root module, then use its kind.
-		let kind = if kind.is_some() {
-			kind
-		} else {
-			match &referent.item {
-				tg::module::data::Item::Path(path) => {
-					let path = if let Some(subpath) = &referent.subpath {
-						path.join(subpath)
-					} else {
-						path.clone()
-					};
-					let metadata = tokio::fs::metadata(&path)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-					if metadata.is_dir() {
-						let package = Either::Right(path.as_ref());
-						if let Some(name) =
-							tg::package::try_get_root_module_file_name(&self.server, package)
-								.await?
-						{
-							let name = Path::new(name);
-							let extension = name.extension();
-							if extension.is_some_and(|extension| extension == "js") {
-								Some(tg::module::Kind::Js)
-							} else if extension.is_some_and(|extension| extension == "ts") {
-								Some(tg::module::Kind::Ts)
+		let kind =
+			if kind.is_some() {
+				kind
+			} else {
+				match &referent.item {
+					tg::module::data::Item::Path(path) => {
+						let path = if let Some(subpath) = &referent.subpath {
+							path.join(subpath)
+						} else {
+							path.clone()
+						};
+						let metadata = tokio::fs::metadata(&path)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+						if metadata.is_dir() {
+							let package = Either::Right(path.as_ref());
+							if let Some(name) =
+								tg::package::try_get_root_module_file_name(&self.server, package)
+									.await?
+							{
+								let name = Path::new(name);
+								let extension = name.extension();
+								if extension.is_some_and(|extension| extension == "js") {
+									Some(tg::module::Kind::Js)
+								} else if extension.is_some_and(|extension| extension == "ts") {
+									Some(tg::module::Kind::Ts)
+								} else {
+									None
+								}
 							} else {
 								None
 							}
 						} else {
 							None
 						}
-					} else {
-						None
-					}
-				},
+					},
 
-				tg::module::data::Item::Object(object) => {
-					let object = if let Some(subpath) = &referent.subpath {
-						let object = tg::Object::with_id(object.clone());
-						let directory = object
-							.try_unwrap_directory_ref()
-							.ok()
-							.ok_or_else(|| tg::error!("expected a directory"))?;
-						let artifact = directory.get(&self.server, subpath).await?;
-						let artifact = artifact.id(&self.server).await?.clone();
-						artifact.into()
-					} else {
-						object.clone()
-					};
-					if object.try_unwrap_directory_ref().is_ok() {
-						let object = tg::Object::with_id(object);
-						let package = Either::Left(&object);
-						if let Some(name) =
-							tg::package::try_get_root_module_file_name(&self.server, package)
-								.await?
-						{
-							let name = Path::new(name);
-							let extension = name.extension();
-							if extension.is_some_and(|extension| extension == "js") {
-								Some(tg::module::Kind::Js)
-							} else if extension.is_some_and(|extension| extension == "ts") {
-								Some(tg::module::Kind::Ts)
+					tg::module::data::Item::Object(object) => {
+						let object =
+							if let Some(subpath) = &referent.subpath {
+								let subpath =
+									subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
+								let object = tg::Object::with_id(object.clone());
+								let directory = object
+									.try_unwrap_directory_ref()
+									.ok()
+									.ok_or_else(|| tg::error!("expected a directory"))?;
+								let artifact = directory.get(&self.server, subpath).await.map_err(
+									|source| tg::error!(!source, "failed to get directory entry"),
+								)?;
+								let artifact = artifact.id(&self.server).await?.clone();
+								artifact.into()
+							} else {
+								object.clone()
+							};
+						if object.try_unwrap_directory_ref().is_ok() {
+							let object = tg::Object::with_id(object);
+							let package = Either::Left(&object);
+							if let Some(name) =
+								tg::package::try_get_root_module_file_name(&self.server, package)
+									.await?
+							{
+								let name = Path::new(name);
+								let extension = name.extension();
+								if extension.is_some_and(|extension| extension == "js") {
+									Some(tg::module::Kind::Js)
+								} else if extension.is_some_and(|extension| extension == "ts") {
+									Some(tg::module::Kind::Ts)
+								} else {
+									None
+								}
 							} else {
 								None
 							}
 						} else {
 							None
 						}
-					} else {
-						None
-					}
-				},
-			}
-		};
+					},
+				}
+			};
 
 		// If the kind is not known, then try to infer it from the path extension.
 		let kind = if let Some(kind) = kind {
@@ -164,55 +174,61 @@ impl Compiler {
 		};
 
 		// Finally, if the kind is not known, then infer it from the object's kind.
-		let kind = if let Some(kind) = kind {
-			kind
-		} else {
-			match &referent.item {
-				tg::module::data::Item::Path(path) => {
-					let path = if let Some(subpath) = &referent.subpath {
-						path.join(subpath)
-					} else {
-						path.clone()
-					};
-					let metadata = tokio::fs::symlink_metadata(&path)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-					if metadata.is_dir() {
-						tg::module::Kind::Directory
-					} else if metadata.is_file() {
-						tg::module::Kind::File
-					} else if metadata.is_symlink() {
-						tg::module::Kind::Symlink
-					} else {
-						return Err(tg::error!("expected a directory, file, or symlink"));
-					}
-				},
+		let kind =
+			if let Some(kind) = kind {
+				kind
+			} else {
+				match &referent.item {
+					tg::module::data::Item::Path(path) => {
+						let path = if let Some(subpath) = &referent.subpath {
+							path.join(subpath)
+						} else {
+							path.clone()
+						};
+						let metadata = tokio::fs::symlink_metadata(&path)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+						if metadata.is_dir() {
+							tg::module::Kind::Directory
+						} else if metadata.is_file() {
+							tg::module::Kind::File
+						} else if metadata.is_symlink() {
+							tg::module::Kind::Symlink
+						} else {
+							return Err(tg::error!("expected a directory, file, or symlink"));
+						}
+					},
 
-				tg::module::data::Item::Object(object) => {
-					let object = if let Some(subpath) = &referent.subpath {
-						let object = tg::Object::with_id(object.clone());
-						let directory = object
-							.try_unwrap_directory_ref()
-							.ok()
-							.ok_or_else(|| tg::error!("expected a directory"))?;
-						let artifact = directory.get(&self.server, subpath).await?;
-						let artifact = artifact.id(&self.server).await?.clone();
-						artifact.into()
-					} else {
-						object.clone()
-					};
-					match &object {
-						tg::object::Id::Leaf(_) => tg::module::Kind::Leaf,
-						tg::object::Id::Branch(_) => tg::module::Kind::Branch,
-						tg::object::Id::Directory(_) => tg::module::Kind::Directory,
-						tg::object::Id::File(_) => tg::module::Kind::File,
-						tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
-						tg::object::Id::Graph(_) => tg::module::Kind::Graph,
-						tg::object::Id::Target(_) => tg::module::Kind::Target,
-					}
-				},
-			}
-		};
+					tg::module::data::Item::Object(object) => {
+						let object =
+							if let Some(subpath) = &referent.subpath {
+								let subpath =
+									subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
+								let object = tg::Object::with_id(object.clone());
+								let directory = object
+									.try_unwrap_directory_ref()
+									.ok()
+									.ok_or_else(|| tg::error!("expected a directory"))?;
+								let artifact = directory.get(&self.server, subpath).await.map_err(
+									|source| tg::error!(!source, "failed to get directory entry"),
+								)?;
+								let artifact = artifact.id(&self.server).await?.clone();
+								artifact.into()
+							} else {
+								object.clone()
+							};
+						match &object {
+							tg::object::Id::Leaf(_) => tg::module::Kind::Leaf,
+							tg::object::Id::Branch(_) => tg::module::Kind::Branch,
+							tg::object::Id::Directory(_) => tg::module::Kind::Directory,
+							tg::object::Id::File(_) => tg::module::Kind::File,
+							tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
+							tg::object::Id::Graph(_) => tg::module::Kind::Graph,
+							tg::object::Id::Target(_) => tg::module::Kind::Target,
+						}
+					},
+				}
+			};
 
 		// Create the module.
 		let module = tg::module::Data { kind, referent };
@@ -328,5 +344,183 @@ impl Compiler {
 				)
 			},
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::{compiler::Compiler, Config, Server};
+	use futures::FutureExt;
+	use std::{
+		future::Future,
+		panic::AssertUnwindSafe,
+		path::{Path, PathBuf},
+	};
+	use tangram_client as tg;
+	use tangram_temp::{self as temp, artifact, Temp};
+
+	#[tokio::test]
+	async fn path_dependency() -> tg::Result<()> {
+		test_module(
+			artifact!({
+				"tangram.ts": r#"import * as foo from "./foo.tg.ts""#,
+				"foo.tg.ts": "",
+			}),
+			tg::module::Kind::Ts,
+			"tangram.ts",
+			tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap(),
+			|_, module| async move {
+				assert_eq!(module.kind, tg::module::Kind::Ts);
+				let tg::module::data::Item::Object(_object) = &module.referent.item else {
+					return Err(tg::error!("expected a path item"));
+				};
+				let Some(subpath) = &module.referent.subpath else {
+					return Err(tg::error!("expected a subpath"));
+				};
+				let expected: &Path = "./foo.tg.ts".as_ref();
+				assert_eq!(subpath, expected);
+				Ok::<_, tg::Error>(())
+			},
+		)
+		.await
+	}
+
+	#[tokio::test]
+	async fn lsp_path_dependency() -> tg::Result<()> {
+		test_lsp_module(
+			artifact!({
+				"tangram.ts": r#"import * as foo from "./foo.tg.ts""#,
+				"foo.tg.ts": "",
+			}),
+			tg::module::Kind::Ts,
+			"tangram.ts",
+			tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap(),
+			|_, module| async move {
+				assert_eq!(module.kind, tg::module::Kind::Ts);
+				let tg::module::data::Item::Path(_path) = &module.referent.item else {
+					return Err(tg::error!("expected a path item"));
+				};
+				let Some(subpath) = &module.referent.subpath else {
+					return Err(tg::error!("expected a subpath"));
+				};
+				let expected: &Path = "./foo.tg.ts".as_ref();
+				assert_eq!(subpath, expected);
+				Ok::<_, tg::Error>(())
+			},
+		)
+		.await
+	}
+
+	async fn test_module<F, Fut>(
+		artifact: temp::Artifact,
+		kind: tg::module::Kind,
+		subpath: &str,
+		import: tg::Import,
+		assertions: F,
+	) -> tg::Result<()>
+	where
+		F: FnOnce(Server, tg::module::Data) -> Fut,
+		Fut: Future<Output = tg::Result<()>>,
+	{
+		let temp = Temp::new();
+		let options = Config::with_path(temp.path().to_owned());
+		let server = Server::start(options).await?;
+		let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
+		let result = AssertUnwindSafe(async {
+			let directory = Temp::new();
+			artifact.to_path(directory.as_ref()).await.map_err(
+				|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
+			)?;
+
+			let artifact = tg::Artifact::check_in(
+				&server,
+				tg::artifact::checkin::Arg {
+					destructive: false,
+					deterministic: false,
+					ignore: true,
+					locked: false,
+					path: directory.path().to_owned(),
+				},
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
+
+			let referrer = tg::module::Data {
+				kind,
+				referent: tg::Referent {
+					item: tg::module::data::Item::Object(artifact.id(&server).await?.into()),
+					subpath: Some(PathBuf::from(subpath)),
+					tag: None,
+				},
+			};
+
+			std::mem::forget(directory);
+			let module = compiler.resolve_module(&referrer, &import).await?;
+			(assertions)(server.clone(), module).await?;
+
+			Ok::<_, tg::Error>(())
+		})
+		.catch_unwind()
+		.await;
+		server.stop();
+		server.wait().await;
+		result.unwrap()
+	}
+	async fn test_lsp_module<F, Fut>(
+		artifact: temp::Artifact,
+		kind: tg::module::Kind,
+		subpath: &str,
+		import: tg::Import,
+		assertions: F,
+	) -> tg::Result<()>
+	where
+		F: FnOnce(Server, tg::module::Data) -> Fut,
+		Fut: Future<Output = tg::Result<()>>,
+	{
+		let temp = Temp::new();
+		let options = Config::with_path(temp.path().to_owned());
+		let server = Server::start(options).await?;
+		let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
+		let result = AssertUnwindSafe(async {
+			let directory = Temp::new();
+			artifact.to_path(directory.as_ref()).await.map_err(
+				|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
+			)?;
+
+			tg::Artifact::check_in(
+				&server,
+				tg::artifact::checkin::Arg {
+					destructive: false,
+					deterministic: false,
+					ignore: true,
+					locked: false,
+					path: directory.path().to_owned(),
+				},
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
+
+			let referrer = tg::module::Data {
+				kind,
+				referent: tg::Referent {
+					item: tg::module::data::Item::Path(directory.path().to_owned()),
+					subpath: Some(PathBuf::from(subpath)),
+					tag: None,
+				},
+			};
+
+			let module = compiler.resolve_module(&referrer, &import).await?;
+			(assertions)(server.clone(), module).await?;
+
+			Ok::<_, tg::Error>(())
+		})
+		.catch_unwind()
+		.await;
+		server.stop();
+		server.wait().await;
+		result.unwrap().inspect_err(|error| {
+			let trace = error.trace(&server.config.advanced.error_trace_options);
+			eprintln!("{trace}");
+		})
 	}
 }

@@ -303,10 +303,10 @@ impl Server {
 			search,
 		};
 
-		self.find_node_in_lockfile_inner(arg, &mut visited)
+		self.find_node_in_lockfile_inner(arg.clone(), &mut visited)
 			.await?
 			.ok_or_else(
-				|| tg::error!(%lockfile = lockfile_path.display(), "failed to find node in lockfile"),
+				|| tg::error!(%lockfile = lockfile_path.display(), ?search = arg.search, "failed to find node in lockfile"),
 			)
 	}
 
@@ -349,7 +349,7 @@ impl Server {
 				};
 				return Ok(Some(result));
 			},
-			Either::Right(path) if path == arg.current_package_path => {
+			Either::Right(path) if path == arg.current_node_path => {
 				let result = LockfileNode {
 					node: arg.current_node,
 					package: arg.current_package_path,
