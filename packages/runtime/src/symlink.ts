@@ -209,7 +209,7 @@ export class Symlink {
 				throw new Error("expected a directory");
 			}
 			return await fromArtifact.tryGet(
-				tg.path.normalize(tg.path.join(fromPath, "..", path)),
+				tg.path.join(tg.path.parent(fromPath) ?? "", path),
 			);
 		} else if (artifact !== undefined && path) {
 			if (!(artifact instanceof tg.Directory)) {

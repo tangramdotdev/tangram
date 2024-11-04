@@ -34,7 +34,8 @@ impl Cli {
 			builds: true,
 			collapse_builds_on_success: true,
 		};
-		Self::tree_inner(self.handle().await?.clone(), todo!(), options).await
+		Self::tree_inner(self.handle().await?.clone(), referent.item, options).await?;
+		Ok(())
 	}
 
 	pub async fn tree_inner(
@@ -44,10 +45,16 @@ impl Cli {
 	) -> tg::Result<()> {
 		let mut stdout = std::io::stdout();
 
+		// Create the tree.
 		let tree = crate::view::tree::Tree::new(&handle, item.clone(), options);
 
+		// Render the tree until it is finished.
 		loop {
-			// If the tree is done, then break.
+			// Clear.
+			let action = crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown);
+			crossterm::execute!(stdout, action).unwrap();
+
+			// If the tree is finished, then break.
 			if tree.is_finished() {
 				break;
 			}
@@ -56,12 +63,8 @@ impl Cli {
 			let action = crossterm::cursor::SavePosition;
 			crossterm::execute!(stdout, action).unwrap();
 
-			// Clear.
-			let action = crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown);
-			crossterm::execute!(stdout, action).unwrap();
-
 			// Print the tree.
-			tree.to_tree().print();
+			println!("{}", tree.display());
 
 			// Restore the cursor position.
 			let action = crossterm::cursor::RestorePosition;
@@ -71,39 +74,9 @@ impl Cli {
 			tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 		}
 
-		// Wait for the tree to be complete.
-		tree.wait().await;
-
 		// Print the tree.
-		tree.to_tree().print();
+		println!("{}", tree.display());
 
 		Ok(())
-	}
-}
-
-#[derive(Debug)]
-pub struct Tree {
-	pub title: String,
-	pub children: Vec<Self>,
-}
-
-impl Tree {
-	pub fn print(&self) {
-		self.print_inner("");
-		println!();
-	}
-
-	fn print_inner(&self, prefix: &str) {
-		print!("{}", self.title);
-		for (n, child) in self.children.iter().enumerate() {
-			print!("\n{prefix}");
-			if n < self.children.len() - 1 {
-				print!("├── ");
-				child.print_inner(&format!("{prefix}│   "));
-			} else {
-				print!("└── ");
-				child.print_inner(&format!("{prefix}    "));
-			}
-		}
 	}
 }

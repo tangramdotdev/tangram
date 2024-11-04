@@ -321,7 +321,7 @@ impl Cli {
 
 			// Wait for the tree task to finish.
 			if let Some(tree_task) = tree_task {
-				tree_task.await.unwrap();
+				tree_task.await.unwrap()?;
 			}
 
 			outcome.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?

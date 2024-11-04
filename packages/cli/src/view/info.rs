@@ -1,4 +1,4 @@
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::sync::{Arc, RwLock};
 use tangram_client::{self as tg, handle::Ext as _};

@@ -56,19 +56,15 @@ impl Reference {
 		let path = uri.path();
 		let path =
 			urlencoding::decode(path).map_err(|source| tg::error!(!source, "invalid path"))?;
-		let path = path.parse()?;
-		let query = uri
+		let item = path.parse()?;
+		let options = uri
 			.query()
 			.map(|query| {
 				serde_urlencoded::from_str(query)
 					.map_err(|source| tg::error!(!source, "invalid query"))
 			})
 			.transpose()?;
-		Ok(Self {
-			uri,
-			item: path,
-			options: query,
-		})
+		Ok(Self { uri, item, options })
 	}
 
 	pub fn with_item_and_options(item: &Item, options: Option<&Options>) -> Self {

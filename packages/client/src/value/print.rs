@@ -1,6 +1,6 @@
 use crate as tg;
 use bytes::Bytes;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::fmt::Result;
 use tangram_either::Either;
 
