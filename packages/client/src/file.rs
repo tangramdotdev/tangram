@@ -555,3 +555,11 @@ impl From<&str> for File {
 		Self::with_contents(value)
 	}
 }
+
+impl std::fmt::Display for File {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
+		printer.file(self)?;
+		Ok(())
+	}
+}

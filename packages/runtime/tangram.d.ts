@@ -591,7 +591,7 @@ declare namespace tg {
 		env(): Promise<{ [key: string]: tg.Value }>;
 
 		/** Get this target's executable. */
-		executable(): Promise<tg.Graph | undefined>;
+		executable(): Promise<tg.Target.Executable | undefined>;
 
 		/** Get this target's host. */
 		host(): Promise<string>;
@@ -622,11 +622,15 @@ declare namespace tg {
 			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 
 			/** The target's executable. */
-			executable?: tg.Artifact | undefined;
+			executable?: tg.Target.ExecutableArg | undefined;
 
 			/** The system to build the target on. */
 			host?: string | undefined;
 		};
+
+		export type ExecutableArg = tg.Artifact | tg.Module;
+
+		export type Executable = tg.Artifact | tg.Module;
 	}
 
 	export namespace path {
@@ -911,7 +915,7 @@ declare namespace tg {
 	export type Referent<T> = {
 		item: T;
 		subpath?: string | undefined;
-		tag?: string | undefined;
+		tag?: tg.Tag | undefined;
 	};
 
 	/** Resolve all deeply nested promises in an unresolved value. */
@@ -978,6 +982,8 @@ declare namespace tg {
 
 	/** Sleep for the specified duration in seconds. */
 	export let sleep: (duration: number) => Promise<void>;
+
+	export type Tag = string;
 
 	type MaybeNestedArray<T> = T | Array<tg.MaybeNestedArray<T>>;
 

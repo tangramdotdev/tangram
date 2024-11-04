@@ -7,10 +7,7 @@ use futures::{
 };
 use num::ToPrimitive;
 use sourcemap::SourceMap;
-use std::{
-	cell::RefCell, collections::BTreeMap, future::poll_fn, num::NonZeroI32, pin::pin, rc::Rc,
-	task::Poll,
-};
+use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, pin::pin, rc::Rc, task::Poll};
 use tangram_client as tg;
 use tangram_v8::{FromV8 as _, ToV8};
 use tokio::io::AsyncWriteExt as _;
@@ -37,6 +34,7 @@ struct State {
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
 	remote: Option<String>,
+	root: tg::module::Data,
 	server: Server,
 }
 
@@ -46,12 +44,11 @@ struct FutureOutput {
 }
 
 #[allow(clippy::struct_field_names)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Module {
-	module: tg::Module,
+	module: tg::module::Data,
 	source_map: Option<SourceMap>,
-	v8_identity_hash: Option<NonZeroI32>,
-	v8_module: Option<v8::Global<v8::Module>>,
+	v8: Option<v8::Global<v8::Module>>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -116,6 +113,18 @@ impl Runtime {
 		// Get the target.
 		let target = build.target(server).await?;
 
+		// Get the root module.
+		let root = target
+			.executable(server)
+			.await?
+			.as_ref()
+			.ok_or_else(|| tg::error!("expected the target to have an executable"))?
+			.try_unwrap_module_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected the executable to be a module"))?
+			.data(server)
+			.await?;
+
 		// Start the log task.
 		let (log_sender, mut log_receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
 		let log_task = main_runtime_handle.spawn({
@@ -153,6 +162,7 @@ impl Runtime {
 			modules: RefCell::new(Vec::new()),
 			rejection: tokio::sync::watch::channel(None).0,
 			remote: remote.clone(),
+			root,
 			server: server.clone(),
 		});
 
@@ -375,28 +385,49 @@ fn host_import_module_dynamically_callback<'s>(
 	// Get the state.
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
-	// Get the referrer's ID.
-	let id = resource_name
-		.to_integer(scope)
-		.unwrap()
-		.value()
-		.to_usize()
-		.unwrap();
+	// Get the module.
+	let module = if specifier.to_rust_string_lossy(scope) == "!" {
+		Some(state.root.clone())
+	} else {
+		// Get the referrer's ID.
+		let id = resource_name
+			.to_integer(scope)
+			.unwrap()
+			.value()
+			.to_usize()
+			.unwrap();
 
-	// Get the referrer.
-	let referrer = match id {
-		0 => None,
-		_ => Some(state.modules.borrow().get(id - 1).unwrap().module.clone()),
-	};
+		// Get the referrer.
+		let referrer = state.modules.borrow().get(id - 1).unwrap().module.clone();
 
-	// Parse the import.
-	let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
+		// Parse the import.
+		let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
 
-	// Resolve the module.
-	let module = resolve_module(scope, referrer.as_ref(), &import)?;
+		// Resolve the module.
+		let module = resolve_module_sync(scope, &referrer, &import)?;
 
-	// Load the module.
-	let module = load_module(scope, &module)?;
+		Some(module)
+	}?;
+
+	// Get the module if it already exists. Otherwise, load and compile it.
+	let option = state
+		.modules
+		.borrow()
+		.iter()
+		.find(|m| m.module == module)
+		.cloned();
+	let module = if let Some(module) = option {
+		let module = v8::Local::new(scope, module.v8.as_ref().unwrap());
+		Some(module)
+	} else {
+		// Load the module.
+		let text = load_module_sync(scope, &module)?;
+
+		// Compile the module.
+		let module = compile_module(scope, &module, text)?;
+
+		Some(module)
+	}?;
 
 	// Instantiate the module.
 	module.instantiate_module(scope, resolve_module_callback)?;
@@ -440,15 +471,15 @@ fn resolve_module_callback<'s>(
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Get the module.
-	let identity_hash = referrer.get_identity_hash();
-	let module = match state
+	let result = state
 		.modules
 		.borrow()
 		.iter()
-		.find(|module| module.v8_identity_hash.unwrap() == identity_hash)
-		.map(|module| module.module.clone())
-		.ok_or_else(|| tg::error!(%identity_hash, "unable to find the module"))
-	{
+		.find(|module| module.v8.as_ref().unwrap() == &referrer)
+		.cloned()
+		.map(|module| module.module)
+		.ok_or_else(|| tg::error!("unable to find the module"));
+	let module = match result {
 		Ok(module) => module,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error);
@@ -461,29 +492,46 @@ fn resolve_module_callback<'s>(
 	let import = parse_import(scope, specifier, attributes, ImportKind::Static)?;
 
 	// Resolve the module.
-	let module = resolve_module(scope, Some(&module), &import)?;
+	let module = resolve_module_sync(scope, &module, &import)?;
 
-	// Load the module.
-	let module = load_module(scope, &module)?;
+	// Get the module if it already exists. Otherwise, load and compile it.
+	let option = state
+		.modules
+		.borrow()
+		.iter()
+		.find(|m| m.module == module)
+		.cloned();
+	let module = if let Some(module) = option {
+		let module = v8::Local::new(scope, module.v8.as_ref().unwrap());
+		Some(module)
+	} else {
+		// Load the module.
+		let text = load_module_sync(scope, &module)?;
+
+		// Compile the module.
+		let module = compile_module(scope, &module, text)?;
+
+		Some(module)
+	}?;
 
 	Some(module)
 }
 
-/// Resolve a module.
-fn resolve_module(
+/// Resolve a module synchronously.
+fn resolve_module_sync(
 	scope: &mut v8::HandleScope,
-	referrer: Option<&tg::Module>,
+	referrer: &tg::module::Data,
 	import: &tg::Import,
-) -> Option<tg::Module> {
+) -> Option<tg::module::Data> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
 		let compiler = state.compiler.clone();
-		let referrer = referrer.cloned();
+		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
-			let module = compiler.resolve_module(referrer.as_ref(), &import).await;
+			let module = compiler.resolve_module(&referrer, &import).await;
 			sender.send(module).unwrap();
 		}
 	});
@@ -502,30 +550,10 @@ fn resolve_module(
 	Some(module)
 }
 
-/// Load a module.
-fn load_module<'s>(
-	scope: &mut v8::HandleScope<'s>,
-	module: &tg::Module,
-) -> Option<v8::Local<'s, v8::Module>> {
-	// Get the context and state.
+// Load a module synchronously.
+fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> Option<String> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
-
-	// Return a cached module if this module has already been loaded.
-	if let Some(module) = state
-		.modules
-		.borrow()
-		.iter()
-		.find(|cached_module| &cached_module.module == module)
-	{
-		let module = v8::Local::new(scope, module.v8_module.as_ref().unwrap());
-		return Some(module);
-	}
-
-	// Create an ID for the module.
-	let id = state.modules.borrow().len() + 1;
-
-	// Load the module.
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
 		let compiler = state.compiler.clone();
@@ -547,12 +575,24 @@ fn load_module<'s>(
 			return None;
 		},
 	};
+	Some(text)
+}
+
+/// Compile a module.
+fn compile_module<'s>(
+	scope: &mut v8::HandleScope<'s>,
+	module: &tg::module::Data,
+	text: String,
+) -> Option<v8::Local<'s, v8::Module>> {
+	// Get the context and state.
+	let context = scope.get_current_context();
+	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Transpile the module.
 	let crate::compiler::transpile::Output {
 		transpiled_text,
 		source_map,
-	} = match crate::compiler::Compiler::transpile_module(text)
+	} = match Compiler::transpile_module(text)
 		.map_err(|source| tg::error!(!source, "failed to transpile the module"))
 	{
 		Ok(output) => output,
@@ -576,12 +616,15 @@ fn load_module<'s>(
 	};
 
 	// Set the module.
-	state.modules.borrow_mut().push(Module {
-		module: module.clone(),
-		source_map: Some(source_map),
-		v8_identity_hash: None,
-		v8_module: None,
-	});
+	let id = {
+		let mut modules = state.modules.borrow_mut();
+		modules.push(Module {
+			module: module.clone(),
+			source_map: Some(source_map),
+			v8: None,
+		});
+		modules.len()
+	};
 
 	// Define the module's origin.
 	let resource_name = v8::Integer::new(scope, id.to_i32().unwrap()).into();
@@ -611,25 +654,13 @@ fn load_module<'s>(
 	// Compile the module.
 	let source = v8::String::new(scope, &transpiled_text).unwrap();
 	let mut source = v8::script_compiler::Source::new(source, Some(&origin));
-	let v8_module = v8::script_compiler::compile_module(scope, &mut source)?;
-	let v8_module_global = v8::Global::new(scope, v8_module);
-	let v8_identity_hash = v8_module.get_identity_hash();
+	let module = v8::script_compiler::compile_module(scope, &mut source)?;
+	let module_global = v8::Global::new(scope, module);
 
 	// Update the module.
-	state
-		.modules
-		.borrow_mut()
-		.get_mut(id - 1)
-		.unwrap()
-		.v8_identity_hash = Some(v8_identity_hash);
-	state
-		.modules
-		.borrow_mut()
-		.get_mut(id - 1)
-		.unwrap()
-		.v8_module = Some(v8_module_global);
+	state.modules.borrow_mut().get_mut(id - 1).unwrap().v8 = Some(module_global);
 
-	Some(v8_module)
+	Some(module)
 }
 
 /// Implement V8's import.meta callback.
@@ -645,12 +676,11 @@ extern "C" fn host_initialize_import_meta_object_callback(
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Get the module.
-	let identity_hash = module.get_identity_hash();
 	let module = state
 		.modules
 		.borrow()
 		.iter()
-		.find(|module| module.v8_identity_hash.unwrap() == identity_hash)
+		.find(|m| m.v8.as_ref().unwrap() == &module)
 		.unwrap()
 		.module
 		.clone();

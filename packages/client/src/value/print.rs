@@ -11,15 +11,19 @@ pub struct Printer<W> {
 	writer: W,
 }
 
+#[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub recursive: bool,
 	pub style: Style,
 }
 
-#[derive(derive_more::IsVariant)]
+#[derive(Clone, Debug, Default, derive_more::IsVariant)]
 pub enum Style {
+	#[default]
 	Compact,
-	Pretty { indentation: &'static str },
+	Pretty {
+		indentation: &'static str,
+	},
 }
 
 impl<W> Printer<W>
@@ -127,23 +131,23 @@ where
 		}
 	}
 
-	fn null(&mut self) -> Result {
+	pub fn null(&mut self) -> Result {
 		write!(self.writer, "null")
 	}
 
-	fn bool(&mut self, value: bool) -> Result {
+	pub fn bool(&mut self, value: bool) -> Result {
 		write!(self.writer, "{}", if value { "true" } else { "false" })
 	}
 
-	fn number(&mut self, value: f64) -> Result {
+	pub fn number(&mut self, value: f64) -> Result {
 		write!(self.writer, "{value}")
 	}
 
-	fn string(&mut self, value: &str) -> Result {
+	pub fn string(&mut self, value: &str) -> Result {
 		write!(self.writer, "\"{value}\"")
 	}
 
-	fn array(&mut self, value: &tg::value::Array) -> Result {
+	pub fn array(&mut self, value: &tg::value::Array) -> Result {
 		self.start_array()?;
 		for value in value {
 			self.array_value(|s| s.value(value))?;
@@ -152,7 +156,7 @@ where
 		Ok(())
 	}
 
-	fn map(&mut self, value: &tg::value::Map) -> Result {
+	pub fn map(&mut self, value: &tg::value::Map) -> Result {
 		self.start_map()?;
 		for (key, value) in value {
 			self.map_entry(key, |s| s.value(value))?;
@@ -161,7 +165,7 @@ where
 		Ok(())
 	}
 
-	fn object(&mut self, value: &tg::Object) -> Result {
+	pub fn object(&mut self, value: &tg::Object) -> Result {
 		match value {
 			tg::Object::Leaf(v) => self.leaf(v),
 			tg::Object::Branch(v) => self.branch(v),
@@ -173,7 +177,7 @@ where
 		}
 	}
 
-	fn artifact(&mut self, value: &tg::Artifact) -> Result {
+	pub fn artifact(&mut self, value: &tg::Artifact) -> Result {
 		match value {
 			tg::Artifact::Directory(directory) => self.directory(directory),
 			tg::Artifact::File(file) => self.file(file),
@@ -181,14 +185,14 @@ where
 		}
 	}
 
-	fn blob(&mut self, value: &tg::Blob) -> Result {
+	pub fn blob(&mut self, value: &tg::Blob) -> Result {
 		match value {
 			tg::Blob::Leaf(leaf) => self.leaf(leaf),
 			tg::Blob::Branch(branch) => self.branch(branch),
 		}
 	}
 
-	fn leaf(&mut self, value: &tg::Leaf) -> Result {
+	pub fn leaf(&mut self, value: &tg::Leaf) -> Result {
 		let state = value.state().read().unwrap();
 		match (state.id(), state.object(), self.options.recursive) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -211,7 +215,7 @@ where
 		Ok(())
 	}
 
-	fn branch(&mut self, value: &tg::Branch) -> Result {
+	pub fn branch(&mut self, value: &tg::Branch) -> Result {
 		let state = value.state().read().unwrap();
 		match (state.id(), state.object(), self.options.recursive) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -237,7 +241,7 @@ where
 		Ok(())
 	}
 
-	fn directory(&mut self, value: &tg::Directory) -> Result {
+	pub fn directory(&mut self, value: &tg::Directory) -> Result {
 		let state = value.state().read().unwrap();
 		match (state.id(), state.object(), self.options.recursive) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -270,7 +274,7 @@ where
 		Ok(())
 	}
 
-	fn file(&mut self, value: &tg::File) -> Result {
+	pub fn file(&mut self, value: &tg::File) -> Result {
 		let state = value.state().read().unwrap();
 		match (state.id(), state.object(), self.options.recursive) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -331,7 +335,7 @@ where
 		Ok(())
 	}
 
-	fn symlink(&mut self, value: &tg::Symlink) -> Result {
+	pub fn symlink(&mut self, value: &tg::Symlink) -> Result {
 		let state = value.state().read().unwrap();
 		match (state.id(), state.object(), self.options.recursive) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -367,7 +371,7 @@ where
 		Ok(())
 	}
 
-	fn graph(&mut self, value: &tg::Graph) -> Result {
+	pub fn graph(&mut self, value: &tg::Graph) -> Result {
 		let state = value.state().read().unwrap();
 		match (state.id(), state.object(), self.options.recursive) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -488,7 +492,7 @@ where
 		Ok(())
 	}
 
-	fn target(&mut self, value: &tg::Target) -> Result {
+	pub fn target(&mut self, value: &tg::Target) -> Result {
 		let state = value.state().read().unwrap();
 		match (state.id(), state.object(), self.options.recursive) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -517,7 +521,7 @@ where
 		if let Some(executable) = &object.executable {
 			self.map_entry("executable", |s| match executable {
 				tg::target::Executable::Artifact(artifact) => s.artifact(artifact),
-				tg::target::Executable::Module(module) => todo!(),
+				tg::target::Executable::Module(module) => s.module(module),
 			})?;
 		}
 		self.map_entry("host", |s| s.string(&object.host))?;
@@ -526,14 +530,14 @@ where
 		Ok(())
 	}
 
-	fn bytes(&mut self, value: &Bytes) -> Result {
+	pub fn bytes(&mut self, value: &Bytes) -> Result {
 		write!(self.writer, "tg.bytes(")?;
 		write!(self.writer, "\"{}\"", data_encoding::BASE64.encode(value))?;
 		write!(self.writer, ")")?;
 		Ok(())
 	}
 
-	fn mutation(&mut self, value: &tg::Mutation) -> Result {
+	pub fn mutation(&mut self, value: &tg::Mutation) -> Result {
 		write!(self.writer, "tg.mutation(")?;
 		self.start_map()?;
 		match value {
@@ -582,7 +586,7 @@ where
 		Ok(())
 	}
 
-	fn template(&mut self, value: &tg::Template) -> Result {
+	pub fn template(&mut self, value: &tg::Template) -> Result {
 		write!(self.writer, "tg.template(")?;
 		self.start_array()?;
 		for component in &value.components {
@@ -597,6 +601,35 @@ where
 		}
 		self.finish_array()?;
 		write!(self.writer, ")")?;
+		Ok(())
+	}
+
+	pub fn module(&mut self, value: &tg::Module) -> Result {
+		self.start_map()?;
+		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
+		self.map_entry("referent", |s| {
+			s.start_map()?;
+			s.map_entry("item", |s| {
+				match &value.referent.item {
+					tg::module::Item::Path(path) => {
+						s.string(path.to_string_lossy().as_ref())?;
+					},
+					tg::module::Item::Object(object) => {
+						s.object(object)?;
+					},
+				}
+				Ok(())
+			})?;
+			if let Some(tag) = &value.referent.tag {
+				s.map_entry("tag", |s| s.string(tag.as_str()))?;
+			}
+			if let Some(subpath) = &value.referent.subpath {
+				s.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
+			}
+			s.finish_map()?;
+			Ok(())
+		})?;
+		self.finish_map()?;
 		Ok(())
 	}
 }

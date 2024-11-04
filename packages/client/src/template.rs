@@ -93,19 +93,6 @@ impl Template {
 	}
 }
 
-impl TryFrom<Data> for Template {
-	type Error = tg::Error;
-
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let components = data
-			.components
-			.into_iter()
-			.map(TryInto::try_into)
-			.try_collect()?;
-		Ok(Self { components })
-	}
-}
-
 impl Data {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
@@ -153,6 +140,19 @@ impl Data {
 		}
 
 		// Create the template.
+		Ok(Self { components })
+	}
+}
+
+impl TryFrom<Data> for Template {
+	type Error = tg::Error;
+
+	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+		let components = data
+			.components
+			.into_iter()
+			.map(TryInto::try_into)
+			.try_collect()?;
 		Ok(Self { components })
 	}
 }
@@ -238,6 +238,14 @@ pub mod component {
 				Data::Artifact(id) => Self::Artifact(tg::Artifact::with_id(id)),
 			})
 		}
+	}
+}
+
+impl std::fmt::Display for Template {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
+		printer.template(self)?;
+		Ok(())
 	}
 }
 

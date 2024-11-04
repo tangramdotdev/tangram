@@ -25,11 +25,8 @@ impl Cli {
 
 		while let Some(event) = stream.try_next().await? {
 			// Clear.
-			ct::execute!(
-				tty,
-				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-			)
-			.unwrap();
+			let action = ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown);
+			ct::execute!(tty, action).unwrap();
 
 			match event {
 				tg::progress::Event::Log(log) => {
@@ -70,7 +67,8 @@ impl Cli {
 			}
 
 			// Save the cursor position.
-			ct::execute!(tty, ct::cursor::SavePosition).unwrap();
+			let action = ct::cursor::SavePosition;
+			ct::execute!(tty, action).unwrap();
 
 			// Render the indicators.
 			for indicator in indicators.values() {
@@ -85,7 +83,8 @@ impl Cli {
 			}
 
 			// Restore the cursor position.
-			ct::execute!(tty, ct::cursor::RestorePosition).unwrap();
+			let action = ct::cursor::RestorePosition;
+			ct::execute!(tty, action).unwrap();
 		}
 
 		Err(tg::error!("stream ended without output"))

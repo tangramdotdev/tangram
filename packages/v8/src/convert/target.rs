@@ -141,7 +141,10 @@ impl FromV8 for tg::target::Object {
 
 impl ToV8 for tg::target::Executable {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		todo!()
+		match self {
+			tg::target::Executable::Artifact(artifact) => artifact.to_v8(scope),
+			tg::target::Executable::Module(module) => module.to_v8(scope),
+		}
 	}
 }
 
@@ -150,6 +153,12 @@ impl FromV8 for tg::target::Executable {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		todo!()
+		if let Ok(artifact) = <_>::from_v8(scope, value) {
+			Ok(Self::Artifact(artifact))
+		} else if let Ok(module) = <_>::from_v8(scope, value) {
+			Ok(Self::Module(module))
+		} else {
+			Err(tg::error!("expected an artifact or a module"))
+		}
 	}
 }

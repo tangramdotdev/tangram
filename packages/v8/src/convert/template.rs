@@ -69,36 +69,12 @@ impl FromV8 for tg::template::Component {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		let context = scope.get_current_context();
-		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
-		let tangram = global.get(scope, tangram.into()).unwrap();
-		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
-
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
-		let directory = tangram.get(scope, directory.into()).unwrap();
-		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
-
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
-		let file = tangram.get(scope, file.into()).unwrap();
-		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
-
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
-		let symlink = tangram.get(scope, symlink.into()).unwrap();
-		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
-
-		let component = if value.is_string() {
-			Self::String(<_>::from_v8(scope, value)?)
-		} else if value.instance_of(scope, directory.into()).unwrap()
-			|| value.instance_of(scope, file.into()).unwrap()
-			|| value.instance_of(scope, symlink.into()).unwrap()
-		{
-			Self::Artifact(<_>::from_v8(scope, value)?)
+		if let Ok(string) = <_>::from_v8(scope, value) {
+			Ok(Self::String(string))
+		} else if let Ok(artifact) = <_>::from_v8(scope, value) {
+			Ok(Self::Artifact(artifact))
 		} else {
-			return Err(tg::error!("expected a string or artifact"));
-		};
-
-		Ok(component)
+			Err(tg::error!("expected a string or an artifact"))
+		}
 	}
 }

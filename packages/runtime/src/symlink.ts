@@ -115,7 +115,7 @@ export class Symlink {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			tg.assert(object.kind === "symlink");
 			this.#state.object = object.value;
 		}
@@ -123,7 +123,7 @@ export class Symlink {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "symlink",
 				value: this.#state.object!,
 			});

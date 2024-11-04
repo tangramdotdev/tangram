@@ -458,3 +458,11 @@ impl TryFrom<Data> for Object {
 		})
 	}
 }
+
+impl std::fmt::Display for Handle {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
+		printer.object(self)?;
+		Ok(())
+	}
+}

@@ -36,7 +36,7 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
-	/// Whether to suppress printing info and progress.
+	/// Whether to suppress printing the tree.
 	#[arg(short, long)]
 	pub quiet: bool,
 
@@ -128,26 +128,32 @@ impl Cli {
 			// If the object is a target, then use it.
 			target
 		} else {
-			// Otherwise, the object must be a directory containing a root module or a file.
+			// Otherwise, the object must be a directory containing a root module, or a file.
 			let executable = match object {
 				tg::Object::Directory(directory) => {
 					let mut executable = None;
 					for name in tg::package::ROOT_MODULE_FILE_NAMES {
 						if directory.try_get_entry(&handle, name).await?.is_some() {
-							let artifact = Some(directory.clone().into());
-							let path = Some(name.parse().unwrap());
-							executable = Some(tg::target::Executable::Artifact(
-								tg::Symlink::with_artifact_and_subpath(artifact, path).into(),
-							));
+							let artifact = directory.clone().into();
+							let subpath = Some(name.parse().unwrap());
+							executable = Some(tg::target::Executable::Module(tg::Module {
+								kind: tg::module::Kind::Js,
+								referent: tg::Referent {
+									item: tg::module::Item::Object(artifact),
+									subpath,
+									tag: referent.tag,
+								},
+							}));
 							break;
 						}
 					}
-					let package = directory.id(&handle).await?;
-					executable.ok_or_else(
-						|| tg::error!(%package, "expected the directory to contain a root module"),
-					)?
+					executable.ok_or_else(|| {
+						tg::error!("expected the directory to contain a root module")
+					})?
 				},
-				tg::Object::File(executable) => executable.into(),
+
+				tg::Object::File(file) => tg::target::Executable::Artifact(file.into()),
+
 				_ => {
 					return Err(tg::error!("expected a directory or a file"));
 				},
@@ -278,21 +284,17 @@ impl Cli {
 		let outcome = if let Some(outcome) = outcome {
 			outcome
 		} else {
-			// Start the progress.
-			let progress_task = (!args.quiet).then(|| {
+			// Spawn the tree task.
+			let tree_task = (!args.quiet).then(|| {
 				let handle = handle.clone();
 				let build = build.clone();
-				let expand_options = crate::view::tree::Options {
+				let options = crate::view::tree::Options {
 					depth: None,
 					objects: false,
 					builds: true,
 					collapse_builds_on_success: true,
 				};
-				tokio::spawn(Self::print_tree(
-					handle,
-					Either::Left(build),
-					expand_options,
-				))
+				tokio::spawn(Self::tree_inner(handle, Either::Left(build), options))
 			});
 
 			// Spawn a task to attempt to cancel the build on the first interrupt signal and exit the process on the second.
@@ -317,9 +319,9 @@ impl Cli {
 			// Abort the cancel task.
 			cancel_task.abort();
 
-			// Wait for the progress to finish.
-			if let Some(progress) = progress_task {
-				progress.await.ok();
+			// Wait for the tree task to finish.
+			if let Some(tree_task) = tree_task {
+				tree_task.await.unwrap();
 			}
 
 			outcome.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?

@@ -2,7 +2,7 @@ use crate as tg;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Location {
-	pub module: tg::Module,
+	pub module: tg::module::Data,
 	pub range: tg::Range,
 }
 

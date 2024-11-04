@@ -59,13 +59,13 @@ impl Cli {
 		};
 
 		// Get the node kind.
-		let expand_options = tree::Options {
+		let options = tree::Options {
 			depth: None,
 			objects: false,
 			builds: false,
 			collapse_builds_on_success: false,
 		};
-		let tree = tree::Tree::new(&handle, item, expand_options);
+		let tree = tree::Tree::new(&handle, item, options);
 
 		// Start the viewer.
 		let viewer = Viewer::start(&handle, tree).await?;

@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::Module,
+	pub module: tg::module::Data,
 }
 
 pub type Response = serde_json::Value;
@@ -22,7 +22,7 @@ pub struct Document {
 
 impl Compiler {
 	/// Document a module.
-	pub async fn document(&self, module: &tg::Module) -> tg::Result<Response> {
+	pub async fn document(&self, module: &tg::module::Data) -> tg::Result<Response> {
 		// Create the request.
 		let request = super::Request::Document(Request {
 			module: module.clone(),
@@ -42,7 +42,7 @@ impl Compiler {
 
 impl Compiler {
 	/// List the documents.
-	pub async fn list_documents(&self) -> Vec<tg::Module> {
+	pub async fn list_documents(&self) -> Vec<tg::module::Data> {
 		self.documents
 			.iter()
 			.filter(|entry| entry.open)
@@ -53,7 +53,7 @@ impl Compiler {
 	/// Open a document.
 	pub async fn open_document(
 		&self,
-		module: &tg::Module,
+		module: &tg::module::Data,
 		version: i32,
 		text: String,
 	) -> tg::Result<()> {
@@ -70,7 +70,7 @@ impl Compiler {
 
 		// Check in the object if necessary.
 		// Check in the object if necessary.
-		let tg::module::Item::Path(package_path) = module.referent.item.clone() else {
+		let tg::module::data::Item::Path(package_path) = module.referent.item.clone() else {
 			return Ok(());
 		};
 		let arg = tg::artifact::checkin::Arg {
@@ -90,7 +90,7 @@ impl Compiler {
 	/// Update a document.
 	pub async fn update_document(
 		&self,
-		module: &tg::Module,
+		module: &tg::module::Data,
 		range: Option<tg::Range>,
 		version: i32,
 		text: String,
@@ -125,7 +125,7 @@ impl Compiler {
 	}
 
 	/// Close a document.
-	pub async fn close_document(&self, module: &tg::Module) -> tg::Result<()> {
+	pub async fn close_document(&self, module: &tg::module::Data) -> tg::Result<()> {
 		// Get the document.
 		let Some(mut document) = self.documents.get_mut(module) else {
 			return Err(tg::error!("could not find the document"));
@@ -146,7 +146,7 @@ impl Compiler {
 		document.text = None;
 
 		// Set the document's modified time if it is a path module.
-		let tg::module::Item::Path(path) = &module.referent.item else {
+		let tg::module::data::Item::Path(path) = &module.referent.item else {
 			return Ok(());
 		};
 		let path = if let Some(subpath) = &module.referent.subpath {
@@ -166,7 +166,7 @@ impl Compiler {
 	}
 
 	// Close a document.
-	pub async fn save_document(&self, module: &tg::Module) -> tg::Result<()> {
+	pub async fn save_document(&self, module: &tg::module::Data) -> tg::Result<()> {
 		// Mark the document as clean.
 		let mut document = self
 			.documents
@@ -175,7 +175,7 @@ impl Compiler {
 		document.dirty = false;
 
 		// Check in the object if necessary.
-		let tg::module::Item::Path(package_path) = module.referent.item.clone() else {
+		let tg::module::data::Item::Path(package_path) = module.referent.item.clone() else {
 			return Ok(());
 		};
 		let arg = tg::artifact::checkin::Arg {

@@ -72,7 +72,7 @@ export class Branch {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			tg.assert(object.kind === "branch");
 			this.#state.object = object.value;
 		}
@@ -80,7 +80,7 @@ export class Branch {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "branch",
 				value: this.#state.object!,
 			});
@@ -98,7 +98,7 @@ export class Branch {
 	}
 
 	async bytes(): Promise<Uint8Array> {
-		return await syscall("read", this);
+		return await syscall("blob_read", this);
 	}
 
 	async text(): Promise<string> {

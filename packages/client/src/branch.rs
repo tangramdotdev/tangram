@@ -262,3 +262,11 @@ pub mod child {
 		pub size: u64,
 	}
 }
+
+impl std::fmt::Display for Branch {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
+		printer.branch(self)?;
+		Ok(())
+	}
+}

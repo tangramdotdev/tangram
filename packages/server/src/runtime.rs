@@ -38,10 +38,10 @@ impl Runtime {
 impl Server {
 	pub async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		// Create the module.
-		let module = tg::Module {
+		let module = tg::module::Data {
 			kind: tg::module::Kind::Dts,
 			referent: tg::Referent {
-				item: tg::module::Item::Path("tangram.d.ts".into()),
+				item: tg::module::data::Item::Path("tangram.d.ts".into()),
 				subpath: None,
 				tag: None,
 			},

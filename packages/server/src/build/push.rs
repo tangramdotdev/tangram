@@ -14,6 +14,7 @@ struct InnerOutput {
 struct Metadata {
 	build_count: Option<u64>,
 	object_count: Option<u64>,
+	#[allow(dead_code)]
 	object_depth: Option<u64>,
 	object_weight: Option<u64>,
 }

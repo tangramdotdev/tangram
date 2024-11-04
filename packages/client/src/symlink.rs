@@ -398,3 +398,11 @@ impl std::str::FromStr for Id {
 		crate::Id::from_str(s)?.try_into()
 	}
 }
+
+impl std::fmt::Display for Symlink {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
+		printer.symlink(self)?;
+		Ok(())
+	}
+}

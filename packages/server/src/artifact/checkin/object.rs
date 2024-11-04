@@ -271,13 +271,12 @@ impl Server {
 					let id = graph.nodes[edge.index].id.clone().unwrap();
 					Either::Right(id)
 				};
-				let edge = RemappedEdge {
+				RemappedEdge {
 					reference: edge.reference.clone(),
 					id,
 					tag: edge.tag.clone(),
 					subpath: edge.subpath.clone(),
-				};
-				edge
+				}
 			})
 			.collect::<Vec<_>>();
 

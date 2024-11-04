@@ -46,13 +46,7 @@ export function target<
 		// Create the target.
 		let args_ = [arg.name];
 		let checksum = undefined;
-		let executable = tg.Artifact.withId(arg.module.object!);
-		if (arg.module.path !== undefined) {
-			let path = arg.module.path;
-			executable = new tg.Symlink({
-				object: { artifact: executable, path: path },
-			});
-		}
+		let executable = arg.module;
 		const env = currentTarget.state.object!.env;
 		let object = {
 			args: args_,
@@ -196,7 +190,7 @@ export class Target<
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			tg.assert(object.kind === "target");
 			this.#state.object = object.value;
 		}
@@ -204,7 +198,7 @@ export class Target<
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "target",
 				value: this.#state.object!,
 			});
@@ -223,7 +217,7 @@ export class Target<
 		return (await this.object()).env;
 	}
 
-	async executable(): Promise<tg.Artifact | undefined> {
+	async executable(): Promise<tg.Target.Executable | undefined> {
 		return (await this.object()).executable;
 	}
 
@@ -232,7 +226,7 @@ export class Target<
 	}
 
 	async output(): Promise<R> {
-		return (await syscall("output", this as Target<[], R>)) as R;
+		return (await syscall("build_output", this as Target<[], R>)) as R;
 	}
 
 	function(): Function | undefined {
@@ -253,9 +247,13 @@ export namespace Target {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
-		executable?: tg.Artifact | undefined;
+		executable?: tg.Target.ExecutableArg | undefined;
 		host?: string | undefined;
 	};
+
+	export type Executable = tg.Artifact | tg.Module;
+
+	export type ExecutableArg = tg.Artifact | tg.Module;
 
 	export type Id = string;
 
@@ -263,7 +261,7 @@ export namespace Target {
 		args: Array<tg.Value>;
 		checksum: tg.Checksum | undefined;
 		env: { [key: string]: tg.Value };
-		executable: tg.Artifact | undefined;
+		executable: tg.Target.Executable | undefined;
 		host: string;
 	};
 

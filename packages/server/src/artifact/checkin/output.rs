@@ -958,9 +958,7 @@ impl Server {
 				let input = child.read().unwrap().input.clone();
 
 				// Skip roots.
-				if input.read().await.parent.is_none() {
-					return None;
-				}
+				input.read().await.parent.as_ref()?;
 
 				let path = edge
 					.reference
@@ -968,6 +966,7 @@ impl Server {
 					.try_unwrap_path_ref()
 					.ok()
 					.or_else(|| edge.reference.options()?.path.as_ref())?;
+
 				Some((path.clone(), child.clone()))
 			})
 			.collect::<FuturesUnordered<_>>()

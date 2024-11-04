@@ -176,12 +176,7 @@ impl Data {
 
 impl std::fmt::Display for Value {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let style = self::print::Style::Compact;
-		let options = self::print::Options {
-			recursive: false,
-			style,
-		};
-		let mut printer = Printer::new(f, options);
+		let mut printer = Printer::new(f, tg::value::print::Options::default());
 		printer.value(self)?;
 		Ok(())
 	}

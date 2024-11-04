@@ -7,14 +7,13 @@ use std::rc::Rc;
 use tangram_client as tg;
 use tangram_v8::convert::{FromV8, ToV8};
 
+mod blob;
+mod build;
 mod checksum;
 mod encoding;
-mod load;
 mod log;
-mod output;
-mod read;
+mod object;
 mod sleep;
-mod store;
 
 pub fn syscall<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -26,6 +25,8 @@ pub fn syscall<'s>(
 
 	// Invoke the syscall.
 	let result = match name.as_str() {
+		"blob_read" => async_(scope, &args, self::blob::read),
+		"build_output" => async_(scope, &args, self::build::output),
 		"checksum" => async_(scope, &args, self::checksum::checksum),
 		"encoding_base64_decode" => sync(scope, &args, self::encoding::base64_decode),
 		"encoding_base64_encode" => sync(scope, &args, self::encoding::base64_encode),
@@ -39,12 +40,10 @@ pub fn syscall<'s>(
 		"encoding_utf8_encode" => sync(scope, &args, self::encoding::utf8_encode),
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
-		"load" => async_(scope, &args, self::load::load),
 		"log" => sync(scope, &args, self::log::log),
-		"output" => async_(scope, &args, self::output::output),
-		"read" => async_(scope, &args, self::read::read),
+		"object_load" => async_(scope, &args, self::object::load),
+		"object_store" => async_(scope, &args, self::object::store),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
-		"store" => async_(scope, &args, self::store::store),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 
@@ -119,10 +118,6 @@ where
 	// Get the state.
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
-	// Create the promise.
-	let promise_resolver = v8::PromiseResolver::new(scope).unwrap();
-	let promise = promise_resolver.get_promise(scope);
-
 	// Collect the args.
 	let args = (1..args.length()).map(|i| args.get(i)).collect_vec();
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
@@ -130,6 +125,10 @@ where
 	// Deserialize the args.
 	let args = <_>::from_v8(scope, args.into())
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
+
+	// Create the promise.
+	let promise_resolver = v8::PromiseResolver::new(scope).unwrap();
+	let promise = promise_resolver.get_promise(scope);
 
 	// Move the promise resolver to the global scope.
 	let promise_resolver = v8::Global::new(scope, promise_resolver);

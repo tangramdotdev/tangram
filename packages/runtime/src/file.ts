@@ -72,9 +72,10 @@ export class File {
 		});
 		let arg = await tg.Args.applyMutations(mutations);
 		if (arg.dependencies !== undefined) {
-			let dependencies: { [reference: string]: File.Dependency } = {};
+			let dependencies: { [reference: tg.Reference]: tg.Referent<tg.Object> } =
+				{};
 			let allDependencies = arg.dependencies as Array<{
-				[reference: string]: File.Dependency;
+				[reference: tg.Reference]: tg.Referent<tg.Object>;
 			}>;
 			for (let dependencyMap of allDependencies) {
 				for (let [reference, dependency] of Object.entries(dependencyMap)) {
@@ -107,7 +108,7 @@ export class File {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			tg.assert(object.kind === "file");
 			this.#state.object = object.value;
 		}
@@ -115,7 +116,7 @@ export class File {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "file",
 				value: this.#state.object!,
 			});
@@ -137,7 +138,7 @@ export class File {
 	}
 
 	async dependencies(): Promise<
-		{ [reference: string]: File.Dependency } | undefined
+		{ [reference: tg.Reference]: tg.Referent<tg.Object> } | undefined
 	> {
 		const object = await this.object();
 		if (!("graph" in object)) {
@@ -153,37 +154,37 @@ export class File {
 				return undefined;
 			}
 			return Object.fromEntries(
-				Object.entries(dependencies).map(([reference, dependency]) => {
+				Object.entries(dependencies).map(([reference, referent]) => {
 					let object: tg.Object | undefined;
-					if (typeof dependency.object === "number") {
-						const node = nodes[dependency.object];
-						tg.assert(node !== undefined, `invalid index ${dependency.object}`);
+					if (typeof referent.item === "number") {
+						const node = nodes[referent.item];
+						tg.assert(node !== undefined, `invalid index ${referent.item}`);
 						switch (node.kind) {
 							case "directory": {
 								object = new tg.Directory({
-									object: { graph, node: dependency.object },
+									object: { graph, node: referent.item },
 								});
 								break;
 							}
 							case "file": {
 								object = new tg.File({
-									object: { graph, node: dependency.object },
+									object: { graph, node: referent.item },
 								});
 								break;
 							}
 							case "symlink": {
 								object = new tg.Symlink({
-									object: { graph, node: dependency.object },
+									object: { graph, node: referent.item },
 								});
 								break;
 							}
 						}
 					} else {
-						object = dependency.object;
+						object = referent.item;
 					}
 					const value = {
-						...dependency,
-						object,
+						...referent,
+						item: object,
 					};
 					return [reference, value];
 				}),
@@ -196,7 +197,7 @@ export class File {
 		if (dependencies === undefined) {
 			return [];
 		} else {
-			return Object.values(dependencies).map((d) => d.object);
+			return Object.values(dependencies).map((d) => d.item);
 		}
 	}
 
@@ -239,7 +240,9 @@ export namespace File {
 	export type ArgObject =
 		| {
 				contents?: tg.Blob.Arg | undefined;
-				dependencies?: { [reference: string]: Dependency } | undefined;
+				dependencies?:
+					| { [reference: tg.Reference]: tg.Referent<tg.Object> }
+					| undefined;
 				executable?: boolean | undefined;
 		  }
 		| { graph: tg.Graph; node: number };
@@ -249,15 +252,12 @@ export namespace File {
 	export type Object =
 		| {
 				contents: tg.Blob;
-				dependencies: { [reference: string]: Dependency } | undefined;
+				dependencies:
+					| { [reference: tg.Reference]: tg.Referent<tg.Object> }
+					| undefined;
 				executable: boolean;
 		  }
 		| { graph: tg.Graph; node: number };
-
-	export type Dependency = {
-		object: tg.Object;
-		tag?: string | undefined;
-	};
 
 	export type State = tg.Object.State<File.Id, File.Object>;
 }

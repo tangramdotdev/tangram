@@ -47,7 +47,8 @@ pub struct Object {
 	pub host: String,
 }
 
-#[derive(Clone, Debug, derive_more::From)]
+#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
+#[try_unwrap(ref)]
 pub enum Executable {
 	Artifact(tg::Artifact),
 	Module(tg::Module),
@@ -77,7 +78,7 @@ pub mod data {
 	#[serde(untagged)]
 	pub enum Executable {
 		Artifact(tg::artifact::Id),
-		Module(tg::Module),
+		Module(tg::module::Data),
 	}
 }
 
@@ -217,9 +218,13 @@ impl Target {
 		let executable = if let Some(executable) = object.executable.as_ref() {
 			let executable = match executable {
 				Executable::Artifact(artifact) => {
-					data::Executable::Artifact(artifact.id(handle).await?)
+					let artifact = artifact.id(handle).await?;
+					data::Executable::Artifact(artifact)
 				},
-				Executable::Module(module) => data::Executable::Module(module.clone()),
+				Executable::Module(module) => {
+					let module = Box::pin(module.data(handle)).await?;
+					data::Executable::Module(module)
+				},
 			};
 			Some(executable)
 		} else {
@@ -289,7 +294,7 @@ impl Object {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		std::iter::empty()
-			.chain(self.executable.iter().flat_map(Executable::children))
+			.chain(self.executable.iter().flat_map(Executable::object))
 			.chain(self.args.iter().flat_map(tg::Value::objects))
 			.chain(self.env.values().flat_map(tg::Value::objects))
 			.collect()
@@ -298,10 +303,10 @@ impl Object {
 
 impl Executable {
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::Object> {
+	pub fn object(&self) -> Vec<tg::Object> {
 		match self {
 			Self::Artifact(artifact) => [artifact.clone().into()].into(),
-			Self::Module(module) => todo!(),
+			Self::Module(module) => module.objects(),
 		}
 	}
 }
@@ -333,10 +338,7 @@ impl data::Executable {
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
 			data::Executable::Artifact(id) => [id.clone().into()].into(),
-			data::Executable::Module(module) => match &module.referent.item {
-				tg::module::Item::Path(_) => [].into(),
-				tg::module::Item::Object(id) => [id.clone()].into(),
-			},
+			data::Executable::Module(module) => module.children(),
 		}
 	}
 }
@@ -370,7 +372,7 @@ impl TryFrom<data::Executable> for Executable {
 	fn try_from(data: data::Executable) -> std::result::Result<Self, Self::Error> {
 		match data {
 			data::Executable::Artifact(id) => Ok(Self::Artifact(tg::Artifact::with_id(id))),
-			data::Executable::Module(module) => Ok(Self::Module(module)),
+			data::Executable::Module(module) => Ok(Self::Module(module.try_into()?)),
 		}
 	}
 }
@@ -397,5 +399,13 @@ impl std::str::FromStr for Id {
 impl From<tg::File> for Executable {
 	fn from(value: tg::File) -> Self {
 		Self::Artifact(value.into())
+	}
+}
+
+impl std::fmt::Display for Target {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
+		printer.target(self)?;
+		Ok(())
 	}
 }

@@ -559,3 +559,11 @@ impl std::str::FromStr for tg::graph::node::Kind {
 		}
 	}
 }
+
+impl std::fmt::Display for Graph {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
+		printer.graph(self)?;
+		Ok(())
+	}
+}

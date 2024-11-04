@@ -882,10 +882,10 @@ impl Cli {
 		let mut string = String::new();
 		if let Some(location) = &diagnostic.location {
 			match &location.module.referent.item {
-				tg::module::Item::Path(path) => {
+				tg::module::data::Item::Path(path) => {
 					write!(string, "{}", path.display()).unwrap();
 				},
-				tg::module::Item::Object(object) => {
+				tg::module::data::Item::Object(object) => {
 					write!(string, "{object}").unwrap();
 				},
 			}

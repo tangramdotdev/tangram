@@ -436,7 +436,14 @@ impl Provider {
 			.map_err(|source| tg::error!(!source, "failed to create the database directory"))?;
 		let path = temp.path.join("vfs");
 		let initialize = Arc::new(|connection: &sqlite::Connection| {
+			connection.pragma_update(None, "auto_vaccum", "incremental")?;
+			connection.pragma_update(None, "busy_timeout", "5000")?;
+			connection.pragma_update(None, "cache_size", "-20000")?;
+			connection.pragma_update(None, "foreign_keys", "on")?;
 			connection.pragma_update(None, "journal_mode", "wal")?;
+			connection.pragma_update(None, "mmap_size", "2147483648")?;
+			connection.pragma_update(None, "synchronous", "normal")?;
+			connection.pragma_update(None, "temp_store", "memory")?;
 			Ok(())
 		});
 		let database_options = db::sqlite::DatabaseOptions {

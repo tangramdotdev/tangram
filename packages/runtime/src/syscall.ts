@@ -1,6 +1,13 @@
 import type * as tg from "./index.ts";
 
 declare global {
+	function syscall(syscall: "blob_read", blob: tg.Blob): Promise<Uint8Array>;
+
+	function syscall(
+		syscall: "build_output",
+		target: tg.Target,
+	): Promise<tg.Value>;
+
 	function syscall(
 		syscall: "checksum",
 		input: string | Uint8Array,
@@ -37,21 +44,19 @@ declare global {
 
 	function syscall(syscall: "encoding_yaml_encode", value: unknown): string;
 
+	function syscall(syscall: "module_load", module: tg.Module): Promise<any>;
+
 	function syscall(
-		syscall: "load",
+		syscall: "object_load",
 		id: tg.Object.Id,
 	): Promise<tg.Object.Object>;
 
-	function syscall(syscall: "log", value: string): void;
-
-	function syscall(syscall: "output", target: tg.Target): Promise<tg.Value>;
-
-	function syscall(syscall: "read", blob: tg.Blob): Promise<Uint8Array>;
-
-	function syscall(syscall: "sleep", duration: number): Promise<void>;
-
 	function syscall(
-		syscall: "store",
+		syscall: "object_store",
 		object: tg.Object.Object,
 	): Promise<tg.Object.Id>;
+
+	function syscall(syscall: "log", value: string): void;
+
+	function syscall(syscall: "sleep", duration: number): Promise<void>;
 }

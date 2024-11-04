@@ -57,7 +57,6 @@ pub mod config;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	artifact_store_task_map: ArtifactStoreTaskMap,
 	blob_store_task_map: BlobStoreTaskMap,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
@@ -75,8 +74,6 @@ pub struct Inner {
 	task: Mutex<Option<Task<()>>>,
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
-
-type ArtifactStoreTaskMap = TaskMap<tg::artifact::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
 
 type BlobStoreTaskMap = TaskMap<tg::blob::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
 
@@ -147,9 +144,6 @@ impl Server {
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
-		// Create the artifact store task map.
-		let artifact_store_task_map = TaskMap::default();
-
 		// Create the blob store task map.
 		let blob_store_task_map = TaskMap::default();
 
@@ -174,9 +168,14 @@ impl Server {
 		let database = match &options.database {
 			self::config::Database::Sqlite(options) => {
 				let initialize = Arc::new(|connection: &sqlite::Connection| {
+					connection.pragma_update(None, "auto_vaccum", "incremental")?;
+					connection.pragma_update(None, "busy_timeout", "5000")?;
+					connection.pragma_update(None, "cache_size", "-20000")?;
+					connection.pragma_update(None, "foreign_keys", "on")?;
 					connection.pragma_update(None, "journal_mode", "wal")?;
-					connection.pragma_update(None, "busy_timeout", "86400000")?;
+					connection.pragma_update(None, "mmap_size", "2147483648")?;
 					connection.pragma_update(None, "synchronous", "normal")?;
+					connection.pragma_update(None, "temp_store", "memory")?;
 					Ok(())
 				});
 				let options = db::sqlite::DatabaseOptions {
@@ -241,7 +240,6 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
-			artifact_store_task_map,
 			blob_store_task_map,
 			build_permits,
 			build_semaphore,

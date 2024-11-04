@@ -5,7 +5,7 @@ pub fn list(
 	_scope: &mut v8::HandleScope,
 	compiler: Compiler,
 	_args: (),
-) -> tg::Result<Vec<tg::Module>> {
+) -> tg::Result<Vec<tg::module::Data>> {
 	compiler
 		.main_runtime_handle
 		.clone()

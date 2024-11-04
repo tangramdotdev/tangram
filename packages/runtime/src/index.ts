@@ -11,14 +11,18 @@ import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";
 import { Leaf, leaf } from "./leaf.ts";
 import { log } from "./log.ts";
+import type { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { Object as Object_ } from "./object.ts";
 import { path } from "./path.ts";
+import type { Reference } from "./reference.ts";
+import type { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
 import { sleep } from "./sleep.ts";
 import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
+import type { Tag } from "./tag.ts";
 import { Target, target } from "./target.ts";
 import { Template, template } from "./template.ts";
 import type {
@@ -49,11 +53,13 @@ export {
 	File,
 	Graph,
 	Leaf,
-	type MaybeNestedArray,
-	type MaybePromise,
+	type Module,
 	Mutation,
 	Object_ as Object,
+	type Reference,
+	type Referent,
 	Symlink,
+	type Tag,
 	Target,
 	Template,
 	Value,
@@ -83,6 +89,8 @@ export {
 	template,
 	type MaybeMutation,
 	type MaybeMutationMap,
+	type MaybeNestedArray,
+	type MaybePromise,
 	type MutationMap,
 	type Resolved,
 	type Unresolved,

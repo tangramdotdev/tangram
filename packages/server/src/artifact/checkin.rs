@@ -1,5 +1,5 @@
 use crate::{util::path::Ext as _, Server};
-use futures::{future::BoxFuture, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _};
 use std::{
 	path::PathBuf,
 	pin::pin,
@@ -83,8 +83,7 @@ impl Server {
 		}
 
 		// Check in the artifact.
-		self.check_in_artifact_inner(arg.clone(), progress)
-			.await
+		self.check_in_artifact_inner(arg.clone(), progress).await
 	}
 
 	// Check in the artifact.
