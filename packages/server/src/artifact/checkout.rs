@@ -17,7 +17,7 @@ use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 struct InnerArg<'a> {
 	arg: &'a tg::artifact::checkout::Arg,
 	artifact: &'a tg::Artifact,
-	checkouts_path: &'a PathBuf,
+	cache_directory: &'a PathBuf,
 	existing_artifact: Option<&'a tg::Artifact>,
 	files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
 	path: &'a PathBuf,
@@ -65,13 +65,13 @@ impl Server {
 
 			async move {
 				// Compute the checkouts path.
-				let checkouts_path = server
-					.get_checkouts_directory_for_path(&id, arg.path.as_deref())
+				let cache_directory = server
+					.get_cache_directory_for_path(&id, arg.path.as_deref())
 					.await?;
 
 				// Checkout the artifact.
 				let output = server
-					.check_out_artifact_with_files(&id, &arg, &checkouts_path, files, &progress)
+					.check_out_artifact_with_files(&id, &arg, &cache_directory, files, &progress)
 					.await?;
 
 				if let Some(path) = arg.path {
@@ -122,7 +122,7 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: &tg::artifact::checkout::Arg,
-		checkouts_path: &PathBuf,
+		cache_directory: &PathBuf,
 		files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
 	) -> tg::Result<tg::artifact::checkout::Output> {
@@ -166,7 +166,7 @@ impl Server {
 			let arg = InnerArg {
 				arg,
 				artifact: &artifact,
-				checkouts_path,
+				cache_directory,
 				existing_artifact: existing_artifact.as_ref(),
 				files,
 				path: &path,
@@ -181,7 +181,7 @@ impl Server {
 		} else {
 			// Get the path in the checkouts directory.
 			let id = artifact.id(self).await?;
-			let path = checkouts_path.join(id.to_string());
+			let path = cache_directory.join(id.to_string());
 			let artifact_path = self.artifacts_path().join(id.to_string());
 
 			// If there is already a file system object at the path, then return.
@@ -196,14 +196,14 @@ impl Server {
 			}
 
 			// Create a temp.
-			let temp = (checkouts_path == &self.cache_path()).then(|| Temp::new(self));
+			let temp = (cache_directory == &self.cache_path()).then(|| Temp::new(self));
 
 			// Perform the checkout to the tmp.
 			let files = Arc::new(DashMap::default());
 			let arg = InnerArg {
 				arg,
 				artifact: &artifact,
-				checkouts_path,
+				cache_directory,
 				existing_artifact: None,
 				files,
 				path: temp.as_ref().map_or(&path, |tmp| &tmp.path),
@@ -251,7 +251,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			checkouts_path,
+			cache_directory,
 			existing_artifact,
 			files,
 			path,
@@ -273,7 +273,7 @@ impl Server {
 		let arg_ = InnerArg {
 			arg,
 			artifact,
-			checkouts_path,
+			cache_directory,
 			existing_artifact,
 			files,
 			path,
@@ -322,7 +322,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			checkouts_path,
+			cache_directory,
 			existing_artifact,
 			files,
 			path,
@@ -392,7 +392,7 @@ impl Server {
 					let arg = InnerArg {
 						arg,
 						artifact,
-						checkouts_path,
+						cache_directory,
 						existing_artifact: existing_artifact.as_ref(),
 						files,
 						path: &entry_path,
@@ -414,7 +414,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			checkouts_path,
+			cache_directory,
 			existing_artifact,
 			files,
 			path,
@@ -456,7 +456,7 @@ impl Server {
 					Box::pin(self.check_out_artifact_with_files(
 						artifact,
 						&arg,
-						checkouts_path,
+						cache_directory,
 						files.clone(),
 						progress,
 					))
@@ -484,7 +484,7 @@ impl Server {
 		}
 
 		// Attempt to use the file from an internal checkout.
-		let internal_checkout_path = checkouts_path.join(id.to_string());
+		let internal_checkout_path = cache_directory.join(id.to_string());
 		if arg.path.is_none() {
 			// If this checkout is internal, then create a hard link.
 			let result = tokio::fs::hard_link(&internal_checkout_path, path).await;
@@ -540,7 +540,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			checkouts_path,
+			cache_directory,
 			existing_artifact,
 			files,
 			path,
@@ -569,7 +569,7 @@ impl Server {
 				Box::pin(self.check_out_artifact_with_files(
 					&id,
 					&arg,
-					checkouts_path,
+					cache_directory,
 					files,
 					progress,
 				))
@@ -578,12 +578,13 @@ impl Server {
 		}
 
 		// Render the target.
-		let mut target = PathBuf::new();
-		if artifact.is_some() {
-			target.push(path.diff(checkouts_path).unwrap().parent().unwrap());
-		}
-		if let Some(path) = subpath {
+		let mut target: PathBuf = PathBuf::new();
+		if let Some(artifact) = &artifact {
+			let path = cache_directory.diff(path.parent().unwrap()).unwrap().join(artifact.id(self).await?.to_string());
 			target.push(path);
+		}
+		if let Some(subpath) = subpath {
+			target.push(subpath);
 		}
 
 		// Create the symlink.
@@ -597,7 +598,7 @@ impl Server {
 
 impl Server {
 	#[allow(clippy::unused_self, clippy::unused_async)]
-	async fn get_checkouts_directory_for_path(
+	async fn get_cache_directory_for_path(
 		&self,
 		artifact: &tg::artifact::Id,
 		output_path: Option<&Path>,
@@ -610,13 +611,13 @@ impl Server {
 			return Err(tg::error!(%path = output_path.display(), "expected an absolute path"));
 		}
 
-		let checkouts_path = if let tg::artifact::Id::Directory(_) = artifact {
+		let cache_directory = if let tg::artifact::Id::Directory(_) = artifact {
 			output_path.join(".tangram/artifacts")
 		} else {
 			output_path.parent().unwrap().join(".tangram/artifacts")
 		};
 
-		Ok(checkouts_path)
+		Ok(cache_directory)
 	}
 }
 
