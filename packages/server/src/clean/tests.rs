@@ -1,15 +1,15 @@
 use crate::{Config, Server};
 use bytes::Bytes;
-use futures::TryStreamExt;
-use futures::{stream, stream::FuturesUnordered, FutureExt as _};
-use std::fmt::Debug;
-use std::{collections::BTreeMap, panic::AssertUnwindSafe};
+use futures::{
+	stream::{self, FuturesUnordered},
+	FutureExt as _, TryStreamExt as _,
+};
+use std::{collections::BTreeMap, fmt::Debug, panic::AssertUnwindSafe};
 use tangram_client as tg;
-use tangram_client::handle::Ext;
+use tangram_client::handle::Ext as _;
 use tangram_either::Either;
 use tangram_temp::Temp;
 use tg::tag::Component;
-use tokio_stream::StreamExt;
 
 #[tokio::test]
 async fn test_objects() -> tg::Result<()> {
@@ -17,87 +17,73 @@ async fn test_objects() -> tg::Result<()> {
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
-		let file_1 = tg::file::Builder::new("child of root dir")
-			.executable(true)
-			.build();
-		let file_1_id = file_1.store(&server).await.unwrap();
+		// Create the directory.
+		let a = tg::directory! {
+			b: tg::directory! {
+				f: tg::file!("f"),
+			},
+			c: tg::directory! {
+				g: tg::file!("g"),
+			},
+			d: tg::directory! {
+				h: tg::file!("h"),
+			},
+			e: tg::file!("e"),
+		};
+		let b = a.get(&server, "b").await?;
+		let c = a.get(&server, "c").await?;
+		let d = a.get(&server, "d").await?;
+		let e = a.get(&server, "e").await?;
+		let f = a.get(&server, "b/f").await?;
+		let g = a.get(&server, "c/g").await?;
+		let h = a.get(&server, "d/h").await?;
 
-		let file_2 = tg::file::Builder::new("child one of dir three")
-			.executable(true)
-			.build();
-		let file_2_id = file_2.store(&server).await.unwrap();
+		let a = a.id(&server).await?.into();
+		let b = b.id(&server).await?;
+		let c = c.id(&server).await?;
+		let d = d.id(&server).await?;
+		let e = e.id(&server).await?;
+		let f = f.id(&server).await?;
+		let g = g.id(&server).await?;
+		let h = h.id(&server).await?;
 
-		let file_3 = tg::file::Builder::new("child two of dir three")
-			.executable(true)
-			.build();
-		let file_3_id = file_3.store(&server).await.unwrap();
+		// Index the object.
+		server.index_object_recursive(a.clone().into()).await?;
 
-		let file_4 = tg::file::Builder::new("child of dir two")
-			.executable(true)
-			.build();
-		let file_4_id = file_4.store(&server).await.unwrap();
-
-		let child_dir_one = tg::directory::Builder::with_entries(BTreeMap::new()).build();
-		let child_dir_one_id = child_dir_one.store(&server).await.unwrap();
-
-		let child_dir_two =
-			tg::directory::Builder::with_entries(dir_contents(vec![file_1])).build();
-		let child_dir_two_id = child_dir_two.store(&server).await.unwrap();
-
-		let child_dir_three =
-			tg::directory::Builder::with_entries(dir_contents(vec![file_2, file_3])).build();
-		let child_dir_three_id = child_dir_three.store(&server).await.unwrap();
-
-		let root_contents: Vec<tg::Artifact> = vec![
-			child_dir_one.into(),
-			child_dir_two.clone().into(),
-			child_dir_three.into(),
-			file_4.into(),
-		];
-		let root_dir = tg::directory::Builder::with_entries(dir_contents(root_contents)).build();
-		let root_dir_id = root_dir.store(&server).await.unwrap();
-
-		index_manually(&server, root_dir_id.clone().into(), root_dir.into()).await;
-
-		let tag_components = vec![Component::new("abc".to_owned())];
-		let tag = tg::tag::Tag::with_components(tag_components);
+		// Tag c.
+		let tag = "c".parse()?;
 		let arg = tg::tag::put::Arg {
 			force: false,
-			item: Either::Right(child_dir_two_id.clone().into()),
+			item: Either::Right(c.clone().into()),
 			remote: None,
 		};
-		server.put_tag(&tag, arg).await.unwrap();
+		server.put_tag(&tag, arg).await?;
 
-		let tag_components = vec![Component::new("bcd".to_owned())];
-		let tag = tg::tag::Tag::with_components(tag_components);
+		// Tag h.
+		let tag = "h".parse()?;
 		let arg = tg::tag::put::Arg {
 			force: false,
-			item: Either::Right(file_2_id.clone().into()),
+			item: Either::Right(h.clone().into()),
 			remote: None,
 		};
-		server.put_tag(&tag, arg).await.unwrap();
+		server.put_tag(&tag, arg).await?;
 
-		server.clean().await.unwrap();
+		// Clean.
+		server.clean().await?;
 
+		// Assert.
 		assert_object_presence(
-			vec![
-				(root_dir_id, false),
-				(child_dir_one_id, false),
-				(child_dir_two_id, true),
-				(child_dir_three_id, false),
-			],
 			&server,
-		)
-		.await;
-
-		assert_object_presence(
 			vec![
-				(file_1_id, true),
-				(file_2_id, true),
-				(file_3_id, false),
-				(file_4_id, false),
+				(a, false),
+				(b, false),
+				(c, true),
+				(d, true),
+				(e, false),
+				(f, false),
+				(g, false),
+				(h, true),
 			],
-			&server,
 		)
 		.await;
 
@@ -116,13 +102,13 @@ async fn test_builds() -> tg::Result<()> {
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
-		let child = put_build(&server, Vec::new()).await.unwrap();
-		let tagged_child = put_build(&server, Vec::new()).await.unwrap();
-		let parent = put_build(&server, Vec::new()).await.unwrap();
-		let tagged_parent = put_build(&server, vec![child.clone(), tagged_child.clone()])
+		let child = create_test_build(&server, Vec::new()).await.unwrap();
+		let tagged_child = create_test_build(&server, Vec::new()).await.unwrap();
+		let parent = create_test_build(&server, Vec::new()).await.unwrap();
+		let tagged_parent = create_test_build(&server, vec![child.clone(), tagged_child.clone()])
 			.await
 			.unwrap();
-		let grandparent = put_build(&server, vec![parent.clone(), tagged_parent.clone()])
+		let grandparent = create_test_build(&server, vec![parent.clone(), tagged_parent.clone()])
 			.await
 			.unwrap();
 
@@ -157,6 +143,7 @@ async fn test_builds() -> tg::Result<()> {
 			&server,
 		)
 		.await;
+
 		// Ensure that links to removed builds remain.
 		assert_build_children(
 			&server,
@@ -174,7 +161,7 @@ async fn test_builds() -> tg::Result<()> {
 	result.unwrap()
 }
 
-async fn put_build(
+async fn create_test_build(
 	server: &Server,
 	build_children: Vec<tg::build::Id>,
 ) -> tg::Result<tg::build::Id> {
@@ -196,33 +183,6 @@ async fn put_build(
 	};
 	server.put_build(&id.clone(), arg).await?;
 	Ok(id)
-}
-
-async fn index_manually(server: &Server, id: tg::object::Id, artifact: tg::Artifact) {
-	match artifact {
-		tg::artifact::Artifact::Directory(dir) => {
-			dir.entries(server)
-				.await
-				.unwrap()
-				.values()
-				.map(|artifact| async move {
-					index_manually(
-						server,
-						artifact.id(server).await.unwrap().into(),
-						artifact.clone(),
-					)
-					.await;
-				})
-				.collect::<FuturesUnordered<_>>()
-				.collect::<()>()
-				.await;
-			server.index_object(&id).await.unwrap();
-		},
-		tg::artifact::Artifact::File(_file) => {
-			server.index_object(&id).await.unwrap();
-		},
-		tg::artifact::Artifact::Symlink(_sym) => todo!(),
-	}
 }
 
 async fn assert_build_children<T>(server: &Server, parent: T, children: Vec<(T, bool)>)
@@ -288,43 +248,30 @@ where
 		.await;
 }
 
-async fn assert_object_presence<T>(ids: Vec<(T, bool)>, server: &Server)
-where
-	T: Into<tg::object::Id> + Debug + Clone,
-{
-	ids.into_iter()
-		.map(|(id, present)| async move {
-			let output = server
-				.try_get_object_local_database(&id.clone().into())
-				.await
-				.unwrap();
-
+async fn assert_object_presence(
+	server: &Server,
+	artifacts: Vec<(tg::artifact::Id, bool)>,
+) -> tg::Result<()> {
+	artifacts
+		.into_iter()
+		.map(|(artifact, present)| async move {
+			let output = server.try_get_object(artifact.state()).await?;
 			if present {
 				assert!(
 					output.is_some(),
-					"Expected object {:?} to be present!",
+					r#"expected object "{:?}" to be present"#,
 					id.clone()
 				);
 			} else {
 				assert!(
 					output.is_none(),
-					"Expected object {:?} to be absent!",
+					r#"expected object "{:?}" to be absent"#,
 					id.clone()
 				);
 			}
+			Ok::<_, tg::Error>(())
 		})
 		.collect::<FuturesUnordered<_>>()
-		.collect::<Vec<_>>()
+		.try_collect::<()>()
 		.await;
-}
-
-fn dir_contents<T>(contents: Vec<T>) -> BTreeMap<String, tg::Artifact>
-where
-	T: Into<tg::Artifact>,
-{
-	contents
-		.into_iter()
-		.enumerate()
-		.map(|(i, artifact)| (i.to_string(), artifact.into()))
-		.collect()
 }

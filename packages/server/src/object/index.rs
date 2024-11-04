@@ -427,6 +427,26 @@ impl Server {
 		Ok(())
 	}
 
+	pub async fn index_object_recursive(&self, id: &tg::object::Id) -> tg::Result<()> {
+		tg::Object::with_id(id.clone())
+			.children(self)
+			.await?
+			.into_iter()
+			.map(|object| {
+				let server = self.clone();
+				async move {
+					let id = object.id(&server).await?;
+					server.index_object_recursive(&id).await?;
+					Ok::<_, tg::Error>(())
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<()>()
+			.await?;
+		self.index_object(id).await?;
+		Ok(())
+	}
+
 	pub(crate) async fn enqueue_objects_for_indexing(
 		&self,
 		objects: &[tg::object::Id],
