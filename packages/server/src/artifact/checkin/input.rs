@@ -181,7 +181,7 @@ impl Server {
 
 		// Check if this path has already been visited and return it.
 		if let Some(node) = state_.visited.get(&absolute_path) {
-			return Ok(Either::Right(Arc::downgrade(node)));
+			return Ok(Either::Left(node.clone()));
 		}
 
 		// Lookup the parent if it exists.

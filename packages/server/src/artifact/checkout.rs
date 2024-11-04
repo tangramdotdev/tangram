@@ -580,7 +580,10 @@ impl Server {
 		// Render the target.
 		let mut target: PathBuf = PathBuf::new();
 		if let Some(artifact) = &artifact {
-			let path = cache_directory.diff(path.parent().unwrap()).unwrap().join(artifact.id(self).await?.to_string());
+			let path = cache_directory
+				.diff(path.parent().unwrap())
+				.unwrap()
+				.join(artifact.id(self).await?.to_string());
 			target.push(path);
 		}
 		if let Some(subpath) = subpath {
