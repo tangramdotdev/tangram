@@ -122,7 +122,7 @@ impl Server {
 		}
 	}
 
-	async fn index_object(&self, id: &tg::object::Id) -> tg::Result<()> {
+	pub async fn index_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		// Get a short lived database connection.
 		let connection = self
 			.database
@@ -424,6 +424,26 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		Ok(())
+	}
+
+	pub async fn index_object_recursive(&self, id: &tg::object::Id) -> tg::Result<()> {
+		tg::Object::with_id(id.clone())
+			.children(self)
+			.await?
+			.into_iter()
+			.map(|object| {
+				let server = self.clone();
+				async move {
+					let id = object.id(&server).await?;
+					server.index_object_recursive(&id).await?;
+					Ok::<_, tg::Error>(())
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<()>()
+			.await?;
+		self.index_object(id).await?;
 		Ok(())
 	}
 

@@ -584,6 +584,7 @@ impl Server {
 			let outcome_depth = outcome_metadata.as_ref().and_then(|metadata| {
 				metadata.iter().try_fold(1, |depth, metadata| {
 					metadata
+						.clone()
 						.and_then(|metadata| metadata.depth)
 						.map(|d| depth.max(d))
 				})

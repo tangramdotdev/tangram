@@ -55,6 +55,7 @@ clap = { version = "4", features = ["derive", "env", "string", "unstable-v5"] }
 console-subscriber = "0.4"
 copypasta = "0.10"
 crossterm = "0.28"
+ctor = "0.2"
 dashmap = "6"
 data-encoding = "2"
 data-encoding-macro = "0.1"
@@ -76,7 +77,7 @@ im = "15"
 include_dir = "0.7"
 indexmap = "2"
 indoc = "2"
-insta = { version = "1", features = ["yaml"] }
+insta = { version = "1", features = ["redactions", "yaml"] }
 itertools = "0.13"
 libc = "0.2"
 lsp-types = "0.97"
