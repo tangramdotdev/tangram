@@ -2,34 +2,37 @@ use crate::{Config, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{self, FuturesUnordered},
-	FutureExt as _, TryStreamExt as _,
+	FutureExt as _, StreamExt as _, TryStreamExt as _,
 };
-use std::{collections::BTreeMap, fmt::Debug, panic::AssertUnwindSafe};
+use std::{fmt::Debug, panic::AssertUnwindSafe};
 use tangram_client as tg;
-use tangram_client::handle::Ext as _;
 use tangram_either::Either;
 use tangram_temp::Temp;
-use tg::tag::Component;
+use tg::handle::Ext as _;
+use tg::{directory, file, symlink};
 
 #[tokio::test]
+#[allow(clippy::many_single_char_names)]
 async fn test_objects() -> tg::Result<()> {
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
 		// Create the directory.
-		let a = tg::directory! {
-			b: tg::directory! {
-				f: tg::file!("f"),
+		let a = directory! {
+			"b" => directory! {
+				"f" => file!("f"),
 			},
-			c: tg::directory! {
-				g: tg::file!("g"),
+			"c" => directory! {
+				"g" => file!("g"),
 			},
-			d: tg::directory! {
-				h: tg::file!("h"),
+			"d" => directory! {
+				"h" => file!("h"),
 			},
-			e: tg::file!("e"),
+			"e" => symlink!(None, Some("d".into())),
 		};
+
+		// Get the artifacts.
 		let b = a.get(&server, "b").await?;
 		let c = a.get(&server, "c").await?;
 		let d = a.get(&server, "d").await?;
@@ -38,7 +41,8 @@ async fn test_objects() -> tg::Result<()> {
 		let g = a.get(&server, "c/g").await?;
 		let h = a.get(&server, "d/h").await?;
 
-		let a = a.id(&server).await?.into();
+		// Get the IDs.
+		let a = a.id(&server).await?;
 		let b = b.id(&server).await?;
 		let c = c.id(&server).await?;
 		let d = d.id(&server).await?;
@@ -47,11 +51,13 @@ async fn test_objects() -> tg::Result<()> {
 		let g = g.id(&server).await?;
 		let h = h.id(&server).await?;
 
-		// Index the object.
-		server.index_object_recursive(a.clone().into()).await?;
+		// Index the root object.
+		server.index_object_recursive(&a.clone().into()).await?;
 
 		// Tag c.
-		let tag = "c".parse()?;
+		let tag = "c"
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
 		let arg = tg::tag::put::Arg {
 			force: false,
 			item: Either::Right(c.clone().into()),
@@ -60,7 +66,9 @@ async fn test_objects() -> tg::Result<()> {
 		server.put_tag(&tag, arg).await?;
 
 		// Tag h.
-		let tag = "h".parse()?;
+		let tag = "h"
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
 		let arg = tg::tag::put::Arg {
 			force: false,
 			item: Either::Right(h.clone().into()),
@@ -75,17 +83,17 @@ async fn test_objects() -> tg::Result<()> {
 		assert_object_presence(
 			&server,
 			vec![
-				(a, false),
+				(a.clone().into(), false),
 				(b, false),
 				(c, true),
-				(d, true),
+				(d, false),
 				(e, false),
 				(f, false),
-				(g, false),
+				(g, true),
 				(h, true),
 			],
 		)
-		.await;
+		.await?;
 
 		Ok::<_, tg::Error>(())
 	})
@@ -97,60 +105,59 @@ async fn test_objects() -> tg::Result<()> {
 }
 
 #[tokio::test]
+#[allow(clippy::many_single_char_names)]
 async fn test_builds() -> tg::Result<()> {
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
-		let child = create_test_build(&server, Vec::new()).await.unwrap();
-		let tagged_child = create_test_build(&server, Vec::new()).await.unwrap();
-		let parent = create_test_build(&server, Vec::new()).await.unwrap();
-		let tagged_parent = create_test_build(&server, vec![child.clone(), tagged_child.clone()])
-			.await
-			.unwrap();
-		let grandparent = create_test_build(&server, vec![parent.clone(), tagged_parent.clone()])
-			.await
-			.unwrap();
+		// Create the builds.
+		let e = create_test_build(&server, Vec::new()).await?;
+		let d = create_test_build(&server, Vec::new()).await?;
+		let c = create_test_build(&server, Vec::new()).await?;
+		let b = create_test_build(&server, vec![e.clone(), d.clone()]).await?;
+		let a = create_test_build(&server, vec![c.clone(), b.clone()]).await?;
 
-		let tag_components = vec![Component::new("abc".to_owned())];
-		let tag = tg::tag::Tag::with_components(tag_components);
+		// Tag d.
+		let tag = "d"
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
 		let arg = tg::tag::put::Arg {
 			force: false,
-			item: Either::Left(tagged_child.clone()),
+			item: Either::Left(d.clone()),
 			remote: None,
 		};
-		server.put_tag(&tag, arg).await.unwrap();
+		server.put_tag(&tag, arg).await?;
 
-		let tag_components = vec![Component::new("bcd".to_owned())];
-		let tag = tg::tag::Tag::with_components(tag_components);
+		// Tag b.
+		let tag = "b"
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
 		let arg = tg::tag::put::Arg {
 			force: false,
-			item: Either::Left(tagged_parent.clone()),
+			item: Either::Left(b.clone()),
 			remote: None,
 		};
-		server.put_tag(&tag, arg).await.unwrap();
+		server.put_tag(&tag, arg).await?;
 
-		server.clean().await.unwrap();
+		// Clean.
+		server.clean().await?;
 
+		// Assert.
 		assert_build_presence(
 			vec![
-				(grandparent.clone(), false),
-				(parent.clone(), false),
-				(tagged_parent.clone(), true),
-				(child.clone(), true),
-				(tagged_child.clone(), true),
+				(a.clone(), false),
+				(c.clone(), false),
+				(b.clone(), true),
+				(e.clone(), true),
+				(d.clone(), true),
 			],
 			&server,
 		)
-		.await;
+		.await?;
 
-		// Ensure that links to removed builds remain.
-		assert_build_children(
-			&server,
-			tagged_parent,
-			vec![(child, true), (tagged_child, true)],
-		)
-		.await;
+		// Ensure that links remain.
+		assert_build_children(&server, b, vec![(e, true), (d, true)]).await?;
 
 		Ok::<_, tg::Error>(())
 	})
@@ -185,77 +192,85 @@ async fn create_test_build(
 	Ok(id)
 }
 
-async fn assert_build_children<T>(server: &Server, parent: T, children: Vec<(T, bool)>)
+async fn assert_build_children<T>(
+	server: &Server,
+	parent: T,
+	children: Vec<(T, bool)>,
+) -> tg::Result<()>
 where
 	T: Into<tg::build::Id> + Debug + Clone,
 {
 	let parent = parent.clone().into();
 	let arg = tg::build::children::get::Arg::default();
+	// Get the children.
 	let present_children: Vec<tg::build::Id> = server
 		.try_get_build_children(&parent, arg)
-		.await
-		.unwrap()
-		.ok_or_else(|| tg::error!("expected the build to exist"))
-		.unwrap()
+		.await?
+		.ok_or_else(|| tg::error!("expected the build to exist"))?
 		.map_ok(|chunk| stream::iter(chunk.data).map(Ok::<_, tg::Error>))
 		.try_flatten()
 		.try_collect()
-		.await
-		.unwrap();
+		.await?;
+	// Verify presence/absence.
 	for (id, present) in children {
 		if present {
 			assert!(
 				present_children.contains(&id.clone().into()),
-				"Expected the link between build {:?} and child {:?} to be present!",
+				r#"expected the link between build "{:?}" and child "{:?} to be present"#,
 				parent.clone(),
 				id.clone()
 			);
 		} else {
 			assert!(
 				!present_children.contains(&id.clone().into()),
-				"Expected the link between build {:?} and child {:?} to be absent!",
+				r#"expected the link between build "{:?}" and child "{:?} to be absent"#,
 				parent.clone(),
 				id.clone()
 			);
 		}
 	}
+	Ok(())
 }
 
-async fn assert_build_presence<T>(ids: Vec<(T, bool)>, server: &Server)
+async fn assert_build_presence<T>(ids: Vec<(T, bool)>, server: &Server) -> tg::Result<()>
 where
 	T: Into<tg::build::Id> + Debug + Clone,
 {
+	// Verify presence/absence.
 	ids.into_iter()
 		.map(|(id, present)| async move {
-			let output = server.try_get_build(&id.clone().into()).await.unwrap();
+			let output = server.try_get_build(&id.clone().into()).await?;
 
 			if present {
 				assert!(
 					output.is_some(),
-					"Expected build {:?} to be present!",
+					r#"expected build "{:?}" to be present"#,
 					id.clone()
 				);
 			} else {
 				assert!(
 					output.is_none(),
-					"Expected build {:?} to be absent!",
+					r#"expected build "{:?}" to be absent"#,
 					id.clone()
 				);
 			}
+			Ok::<_, tg::Error>(())
 		})
 		.collect::<FuturesUnordered<_>>()
-		.collect::<Vec<_>>()
-		.await;
+		.try_collect::<Vec<_>>()
+		.await?;
+	Ok(())
 }
 
 async fn assert_object_presence(
 	server: &Server,
 	artifacts: Vec<(tg::artifact::Id, bool)>,
 ) -> tg::Result<()> {
+	// Verify presence/absence.
 	artifacts
 		.into_iter()
-		.map(|(artifact, present)| async move {
-			let output = server.try_get_object(artifact.state()).await?;
+		.map(|(id, present)| async move {
+			let output = server.try_get_object(&id.clone().into()).await?;
 			if present {
 				assert!(
 					output.is_some(),
@@ -272,6 +287,7 @@ async fn assert_object_presence(
 			Ok::<_, tg::Error>(())
 		})
 		.collect::<FuturesUnordered<_>>()
-		.try_collect::<()>()
-		.await;
+		.try_collect::<Vec<_>>()
+		.await?;
+	Ok(())
 }
