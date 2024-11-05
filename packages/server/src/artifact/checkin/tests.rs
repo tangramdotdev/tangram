@@ -8,13 +8,13 @@ use tangram_temp::{self as temp, artifact, symlink, Temp};
 #[tokio::test]
 async fn simple_path_dependency() -> tg::Result<()> {
 	test(
-		artifact!({
-			"foo": {
+		directory!({
+			"foo": directory!({
 				"tangram.ts": r#"import * as bar from "../bar";"#,
-			},
-			"bar": {
+			}),
+			"bar": directory!({
 				"tangram.ts": "",
-			},
+			}),
 		}),
 		"foo",
 		|_, _, output| async move {
@@ -44,7 +44,7 @@ async fn simple_path_dependency() -> tg::Result<()> {
 #[tokio::test]
 async fn nested_packages() -> tg::Result<()> {
 	test(
-		artifact!({
+		directory!({
 			"foo": {
 				"tangram.ts": r#"
 					import * as bar from "./bar";
@@ -127,7 +127,7 @@ async fn nested_packages() -> tg::Result<()> {
 #[tokio::test]
 async fn package_with_submodules() -> tg::Result<()> {
 	test(
-		artifact!({
+		directory!({
 			"package": {
 				"tangram.ts": r#"import * as foo from "./foo.tg.ts";"#,
 				"foo.tg.ts": r#"import * as root from "./tangram.ts";"#,
@@ -180,7 +180,7 @@ async fn package_with_submodules() -> tg::Result<()> {
 #[tokio::test]
 async fn symlink() -> tg::Result<()> {
 	test(
-		artifact!({
+		directory!({
 			"directory": {
 				"link": symlink!("."),
 			}
@@ -215,7 +215,7 @@ async fn symlink() -> tg::Result<()> {
 #[tokio::test]
 async fn cyclic_dependencies() -> tg::Result<()> {
 	test(
-		artifact!({
+		directory!({
 			"directory": {
 				"foo": {
 					"tangram.ts": r#"import * as bar from "../bar""#,
@@ -275,7 +275,7 @@ async fn cyclic_dependencies() -> tg::Result<()> {
 #[tokio::test]
 async fn directory() -> tg::Result<()> {
 	test(
-		artifact!({
+		directory!({
 			"directory": {
 				"hello.txt": "Hello, world!",
 				"link": symlink!("hello.txt"),
@@ -330,7 +330,7 @@ async fn directory() -> tg::Result<()> {
 #[tokio::test]
 async fn file() -> tg::Result<()> {
 	test(
-		artifact!({
+		directory!({
 			"directory": {
 				"README.md": "Hello, World!",
 			}
@@ -353,7 +353,7 @@ async fn file() -> tg::Result<()> {
 #[tokio::test]
 async fn package() -> tg::Result<()> {
 	test(
-		artifact!({
+		directory!({
 			"directory": {
 				"tangram.ts": "export default tg.target(() => {})",
 			}

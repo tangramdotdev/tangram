@@ -332,7 +332,7 @@ macro_rules! error {
 			message: Some(String::new()),
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
-				source: $crate::error::Source::Internal(format!("./{}", std::file!()).parse().unwrap()),
+				source: $crate::error::Source::Internal(format!("./{}", ::std::file!()).parse().unwrap()),
 				line: line!() - 1,
 				column: column!() - 1,
 			}),

@@ -146,7 +146,7 @@ impl From<String> for Artifact {
 }
 
 #[macro_export]
-macro_rules! artifact {
+macro_rules! directory {
 	($($artifact:tt)+) => {
 		$crate::internal!($($artifact)+)
 	};

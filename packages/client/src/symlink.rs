@@ -420,3 +420,10 @@ impl std::fmt::Display for Symlink {
 		Ok(())
 	}
 }
+
+#[macro_export]
+macro_rules! symlink {
+	($artifact:expr, $subpath:expr) => {
+		$crate::Symlink::with_artifact_and_subpath($artifact.into(), $subpath.into())
+	};
+}

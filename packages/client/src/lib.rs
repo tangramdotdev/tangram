@@ -260,6 +260,7 @@ impl Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -295,6 +296,7 @@ impl Client {
 			connection
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -331,6 +333,7 @@ impl Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -367,6 +370,7 @@ impl Client {
 			connection
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -414,6 +418,7 @@ impl Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -459,6 +464,7 @@ impl Client {
 			connection
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();

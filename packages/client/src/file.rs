@@ -563,3 +563,10 @@ impl std::fmt::Display for File {
 		Ok(())
 	}
 }
+
+#[macro_export]
+macro_rules! file {
+	($contents:expr) => {
+		$crate::File::with_contents($contents)
+	};
+}

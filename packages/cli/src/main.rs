@@ -107,6 +107,7 @@ enum Command {
 	Checkout(self::artifact::checkout::Args),
 	Checksum(self::checksum::Args),
 	Clean(self::clean::Args),
+	#[command(alias = "doc")]
 	Document(self::package::document::Args),
 	Download(self::blob::download::Args),
 	Format(self::package::format::Args),
