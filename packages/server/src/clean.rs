@@ -4,6 +4,9 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
+#[cfg(test)]
+mod tests;
+
 impl Server {
 	pub async fn clean(&self) -> tg::Result<()> {
 		// Clean the temporary directory.
@@ -19,7 +22,7 @@ impl Server {
 		// Get a database connection.
 		let mut connection = self
 			.database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -79,7 +82,7 @@ impl Server {
 				let statement = formatdoc!(
 					"
 						delete from build_children
-						where object = {p}1;
+						where build = {p}1;
 					"
 				);
 				let params = db::params![id];
@@ -93,7 +96,7 @@ impl Server {
 				let statement = formatdoc!(
 					"
 						delete from build_objects
-						where object = {p}1;
+						where build = {p}1;
 					"
 				);
 				let params = db::params![id];
