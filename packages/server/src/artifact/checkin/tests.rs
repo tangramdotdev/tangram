@@ -409,6 +409,8 @@ where
 	.await;
 	server.stop();
 	server.wait().await;
-	temp.remove().await?;
+	temp.remove()
+		.await
+		.map_err(|source| tg::error!(!source, "failed to remove temp"))?;
 	result.unwrap()
 }
