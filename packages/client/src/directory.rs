@@ -326,13 +326,23 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
+		let path = path.as_ref();
+		if path.is_absolute() {
+			return Err(tg::error!(%path = path.display(), "expected a relative path"));
+		}
+
 		let mut artifact: tg::Artifact = self.clone().into();
 
 		// Track the current path.
 		let mut current_path = PathBuf::new();
 
 		// Handle each path component.
-		for component in path.as_ref().components() {
+		for component in path.components() {
+			// Skip current directory components.
+			if matches!(component, std::path::Component::CurDir) {
+				continue;
+			}
+
 			// The artifact must be a directory.
 			let Some(directory) = artifact.try_unwrap_directory_ref().ok() else {
 				return Ok(None);
@@ -344,7 +354,7 @@ impl Directory {
 			// Get the entry. If it doesn't exist, return `None`.
 			let std::path::Component::Normal(name) = component else {
 				return Err(
-					tg::error!(%path = path.as_ref().display(), "the path must contain only normal components"),
+					tg::error!(%path = path.display(), "the path must contain only normal components"),
 				);
 			};
 

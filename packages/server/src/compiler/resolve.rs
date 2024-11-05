@@ -39,7 +39,6 @@ impl Compiler {
 				..
 			} => {
 				let object = if let Some(subpath) = subpath {
-					let subpath = subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
 					let tg::object::Id::Directory(directory) = object else {
 						return Err(tg::error!("object with subpath must be a directory"));
 					};
@@ -107,8 +106,6 @@ impl Compiler {
 					tg::module::data::Item::Object(object) => {
 						let object =
 							if let Some(subpath) = &referent.subpath {
-								let subpath =
-									subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
 								let object = tg::Object::with_id(object.clone());
 								let directory = object
 									.try_unwrap_directory_ref()
@@ -202,8 +199,6 @@ impl Compiler {
 					tg::module::data::Item::Object(object) => {
 						let object =
 							if let Some(subpath) = &referent.subpath {
-								let subpath =
-									subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
 								let object = tg::Object::with_id(object.clone());
 								let directory = object
 									.try_unwrap_directory_ref()

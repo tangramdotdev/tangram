@@ -1,7 +1,9 @@
 use crate::util::path::Ext as _;
 use crate::{temp::Temp, Server};
 use dashmap::DashMap;
+use futures::TryFutureExt;
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
+use itertools::Itertools;
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	os::unix::fs::PermissionsExt as _,
@@ -701,7 +703,15 @@ impl Server {
 		)
 		.await?;
 
-		let nodes = nodes.into_iter().map(Option::unwrap).collect::<Vec<_>>();
+		let nodes: Vec<_> = nodes
+			.into_iter()
+			.enumerate()
+			.map(|(index, node)| {
+				node.ok_or_else(
+					|| tg::error!(%node = index, "invalid graph, failed to create lockfile node"),
+				)
+			})
+			.try_collect()?;
 		let nodes = self.strip_lockfile_nodes(&nodes, 0)?;
 
 		Ok(tg::Lockfile { nodes })
