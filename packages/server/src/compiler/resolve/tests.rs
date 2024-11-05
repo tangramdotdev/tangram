@@ -9,6 +9,56 @@ use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 #[tokio::test]
+async fn package_path_dependency() -> tg::Result<()> {
+	test_module(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"import * as bar from "../bar""#,
+			},
+			"bar" => temp::directory! {
+				"tangram.ts" => "",
+			}
+		},
+		tg::module::Kind::Ts,
+		"foo/tangram.ts",
+		tg::Import::with_specifier_and_attributes("../bar", None).unwrap(),
+		|_, module| async move {
+			assert_eq!(module.kind, tg::module::Kind::Ts);
+			let tg::module::data::Item::Object(_object) = &module.referent.item else {
+				return Err(tg::error!("expected a path item"));
+			};
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn lsp_package_path_dependency() -> tg::Result<()> {
+	test_lsp_module(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"import * as bar from "../bar""#,
+			},
+			"bar" => temp::directory! {
+				"tangram.ts" => "",
+			}
+		},
+		tg::module::Kind::Ts,
+		"foo/tangram.ts",
+		tg::Import::with_specifier_and_attributes("../bar", None).unwrap(),
+		|_, module| async move {
+			assert_eq!(module.kind, tg::module::Kind::Ts);
+			let tg::module::data::Item::Path(_path) = &module.referent.item else {
+				return Err(tg::error!("expected a path item"));
+			};
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn path_dependency() -> tg::Result<()> {
 	test_module(
 		temp::directory! {
@@ -103,7 +153,6 @@ where
 			},
 		};
 
-		std::mem::forget(directory);
 		let module = compiler.resolve_module(&referrer, &import).await?;
 		(assertions)(server.clone(), module).await?;
 
@@ -143,12 +192,11 @@ where
 				deterministic: false,
 				ignore: true,
 				locked: false,
-				path: directory.path().to_owned(),
+				path: directory.path().to_owned().join(subpath),
 			},
 		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
-
 		let referrer = tg::module::Data {
 			kind,
 			referent: tg::Referent {
@@ -157,7 +205,7 @@ where
 				tag: None,
 			},
 		};
-
+		std::mem::forget(directory);
 		let module = compiler.resolve_module(&referrer, &import).await?;
 		(assertions)(server.clone(), module).await?;
 

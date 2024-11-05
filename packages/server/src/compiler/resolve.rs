@@ -45,19 +45,19 @@ impl Compiler {
 					let tg::object::Id::Directory(directory) = object else {
 						return Err(tg::error!("object with subpath must be a directory"));
 					};
-					let directory = tg::Directory::with_id(directory.clone());
-					let artifact = directory
+					let artifact = tg::Directory::with_id(directory.clone())
 						.get(&self.server, subpath)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to get directory entry"))?;
+						.map_err(|source| tg::error!(!source, %directory, %subpath = subpath.display(), "failed to get directory entry"))?;
 					artifact.id(&self.server).await?.clone().into()
 				} else {
 					object.clone()
 				};
 				let file = object
+					.clone()
 					.try_unwrap_file()
 					.ok()
-					.ok_or_else(|| tg::error!("the referrer must be a file"))?;
+					.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
 				let file = tg::File::with_id(file.clone());
 				let referent = file.get_dependency(&self.server, &import.reference).await?;
 				let object = referent.item.id(&self.server).await?.clone();
