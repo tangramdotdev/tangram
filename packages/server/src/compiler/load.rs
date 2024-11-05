@@ -78,7 +78,7 @@ impl Compiler {
 				let file = match object {
 					tg::Object::File(file) => file,
 					tg::Object::Symlink(symlink) => symlink
-						.resolve(&self.server)
+						.try_resolve(&self.server)
 						.await?
 						.ok_or_else(|| tg::error!("the symlink is dangling"))?
 						.try_into()

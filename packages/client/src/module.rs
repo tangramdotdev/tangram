@@ -37,7 +37,8 @@ pub enum Kind {
 	Target,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::TryUnwrap)]
+#[try_unwrap(ref)]
 pub enum Item {
 	Path(PathBuf),
 	Object(tg::Object),

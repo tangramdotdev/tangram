@@ -365,7 +365,7 @@ impl Directory {
 					Some(self.clone().into()),
 					Some(current_path.clone()),
 				);
-				match Box::pin(symlink.resolve_from(handle, Some(from)))
+				match Box::pin(symlink.try_resolve_from(handle, Some(from)))
 					.await
 					.map_err(|source| tg::error!(!source, "failed to resolve the symlink"))?
 				{

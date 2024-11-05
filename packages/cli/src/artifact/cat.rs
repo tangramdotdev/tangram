@@ -31,7 +31,7 @@ impl Cli {
 				},
 				tg::artifact::Id::Symlink(symlink) => {
 					let symlink = tg::Symlink::with_id(symlink);
-					let artifact = symlink.resolve(&handle).await?;
+					let artifact = symlink.try_resolve(&handle).await?;
 					match artifact {
 						None | Some(tg::Artifact::Symlink(_)) => {
 							return Err(tg::error!("failed to resolve the symlink"))

@@ -1,7 +1,7 @@
 use super::{node::Indicator, Method};
-use futures::{future::BoxFuture, FutureExt as _, StreamExt as _};
+use futures::{future::BoxFuture, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
-use std::{collections::BTreeMap, fmt::Write as _};
+use std::{collections::BTreeMap, fmt::Write as _, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -215,8 +215,6 @@ impl Provider {
 		H: tg::Handle,
 	{
 		let mut title = String::new();
-
-		// Get the target.
 		let target = build.target(handle).await?;
 		let host = target.host(handle).await?;
 
@@ -246,11 +244,44 @@ impl Provider {
 				.await?
 				.clone()
 				.ok_or_else(|| tg::error!("expected the parent's target to have an executable"))?;
-			let parent_executable_referent = match executable {
-				tg::target::Executable::Artifact(artifact) => {
+			let parent_executable_referent = match parent_executable {
+				tg::target::Executable::Artifact(_) => {
 					break 'a;
 				},
 				tg::target::Executable::Module(module) => module.referent,
+			};
+			let tg::Referent { item, subpath, .. } = parent_executable_referent;
+			let object = item
+				.try_unwrap_object()
+				.ok()
+				.ok_or_else(|| tg::error!("invalid item"))?;
+			let artifact = tg::Artifact::try_from(object)
+				.ok()
+				.ok_or_else(|| tg::error!("expected an artifact"))?;
+			let parent_executable_file = match artifact {
+				tg::Artifact::Directory(directory) => {
+					let subpath = subpath.ok_or_else(|| tg::error!("expected a subpath"))?;
+					let artifact = directory.get(handle, subpath).await?;
+					match artifact {
+						tg::Artifact::Directory(_) => {
+							return Err(tg::error!("expected a file"));
+						},
+						tg::Artifact::File(file) => file,
+						tg::Artifact::Symlink(symlink) => symlink
+							.resolve(handle)
+							.await?
+							.try_unwrap_file()
+							.ok()
+							.ok_or_else(|| tg::error!("expected a file"))?,
+					}
+				},
+				tg::Artifact::File(file) => file,
+				tg::Artifact::Symlink(symlink) => symlink
+					.resolve(handle)
+					.await?
+					.try_unwrap_file()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?,
 			};
 
 			// Get the build's executable.
@@ -262,28 +293,45 @@ impl Provider {
 				.clone()
 				.ok_or_else(|| tg::error!("expected the target to have an executable"))?;
 			let executable_referent = match executable {
-				tg::target::Executable::Artifact(artifact) => {
+				tg::target::Executable::Artifact(_) => {
 					break 'a;
 				},
 				tg::target::Executable::Module(module) => module.referent,
 			};
-
-			// Try to find the in the parent executable's dependencies.
-			let parent_executable_dependencies = referrer
-				.dependencies(handle)
-				.await?
-				.into_iter()
-				.map(|(reference, referent)| async move {
-					let id = referent.object.id(handle).await?;
-					Ok::<_, tg::Error>((reference, id))
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
+			let tg::Referent { item, subpath, tag } = executable_referent;
+			let object = item
+				.try_unwrap_object()
+				.ok()
+				.ok_or_else(|| tg::error!("invalid item"))?
+				.id(handle)
 				.await?;
+			let executable_referent = tg::Referent {
+				item: object,
+				subpath,
+				tag,
+			};
 
-			if let Some(reference) = dependencies
-				.iter()
-				.find_map(|(reference, id)| (id == &object).then_some(reference))
+			// Try to find the build in the parent executable's dependencies.
+			if let Some(reference) = pin!(stream::iter(
+				parent_executable_file
+					.dependencies(handle)
+					.await?
+					.into_iter()
+					.map(Ok),
+			)
+			.try_filter_map(|(reference, referent)| {
+				let executable_referent = executable_referent.clone();
+				async move {
+					let referent = tg::Referent {
+						item: referent.item.id(handle).await?,
+						subpath: referent.subpath.clone(),
+						tag: referent.tag.clone(),
+					};
+					Ok::<_, tg::Error>((referent == executable_referent).then_some(reference))
+				}
+			}))
+			.try_next()
+			.await?
 			{
 				write!(title, "{reference}").unwrap();
 			}

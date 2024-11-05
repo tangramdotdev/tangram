@@ -273,14 +273,23 @@ impl Symlink {
 		}
 	}
 
-	pub async fn resolve<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
+	pub async fn resolve<H>(&self, handle: &H) -> tg::Result<tg::Artifact>
 	where
 		H: tg::Handle,
 	{
-		self.resolve_from(handle, None).await
+		self.try_resolve_from(handle, None)
+			.await?
+			.ok_or_else(|| tg::error!("broken symlink"))
 	}
 
-	pub async fn resolve_from<H>(
+	pub async fn try_resolve<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
+		self.try_resolve_from(handle, None).await
+	}
+
+	pub async fn try_resolve_from<H>(
 		&self,
 		handle: &H,
 		from: Option<Self>,
@@ -294,7 +303,7 @@ impl Symlink {
 			None
 		};
 		if let Some(tg::artifact::Artifact::Symlink(symlink)) = from_artifact {
-			from_artifact = Box::pin(symlink.resolve_from(handle, None)).await?;
+			from_artifact = Box::pin(symlink.try_resolve_from(handle, None)).await?;
 		}
 		let from_path = if let Some(from) = from {
 			from.subpath(handle).await?.clone()
@@ -303,7 +312,7 @@ impl Symlink {
 		};
 		let mut artifact = self.artifact(handle).await?.clone();
 		if let Some(tg::artifact::Artifact::Symlink(symlink)) = artifact {
-			artifact = Box::pin(symlink.resolve_from(handle, None)).await?;
+			artifact = Box::pin(symlink.try_resolve_from(handle, None)).await?;
 		}
 		let path = self.subpath(handle).await?.clone();
 		if artifact.is_some() && from_artifact.is_some() {
