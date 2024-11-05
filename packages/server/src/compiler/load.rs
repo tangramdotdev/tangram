@@ -17,9 +17,10 @@ impl Compiler {
 						..
 					},
 			} => {
-				let file = LIBRARY.get_file(path).ok_or_else(
-					|| tg::error!(%path = path.display(), "failed to find the library module"),
-				)?;
+				let file_name = path.file_name().ok_or_else(|| tg::error!("invalid path"))?;
+				let file = LIBRARY
+					.get_file(file_name)
+					.ok_or_else(|| tg::error!(?file_name, "failed to find the library module"))?;
 				let text = file.contents_utf8().unwrap().to_owned();
 				Ok(text)
 			},

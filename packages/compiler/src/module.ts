@@ -5,8 +5,8 @@ export type Module = {
 
 type Referent = {
 	item: string;
-	subpath: string | undefined;
-	tag: string | undefined;
+	subpath?: string | undefined;
+	tag?: string | undefined;
 };
 
 export namespace Module {
