@@ -1,7 +1,6 @@
 use crate::util::path::Ext as _;
 use crate::{temp::Temp, Server};
 use dashmap::DashMap;
-use futures::TryFutureExt;
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
 use std::{
@@ -692,9 +691,12 @@ impl Server {
 		&self,
 		artifact: &tg::Artifact,
 	) -> tg::Result<tg::Lockfile> {
+		// Create the state.
 		let mut nodes = Vec::new();
 		let mut visited = BTreeMap::new();
 		let mut graphs = BTreeMap::new();
+
+		// Create nodes in the lockfile for the graph.
 		self.get_or_create_lockfile_node_with_artifact(
 			artifact,
 			&mut nodes,
@@ -703,6 +705,7 @@ impl Server {
 		)
 		.await?;
 
+		// Strip nodes.
 		let nodes: Vec<_> = nodes
 			.into_iter()
 			.enumerate()
@@ -714,6 +717,7 @@ impl Server {
 			.try_collect()?;
 		let nodes = self.strip_lockfile_nodes(&nodes, 0)?;
 
+		// Create the lockfile.
 		Ok(tg::Lockfile { nodes })
 	}
 
@@ -729,117 +733,128 @@ impl Server {
 			return Ok(*visited);
 		}
 		let index = nodes.len();
+
+		// Flatten graphs into the lockfile.
+		'a: {
+			let (graph, node) = match artifact.object(self).await? {
+				tg::artifact::Object::Directory(directory) => {
+					let tg::directory::Object::Graph { graph, node } = directory.as_ref() else {
+						break 'a;
+					};
+					(graph.clone(), *node)
+				},
+				tg::artifact::Object::File(file) => {
+					let tg::file::Object::Graph { graph, node } = file.as_ref() else {
+						break 'a;
+					};
+					(graph.clone(), *node)
+				},
+				tg::artifact::Object::Symlink(symlink) => {
+					let tg::symlink::Object::Graph { graph, node } = symlink.as_ref() else {
+						break 'a;
+					};
+					(graph.clone(), *node)
+				},
+			};
+			let nodes =
+				Box::pin(self.create_lockfile_node_with_graph(&graph, nodes, visited, graphs))
+					.await?;
+			return Ok(nodes[node]);
+		}
+
+		// Only create a distinct node for non-graph artifacts.
 		nodes.push(None);
 		visited.insert(id, index);
 
-		let node = match artifact {
-			tg::Artifact::Directory(directory) => match &*directory.object(self).await? {
-				tg::directory::Object::Graph { graph, node } => {
-					let nodes = Box::pin(
-						self.create_lockfile_node_with_graph(graph, nodes, visited, graphs),
-					)
+		// Create a new lockfile node for the artifact, recursing over dependencies.
+		let node = match artifact.object(self).await? {
+			tg::artifact::Object::Directory(directory) => {
+				let tg::directory::Object::Normal { entries } = directory.as_ref() else {
+					unreachable!()
+				};
+				let mut entries_ = BTreeMap::new();
+				for (name, artifact) in entries {
+					let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+						artifact, nodes, visited, graphs,
+					))
 					.await?;
-
-					return Ok(nodes[*node]);
-				},
-				tg::directory::Object::Normal { entries } => {
-					let mut entries_ = BTreeMap::new();
-					for (name, artifact) in entries {
-						let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
-							artifact, nodes, visited, graphs,
-						))
-						.await?;
-						entries_.insert(name.clone(), Either::Left(index));
-					}
-					tg::lockfile::Node::Directory { entries: entries_ }
-				},
+					entries_.insert(name.clone(), Either::Left(index));
+				}
+				tg::lockfile::Node::Directory { entries: entries_ }
 			},
 
-			tg::Artifact::File(file) => match &*file.object(self).await? {
-				tg::file::Object::Graph { graph, node } => {
-					let nodes = Box::pin(
-						self.create_lockfile_node_with_graph(graph, nodes, visited, graphs),
-					)
-					.await?;
-					return Ok(nodes[*node]);
-				},
-				tg::file::Object::Normal {
+			tg::artifact::Object::File(file) => {
+				let tg::file::Object::Normal {
 					contents,
 					dependencies,
 					executable,
-				} => {
-					let mut dependencies_ = BTreeMap::new();
-					for (reference, referent) in dependencies {
-						let item = match &referent.item {
-							tg::Object::Directory(directory) => {
-								let artifact = directory.clone().into();
-								let index =
-									Box::pin(self.get_or_create_lockfile_node_with_artifact(
-										&artifact, nodes, visited, graphs,
-									))
-									.await?;
-								Either::Left(index)
-							},
-							tg::Object::File(file) => {
-								let artifact = file.clone().into();
-								let index =
-									Box::pin(self.get_or_create_lockfile_node_with_artifact(
-										&artifact, nodes, visited, graphs,
-									))
-									.await?;
-								Either::Left(index)
-							},
-							tg::Object::Symlink(symlink) => {
-								let artifact = symlink.clone().into();
-								let index =
-									Box::pin(self.get_or_create_lockfile_node_with_artifact(
-										&artifact, nodes, visited, graphs,
-									))
-									.await?;
-								Either::Left(index)
-							},
-							object => Either::Right(object.id(self).await?),
-						};
-						let dependency = tg::Referent {
-							item,
-							subpath: referent.subpath.clone(),
-							tag: referent.tag.clone(),
-						};
-						dependencies_.insert(reference.clone(), dependency);
-					}
-					let contents = Some(contents.id(self).await?);
-					tg::lockfile::Node::File {
-						contents,
-						dependencies: dependencies_,
-						executable: *executable,
-					}
-				},
+				} = file.as_ref()
+				else {
+					unreachable!()
+				};
+				let mut dependencies_ = BTreeMap::new();
+				for (reference, referent) in dependencies {
+					let item = match &referent.item {
+						tg::Object::Directory(directory) => {
+							let artifact = directory.clone().into();
+							let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+								&artifact, nodes, visited, graphs,
+							))
+							.await?;
+							Either::Left(index)
+						},
+						tg::Object::File(file) => {
+							let artifact = file.clone().into();
+							let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+								&artifact, nodes, visited, graphs,
+							))
+							.await?;
+							Either::Left(index)
+						},
+						tg::Object::Symlink(symlink) => {
+							let artifact = symlink.clone().into();
+							let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+								&artifact, nodes, visited, graphs,
+							))
+							.await?;
+							Either::Left(index)
+						},
+						object => Either::Right(object.id(self).await?),
+					};
+					let dependency = tg::Referent {
+						item,
+						subpath: referent.subpath.clone(),
+						tag: referent.tag.clone(),
+					};
+					dependencies_.insert(reference.clone(), dependency);
+				}
+				let contents = Some(contents.id(self).await?);
+				tg::lockfile::Node::File {
+					contents,
+					dependencies: dependencies_,
+					executable: *executable,
+				}
 			},
 
-			tg::Artifact::Symlink(symlink) => match &*symlink.object(self).await? {
-				tg::symlink::Object::Graph { graph, node } => {
-					let nodes = Box::pin(
-						self.create_lockfile_node_with_graph(graph, nodes, visited, graphs),
-					)
+			tg::artifact::Object::Symlink(symlink) => {
+				let tg::symlink::Object::Normal { artifact, subpath } = symlink.as_ref() else {
+					unreachable!();
+				};
+				let artifact = if let Some(artifact) = artifact {
+					let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+						artifact, nodes, visited, graphs,
+					))
 					.await?;
-					return Ok(nodes[*node]);
-				},
-				tg::symlink::Object::Normal { artifact, subpath } => {
-					let artifact = if let Some(artifact) = artifact {
-						let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
-							artifact, nodes, visited, graphs,
-						))
-						.await?;
-						Some(Either::Left(index))
-					} else {
-						None
-					};
-					let subpath = subpath.as_ref().map(PathBuf::from);
-					tg::lockfile::Node::Symlink { artifact, subpath }
-				},
+					Some(Either::Left(index))
+				} else {
+					None
+				};
+				let subpath = subpath.as_ref().map(PathBuf::from);
+				tg::lockfile::Node::Symlink { artifact, subpath }
 			},
 		};
 
+		// Update the visited set.
 		nodes[index].replace(node);
 
 		Ok(index)
@@ -984,5 +999,71 @@ impl Server {
 		}
 
 		Ok(indices)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::{Config, Server};
+	use futures::FutureExt as _;
+	use std::{collections::BTreeMap, panic::AssertUnwindSafe, pin::pin};
+	use tangram_client as tg;
+	use tangram_futures::stream::TryStreamExt as _;
+	use tangram_temp::{artifact, Temp};
+
+	#[tokio::test]
+	async fn graph_object() -> tg::Result<()> {
+		let server_temp = Temp::new();
+		let server_options = Config::with_path(server_temp.path().to_owned());
+		let server = Server::start(server_options).await?;
+
+		let result = AssertUnwindSafe(async {
+			let blob = tg::Blob::from("hi from a graph");
+			let file_node = tg::graph::node::Node::File(tg::graph::node::File {
+				contents: blob,
+				dependencies: BTreeMap::new(),
+				executable: false,
+			});
+			let graph_object = tg::graph::Object {
+				nodes: vec![file_node],
+			};
+			let graph = tg::Graph::with_object(graph_object);
+			let graph_id = graph.id(&server).await?;
+			dbg!(&graph_id);
+			let file = tg::File::with_graph_and_node(graph, 0);
+			let file_id = file.id(&server).await?;
+			dbg!(&file_id);
+
+			let actual_temp = Temp::new();
+			tokio::fs::create_dir_all(actual_temp.path())
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = actual_temp.path().display(), "failed to create temp dir"),
+			)?;
+			let checkout_arg = tg::artifact::checkout::Arg {
+				dependencies: false,
+				force: false,
+				path: Some(actual_temp.path().to_owned().join("test.txt")),
+			};
+			let stream = server
+				.check_out_artifact(&file_id.clone().into(), checkout_arg)
+				.await?;
+			let _ = pin!(stream)
+				.try_last()
+				.await?
+				.and_then(|event| event.try_unwrap_output().ok())
+				.ok_or_else(|| tg::error!("stream ended without output"))?;
+
+			let expected_artifact = artifact!({ "test.txt": "hi from a graph" });
+			let matches = expected_artifact.matches(actual_temp.path()).await.unwrap();
+			assert!(matches);
+
+			Ok::<_, tg::Error>(())
+		})
+		.catch_unwind()
+		.await;
+		server.stop();
+		server.wait().await;
+		result.unwrap()
 	}
 }
