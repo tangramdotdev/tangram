@@ -1,8 +1,9 @@
-use crate::{Config, Server};
+use crate::{util::fs::cleanup_instance, Config, Server};
 use futures::FutureExt as _;
 use insta::assert_snapshot;
-use std::{future::Future, panic::AssertUnwindSafe};
+use std::{future::Future, panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
+use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
 
 #[tokio::test]
@@ -393,7 +394,13 @@ where
 			locked: false,
 			path: directory.as_ref().join(path),
 		};
-		let artifact = tg::Artifact::check_in(&server, arg).await?;
+		let stream = server.check_in_artifact(arg).await?;
+		let output = pin!(stream)
+			.try_last()
+			.await?
+			.and_then(|event| event.try_unwrap_output().ok())
+			.ok_or_else(|| tg::error!("stream ended without output"))?;
+		let artifact = tg::Artifact::with_id(output.artifact);
 		let object = tg::Object::from(artifact.clone());
 		object.load_recursive(&server).await?;
 		let value = tg::Value::from(artifact.clone());
@@ -407,10 +414,6 @@ where
 	})
 	.catch_unwind()
 	.await;
-	server.stop();
-	server.wait().await;
-	temp.remove()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to remove temp"))?;
+	cleanup_instance(temp, server).await?;
 	result.unwrap()
 }

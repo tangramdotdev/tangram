@@ -70,7 +70,7 @@ impl Server {
 			input: input.clone(),
 			id: graph.nodes[node].id.clone().unwrap().try_into().unwrap(),
 			data: graph.nodes[node].data.clone().unwrap(),
-			metadata: graph.nodes[node].metadata.unwrap(),
+			metadata: graph.nodes[node].metadata.clone().unwrap(),
 			edges: Vec::new(),
 		}));
 		visited.insert(node, Arc::downgrade(&output));
@@ -121,7 +121,11 @@ impl Server {
 			// Check if we've visited this node yet.
 			let (id, data, metadata) = {
 				let output = output.read().unwrap();
-				(output.id.clone(), output.data.clone(), output.metadata)
+				(
+					output.id.clone(),
+					output.data.clone(),
+					output.metadata.clone(),
+				)
 			};
 			if visited.contains(&id) {
 				continue;

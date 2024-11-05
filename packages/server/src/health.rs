@@ -90,3 +90,45 @@ impl Server {
 		Ok(response)
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use crate::{Config, Server};
+	use futures::FutureExt as _;
+	use insta::assert_yaml_snapshot;
+	use std::panic::AssertUnwindSafe;
+	use tangram_client as tg;
+	use tangram_temp::Temp;
+
+	#[tokio::test]
+	async fn health() -> tg::Result<()> {
+		let temp = Temp::new();
+		let options = Config::with_path(temp.path().to_owned());
+		let server = Server::start(options).await?;
+		let result = AssertUnwindSafe(async {
+			let health = server.health().await?;
+			assert_yaml_snapshot!(health,
+				{
+					".database.available_connections" => 1,
+					".file_descriptor_semaphore.available_permits" => 1
+				},
+				@r###"
+   builds:
+     created: 0
+     dequeued: 0
+     started: 0
+   database:
+     available_connections: 1
+   file_descriptor_semaphore:
+     available_permits: 1
+   version: ~
+   "###);
+			Ok::<_, tg::Error>(())
+		})
+		.catch_unwind()
+		.await;
+		server.stop();
+		server.wait().await;
+		result.unwrap()
+	}
+}

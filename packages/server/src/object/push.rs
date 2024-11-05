@@ -6,6 +6,9 @@ use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
+#[cfg(test)]
+mod tests;
+
 struct InnerOutput {
 	count: u64,
 	depth: u64,

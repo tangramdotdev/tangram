@@ -150,6 +150,19 @@ impl Config {
 		}
 	}
 
+	pub fn with_path_and_remote(path: PathBuf, remote_path: impl AsRef<Path>) -> Self {
+		let mut config = Config::with_path(path);
+		let client = tg::Client::new(Config::default_url_for_path(remote_path));
+		config.remotes = BTreeMap::from([(
+			"default".to_string(),
+			Remote {
+				build: false,
+				client,
+			},
+		)]);
+		config
+	}
+
 	pub fn default_url_for_path(path: impl AsRef<Path>) -> Url {
 		let path = path.as_ref().join("socket");
 		let path = path.to_str().unwrap();
@@ -200,6 +213,10 @@ impl SqliteDatabase {
 			connections: n.into(),
 			path,
 		}
+	}
+	pub fn with_path_and_connections(path: impl AsRef<Path>, connections: usize) -> Self {
+		let path = path.as_ref().join("database");
+		Self { connections, path }
 	}
 }
 

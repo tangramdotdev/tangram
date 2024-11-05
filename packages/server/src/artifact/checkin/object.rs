@@ -484,7 +484,7 @@ impl Server {
 					for entry in directory.entries.values() {
 						if let Either::Right(id) = &entry {
 							let node = graph.objects.get(&id.clone().into()).unwrap();
-							let metadata = graph.nodes[*node].metadata.unwrap();
+							let metadata = graph.nodes[*node].metadata.clone().unwrap();
 							complete &= metadata.complete;
 							count += metadata.count.unwrap_or(0);
 							depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
@@ -496,7 +496,7 @@ impl Server {
 					for referent in file.dependencies.values() {
 						if let Either::Right(id) = &referent.item {
 							let node = graph.objects.get(id).unwrap();
-							let metadata = graph.nodes[*node].metadata.unwrap();
+							let metadata = graph.nodes[*node].metadata.clone().unwrap();
 							complete &= metadata.complete;
 							count += metadata.count.unwrap_or(0);
 							depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
@@ -507,7 +507,7 @@ impl Server {
 				tg::graph::data::Node::Symlink(symlink) => {
 					if let Some(Either::Right(id)) = &symlink.artifact {
 						let node = graph.objects.get(&id.clone().into()).unwrap();
-						let metadata = graph.nodes[*node].metadata.unwrap();
+						let metadata = graph.nodes[*node].metadata.clone().unwrap();
 						complete &= metadata.complete;
 						count += metadata.count.unwrap_or(0);
 						depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
@@ -534,7 +534,7 @@ impl Server {
 		file_metadata: &BTreeMap<usize, tg::object::Metadata>,
 		graph_metadata: &BTreeMap<tg::graph::Id, tg::object::Metadata>,
 	) -> tg::object::Metadata {
-		if let Some(metadata) = graph.nodes[index].metadata {
+		if let Some(metadata) = graph.nodes[index].metadata.clone() {
 			return metadata;
 		}
 
@@ -574,7 +574,7 @@ impl Server {
 			},
 			_ => {
 				for edge in &graph.nodes[index].edges {
-					let metadata = graph.nodes[edge.index].metadata.unwrap_or_else(|| {
+					let metadata = graph.nodes[edge.index].metadata.clone().unwrap_or_else(|| {
 						let data = graph.nodes[edge.index].data.as_ref().unwrap();
 						self.compute_object_metadata(
 							graph,

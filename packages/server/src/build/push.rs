@@ -318,6 +318,7 @@ impl Server {
 						.sum::<Option<u64>>();
 					let depth = metadata.iter().try_fold(0, |depth, metadata| {
 						metadata
+							.clone()
 							.and_then(|metadata| metadata.depth)
 							.map(|d| depth.max(d))
 					});
