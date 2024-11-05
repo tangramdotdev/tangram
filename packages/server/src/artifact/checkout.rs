@@ -15,6 +15,9 @@ use tangram_either::Either;
 use tangram_futures::{stream::TryStreamExt as _, task::Task};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
+#[cfg(test)]
+mod tests;
+
 struct InnerArg<'a> {
 	arg: &'a tg::artifact::checkout::Arg,
 	artifact: &'a tg::Artifact,

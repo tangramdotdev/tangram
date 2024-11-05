@@ -3,37 +3,37 @@ use futures::FutureExt as _;
 use insta::assert_snapshot;
 use std::{future::Future, panic::AssertUnwindSafe};
 use tangram_client as tg;
-use tangram_temp::{self as temp, directory, symlink, Temp};
+use tangram_temp::{self as temp, Temp};
 
 #[tokio::test]
 async fn simple_path_dependency() -> tg::Result<()> {
 	test(
-		directory!({
-			"foo": directory!({
-				"tangram.ts": r#"import * as bar from "../bar";"#,
-			}),
-			"bar": directory!({
-				"tangram.ts": "",
-			}),
-		}),
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"import * as bar from "../bar";"#,
+			},
+			"bar" => temp::directory! {
+				"tangram.ts" => "",
+			},
+		},
 		"foo",
 		|_, _, output| async move {
 			eprintln!("{output}");
 			assert_snapshot!(output, @r#"
-			tg.directory({
-				"tangram.ts": tg.file({
-					"contents": tg.leaf("import * as bar from "../bar";"),
-					"dependencies": {
-						"../bar": {
-							"item": tg.directory({
-								"tangram.ts": tg.file({
-									"contents": tg.leaf(""),
-								}),
-							}),
-						},
-					},
-				}),
-			})
+   tg.directory({
+   	"tangram.ts": tg.file({
+   		"contents": tg.leaf("import * as bar from "../bar";"),
+   		"dependencies": {
+   			"../bar": {
+   				"item": tg.directory({
+   					"tangram.ts": tg.file({
+   						"contents": tg.leaf(""),
+   					}),
+   				}),
+   			},
+   		},
+   	}),
+   })
 			"#);
 			Ok::<_, tg::Error>(())
 		},
@@ -44,22 +44,22 @@ async fn simple_path_dependency() -> tg::Result<()> {
 #[tokio::test]
 async fn nested_packages() -> tg::Result<()> {
 	test(
-		directory!({
-			"foo": {
-				"tangram.ts": r#"
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"
 					import * as bar from "./bar";
 					import * as baz from "./baz";
 				"#,
-				"bar": {
-					"tangram.ts": r#"
+				"bar" => temp::directory! {
+					"tangram.ts" => r#"
 						import * as baz from "../baz";
 					"#,
 				},
-				"baz": {
-					"tangram.ts": "",
+				"baz" => temp::directory! {
+					"tangram.ts" => "",
 				}
 			},
-		}),
+		},
 		"foo",
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
@@ -127,12 +127,12 @@ async fn nested_packages() -> tg::Result<()> {
 #[tokio::test]
 async fn package_with_submodules() -> tg::Result<()> {
 	test(
-		directory!({
-			"package": {
-				"tangram.ts": r#"import * as foo from "./foo.tg.ts";"#,
-				"foo.tg.ts": r#"import * as root from "./tangram.ts";"#,
+		temp::directory! {
+			"package" => temp::directory! {
+				"tangram.ts" => r#"import * as foo from "./foo.tg.ts";"#,
+				"foo.tg.ts" => r#"import * as root from "./tangram.ts";"#,
 			}
-		}),
+		},
 		"package",
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
@@ -180,11 +180,11 @@ async fn package_with_submodules() -> tg::Result<()> {
 #[tokio::test]
 async fn symlink() -> tg::Result<()> {
 	test(
-		directory!({
-			"directory": {
-				"link": symlink!("."),
+		temp::directory! {
+			"directory" => temp::directory! {
+				"link" => temp::symlink!("."),
 			}
-		}),
+		},
 		"directory",
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
@@ -215,16 +215,16 @@ async fn symlink() -> tg::Result<()> {
 #[tokio::test]
 async fn cyclic_dependencies() -> tg::Result<()> {
 	test(
-		directory!({
-			"directory": {
-				"foo": {
-					"tangram.ts": r#"import * as bar from "../bar""#,
+		temp::directory! {
+			"directory" => temp::directory! {
+				"foo" => temp::directory! {
+					"tangram.ts" => r#"import * as bar from "../bar""#,
 				},
-				"bar": {
-					"tangram.ts": r#"import * as foo from "../foo""#,
+				"bar" => temp::directory! {
+					"tangram.ts" => r#"import * as foo from "../foo""#,
 				},
 			},
-		}),
+		},
 		"directory/foo",
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
@@ -275,15 +275,15 @@ async fn cyclic_dependencies() -> tg::Result<()> {
 #[tokio::test]
 async fn directory() -> tg::Result<()> {
 	test(
-		directory!({
-			"directory": {
-				"hello.txt": "Hello, world!",
-				"link": symlink!("hello.txt"),
-				"subdirectory": {
-					"sublink": symlink!("../link"),
+		temp::directory! {
+			"directory" => temp::directory! {
+				"hello.txt" => "Hello, world!",
+				"link" => temp::symlink!("hello.txt"),
+				"subdirectory" => temp::directory! {
+					"sublink" => temp::symlink!("../link"),
 				}
 			}
-		}),
+		},
 		"directory",
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
@@ -330,11 +330,11 @@ async fn directory() -> tg::Result<()> {
 #[tokio::test]
 async fn file() -> tg::Result<()> {
 	test(
-		directory!({
-			"directory": {
-				"README.md": "Hello, World!",
+		temp::directory! {
+			"directory" => temp::directory! {
+				"README.md" => "Hello, World!",
 			}
-		}),
+		},
 		"directory",
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
@@ -353,11 +353,11 @@ async fn file() -> tg::Result<()> {
 #[tokio::test]
 async fn package() -> tg::Result<()> {
 	test(
-		directory!({
-			"directory": {
-				"tangram.ts": "export default tg.target(() => {})",
+		temp::directory! {
+			"directory" => temp::directory! {
+				"tangram.ts" => "export default tg.target(() => {})",
 			}
-		}),
+		},
 		"directory",
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"

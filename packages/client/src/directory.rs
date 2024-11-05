@@ -473,10 +473,10 @@ impl std::fmt::Display for Directory {
 
 #[macro_export]
 macro_rules! directory {
-	{ $($key:ident : $artifact:expr),* $(,)? } => {{
+	{ $($name:expr => $artifact:expr),* $(,)? } => {{
 		let mut entries = ::std::collections::BTreeMap::new();
 		$(
-			entries.insert($key.to_owned(), $artifact.into());
+			entries.insert($name.into(), $artifact.into());
 		)*
 		$crate::Directory::with_entries(entries)
 	}};

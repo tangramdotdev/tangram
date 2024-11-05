@@ -147,82 +147,13 @@ impl From<String> for Artifact {
 
 #[macro_export]
 macro_rules! directory {
-	($($artifact:tt)+) => {
-		$crate::internal!($($artifact)+)
-	};
-}
-
-#[macro_export]
-#[doc(hidden)]
-macro_rules! internal {
-	(@entries $entries:ident () () ()) => {};
-
-	(@entries $entries:ident [$($key:tt)+] ($value:expr) , $($rest:tt)*) => {
-		let _ = $entries.insert(($($key)+).into(), $value);
-		$crate::internal!(@entries $entries () ($($rest)*) ($($rest)*));
-	};
-
-	(@entries $entries:ident [$($key:tt)+] ($value:expr) $unexpected:tt $($rest:tt)*) => {
-		$crate::unexpected!($unexpected);
-	};
-
-	(@entries $entries:ident [$($key:tt)+] ($value:expr)) => {
-		let _ = $entries.insert(($($key)+).into(), $value);
-	};
-
-	(@entries $entries:ident ($($key:tt)+) (: {$($map:tt)*} $($rest:tt)*) $copy:tt) => {
-		$crate::internal!(@entries $entries [$($key)+] ($crate::internal!({$($map)*})) $($rest)*);
-	};
-
-	(@entries $entries:ident ($($key:tt)+) (: $value:expr , $($rest:tt)*) $copy:tt) => {
-		$crate::internal!(@entries $entries [$($key)+] ($crate::internal!($value)) , $($rest)*);
-	};
-
-	(@entries $entries:ident ($($key:tt)+) (: $value:expr) $copy:tt) => {
-		$crate::internal!(@entries $entries [$($key)+] ($crate::internal!($value)));
-	};
-
-	(@entries $entries:ident ($($key:tt)+) (:) $copy:tt) => {
-		$crate::internal!();
-	};
-
-	(@entries $entries:ident ($($key:tt)+) () $copy:tt) => {
-		$crate::internal!();
-	};
-
-	(@entries $entries:ident () (: $($rest:tt)*) ($colon:tt $($copy:tt)*)) => {
-		$crate::artifact_unexpected!($colon);
-	};
-
-	(@entries $entries:ident ($($key:tt)*) (, $($rest:tt)*) ($comma:tt $($copy:tt)*)) => {
-		$crate::artifact_unexpected!($comma);
-	};
-
-	(@entries $entries:ident () (($key:expr) : $($rest:tt)*) $copy:tt) => {
-		$crate::internal!(@entries $entries ($key) (: $($rest)*) (: $($rest)*));
-	};
-
-	(@entries $entries:ident ($($key:tt)*) (: $($unexpected:tt)+) $copy:tt) => {
-		$crate::expect_expr_comma!($($unexpected)+);
-	};
-
-	(@entries $entries:ident ($($key:tt)*) ($tt:tt $($rest:tt)*) $copy:tt) => {
-		$crate::internal!(@entries $entries ($($key)* $tt) ($($rest)*) ($($rest)*));
-	};
-
-	({ $($tt:tt)+ }) => {
-		$crate::artifact::Artifact::Directory {
-			entries: {
-				let mut entries = std::collections::BTreeMap::new();
-				$crate::internal!(@entries entries () ($($tt)+) ($($tt)+));
-				entries
-			}
-		}
-	};
-
-	($other:expr) => {
-		$crate::artifact::Artifact::from($other)
-	};
+	{ $($name:expr => $artifact:expr),* $(,)? } => {{
+		let mut entries = ::std::collections::BTreeMap::new();
+		$(
+			entries.insert($name.into(), $artifact.into());
+		)*
+		$crate::artifact::Artifact::Directory { entries }
+	}};
 }
 
 #[macro_export]
@@ -242,16 +173,4 @@ macro_rules! symlink {
 			target: $target.into(),
 		}
 	}};
-}
-
-#[macro_export]
-#[doc(hidden)]
-macro_rules! unexpected {
-	() => {};
-}
-
-#[macro_export]
-#[doc(hidden)]
-macro_rules! expect_expr_comma {
-	($e:expr , $($tt:tt)*) => {};
 }
