@@ -3,7 +3,7 @@ use futures::FutureExt as _;
 use insta::assert_snapshot;
 use std::{future::Future, panic::AssertUnwindSafe};
 use tangram_client as tg;
-use tangram_temp::{self as temp, artifact, symlink, Temp};
+use tangram_temp::{self as temp, directory, symlink, Temp};
 
 #[tokio::test]
 async fn simple_path_dependency() -> tg::Result<()> {

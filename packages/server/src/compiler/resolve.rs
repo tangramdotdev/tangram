@@ -352,12 +352,12 @@ mod tests {
 		path::{Path, PathBuf},
 	};
 	use tangram_client as tg;
-	use tangram_temp::{self as temp, artifact, Temp};
+	use tangram_temp::{self as temp, directory, Temp};
 
 	#[tokio::test]
 	async fn path_dependency() -> tg::Result<()> {
 		test_module(
-			artifact!({
+			directory!({
 				"tangram.ts": r#"import * as foo from "./foo.tg.ts""#,
 				"foo.tg.ts": "",
 			}),
@@ -383,7 +383,7 @@ mod tests {
 	#[tokio::test]
 	async fn lsp_path_dependency() -> tg::Result<()> {
 		test_lsp_module(
-			artifact!({
+			directory!({
 				"tangram.ts": r#"import * as foo from "./foo.tg.ts""#,
 				"foo.tg.ts": "",
 			}),
