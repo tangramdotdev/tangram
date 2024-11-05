@@ -52,7 +52,7 @@ impl Cli {
 
 		// Print the diagnostics.
 		for diagnostic in &output.diagnostics {
-			self.print_diagnostic(diagnostic).await;
+			Self::print_diagnostic(diagnostic);
 		}
 
 		if !output.diagnostics.is_empty() {

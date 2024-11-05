@@ -17,6 +17,10 @@ workspace = true
 name = "tangram"
 path = "src/main.rs"
 
+[dev-dependencies]
+insta = { workspace = true }
+tangram_temp = { workspace = true }
+
 [dependencies]
 clap = { workspace = true }
 console-subscriber = { workspace = true }

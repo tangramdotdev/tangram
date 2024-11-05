@@ -1,6 +1,9 @@
 use futures::TryFutureExt as _;
 use rand::{distributions::Alphanumeric, Rng as _};
-use std::path::{Path, PathBuf};
+use std::{
+	ops::Deref,
+	path::{Path, PathBuf},
+};
 
 pub use self::artifact::Artifact;
 
@@ -25,6 +28,20 @@ impl Temp {
 	#[must_use]
 	pub fn path(&self) -> &Path {
 		self.path.as_ref().unwrap()
+	}
+
+	pub async fn remove(&self) -> std::io::Result<()> {
+		tokio::fs::remove_file(self.path.as_ref().unwrap())
+			.or_else(|_| tokio::fs::remove_dir_all(self.path.as_ref().unwrap()))
+			.await
+	}
+}
+
+impl Deref for Temp {
+	type Target = Path;
+
+	fn deref(&self) -> &Self::Target {
+		self.path()
 	}
 }
 

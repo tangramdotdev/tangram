@@ -409,5 +409,6 @@ where
 	.await;
 	server.stop();
 	server.wait().await;
+	temp.remove().await?;
 	result.unwrap()
 }

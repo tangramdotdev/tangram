@@ -145,7 +145,7 @@ fn main() -> std::process::ExitCode {
 		Ok(config) => config,
 		Err(error) => {
 			eprintln!("{} failed to read the config", "error".red().bold());
-			futures::executor::block_on(Cli::print_error(&error, None));
+			Cli::print_error(&error, None);
 			return 1.into();
 		},
 	};
@@ -202,28 +202,22 @@ fn main() -> std::process::ExitCode {
 		mode,
 	};
 
-	// Create the future.
-	let future = async move {
-		match cli.command(cli.args.command.clone()).await {
-			Ok(()) => Ok(()),
-			Err(error) => {
-				eprintln!("{} failed to run the command", "error".red().bold());
-				Cli::print_error(&error, cli.config.as_ref()).await;
-				Err(1)
-			},
-		}
-	};
-
 	// Create the tokio runtime and block on the future.
 	let mut builder = tokio::runtime::Builder::new_multi_thread();
 	builder.enable_all();
 	let runtime = builder.build().unwrap();
-	let result = runtime.block_on(future);
+
+	// Run the command.
+	let result = runtime.block_on(cli.command(cli.args.command.clone()));
 
 	// Handle the result.
 	match result {
 		Ok(()) => 0.into(),
-		Err(code) => code.into(),
+		Err(error) => {
+			eprintln!("{} failed to run the command", "error".red().bold());
+			Cli::print_error(&error, cli.config.as_ref());
+			1.into()
+		},
 	}
 }
 
@@ -829,7 +823,7 @@ impl Cli {
 		Ok(())
 	}
 
-	async fn print_error(error: &tg::Error, config: Option<&Config>) {
+	fn print_error(error: &tg::Error, config: Option<&Config>) {
 		let options = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
@@ -871,7 +865,7 @@ impl Cli {
 		}
 	}
 
-	async fn print_diagnostic(&self, diagnostic: &tg::Diagnostic) {
+	fn print_diagnostic(diagnostic: &tg::Diagnostic) {
 		let title = match diagnostic.severity {
 			tg::diagnostic::Severity::Error => "error".red().bold(),
 			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
