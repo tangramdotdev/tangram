@@ -93,7 +93,7 @@ impl Server {
 
 #[cfg(test)]
 mod tests {
-	use crate::{Config, Server};
+	use crate::{util::fs::cleanup_instance, Config, Server};
 	use futures::FutureExt as _;
 	use insta::assert_yaml_snapshot;
 	use std::panic::AssertUnwindSafe;
@@ -127,8 +127,7 @@ mod tests {
 		})
 		.catch_unwind()
 		.await;
-		server.stop();
-		server.wait().await;
+		cleanup_instance(temp, server).await?;
 		result.unwrap()
 	}
 }
