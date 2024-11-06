@@ -151,21 +151,6 @@ impl Server {
 		// Create the build permits.
 		let build_permits = DashMap::default();
 
-		#[cfg(test)]
-		{
-			let new_fd_rlimit = libc::rlimit {
-				rlim_cur: 20000u64,
-				rlim_max: 20000u64,
-			};
-			let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
-			if ret != 0 {
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"failed to set the file descriptor limit"
-				));
-			}
-		}
-
 		// Create the build semaphore.
 		let permits = config
 			.build
