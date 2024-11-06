@@ -172,14 +172,14 @@ async fn path_dependency_import_attribute() -> tg::Result<()> {
 async fn named_target() -> tg::Result<()> {
 	test(
 		temp::directory! {
-			"two_targets" => temp::directory! {
+			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r"
 					export let five = tg.target(() => 5);
 					export let six = tg.target(() => 6);
 				"),
 			},
 		},
-		"two_targets",
+		"foo",
 		"five",
 		None,
 		|_, outcome| async move {
@@ -195,7 +195,7 @@ async fn named_target() -> tg::Result<()> {
 async fn concurrent_targets() -> tg::Result<()> {
 	test(
 		temp::directory! {
-			"double_sum" => temp::directory! {
+			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r"
 					export default tg.target(async () => {
 						let results = await Promise.all(Array.from(Array(100).keys()).map((i) => double(i)));
@@ -205,7 +205,7 @@ async fn concurrent_targets() -> tg::Result<()> {
 				"),
 			},
 		},
-		"double_sum",
+		"foo",
 		"default",
 		None,
 		|_, outcome| async move {
