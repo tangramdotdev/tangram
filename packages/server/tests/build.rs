@@ -47,6 +47,26 @@ async fn accepts_arg() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn current_target_id() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"hello" => temp::directory! {
+				"tangram.ts" => r"export default tg.target(() => tg.Target.current.id())",
+			}
+		},
+		"hello",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r###""tgt_01wb4tdwy3mhb99vv0q9n1z0x8xxmydf1rfaxa3eahfx36ygsx5wt0""###);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn unix_process() -> tg::Result<()> {
 	test(
 		temp::directory! {
@@ -184,6 +204,91 @@ async fn captures_error() -> tg::Result<()> {
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @"Uncaught Error: not so fast!");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn import_file() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import file from "./file.txt" with { type: "file" };
+					export default tg.target(() => file.text());
+				"#),
+				"file.txt" => "I'm a plain text file!",
+			},
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r###""I'm a plain text file!""###);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn import_directory() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import directory from "./directory" with { type: "directory" };
+					export default tg.target(async () =>
+						directory.get("file.txt")
+							.then(tg.File.expect)
+							.then((f) => f.text())
+					);
+				"#),
+				"directory" => temp::directory! {
+					"file.txt" => "I'm a plain text file inside a directory!",
+				}
+			},
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r###""I'm a plain text file inside a directory!""###);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn directory_get_follows_symlinks() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import directory from "./directory" with { type: "directory" };
+					export default tg.target(async () =>
+						directory.get("link")
+							.then(tg.File.expect)
+							.then((f) => f.text())
+					);
+				"#),
+				"directory" => temp::directory! {
+					"file.txt" => "I'm a plain text file inside a directory through a symlink!",
+					"link" => temp::symlink!("./file.txt")
+				}
+			},
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r###""I'm a plain text file inside a directory through a symlink!""###);
 			Ok::<_, tg::Error>(())
 		},
 	)
