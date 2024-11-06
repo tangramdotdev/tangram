@@ -118,7 +118,7 @@ impl Server {
 }
 
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
-fn infer_module_kind(name: &str) -> tg::Result<tg::module::Kind> {
+pub(crate) fn infer_module_kind(name: &str) -> tg::Result<tg::module::Kind> {
 	if name.ends_with(".d.ts") {
 		Ok(tg::module::Kind::Dts)
 	} else if name.ends_with(".ts") {

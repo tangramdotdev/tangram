@@ -1,7 +1,8 @@
-use crate::{compiler::Compiler, Server};
+use crate::{compiler::Compiler, module::infer_module_kind, Server};
 use std::{collections::HashSet, path::PathBuf};
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tg::module::Kind;
 
 impl Server {
 	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
@@ -58,12 +59,29 @@ impl Server {
 				.ok()
 				.or_else(|| import.reference.options()?.path.as_ref());
 			if let Some(import_path) = import_path {
-				let path = path.join(import_path);
-				let exists = tokio::fs::try_exists(&path).await.map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to check if file exists"),
-				)?;
-				if exists {
-					Box::pin(self.format_package_inner(path, visited)).await?;
+				let kind = if let Some(kind) = import.kind {
+					Some(kind)
+				} else if let Some(import_path) = import_path.to_str() {
+					if let Ok(kind) = infer_module_kind(import_path) {
+						Some(kind)
+					} else {
+						None
+					}
+				} else {
+					None
+				};
+
+				match kind {
+					Some(Kind::Js | Kind::Ts | Kind::Dts) => {
+						let path = path.join(import_path);
+						let exists = tokio::fs::try_exists(&path).await.map_err(
+							|source| tg::error!(!source, %path = path.display(), "failed to check if file exists"),
+						)?;
+						if exists {
+							Box::pin(self.format_package_inner(path, visited)).await?;
+						}
+					},
+					_ => continue,
 				}
 			}
 		}
