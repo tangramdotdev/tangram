@@ -191,6 +191,32 @@ async fn named_target() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn concurrent_targets() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"double_sum" => temp::directory! {
+				"tangram.ts" => indoc!(r"
+					export default tg.target(async () => {
+						let results = await Promise.all(Array.from(Array(100).keys()).map((i) => double(i)));
+						return results.reduce((acc, el) => acc + el, 0);
+					});
+					export let double = tg.target((i: number) => i * 2);
+				"),
+			},
+		},
+		"double_sum",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @"9900");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn captures_error() -> tg::Result<()> {
 	test(
 		temp::directory! {
