@@ -27,6 +27,26 @@ async fn hello_world() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn accepts_target_with_no_return_value() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r"export default tg.target(() => {})",
+			}
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r"null");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn accepts_arg() -> tg::Result<()> {
 	test(
 		temp::directory! {
@@ -109,7 +129,7 @@ async fn two_modules() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r"");
+			assert_snapshot!(output, @r###""Hello from bar""###);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -135,7 +155,7 @@ async fn path_dependency() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r"");
+			assert_snapshot!(output, @r###""Hello from bar""###);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -161,7 +181,7 @@ async fn path_dependency_import_attribute() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r"");
+			assert_snapshot!(output, @r###""Hello from bar""###);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -210,7 +230,7 @@ async fn concurrent_targets() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @"9900");
+			assert_snapshot!(output, @r"9900");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -335,7 +355,7 @@ async fn target_cycle_detection() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @r"");
+			assert_snapshot!(error, @"failed to build the target");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -364,7 +384,7 @@ async fn target_cycle_detection_between_packages() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @r"");
+			assert_snapshot!(error, @"failed to resolve");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -471,7 +491,7 @@ async fn builtin_download_unsafe_checksum() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
+			assert_snapshot!(output, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -496,7 +516,7 @@ async fn builtin_download_exact_checksum() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
+			assert_snapshot!(output, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -521,7 +541,90 @@ async fn builtin_download_rejects_incorrect_checksum() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @"Uncaught Error: invalid checksum, expected sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa but got sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
+			assert_snapshot!(error, @r"Uncaught Error: invalid checksum, expected sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa but got sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn builtin_download_rejects_malformed_checksum() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let blob = await tg.download("https://example.com", "nonsense");
+						return tg.file(blob);
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let error = outcome.into_result().unwrap_err();
+			assert_snapshot!(error, @"Uncaught Error: invalid checksum");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn builtin_artifact_archive_extract_roundtrip() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import directory from "./directory" with { type: "directory" };
+					export default tg.target(async () => {
+						let archived_directory = await tg.archive(directory, "tar");
+						let extracted_archive = await tg.extract(archived_directory, "tar");
+						return extracted_archive;
+					});
+				"#),
+				"directory" => temp::directory! {
+					"file.txt" => "contents",
+					"link" => temp::symlink!("./file.txt")
+				}
+			}
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r"");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn builtin_blob_compress_decompress_gz_roundtrip() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let blob = await tg.blob("contents");
+						let compressedBlob = await tg.compress(blob, "gz");
+						let decompressedBlob = await tg.decompress(blob, "gz");
+						return blob.text();
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r"");
 			Ok::<_, tg::Error>(())
 		},
 	)
