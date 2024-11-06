@@ -1,4 +1,4 @@
-use super::unify;
+use super::{input, unify};
 use crate::Server;
 use num::ToPrimitive;
 use std::{
@@ -45,15 +45,16 @@ struct RemappedEdge {
 impl Server {
 	pub(super) async fn create_object_graph(
 		&self,
+		input: &input::Graph,
+		unify: &unify::Graph,
 		root: &unify::Id,
-		unify: unify::Graph,
 	) -> tg::Result<Graph> {
 		let mut indices = BTreeMap::new();
 		let mut paths: BTreeMap<PathBuf, usize> = BTreeMap::new();
 		let mut nodes = Vec::with_capacity(unify.nodes.len());
 		let objects = BTreeMap::new();
 
-		self.create_object_graph_inner(root, &unify, &mut indices, &mut nodes, &mut paths)
+		self.create_object_graph_inner(input, unify, root, &mut indices, &mut nodes, &mut paths)
 			.await;
 
 		let mut graph = Graph {
@@ -62,15 +63,16 @@ impl Server {
 			paths,
 			objects,
 		};
-		self.create_objects(&mut graph).await?;
+		self.create_objects(input, &mut graph).await?;
 
 		Ok(graph)
 	}
 
 	async fn create_object_graph_inner(
 		&self,
+		input: &input::Graph,
+		unify: &unify::Graph,
 		node: &unify::Id,
-		graph: &unify::Graph,
 		indices: &mut BTreeMap<unify::Id, usize>,
 		nodes: &mut Vec<Node>,
 		paths: &mut BTreeMap<PathBuf, usize>,
@@ -85,8 +87,9 @@ impl Server {
 		indices.insert(node.clone(), index);
 
 		// Add the path if it exists.
-		if let Some(input) = graph.nodes.get(node).unwrap().object.as_ref().left() {
-			let path = input.read().await.arg.path.clone();
+		if let Some(input_index) = unify.nodes.get(node).unwrap().object.as_ref().left() {
+			let input_node = input.nodes[*input_index].read().await;
+			let path = input_node.arg.path.clone();
 			paths.insert(path, index);
 		}
 
@@ -96,20 +99,21 @@ impl Server {
 			data: None,
 			edges: Vec::new(),
 			metadata: None,
-			unify: graph.nodes.get(node).unwrap().clone(),
+			unify: unify.nodes.get(node).unwrap().clone(),
 		});
 
 		// Recurse.
-		for (reference, edge) in &graph.nodes.get(node).unwrap().edges {
+		for (reference, edge) in &unify.nodes.get(node).unwrap().edges {
 			let dependency_index = Box::pin(self.create_object_graph_inner(
+				input,
+				unify,
 				&edge.referent,
-				graph,
 				indices,
 				nodes,
 				paths,
 			))
 			.await;
-			let referrent = graph.nodes.get(&edge.referent).unwrap();
+			let referrent = unify.nodes.get(&edge.referent).unwrap();
 			let edge = Edge {
 				index: dependency_index,
 				reference: reference.clone(),
@@ -122,12 +126,19 @@ impl Server {
 		index
 	}
 
-	pub(super) async fn create_objects(&self, graph: &mut Graph) -> tg::Result<()> {
+	pub(super) async fn create_objects(
+		&self,
+		input: &input::Graph,
+		graph: &mut Graph,
+	) -> tg::Result<()> {
 		let mut graph_metadata = BTreeMap::new();
 		let mut file_metadata = BTreeMap::new();
 
 		// Partition the graph into its strongly connected components.
-		for scc in petgraph::algo::tarjan_scc(&*graph) {
+		for mut scc in petgraph::algo::tarjan_scc(&*graph) {
+			// Iterate the scc in reverse order.
+			scc.reverse();
+
 			// Special case: the node is a bare object.
 			if scc.len() == 1 && graph.nodes[scc[0]].unify.object.is_right() {
 				let id = graph.nodes[scc[0]]
@@ -155,7 +166,7 @@ impl Server {
 			let mut nodes = Vec::new();
 			for old_index in &scc {
 				let node = self
-					.create_graph_node_data(*old_index, graph, &indices, &mut file_metadata)
+					.create_graph_node_data(input, graph, *old_index, &indices, &mut file_metadata)
 					.await?;
 				nodes.push(node);
 			}
@@ -245,15 +256,16 @@ impl Server {
 
 	async fn create_graph_node_data(
 		&self,
-		index: usize,
+		input: &input::Graph,
 		graph: &mut Graph,
+		index: usize,
 		indices: &BTreeMap<usize, usize>,
 		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Get the input metadata, or skip if the node is an object.
 		let (path, metadata) = match graph.nodes[index].unify.object.clone() {
-			Either::Left(input) => {
-				let input = input.read().await;
+			Either::Left(input_index) => {
+				let input = input.nodes[input_index].read().await;
 				(input.arg.path.clone(), input.metadata.clone())
 			},
 			Either::Right(_) => {

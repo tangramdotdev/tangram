@@ -27,7 +27,7 @@ pub struct Node {
 	pub edges: BTreeMap<tg::Reference, Edge>,
 
 	// The underlying object.
-	pub object: Either<Arc<tokio::sync::RwLock<input::Graph>>, tg::object::Id>,
+	pub object: Either<usize, tg::object::Id>,
 
 	// The tag of this node, if it exists.
 	pub tag: Option<tg::Tag>,
@@ -76,41 +76,55 @@ struct State {
 impl Server {
 	pub async fn create_unification_graph(
 		&self,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
+		input: &input::Graph,
+		deterministic: bool,
 	) -> tg::Result<(Graph, Id)> {
 		let mut graph: Graph = Graph::default();
 		let mut visited_graph_nodes = BTreeMap::new();
 
 		let root = self
-			.create_unification_graph_from_input(input, &mut graph, &mut visited_graph_nodes)
+			.create_unification_graph_from_input(input, 0, &mut graph, &mut visited_graph_nodes)
 			.await?;
+
+		// Unify.
+		if !deterministic {
+			graph = self
+				.unify_dependencies(graph.clone(), &root)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to unify the object graph"))?;
+		}
+
+		// Validate.
+		graph.validate(input).await?;
+
 		Ok((graph, root))
 	}
 
 	async fn create_unification_graph_from_input(
 		&self,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
+		input: &input::Graph,
+		node: usize,
 		graph: &mut Graph,
 		visited_graph_nodes: &mut BTreeMap<(tg::graph::Id, usize), Id>,
 	) -> tg::Result<Id> {
-		if let Some(id) = graph.paths.get(&input.read().await.arg.path).cloned() {
+		let input_node = input.nodes[node].read().await;
+		if let Some(id) = graph.paths.get(&input_node.arg.path).cloned() {
 			return Ok(id);
 		}
 		let id = Either::Right(graph.counter);
 		graph.counter += 1;
-		graph
-			.paths
-			.insert(input.read().await.arg.path.clone(), id.clone());
+		graph.paths.insert(input_node.arg.path.clone(), id.clone());
 
 		// Get the outgoing edges.
 		let mut edges = BTreeMap::new();
 
 		// Add dependencies.
-		let input_edges = input.read().await.edges.clone();
+		let input_edges = input_node.edges.clone();
 		'outer: for edge in input_edges {
-			if let Some(input) = edge.node() {
+			if let Some(node) = edge.node {
 				let id = Box::pin(self.create_unification_graph_from_input(
-					input.clone(),
+					input,
+					node,
 					graph,
 					visited_graph_nodes,
 				))
@@ -148,7 +162,7 @@ impl Server {
 			}
 
 			// Check if there is a solution in the lock file.
-			let lockfile = input.read().await.lockfile.clone();
+			let lockfile = input_node.lockfile.clone();
 			'a: {
 				let Some((lockfile, node)) = lockfile else {
 					break 'a;
@@ -157,7 +171,7 @@ impl Server {
 					break 'a;
 				};
 				let Some(referrent) = dependencies.get(&edge.reference) else {
-					if input.read().await.arg.locked {
+					if input_node.arg.locked {
 						return Err(tg::error!("lockfile is out of date"))?;
 					};
 					break 'a;
@@ -221,7 +235,7 @@ impl Server {
 		let node = Node {
 			errors: Vec::new(),
 			edges,
-			object: Either::Left(input.clone()),
+			object: Either::Left(node),
 			tag: None,
 		};
 
@@ -703,7 +717,7 @@ fn try_backtrack(state: &mut Vec<State>, edge: &Unresolved) -> Option<State> {
 }
 
 impl Graph {
-	pub async fn validate(&self) -> tg::Result<()> {
+	pub async fn validate(&self, input: &input::Graph) -> tg::Result<()> {
 		let mut errors = Vec::new();
 		for node in self.nodes.values() {
 			let errors_ = node.errors.iter().cloned();
@@ -711,7 +725,13 @@ impl Graph {
 			for (reference, edge) in &node.edges {
 				if !self.nodes.contains_key(&edge.referent) {
 					let referrer = match &node.object {
-						Either::Left(input) => input.read().await.arg.path.display().to_string(),
+						Either::Left(index) => input.nodes[*index]
+							.read()
+							.await
+							.arg
+							.path
+							.display()
+							.to_string(),
 						Either::Right(object) => object.to_string(),
 					};
 					let error = tg::error!(%reference, %referrer, "failed to resolve dependency");

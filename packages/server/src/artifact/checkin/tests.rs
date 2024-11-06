@@ -68,21 +68,15 @@ async fn nested_packages() -> tg::Result<()> {
    	"graph": tg.graph({
    		"nodes": [
    			{
-   				"kind": "file",
-   				"contents": tg.leaf("
-   						import * as baz from "../baz";
-   					"),
-   				"dependencies": {
-   					"../baz": {
-   						"item": 3,
-   						"subpath": "./baz",
-   					},
-   				},
-   			},
-   			{
    				"kind": "directory",
    				"entries": {
-   					"tangram.ts": 0,
+   					"bar": 2,
+   					"baz": tg.directory({
+   						"tangram.ts": tg.file({
+   							"contents": tg.leaf(""),
+   						}),
+   					}),
+   					"tangram.ts": 1,
    				},
    			},
    			{
@@ -93,11 +87,11 @@ async fn nested_packages() -> tg::Result<()> {
    				"),
    				"dependencies": {
    					"./bar": {
-   						"item": 3,
+   						"item": 0,
    						"subpath": "./bar",
    					},
    					"./baz": {
-   						"item": 3,
+   						"item": 0,
    						"subpath": "./baz",
    					},
    				},
@@ -105,18 +99,24 @@ async fn nested_packages() -> tg::Result<()> {
    			{
    				"kind": "directory",
    				"entries": {
-   					"bar": 1,
-   					"baz": tg.directory({
-   						"tangram.ts": tg.file({
-   							"contents": tg.leaf(""),
-   						}),
-   					}),
-   					"tangram.ts": 2,
+   					"tangram.ts": 3,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("
+   						import * as baz from "../baz";
+   					"),
+   				"dependencies": {
+   					"../baz": {
+   						"item": 0,
+   						"subpath": "./baz",
+   					},
    				},
    			},
    		],
    	}),
-   	"node": 3,
+   	"node": 0,
    })
    "#);
 			Ok::<_, tg::Error>(())
@@ -141,13 +141,10 @@ async fn package_with_submodules() -> tg::Result<()> {
    	"graph": tg.graph({
    		"nodes": [
    			{
-   				"kind": "file",
-   				"contents": tg.leaf("import * as root from "./tangram.ts";"),
-   				"dependencies": {
-   					"./tangram.ts": {
-   						"item": 2,
-   						"subpath": "./tangram.ts",
-   					},
+   				"kind": "directory",
+   				"entries": {
+   					"foo.tg.ts": 2,
+   					"tangram.ts": 1,
    				},
    			},
    			{
@@ -155,21 +152,24 @@ async fn package_with_submodules() -> tg::Result<()> {
    				"contents": tg.leaf("import * as foo from "./foo.tg.ts";"),
    				"dependencies": {
    					"./foo.tg.ts": {
-   						"item": 2,
+   						"item": 0,
    						"subpath": "./foo.tg.ts",
    					},
    				},
    			},
    			{
-   				"kind": "directory",
-   				"entries": {
-   					"foo.tg.ts": 0,
-   					"tangram.ts": 1,
+   				"kind": "file",
+   				"contents": tg.leaf("import * as root from "./tangram.ts";"),
+   				"dependencies": {
+   					"./tangram.ts": {
+   						"item": 0,
+   						"subpath": "./tangram.ts",
+   					},
    				},
    			},
    		],
    	}),
-   	"node": 2,
+   	"node": 0,
    })
    "#);
 			Ok::<_, tg::Error>(())
@@ -193,18 +193,18 @@ async fn symlink() -> tg::Result<()> {
    	"graph": tg.graph({
    		"nodes": [
    			{
-   				"kind": "symlink",
-   				"artifact": 1,
-   			},
-   			{
    				"kind": "directory",
    				"entries": {
-   					"link": 0,
+   					"link": 1,
    				},
+   			},
+   			{
+   				"kind": "symlink",
+   				"artifact": 0,
    			},
    		],
    	}),
-   	"node": 1,
+   	"node": 0,
    })
    "#);
 			Ok::<_, tg::Error>(())
@@ -292,34 +292,34 @@ async fn directory() -> tg::Result<()> {
    	"graph": tg.graph({
    		"nodes": [
    			{
-   				"kind": "symlink",
-   				"artifact": 3,
-   				"subpath": "hello.txt",
-   			},
-   			{
-   				"kind": "symlink",
-   				"artifact": 3,
-   				"subpath": "link",
-   			},
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"sublink": 1,
-   				},
-   			},
-   			{
    				"kind": "directory",
    				"entries": {
    					"hello.txt": tg.file({
    						"contents": tg.leaf("Hello, world!"),
    					}),
-   					"link": 0,
-   					"subdirectory": 2,
+   					"link": 3,
+   					"subdirectory": 1,
    				},
+   			},
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"sublink": 2,
+   				},
+   			},
+   			{
+   				"kind": "symlink",
+   				"artifact": 0,
+   				"subpath": "link",
+   			},
+   			{
+   				"kind": "symlink",
+   				"artifact": 0,
+   				"subpath": "hello.txt",
    			},
    		],
    	}),
-   	"node": 3,
+   	"node": 0,
    })
    "#);
 			Ok::<_, tg::Error>(())
@@ -394,6 +394,7 @@ where
 			locked: false,
 			path: directory.as_ref().join(path),
 		};
+		std::mem::forget(directory);
 		let stream = server.check_in_artifact(arg).await?;
 		let output = pin!(stream)
 			.try_last()

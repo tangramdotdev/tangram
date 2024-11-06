@@ -1,9 +1,8 @@
 use super::{input, object};
 use crate::Server;
 use std::{
-	collections::{BTreeMap, BTreeSet},
+	collections::BTreeMap,
 	path::{Path, PathBuf},
-	sync::Arc,
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -152,33 +151,36 @@ impl Server {
 impl Server {
 	pub(super) async fn write_lockfiles(
 		&self,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
+		input: &input::Graph,
 		lockfile: &tg::Lockfile,
 		paths: &BTreeMap<PathBuf, usize>,
 	) -> tg::Result<()> {
-		let mut visited = BTreeSet::new();
-		self.write_lockfiles_inner(input, lockfile, paths, &mut visited)
+		let mut visited = vec![false; input.nodes.len()];
+		self.write_lockfiles_inner(input, 0, lockfile, paths, &mut visited)
 			.await
 	}
 
 	pub(super) async fn write_lockfiles_inner(
 		&self,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
+		input: &input::Graph,
+		node: usize,
 		lockfile: &tg::Lockfile,
 		paths: &BTreeMap<PathBuf, usize>,
-		visited: &mut BTreeSet<PathBuf>,
+		visited: &mut [bool],
 	) -> tg::Result<()> {
-		let input::Graph {
+		// Check if we've visited this node yet.
+		if visited[node] {
+			return Ok(());
+		}
+		visited[node] = true;
+
+		// Extract the input data.
+		let input::Node {
 			arg,
 			metadata,
 			edges,
 			..
-		} = input.read().await.clone();
-
-		if visited.contains(&arg.path) {
-			return Ok(());
-		}
-		visited.insert(arg.path.clone());
+		} = input.nodes[node].read().await.clone();
 
 		if metadata.is_dir()
 			&& tg::package::try_get_root_module_file_name_for_package_path(arg.path.as_ref())
@@ -202,17 +204,19 @@ impl Server {
 			return Ok(());
 		}
 
+		// Get the children of this node.
 		let children = edges
 			.iter()
-			.filter_map(input::Edge::node)
+			.filter_map(|edge| edge.node)
 			.collect::<Vec<_>>();
 
-		for child in children {
+		// Recurse over the children.
+		for node in children {
 			// Skip any paths outside the workspace.
-			if child.read().await.parent.is_none() {
+			if input.nodes[node].read().await.parent.is_none() {
 				continue;
 			}
-			Box::pin(self.write_lockfiles_inner(child, lockfile, paths, visited)).await?;
+			Box::pin(self.write_lockfiles_inner(input, node, lockfile, paths, visited)).await?;
 		}
 
 		Ok(())

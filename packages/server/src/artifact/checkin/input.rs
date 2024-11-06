@@ -1,9 +1,9 @@
 use crate::{util::path::Ext as _, Server};
-use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	path::{Path, PathBuf},
-	sync::{Arc, Weak},
+	sync::Arc,
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -19,31 +19,34 @@ const DENY: [&str; 2] = [".DS_STORE", ".git"];
 // List of patterns that checkin will not ignore.
 const ALLOW: [&str; 0] = [];
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Graph {
+	pub nodes: Vec<RwLock<Node>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Node {
 	pub arg: tg::artifact::checkin::Arg,
 	pub edges: Vec<Edge>,
-	pub is_direct_dependency: bool,
 	pub metadata: std::fs::Metadata,
 	pub lockfile: Option<(Arc<tg::Lockfile>, usize)>,
-	pub parent: Option<Weak<RwLock<Self>>>,
+	pub parent: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Edge {
 	pub reference: tg::Reference,
 	pub subpath: Option<PathBuf>,
-	pub graph: Option<Node>,
+	pub node: Option<usize>,
 	pub object: Option<tg::object::Id>,
 	pub tag: Option<tg::Tag>,
 }
 
-pub type Node = Either<Arc<RwLock<Graph>>, Weak<RwLock<Graph>>>;
-
 struct State {
 	ignore: Ignore,
-	roots: Vec<Arc<RwLock<Graph>>>,
-	visited: BTreeMap<PathBuf, Arc<RwLock<Graph>>>,
+	roots: Vec<usize>,
+	graph: Graph,
+	visited: BTreeMap<PathBuf, usize>,
 }
 
 impl Server {
@@ -51,14 +54,14 @@ impl Server {
 		&self,
 		arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<Arc<RwLock<Graph>>> {
+	) -> tg::Result<Graph> {
 		// Make a best guess for the input.
 		let path = self.find_root(&arg.path).await.map_err(
 			|source| tg::error!(!source, %path = arg.path.display(), "failed to find root path for checkin"),
 		)?;
 
 		// Create a graph.
-		let input = 'a: {
+		let graph = 'a: {
 			let arg_ = tg::artifact::checkin::Arg {
 				path,
 				..arg.clone()
@@ -66,7 +69,7 @@ impl Server {
 			let graph = self.collect_input(arg_, progress).await?;
 
 			// Check if the graph contains the path.
-			if graph.read().await.contains_path(&arg.path).await {
+			if graph.contains_path(&arg.path).await {
 				break 'a graph;
 			}
 
@@ -79,8 +82,14 @@ impl Server {
 			let arg_ = tg::artifact::checkin::Arg { path, ..arg };
 			self.collect_input(arg_, progress).await?
 		};
-		Graph::validate(input.clone()).await?;
-		Ok(input)
+
+		// Validate the input graph.
+		graph.validate().await?;
+
+		// Pick lockfiles for each node.
+		self.select_lockfiles(&graph).await?;
+
+		Ok(graph)
 	}
 
 	async fn find_root(&self, path: &Path) -> tg::Result<PathBuf> {
@@ -112,7 +121,7 @@ impl Server {
 		&self,
 		arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<Arc<RwLock<Graph>>> {
+	) -> tg::Result<Graph> {
 		// Create the ignore tree.
 		let ignore = Ignore::new(IGNORE_FILES, ALLOW, DENY)
 			.await
@@ -123,32 +132,37 @@ impl Server {
 			ignore,
 			roots: Vec::new(),
 			visited: BTreeMap::new(),
+			graph: Graph { nodes: Vec::new() },
 		});
 
 		// Collect input.
-		let input = self.collect_input_inner(None, arg.path.as_ref(), &arg, &state, progress);
+		self.collect_input_inner(None, arg.path.as_ref(), &arg, &state, progress)
+			.await?;
 
-		Ok(input.await?.unwrap_left())
+		let State { graph, .. } = state.into_inner();
+		Ok(graph)
 	}
 
 	async fn collect_input_inner(
 		&self,
-		referrer: Option<Node>,
+		referrer: Option<usize>,
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<Node> {
+	) -> tg::Result<usize> {
 		// Get the full path.
 		let path = if path.is_absolute() {
 			// If the absolute path is provided, use it.
 			path.to_owned()
 		} else {
-			let referrer = match referrer.ok_or_else(|| tg::error!("expected a referrer"))? {
-				Either::Left(strong) => strong,
-				Either::Right(weak) => weak.upgrade().unwrap(),
-			};
-			let referrer_path = referrer.read().await.arg.path.clone();
+			let referrer = referrer.ok_or_else(|| tg::error!("expected a referrer"))?;
+			let referrer_path = state.read().await.graph.nodes[referrer]
+				.read()
+				.await
+				.arg
+				.path
+				.clone();
 			referrer_path.join(path.strip_prefix("./").unwrap_or(path))
 		};
 		let parent = path.parent().unwrap();
@@ -181,34 +195,33 @@ impl Server {
 
 		// Check if this path has already been visited and return it.
 		if let Some(node) = state_.visited.get(&absolute_path) {
-			return Ok(Either::Left(node.clone()));
+			return Ok(*node);
 		}
 
 		// Lookup the parent if it exists.
 		let parent = absolute_path
 			.parent()
-			.and_then(|parent| state_.visited.get(parent).map(Arc::downgrade));
+			.and_then(|parent| state_.visited.get(parent).copied());
 
 		// Create a new node.
 		let arg_ = tg::artifact::checkin::Arg {
 			path: absolute_path.clone(),
 			..arg.clone()
 		};
-		let node = Arc::new(RwLock::new(Graph {
+		let node = RwLock::new(Node {
 			arg: arg_,
 			edges: Vec::new(),
-			is_direct_dependency: false,
 			metadata: metadata.clone(),
 			lockfile: None,
-			parent: parent.clone(),
-		}));
-		state_.visited.insert(absolute_path.clone(), node.clone());
+			parent,
+		});
+		state_.graph.nodes.push(node);
+		let node = state_.graph.nodes.len() - 1;
+		state_.visited.insert(absolute_path.clone(), node);
 
 		// Update the roots if necessary. This may result in dangling directories that also need to be collected.
 		let dangling = if parent.is_none() {
-			state_
-				.add_root_and_return_dangling_directories(node.clone())
-				.await
+			state_.add_root_and_return_dangling_directories(node).await
 		} else {
 			Vec::new()
 		};
@@ -233,37 +246,41 @@ impl Server {
 				.map_err(
 					|source| tg::error!(!source, %path = absolute_path.display(), "failed to collect input of parent"),
 				)?;
-			let parent = match parent {
-				Either::Left(strong) => Arc::downgrade(&strong),
-				Either::Right(weak) => weak,
-			};
-			node.write().await.parent.replace(parent);
+			state.read().await.graph.nodes[node]
+				.write()
+				.await
+				.parent
+				.replace(parent);
 		}
 
 		// Get the edges.
 		let edges = self
-			.get_edges(node.clone(), &absolute_path, arg, state, progress)
+			.get_edges(node, &absolute_path, arg, state, progress)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %path = absolute_path.display(), "failed to get edges"),
 			)?;
 
 		// Update the node.
-		node.write().await.edges = edges;
+		state.read().await.graph.nodes[node].write().await.edges = edges;
 
 		// Return the created node.
-		Ok(Either::Left(node))
+		Ok(node)
 	}
 
 	async fn get_edges(
 		&self,
-		referrer: Arc<RwLock<Graph>>,
+		referrer: usize,
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
-		let metadata = referrer.read().await.metadata.clone();
+		let metadata = state.read().await.graph.nodes[referrer]
+			.read()
+			.await
+			.metadata
+			.clone();
 		if metadata.is_dir() {
 			Box::pin(self.get_directory_edges(referrer, path, arg, state, progress)).await
 		} else if metadata.is_file() {
@@ -277,7 +294,7 @@ impl Server {
 
 	async fn get_directory_edges(
 		&self,
-		referrer: Arc<RwLock<Graph>>,
+		referrer: usize,
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
@@ -324,13 +341,12 @@ impl Server {
 		let vec: Vec<_> = names
 			.into_iter()
 			.map(|name| {
-				let referrer = referrer.clone();
 				async move {
 					let path = path.join(&name);
 
 					// Follow the edge.
-					let graph = Box::pin(self.collect_input_inner(
-						Some(Either::Right(Arc::downgrade(&referrer))),
+					let node = Box::pin(self.collect_input_inner(
+						Some(referrer),
 						name.as_ref(),
 						arg,
 						state,
@@ -346,7 +362,7 @@ impl Server {
 					let edge = Edge {
 						reference,
 						subpath: None,
-						graph: Some(graph),
+						node: Some(node),
 						object: None,
 						tag: None,
 					};
@@ -361,7 +377,7 @@ impl Server {
 
 	async fn get_file_edges(
 		&self,
-		referrer: Arc<RwLock<Graph>>,
+		referrer: usize,
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
@@ -423,15 +439,16 @@ impl Server {
 				.into_iter()
 				.map(|(reference, referent)| {
 					let arg = arg.clone();
-					let referrer = referrer.clone();
 					async move {
-						let root_path = get_root_node(Either::Left(referrer.clone()))
-							.await
+						// Get the root path.
+						let root_node = get_root_node(&state.read().await.graph, referrer).await;
+						let root_path = state.read().await.graph.nodes[root_node]
 							.read()
 							.await
 							.arg
 							.path
 							.clone();
+
 						let id = referent.item;
 						let path = reference
 							.item()
@@ -440,7 +457,12 @@ impl Server {
 							.or_else(|| reference.options()?.path.as_ref());
 
 						// Don't follow paths that point outside the root.
-						let referrer_path = referrer.read().await.arg.path.clone();
+						let referrer_path = state.read().await.graph.nodes[referrer]
+							.read()
+							.await
+							.arg
+							.path
+							.clone();
 						let is_external_path = path
 							.as_ref()
 							.map(|path| referrer_path.parent().unwrap().join(path))
@@ -452,40 +474,33 @@ impl Server {
 							});
 
 						// Recurse if necessary.
-						let (graph, subpath) = match path {
+						let (node, subpath) = match path {
 							Some(path) if !is_external_path => {
 								// Get the parent of the referrer.
-								let parent = referrer
+								let parent = *state.read().await.graph.nodes[referrer]
 									.read()
 									.await
 									.parent
 									.as_ref()
-									.ok_or_else(|| tg::error!("expected a parent"))?
-									.clone();
+									.ok_or_else(|| tg::error!("expected a parent"))?;
 
 								// Collect the input of the referrent.
-								let graph = self
-									.collect_input_inner(
-										Some(Either::Right(parent)),
-										path,
-										&arg,
-										state,
-										progress,
-									)
+								let node = self
+									.collect_input_inner(Some(parent), path, &arg, state, progress)
 									.await
 									.map_err(|source| {
 										tg::error!(!source, "failed to collect child input")
 									})?;
-								let (graph, subpath) =
-									root_node_with_subpath(referrer.clone(), graph).await;
-								(Some(graph), subpath)
+								let (node, subpath) =
+									root_node_with_subpath(&state.read().await.graph, node).await;
+								(Some(node), subpath)
 							},
 							_ => (None, None),
 						};
 
 						let edge = Edge {
 							reference,
-							graph,
+							node,
 							object: Some(id),
 							subpath,
 							tag: referent.tag,
@@ -512,7 +527,7 @@ impl Server {
 
 	async fn get_module_edges(
 		&self,
-		referrer: Arc<RwLock<Graph>>,
+		referrer: usize,
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
@@ -532,8 +547,6 @@ impl Server {
 			.into_iter()
 			.map(|import| {
 				let arg = arg.clone();
-				let referrer = referrer.clone();
-
 				async move {
 					// Follow path dependencies.
 					let import_path = import
@@ -547,8 +560,9 @@ impl Server {
 						let reference = import.reference.clone();
 
 						// Check if the import points outside the package.
-						let root_path = get_root_node(Either::Left(referrer.clone()))
-							.await
+						let root_node = get_root_node(&state.read().await.graph, referrer)
+							.await;
+						let root_path = state.read().await.graph.nodes[root_node]
 							.read()
 							.await
 							.arg
@@ -569,23 +583,23 @@ impl Server {
 						// Get the input of the referent.
 						let child = if is_external {
 							// If this is an external import, treat it as a root using the absolute path.
-							self.collect_input_inner(Some(Either::Left(referrer.clone())), &absolute_path, &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
+							self.collect_input_inner(Some(referrer), &absolute_path, &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						} else {
 							// Otherwise, treat it as a relative path.
 
 							// Get the parent of the referrer.
-							let parent = referrer.read().await.parent.as_ref().ok_or_else(|| tg::error!("expected a parent"))?.clone();
+							let parent = *state.read().await.graph.nodes[referrer].read().await.parent.as_ref().ok_or_else(|| tg::error!("expected a parent"))?;
 
 							// Recurse.
-							self.collect_input_inner(Some(Either::Right(parent)), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
+							self.collect_input_inner(Some(parent), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						};
 
-						let (graph, subpath) = root_node_with_subpath(referrer.clone(), child.clone()).await;
+						let (node, subpath) = root_node_with_subpath(&state.read().await.graph, child).await;
 
 						// Create the edge.
 						let edge = Edge {
 							reference,
-							graph: Some(graph),
+							node: Some(node),
 							object: None,
 							subpath,
 							tag: None,
@@ -596,7 +610,7 @@ impl Server {
 
 					Ok(Edge {
 						reference: import.reference,
-						graph: None,
+						node: None,
 						object: None,
 						subpath: None,
 						tag: None,
@@ -612,27 +626,36 @@ impl Server {
 
 	async fn get_symlink_edges(
 		&self,
-		referrer: Arc<RwLock<Graph>>,
+		referrer: usize,
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
-		if !referrer.read().await.edges.is_empty() {
-			return Ok(referrer.read().await.edges.clone());
+		// Check if this node's edges have already been created.
+		let existing = state.read().await.graph.nodes[referrer]
+			.read()
+			.await
+			.edges
+			.clone();
+		if !existing.is_empty() {
+			return Ok(existing);
 		}
 
+		// Read the symlink.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let target = tokio::fs::read_link(path).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to read symlink"),
 		)?;
 		drop(permit);
 
+		// Error if this is an absolute path.
 		if target.is_absolute() {
-			return Ok(Vec::new());
+			return Err(tg::error!("cannot check in an absolute path symlink"));
 		}
 
-		let parent = referrer.read().await.parent.clone().map(Either::Right);
+		// Get the parent.
+		let parent = state.read().await.graph.nodes[referrer].read().await.parent;
 
 		// Get the absolute path of the target.
 		let target_absolute_path = path.parent().unwrap().join(&target);
@@ -642,7 +665,7 @@ impl Server {
 			.join(target_absolute_path.file_name().unwrap());
 
 		// Collect the input of the target.
-		let child = if state
+		let node = if state
 			.read()
 			.await
 			.find_root_of_path(&target_absolute_path)
@@ -650,7 +673,7 @@ impl Server {
 			.is_none()
 		{
 			Box::pin(self.collect_input_inner(
-				Some(Either::Left(referrer.clone())),
+				Some(referrer),
 				&target_absolute_path,
 				arg,
 				state,
@@ -662,11 +685,11 @@ impl Server {
 		};
 
 		// Get the root node and subpath.
-		let (graph, subpath) = root_node_with_subpath(referrer.clone(), child).await;
+		let (root, subpath) = root_node_with_subpath(&state.read().await.graph, node).await;
 
 		Ok(vec![Edge {
 			reference: tg::Reference::with_path(target),
-			graph: Some(graph),
+			node: Some(root),
 			object: None,
 			subpath,
 			tag: None,
@@ -675,27 +698,28 @@ impl Server {
 }
 
 impl Server {
-	pub(super) async fn select_lockfiles(&self, input: Arc<RwLock<Graph>>) -> tg::Result<()> {
+	pub(super) async fn select_lockfiles(&self, graph: &Graph) -> tg::Result<()> {
 		let visited = RwLock::new(BTreeSet::new());
-		self.select_lockfiles_inner(input, &visited).await?;
+		self.select_lockfiles_inner(graph, 0, &visited).await?;
 		Ok(())
 	}
 
 	async fn select_lockfiles_inner(
 		&self,
-		input: Arc<RwLock<Graph>>,
-		visited: &RwLock<BTreeSet<PathBuf>>,
+		graph: &Graph,
+		node: usize,
+		visited: &RwLock<BTreeSet<usize>>,
 	) -> tg::Result<()> {
 		// Check if this path is visited or not.
-		let path = input.read().await.arg.path.clone();
-		if visited.read().await.contains(&path) {
+		if visited.read().await.contains(&node) {
 			return Ok(());
 		}
 
 		// Mark this node as visited.
-		visited.write().await.insert(path.clone());
+		visited.write().await.insert(node);
 
 		// If this is not a root module, inherit the lockfile of the referrer.
+		let path = graph.nodes[node].read().await.arg.path.clone();
 		let lockfile = if tg::package::is_root_module_path(path.as_ref()) {
 			// Try and find a lockfile.
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
@@ -708,27 +732,21 @@ impl Server {
 				.transpose()?
 		} else {
 			// Otherwise inherit from the referrer.
-			let parent = input
-				.read()
-				.await
-				.parent
-				.as_ref()
-				.map(|parent| parent.upgrade().unwrap());
+			let parent = graph.nodes[node].read().await.parent;
 			if let Some(parent) = parent {
-				parent.read().await.lockfile.clone()
+				graph.nodes[parent].read().await.lockfile.clone()
 			} else {
 				None
 			}
 		};
-		input.write().await.lockfile = lockfile;
+		graph.nodes[node].write().await.lockfile = lockfile;
 
 		// Recurse.
-		let edges = input.read().await.edges.clone();
+		let edges = graph.nodes[node].read().await.edges.clone();
 		edges
 			.into_iter()
 			.filter_map(|edge| {
-				let child = edge.node()?;
-				let fut = Box::pin(self.select_lockfiles_inner(child, visited));
+				let fut = Box::pin(self.select_lockfiles_inner(graph, edge.node?, visited));
 				Some(fut)
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -741,201 +759,99 @@ impl Server {
 
 impl Graph {
 	async fn contains_path(&self, path: &Path) -> bool {
-		let visited = std::sync::RwLock::new(BTreeSet::new());
-		self.contains_path_inner(path, &visited).await
-	}
-
-	async fn contains_path_inner<'a>(
-		&self,
-		path: &'a Path,
-		visited: &std::sync::RwLock<BTreeSet<&'a Path>>,
-	) -> bool {
-		if visited.read().unwrap().contains(&path) {
-			return false;
+		for node in &self.nodes {
+			if node.read().await.arg.path == path {
+				return true;
+			}
 		}
-		if self.arg.path == path {
-			return true;
-		}
-		visited.write().unwrap().insert(path);
-		self.edges
-			.iter()
-			.filter_map(Edge::node)
-			.map(|child| async move {
-				let child = child.read().await;
-				Box::pin(child.contains_path_inner(path, visited)).await
-			})
-			.collect::<FuturesUnordered<_>>()
-			.any(future::ready)
-			.await
+		false
 	}
-}
 
-impl Edge {
-	pub fn node(&self) -> Option<Arc<RwLock<Graph>>> {
-		self.graph.as_ref().map(|node| match node {
-			Either::Left(node) => node.clone(),
-			Either::Right(node) => node.upgrade().unwrap(),
-		})
-	}
-}
-
-impl Graph {
 	#[allow(dead_code)]
-	pub(super) async fn print(self_: Arc<RwLock<Graph>>) {
+	pub(super) async fn print(&self) {
 		let mut visited = BTreeSet::new();
-		let mut stack: Vec<(Node, usize, Option<PathBuf>)> = vec![(Either::Left(self_), 0, None)];
+		let mut stack: Vec<(usize, usize, Option<PathBuf>)> = vec![(0, 0, None)];
 		while let Some((node, depth, subpath)) = stack.pop() {
 			for _ in 0..depth {
 				eprint!("  ");
 			}
-			match node {
-				Either::Left(strong) => {
-					let path = strong.read().await.arg.path.clone();
-					if let Some(subpath) = subpath {
-						eprintln!(
-							"* strong {path:#?} {} {:x?}",
-							subpath.display(),
-							Arc::as_ptr(&strong)
-						);
-					} else {
-						eprintln!("* strong {path:#?} {:x?}", Arc::as_ptr(&strong));
-					}
-					if !visited.contains(&path) {
-						visited.insert(path);
-						stack.extend(strong.read().await.edges.iter().filter_map(|edge| {
-							Some((edge.graph.clone()?, depth + 1, edge.subpath.clone()))
-						}));
-					}
-				},
-				Either::Right(weak) => {
-					let path = weak.upgrade().unwrap().read().await.arg.path.clone();
-					if let Some(subpath) = subpath {
-						eprintln!(
-							"* weak {path:#?} {} {:x?}",
-							subpath.display(),
-							Weak::as_ptr(&weak)
-						);
-					} else {
-						eprintln!("* weak {path:#?} {:x?}", Weak::as_ptr(&weak));
-					}
-				},
+			let path = self.nodes[node].read().await.arg.path.clone();
+			let subpath = subpath.map_or(String::new(), |p| p.display().to_string());
+			eprintln!("* {} {}", path.display(), subpath);
+			if visited.contains(&node) {
+				continue;
+			}
+			visited.insert(node);
+			for edge in &self.nodes[node].read().await.edges {
+				if let Some(node) = edge.node {
+					stack.push((node, depth + 1, edge.subpath.clone()));
+				}
 			}
 		}
 	}
 
-	pub(super) async fn validate(this: Arc<RwLock<Graph>>) -> tg::Result<()> {
+	pub(super) async fn validate(&self) -> tg::Result<()> {
 		let mut paths = BTreeMap::new();
-		let mut stack = vec![this];
+		let mut stack = vec![0];
 		while let Some(node) = stack.pop() {
-			let path = node.read().await.arg.path.clone();
+			let path = self.nodes[node].read().await.arg.path.clone();
 			if paths.contains_key(&path) {
 				continue;
 			}
-			paths.insert(path, node.clone());
-			for edge in &node.read().await.edges {
-				if let Some(child) = &edge.graph {
-					let child = match child {
-						Either::Left(child) => child.clone(),
-						Either::Right(child) => child.upgrade().unwrap(),
-					};
+			paths.insert(path, node);
+			for edge in &self.nodes[node].read().await.edges {
+				if let Some(child) = edge.node {
 					stack.push(child);
 				}
 			}
 		}
-
 		for (path, node) in &paths {
-			let Some(parent) = node.read().await.parent.clone() else {
+			let Some(parent) = self.nodes[*node].read().await.parent else {
 				continue;
 			};
-			let parent = parent
-				.upgrade()
-				.ok_or_else(
-					|| tg::error!(%node = path.display(), "internal error, parent went out of scope"),
-				)?
-				.read()
-				.await
-				.arg
-				.path
-				.clone();
-			let root = get_root_node(Either::Left(node.clone()))
-				.await
-				.read()
-				.await
-				.arg
-				.path
-				.clone();
-			let _parent = paths.get(&parent)
-				.ok_or_else(|| tg::error!(%root = root.display(), %path = path.display(), %parent = parent.display(), "missing parent node"))?;
+			let parent = self.nodes[parent].read().await.arg.path.clone();
+			let _parent = paths.get(&parent).ok_or_else(
+				|| tg::error!(%path = path.display(), %parent = parent.display(), "missing parent node"),
+			)?;
 		}
-
 		Ok(())
 	}
 }
 
-impl Edge {
-	#[allow(dead_code)]
-	pub(super) async fn print(&self) {
-		eprint!("({}", self.reference);
-		if let Some(node) = self.node() {
-			eprint!(" path: {}", node.read().await.arg.path.display());
-		}
-		if let Some(subpath) = &self.subpath {
-			eprint!(" subpath: {}", subpath.display());
-		}
-		eprintln!(")");
-	}
-}
-
-async fn root_node_with_subpath(
-	referrer: Arc<RwLock<Graph>>,
-	child: Node,
-) -> (Node, Option<PathBuf>) {
-	let root = get_root_node(child.clone()).await;
-	let strong = match child.clone() {
-		Either::Left(strong) => strong,
-		Either::Right(weak) => weak.upgrade().unwrap(),
-	};
+async fn root_node_with_subpath(graph: &Graph, node: usize) -> (usize, Option<PathBuf>) {
+	// Find the root node.
+	let root = get_root_node(graph, node).await;
 
 	// If this is a root node, return it.
-	if strong.read().await.parent.is_none() {
-		return (child, None);
+	if root == node {
+		return (node, None);
 	}
 
 	// Otherwise compute the subpath within the root.
-	let path = strong.read().await.arg.path.clone();
-	let root_path = root.read().await.arg.path.clone();
-	let subpath = path.diff(&root_path).unwrap();
+	let referent_path = graph.nodes[node].read().await.arg.path.clone();
+	let root_path = graph.nodes[root].read().await.arg.path.clone();
+	let subpath = referent_path.diff(&root_path).unwrap();
 
-	// If the root is shared with the referrer, return a weak reference. Otherwise return a strong reference.
-	let referrer_root = get_root_node(Either::Left(referrer).clone()).await;
-	let root = if Arc::ptr_eq(&referrer_root, &root) {
-		Either::Right(Arc::downgrade(&root))
-	} else {
-		Either::Left(root)
-	};
-
+	// Return the root node and subpath.
 	(root, Some(subpath))
 }
 
 impl State {
 	// Add a new node as a root to the state, and then return the paths of any nodes
-	async fn add_root_and_return_dangling_directories(
-		&mut self,
-		node: Arc<RwLock<Graph>>,
-	) -> Vec<PathBuf> {
-		let new_path = node.read().await.arg.path.clone();
+	async fn add_root_and_return_dangling_directories(&mut self, node: usize) -> Vec<PathBuf> {
+		let new_path = self.graph.nodes[node].read().await.arg.path.clone();
 
 		// Update any nodes of the graph that are children.
 		let mut roots = Vec::with_capacity(self.roots.len() + 1);
 		let mut dangling = Vec::new();
 		for root in &self.roots {
-			let old_path = root.read().await.arg.path.clone();
+			let old_path = self.graph.nodes[*root].read().await.arg.path.clone();
 			let diff = new_path.diff(&old_path).unwrap();
 			if let Ok(child) = diff.strip_prefix("./") {
 				let dangling_directory = new_path.join(child.ancestors().last().unwrap());
 				dangling.push(dangling_directory);
 			} else {
-				roots.push(root.clone());
+				roots.push(*root);
 			}
 		}
 		// Add the new node to the new list of roots.
@@ -948,31 +864,24 @@ impl State {
 		dangling
 	}
 
-	async fn find_root_of_path(&self, path: &Path) -> Option<Arc<RwLock<Graph>>> {
+	async fn find_root_of_path(&self, path: &Path) -> Option<usize> {
 		for root in &self.roots {
 			if path
-				.diff(&root.read().await.arg.path)
-				.map_or(false, |path| {
-					path.components().next().is_some_and(|component| {
-						!matches!(component, std::path::Component::ParentDir)
-					})
-				}) {
-				return Some(root.clone());
+				.strip_prefix(&self.graph.nodes[*root].read().await.arg.path)
+				.is_ok()
+			{
+				return Some(*root);
 			}
 		}
 		None
 	}
 }
 
-async fn get_root_node(mut node: Node) -> Arc<RwLock<Graph>> {
+async fn get_root_node(graph: &Graph, mut node: usize) -> usize {
 	loop {
-		let strong = match node {
-			Either::Left(strong) => strong,
-			Either::Right(weak) => weak.upgrade().unwrap(),
+		let Some(parent) = graph.nodes[node].read().await.parent else {
+			return node;
 		};
-		let Some(parent) = strong.read().await.parent.clone() else {
-			return strong;
-		};
-		node = Either::Right(parent);
+		node = parent;
 	}
 }

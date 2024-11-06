@@ -1,10 +1,6 @@
 use crate::{util::path::Ext as _, Server};
 use futures::{Stream, StreamExt as _};
-use std::{
-	path::PathBuf,
-	pin::pin,
-	sync::{Arc, RwLock},
-};
+use std::{path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
@@ -112,61 +108,49 @@ impl Server {
 		);
 		arg.path = path;
 
-		// Collect the input.
+		// Create the input graph.
 		let input = self
 			.create_input_graph(arg.clone(), progress)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect the input"),
 			)?;
-		self.select_lockfiles(input.clone()).await?;
 
-		// Construct the graph for unification.
-		let (mut unification_graph, root) = self
-			.create_unification_graph(input.clone())
+		// Create the unification graph and get its root node.
+		let (unify, root) = self
+			.create_unification_graph(&input, arg.deterministic)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to construct the object graph"))?;
 
-		// Unify.
-		if !arg.deterministic {
-			unification_graph = self
-				.unify_dependencies(unification_graph, &root)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to unify the object graph"))?;
-
-			// Validate.
-			unification_graph.validate().await?;
-		}
-
 		// Create the object graph.
-		let object_graph = self
-			.create_object_graph(&root, unification_graph)
+		let object = self
+			.create_object_graph(&input, &unify, &root)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create object graph"))?;
 
 		// Create the output graph.
 		let output = self
-			.create_output_graph(&object_graph)
+			.create_output_graph(&input, &object)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output graph"))?;
 
 		// Get the artifact ID.
 		let artifact = self
-			.find_output_from_input(&arg.path, input.clone(), output.clone())
+			.find_output_from_input(&arg.path, &input, &output)
 			.await?
 			.ok_or_else(|| tg::error!(%path = arg.path.display(), "missing path in output"))?;
 
 		// Copy or move files.
-		self.copy_or_move_to_checkouts_directory(output.clone(), progress)
+		self.copy_or_move_to_checkouts_directory(&input, &output, 0, progress)
 			.await?;
 
 		// Write lockfiles.
-		let lockfile = self.create_lockfile(&object_graph).await?;
-		self.write_lockfiles(input.clone(), &lockfile, &object_graph.paths)
+		let lockfile = self.create_lockfile(&object).await?;
+		self.write_lockfiles(&input, &lockfile, &object.paths)
 			.await?;
 
 		// Write the artifact data to the database.
-		self.write_output_to_database(output.clone()).await?;
+		self.write_output_to_database(&output).await?;
 
 		// Create the output.
 		let output = tg::artifact::checkin::Output { artifact };
@@ -178,43 +162,20 @@ impl Server {
 	async fn find_output_from_input(
 		&self,
 		path: &PathBuf,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
-		output: Arc<RwLock<output::Graph>>,
+		input: &input::Graph,
+		output: &output::Graph,
 	) -> tg::Result<Option<tg::artifact::Id>> {
-		if &input.read().await.arg.path == path {
-			return Ok(Some(output.read().unwrap().id.clone()));
-		}
-		// Recurse over path dependencies.
-		let dependencies = input
-			.read()
-			.await
-			.edges
-			.iter()
-			.filter_map(|edge| {
-				let child = edge.node()?;
-				edge.reference
-					.item()
-					.try_unwrap_path_ref()
-					.ok()
-					.or_else(|| edge.reference.options()?.path.as_ref())
-					.map(|_| (edge.reference.clone(), child))
-			})
-			.collect::<Vec<_>>();
-		for (reference, child_input) in dependencies {
-			let child_output = output
-				.read()
-				.unwrap()
-				.edges
-				.iter()
-				.find(|edge| edge.reference == reference)
-				.ok_or_else(
-					|| tg::error!(%referrer = path.display(), %reference, "missing output reference"),
-				)?
-				.node();
-			if let Some(id) =
-				Box::pin(self.find_output_from_input(path, child_input, child_output)).await?
-			{
-				return Ok(Some(id));
+		let mut stack = vec![0];
+		let mut visited = vec![false; output.nodes.len()];
+		while let Some(output_index) = stack.pop() {
+			if visited[output_index] {
+				continue;
+			}
+			visited[output_index] = true;
+			let input_index = output.nodes[output_index].input;
+			let input = input.nodes[input_index].read().await;
+			if &input.arg.path == path {
+				return Ok(Some(output.nodes[output_index].id.clone()));
 			}
 		}
 		Ok(None)
