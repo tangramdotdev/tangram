@@ -642,16 +642,16 @@ mod tests {
 	#[test]
 	fn compact_map() {
 		let mut left = String::new();
-		let style = Style::Compact;
-		let mut printer = Printer::new(&mut left, style);
+		let options = Options::default();
+		let mut printer = Printer::new(&mut left, options);
 		printer.start_map().unwrap();
 		printer.finish_map().unwrap();
 		let right = "{}";
 		assert_eq!(left, right);
 
 		let mut left = String::new();
-		let style = Style::Compact;
-		let mut printer = Printer::new(&mut left, style);
+		let options = Options::default();
+		let mut printer = Printer::new(&mut left, options);
 		printer.start_map().unwrap();
 		printer.map_entry("foo", |s| s.string("bar")).unwrap();
 		printer.finish_map().unwrap();
@@ -659,8 +659,8 @@ mod tests {
 		assert_eq!(left, right);
 
 		let mut left = String::new();
-		let style = Style::Compact;
-		let mut printer = Printer::new(&mut left, style);
+		let options = Options::default();
+		let mut printer = Printer::new(&mut left, options);
 		printer.start_map().unwrap();
 		printer.map_entry("foo", |s| s.string("bar")).unwrap();
 		printer.map_entry("baz", |s| s.string("qux")).unwrap();
@@ -672,16 +672,22 @@ mod tests {
 	#[test]
 	fn pretty_map() {
 		let mut left = String::new();
-		let style = Style::Pretty { indentation: "\t" };
-		let mut printer = Printer::new(&mut left, style);
+		let options = Options {
+			style: Style::Pretty { indentation: "\t" },
+			..Default::default()
+		};
+		let mut printer = Printer::new(&mut left, options);
 		printer.start_map().unwrap();
 		printer.finish_map().unwrap();
 		let right = "{}";
 		assert_eq!(left, right);
 
 		let mut left = String::new();
-		let style = Style::Pretty { indentation: "\t" };
-		let mut printer = Printer::new(&mut left, style);
+		let options = Options {
+			style: Style::Pretty { indentation: "\t" },
+			..Default::default()
+		};
+		let mut printer = Printer::new(&mut left, options);
 		printer.start_map().unwrap();
 		printer.map_entry("foo", |s| s.string("bar")).unwrap();
 		printer.finish_map().unwrap();
@@ -696,8 +702,11 @@ mod tests {
 		assert_eq!(left, right);
 
 		let mut left = String::new();
-		let style = Style::Pretty { indentation: "\t" };
-		let mut printer = Printer::new(&mut left, style);
+		let options = Options {
+			style: Style::Pretty { indentation: "\t" },
+			..Default::default()
+		};
+		let mut printer = Printer::new(&mut left, options);
 		printer.start_map().unwrap();
 		printer.map_entry("foo", |s| s.string("bar")).unwrap();
 		printer.map_entry("baz", |s| s.string("qux")).unwrap();
@@ -714,8 +723,11 @@ mod tests {
 		assert_eq!(left, right);
 
 		let mut left = String::new();
-		let style = Style::Pretty { indentation: "\t" };
-		let mut printer = Printer::new(&mut left, style);
+		let options = Options {
+			style: Style::Pretty { indentation: "\t" },
+			..Default::default()
+		};
+		let mut printer = Printer::new(&mut left, options);
 		printer.start_map().unwrap();
 		printer
 			.map_entry("foo", |s| {

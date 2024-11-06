@@ -9,14 +9,8 @@ pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-pub async fn cleanup_instance(
-	temp: tangram_temp::Temp,
-	server: crate::Server,
-) -> tangram_client::Result<()> {
+pub async fn cleanup(temp: tangram_temp::Temp, server: crate::Server) {
 	server.stop();
 	server.wait().await;
-	temp.remove()
-		.await
-		.map_err(|source| tangram_client::error!(!source, "failed to remove temp"))?;
-	Ok(())
+	temp.remove().await.ok();
 }

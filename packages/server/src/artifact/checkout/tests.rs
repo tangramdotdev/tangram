@@ -1,4 +1,4 @@
-use crate::{util::fs::cleanup_instance, Config, Server};
+use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt as _;
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
@@ -43,7 +43,7 @@ async fn file() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(server_temp, server).await?;
+	cleanup(server_temp, server).await;
 	result.unwrap()
 }
 
@@ -87,7 +87,7 @@ async fn executable_file() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(server_temp, server).await?;
+	cleanup(server_temp, server).await;
 	result.unwrap()
 }
 
@@ -160,7 +160,7 @@ async fn symlink() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(server_temp, server).await?;
+	cleanup(server_temp, server).await;
 	result.unwrap()
 }
 
@@ -242,7 +242,7 @@ async fn symlink_to_symlink() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(server_temp, server).await?;
+	cleanup(server_temp, server).await;
 	result.unwrap()
 }
 
@@ -294,7 +294,7 @@ async fn file_with_graph_object() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(server_temp, server).await?;
+	cleanup(server_temp, server).await;
 	result.unwrap()
 }
 
@@ -354,6 +354,6 @@ async fn directory() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(server_temp, server).await?;
+	cleanup(server_temp, server).await;
 	result.unwrap()
 }

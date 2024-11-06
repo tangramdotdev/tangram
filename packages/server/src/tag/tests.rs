@@ -1,4 +1,4 @@
-use crate::{util::fs::cleanup_instance, Config, Server};
+use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt as _;
 use insta::assert_yaml_snapshot;
 use std::{panic::AssertUnwindSafe, str::FromStr};
@@ -18,7 +18,7 @@ async fn get_no_results() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(temp, server).await?;
+	cleanup(temp, server).await;
 	result.unwrap()
 }
 
@@ -39,7 +39,7 @@ async fn list_no_results() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(temp, server).await?;
+	cleanup(temp, server).await;
 	result.unwrap()
 }
 
@@ -81,7 +81,7 @@ async fn single_tag() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(temp, server).await?;
+	cleanup(temp, server).await;
 	result.unwrap()
 }
 
@@ -120,7 +120,7 @@ async fn remote_put() -> tg::Result<()> {
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(server_temp, server).await?;
-	cleanup_instance(remote_temp, remote).await?;
+	cleanup(server_temp, server).await;
+	cleanup(remote_temp, remote).await;
 	result.unwrap()
 }

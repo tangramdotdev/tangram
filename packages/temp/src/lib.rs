@@ -11,18 +11,32 @@ pub mod artifact;
 
 pub struct Temp {
 	path: Option<PathBuf>,
+	persistent: bool,
 }
 
 impl Temp {
+	#[must_use]
 	pub fn new() -> Self {
-		let temp_path = std::env::temp_dir();
+		Self::with_persistent(false)
+	}
+
+	#[must_use]
+	pub fn new_persistent() -> Self {
+		Self::with_persistent(true)
+	}
+
+	fn with_persistent(remove: bool) -> Self {
+		let temp_path = Path::new("/tmp");
 		let name = rand::thread_rng()
 			.sample_iter(&Alphanumeric)
 			.take(16)
 			.map(char::from)
 			.collect::<String>();
 		let path = temp_path.join(name);
-		Self { path: Some(path) }
+		Self {
+			path: Some(path),
+			persistent: remove,
+		}
 	}
 
 	#[must_use]
@@ -59,12 +73,14 @@ impl Default for Temp {
 
 impl Drop for Temp {
 	fn drop(&mut self) {
-		let path = self.path.take().unwrap();
-		tokio::spawn(async move {
-			tokio::fs::remove_file(path.clone())
-				.or_else(|_| tokio::fs::remove_dir_all(path))
-				.await
-				.ok()
-		});
+		if !self.persistent {
+			let path = self.path.take().unwrap();
+			tokio::spawn(async move {
+				tokio::fs::remove_file(path.clone())
+					.or_else(|_| tokio::fs::remove_dir_all(path))
+					.await
+					.ok()
+			});
+		}
 	}
 }

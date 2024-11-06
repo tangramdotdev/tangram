@@ -16,7 +16,7 @@ async fn hello_world() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""Hello, World!""###);
@@ -36,7 +36,7 @@ async fn accepts_target_with_no_return_value() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"null");
@@ -56,7 +56,7 @@ async fn accepts_arg() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		Some(&["Tangram"]),
+		vec!["Tangram".into()],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""Hello, Tangram!""###);
@@ -76,7 +76,7 @@ async fn current_target_id() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""tgt_01wb4tdwy3mhb99vv0q9n1z0x8xxmydf1rfaxa3eahfx36ygsx5wt0""###);
@@ -102,7 +102,7 @@ async fn host_target_hello_world() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"");
@@ -126,7 +126,7 @@ async fn two_modules() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""Hello from bar""###);
@@ -152,7 +152,7 @@ async fn path_dependency() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""Hello from bar""###);
@@ -178,7 +178,7 @@ async fn path_dependency_import_attribute() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""Hello from bar""###);
@@ -201,7 +201,7 @@ async fn named_target() -> tg::Result<()> {
 		},
 		"foo",
 		"five",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"5");
@@ -227,7 +227,7 @@ async fn concurrent_targets() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"9900");
@@ -247,7 +247,7 @@ async fn captures_error() -> tg::Result<()> {
 		},
 		"throw_error",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @r"Uncaught Error: not so fast!");
@@ -271,7 +271,7 @@ async fn import_file() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""I'm a plain text file!""###);
@@ -301,7 +301,7 @@ async fn import_directory() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""I'm a plain text file inside a directory!""###);
@@ -332,7 +332,7 @@ async fn directory_get_follows_symlinks() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""I'm a plain text file inside a directory through a symlink!""###);
@@ -352,7 +352,7 @@ async fn target_cycle_detection() -> tg::Result<()> {
 		},
 		"foo",
 		"x",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @"failed to build the target");
@@ -381,7 +381,7 @@ async fn target_cycle_detection_between_packages() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @"failed to resolve");
@@ -411,7 +411,7 @@ async fn package_cycle_without_target_cycle() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"");
@@ -437,7 +437,7 @@ async fn value_cycle_detection_object() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @r"Uncaught Error: cycle detected");
@@ -463,7 +463,7 @@ async fn value_cycle_detection_array() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @r"Uncaught Error: cycle detected");
@@ -488,7 +488,7 @@ async fn builtin_download_unsafe_checksum() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
@@ -513,7 +513,7 @@ async fn builtin_download_exact_checksum() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
@@ -538,7 +538,7 @@ async fn builtin_download_rejects_incorrect_checksum() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @r"Uncaught Error: invalid checksum, expected sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa but got sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
@@ -563,7 +563,7 @@ async fn builtin_download_rejects_malformed_checksum() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @"Uncaught Error: invalid checksum");
@@ -594,7 +594,7 @@ async fn builtin_artifact_archive_extract_roundtrip() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"");
@@ -621,7 +621,7 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
-		None,
+		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"");
@@ -635,15 +635,19 @@ async fn test<F, Fut>(
 	artifact: temp::Artifact,
 	path: &str,
 	target: &str,
-	target_args: Option<&[&str]>,
+	args: Vec<tg::Value>,
 	assertions: F,
 ) -> tg::Result<()>
 where
 	F: FnOnce(Server, tg::build::Outcome) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
-	let temp = Temp::new();
-	let mut options = Config::with_path(temp.path().to_owned());
+	let artifact_temp = Temp::new_persistent();
+	artifact.to_path(artifact_temp.as_ref()).await.map_err(
+		|source| tg::error!(!source, %path = artifact_temp.path().display(), "failed to write the artifact"),
+	)?;
+	let server_temp = Temp::new_persistent();
+	let mut options = Config::with_path(server_temp.path().to_owned());
 	options.advanced = tangram_server::config::Advanced {
 		write_build_logs_to_stderr: true,
 		..Default::default()
@@ -653,16 +657,12 @@ where
 		Some(tangram_server::config::BuildHeartbeatMonitor::default());
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
-		let directory = Temp::new();
-		artifact.to_path(directory.as_ref()).await.map_err(
-			|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
-		)?;
 		let arg = tg::artifact::checkin::Arg {
 			destructive: false,
 			deterministic: false,
 			ignore: true,
 			locked: false,
-			path: directory.as_ref().join(path),
+			path: artifact_temp.as_ref().join(path),
 		};
 		let artifact = tg::Artifact::check_in(&server, arg)
 			.await?
@@ -671,14 +671,8 @@ where
 		let artifact = artifact.clone().into();
 		let subpath = Some("tangram.ts".parse().unwrap());
 		let env = [("TANGRAM_HOST".to_owned(), tg::host().into())].into();
-		let args: Vec<tg::Value> = std::iter::once(target.into())
-			.chain(
-				target_args
-					.map(|args| args.iter())
-					.into_iter()
-					.flatten()
-					.map(|arg| (*arg).into()),
-			)
+		let args = std::iter::once(target.into())
+			.chain(args.into_iter())
 			.collect();
 		let executable = Some(tg::target::Executable::Module(tg::Module {
 			kind: tg::module::Kind::Js,
@@ -711,9 +705,10 @@ where
 	.await;
 	server.stop();
 	server.wait().await;
-	temp.remove()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to remove temp"))?;
+	if result.as_ref().is_ok_and(Result::is_ok) {
+		server_temp.remove().await.ok();
+	}
+	artifact_temp.remove().await.ok();
 	result.unwrap()
 }
 

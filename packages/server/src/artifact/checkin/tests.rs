@@ -1,4 +1,4 @@
-use crate::{util::fs::cleanup_instance, Config, Server};
+use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt as _;
 use insta::assert_snapshot;
 use std::{future::Future, panic::AssertUnwindSafe, pin::pin};
@@ -414,6 +414,6 @@ where
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(temp, server).await?;
+	cleanup(temp, server).await;
 	result.unwrap()
 }

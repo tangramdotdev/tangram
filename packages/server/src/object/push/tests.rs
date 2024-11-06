@@ -1,4 +1,4 @@
-use crate::{util::fs::cleanup_instance, Config, Server};
+use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt as _;
 use std::{panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
@@ -11,10 +11,10 @@ async fn push_file() -> tg::Result<()> {
 	let remote_options = Config::with_path(remote_temp.path().to_owned());
 	let remote = Server::start(remote_options).await?;
 
-	let orig_temp = Temp::new();
-	let orig_options =
-		Config::with_path_and_remote(orig_temp.path().to_owned(), remote_temp.path());
-	let orig = Server::start(orig_options).await?;
+	let server_temp = Temp::new();
+	let server_options =
+		Config::with_path_and_remote(server_temp.path().to_owned(), remote_temp.path());
+	let server = Server::start(server_options).await?;
 
 	let other_temp = Temp::new();
 	let other_options =
@@ -23,13 +23,13 @@ async fn push_file() -> tg::Result<()> {
 
 	let result = AssertUnwindSafe(async {
 		let file = tg::File::with_contents("test");
-		let file = file.id(&orig).await?;
-		let orig_get_output = orig.try_get_object(&file.clone().into()).await?;
+		let file = file.id(&server).await?;
+		let server_get_output = server.try_get_object(&file.clone().into()).await?;
 
 		let arg = tg::object::push::Arg {
 			remote: "default".to_string(),
 		};
-		let stream = orig.push_object(&file.clone().into(), arg).await?;
+		let stream = server.push_object(&file.clone().into(), arg).await?;
 		pin!(stream)
 			.try_last()
 			.await?
@@ -37,15 +37,17 @@ async fn push_file() -> tg::Result<()> {
 			.ok_or_else(|| tg::error!("stream ended without output"))?;
 
 		let other_get_output = other.try_get_object(&file.into()).await?;
-		assert_eq!(orig_get_output, other_get_output);
+		assert_eq!(server_get_output, other_get_output);
 
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(orig_temp, orig).await?;
-	cleanup_instance(other_temp, other).await?;
-	cleanup_instance(remote_temp, remote).await?;
+
+	cleanup(server_temp, server).await;
+	cleanup(other_temp, other).await;
+	cleanup(remote_temp, remote).await;
+
 	result.unwrap()
 }
 
@@ -55,10 +57,10 @@ async fn push_simple_directory() -> tg::Result<()> {
 	let remote_options = Config::with_path(remote_temp.path().to_owned());
 	let remote = Server::start(remote_options).await?;
 
-	let orig_temp = Temp::new();
-	let orig_options =
-		Config::with_path_and_remote(orig_temp.path().to_owned(), remote_temp.path());
-	let orig = Server::start(orig_options).await?;
+	let server_temp = Temp::new();
+	let server_options =
+		Config::with_path_and_remote(server_temp.path().to_owned(), remote_temp.path());
+	let server = Server::start(server_options).await?;
 
 	let other_temp = Temp::new();
 	let other_options =
@@ -72,13 +74,13 @@ async fn push_simple_directory() -> tg::Result<()> {
 				"nested.txt" => tg::file!("I'm nested!")
 			}
 		};
-		let directory = directory.id(&orig).await?;
-		let orig_get_output = orig.try_get_object(&directory.clone().into()).await?;
+		let directory = directory.id(&server).await?;
+		let server_get_output = server.try_get_object(&directory.clone().into()).await?;
 
 		let arg = tg::object::push::Arg {
 			remote: "default".to_string(),
 		};
-		let stream = orig.push_object(&directory.clone().into(), arg).await?;
+		let stream = server.push_object(&directory.clone().into(), arg).await?;
 		pin!(stream)
 			.try_last()
 			.await?
@@ -97,14 +99,16 @@ async fn push_simple_directory() -> tg::Result<()> {
 
 		let other_get_output = other.try_get_object(&directory.clone().into()).await?;
 
-		assert_eq!(orig_get_output, other_get_output);
+		assert_eq!(server_get_output, other_get_output);
 
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()
 	.await;
-	cleanup_instance(orig_temp, orig).await?;
-	cleanup_instance(other_temp, other).await?;
-	cleanup_instance(remote_temp, remote).await?;
+
+	cleanup(server_temp, server).await;
+	cleanup(other_temp, other).await;
+	cleanup(remote_temp, remote).await;
+
 	result.unwrap()
 }
