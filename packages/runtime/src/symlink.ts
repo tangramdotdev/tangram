@@ -185,32 +185,16 @@ export class Symlink {
 		}
 	}
 
-	async resolve(
-		from?: Symlink.Arg,
-	): Promise<tg.Directory | tg.File | undefined> {
-		from = from ? await symlink(from) : undefined;
-		let fromArtifact = await from?.artifact();
-		if (fromArtifact instanceof Symlink) {
-			fromArtifact = await fromArtifact.resolve();
-		}
-		let fromPath = await from?.subpath();
+	async resolve(): Promise<tg.Directory | tg.File | undefined> {
 		let artifact = await this.artifact();
 		if (artifact instanceof Symlink) {
 			artifact = await artifact.resolve();
 		}
 		let subpath = await this.subpath();
-		if (artifact !== undefined && fromArtifact !== undefined) {
-			throw new Error("expected no `from` value when `artifact` is set");
-		}
 		if (artifact !== undefined && !subpath) {
 			return artifact;
-		} else if (artifact === undefined && subpath && fromPath) {
-			if (!(fromArtifact instanceof tg.Directory)) {
-				throw new Error("expected a directory");
-			}
-			return await fromArtifact.tryGet(
-				tg.path.join(tg.path.parent(fromPath) ?? "", subpath),
-			);
+		} else if (artifact === undefined && subpath) {
+			throw new Error("expected an artifact");
 		} else if (artifact !== undefined && subpath) {
 			if (!(artifact instanceof tg.Directory)) {
 				throw new Error("expected a directory");
