@@ -31,7 +31,6 @@ mod build;
 mod clean;
 mod compiler;
 mod database;
-mod format;
 mod health;
 mod lockfile;
 mod messenger;

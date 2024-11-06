@@ -12,7 +12,6 @@ async fn test_path_dep() -> tg::Result<()> {
 			"bar.ts" => r#"export const bar = tg.target(() => tg.file("Hello, Bar!"));"#,
 			"baz" => temp::directory! {
 				"tangram.ts" => r#"export const baz = tg.target(() => tg.file("Hello, Baz!"));"#,
-
 			},
 			"tangram.ts" => r"
 				import * as baz from ./baz;
@@ -100,5 +99,6 @@ async fn test(artifact: temp::Artifact) -> tg::Result<()> {
 	.await;
 	server.stop();
 	server.wait().await;
+	temp.remove().await.ok();
 	result.unwrap()
 }

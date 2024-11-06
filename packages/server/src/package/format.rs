@@ -2,7 +2,9 @@ use crate::{compiler::Compiler, module::infer_module_kind, Server};
 use std::{collections::HashSet, path::PathBuf};
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::module::Kind;
+
+#[cfg(test)]
+mod tests;
 
 impl Server {
 	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
@@ -72,7 +74,7 @@ impl Server {
 				};
 
 				match kind {
-					Some(Kind::Js | Kind::Ts | Kind::Dts) => {
+					Some(tg::module::Kind::Js | tg::module::Kind::Ts) => {
 						let path = path.join(import_path);
 						let exists = tokio::fs::try_exists(&path).await.map_err(
 							|source| tg::error!(!source, %path = path.display(), "failed to check if file exists"),
