@@ -105,7 +105,7 @@ async fn host_target_hello_world() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r"");
+			assert_snapshot!(output, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
 			Ok::<_, tg::Error>(())
 		},
 	)

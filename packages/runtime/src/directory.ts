@@ -185,7 +185,7 @@ export class Directory {
 			} else if (entry instanceof tg.Symlink) {
 				let resolved = await entry.resolve({
 					artifact: this,
-					path: currentPath,
+					subpath: currentPath,
 				});
 				if (resolved === undefined) {
 					return undefined;

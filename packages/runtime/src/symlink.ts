@@ -28,8 +28,8 @@ export class Symlink {
 			return new Symlink({ object: arg });
 		}
 		let artifact = arg.artifact;
-		let path = arg.path !== undefined ? arg.path : undefined;
-		let object = { artifact, path };
+		let subpath = arg.subpath !== undefined ? arg.subpath : undefined;
+		let object = { artifact, subpath };
 		return new Symlink({ object });
 	}
 
@@ -50,9 +50,9 @@ export class Symlink {
 				if (arg === undefined) {
 					return {};
 				} else if (typeof arg === "string") {
-					return { path: arg };
+					return { subpath: arg };
 				} else if (tg.Artifact.is(arg)) {
-					return { artifact: arg, path: tg.Mutation.unset() };
+					return { artifact: arg, subpath: tg.Mutation.unset() };
 				} else if (arg instanceof tg.Template) {
 					tg.assert(arg.components.length <= 2);
 					let [firstComponent, secondComponent] = arg.components;
@@ -60,12 +60,12 @@ export class Symlink {
 						typeof firstComponent === "string" &&
 						secondComponent === undefined
 					) {
-						return { path: firstComponent };
+						return { subpath: firstComponent };
 					} else if (
 						tg.Artifact.is(firstComponent) &&
 						secondComponent === undefined
 					) {
-						return { artifact: firstComponent, path: tg.Mutation.unset() };
+						return { artifact: firstComponent, subpath: tg.Mutation.unset() };
 					} else if (
 						tg.Artifact.is(firstComponent) &&
 						typeof secondComponent === "string"
@@ -73,14 +73,14 @@ export class Symlink {
 						tg.assert(secondComponent.startsWith("/"));
 						return {
 							artifact: firstComponent,
-							path: secondComponent.slice(1),
+							subpath: secondComponent.slice(1),
 						};
 					} else {
 						throw new Error("invalid template");
 					}
 				} else if (arg instanceof Symlink) {
-					let path = await arg.path();
-					return { artifact: await arg.artifact(), path };
+					let subpath = await arg.subpath();
+					return { artifact: await arg.artifact(), subpath };
 				} else {
 					return arg;
 				}
@@ -88,7 +88,7 @@ export class Symlink {
 		);
 		let mutations = await tg.Args.createMutations(objects, {
 			artifact: "set",
-			path: "set",
+			subpath: "set",
 		});
 		let arg = await tg.Args.applyMutations(mutations);
 		return arg;
@@ -169,10 +169,10 @@ export class Symlink {
 		}
 	}
 
-	async path(): Promise<string | undefined> {
+	async subpath(): Promise<string | undefined> {
 		const object = await this.object();
 		if (!("graph" in object)) {
-			return object.path;
+			return object.subpath;
 		} else {
 			const nodes = await object.graph.nodes();
 			const node = nodes[object.node];
@@ -181,7 +181,7 @@ export class Symlink {
 				node.kind === "symlink",
 				`expected a symlink node, got ${node}`,
 			);
-			return node.path;
+			return node.subpath;
 		}
 	}
 
@@ -193,29 +193,29 @@ export class Symlink {
 		if (fromArtifact instanceof Symlink) {
 			fromArtifact = await fromArtifact.resolve();
 		}
-		let fromPath = await from?.path();
+		let fromPath = await from?.subpath();
 		let artifact = await this.artifact();
 		if (artifact instanceof Symlink) {
 			artifact = await artifact.resolve();
 		}
-		let path = await this.path();
+		let subpath = await this.subpath();
 		if (artifact !== undefined && fromArtifact !== undefined) {
 			throw new Error("expected no `from` value when `artifact` is set");
 		}
-		if (artifact !== undefined && !path) {
+		if (artifact !== undefined && !subpath) {
 			return artifact;
-		} else if (artifact === undefined && path) {
+		} else if (artifact === undefined && subpath && fromPath) {
 			if (!(fromArtifact instanceof tg.Directory)) {
 				throw new Error("expected a directory");
 			}
 			return await fromArtifact.tryGet(
-				tg.path.join(tg.path.parent(fromPath) ?? "", path),
+				tg.path.join(tg.path.parent(fromPath) ?? "", subpath),
 			);
-		} else if (artifact !== undefined && path) {
+		} else if (artifact !== undefined && subpath) {
 			if (!(artifact instanceof tg.Directory)) {
 				throw new Error("expected a directory");
 			}
-			return await artifact.tryGet(path);
+			return await artifact.tryGet(subpath);
 		} else {
 			throw new Error("invalid symlink");
 		}
@@ -234,7 +234,7 @@ export namespace Symlink {
 	export type ArgObject =
 		| {
 				artifact?: tg.Artifact | undefined;
-				path?: string | undefined;
+				subpath?: string | undefined;
 		  }
 		| { graph: tg.Graph; node: number };
 
@@ -243,7 +243,7 @@ export namespace Symlink {
 	export type Object =
 		| {
 				artifact: tg.Artifact | undefined;
-				path: string | undefined;
+				subpath: string | undefined;
 		  }
 		| { graph: tg.Graph; node: number };
 

@@ -565,6 +565,10 @@ impl Server {
 		let artifact = symlink.artifact(self).await?;
 		let subpath = symlink.subpath(self).await?;
 
+		if artifact.is_none() && subpath.is_none() {
+			return Err(tg::error!("invalid symlink"));
+		}
+
 		// Check out the symlink's artifact if necessary.
 		if arg.dependencies {
 			if let Some(artifact) = &artifact {

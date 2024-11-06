@@ -40,7 +40,7 @@ export class Graph {
 					return {
 						kind: "symlink" as const,
 						artifact: node.artifact ?? undefined,
-						path: node.path !== undefined ? node.path : undefined,
+						subpath: node.subpath !== undefined ? node.subpath : undefined,
 					};
 				} else {
 					return tg.unreachable(node);
@@ -119,8 +119,8 @@ export class Graph {
 							node.artifact = argNode.artifact;
 						}
 					}
-					if ("path" in argNode) {
-						node.path = argNode.path;
+					if ("subpath" in argNode) {
+						node.subpath = argNode.subpath;
 					}
 					nodes.push(node);
 				} else {
@@ -201,7 +201,7 @@ export namespace Graph {
 	export type SymlinkNodeArg = {
 		kind: "symlink";
 		artifact?: number | tg.Artifact | undefined;
-		path?: string | undefined;
+		subpath?: string | undefined;
 	};
 
 	export type Object = {
@@ -227,7 +227,7 @@ export namespace Graph {
 	export type SymlinkNode = {
 		kind: "symlink";
 		artifact: number | tg.Artifact | undefined;
-		path: string | undefined;
+		subpath: string | undefined;
 	};
 
 	export type State = tg.Object.State<Graph.Id, Graph.Object>;
