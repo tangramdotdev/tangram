@@ -1237,11 +1237,6 @@ impl std::ops::Deref for Server {
 #[cfg(test)]
 #[ctor::ctor]
 fn ctor() {
-	test_init();
-}
-
-#[cfg(test)]
-fn test_init() {
 	// Set file descriptor limit.
 	let limit = 65536;
 	let rlimit = libc::rlimit {
@@ -1252,7 +1247,7 @@ fn test_init() {
 	assert!(ret == 0, "failed to set the file descriptor limit");
 
 	// Initialize v8.
-	v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
+	v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
 	let platform = v8::new_default_platform(0, true);
 	v8::V8::initialize_platform(platform.make_shared());
 	v8::V8::initialize();

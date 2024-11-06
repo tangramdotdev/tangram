@@ -950,7 +950,7 @@ impl Cli {
 	/// Initialize V8.
 	fn initialize_v8() {
 		// Set the ICU data.
-		v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
+		v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
 
 		// Initialize the platform.
 		let platform = v8::new_default_platform(0, true);
@@ -1059,25 +1059,5 @@ impl Cli {
 		}
 
 		Ok(())
-	}
-
-	// Get the host.
-	fn host() -> &'static str {
-		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-		{
-			"aarch64-darwin"
-		}
-		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
-		{
-			"aarch64-linux"
-		}
-		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
-		{
-			"x86_64-darwin"
-		}
-		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
-		{
-			"x86_64-linux"
-		}
 	}
 }

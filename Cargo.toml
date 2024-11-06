@@ -31,6 +31,7 @@ version = "0.0.0"
 [workspace.lints.clippy]
 assigning_clones = "allow"
 items_after_statements = "allow"
+many_single_char_names = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 missing_safety_doc = "allow"
@@ -59,7 +60,7 @@ ctor = "0.2"
 dashmap = "6"
 data-encoding = "2"
 data-encoding-macro = "0.1"
-deno_core_icudata = "0.73"
+deno_core_icudata = "0.74"
 derive_more = { version = "1", features = ["full"] }
 erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }
@@ -83,7 +84,7 @@ libc = "0.2"
 lsp-types = "0.97"
 mime = "0.3"
 moka = { version = "0.12", features = ["sync"] }
-notify = "6"
+notify = "7"
 num = "0.4"
 oauth2 = "5.0.0-rc.1"
 octocrab = "0.41"
@@ -110,7 +111,7 @@ serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 sourcemap = "9"
-swc_core = { version = "1", features = [
+swc_core = { version = "4", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",
@@ -152,11 +153,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-tree = "0.4"
 unicode-segmentation = "1"
-unicode-width = "0.1"
+unicode-width = "0.2"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { version = "129.0.0" }
+v8 = { version = "130.0.1" }
 webbrowser = "1"
 webpki-roots = "0.26"
 winnow = "0.6"

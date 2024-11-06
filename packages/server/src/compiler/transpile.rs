@@ -2,7 +2,10 @@ use super::Compiler;
 use std::rc::Rc;
 use swc_core::{
 	self as swc,
-	ecma::{ast, visit::VisitMutWith},
+	ecma::{
+		ast::{self, Pass as _},
+		visit::VisitMutWith as _,
+	},
 };
 use tangram_client as tg;
 
@@ -35,27 +38,28 @@ impl Compiler {
 			let top_level_mark = swc::common::Mark::new();
 
 			// Create the resolver.
-			let mut resolver =
-				swc::ecma::transforms::base::resolver(unresolved_mark, top_level_mark, true);
+			let resolver = swc::ecma::visit::visit_mut_pass(swc::ecma::transforms::base::resolver(
+				unresolved_mark,
+				top_level_mark,
+				true,
+			));
 
-			// Create the target visitor.
-			let mut target_visitor = TargetVisitor {
+			// Create the target.
+			let target = swc::ecma::visit::visit_mut_pass(TargetVisitor {
 				source_map: source_map.clone(),
 				errors: Vec::new(),
-			};
+			});
 
 			// Create the stripper.
-			let mut stripper =
+			let stripper =
 				swc::ecma::transforms::typescript::strip(unresolved_mark, top_level_mark);
 
 			// Create the fixer.
-			let mut fixer = swc::ecma::transforms::base::fixer::fixer(None);
+			let fixer =
+				swc::ecma::visit::visit_mut_pass(swc::ecma::transforms::base::fixer::fixer(None));
 
 			// Visit the module.
-			program.visit_mut_with(&mut resolver);
-			program.visit_mut_with(&mut target_visitor);
-			program.visit_mut_with(&mut stripper);
-			program.visit_mut_with(&mut fixer);
+			(resolver, target, stripper, fixer).process(&mut program);
 
 			// Create the writer.
 			let mut transpiled_text = Vec::new();

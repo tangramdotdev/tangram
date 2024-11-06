@@ -201,7 +201,7 @@ impl Cli {
 				let host = if let Some(host) = args.host {
 					host
 				} else {
-					Cli::host().to_owned()
+					tg::host().to_owned()
 				};
 				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
 			}

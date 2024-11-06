@@ -1,17 +1,13 @@
 use crate::{Config, Server};
 use bytes::Bytes;
-use futures::{
-	stream::{self, FuturesUnordered},
-	FutureExt as _, StreamExt as _, TryStreamExt as _,
-};
+use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use std::{fmt::Debug, panic::AssertUnwindSafe};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_temp::Temp;
-use tg::{directory, file, handle::Ext as _, symlink};
+use tg::{directory, file, symlink};
 
 #[tokio::test]
-#[allow(clippy::many_single_char_names)]
 async fn test_builds() -> tg::Result<()> {
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());

@@ -10,16 +10,16 @@ use tangram_temp::{self as temp, Temp};
 async fn hello_world() -> tg::Result<()> {
 	test(
 		temp::directory! {
-			"hello" => temp::directory! {
-				"tangram.ts" => r#"export default tg.target(() => "Hello, world!")"#,
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"export default tg.target(() => "Hello, World!")"#,
 			}
 		},
-		"hello",
+		"foo",
 		"default",
 		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r###""Hello, world!""###);
+			assert_snapshot!(output, @r###""Hello, World!""###);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -30,16 +30,16 @@ async fn hello_world() -> tg::Result<()> {
 async fn accepts_arg() -> tg::Result<()> {
 	test(
 		temp::directory! {
-			"hello" => temp::directory! {
+			"foo" => temp::directory! {
 				"tangram.ts" => r"export default tg.target((name: string) => `Hello, ${name}!`)",
 			}
 		},
-		"hello",
+		"foo",
 		"default",
-		Some(&["Cool Person"]),
+		Some(&["Tangram"]),
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r###""Hello, Cool Person!""###);
+			assert_snapshot!(output, @r###""Hello, Tangram!""###);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -50,11 +50,11 @@ async fn accepts_arg() -> tg::Result<()> {
 async fn current_target_id() -> tg::Result<()> {
 	test(
 		temp::directory! {
-			"hello" => temp::directory! {
+			"foo" => temp::directory! {
 				"tangram.ts" => r"export default tg.target(() => tg.Target.current.id())",
 			}
 		},
-		"hello",
+		"foo",
 		"default",
 		None,
 		|_, outcome| async move {
@@ -67,19 +67,20 @@ async fn current_target_id() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn unix_process() -> tg::Result<()> {
+async fn host_target_hello_world() -> tg::Result<()> {
 	test(
 		temp::directory! {
-			"hello" => temp::directory! {
+			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
-					export default tg.target(() => {
-						return tg.target("echo 'Hello from a unix process!' > $OUTPUT")
-							.then((t) => t.output());
+					export default tg.target(async () => {
+						let target = await tg.target("echo 'Hello, World!' > $OUTPUT");
+						let output = await target.output();
+						return output;
 					});
 				"#),
 			}
 		},
-		"hello",
+		"foo",
 		"default",
 		None,
 		|_, outcome| async move {
@@ -183,7 +184,7 @@ async fn named_target() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @"5");
+			assert_snapshot!(output, @r"5");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -229,7 +230,7 @@ async fn captures_error() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @"Uncaught Error: not so fast!");
+			assert_snapshot!(error, @r"Uncaught Error: not so fast!");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -378,7 +379,7 @@ async fn package_cycle_without_target_cycle() -> tg::Result<()> {
 				"tangram.ts" => indoc!(r#"
 					import bar from "../bar";
 					export default tg.target(() => bar());
-					export let greeting = tg.target(() => "hello");
+					export let greeting = tg.target(() => "foo");
 				"#)
 			},
 			"bar" => temp::directory! {
@@ -419,7 +420,7 @@ async fn value_cycle_detection_object() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @"Uncaught Error: cycle detected");
+			assert_snapshot!(error, @r"Uncaught Error: cycle detected");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -445,7 +446,7 @@ async fn value_cycle_detection_array() -> tg::Result<()> {
 		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @"Uncaught Error: cycle detected");
+			assert_snapshot!(error, @r"Uncaught Error: cycle detected");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -491,14 +492,7 @@ where
 			.unwrap();
 		let artifact = artifact.clone().into();
 		let subpath = Some("tangram.ts".parse().unwrap());
-		let executable = Some(tg::target::Executable::Module(tg::Module {
-			kind: tg::module::Kind::Js,
-			referent: tg::Referent {
-				item: tg::module::Item::Object(artifact),
-				subpath,
-				tag: None,
-			},
-		}));
+		let env = [("TANGRAM_HOST".to_owned(), tg::host().into())].into();
 		let args: Vec<tg::Value> = std::iter::once(target.into())
 			.chain(
 				target_args
@@ -508,10 +502,19 @@ where
 					.map(|arg| (*arg).into()),
 			)
 			.collect();
+		let executable = Some(tg::target::Executable::Module(tg::Module {
+			kind: tg::module::Kind::Js,
+			referent: tg::Referent {
+				item: tg::module::Item::Object(artifact),
+				subpath,
+				tag: None,
+			},
+		}));
 		let host = "js";
 		let target = tg::target::Builder::new(host)
-			.executable(executable)
 			.args(args)
+			.env(env)
+			.executable(executable)
 			.build();
 		let arg = tg::target::build::Arg {
 			create: true,
@@ -538,11 +541,7 @@ where
 
 #[ctor::ctor]
 fn ctor() {
-	test_init();
-}
-
-fn test_init() {
-	// Set file descriptor limit.
+	// Set the file descriptor limit.
 	let limit = 65536;
 	let rlimit = libc::rlimit {
 		rlim_cur: limit,
@@ -552,7 +551,7 @@ fn test_init() {
 	assert!(ret == 0, "failed to set the file descriptor limit");
 
 	// Initialize v8.
-	v8::icu::set_common_data_73(deno_core_icudata::ICU_DATA).unwrap();
+	v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
 	let platform = v8::new_default_platform(0, true);
 	v8::V8::initialize_platform(platform.make_shared());
 	v8::V8::initialize();
