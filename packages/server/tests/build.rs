@@ -79,7 +79,7 @@ async fn current_target_id() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r###""tgt_01wb4tdwy3mhb99vv0q9n1z0x8xxmydf1rfaxa3eahfx36ygsx5wt0""###);
+			assert_snapshot!(output, @r#""tgt_01kqv34y8zy67gzvck4y5fqs2zfgwtazsds4effyxybp2bqmrecvt0""#);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -415,7 +415,7 @@ async fn target_cycle_detection_between_packages() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @r"failed to resolve");
+			assert_snapshot!(error, @"failed to build the target");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -654,7 +654,7 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r"contents");
+			assert_snapshot!(output, @r#""contents""#);
 			Ok::<_, tg::Error>(())
 		},
 	)
