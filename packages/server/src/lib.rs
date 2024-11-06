@@ -478,25 +478,49 @@ impl Server {
 				// Abort the build spawn task.
 				if let Some(task) = build_spawn_task {
 					task.abort();
-					task.await.ok();
+					let result = task.await;
+					let result = match result {
+						Ok(()) => Ok(()),
+						Err(error) if error.is_cancelled() => Ok(()),
+						Err(error) => Err(error),
+					};
+					result.unwrap();
 				}
 
 				// Abort the object index task.
 				if let Some(task) = object_indexer_task {
 					task.abort();
-					task.await.ok();
+					let result = task.await;
+					let result = match result {
+						Ok(()) => Ok(()),
+						Err(error) if error.is_cancelled() => Ok(()),
+						Err(error) => Err(error),
+					};
+					result.unwrap();
 				}
 
 				// Abort the build index task.
 				if let Some(task) = build_indexer_task {
 					task.abort();
-					task.await.ok();
+					let result = task.await;
+					let result = match result {
+						Ok(()) => Ok(()),
+						Err(error) if error.is_cancelled() => Ok(()),
+						Err(error) => Err(error),
+					};
+					result.unwrap();
 				}
 
 				// Abort the build heartbeat monitor task.
 				if let Some(task) = build_heartbeat_monitor_task {
 					task.abort();
-					task.await.ok();
+					let result = task.await;
+					let result = match result {
+						Ok(()) => Ok(()),
+						Err(error) if error.is_cancelled() => Ok(()),
+						Err(error) => Err(error),
+					};
+					result.unwrap();
 				}
 
 				// Abort the build tasks.
