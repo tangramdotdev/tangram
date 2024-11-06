@@ -312,21 +312,21 @@ async fn import_directory() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn directory_get_follows_symlinks() -> tg::Result<()> {
+async fn directory_get_follows_intermediate_component_symlinks() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
 					import directory from "./directory" with { type: "directory" };
-					export default tg.target(async () =>
-						directory.get("link")
-							.then(tg.File.expect)
-							.then((f) => f.text())
-					);
+					export default tg.target(async () => {
+						let file = await directory.get("link/file.txt");
+						tg.File.assert(file);
+						return file.text();
+					});
 				"#),
 				"directory" => temp::directory! {
-					"file.txt" => "I'm a plain text file inside a directory through a symlink!",
-					"link" => temp::symlink!("./file.txt")
+					"file.txt" => "foo",
+					"link" => temp::symlink!(".")
 				}
 			},
 		},
@@ -335,7 +335,38 @@ async fn directory_get_follows_symlinks() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r###""I'm a plain text file inside a directory through a symlink!""###);
+			assert_snapshot!(output, @r###""foo""###);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn directory_get_follows_final_component_symlinks() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import directory from "./directory" with { type: "directory" };
+					export default tg.target(async () => {
+						let file = await directory.get("link");
+						tg.File.assert(file);
+						return file.text();
+					});
+				"#),
+				"directory" => temp::directory! {
+					"file.txt" => "foo",
+					"link" => temp::symlink!("file.txt")
+				}
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r###""foo""###);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -384,7 +415,7 @@ async fn target_cycle_detection_between_packages() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @"failed to resolve");
+			assert_snapshot!(error, @r"failed to resolve");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -566,7 +597,7 @@ async fn builtin_download_rejects_malformed_checksum() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @"Uncaught Error: invalid checksum");
+			assert_snapshot!(error, @r"Uncaught Error: invalid checksum");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -648,10 +679,6 @@ where
 	)?;
 	let server_temp = Temp::new_persistent();
 	let mut options = Config::with_path(server_temp.path().to_owned());
-	options.advanced = tangram_server::config::Advanced {
-		write_build_logs_to_stderr: true,
-		..Default::default()
-	};
 	options.build = Some(tangram_server::config::Build::default());
 	options.build_heartbeat_monitor =
 		Some(tangram_server::config::BuildHeartbeatMonitor::default());

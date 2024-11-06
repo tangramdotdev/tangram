@@ -371,11 +371,7 @@ impl Directory {
 
 			// If the artifact is a symlink, then resolve it.
 			if let tg::Artifact::Symlink(symlink) = &artifact {
-				let from = tg::Symlink::with_artifact_and_subpath(
-					Some(self.clone().into()),
-					Some(current_path.clone()),
-				);
-				match Box::pin(symlink.try_resolve_from(handle, Some(from)))
+				match Box::pin(symlink.try_resolve(handle))
 					.await
 					.map_err(|source| tg::error!(!source, "failed to resolve the symlink"))?
 				{

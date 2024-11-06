@@ -1,11 +1,7 @@
 use crate as tg;
 use bytes::Bytes;
 use itertools::Itertools as _;
-use std::{
-	collections::BTreeSet,
-	path::{Path, PathBuf},
-	sync::Arc,
-};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 use tangram_either::Either;
 
 #[derive(
@@ -277,7 +273,7 @@ impl Symlink {
 	where
 		H: tg::Handle,
 	{
-		self.try_resolve_from(handle, None)
+		self.try_resolve(handle)
 			.await?
 			.ok_or_else(|| tg::error!("broken symlink"))
 	}
@@ -286,52 +282,15 @@ impl Symlink {
 	where
 		H: tg::Handle,
 	{
-		self.try_resolve_from(handle, None).await
-	}
-
-	pub async fn try_resolve_from<H>(
-		&self,
-		handle: &H,
-		from: Option<Self>,
-	) -> tg::Result<Option<tg::Artifact>>
-	where
-		H: tg::Handle,
-	{
-		let mut from_artifact = if let Some(from) = &from {
-			from.artifact(handle).await?.clone()
-		} else {
-			None
-		};
-		if let Some(tg::artifact::Artifact::Symlink(symlink)) = from_artifact {
-			from_artifact = Box::pin(symlink.try_resolve_from(handle, None)).await?;
-		}
-		let from_path = if let Some(from) = from {
-			from.subpath(handle).await?.clone()
-		} else {
-			None
-		};
 		let mut artifact = self.artifact(handle).await?.clone();
 		if let Some(tg::artifact::Artifact::Symlink(symlink)) = artifact {
-			artifact = Box::pin(symlink.try_resolve_from(handle, None)).await?;
+			artifact = Box::pin(symlink.try_resolve(handle)).await?;
 		}
 		let path = self.subpath(handle).await?.clone();
-		if artifact.is_some() && from_artifact.is_some() {
-			return Err(tg::error!(
-				"expected no `from` value when `artifact` is set"
-			));
-		}
 		if artifact.is_some() && path.is_none() {
 			return Ok(artifact);
 		} else if artifact.is_none() && path.is_some() {
-			if let Some(tg::artifact::Artifact::Directory(directory)) = from_artifact {
-				let path = from_path
-					.as_ref()
-					.and_then(|path| path.parent())
-					.unwrap_or(Path::new(""))
-					.join(path.as_ref().unwrap());
-				return directory.try_get(handle, &path).await;
-			}
-			return Err(tg::error!("expected a directory"));
+			return Err(tg::error!("cannot resolve with no artifact"));
 		} else if artifact.is_some() && path.is_some() {
 			if let Some(tg::artifact::Artifact::Directory(directory)) = artifact {
 				return directory.try_get(handle, &path.unwrap_or_default()).await;
