@@ -16,9 +16,30 @@ async fn hello_world() -> tg::Result<()> {
 		},
 		"hello",
 		"default",
+		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""Hello, world!""###);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn accepts_arg() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"hello" => temp::directory! {
+				"tangram.ts" => r"export default tg.target((name: string) => `Hello, ${name}!`)",
+			}
+		},
+		"hello",
+		"default",
+		Some(&["Cool Person"]),
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r###""Hello, Cool Person!""###);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -40,6 +61,7 @@ async fn unix_process() -> tg::Result<()> {
 		},
 		"hello",
 		"default",
+		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"");
@@ -63,6 +85,7 @@ async fn two_modules() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
+		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"");
@@ -88,6 +111,7 @@ async fn path_dependency() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
+		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"");
@@ -113,6 +137,7 @@ async fn path_dependency_import_attribute() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
+		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"");
@@ -135,6 +160,7 @@ async fn named_target() -> tg::Result<()> {
 		},
 		"two_targets",
 		"five",
+		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @"5");
@@ -154,6 +180,7 @@ async fn captures_error() -> tg::Result<()> {
 		},
 		"throw_error",
 		"default",
+		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @"Uncaught Error: not so fast!");
@@ -173,6 +200,7 @@ async fn target_cycle_detection() -> tg::Result<()> {
 		},
 		"foo",
 		"x",
+		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @r"");
@@ -201,6 +229,7 @@ async fn target_cycle_detection_between_packages() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
+		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @r"");
@@ -230,6 +259,7 @@ async fn package_cycle_without_target_cycle() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
+		None,
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"");
@@ -255,6 +285,7 @@ async fn value_cycle_detection_object() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
+		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @"Uncaught Error: cycle detected");
@@ -280,6 +311,7 @@ async fn value_cycle_detection_array() -> tg::Result<()> {
 		},
 		"foo",
 		"default",
+		None,
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
 			assert_snapshot!(error, @"Uncaught Error: cycle detected");
@@ -293,6 +325,7 @@ async fn test<F, Fut>(
 	artifact: temp::Artifact,
 	path: &str,
 	target: &str,
+	target_args: Option<&[&str]>,
 	assertions: F,
 ) -> tg::Result<()>
 where
@@ -335,7 +368,15 @@ where
 				tag: None,
 			},
 		}));
-		let args: Vec<tg::Value> = vec![target.into()];
+		let args: Vec<tg::Value> = std::iter::once(target.into())
+			.chain(
+				target_args
+					.map(|args| args.iter())
+					.into_iter()
+					.flatten()
+					.map(|arg| (*arg).into()),
+			)
+			.collect();
 		let host = "js";
 		let target = tg::target::Builder::new(host)
 			.executable(executable)
