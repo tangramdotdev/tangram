@@ -352,8 +352,8 @@ impl Cli {
 				tokio::fs::create_dir_all(parent).await.map_err(|source| {
 					tg::error!(!source, "failed to create the parent directory")
 				})?;
-				let path = parent
-					.canonicalize()
+				let path = tokio::fs::canonicalize(parent)
+					.await
 					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
 					.join(file_name);
 				Some(path)
