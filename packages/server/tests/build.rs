@@ -26,6 +26,30 @@ async fn hello_world() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn unix_process() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"hello" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(() => {
+						return tg.target("echo 'Hello from a unix process!' > $OUTPUT")
+							.then((t) => t.output());
+					});
+				"#),
+			}
+		},
+		"hello",
+		"default",
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r"");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn two_modules() -> tg::Result<()> {
 	test(
 		temp::directory! {
@@ -55,6 +79,31 @@ async fn path_dependency() -> tg::Result<()> {
 			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
 					import bar from "../bar";
+					export default tg.target(() => bar());
+				"#),
+			},
+			"bar" => temp::directory! {
+				"tangram.ts" => r#"export default tg.target(() => "Hello from bar");"#
+			}
+		},
+		"foo",
+		"default",
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r"");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn path_dependency_import_attribute() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import bar from "bar" with { path: "../bar" };
 					export default tg.target(() => bar());
 				"#),
 			},
@@ -167,14 +216,14 @@ async fn package_cycle_without_target_cycle() -> tg::Result<()> {
 		temp::directory! {
 			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
-					import bar from "bar" with { path: "../bar" };
+					import bar from "../bar";
 					export default tg.target(() => bar());
 					export let greeting = tg.target(() => "hello");
 				"#)
 			},
 			"bar" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
-					import * as foo from "foo" with { path: "../foo" };
+					import * as foo from "../foo";
 					export default tg.target(() => foo.greeting());
 				"#)
 			}
@@ -252,6 +301,10 @@ where
 {
 	let temp = Temp::new();
 	let mut options = Config::with_path(temp.path().to_owned());
+	options.advanced = tangram_server::config::Advanced {
+		write_build_logs_to_stderr: true,
+		..Default::default()
+	};
 	options.build = Some(tangram_server::config::Build::default());
 	options.build_heartbeat_monitor =
 		Some(tangram_server::config::BuildHeartbeatMonitor::default());
