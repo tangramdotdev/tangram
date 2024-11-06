@@ -453,6 +453,81 @@ async fn value_cycle_detection_array() -> tg::Result<()> {
 	.await
 }
 
+#[tokio::test]
+async fn builtin_download_unsafe_checksum() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let blob = await tg.download("https://example.com", "unsafe");
+						return tg.file(blob);
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn builtin_download_exact_checksum() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let blob = await tg.download("https://example.com", "sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
+						return tg.file(blob);
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn builtin_download_rejects_incorrect_checksum() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let blob = await tg.download("https://example.com", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+						return tg.file(blob);
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		None,
+		|_, outcome| async move {
+			let error = outcome.into_result().unwrap_err();
+			assert_snapshot!(error, @"Uncaught Error: invalid checksum, expected sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa but got sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
 async fn test<F, Fut>(
 	artifact: temp::Artifact,
 	path: &str,
