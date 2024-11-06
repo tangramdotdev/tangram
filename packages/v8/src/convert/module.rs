@@ -83,8 +83,13 @@ impl FromV8 for tg::module::Item {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		if let Ok(path) = <_>::from_v8(scope, value) {
-			Ok(Self::Path(path))
+		if let Ok(string) = <String>::from_v8(scope, value) {
+			if string.starts_with('.') || string.starts_with('/') {
+				Ok(Self::Path(string.into()))
+			} else {
+				let object = tg::Object::with_id(string.parse()?);
+				Ok(Self::Object(object))
+			}
 		} else if let Ok(object) = <_>::from_v8(scope, value) {
 			Ok(Self::Object(object))
 		} else {
