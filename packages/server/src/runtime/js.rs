@@ -531,8 +531,8 @@ fn resolve_module_sync(
 		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
-			let module = compiler.resolve_module(&referrer, &import).await;
-			sender.send(module).unwrap();
+			let result = compiler.resolve_module(&referrer, &import).await;
+			sender.send(result).unwrap();
 		}
 	});
 	let module = match receiver

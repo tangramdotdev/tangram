@@ -27,7 +27,7 @@ impl Compiler {
 					},
 				..
 			} => {
-				self.resolve_import_with_path_referrer(package, subpath.as_deref(), import)
+				self.resolve_with_path_referrer(package, subpath.as_deref(), import)
 					.await?
 			},
 
@@ -49,16 +49,29 @@ impl Compiler {
 						.get(&self.server, subpath)
 						.await
 						.map_err(|source| tg::error!(!source, %directory, %subpath = subpath.display(), "failed to get directory entry"))?;
-					artifact.id(&self.server).await?.clone().into()
+					artifact.into()
 				} else {
-					object.clone()
+					tg::Object::with_id(object.clone())
+				};
+				let object = if let tg::Object::Directory(directory) = &object {
+					let root_module_file_name = tg::package::try_get_root_module_file_name(
+						&self.server,
+						Either::Left(&object),
+					)
+					.await?
+					.ok_or_else(|| tg::error!("invalid referrer"))?;
+					directory
+						.get(&self.server, root_module_file_name)
+						.await?
+						.into()
+				} else {
+					object
 				};
 				let file = object
 					.clone()
 					.try_unwrap_file()
 					.ok()
 					.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
-				let file = tg::File::with_id(file.clone());
 				let referent = file.get_dependency(&self.server, &import.reference).await?;
 				let object = referent.item.id(&self.server).await?.clone();
 				let item = tg::module::data::Item::Object(object);
@@ -235,7 +248,7 @@ impl Compiler {
 	}
 
 	// Given a package at a path and module at some subpath within it, resolve an import relative to the module.
-	async fn resolve_import_with_path_referrer(
+	async fn resolve_with_path_referrer(
 		&self,
 		package: &Path,
 		subpath: Option<&Path>,

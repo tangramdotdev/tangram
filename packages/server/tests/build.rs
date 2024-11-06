@@ -414,7 +414,7 @@ async fn package_cycle_without_target_cycle() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r"");
+			assert_snapshot!(output, @r#""foo""#);
 			Ok::<_, tg::Error>(())
 		},
 	)
