@@ -1,5 +1,14 @@
 use std::path::{Path, PathBuf};
 
+// Default list of ignore files.
+pub const IGNORE_FILES: [&str; 3] = [".tangramignore", ".tgignore", ".gitignore"];
+
+// Default list of ignore patterns.
+pub const DENY: [&str; 2] = [".DS_STORE", ".git"];
+
+// Default list of ignore override patterns.
+pub const ALLOW: [&str; 0] = [];
+
 pub trait Ext {
 	fn diff(&self, src: impl AsRef<Path>) -> Option<PathBuf>;
 }

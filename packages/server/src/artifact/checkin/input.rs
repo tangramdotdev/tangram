@@ -1,4 +1,8 @@
-use crate::{util::path::Ext as _, Server};
+use crate::{
+	util::path::Ext as _,
+	util::path::{ALLOW, DENY, IGNORE_FILES},
+	Server,
+};
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{
 	collections::{BTreeMap, BTreeSet},
@@ -9,15 +13,6 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_ignore::Ignore;
 use tokio::sync::RwLock;
-
-// List of ignore files that checkin will consider.
-const IGNORE_FILES: [&str; 3] = [".tangramignore", ".tgignore", ".gitignore"];
-
-// List of patterns that checkin will ignore.
-const DENY: [&str; 2] = [".DS_STORE", ".git"];
-
-// List of patterns that checkin will not ignore.
-const ALLOW: [&str; 0] = [];
 
 #[derive(Debug)]
 pub struct Graph {
