@@ -12,6 +12,5 @@ pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
 pub async fn cleanup(temp: tangram_temp::Temp, server: crate::Server) {
 	server.stop();
 	server.wait().await;
-	// temp.remove().await.ok();
-	std::mem::forget(temp);
+	temp.remove().await.ok();
 }
