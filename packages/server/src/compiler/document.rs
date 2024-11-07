@@ -68,21 +68,6 @@ impl Compiler {
 		// Insert the document.
 		self.documents.insert(module.clone(), document);
 
-		// Check in the object if necessary.
-		let tg::module::Item::Path(package_path) = module.referent.item.clone() else {
-			return Ok(());
-		};
-		let arg = tg::artifact::checkin::Arg {
-			path: package_path.clone(),
-			destructive: false,
-			deterministic: false,
-			ignore: true,
-			locked: false,
-		};
-		tg::Artifact::check_in(&self.server, arg).await.map_err(
-			|source| tg::error!(!source, %package = package_path.display(), "failed to check in package"),
-		)?;
-
 		Ok(())
 	}
 
@@ -196,6 +181,22 @@ impl Compiler {
 		&self,
 		params: lsp::DidOpenTextDocumentParams,
 	) -> tg::Result<()> {
+		// Check in the object if necessary.
+		if params.text_document.uri.scheme().unwrap().as_str() != "file" {
+			return Err(tg::error!(%uri = params.text_document.uri, "expected a file URI"));
+		}
+		let arg = tg::artifact::checkin::Arg {
+			path: params.text_document.uri.path().as_str().into(),
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+		};
+		tg::Artifact::check_in(&self.server, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check in package"))?;
+
+
 		// Get the module.
 		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
