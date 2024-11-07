@@ -10,10 +10,11 @@ use std::{
 	sync::Arc,
 };
 
-pub use self::{builder::Builder, data::Data};
+pub use self::{builder::Builder, data::Data, executable::Executable};
 
 pub mod build;
 pub mod builder;
+pub mod executable;
 
 #[derive(
 	Clone,
@@ -47,15 +48,9 @@ pub struct Object {
 	pub host: String,
 }
 
-#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
-#[try_unwrap(ref)]
-pub enum Executable {
-	Artifact(tg::Artifact),
-	Module(tg::Module),
-}
-
 pub mod data {
-	use super::*;
+	use crate as tg;
+	use std::collections::BTreeMap;
 
 	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 	pub struct Data {
@@ -69,16 +64,9 @@ pub mod data {
 		pub env: tg::value::data::Map,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		pub executable: Option<tg::target::data::Executable>,
+		pub executable: Option<tg::target::executable::Data>,
 
 		pub host: String,
-	}
-
-	#[derive(Clone, Debug, derive_more::Display, serde::Deserialize, serde::Serialize)]
-	#[serde(untagged)]
-	pub enum Executable {
-		Artifact(tg::artifact::Id),
-		Module(tg::module::Data),
 	}
 }
 
@@ -219,11 +207,11 @@ impl Target {
 			let executable = match executable {
 				Executable::Artifact(artifact) => {
 					let artifact = artifact.id(handle).await?;
-					data::Executable::Artifact(artifact)
+					self::executable::Data::Artifact(artifact)
 				},
 				Executable::Module(module) => {
 					let module = Box::pin(module.data(handle)).await?;
-					data::Executable::Module(module)
+					self::executable::Data::Module(module)
 				},
 			};
 			Some(executable)
@@ -301,16 +289,6 @@ impl Object {
 	}
 }
 
-impl Executable {
-	#[must_use]
-	pub fn object(&self) -> Vec<tg::Object> {
-		match self {
-			Self::Artifact(artifact) => [artifact.clone().into()].into(),
-			Self::Module(module) => module.objects(),
-		}
-	}
-}
-
 impl Data {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		serde_json::to_vec(self)
@@ -326,20 +304,14 @@ impl Data {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		std::iter::empty()
-			.chain(self.executable.iter().flat_map(data::Executable::children))
+			.chain(
+				self.executable
+					.iter()
+					.flat_map(self::executable::Data::children),
+			)
 			.chain(self.args.iter().flat_map(tg::value::Data::children))
 			.chain(self.env.values().flat_map(tg::value::Data::children))
 			.collect()
-	}
-}
-
-impl data::Executable {
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		match self {
-			data::Executable::Artifact(id) => [id.clone().into()].into(),
-			data::Executable::Module(module) => module.children(),
-		}
 	}
 }
 
@@ -366,17 +338,6 @@ impl TryFrom<Data> for Object {
 	}
 }
 
-impl TryFrom<data::Executable> for Executable {
-	type Error = tg::Error;
-
-	fn try_from(data: data::Executable) -> std::result::Result<Self, Self::Error> {
-		match data {
-			data::Executable::Artifact(id) => Ok(Self::Artifact(tg::Artifact::with_id(id))),
-			data::Executable::Module(module) => Ok(Self::Module(module.try_into()?)),
-		}
-	}
-}
-
 impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
@@ -393,12 +354,6 @@ impl std::str::FromStr for Id {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
-	}
-}
-
-impl From<tg::File> for Executable {
-	fn from(value: tg::File) -> Self {
-		Self::Artifact(value.into())
 	}
 }
 

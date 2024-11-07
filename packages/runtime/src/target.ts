@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import type { Module } from "./module.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
@@ -18,7 +17,7 @@ type FunctionArg<
 	R extends tg.Value = tg.Value,
 > = {
 	function: (...args: A) => tg.Unresolved<R>;
-	module: Module;
+	module: tg.Module;
 	name: string;
 };
 
@@ -46,7 +45,14 @@ export function target<
 		// Create the target.
 		let args_ = [arg.name];
 		let checksum = undefined;
-		let executable = arg.module;
+		let executable = {
+			kind: arg.module.kind,
+			referent: {
+				item: tg.Object.withId(arg.module.referent.item),
+				subpath: arg.module.referent.subpath,
+				tag: arg.module.referent.tag,
+			},
+		};
 		const env = currentTarget.state.object!.env;
 		let object = {
 			args: args_,
@@ -55,9 +61,7 @@ export function target<
 			executable,
 			host: "js",
 		};
-		let state = {
-			object: object,
-		};
+		let state = { object };
 		return new Target(state, arg.function);
 	} else {
 		return Target.new(...(args as tg.Args<Target.Arg>));
@@ -251,9 +255,16 @@ export namespace Target {
 		host?: string | undefined;
 	};
 
-	export type Executable = tg.Artifact | tg.Module;
+	export type Executable = tg.Artifact | tg.Target.Executable.Module;
 
-	export type ExecutableArg = tg.Artifact | tg.Module;
+	export namespace Executable {
+		export type Module = {
+			kind: tg.Module.Kind;
+			referent: tg.Referent<tg.Object>;
+		};
+	}
+
+	export type ExecutableArg = tg.Artifact | tg.Target.Executable.Module;
 
 	export type Id = string;
 

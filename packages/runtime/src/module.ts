@@ -2,7 +2,7 @@ import type * as tg from "./index.ts";
 
 export type Module = {
 	kind: Module.Kind;
-	referent: tg.Referent<tg.Object>;
+	referent: tg.Referent<tg.Object.Id>;
 };
 
 export namespace Module {

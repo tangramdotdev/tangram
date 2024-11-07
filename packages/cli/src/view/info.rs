@@ -385,6 +385,7 @@ impl InfoViewExt for tg::graph::Data {
 		len
 	}
 }
+
 impl InfoViewExt for tg::target::Data {
 	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
 		let mut rows = vec![
@@ -393,7 +394,13 @@ impl InfoViewExt for tg::target::Data {
 			("env", serde_json::to_string(&self.env).unwrap()),
 		];
 		if let Some(executable) = &self.executable {
-			rows.push(("executable", executable.to_string()));
+			let executable = match executable {
+				tg::target::executable::Data::Artifact(artifact) => artifact.to_string(),
+				tg::target::executable::Data::Module(module) => {
+					serde_json::to_string(module).unwrap()
+				},
+			};
+			rows.push(("executable", executable));
 		}
 		if let Some(checksum) = &self.checksum {
 			rows.push(("checksum", checksum.to_string()));

@@ -5,7 +5,6 @@ use std::{fmt::Debug, panic::AssertUnwindSafe};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_temp::Temp;
-use tg::{directory, file, symlink};
 
 #[tokio::test]
 async fn test_builds() -> tg::Result<()> {
@@ -75,17 +74,17 @@ async fn test_objects() -> tg::Result<()> {
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
 		// Create the directory.
-		let a = directory! {
-			"b" => directory! {
-				"f" => file!("f"),
+		let a = tg::directory! {
+			"b" => tg::directory! {
+				"f" => tg::file!("f"),
 			},
-			"c" => directory! {
-				"g" => file!("g"),
+			"c" => tg::directory! {
+				"g" => tg::file!("g"),
 			},
-			"d" => directory! {
-				"h" => file!("h"),
+			"d" => tg::directory! {
+				"h" => tg::file!("h"),
 			},
-			"e" => symlink!(None, Some("d".into())),
+			"e" => tg::file!("e"),
 		};
 
 		// Get the artifacts.

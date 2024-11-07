@@ -238,14 +238,14 @@ async fn concurrent_targets() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn captures_error() -> tg::Result<()> {
+async fn capture_error() -> tg::Result<()> {
 	test(
 		temp::directory! {
-			"throw_error" => temp::directory! {
+			"foo" => temp::directory! {
 				"tangram.ts" => r#"export default tg.target(() => { throw new Error("not so fast!"); });"#,
 			}
 		},
-		"throw_error",
+		"foo",
 		"default",
 		vec![],
 		|_, outcome| async move {
@@ -700,14 +700,16 @@ where
 		let args = std::iter::once(target.into())
 			.chain(args.into_iter())
 			.collect();
-		let executable = Some(tg::target::Executable::Module(tg::Module {
-			kind: tg::module::Kind::Js,
-			referent: tg::Referent {
-				item: tg::module::Item::Object(artifact),
-				subpath,
-				tag: None,
+		let executable = Some(tg::target::Executable::Module(
+			tg::target::executable::Module {
+				kind: tg::module::Kind::Js,
+				referent: tg::Referent {
+					item: artifact,
+					subpath,
+					tag: None,
+				},
 			},
-		}));
+		));
 		let host = "js";
 		let target = tg::target::Builder::new(host)
 			.args(args)

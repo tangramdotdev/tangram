@@ -34,7 +34,7 @@ struct State {
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
 	remote: Option<String>,
-	root: tg::module::Data,
+	root: tg::Module,
 	server: Server,
 }
 
@@ -46,7 +46,7 @@ struct FutureOutput {
 #[allow(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 struct Module {
-	module: tg::module::Data,
+	module: tg::Module,
 	source_map: Option<SourceMap>,
 	v8: Option<v8::Global<v8::Module>>,
 }
@@ -124,6 +124,14 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected the executable to be a module"))?
 			.data(server)
 			.await?;
+		let root = tg::Module {
+			kind: root.kind,
+			referent: tg::Referent {
+				item: tg::module::Item::Object(root.referent.item),
+				subpath: root.referent.subpath,
+				tag: root.referent.tag,
+			},
+		};
 
 		// Start the log task.
 		let (log_sender, mut log_receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -520,9 +528,9 @@ fn resolve_module_callback<'s>(
 /// Resolve a module synchronously.
 fn resolve_module_sync(
 	scope: &mut v8::HandleScope,
-	referrer: &tg::module::Data,
+	referrer: &tg::Module,
 	import: &tg::Import,
-) -> Option<tg::module::Data> {
+) -> Option<tg::Module> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
@@ -551,7 +559,7 @@ fn resolve_module_sync(
 }
 
 // Load a module synchronously.
-fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> Option<String> {
+fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::Module) -> Option<String> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
@@ -581,7 +589,7 @@ fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> O
 /// Compile a module.
 fn compile_module<'s>(
 	scope: &mut v8::HandleScope<'s>,
-	module: &tg::module::Data,
+	module: &tg::Module,
 	text: String,
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.

@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::module::Data,
+	pub module: tg::Module,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -63,7 +63,7 @@ pub enum Tag {
 }
 
 impl Compiler {
-	pub async fn symbols(&self, module: &tg::module::Data) -> tg::Result<Option<Vec<Symbol>>> {
+	pub async fn symbols(&self, module: &tg::Module) -> tg::Result<Option<Vec<Symbol>>> {
 		// Create the request.
 		let request = super::Request::Symbols(Request {
 			module: module.clone(),

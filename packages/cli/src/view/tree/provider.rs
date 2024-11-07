@@ -251,11 +251,7 @@ impl Provider {
 				tg::target::Executable::Module(module) => module.referent,
 			};
 			let tg::Referent { item, subpath, .. } = parent_executable_referent;
-			let object = item
-				.try_unwrap_object()
-				.ok()
-				.ok_or_else(|| tg::error!("invalid item"))?;
-			let artifact = tg::Artifact::try_from(object)
+			let artifact = tg::Artifact::try_from(item)
 				.ok()
 				.ok_or_else(|| tg::error!("expected an artifact"))?;
 			let parent_executable_file = match artifact {
@@ -299,14 +295,8 @@ impl Provider {
 				tg::target::Executable::Module(module) => module.referent,
 			};
 			let tg::Referent { item, subpath, tag } = executable_referent;
-			let object = item
-				.try_unwrap_object()
-				.ok()
-				.ok_or_else(|| tg::error!("invalid item"))?
-				.id(handle)
-				.await?;
 			let executable_referent = tg::Referent {
-				item: object,
+				item: item.id(handle).await?,
 				subpath,
 				tag,
 			};
@@ -626,9 +616,8 @@ impl Provider {
 				if let Some(executable) = &target.executable {
 					let object = match executable {
 						tg::target::Executable::Artifact(artifact) => Some(artifact.clone().into()),
-						tg::target::Executable::Module(module) => match &module.referent.item {
-							tg::module::Item::Path(_) => None,
-							tg::module::Item::Object(object) => Some(object.clone()),
+						tg::target::Executable::Module(module) => {
+							Some(module.referent.item.clone())
 						},
 					};
 					if let Some(object) = object {

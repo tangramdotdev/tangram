@@ -38,6 +38,22 @@ pub struct Data {
 	pub children: Vec<child::Data>,
 }
 
+pub mod child {
+	use crate as tg;
+
+	#[derive(Clone, Debug)]
+	pub struct Child {
+		pub blob: tg::Blob,
+		pub size: u64,
+	}
+
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	pub struct Data {
+		pub blob: tg::blob::Id,
+		pub size: u64,
+	}
+}
+
 impl Id {
 	pub fn new(bytes: &Bytes) -> Self {
 		Self(crate::Id::new_blake3(tg::id::Kind::Branch, bytes))
@@ -244,22 +260,6 @@ impl std::str::FromStr for Id {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
-	}
-}
-
-pub mod child {
-	use crate as tg;
-
-	#[derive(Clone, Debug)]
-	pub struct Child {
-		pub blob: tg::Blob,
-		pub size: u64,
-	}
-
-	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-	pub struct Data {
-		pub blob: tg::blob::Id,
-		pub size: u64,
 	}
 }
 

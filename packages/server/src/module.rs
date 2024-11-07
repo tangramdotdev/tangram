@@ -7,7 +7,7 @@ impl Server {
 	pub(crate) async fn root_module_for_package(
 		&self,
 		package: Either<tg::directory::Id, PathBuf>,
-	) -> tg::Result<tg::module::Data> {
+	) -> tg::Result<tg::Module> {
 		match package {
 			Either::Left(package) => {
 				// Get the root module file name.
@@ -26,10 +26,10 @@ impl Server {
 				let kind = infer_module_kind(&root_module_name)?;
 
 				// Create the module.
-				Ok(tg::module::Data {
+				Ok(tg::Module {
 					kind,
 					referent: tg::Referent {
-						item: tg::module::data::Item::Object(package.clone().into()),
+						item: tg::module::Item::Object(package.clone().into()),
 						subpath: Some(root_module_name.into()),
 						tag: None,
 					},
@@ -46,10 +46,10 @@ impl Server {
 				let kind = infer_module_kind(&root_module_file_name)?;
 
 				// Create the module
-				Ok(tg::module::Data {
+				Ok(tg::Module {
 					kind,
 					referent: tg::Referent {
-						item: tg::module::data::Item::Path(path),
+						item: tg::module::Item::Path(path),
 						subpath: Some(root_module_file_name.into()),
 						tag: None,
 					},
@@ -58,7 +58,7 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn module_for_path(&self, path: &Path) -> tg::Result<tg::module::Data> {
+	pub(crate) async fn module_for_path(&self, path: &Path) -> tg::Result<tg::Module> {
 		// Find the lockfile.
 		let (lockfile_path, lockfile) = 'a: {
 			for ancestor in path.ancestors().skip(1) {
@@ -106,10 +106,10 @@ impl Server {
 		let subpath = path.diff(&package).unwrap();
 
 		// Create the module.
-		Ok(tg::module::Data {
+		Ok(tg::Module {
 			kind,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Path(package.clone()),
+				item: tg::module::Item::Path(package.clone()),
 				subpath: Some(subpath),
 				tag: None,
 			},

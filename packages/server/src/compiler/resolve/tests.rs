@@ -20,7 +20,7 @@ async fn path_dependency_path() -> tg::Result<()> {
 		tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap(),
 		|_, module| async move {
 			assert_eq!(module.kind, tg::module::Kind::Ts);
-			let tg::module::data::Item::Path(_path) = &module.referent.item else {
+			let tg::module::Item::Path(_path) = &module.referent.item else {
 				return Err(tg::error!("expected a path item"));
 			};
 			let Some(subpath) = &module.referent.subpath else {
@@ -46,7 +46,7 @@ async fn path_dependency_object() -> tg::Result<()> {
 		tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap(),
 		|_, module| async move {
 			assert_eq!(module.kind, tg::module::Kind::Ts);
-			let tg::module::data::Item::Object(_object) = &module.referent.item else {
+			let tg::module::Item::Object(_object) = &module.referent.item else {
 				return Err(tg::error!("expected a path item"));
 			};
 			let Some(subpath) = &module.referent.subpath else {
@@ -76,7 +76,7 @@ async fn package_path_dependency_path() -> tg::Result<()> {
 		tg::Import::with_specifier_and_attributes("../bar", None).unwrap(),
 		|_, module| async move {
 			assert_eq!(module.kind, tg::module::Kind::Ts);
-			let tg::module::data::Item::Path(_path) = &module.referent.item else {
+			let tg::module::Item::Path(_path) = &module.referent.item else {
 				return Err(tg::error!("expected a path item"));
 			};
 			Ok::<_, tg::Error>(())
@@ -101,7 +101,7 @@ async fn package_path_dependency_object() -> tg::Result<()> {
 		tg::Import::with_specifier_and_attributes("../bar", None).unwrap(),
 		|_, module| async move {
 			assert_eq!(module.kind, tg::module::Kind::Ts);
-			let tg::module::data::Item::Object(_object) = &module.referent.item else {
+			let tg::module::Item::Object(_object) = &module.referent.item else {
 				return Err(tg::error!("expected a path item"));
 			};
 			Ok::<_, tg::Error>(())
@@ -118,7 +118,7 @@ async fn test_path<F, Fut>(
 	assertions: F,
 ) -> tg::Result<()>
 where
-	F: FnOnce(Server, tg::module::Data) -> Fut,
+	F: FnOnce(Server, tg::Module) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let temp = Temp::new();
@@ -142,10 +142,10 @@ where
 		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
-		let referrer = tg::module::Data {
+		let referrer = tg::Module {
 			kind,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Path(directory.path().to_owned()),
+				item: tg::module::Item::Path(directory.path().to_owned()),
 				subpath: Some(PathBuf::from(subpath)),
 				tag: None,
 			},
@@ -169,7 +169,7 @@ async fn test_object<F, Fut>(
 	assertions: F,
 ) -> tg::Result<()>
 where
-	F: FnOnce(Server, tg::module::Data) -> Fut,
+	F: FnOnce(Server, tg::Module) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let temp = Temp::new();
@@ -193,10 +193,10 @@ where
 		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
-		let referrer = tg::module::Data {
+		let referrer = tg::Module {
 			kind,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Object(artifact.id(&server).await?.into()),
+				item: tg::module::Item::Object(artifact.id(&server).await?.into()),
 				subpath: Some(PathBuf::from(subpath)),
 				tag: None,
 			},

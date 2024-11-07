@@ -111,7 +111,7 @@ serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 sourcemap = "9"
-swc_core = { version = "4", features = [
+swc_core = { version = "5", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",

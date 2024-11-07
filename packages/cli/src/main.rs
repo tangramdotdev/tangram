@@ -99,41 +99,78 @@ enum Mode {
 #[derive(Clone, Debug, clap::Subcommand)]
 enum Command {
 	Artifact(self::artifact::Args),
+
 	Blob(self::blob::Args),
+
+	#[command(alias = "b")]
 	Build(self::build::Args),
+
 	Cat(self::cat::Args),
+
 	Check(self::package::check::Args),
+
+	#[command(alias = "ci")]
 	Checkin(self::artifact::checkin::Args),
+
+	#[command(alias = "co")]
 	Checkout(self::artifact::checkout::Args),
+
 	Checksum(self::checksum::Args),
+
 	Clean(self::clean::Args),
+
 	#[command(alias = "doc")]
 	Document(self::package::document::Args),
+
 	Download(self::blob::download::Args),
+
 	Format(self::package::format::Args),
+
 	Get(self::get::Args),
+
 	Health(self::health::Args),
+
 	Init(self::package::init::Args),
+
 	List(self::tag::list::Args),
+
 	Log(self::build::log::Args),
+
 	Lsp(self::lsp::Args),
+
 	New(self::package::new::Args),
+
 	Object(self::object::Args),
+
 	Outdated(self::package::outdated::Args),
+
 	Package(self::package::Args),
+
 	Pull(self::pull::Args),
+
 	Push(self::push::Args),
+
 	Put(self::object::put::Args),
+
 	Remote(self::remote::Args),
+
 	Run(self::target::run::Args),
+
 	Serve(self::server::run::Args),
+
 	Server(self::server::Args),
+
 	Tag(self::tag::Args),
+
 	#[command(alias = "self")]
 	Tangram(self::tangram::Args),
+
 	Target(self::target::Args),
+
 	Tree(self::tree::Args),
+
 	Update(self::package::update::Args),
+
 	View(self::view::Args),
 }
 
@@ -877,10 +914,10 @@ impl Cli {
 		let mut string = String::new();
 		if let Some(location) = &diagnostic.location {
 			match &location.module.referent.item {
-				tg::module::data::Item::Path(path) => {
+				tg::module::Item::Path(path) => {
 					write!(string, "{}", path.display()).unwrap();
 				},
-				tg::module::data::Item::Object(object) => {
+				tg::module::Item::Object(object) => {
 					write!(string, "{object}").unwrap();
 				},
 			}

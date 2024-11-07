@@ -65,11 +65,9 @@ pub type Array = Vec<Value>;
 pub type Map = BTreeMap<String, Value>;
 
 pub mod data {
-	use std::collections::BTreeMap;
-
-	use bytes::Bytes;
-
 	use crate as tg;
+	use bytes::Bytes;
+	use std::collections::BTreeMap;
 
 	/// Value data.
 	#[derive(Clone, Debug, PartialEq, derive_more::TryUnwrap, derive_more::Unwrap)]

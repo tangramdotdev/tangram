@@ -10,18 +10,18 @@ impl Compiler {
 	/// Resolve an import from a module.
 	pub async fn resolve_module(
 		&self,
-		referrer: &tg::module::Data,
+		referrer: &tg::Module,
 		import: &tg::Import,
-	) -> tg::Result<tg::module::Data> {
+	) -> tg::Result<tg::Module> {
 		let kind = import.kind;
 
 		// Get the referent.
 		let referent = match referrer {
 			// Handle a path referrer.
-			tg::module::Data {
+			tg::Module {
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Path(package),
+						item: tg::module::Item::Path(package),
 						subpath,
 						..
 					},
@@ -32,10 +32,10 @@ impl Compiler {
 			},
 
 			// Handle an object referrer.
-			tg::module::Data {
+			tg::Module {
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Object(object),
+						item: tg::module::Item::Object(object),
 						subpath,
 						..
 					},
@@ -74,7 +74,7 @@ impl Compiler {
 					.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
 				let referent = file.get_dependency(&self.server, &import.reference).await?;
 				let object = referent.item.id(&self.server).await?.clone();
-				let item = tg::module::data::Item::Object(object);
+				let item = tg::module::Item::Object(object);
 				let subpath = referent.subpath;
 				let tag = referent.tag;
 				tg::Referent { item, subpath, tag }
@@ -87,7 +87,7 @@ impl Compiler {
 				kind
 			} else {
 				match &referent.item {
-					tg::module::data::Item::Path(path) => {
+					tg::module::Item::Path(path) => {
 						let path = if let Some(subpath) = &referent.subpath {
 							path.join(subpath)
 						} else {
@@ -119,7 +119,7 @@ impl Compiler {
 						}
 					},
 
-					tg::module::data::Item::Object(object) => {
+					tg::module::Item::Object(object) => {
 						let object =
 							if let Some(subpath) = &referent.subpath {
 								let object = tg::Object::with_id(object.clone());
@@ -173,7 +173,7 @@ impl Compiler {
 			} else {
 				None
 			}
-		} else if let tg::module::data::Item::Path(path) = &referent.item {
+		} else if let tg::module::Item::Path(path) = &referent.item {
 			let extension = path.extension();
 			if extension.is_some_and(|extension| extension == "js") {
 				Some(tg::module::Kind::Js)
@@ -192,7 +192,7 @@ impl Compiler {
 				kind
 			} else {
 				match &referent.item {
-					tg::module::data::Item::Path(path) => {
+					tg::module::Item::Path(path) => {
 						let path = if let Some(subpath) = &referent.subpath {
 							path.join(subpath)
 						} else {
@@ -212,7 +212,7 @@ impl Compiler {
 						}
 					},
 
-					tg::module::data::Item::Object(object) => {
+					tg::module::Item::Object(object) => {
 						let object =
 							if let Some(subpath) = &referent.subpath {
 								let object = tg::Object::with_id(object.clone());
@@ -242,7 +242,7 @@ impl Compiler {
 			};
 
 		// Create the module.
-		let module = tg::module::Data { kind, referent };
+		let module = tg::Module { kind, referent };
 
 		Ok(module)
 	}
@@ -253,7 +253,7 @@ impl Compiler {
 		package: &Path,
 		subpath: Option<&Path>,
 		import: &tg::Import,
-	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
+	) -> tg::Result<tg::Referent<tg::module::Item>> {
 		// Get the referrer within some lockfile.
 		let subpath = subpath.unwrap_or("".as_ref());
 		let module_path = package.join(subpath);
@@ -318,7 +318,7 @@ impl Compiler {
 					.find_path_in_lockfile(*index, &lockfile_path, &lockfile)
 					.await?;
 				Ok(tg::Referent {
-					item: tg::module::data::Item::Path(package_path),
+					item: tg::module::Item::Path(package_path),
 					subpath: subpath.clone(),
 					tag: tag.clone(),
 				})
@@ -330,7 +330,7 @@ impl Compiler {
 				subpath,
 				tag,
 			}) => Ok(tg::Referent {
-				item: tg::module::data::Item::Object(object.clone()),
+				item: tg::module::Item::Object(object.clone()),
 				subpath: subpath.clone(),
 				tag: tag.clone(),
 			}),
@@ -340,7 +340,7 @@ impl Compiler {
 				if let Some(import_path) = import_path {
 					let item = module_path.join(import_path);
 					return Ok(tg::Referent {
-						item: tg::module::data::Item::Path(item),
+						item: tg::module::Item::Path(item),
 						subpath: import
 							.reference
 							.options()

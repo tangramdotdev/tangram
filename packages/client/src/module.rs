@@ -1,9 +1,9 @@
 use crate as tg;
-use std::{collections::BTreeSet, path::PathBuf};
+use std::path::PathBuf;
 
-pub use self::data::Data;
-
-#[derive(Clone, Debug)]
+#[derive(
+	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
 pub struct Module {
 	pub kind: Kind,
 	pub referent: tg::Referent<Item>,
@@ -37,116 +37,22 @@ pub enum Kind {
 	Target,
 }
 
-#[derive(Clone, Debug, derive_more::TryUnwrap)]
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	derive_more::TryUnwrap,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
 #[try_unwrap(ref)]
 pub enum Item {
 	Path(PathBuf),
-	Object(tg::Object),
-}
-
-pub mod data {
-	use super::Kind;
-	use crate as tg;
-	use std::path::PathBuf;
-
-	#[derive(
-		Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-	)]
-	pub struct Data {
-		pub kind: Kind,
-		pub referent: tg::Referent<Item>,
-	}
-
-	#[derive(
-		Clone,
-		Debug,
-		Eq,
-		Hash,
-		Ord,
-		PartialEq,
-		PartialOrd,
-		serde_with::DeserializeFromStr,
-		serde_with::SerializeDisplay,
-	)]
-	pub enum Item {
-		Path(PathBuf),
-		Object(tg::object::Id),
-	}
-}
-
-impl Module {
-	#[must_use]
-	pub fn objects(&self) -> Vec<tg::object::Handle> {
-		match &self.referent.item {
-			Item::Path(_) => vec![],
-			Item::Object(object) => vec![object.clone()],
-		}
-	}
-
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
-	where
-		H: tg::Handle,
-	{
-		let kind = self.kind;
-		let item = match &self.referent.item {
-			Item::Path(path) => data::Item::Path(path.clone()),
-			Item::Object(object) => data::Item::Object(object.id(handle).await?),
-		};
-		let subpath = self.referent.subpath.clone();
-		let tag = self.referent.tag.clone();
-		let referent = tg::Referent { item, subpath, tag };
-		let data = Data { kind, referent };
-		Ok(data)
-	}
-}
-
-impl Data {
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		match &self.referent.item {
-			data::Item::Path(_) => [].into(),
-			data::Item::Object(object) => [object.clone()].into(),
-		}
-	}
-}
-
-impl TryFrom<Data> for Module {
-	type Error = tg::Error;
-
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
-		let kind = data.kind;
-		let item = match data.referent.item {
-			data::Item::Path(path) => Item::Path(path),
-			data::Item::Object(object) => Item::Object(tg::Object::with_id(object)),
-		};
-		let subpath = data.referent.subpath;
-		let tag = data.referent.tag;
-		let referent = tg::Referent { item, subpath, tag };
-		let module = Self { kind, referent };
-		Ok(module)
-	}
-}
-
-impl std::fmt::Display for Module {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.kind)?;
-		if let Some(tag) = &self.referent.tag {
-			write!(f, ":{tag}")?;
-		} else {
-			match &self.referent.item {
-				Item::Path(path) => {
-					write!(f, ":{}", path.display())?;
-				},
-				Item::Object(object) => {
-					write!(f, ":{object}")?;
-				},
-			}
-		}
-		if let Some(subpath) = &self.referent.subpath {
-			write!(f, ":{}", subpath.display())?;
-		}
-		Ok(())
-	}
+	Object(tg::object::Id),
 }
 
 impl std::fmt::Display for Kind {
@@ -192,6 +98,28 @@ impl std::str::FromStr for Kind {
 	}
 }
 
+impl std::fmt::Display for Module {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.kind)?;
+		if let Some(tag) = &self.referent.tag {
+			write!(f, ":{tag}")?;
+		} else {
+			match &self.referent.item {
+				Item::Path(path) => {
+					write!(f, ":{}", path.display())?;
+				},
+				Item::Object(object) => {
+					write!(f, ":{object}")?;
+				},
+			}
+		}
+		if let Some(subpath) = &self.referent.subpath {
+			write!(f, ":{}", subpath.display())?;
+		}
+		Ok(())
+	}
+}
+
 impl std::fmt::Display for Item {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
@@ -213,50 +141,7 @@ impl std::fmt::Display for Item {
 	}
 }
 
-impl std::fmt::Display for Data {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.kind)?;
-		if let Some(tag) = &self.referent.tag {
-			write!(f, ":{tag}")?;
-		} else {
-			match &self.referent.item {
-				data::Item::Path(path) => {
-					write!(f, ":{}", path.display())?;
-				},
-				data::Item::Object(object) => {
-					write!(f, ":{object}")?;
-				},
-			}
-		}
-		if let Some(subpath) = &self.referent.subpath {
-			write!(f, ":{}", subpath.display())?;
-		}
-		Ok(())
-	}
-}
-
-impl std::fmt::Display for data::Item {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Path(path) => {
-				if path
-					.components()
-					.next()
-					.is_some_and(|component| matches!(component, std::path::Component::Normal(_)))
-				{
-					write!(f, "./")?;
-				}
-				write!(f, "{}", path.display())?;
-			},
-			Self::Object(object) => {
-				write!(f, "{object}")?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::str::FromStr for data::Item {
+impl std::str::FromStr for Item {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {

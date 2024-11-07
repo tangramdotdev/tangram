@@ -2,7 +2,10 @@ use crate::Cli;
 use crossterm::style::Stylize as _;
 use futures::TryStreamExt as _;
 use itertools::Itertools as _;
-use std::{io::IsTerminal as _, path::PathBuf};
+use std::{
+	io::IsTerminal as _,
+	path::{Path, PathBuf},
+};
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_either::Either;
 
@@ -134,16 +137,28 @@ impl Cli {
 					let mut executable = None;
 					for name in tg::package::ROOT_MODULE_FILE_NAMES {
 						if directory.try_get_entry(&handle, name).await?.is_some() {
-							let artifact = directory.clone().into();
+							let kind = if Path::new(name)
+								.extension()
+								.map_or(false, |extension| extension == "js")
+							{
+								tg::module::Kind::Js
+							} else if Path::new(name)
+								.extension()
+								.map_or(false, |extension| extension == "ts")
+							{
+								tg::module::Kind::Ts
+							} else {
+								unreachable!();
+							};
+							let item = directory.clone().into();
 							let subpath = Some(name.parse().unwrap());
-							executable = Some(tg::target::Executable::Module(tg::Module {
-								kind: tg::module::Kind::Js,
-								referent: tg::Referent {
-									item: tg::module::Item::Object(artifact),
-									subpath,
-									tag: referent.tag,
-								},
-							}));
+							let referent = tg::Referent {
+								item,
+								subpath,
+								tag: referent.tag,
+							};
+							let module = tg::target::executable::Module { kind, referent };
+							executable = Some(tg::target::Executable::Module(module));
 							break;
 						}
 					}

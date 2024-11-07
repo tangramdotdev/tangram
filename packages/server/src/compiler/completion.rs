@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::module::Data,
+	pub module: tg::Module,
 	pub position: tg::Position,
 }
 
@@ -24,7 +24,7 @@ pub struct Entry {
 impl Compiler {
 	pub async fn completion(
 		&self,
-		module: &tg::module::Data,
+		module: &tg::Module,
 		position: tg::Position,
 	) -> tg::Result<Option<Vec<Entry>>> {
 		// Create the request.

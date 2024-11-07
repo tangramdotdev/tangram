@@ -521,12 +521,34 @@ where
 		if let Some(executable) = &object.executable {
 			self.map_entry("executable", |s| match executable {
 				tg::target::Executable::Artifact(artifact) => s.artifact(artifact),
-				tg::target::Executable::Module(module) => s.module(module),
+				tg::target::Executable::Module(module) => s.target_executable_module(module),
 			})?;
 		}
 		self.map_entry("host", |s| s.string(&object.host))?;
 		self.finish_map()?;
 		write!(self.writer, ")")?;
+		Ok(())
+	}
+
+	pub fn target_executable_module(&mut self, value: &tg::target::executable::Module) -> Result {
+		self.start_map()?;
+		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
+		self.map_entry("referent", |s| {
+			s.start_map()?;
+			s.map_entry("item", |s| {
+				s.object(&value.referent.item)?;
+				Ok(())
+			})?;
+			if let Some(tag) = &value.referent.tag {
+				s.map_entry("tag", |s| s.string(tag.as_str()))?;
+			}
+			if let Some(subpath) = &value.referent.subpath {
+				s.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
+			}
+			s.finish_map()?;
+			Ok(())
+		})?;
+		self.finish_map()?;
 		Ok(())
 	}
 
@@ -601,35 +623,6 @@ where
 		}
 		self.finish_array()?;
 		write!(self.writer, ")")?;
-		Ok(())
-	}
-
-	pub fn module(&mut self, value: &tg::Module) -> Result {
-		self.start_map()?;
-		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
-		self.map_entry("referent", |s| {
-			s.start_map()?;
-			s.map_entry("item", |s| {
-				match &value.referent.item {
-					tg::module::Item::Path(path) => {
-						s.string(path.to_string_lossy().as_ref())?;
-					},
-					tg::module::Item::Object(object) => {
-						s.object(object)?;
-					},
-				}
-				Ok(())
-			})?;
-			if let Some(tag) = &value.referent.tag {
-				s.map_entry("tag", |s| s.string(tag.as_str()))?;
-			}
-			if let Some(subpath) = &value.referent.subpath {
-				s.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
-			}
-			s.finish_map()?;
-			Ok(())
-		})?;
-		self.finish_map()?;
 		Ok(())
 	}
 }
