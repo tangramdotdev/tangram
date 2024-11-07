@@ -338,7 +338,12 @@ impl Compiler {
 			None => {
 				// If this is a path dependency but not in the dependencies table for the node, then it is an artifact dependency.
 				if let Some(import_path) = import_path {
-					let item = module_path.join(import_path);
+					let Some(module_parent) = module_path.parent() else {
+						return Err(
+							tg::error!(%path = module_path.display(), "could not get parent of module_path"),
+						);
+					};
+					let item = module_parent.join(import_path);
 					return Ok(tg::Referent {
 						item: tg::module::Item::Path(item),
 						subpath: import
