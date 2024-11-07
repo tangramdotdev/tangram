@@ -491,6 +491,7 @@ fn strip_subpath(base: &Path, subpath: &Path) -> tg::Result<PathBuf> {
 	if subpath.is_absolute() {
 		return Err(tg::error!("invalid subpath"));
 	}
+	let subpath = subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
 	if !base.ends_with(subpath) {
 		return Err(
 			tg::error!(%base = base.display(), %subpath = subpath.display(), "cannot remove subpath from base"),
