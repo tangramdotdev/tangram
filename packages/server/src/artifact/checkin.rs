@@ -158,7 +158,6 @@ impl Server {
 		Ok(output)
 	}
 
-	#[allow(clippy::only_used_in_recursion, clippy::needless_pass_by_value)]
 	async fn find_output_from_input(
 		&self,
 		path: &PathBuf,
@@ -177,6 +176,12 @@ impl Server {
 			if &input_node.arg.path == path {
 				return Ok(Some(output.nodes[output_index].id.clone()));
 			}
+			stack.extend(
+				output.nodes[output_index]
+					.edges
+					.iter()
+					.map(|edge| edge.node),
+			);
 		}
 		Ok(None)
 	}
