@@ -165,6 +165,82 @@ async fn symlink() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn symlink_shared_target() -> tg::Result<()> {
+	let server_temp = Temp::new();
+	let server_options = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_options).await?;
+
+	let result = AssertUnwindSafe(async {
+		let test_artifact = temp::directory! {
+			"outer" => temp::directory! {
+				"file.txt" => "test",
+				"link" => temp::symlink!("file.txt"),
+				"other_link" => temp::symlink!("file.txt")
+			}
+		};
+		let incoming = Temp::new();
+		test_artifact.to_path(incoming.path()).await.map_err(
+			|source| tg::error!(!source, %path = incoming.path().display(), "failed to write the artifact"),
+		)?;
+		let checkin_arg = tg::artifact::checkin::Arg {
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			path: incoming.as_ref().join("outer"),
+		};
+		let incoming_artifact = tg::Artifact::check_in(&server, checkin_arg).await?;
+		let incoming_artifact_id = incoming_artifact.id(&server).await?;
+
+		let outgoing = Temp::new();
+		tokio::fs::create_dir_all(outgoing.path()).await.map_err(
+			|source| tg::error!(!source, %path = outgoing.path().display(), "failed to create temp dir"),
+		)?;
+		let checkout_arg = tg::artifact::checkout::Arg {
+			dependencies: true,
+			force: false,
+			path: Some(outgoing.path().to_owned().join("outer")),
+		};
+		let stream = server
+			.check_out_artifact(&incoming_artifact_id, checkout_arg)
+			.await?;
+		let _ = pin!(stream)
+			.try_last()
+			.await?
+			.and_then(|event| event.try_unwrap_output().ok())
+			.ok_or_else(|| tg::error!("stream ended without output"))?;
+
+		let expected_artifact = temp::directory! {
+			"outer" => temp::directory! {
+				".tangram" => temp::directory! {
+					"artifacts" => temp::directory! {
+						incoming_artifact_id.to_string() => temp::directory! {
+							"file.txt" => "test",
+							"link" => temp::symlink!(format!("../{}/file.txt", incoming_artifact_id.to_string())),
+							"other_link" => temp::symlink!(format!("../{}/file.txt", incoming_artifact_id.to_string()))
+						}
+					}
+				},
+				"file.txt" => "test",
+				"link" => temp::symlink!(format!("./.tangram/artifacts/{}/file.txt", incoming_artifact_id.to_string())),
+				"other_link" => temp::symlink!(format!("./.tangram/artifacts/{}/file.txt", incoming_artifact_id.to_string()))
+			}
+		};
+		let matches = expected_artifact
+			.matches(outgoing.path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to match artifact"))?;
+		assert!(matches);
+
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(server_temp, server).await;
+	result.unwrap()
+}
+
+#[tokio::test]
 async fn symlink_to_symlink() -> tg::Result<()> {
 	let server_temp = Temp::new();
 	let server_options = Config::with_path(server_temp.path().to_owned());
