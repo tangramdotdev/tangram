@@ -115,7 +115,7 @@ impl swc::ecma::visit::Visit for Visitor {
 			let Some(init) = init.as_deref() else {
 				continue;
 			};
-			let Some(metadata) = self.to_json(init) else {
+			let Some(metadata) = self.expr_to_json(init) else {
 				continue;
 			};
 			let Ok(metadata) = serde_json::from_value(metadata) else {
@@ -249,7 +249,7 @@ impl Visitor {
 		self.imports.insert(import);
 	}
 
-	fn to_json(&mut self, expr: &ast::Expr) -> Option<serde_json::Value> {
+	fn expr_to_json(&mut self, expr: &ast::Expr) -> Option<serde_json::Value> {
 		let loc = self.source_map.lookup_char_pos(expr.span_lo());
 		match expr {
 			ast::Expr::Lit(ast::Lit::Null(_)) => Some(serde_json::Value::Null),
@@ -272,9 +272,7 @@ impl Visitor {
 							.push(Error::new("array holes are not allowed", &loc));
 						continue;
 					};
-					let Some(value) = self.to_json(elem.expr.as_ref()) else {
-						return None;
-					};
+					let value = self.expr_to_json(elem.expr.as_ref())?;
 					array.push(value);
 				}
 				Some(serde_json::Value::Array(array))
@@ -300,9 +298,7 @@ impl Visitor {
 							continue;
 						},
 					};
-					let Some(value) = self.to_json(key_value.value.as_ref()) else {
-						return None;
-					};
+					let value = self.expr_to_json(key_value.value.as_ref())?;
 					output.insert(key, value);
 				}
 				Some(serde_json::Value::Object(output))

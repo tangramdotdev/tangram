@@ -1,5 +1,5 @@
 use crate::{
-	pool::{self, Pool, Priority},
+	pool::{self, Pool},
 	Error as _, Row, Value,
 };
 use futures::{stream, Future, Stream};
@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use rusqlite as sqlite;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
@@ -15,20 +15,31 @@ pub enum Error {
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
-pub struct Options {
+pub struct DatabaseOptions {
 	pub connections: usize,
 	pub initialize: Initialize,
 	pub path: PathBuf,
 }
 
-type Initialize = Box<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
+type Initialize = Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
 
 pub struct Database {
-	pool: Pool<Connection>,
+	#[allow(dead_code)]
+	options: DatabaseOptions,
+	read_pool: Pool<Connection>,
+	write_pool: Pool<Connection>,
 }
 
 pub struct Connection {
+	#[allow(dead_code)]
+	options: ConnectionOptions,
 	sender: tokio::sync::mpsc::UnboundedSender<ConnectionMessage>,
+}
+
+pub struct ConnectionOptions {
+	pub flags: rusqlite::OpenFlags,
+	pub initialize: Initialize,
+	pub path: PathBuf,
 }
 
 pub struct Transaction<'a> {
@@ -97,27 +108,56 @@ struct QueryAllMessage {
 pub struct Json<T>(pub T);
 
 impl Database {
-	pub async fn new(options: Options) -> Result<Self, Error> {
-		let pool = Pool::new();
+	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
+		let write_pool = Pool::new();
+		let options_ = ConnectionOptions {
+			flags: rusqlite::OpenFlags::default(),
+			initialize: options.initialize.clone(),
+			path: options.path.clone(),
+		};
+		let connection = Connection::connect(options_).await?;
+		write_pool.add(connection);
+		let read_pool = Pool::new();
 		for _ in 0..options.connections {
-			pool.add(Connection::connect(&options).await?);
+			let mut flags = rusqlite::OpenFlags::default();
+			flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_CREATE);
+			flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE);
+			flags.insert(rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY);
+			let options = ConnectionOptions {
+				flags,
+				initialize: options.initialize.clone(),
+				path: options.path.clone(),
+			};
+			let connection = Connection::connect(options).await?;
+			read_pool.add(connection);
 		}
-		Ok(Self { pool })
+		let database = Self {
+			options,
+			read_pool,
+			write_pool,
+		};
+		Ok(database)
 	}
 
 	#[must_use]
-	pub fn pool(&self) -> &Pool<Connection> {
-		&self.pool
+	pub fn read_pool(&self) -> &Pool<Connection> {
+		&self.read_pool
+	}
+
+	#[must_use]
+	pub fn write_pool(&self) -> &Pool<Connection> {
+		&self.write_pool
 	}
 }
 
 impl Connection {
-	pub async fn connect(options: &Options) -> Result<Self, Error> {
+	pub async fn connect(options: ConnectionOptions) -> Result<Self, Error> {
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-		let connection = sqlite::Connection::open(&options.path)?;
+		let connection = sqlite::Connection::open_with_flags(&options.path, options.flags)?;
 		(options.initialize)(&connection)?;
 		tokio::task::spawn_blocking(|| Self::run(connection, receiver));
-		Ok(Self { sender })
+		let connection = Self { options, sender };
+		Ok(connection)
 	}
 
 	fn run(
@@ -235,8 +275,15 @@ impl super::Database for Database {
 
 	type T = pool::Guard<Connection>;
 
-	async fn connection(&self, priority: Priority) -> Result<Self::T, Self::Error> {
-		Ok(self.pool.get(priority).await)
+	async fn connection_with_options(
+		&self,
+		options: super::ConnectionOptions,
+	) -> Result<Self::T, Self::Error> {
+		let connection = match options.kind {
+			crate::ConnectionKind::Read => self.read_pool.get(options.priority).await,
+			crate::ConnectionKind::Write => self.write_pool.get(options.priority).await,
+		};
+		Ok(connection)
 	}
 }
 

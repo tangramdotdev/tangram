@@ -10,7 +10,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection(db::Priority::Low)
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 
@@ -47,7 +47,10 @@ impl Server {
 		drop(connection);
 
 		let available_connections = match &self.database {
-			Either::Left(database) => database.pool().available().to_u64().unwrap(),
+			Either::Left(database) => {
+				database.read_pool().available().to_u64().unwrap()
+					+ database.write_pool().available().to_u64().unwrap()
+			},
 			Either::Right(database) => database.pool().available().to_u64().unwrap(),
 		};
 		let database = tg::health::Database {
@@ -66,7 +69,7 @@ impl Server {
 			builds: Some(builds),
 			database: Some(database),
 			file_descriptor_semaphore: Some(file_descriptor_semaphore),
-			version: self.options.version.clone(),
+			version: self.config.version.clone(),
 		};
 
 		Ok(health)
@@ -85,5 +88,46 @@ impl Server {
 		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder().bytes(body).unwrap();
 		Ok(response)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::{util::fs::cleanup, Config, Server};
+	use futures::FutureExt as _;
+	use insta::assert_yaml_snapshot;
+	use std::panic::AssertUnwindSafe;
+	use tangram_client as tg;
+	use tangram_temp::Temp;
+
+	#[tokio::test]
+	async fn health() -> tg::Result<()> {
+		let temp = Temp::new();
+		let options = Config::with_path(temp.path().to_owned());
+		let server = Server::start(options).await?;
+		let result = AssertUnwindSafe(async {
+			let health = server.health().await?;
+			assert_yaml_snapshot!(health,
+				{
+					".database.available_connections" => 1,
+					".file_descriptor_semaphore.available_permits" => 1
+				},
+				@r###"
+   builds:
+     created: 0
+     dequeued: 0
+     started: 0
+   database:
+     available_connections: 1
+   file_descriptor_semaphore:
+     available_permits: 1
+   version: ~
+   "###);
+			Ok::<_, tg::Error>(())
+		})
+		.catch_unwind()
+		.await;
+		cleanup(temp, server).await;
+		result.unwrap()
 	}
 }

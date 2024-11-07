@@ -30,9 +30,22 @@ impl Cli {
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the reference.
-		let item = self.get_reference(&args.reference).await?;
-
-		// Get the item.
+		let referent = self.get_reference(&args.reference).await?;
+		let item = match referent.item {
+			Either::Left(build) => Either::Left(build),
+			Either::Right(object) => {
+				let object = if let Some(subpath) = &referent.subpath {
+					let directory = object
+						.try_unwrap_directory()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a directory"))?;
+					directory.get(&handle, subpath).await?.into()
+				} else {
+					object
+				};
+				Either::Right(object)
+			},
+		};
 		let item = match item {
 			Either::Left(build) => Either::Left(build.id().clone()),
 			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),

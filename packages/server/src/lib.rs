@@ -34,6 +34,7 @@ mod database;
 mod health;
 mod lockfile;
 mod messenger;
+mod module;
 mod object;
 mod package;
 mod progress;
@@ -42,40 +43,37 @@ mod remote;
 mod runtime;
 mod tag;
 mod target;
-mod tmp;
+mod temp;
 mod user;
 mod util;
 mod vfs;
 
-pub use self::options::Options;
+pub use self::config::Config;
 
-pub mod options;
+pub mod config;
 
 /// A server.
 #[derive(Clone)]
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
-	artifact_store_task_map: ArtifactStoreTaskMap,
 	blob_store_task_map: BlobStoreTaskMap,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
 	checkout_task_map: CheckoutTaskMap,
+	config: Config,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
-	options: Options,
 	path: PathBuf,
 	remotes: DashMap<String, tg::Client>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
-	task: Mutex<Option<Task<tg::Result<()>>>>,
+	task: Mutex<Option<Task<()>>>,
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
-
-type ArtifactStoreTaskMap = TaskMap<tg::artifact::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
 
 type BlobStoreTaskMap = TaskMap<tg::blob::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
 
@@ -93,7 +91,7 @@ type CheckoutTaskMap =
 	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
 
 impl Server {
-	pub async fn start(options: Options) -> tg::Result<Server> {
+	pub async fn start(options: Config) -> tg::Result<Server> {
 		// Ensure the path exists.
 		let path = options.path.clone();
 		tokio::fs::create_dir_all(&path)
@@ -136,24 +134,36 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the logs directory"))?;
 
-		// Ensure the tmp directory exists.
-		let tmp_path = path.join("tmp");
-		tokio::fs::create_dir_all(&tmp_path)
+		// Ensure the temp directory exists.
+		let temp_path = path.join("tmp");
+		tokio::fs::create_dir_all(&temp_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the tmp directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
-
-		// Create the artifact store task map.
-		let artifact_store_task_map = TaskMap::default();
 
 		// Create the blob store task map.
 		let blob_store_task_map = TaskMap::default();
 
 		// Create the build permits.
 		let build_permits = DashMap::default();
+
+		#[cfg(test)]
+		{
+			let new_fd_rlimit = libc::rlimit {
+				rlim_cur: 20000u64,
+				rlim_max: 20000u64,
+			};
+			let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
+			if ret != 0 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to set the file descriptor limit"
+				));
+			}
+		}
 
 		// Create the build semaphore.
 		let permits = options
@@ -171,14 +181,19 @@ impl Server {
 
 		// Create the database.
 		let database = match &options.database {
-			self::options::Database::Sqlite(options) => {
-				let initialize = Box::new(|connection: &sqlite::Connection| {
+			self::config::Database::Sqlite(options) => {
+				let initialize = Arc::new(|connection: &sqlite::Connection| {
+					connection.pragma_update(None, "auto_vaccum", "incremental")?;
+					connection.pragma_update(None, "busy_timeout", "5000")?;
+					connection.pragma_update(None, "cache_size", "-20000")?;
+					connection.pragma_update(None, "foreign_keys", "on")?;
 					connection.pragma_update(None, "journal_mode", "wal")?;
-					connection.pragma_update(None, "busy_timeout", "86400000")?;
+					connection.pragma_update(None, "mmap_size", "2147483648")?;
 					connection.pragma_update(None, "synchronous", "normal")?;
+					connection.pragma_update(None, "temp_store", "memory")?;
 					Ok(())
 				});
-				let options = db::sqlite::Options {
+				let options = db::sqlite::DatabaseOptions {
 					connections: options.connections,
 					initialize,
 					path: path.join("database"),
@@ -188,8 +203,8 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
 				Either::Left(database)
 			},
-			self::options::Database::Postgres(options) => {
-				let options = db::postgres::Options {
+			self::config::Database::Postgres(options) => {
+				let options = db::postgres::DatabaseOptions {
 					url: options.url.clone(),
 					connections: options.connections,
 				};
@@ -211,10 +226,10 @@ impl Server {
 
 		// Create the messenger.
 		let messenger = match &options.messenger {
-			self::options::Messenger::Memory => {
+			self::config::Messenger::Memory => {
 				Messenger::Left(tangram_messenger::memory::Messenger::new())
 			},
-			self::options::Messenger::Nats(nats) => {
+			self::config::Messenger::Nats(nats) => {
 				let client = nats::connect(nats.url.to_string())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the NATS client"))?;
@@ -240,7 +255,6 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
-			artifact_store_task_map,
 			blob_store_task_map,
 			build_permits,
 			build_semaphore,
@@ -251,7 +265,7 @@ impl Server {
 			local_pool_handle,
 			lock_file,
 			messenger,
-			options,
+			config: options,
 			path,
 			remotes,
 			runtimes,
@@ -269,40 +283,18 @@ impl Server {
 			tokio::spawn(async move { remote.connect().await.ok() });
 		}
 
-		// Start the task.
-		let task = Task::spawn(|stop| {
-			let server = server.clone();
-			async move { server.task(stop).await }
-		});
-		server.task.lock().unwrap().replace(task);
-
-		Ok(server)
-	}
-
-	pub fn stop(&self) {
-		self.task.lock().unwrap().as_ref().unwrap().stop();
-	}
-
-	pub async fn wait(&self) -> tg::Result<()> {
-		let task = self.task.lock().unwrap().clone().unwrap();
-		task.wait()
-			.await
-			.map_err(|source| tg::error!(!source, "the task failed"))?
-	}
-
-	pub async fn task(&self, stop: Stop) -> tg::Result<()> {
 		// Start the VFS if enabled.
-		let artifacts_path = self.path.join("artifacts");
-		let checkouts_path = self.path.join("checkouts");
+		let artifacts_path = server.path.join("artifacts");
+		let cache_path = server.path.join("cache");
 		let artifacts_exists = tokio::fs::try_exists(&artifacts_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
-		let checkouts_exists = tokio::fs::try_exists(&checkouts_path)
+		let checkouts_exists = tokio::fs::try_exists(&cache_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
-		if let Some(options) = self.options.vfs {
+		if let Some(options) = server.config.vfs {
 			if artifacts_exists && !checkouts_exists {
-				tokio::fs::rename(&artifacts_path, &checkouts_path)
+				tokio::fs::rename(&artifacts_path, &cache_path)
 					.await
 					.map_err(|source| {
 						tg::error!(
@@ -316,7 +308,7 @@ impl Server {
 				.map_err(|source| {
 					tg::error!(!source, "failed to create the artifacts directory")
 				})?;
-			tokio::fs::create_dir_all(&checkouts_path)
+			tokio::fs::create_dir_all(&cache_path)
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to create the checkouts directory")
@@ -328,19 +320,19 @@ impl Server {
 			} else {
 				unreachable!()
 			};
-			let artifacts_path = self.artifacts_path();
-			let vfs = self::vfs::Server::start(self, kind, &artifacts_path, options)
+			let artifacts_path = server.artifacts_path();
+			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path, options)
 				.await
 				.inspect_err(|source| {
-					tracing::error!(%source, "failed to start the VFS");
+					tracing::error!(?source, "failed to start the VFS");
 				})
 				.ok();
 			if let Some(vfs) = vfs {
-				self.vfs.lock().unwrap().replace(vfs);
+				server.vfs.lock().unwrap().replace(vfs);
 			}
 		} else {
 			if checkouts_exists {
-				tokio::fs::rename(&checkouts_path, &artifacts_path)
+				tokio::fs::rename(&cache_path, &artifacts_path)
 					.await
 					.map_err(|source| {
 						tg::error!(
@@ -359,140 +351,221 @@ impl Server {
 		// Add the runtimes.
 		{
 			let triple = "builtin".to_owned();
-			let runtime = self::runtime::builtin::Runtime::new(self);
+			let runtime = self::runtime::builtin::Runtime::new(&server);
 			let runtime = self::runtime::Runtime::Builtin(runtime);
-			self.runtimes.write().unwrap().insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		{
 			let triple = "js".to_owned();
-			let runtime = self::runtime::js::Runtime::new(self);
+			let runtime = self::runtime::js::Runtime::new(&server);
 			let runtime = self::runtime::Runtime::Js(runtime);
-			self.runtimes.write().unwrap().insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 		{
 			let triple = "aarch64-darwin".to_owned();
-			let runtime = self::runtime::darwin::Runtime::new(self);
+			let runtime = self::runtime::darwin::Runtime::new(&server);
 			let runtime = self::runtime::Runtime::Darwin(runtime);
-			self.runtimes.write().unwrap().insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
 		{
 			let triple = "aarch64-linux".to_owned();
-			let runtime = self::runtime::linux::Runtime::new(self).await?;
+			let runtime = self::runtime::linux::Runtime::new(&server).await?;
 			let runtime = self::runtime::Runtime::Linux(runtime);
-			self.runtimes.write().unwrap().insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
 		{
 			let triple = "x86_64-darwin".to_owned();
-			let runtime = self::runtime::darwin::Runtime::new(self);
+			let runtime = self::runtime::darwin::Runtime::new(&server);
 			let runtime = self::runtime::Runtime::Darwin(runtime);
-			self.runtimes.write().unwrap().insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 		{
 			let triple = "x86_64-linux".to_owned();
-			let runtime = self::runtime::linux::Runtime::new(self).await?;
+			let runtime = self::runtime::linux::Runtime::new(&server).await?;
 			let runtime = self::runtime::Runtime::Linux(runtime);
-			self.runtimes.write().unwrap().insert(triple, runtime);
+			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
-		// Start the build heartbeat monitor task.
+		// Spawn the build heartbeat monitor task.
 		let build_heartbeat_monitor_task =
-			self.options
+			server
+				.config
 				.build_heartbeat_monitor
 				.as_ref()
 				.map(|options| {
 					tokio::spawn({
-						let server = self.clone();
+						let server = server.clone();
 						let options = options.clone();
-						async move { server.build_heartbeat_monitor_task(&options).await }
+						async move {
+							server.build_heartbeat_monitor_task(&options).await;
+						}
 					})
 				});
 
-		// Start the build indexer task.
-		let build_indexer_task = if self.options.build_indexer.is_some() {
+		// Spawn the build indexer task.
+		let build_indexer_task = if server.config.build_indexer.is_some() {
 			Some(tokio::spawn({
-				let server = self.clone();
-				async move { server.build_indexer_task().await }
+				let server = server.clone();
+				async move {
+					server
+						.build_indexer_task()
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error);
+						})
+						.ok();
+				}
 			}))
 		} else {
 			None
 		};
 
-		// Start the object indexer task.
-		let object_indexer_task = if self.options.object_indexer.is_some() {
+		// Spawn the object indexer task.
+		let object_indexer_task = if server.config.object_indexer.is_some() {
 			Some(tokio::spawn({
-				let server = self.clone();
-				async move { server.object_indexer_task().await }
+				let server = server.clone();
+				async move {
+					server
+						.object_indexer_task()
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error);
+						})
+						.ok();
+				}
 			}))
 		} else {
 			None
 		};
 
-		// Start the build spawn task.
-		let build_spawn_task = if self.options.build.is_some() {
+		// Spawn the build spawn task.
+		let build_spawn_task = if server.config.build.is_some() {
 			Some(tokio::spawn({
-				let server = self.clone();
-				async move { server.build_spawn_task().await }
+				let server = server.clone();
+				async move {
+					server.build_spawn_task().await;
+				}
 			}))
 		} else {
 			None
 		};
 
-		// Serve.
-		Self::serve(self.clone(), self.options.url.clone(), stop.clone()).await?;
+		// Listen.
+		let listener = Self::listen(&server.config.url).await?;
+		tracing::trace!("listening on {}", server.config.url);
 
-		// Abort the build spawn task.
-		if let Some(task) = build_spawn_task {
-			task.abort();
-			task.await.ok();
-		}
+		// Spawn the HTTP task.
+		let http_task = Some(Task::spawn(|stop| {
+			let server = server.clone();
+			async move {
+				Self::serve(server.clone(), listener, stop).await;
+			}
+		}));
 
-		// Abort the object index task.
-		if let Some(task) = object_indexer_task {
-			task.abort();
-			task.await.ok();
-		}
+		let shutdown = {
+			let server = server.clone();
+			async move {
+				// Stop the HTTP task.
+				if let Some(task) = http_task {
+					task.stop();
+					task.wait().await.unwrap();
+				}
 
-		// Abort the build index task.
-		if let Some(task) = build_indexer_task {
-			task.abort();
-			task.await.ok();
-		}
+				// Abort the build spawn task.
+				if let Some(task) = build_spawn_task {
+					task.abort();
+					let result = task.await;
+					let result = match result {
+						Ok(()) => Ok(()),
+						Err(error) if error.is_cancelled() => Ok(()),
+						Err(error) => Err(error),
+					};
+					result.unwrap();
+				}
 
-		// Abort the build heartbeat monitor task.
-		if let Some(task) = build_heartbeat_monitor_task {
-			task.abort();
-			task.await.ok();
-		}
+				// Abort the object index task.
+				if let Some(task) = object_indexer_task {
+					task.abort();
+					let result = task.await;
+					let result = match result {
+						Ok(()) => Ok(()),
+						Err(error) if error.is_cancelled() => Ok(()),
+						Err(error) => Err(error),
+					};
+					result.unwrap();
+				}
 
-		// Abort the build tasks.
-		self.builds.abort_all();
-		self.builds.wait().await;
+				// Abort the build index task.
+				if let Some(task) = build_indexer_task {
+					task.abort();
+					let result = task.await;
+					let result = match result {
+						Ok(()) => Ok(()),
+						Err(error) if error.is_cancelled() => Ok(()),
+						Err(error) => Err(error),
+					};
+					result.unwrap();
+				}
 
-		// Remove the runtimes.
-		self.runtimes.write().unwrap().clear();
+				// Abort the build heartbeat monitor task.
+				if let Some(task) = build_heartbeat_monitor_task {
+					task.abort();
+					let result = task.await;
+					let result = match result {
+						Ok(()) => Ok(()),
+						Err(error) if error.is_cancelled() => Ok(()),
+						Err(error) => Err(error),
+					};
+					result.unwrap();
+				}
 
-		// Abort the checkout tasks.
-		self.checkout_task_map.abort_all();
-		self.checkout_task_map.wait().await;
+				// Abort the build tasks.
+				server.builds.abort_all();
+				server.builds.wait().await;
 
-		// Stop the VFS.
-		let vfs = self.vfs.lock().unwrap().take();
-		if let Some(vfs) = vfs {
-			vfs.stop();
-			vfs.wait().await?;
-		}
+				// Remove the runtimes.
+				server.runtimes.write().unwrap().clear();
 
-		// Release the lock file.
-		let lock_file = self.lock_file.lock().unwrap().take();
-		if let Some(lock_file) = lock_file {
-			lock_file.set_len(0).await.ok();
-		}
+				// Abort the checkout tasks.
+				server.checkout_task_map.abort_all();
+				server.checkout_task_map.wait().await;
 
-		Ok(())
+				// Stop the VFS.
+				let vfs = server.vfs.lock().unwrap().take();
+				if let Some(vfs) = vfs {
+					vfs.stop();
+					vfs.wait().await;
+				}
+
+				// Release the lock file.
+				let lock_file = server.lock_file.lock().unwrap().take();
+				if let Some(lock_file) = lock_file {
+					lock_file.set_len(0).await.ok();
+				}
+			}
+		};
+
+		// Spawn the task.
+		let task = Task::spawn(|stop| async move {
+			stop.wait().await;
+			shutdown.await;
+		});
+		server.task.lock().unwrap().replace(task);
+
+		Ok(server)
+	}
+
+	pub fn stop(&self) {
+		self.task.lock().unwrap().as_ref().unwrap().stop();
+	}
+
+	pub async fn wait(&self) {
+		let task = self.task.lock().unwrap().clone().unwrap();
+		task.wait().await.unwrap();
 	}
 
 	#[must_use]
@@ -506,9 +579,9 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn checkouts_path(&self) -> PathBuf {
+	pub fn cache_path(&self) -> PathBuf {
 		if self.vfs.lock().unwrap().is_some() {
-			self.path.join("checkouts")
+			self.path.join("cache")
 		} else {
 			self.artifacts_path()
 		}
@@ -525,20 +598,16 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn tmp_path(&self) -> PathBuf {
+	pub fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
 	}
 }
 
 impl Server {
-	async fn serve<H>(handle: H, url: Url, stop: Stop) -> tg::Result<()>
-	where
-		H: tg::Handle,
+	async fn listen(
+		url: &Url,
+	) -> tg::Result<tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>>
 	{
-		// Create the task tracker.
-		let task_tracker = tokio_util::task::TaskTracker::new();
-
-		// Create the listener.
 		let listener = match url.scheme() {
 			"http+unix" => {
 				let path = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
@@ -563,38 +632,40 @@ impl Server {
 				return Err(tg::error!("invalid url"));
 			},
 		};
+		Ok(listener)
+	}
 
-		tracing::trace!("serving on {url}");
+	async fn serve<H>(
+		handle: H,
+		listener: tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>,
+		stop: Stop,
+	) where
+		H: tg::Handle,
+	{
+		// Create the task tracker.
+		let task_tracker = tokio_util::task::TaskTracker::new();
 
 		loop {
 			// Accept a new connection.
 			let accept = async {
 				let stream = match &listener {
-					tokio_util::either::Either::Left(listener) => tokio_util::either::Either::Left(
-						listener
-							.accept()
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to accept a new connection")
-							})?
-							.0,
-					),
+					tokio_util::either::Either::Left(listener) => {
+						tokio_util::either::Either::Left(listener.accept().await?.0)
+					},
 					tokio_util::either::Either::Right(listener) => {
-						tokio_util::either::Either::Right(
-							listener
-								.accept()
-								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to accept a new connection")
-								})?
-								.0,
-						)
+						tokio_util::either::Either::Right(listener.accept().await?.0)
 					},
 				};
-				Ok::<_, tg::Error>(TokioIo::new(stream))
+				Ok::<_, std::io::Error>(TokioIo::new(stream))
 			};
-			let stream = match future::select(pin!(accept), pin!(stop.stopped())).await {
-				future::Either::Left((result, _)) => result?,
+			let stream = match future::select(pin!(accept), pin!(stop.wait())).await {
+				future::Either::Left((result, _)) => match result {
+					Ok(stream) => stream,
+					Err(error) => {
+						tracing::error!(?error, "failed to accept a connection");
+						continue;
+					},
+				},
 				future::Either::Right(((), _)) => {
 					break;
 				},
@@ -622,8 +693,7 @@ impl Server {
 					let builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
 					let connection = builder.serve_connection_with_upgrades(stream, service);
-					let result = match future::select(pin!(connection), pin!(stop.stopped())).await
-					{
+					let result = match future::select(pin!(connection), pin!(stop.wait())).await {
 						future::Either::Left((result, _)) => result,
 						future::Either::Right(((), mut connection)) => {
 							connection.as_mut().graceful_shutdown();
@@ -638,8 +708,6 @@ impl Server {
 		// Wait for all tasks to complete.
 		task_tracker.close();
 		task_tracker.wait().await;
-
-		Ok(())
 	}
 
 	async fn handle_request<H>(
@@ -1100,7 +1168,8 @@ impl tg::Handle for Server {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
+	{
 		self.try_get_reference(reference)
 	}
 
@@ -1187,4 +1256,23 @@ impl std::ops::Deref for Server {
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
+}
+
+#[cfg(test)]
+#[ctor::ctor]
+fn ctor() {
+	// Set file descriptor limit.
+	let limit = 65536;
+	let rlimit = libc::rlimit {
+		rlim_cur: limit,
+		rlim_max: limit,
+	};
+	let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &rlimit) };
+	assert!(ret == 0, "failed to set the file descriptor limit");
+
+	// Initialize v8.
+	v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
+	let platform = v8::new_default_platform(0, true);
+	v8::V8::initialize_platform(platform.make_shared());
+	v8::V8::initialize();
 }

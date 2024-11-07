@@ -1,19 +1,16 @@
-use crate::Server;
-use futures::{future::BoxFuture, Stream, StreamExt as _};
-use std::{
-	path::PathBuf,
-	pin::pin,
-	sync::{Arc, RwLock},
-};
+use crate::{util::path::Ext as _, Server};
+use futures::{Stream, StreamExt as _};
+use std::{path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-use tg::path::Ext as _;
 
 mod input;
 mod lockfile;
 mod object;
 mod output;
+#[cfg(test)]
+mod tests;
 mod unify;
 
 impl Server {
@@ -48,7 +45,7 @@ impl Server {
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		if let Some(path) = arg
 			.path
-			.diff(self.checkouts_path())
+			.diff(self.cache_path())
 			.filter(|path| matches!(path.components().next(), Some(std::path::Component::CurDir)))
 		{
 			let components = path.components().collect::<Vec<_>>();
@@ -82,15 +79,13 @@ impl Server {
 		}
 
 		// Check in the artifact.
-		self.check_in_or_store_artifact_inner(arg.clone(), None, progress)
-			.await
+		self.check_in_artifact_inner(arg.clone(), progress).await
 	}
 
 	// Check in the artifact.
-	async fn check_in_or_store_artifact_inner(
+	async fn check_in_artifact_inner(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
-		store_as: Option<&tg::artifact::Id>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Verify the path is absolute.
@@ -113,66 +108,49 @@ impl Server {
 		);
 		arg.path = path;
 
-		// Collect the input.
+		// Create the input graph.
 		let input = self
 			.create_input_graph(arg.clone(), progress)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect the input"),
 			)?;
-		self.select_lockfiles(input.clone()).await?;
 
-		// Construct the graph for unification.
-		let (mut unification_graph, root) = self
-			.create_unification_graph(input.clone())
+		// Create the unification graph and get its root node.
+		let (unify, root) = self
+			.create_unification_graph(&input, arg.deterministic)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to construct the object graph"))?;
 
-		// Unify.
-		if !arg.deterministic {
-			unification_graph = self
-				.unify_dependencies(unification_graph, &root)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to unify the object graph"))?;
-
-			// Validate.
-			unification_graph.validate().await?;
-		}
-
 		// Create the object graph.
-		let object_graph = self
-			.create_object_graph(&root, unification_graph)
+		let object = self
+			.create_object_graph(&input, &unify, &root)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create object graph"))?;
 
 		// Create the output graph.
 		let output = self
-			.create_output_graph(&object_graph)
+			.create_output_graph(&input, &object)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output graph"))?;
 
 		// Get the artifact ID.
 		let artifact = self
-			.find_output_from_input(&arg.path, input.clone(), output.clone())
+			.find_output_from_input(&arg.path, &input, &output)
 			.await?
 			.ok_or_else(|| tg::error!(%path = arg.path.display(), "missing path in output"))?;
 
-		if let Some(store_as) = store_as {
-			// Store if requested.
-			if store_as != &artifact {
-				return Err(tg::error!("the checkouts directory is corrupted"));
-			}
-			self.write_output_to_database(output.clone()).await?;
-		} else {
-			// Copy or move files.
-			self.copy_or_move_to_checkouts_directory(output.clone(), progress)
-				.await?;
+		// Copy or move files.
+		self.copy_or_move_to_checkouts_directory(&input, &output, 0, progress)
+			.await?;
 
-			// Write lockfiles.
-			let lockfile = self.create_lockfile(&object_graph).await?;
-			self.write_lockfiles(input.clone(), &lockfile, &object_graph.paths)
-				.await?;
-		}
+		// Write lockfiles.
+		let lockfile = self.create_lockfile(&object).await?;
+		self.write_lockfiles(&input, &lockfile, &object.paths)
+			.await?;
+
+		// Write the artifact data to the database.
+		self.write_output_to_database(&output).await?;
 
 		// Create the output.
 		let output = tg::artifact::checkin::Output { artifact };
@@ -180,83 +158,32 @@ impl Server {
 		Ok(output)
 	}
 
-	#[allow(clippy::only_used_in_recursion, clippy::needless_pass_by_value)]
 	async fn find_output_from_input(
 		&self,
 		path: &PathBuf,
-		input: Arc<tokio::sync::RwLock<input::Graph>>,
-		output: Arc<RwLock<output::Graph>>,
+		input: &input::Graph,
+		output: &output::Graph,
 	) -> tg::Result<Option<tg::artifact::Id>> {
-		if &input.read().await.arg.path == path {
-			return Ok(Some(output.read().unwrap().id.clone()));
-		}
-		// Recurse over path dependencies.
-		let dependencies = input
-			.read()
-			.await
-			.edges
-			.iter()
-			.filter_map(|edge| {
-				let child = edge.node()?;
-				edge.reference
-					.path()
-					.try_unwrap_path_ref()
-					.ok()
-					.or_else(|| edge.reference.query()?.path.as_ref())
-					.map(|_| (edge.reference.clone(), child))
-			})
-			.collect::<Vec<_>>();
-		for (reference, child_input) in dependencies {
-			let child_output = output
-				.read()
-				.unwrap()
-				.edges
-				.iter()
-				.find(|edge| edge.reference == reference)
-				.ok_or_else(
-					|| tg::error!(%referrer = path.display(), %reference, "missing output reference"),
-				)?
-				.node();
-			if let Some(id) =
-				Box::pin(self.find_output_from_input(path, child_input, child_output)).await?
-			{
-				return Ok(Some(id));
+		let mut stack = vec![0];
+		let mut visited = vec![false; output.nodes.len()];
+		while let Some(output_index) = stack.pop() {
+			if visited[output_index] {
+				continue;
 			}
+			visited[output_index] = true;
+			let input_index = output.nodes[output_index].input;
+			let input_node = &input.nodes[input_index];
+			if &input_node.arg.path == path {
+				return Ok(Some(output.nodes[output_index].id.clone()));
+			}
+			stack.extend(
+				output.nodes[output_index]
+					.edges
+					.iter()
+					.map(|edge| edge.node),
+			);
 		}
 		Ok(None)
-	}
-
-	pub(crate) fn try_store_artifact_future(
-		&self,
-		id: &tg::artifact::Id,
-	) -> BoxFuture<'static, tg::Result<bool>> {
-		let server = self.clone();
-		let id = id.clone();
-		Box::pin(async move { server.try_store_artifact_inner(&id).await })
-	}
-
-	pub(crate) async fn try_store_artifact_inner(&self, id: &tg::artifact::Id) -> tg::Result<bool> {
-		// Check if the artifact exists in the checkouts directory.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let path = self.checkouts_path().join(id.to_string());
-		let exists = tokio::fs::try_exists(&path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to check if the file exists"))?;
-		if !exists {
-			return Ok(false);
-		}
-		drop(permit);
-		let arg = tg::artifact::checkin::Arg {
-			deterministic: false,
-			destructive: false,
-			ignore: false,
-			locked: true,
-			path,
-		};
-		self.check_in_or_store_artifact_inner(arg.clone(), Some(id), None)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to store the artifact"))?;
-		Ok(true)
 	}
 }
 

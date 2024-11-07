@@ -1,5 +1,9 @@
 use crate::{self as tg, handle::Ext as _};
-use std::{collections::BTreeMap, os::unix::ffi::OsStrExt, path::PathBuf};
+use std::{
+	collections::BTreeMap,
+	os::unix::ffi::OsStrExt,
+	path::{Path, PathBuf},
+};
 use tangram_either::Either;
 use tangram_uri as uri;
 
@@ -8,8 +12,8 @@ pub mod get;
 #[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub struct Reference {
 	uri: uri::Reference,
-	path: Path,
-	query: Option<Query>,
+	item: Item,
+	options: Option<Options>,
 }
 
 #[derive(
@@ -22,7 +26,7 @@ pub struct Reference {
 )]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
-pub enum Path {
+pub enum Item {
 	Build(tg::build::Id),
 	Object(tg::object::Id),
 	Path(PathBuf),
@@ -30,7 +34,7 @@ pub enum Path {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Query {
+pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 
@@ -42,6 +46,9 @@ pub struct Query {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub subpath: Option<PathBuf>,
 }
 
 impl Reference {
@@ -49,20 +56,20 @@ impl Reference {
 		let path = uri.path();
 		let path =
 			urlencoding::decode(path).map_err(|source| tg::error!(!source, "invalid path"))?;
-		let path = path.parse()?;
-		let query = uri
+		let item = path.parse()?;
+		let options = uri
 			.query()
 			.map(|query| {
 				serde_urlencoded::from_str(query)
 					.map_err(|source| tg::error!(!source, "invalid query"))
 			})
 			.transpose()?;
-		Ok(Self { uri, path, query })
+		Ok(Self { uri, item, options })
 	}
 
-	pub fn with_path_and_query(path: &Path, query: Option<&Query>) -> Self {
-		let path = path.to_string();
-		let query = query
+	pub fn with_item_and_options(item: &Item, options: Option<&Options>) -> Self {
+		let path = item.to_string();
+		let query = options
 			.as_ref()
 			.map(serde_urlencoded::to_string)
 			.transpose()
@@ -86,7 +93,7 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn with_path(path: impl AsRef<std::path::Path>) -> Self {
+	pub fn with_path(path: impl AsRef<Path>) -> Self {
 		let mut buf = PathBuf::new();
 		for (idx, component) in path.as_ref().components().enumerate() {
 			match component {
@@ -124,25 +131,33 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn path(&self) -> &Path {
-		&self.path
+	pub fn item(&self) -> &Item {
+		&self.item
 	}
 
 	#[must_use]
-	pub fn query(&self) -> Option<&Query> {
-		self.query.as_ref()
+	pub fn options(&self) -> Option<&Options> {
+		self.options.as_ref()
 	}
 
-	pub async fn get<H>(&self, handle: &H) -> tg::Result<Either<tg::Build, tg::Object>>
+	pub async fn get<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<tg::Referent<Either<tg::Build, tg::Object>>>
 	where
 		H: tg::Handle,
 	{
-		handle.get_reference(self).await.map(|output| {
-			output
-				.item
-				.map_left(tg::Build::with_id)
-				.map_right(tg::Object::with_id)
-		})
+		handle
+			.get_reference(self)
+			.await
+			.map(|referent| tg::Referent {
+				item: referent
+					.item
+					.map_left(tg::Build::with_id)
+					.map_right(tg::Object::with_id),
+				subpath: referent.subpath,
+				tag: referent.tag,
+			})
 	}
 }
 
@@ -163,18 +178,34 @@ impl std::str::FromStr for Reference {
 	}
 }
 
-impl std::fmt::Display for Path {
+impl std::fmt::Display for Item {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Path::Build(build) => write!(f, "{build}"),
-			Path::Object(object) => write!(f, "{object}"),
-			Path::Path(path) => write!(f, "{}", path.display()),
-			Path::Tag(tag) => write!(f, "{tag}"),
+			Item::Build(build) => {
+				write!(f, "{build}")?;
+			},
+			Item::Object(object) => {
+				write!(f, "{object}")?;
+			},
+			Item::Path(path) => {
+				if path
+					.components()
+					.next()
+					.is_some_and(|component| matches!(component, std::path::Component::Normal(_)))
+				{
+					write!(f, "./")?;
+				}
+				write!(f, "{}", path.display())?;
+			},
+			Item::Tag(tag) => {
+				write!(f, "{tag}")?;
+			},
 		}
+		Ok(())
 	}
 }
 
-impl std::str::FromStr for Path {
+impl std::str::FromStr for Item {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {

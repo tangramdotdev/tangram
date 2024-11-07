@@ -4,8 +4,7 @@ use futures::{
 use itertools::Itertools as _;
 use std::pin::pin;
 
-pub use self::{row::Row, value::Value};
-pub use pool::Priority;
+pub use self::{pool::Priority, row::Row, value::Value};
 
 pub mod either;
 pub mod pool;
@@ -28,10 +27,35 @@ pub trait Database {
 
 	type T;
 
-	fn connection(
+	fn connection(&self) -> impl Future<Output = Result<Self::T, Self::Error>> + Send {
+		self.connection_with_options(ConnectionOptions::default())
+	}
+
+	fn write_connection(&self) -> impl Future<Output = Result<Self::T, Self::Error>> + Send {
+		let options = ConnectionOptions {
+			kind: ConnectionKind::Write,
+			..Default::default()
+		};
+		self.connection_with_options(options)
+	}
+
+	fn connection_with_options(
 		&self,
-		priority: Priority,
+		options: ConnectionOptions,
 	) -> impl Future<Output = Result<Self::T, Self::Error>> + Send;
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ConnectionOptions {
+	pub kind: ConnectionKind,
+	pub priority: Priority,
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum ConnectionKind {
+	#[default]
+	Read,
+	Write,
 }
 
 pub trait Connection {

@@ -1,5 +1,5 @@
 use super::Runtime;
-use crate::tmp::Tmp;
+use crate::temp::Temp;
 use byte_unit::Byte;
 use num::ToPrimitive as _;
 use std::time::Duration;
@@ -80,8 +80,8 @@ impl Runtime {
 		};
 
 		// Create a temporary path.
-		let tmp = Tmp::new(server);
-		let path = tmp.as_ref().join("archive");
+		let temp = Temp::new(server);
+		let path = temp.as_ref().join("archive");
 
 		// Extract in a blocking task.
 		tokio::task::spawn_blocking({

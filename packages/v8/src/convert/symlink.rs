@@ -72,15 +72,15 @@ impl ToV8 for tg::symlink::Object {
 		let object = v8::Object::new(scope);
 
 		match self {
-			tg::symlink::Object::Normal { artifact, path } => {
+			tg::symlink::Object::Normal { artifact, subpath } => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
 				let value = artifact.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 
 				let key =
-					v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
-				let value = path.to_v8(scope)?;
+					v8::String::new_external_onebyte_static(scope, "subpath".as_bytes()).unwrap();
+				let value = subpath.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
 
@@ -126,11 +126,11 @@ impl FromV8 for tg::symlink::Object {
 		let artifact = <_>::from_v8(scope, artifact)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the artifact"))?;
 
-		let path = v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
-		let path = value.get(scope, path.into()).unwrap();
-		let path = <_>::from_v8(scope, path)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
+		let subpath = v8::String::new_external_onebyte_static(scope, "subpath".as_bytes()).unwrap();
+		let subpath = value.get(scope, subpath.into()).unwrap();
+		let subpath = <_>::from_v8(scope, subpath)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the subpath"))?;
 
-		Ok(Self::Normal { artifact, path })
+		Ok(Self::Normal { artifact, subpath })
 	}
 }

@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import type { Module } from "./module.ts";
 import { setCurrentTarget } from "./target.ts";
 
 export let start = async (target: tg.Target): Promise<tg.Value> => {
@@ -9,22 +8,9 @@ export let start = async (target: tg.Target): Promise<tg.Value> => {
 	// Set the current target.
 	setCurrentTarget(target);
 
-	// Import the executable.
-	let executable = await target.executable();
-	if (executable === undefined) {
-		throw new Error("invalid target");
-	}
-	let kind: Module.Kind = "js";
-	if (executable instanceof tg.Symlink) {
-		const path = await executable.path();
-		if (path?.toString().endsWith(".ts")) {
-			kind = "ts";
-		}
-	}
-	let id = await executable.id();
-
-	// biome-ignore lint/security/noGlobalEval: workaround for https://github.com/oven-sh/bun/issues/14064.
-	let namespace = await eval(`import("${id}", { with: { kind: "${kind}" } })`);
+	// @ts-ignore
+	// biome-ignore lint/security/noGlobalEval: special import
+	let namespace = await eval(`import("!")`);
 
 	// Get the args.
 	let args = await target.args();

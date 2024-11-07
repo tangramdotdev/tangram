@@ -1,4 +1,4 @@
-use crate::{tmp::Tmp, Server};
+use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::TryStreamExt as _;
@@ -27,7 +27,7 @@ pub struct Provider {
 	pending_nodes: Arc<DashMap<u64, Node, fnv::FnvBuildHasher>>,
 	server: Server,
 	#[allow(dead_code)]
-	tmp: Tmp,
+	temp: Temp,
 }
 
 pub struct DirectoryHandle {
@@ -72,14 +72,10 @@ impl vfs::Provider for Provider {
 		}
 
 		// First, try to look up in the database.
-		let connection = self
-			.database
-			.connection(db::Priority::Low)
-			.await
-			.map_err(|error| {
-				tracing::error!(%error, "failed to get database a connection");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+		let connection = self.database.connection().await.map_err(|error| {
+			tracing::error!(%error, "failed to get database a connection");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
 		#[derive(serde::Deserialize)]
 		struct Row {
 			id: u64,
@@ -150,14 +146,10 @@ impl vfs::Provider for Provider {
 			return Ok(node.parent);
 		}
 
-		let connection = self
-			.database
-			.connection(db::Priority::Low)
-			.await
-			.map_err(|error| {
-				tracing::error!(%error, "failed to get database a connection");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+		let connection = self.database.connection().await.map_err(|error| {
+			tracing::error!(%error, "failed to get database a connection");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
 		#[derive(serde::Deserialize)]
 		struct Row {
 			parent: u64,
@@ -301,7 +293,7 @@ impl vfs::Provider for Provider {
 			tracing::error!("failed to get the symlink's artifact");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
-		let Ok(path) = symlink.path(&self.server).await else {
+		let Ok(path) = symlink.subpath(&self.server).await else {
 			tracing::error!("failed to get the symlink's path");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
@@ -431,23 +423,30 @@ impl vfs::Provider for Provider {
 }
 
 impl Provider {
-	pub async fn new(server: &Server, options: crate::options::Vfs) -> tg::Result<Self> {
+	pub async fn new(server: &Server, options: crate::config::Vfs) -> tg::Result<Self> {
 		// Create the cache.
 		let cache = moka::sync::CacheBuilder::new(options.cache_size.to_u64().unwrap())
 			.time_to_idle(options.cache_ttl)
 			.build_with_hasher(fnv::FnvBuildHasher::default());
 
 		// Create the database.
-		let tmp = Tmp::new(server);
-		tokio::fs::create_dir_all(&tmp)
+		let temp = Temp::new(server);
+		tokio::fs::create_dir_all(&temp)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the database directory"))?;
-		let path = tmp.path.join("vfs");
-		let initialize = Box::new(|connection: &sqlite::Connection| {
+		let path = temp.path.join("vfs");
+		let initialize = Arc::new(|connection: &sqlite::Connection| {
+			connection.pragma_update(None, "auto_vaccum", "incremental")?;
+			connection.pragma_update(None, "busy_timeout", "5000")?;
+			connection.pragma_update(None, "cache_size", "-20000")?;
+			connection.pragma_update(None, "foreign_keys", "on")?;
 			connection.pragma_update(None, "journal_mode", "wal")?;
+			connection.pragma_update(None, "mmap_size", "2147483648")?;
+			connection.pragma_update(None, "synchronous", "normal")?;
+			connection.pragma_update(None, "temp_store", "memory")?;
 			Ok(())
 		});
-		let database_options = db::sqlite::Options {
+		let database_options = db::sqlite::DatabaseOptions {
 			connections: options.database_connections,
 			initialize,
 			path,
@@ -456,7 +455,7 @@ impl Provider {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create database"))?;
 		let connection = database
-			.connection(db::Priority::Low)
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 		let statement = formatdoc!(
@@ -491,7 +490,6 @@ impl Provider {
 		connection
 			.execute(statement, params)
 			.await
-			.inspect_err(|source| eprintln!("{source}"))
 			.map_err(|source| tg::error!(!source, "failed to insert the root node"))?;
 
 		// Create the provider.
@@ -510,7 +508,7 @@ impl Provider {
 			file_handles,
 			pending_nodes,
 			server,
-			tmp,
+			temp,
 		};
 
 		Ok(provider)
@@ -528,14 +526,10 @@ impl Provider {
 		}
 
 		// Get a database connection.
-		let connection = self
-			.database
-			.connection(db::Priority::Low)
-			.await
-			.map_err(|error| {
-				tracing::error!(%error, "failed to get a database connection");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+		let connection = self.database.connection().await.map_err(|error| {
+			tracing::error!(%error, "failed to get a database connection");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
 
 		// Get the node from the database.
 		#[derive(serde::Deserialize)]
@@ -608,14 +602,10 @@ impl Provider {
 
 		// Insert the node.
 		tokio::spawn({
-			let connection =
-				self.database
-					.connection(db::Priority::Low)
-					.await
-					.map_err(|error| {
-						tracing::error!(%error, "failed to get database a connection");
-						std::io::Error::from_raw_os_error(libc::EIO)
-					})?;
+			let connection = self.database.write_connection().await.map_err(|error| {
+				tracing::error!(%error, "failed to get database a connection");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
 			let pending_nodes = self.pending_nodes.clone();
 			let name = name.to_owned();
 			async move {

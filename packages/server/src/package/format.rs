@@ -2,7 +2,6 @@ use crate::{compiler::Compiler, Server};
 use std::{collections::HashSet, path::PathBuf};
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tg::path::Ext as _;
 
 impl Server {
 	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
@@ -15,12 +14,12 @@ impl Server {
 
 		// Format the modules recursively.
 		let mut visited = HashSet::default();
-		self.format_module(path, &mut visited).await?;
+		self.format_package_inner(path, &mut visited).await?;
 
 		Ok(())
 	}
 
-	async fn format_module(
+	async fn format_package_inner(
 		&self,
 		path: PathBuf,
 		visited: &mut HashSet<PathBuf, fnv::FnvBuildHasher>,
@@ -54,17 +53,17 @@ impl Server {
 		for import in analysis.imports {
 			let import_path = import
 				.reference
-				.path()
+				.item()
 				.try_unwrap_path_ref()
 				.ok()
-				.or_else(|| import.reference.query()?.path.as_ref());
+				.or_else(|| import.reference.options()?.path.as_ref());
 			if let Some(import_path) = import_path {
-				let path = path.join(import_path).normalize();
+				let path = path.join(import_path);
 				let exists = tokio::fs::try_exists(&path).await.map_err(
 					|source| tg::error!(!source, %path = path.display(), "failed to check if file exists"),
 				)?;
 				if exists {
-					Box::pin(self.format_module(path, visited)).await?;
+					Box::pin(self.format_package_inner(path, visited)).await?;
 				}
 			}
 		}

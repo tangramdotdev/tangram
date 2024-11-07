@@ -1,6 +1,5 @@
 use super::{document::Document, Compiler};
 use tangram_client as tg;
-use tangram_either::Either;
 
 impl Compiler {
 	pub async fn get_module_version(&self, module: &tg::Module) -> tg::Result<i32> {
@@ -16,20 +15,30 @@ impl Compiler {
 		}
 
 		// Get the path.
-		let (
-			tg::module::Kind::Js
-			| tg::module::Kind::Ts
-			| tg::module::Kind::Artifact
-			| tg::module::Kind::Directory
-			| tg::module::Kind::File
-			| tg::module::Kind::Symlink,
-			Some(Either::Right(package)),
-			Some(path),
-		) = (module.kind, &module.object, &module.path)
+		let tg::Module {
+			kind:
+				tg::module::Kind::Js
+				| tg::module::Kind::Ts
+				| tg::module::Kind::Artifact
+				| tg::module::Kind::Directory
+				| tg::module::Kind::File
+				| tg::module::Kind::Symlink,
+			referent:
+				tg::Referent {
+					item: tg::module::Item::Path(path),
+					subpath,
+					..
+				},
+			..
+		} = &module
 		else {
 			return Ok(0);
 		};
-		let path = package.join(path);
+		let path = if let Some(subpath) = subpath {
+			path.join(subpath)
+		} else {
+			path.clone()
+		};
 
 		// Get the modified time.
 		let metadata = tokio::fs::metadata(&path)
@@ -41,10 +50,11 @@ impl Compiler {
 
 		// Get or create the document.
 		let mut document = entry.or_insert(Document {
-			open: false,
-			version: 0,
+			dirty: false,
 			modified: Some(modified),
+			open: false,
 			text: None,
+			version: 0,
 		});
 
 		// Update the modified time if necessary.

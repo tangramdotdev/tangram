@@ -1,4 +1,4 @@
-use self::{parse::parse, print::print};
+use self::{parse::parse, print::Printer};
 use crate as tg;
 use bytes::Bytes;
 use futures::{
@@ -7,7 +7,7 @@ use futures::{
 };
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tangram_either::Either;
 
 pub use self::data::*;
@@ -65,11 +65,9 @@ pub type Array = Vec<Value>;
 pub type Map = BTreeMap<String, Value>;
 
 pub mod data {
-	use std::collections::BTreeMap;
-
-	use bytes::Bytes;
-
 	use crate as tg;
+	use bytes::Bytes;
+	use std::collections::BTreeMap;
 
 	/// Value data.
 	#[derive(Clone, Debug, PartialEq, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -139,8 +137,11 @@ impl Value {
 		Ok(data)
 	}
 
-	pub fn to_string_pretty(&self) -> String {
-		print(self, true)
+	pub fn print(&self, options: self::print::Options) -> String {
+		let mut string = String::new();
+		let mut printer = Printer::new(&mut string, options);
+		printer.value(self).unwrap();
+		string
 	}
 }
 
@@ -157,23 +158,25 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Id> {
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
 			Self::Null | Self::Bool(_) | Self::Number(_) | Self::String(_) | Self::Bytes(_) => {
-				vec![]
+				[].into()
 			},
 			Self::Array(array) => array.iter().flat_map(Self::children).collect(),
 			Self::Map(map) => map.values().flat_map(Self::children).collect(),
+			Self::Object(object) => [object.clone()].into(),
 			Self::Mutation(mutation) => mutation.children(),
 			Self::Template(template) => template.children(),
-			Self::Object(id) => vec![id.clone()],
 		}
 	}
 }
 
 impl std::fmt::Display for Value {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", print(self, false))
+		let mut printer = Printer::new(f, tg::value::print::Options::default());
+		printer.value(self)?;
+		Ok(())
 	}
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-	pool::{self, Pool, Priority},
+	pool::{self, Pool},
 	Row, Value,
 };
 use futures::{future, Future, Stream, TryStreamExt as _};
@@ -18,9 +18,14 @@ pub enum Error {
 }
 
 #[derive(Clone, Debug)]
-pub struct Options {
+pub struct DatabaseOptions {
 	pub url: Url,
 	pub connections: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConnectionOptions {
+	pub url: Url,
 }
 
 #[derive(Default)]
@@ -33,7 +38,7 @@ pub struct Database {
 }
 
 pub struct Connection {
-	options: Options,
+	options: ConnectionOptions,
 	client: postgres::Client,
 	cache: Cache,
 }
@@ -62,13 +67,17 @@ impl Cache {
 }
 
 impl Database {
-	pub async fn new(options: Options) -> Result<Self, Error> {
+	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
 		let pool = Pool::new();
 		for _ in 0..options.connections {
-			let connection = Connection::connect(options.clone()).await?;
+			let options = ConnectionOptions {
+				url: options.url.clone(),
+			};
+			let connection = Connection::connect(options).await?;
 			pool.add(connection);
 		}
-		Ok(Self { pool })
+		let database = Self { pool };
+		Ok(database)
 	}
 
 	#[must_use]
@@ -78,7 +87,7 @@ impl Database {
 }
 
 impl Connection {
-	pub async fn connect(options: Options) -> Result<Self, Error> {
+	pub async fn connect(options: ConnectionOptions) -> Result<Self, Error> {
 		let (client, connection) = postgres::connect(options.url.as_str(), postgres::NoTls).await?;
 		tokio::spawn(async move {
 			connection
@@ -115,8 +124,11 @@ impl super::Database for Database {
 
 	type T = pool::Guard<Connection>;
 
-	async fn connection(&self, priority: Priority) -> Result<Self::T, Self::Error> {
-		let mut connection = self.pool.get(priority).await;
+	async fn connection_with_options(
+		&self,
+		options: super::ConnectionOptions,
+	) -> Result<Self::T, Self::Error> {
+		let mut connection = self.pool.get(options.priority).await;
 		if connection.client.is_closed() {
 			connection.reconnect().await?;
 		}

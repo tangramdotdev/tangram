@@ -28,21 +28,31 @@ impl Cli {
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the reference.
-		let item = self.get_reference(&args.reference).await?;
-
-		// Get the package.
-		let Either::Right(tg::Object::Directory(package)) = item else {
-			return Err(tg::error!("expected a package"));
+		let referent = self.get_reference(&args.reference).await?;
+		let Either::Right(object) = referent.item else {
+			return Err(tg::error!("expected an object"));
 		};
-
-		// Check the package.
+		let object = if let Some(subpath) = &referent.subpath {
+			let directory = object
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			directory.get(&handle, subpath).await?.into()
+		} else {
+			object
+		};
+		let Ok(package) = tg::Directory::try_from(object) else {
+			return Err(tg::error!("expected a directory"));
+		};
 		let package = package.id(&handle).await?;
+
+		// Check the module.
 		let arg = tg::package::check::Arg { package, remote };
 		let output = handle.check_package(arg).await?;
 
 		// Print the diagnostics.
 		for diagnostic in &output.diagnostics {
-			self.print_diagnostic(diagnostic).await;
+			Self::print_diagnostic(diagnostic);
 		}
 
 		if !output.diagnostics.is_empty() {

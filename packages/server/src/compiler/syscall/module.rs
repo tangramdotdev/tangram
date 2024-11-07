@@ -27,7 +27,7 @@ pub fn resolve(
 		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		let module = compiler
-			.resolve_module(Some(&referrer), &import)
+			.resolve_module(&referrer, &import)
 			.await
 			.map_err(|error| {
 				tg::error!(
@@ -54,4 +54,18 @@ pub fn version(
 			.map_err(|source| tg::error!(!source, "failed to get the module version"))?;
 		Ok(version.to_string())
 	})
+}
+
+pub fn has_invalidated_resolutions(
+	_scope: &mut v8::HandleScope,
+	compiler: Compiler,
+	args: (tg::Module,),
+) -> tg::Result<bool> {
+	let (module,) = args;
+	let Some(document) = compiler.documents.get(&module) else {
+		return Ok(false);
+	};
+
+	// We consider resolutions to be invalid if the document has no more pending changes, which is only true when the document has been opened, or has been saved after receiving edits.
+	Ok(!document.dirty)
 }

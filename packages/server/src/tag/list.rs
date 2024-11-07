@@ -49,7 +49,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection(db::Priority::Low)
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 

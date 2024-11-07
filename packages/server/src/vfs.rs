@@ -13,8 +13,8 @@ pub enum Kind {
 
 #[derive(Clone)]
 pub enum Server {
-	Fuse(vfs::fuse::Vfs<Provider>),
-	Nfs(vfs::nfs::Vfs<Provider>),
+	Fuse(vfs::fuse::Server<Provider>),
+	Nfs(vfs::nfs::Server<Provider>),
 }
 
 impl Server {
@@ -22,7 +22,7 @@ impl Server {
 		server: &crate::Server,
 		kind: Kind,
 		path: &Path,
-		options: crate::options::Vfs,
+		options: crate::config::Vfs,
 	) -> tg::Result<Self> {
 		// Remove a file at the path if one exists.
 		tokio::fs::remove_file(path).await.ok();
@@ -35,14 +35,14 @@ impl Server {
 
 		let vfs = match kind {
 			Kind::Fuse => {
-				let fuse = vfs::fuse::Vfs::start(provider, path)
+				let fuse = vfs::fuse::Server::start(provider, path)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to start FUSE server"))?;
+					.map_err(|source| tg::error!(!source, "failed to start the FUSE server"))?;
 				Server::Fuse(fuse)
 			},
 			Kind::Nfs => {
 				let port = 8476;
-				let url = if cfg!(target_os = "macos") {
+				let host = if cfg!(target_os = "macos") {
 					tokio::process::Command::new("dns-sd")
 						.args([
 							"-P",
@@ -62,9 +62,9 @@ impl Server {
 				} else {
 					"localhost"
 				};
-				let nfs = vfs::nfs::Vfs::start(provider, path, url.into(), port)
+				let nfs = vfs::nfs::Server::start(provider, path, host, port)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to start NFS server"))?;
+					.map_err(|source| tg::error!(!source, "failed to start the NFS server"))?;
 				Self::Nfs(nfs)
 			},
 		};
@@ -79,11 +79,14 @@ impl Server {
 		}
 	}
 
-	pub async fn wait(self) -> tg::Result<()> {
+	pub async fn wait(self) {
 		match self {
-			Server::Fuse(server) => server.wait().await,
-			Server::Nfs(server) => server.wait().await,
+			Server::Fuse(server) => {
+				server.wait().await;
+			},
+			Server::Nfs(server) => {
+				server.wait().await;
+			},
 		}
-		Ok(())
 	}
 }

@@ -8,17 +8,10 @@ pub struct Location {
 
 impl std::fmt::Display for Location {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.module.kind)?;
-		if let Some(object) = &self.module.object {
-			let object = object.as_ref().map_right(|path| path.display());
-			write!(f, ":{object}")?;
-		}
-		if let Some(path) = &self.module.path {
-			write!(f, ":{}", path.display())?;
-		}
+		write!(f, "{}", self.module)?;
 		let line = self.range.start.line + 1;
 		let character = self.range.start.character + 1;
-		write!(f, " {line}:{character}")?;
+		write!(f, ":{line}:{character}")?;
 		Ok(())
 	}
 }

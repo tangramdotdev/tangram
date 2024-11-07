@@ -48,6 +48,10 @@ impl Cli {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 		}
+		stdout
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 
 		Ok(())
 	}

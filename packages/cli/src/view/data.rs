@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use layout::Position;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use ratatui::{
 	prelude::*,
 	widgets::{Paragraph, Wrap},

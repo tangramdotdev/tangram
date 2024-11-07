@@ -1,9 +1,4 @@
-use super::{
-	commands::Commands,
-	detail::Detail,
-	tree::{NodeKind, Tree},
-	util::render_block_and_get_area,
-};
+use super::{commands::Commands, detail::Detail, tree, util::render_block_and_get_area};
 use copypasta::ClipboardProvider;
 use crossterm::event::{Event, KeyEvent, MouseEvent, MouseEventKind};
 use derive_more::Debug;
@@ -13,10 +8,11 @@ use std::sync::{
 	Arc, RwLock,
 };
 use tangram_client as tg;
+use tangram_either::Either;
 
 pub struct App<H> {
 	handle: H,
-	tree: Arc<Tree<H>>,
+	tree: Arc<tree::Tree<H>>,
 	state: RwLock<State<H>>,
 	stop: AtomicBool,
 }
@@ -41,10 +37,15 @@ impl<H> App<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(handle: &H, root: NodeKind, rect: tui::layout::Rect) -> Arc<Self> {
+	#[allow(clippy::needless_pass_by_value)]
+	pub fn new(
+		handle: &H,
+		item: Either<tg::Build, tg::Value>,
+		tree: tree::Tree<H>,
+		rect: tui::layout::Rect,
+	) -> Arc<Self> {
 		let handle = handle.clone();
-		let detail = Detail::new(&handle, &root.clone(), rect);
-		let tree = Tree::new(&handle, &[root], rect);
+		let detail = Detail::new(&handle, item.clone(), rect);
 		let stop = AtomicBool::new(false);
 
 		let split = if rect.width >= 80 {
@@ -68,7 +69,7 @@ where
 
 		let app = Arc::new(Self {
 			handle,
-			tree,
+			tree: Arc::new(tree),
 			state,
 			stop,
 		});
@@ -162,7 +163,7 @@ where
 			Focus::Tree => {
 				self.tree.top();
 				let selected = self.tree.get_selected();
-				state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+				state.detail = Detail::new(&self.handle, selected, state.detail_area);
 			},
 			Focus::DetailOne | Focus::DetailTwo => {
 				state.detail.top();
@@ -176,7 +177,7 @@ where
 			Focus::Tree => {
 				self.tree.bottom();
 				let selected = self.tree.get_selected();
-				state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+				state.detail = Detail::new(&self.handle, selected, state.detail_area);
 			},
 			Focus::DetailOne | Focus::DetailTwo => {
 				state.detail.bottom();
@@ -189,7 +190,7 @@ where
 		if mouse | matches!(state.focus, Focus::Tree) {
 			self.tree.up();
 			let selected = self.tree.get_selected();
-			state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+			state.detail = Detail::new(&self.handle, selected, state.detail_area);
 		} else {
 			state.detail.up();
 		}
@@ -200,7 +201,7 @@ where
 		if mouse | matches!(state.focus, Focus::Tree) {
 			self.tree.down();
 			let selected = self.tree.get_selected();
-			state.detail = Detail::new(&self.handle, &selected, state.detail_area);
+			state.detail = Detail::new(&self.handle, selected, state.detail_area);
 		} else {
 			state.detail.down();
 		}
@@ -267,13 +268,16 @@ where
 	}
 
 	pub fn cancel(&self) {
-		let NodeKind::Build { build, remote } = self.tree.get_selected() else {
+		let Either::Left(build) = self.tree.get_selected() else {
 			return;
 		};
 		let handle = self.handle.clone();
 		tokio::spawn(async move {
 			let outcome = tg::build::outcome::Data::Canceled;
-			let arg = tg::build::finish::Arg { outcome, remote };
+			let arg = tg::build::finish::Arg {
+				outcome,
+				remote: None,
+			};
 			build.finish(&handle, arg).await.ok();
 		});
 	}
@@ -283,12 +287,13 @@ where
 	}
 
 	pub fn expand_children(&self) {
-		if let NodeKind::Build { .. } = self.tree.get_selected() {
-			self.tree.expand_build_children();
-			self.tree.expand_object_children();
-		} else {
-			self.tree.expand_object_children();
-		}
+		let options = tree::Options {
+			depth: Some(1),
+			objects: true,
+			builds: true,
+			collapse_builds_on_success: false,
+		};
+		self.tree.expand(options);
 	}
 
 	pub fn collapse_children(&self) {
@@ -301,9 +306,8 @@ where
 		};
 		let selected = self.tree.get_selected();
 		let text = match selected {
-			NodeKind::Root => return,
-			NodeKind::Build { build, .. } => build.id().to_string(),
-			NodeKind::Value { value, .. } => value.to_string(),
+			Either::Left(build) => build.id().to_string(),
+			Either::Right(value) => value.to_string(),
 		};
 		context.set_contents(text).ok();
 	}

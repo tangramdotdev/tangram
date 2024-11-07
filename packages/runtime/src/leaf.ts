@@ -68,7 +68,7 @@ export class Leaf {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			tg.assert(object.kind === "leaf");
 			this.#state.object = object.value;
 		}
@@ -76,7 +76,7 @@ export class Leaf {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "leaf",
 				value: this.#state.object!,
 			});
@@ -92,7 +92,7 @@ export class Leaf {
 	}
 
 	async text(): Promise<string> {
-		return tg.encoding.utf8.decode(await syscall("read", this));
+		return tg.encoding.utf8.decode(await syscall("blob_read", this));
 	}
 }
 

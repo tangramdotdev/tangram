@@ -14,6 +14,7 @@ struct InnerOutput {
 struct Metadata {
 	build_count: Option<u64>,
 	object_count: Option<u64>,
+	#[allow(dead_code)]
 	object_depth: Option<u64>,
 	object_weight: Option<u64>,
 }
@@ -316,16 +317,10 @@ impl Server {
 						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.count))
 						.sum::<Option<u64>>();
 					let depth = metadata.iter().try_fold(0, |depth, metadata| {
-						match metadata {
-							Some(data) => {
-								if let Some(mdepth) = data.depth {
-									Some(std::cmp::max(mdepth, depth))
-								} else {
-									None // Bail out if metadata.depth is None
-								}
-							},
-							None => None, // Bail out early if metadata itself is None
-						}
+						metadata
+							.clone()
+							.and_then(|metadata| metadata.depth)
+							.map(|d| depth.max(d))
 					});
 					let weight = metadata
 						.iter()

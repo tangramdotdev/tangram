@@ -1,7 +1,12 @@
 export type Module = {
 	kind: Module.Kind;
-	object: string | undefined;
-	path: string | undefined;
+	referent: Referent;
+};
+
+type Referent = {
+	item: string;
+	subpath?: string | undefined;
+	tag?: string | undefined;
 };
 
 export namespace Module {

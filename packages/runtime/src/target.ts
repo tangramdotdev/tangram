@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import type { Module } from "./module.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
@@ -18,7 +17,7 @@ type FunctionArg<
 	R extends tg.Value = tg.Value,
 > = {
 	function: (...args: A) => tg.Unresolved<R>;
-	module: Module;
+	module: tg.Module;
 	name: string;
 };
 
@@ -46,13 +45,14 @@ export function target<
 		// Create the target.
 		let args_ = [arg.name];
 		let checksum = undefined;
-		let executable = tg.Artifact.withId(arg.module.object!);
-		if (arg.module.path !== undefined) {
-			let path = arg.module.path;
-			executable = new tg.Symlink({
-				object: { artifact: executable, path: path },
-			});
-		}
+		let executable = {
+			kind: arg.module.kind,
+			referent: {
+				item: tg.Object.withId(arg.module.referent.item),
+				subpath: arg.module.referent.subpath,
+				tag: arg.module.referent.tag,
+			},
+		};
 		const env = currentTarget.state.object!.env;
 		let object = {
 			args: args_,
@@ -61,9 +61,7 @@ export function target<
 			executable,
 			host: "js",
 		};
-		let state = {
-			object: object,
-		};
+		let state = { object };
 		return new Target(state, arg.function);
 	} else {
 		return Target.new(...(args as tg.Args<Target.Arg>));
@@ -196,7 +194,7 @@ export class Target<
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			tg.assert(object.kind === "target");
 			this.#state.object = object.value;
 		}
@@ -204,7 +202,7 @@ export class Target<
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "target",
 				value: this.#state.object!,
 			});
@@ -223,7 +221,7 @@ export class Target<
 		return (await this.object()).env;
 	}
 
-	async executable(): Promise<tg.Artifact | undefined> {
+	async executable(): Promise<tg.Target.Executable | undefined> {
 		return (await this.object()).executable;
 	}
 
@@ -232,7 +230,7 @@ export class Target<
 	}
 
 	async output(): Promise<R> {
-		return (await syscall("output", this as Target<[], R>)) as R;
+		return (await syscall("build_output", this as Target<[], R>)) as R;
 	}
 
 	function(): Function | undefined {
@@ -253,9 +251,20 @@ export namespace Target {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
-		executable?: tg.Artifact | undefined;
+		executable?: tg.Target.ExecutableArg | undefined;
 		host?: string | undefined;
 	};
+
+	export type Executable = tg.Artifact | tg.Target.Executable.Module;
+
+	export namespace Executable {
+		export type Module = {
+			kind: tg.Module.Kind;
+			referent: tg.Referent<tg.Object>;
+		};
+	}
+
+	export type ExecutableArg = tg.Artifact | tg.Target.Executable.Module;
 
 	export type Id = string;
 
@@ -263,7 +272,7 @@ export namespace Target {
 		args: Array<tg.Value>;
 		checksum: tg.Checksum | undefined;
 		env: { [key: string]: tg.Value };
-		executable: tg.Artifact | undefined;
+		executable: tg.Target.Executable | undefined;
 		host: string;
 	};
 

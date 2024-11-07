@@ -57,6 +57,7 @@ pub struct Trace<'a> {
 pub struct TraceOptions {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub internal: bool,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub reverse: bool,
 }
@@ -194,18 +195,10 @@ impl std::fmt::Display for Source {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Source::Internal(path) => {
-				let path = path.strip_prefix("./").unwrap_or_else(|_| path.as_ref());
 				write!(f, "internal:{}", path.display())?;
 			},
 			Source::Module(module) => {
-				write!(f, "{}", module.kind)?;
-				if let Some(object) = &module.object {
-					let object = object.as_ref().map_right(|path| path.display());
-					write!(f, ":{object}")?;
-				}
-				if let Some(path) = &module.path {
-					write!(f, ":{}", path.display())?;
-				}
+				write!(f, "{module}")?;
 			},
 		}
 		Ok(())
@@ -339,7 +332,7 @@ macro_rules! error {
 			message: Some(String::new()),
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
-				source: $crate::error::Source::Internal(format!("./{}", file!()).parse().unwrap()),
+				source: $crate::error::Source::Internal(format!("./{}", ::std::file!()).parse().unwrap()),
 				line: line!() - 1,
 				column: column!() - 1,
 			}),

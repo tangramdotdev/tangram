@@ -111,7 +111,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection(db::Priority::Low)
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -193,7 +193,7 @@ impl Server {
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.stopped().await };
+		let stop = async move { stop.wait().await };
 		let stream = stream.take_until(stop);
 
 		// Create the body.

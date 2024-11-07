@@ -24,12 +24,13 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Create the root module.
-		let package = tg::Directory::with_id(arg.package.clone());
-		let module = tg::Module::with_package(self, Either::Left(package.into())).await?;
-
 		// Create the compiler.
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
+
+		// Create the module.
+		let module = self
+			.root_module_for_package(Either::Left(arg.package))
+			.await?;
 
 		// Check the package.
 		let diagnostics = compiler.check(vec![module]).await?;

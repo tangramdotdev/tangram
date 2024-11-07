@@ -40,20 +40,30 @@ impl Cli {
 		}
 
 		// Get the reference.
-		let item = self.get_reference(&args.reference).await?;
-
-		// Get the package.
-		let Either::Right(tg::Object::Directory(package)) = item else {
-			return Err(tg::error!("expected a package"));
+		let referent = self.get_reference(&args.reference).await?;
+		let Either::Right(object) = referent.item else {
+			return Err(tg::error!("expected an object"));
 		};
-
-		// Document the package.
+		let object = if let Some(subpath) = &referent.subpath {
+			let directory = object
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			directory.get(&handle, subpath).await?.into()
+		} else {
+			object
+		};
+		let Ok(package) = tg::Directory::try_from(object) else {
+			return Err(tg::error!("expected a directory"));
+		};
 		let package = package.id(&handle).await?;
+
+		// Document the module.
 		let arg = tg::package::document::Arg { package, remote };
-		let doc = handle.document_package(arg).await?;
+		let output = handle.document_package(arg).await?;
 
 		// Serialize the output.
-		let output = serde_json::to_string_pretty(&doc)
+		let output = serde_json::to_string_pretty(&output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
 
 		// Print the output.

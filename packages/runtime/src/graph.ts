@@ -40,7 +40,7 @@ export class Graph {
 					return {
 						kind: "symlink" as const,
 						artifact: node.artifact ?? undefined,
-						path: node.path !== undefined ? node.path : undefined,
+						subpath: node.subpath !== undefined ? node.subpath : undefined,
 					};
 				} else {
 					return tg.unreachable(node);
@@ -84,15 +84,14 @@ export class Graph {
 						if (argNode.dependencies !== undefined) {
 							node.dependencies = {};
 							for (let reference in argNode.dependencies) {
-								if (
-									typeof argNode.dependencies[reference]?.object === "number"
-								) {
+								if (typeof argNode.dependencies[reference]?.item === "number") {
 									node.dependencies[reference] = {
-										object: argNode.dependencies[reference].object + offset,
+										item: argNode.dependencies[reference].item + offset,
+										subpath: argNode.dependencies[reference].subpath,
 										tag: argNode.dependencies[reference].tag,
 									};
 								} else if (
-									tg.Object.is(argNode.dependencies[reference]?.object)
+									tg.Object.is(argNode.dependencies[reference]?.item)
 								) {
 									node.dependencies[reference] =
 										argNode.dependencies[reference];
@@ -120,8 +119,8 @@ export class Graph {
 							node.artifact = argNode.artifact;
 						}
 					}
-					if ("path" in argNode) {
-						node.path = argNode.path;
+					if ("subpath" in argNode) {
+						node.subpath = argNode.subpath;
 					}
 					nodes.push(node);
 				} else {
@@ -154,7 +153,7 @@ export class Graph {
 
 	async load() {
 		if (this.#state.object === undefined) {
-			let object = await syscall("load", this.#state.id!);
+			let object = await syscall("object_load", this.#state.id!);
 			tg.assert(object.kind === "graph");
 			this.#state.object = object.value;
 		}
@@ -162,7 +161,7 @@ export class Graph {
 
 	async store() {
 		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("store", {
+			this.#state.id = await syscall("object_store", {
 				kind: "graph",
 				value: this.#state.object!,
 			});
@@ -193,14 +192,16 @@ export namespace Graph {
 	export type FileNodeArg = {
 		kind: "file";
 		contents: tg.Blob.Arg;
-		dependencies?: { [reference: string]: Dependency } | undefined;
+		dependencies?:
+			| { [reference: tg.Reference]: tg.Referent<number | tg.Object> }
+			| undefined;
 		executable?: boolean | undefined;
 	};
 
 	export type SymlinkNodeArg = {
 		kind: "symlink";
 		artifact?: number | tg.Artifact | undefined;
-		path?: string | undefined;
+		subpath?: string | undefined;
 	};
 
 	export type Object = {
@@ -217,19 +218,16 @@ export namespace Graph {
 	export type FileNode = {
 		kind: "file";
 		contents: tg.Blob;
-		dependencies: { [reference: string]: Dependency } | undefined;
+		dependencies:
+			| { [reference: tg.Reference]: tg.Referent<number | tg.Object> }
+			| undefined;
 		executable: boolean;
 	};
 
 	export type SymlinkNode = {
 		kind: "symlink";
 		artifact: number | tg.Artifact | undefined;
-		path: string | undefined;
-	};
-
-	export type Dependency = {
-		object: number | tg.Object;
-		tag?: string | undefined;
+		subpath: string | undefined;
 	};
 
 	export type State = tg.Object.State<Graph.Id, Graph.Object>;

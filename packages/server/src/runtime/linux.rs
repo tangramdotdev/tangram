@@ -2,7 +2,7 @@ use super::{
 	proxy::{self, Proxy},
 	util::render,
 };
-use crate::{tmp::Tmp, Server};
+use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
@@ -17,7 +17,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
-use tangram_futures::task::Stop;
+use tangram_futures::task::Task;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
@@ -95,28 +95,29 @@ impl Runtime {
 		}
 
 		// Get the server directory path.
-		let server_directory_host_path = server.options.path.clone();
+		let server_directory_host_path = server.config.path.clone();
 		let server_directory_guest_path = PathBuf::from(SERVER_DIRECTORY_GUEST_PATH);
 
 		// Create a tempdir for the root.
-		let root_directory_tmp = Tmp::new(server);
-		tokio::fs::create_dir_all(&root_directory_tmp)
+		let root_directory_temp = Temp::new(server);
+		tokio::fs::create_dir_all(&root_directory_temp)
 			.await
 			.map_err(|source| {
 				tg::error!(!source, "failed to create the root temporary directory")
 			})?;
-		let root_directory_host_path = PathBuf::from(root_directory_tmp.as_ref());
+		let root_directory_host_path = PathBuf::from(root_directory_temp.as_ref());
 
 		// Create a tempdir for the output.
-		let output_parent_directory_tmp = Tmp::new(server);
-		tokio::fs::create_dir_all(&output_parent_directory_tmp)
+		let output_parent_directory_temp = Temp::new(server);
+		tokio::fs::create_dir_all(&output_parent_directory_temp)
 			.await
 			.map_err(|source| {
 				tg::error!(!source, "failed to create the output parent directory")
 			})?;
 
 		// Create the host and guest paths for the output parent directory.
-		let output_parent_directory_host_path = PathBuf::from(output_parent_directory_tmp.as_ref());
+		let output_parent_directory_host_path =
+			PathBuf::from(output_parent_directory_temp.as_ref());
 		let output_parent_directory_guest_path = PathBuf::from(OUTPUT_PARENT_DIRECTORY_GUEST_PATH);
 
 		// Create the host and guest paths for the output.
@@ -197,17 +198,17 @@ impl Runtime {
 			remote.clone(),
 			Some(path_map),
 		);
-		let stop = Stop::new();
-		let proxy_task = tokio::spawn(Server::serve(proxy, proxy_server_host_url.clone(), stop));
+		let listener = Server::listen(&proxy_server_host_url).await?;
+		let proxy_task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 
 		// Render the executable.
-		let executable = target.executable(server).await?;
-		let executable = render(
-			server,
-			&executable.clone().into(),
-			&artifacts_directory_guest_path,
-		)
-		.await?;
+		let Some(tg::target::Executable::Artifact(executable)) =
+			target.executable(server).await?.as_ref().cloned()
+		else {
+			return Err(tg::error!("invalid executable"));
+		};
+		let executable =
+			render(server, &executable.into(), &artifacts_directory_guest_path).await?;
 
 		// Render the env.
 		let env = target.env(server).await?;
@@ -620,7 +621,7 @@ impl Runtime {
 						return Ok::<_, tg::Error>(());
 					}
 					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.options.advanced.write_build_logs_to_stderr {
+					if server.config.advanced.write_build_logs_to_stderr {
 						tokio::io::stderr()
 							.write_all(&bytes)
 							.await
@@ -761,8 +762,9 @@ impl Runtime {
 			},
 		};
 
-		// Abort the proxy task.
-		proxy_task.abort();
+		// Stop the proxy task.
+		proxy_task.stop();
+		proxy_task.wait().await.unwrap();
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(&output_host_path)

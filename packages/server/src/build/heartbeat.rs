@@ -35,7 +35,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection(db::Priority::Low)
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -69,7 +69,7 @@ impl Server {
 
 	pub async fn build_heartbeat_monitor_task(
 		&self,
-		options: &crate::options::BuildHeartbeatMonitor,
+		options: &crate::config::BuildHeartbeatMonitor,
 	) {
 		loop {
 			let result = self
@@ -90,7 +90,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection(db::Priority::Low)
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 

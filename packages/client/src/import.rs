@@ -4,10 +4,7 @@ use std::collections::BTreeMap;
 /// An import in a module.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Import {
-	/// The kind.
 	pub kind: Option<tg::module::Kind>,
-
-	/// The reference.
 	pub reference: tg::Reference,
 }
 
@@ -37,29 +34,34 @@ impl Import {
 						.map(|(key, value)| (key, serde_json::Value::String(value)))
 						.collect(),
 				);
-				let attributes = serde_json::from_value::<tg::reference::Query>(attributes)
+				let attributes = serde_json::from_value::<tg::reference::Options>(attributes)
 					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
 				let name = reference
-					.query()
+					.options()
 					.and_then(|query| query.name.clone())
 					.or(attributes.name);
 				let overrides = reference
-					.query()
+					.options()
 					.and_then(|query| query.overrides.clone())
 					.or(attributes.overrides);
 				let path = reference
-					.query()
+					.options()
 					.and_then(|query| query.path.clone())
 					.or(attributes.path);
 				let remote = reference
-					.query()
+					.options()
 					.and_then(|query| query.remote.clone())
 					.or(attributes.remote);
-				let query = tg::reference::Query {
+				let subpath = reference
+					.options()
+					.and_then(|query| query.subpath.clone())
+					.or(attributes.subpath);
+				let query = tg::reference::Options {
 					name,
 					overrides,
 					path,
 					remote,
+					subpath,
 				};
 				let query = serde_urlencoded::to_string(query)
 					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;

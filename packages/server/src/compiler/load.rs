@@ -8,18 +8,34 @@ pub const LIBRARY: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 impl Compiler {
 	/// Load a module.
 	pub async fn load_module(&self, module: &tg::Module) -> tg::Result<String> {
-		match (module.kind, &module.object, &module.path) {
+		match module {
 			// Handle a declaration.
-			(tg::module::Kind::Dts, None, Some(path)) => {
-				let file = LIBRARY.get_file(path).ok_or_else(
-					|| tg::error!(%path = path.display(), "failed to find the library module"),
-				)?;
+			tg::Module {
+				kind: tg::module::Kind::Dts,
+				referent: tg::Referent {
+					item: tg::module::Item::Path(path),
+					..
+				},
+			} => {
+				let file_name = path.file_name().ok_or_else(|| tg::error!("invalid path"))?;
+				let file = LIBRARY
+					.get_file(file_name)
+					.ok_or_else(|| tg::error!(?file_name, "failed to find the library module"))?;
 				let text = file.contents_utf8().unwrap().to_owned();
 				Ok(text)
 			},
 
 			// Handle a JS or TS module from a path.
-			(tg::module::Kind::Js | tg::module::Kind::Ts, Some(Either::Right(object)), path) => {
+			tg::Module {
+				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
+				referent:
+					tg::Referent {
+						item: tg::module::Item::Path(path),
+						subpath,
+						..
+					},
+				..
+			} => {
 				// If there is an opened document, then return its contents.
 				if let Some(document) = self.documents.get(module) {
 					if document.open {
@@ -28,10 +44,10 @@ impl Compiler {
 				}
 
 				// Otherwise, load from the path.
-				let path = if let Some(path) = path {
-					object.clone().join(path)
+				let path = if let Some(subpath) = subpath {
+					path.clone().join(subpath)
 				} else {
-					object.clone()
+					path.clone()
 				};
 				let text = tokio::fs::read_to_string(&path).await.map_err(
 					|source| tg::error!(!source, %path = path.display(), "failed to read the file"),
@@ -41,27 +57,51 @@ impl Compiler {
 			},
 
 			// Handle a JS or TS module from an object.
-			(tg::module::Kind::Js | tg::module::Kind::Ts, Some(Either::Left(object)), path) => {
+			tg::Module {
+				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
+				referent:
+					tg::Referent {
+						item: tg::module::Item::Object(object),
+						subpath,
+						..
+					},
+				..
+			} => {
 				let object = tg::Object::with_id(object.clone());
-				let object = if let Some(path) = path {
+				let object = if let Some(subpath) = subpath {
 					let tg::Object::Directory(directory) = object else {
 						return Err(tg::error!("expected a directory"));
 					};
-					directory.get(&self.server, path).await?.into()
+					directory.get(&self.server, subpath).await?.into()
 				} else {
 					object
 				};
-				let file = match object {
-					tg::Object::File(file) => file,
+
+				let file = match &object {
+					tg::Object::Directory(directory) => {
+						let root_module = tg::package::try_get_root_module_file_name(
+							&self.server,
+							Either::Left(&object),
+						)
+						.await?
+						.ok_or_else(|| tg::error!("expected a root module"))?;
+						directory
+							.get(&self.server, root_module)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to get root module"))?
+							.try_unwrap_file()
+							.map_err(|source| tg::error!(!source, "expected a file"))?
+					},
+					tg::Object::File(file) => file.clone(),
 					tg::Object::Symlink(symlink) => symlink
-						.resolve(&self.server)
+						.try_resolve(&self.server)
 						.await?
 						.ok_or_else(|| tg::error!("the symlink is dangling"))?
 						.try_into()
 						.ok()
 						.ok_or_else(|| tg::error!("the symlink must point to a file"))?,
 					_ => {
-						return Err(tg::error!("module object must be a file or symlink"));
+						return Err(tg::error!("module object must be an artifact"));
 					},
 				};
 				let text = file.text(&self.server).await?;
@@ -69,20 +109,21 @@ impl Compiler {
 			},
 
 			// Handle object modules.
-			(
-				tg::module::Kind::Object
-				| tg::module::Kind::Blob
-				| tg::module::Kind::Leaf
-				| tg::module::Kind::Branch
-				| tg::module::Kind::Artifact
-				| tg::module::Kind::Directory
-				| tg::module::Kind::File
-				| tg::module::Kind::Symlink
-				| tg::module::Kind::Graph
-				| tg::module::Kind::Target,
-				Some(object),
-				path,
-			) => {
+			tg::Module {
+				kind:
+					tg::module::Kind::Object
+					| tg::module::Kind::Blob
+					| tg::module::Kind::Leaf
+					| tg::module::Kind::Branch
+					| tg::module::Kind::Artifact
+					| tg::module::Kind::Directory
+					| tg::module::Kind::File
+					| tg::module::Kind::Symlink
+					| tg::module::Kind::Graph
+					| tg::module::Kind::Target,
+				referent: tg::Referent { item, subpath, .. },
+				..
+			} => {
 				let class = match module.kind {
 					tg::module::Kind::Object => "Object",
 					tg::module::Kind::Blob => "Blob",
@@ -96,23 +137,23 @@ impl Compiler {
 					tg::module::Kind::Target => "Target",
 					_ => unreachable!(),
 				};
-				match object {
-					Either::Left(object) => {
+				match item {
+					tg::module::Item::Path(_) => Ok(format!(
+						r#"export default undefined as unknown as tg.{class};"#
+					)),
+					tg::module::Item::Object(object) => {
 						let object = tg::Object::with_id(object.clone());
-						let object = if let Some(path) = path {
+						let object = if let Some(subpath) = subpath {
 							let tg::Object::Directory(directory) = object else {
 								return Err(tg::error!("expected a directory"));
 							};
-							directory.get(&self.server, path).await?.into()
+							directory.get(&self.server, subpath).await?.into()
 						} else {
 							object
 						};
 						let object = object.id(&self.server).await?;
 						Ok(format!(r#"export default tg.{class}.withId("{object}");"#))
 					},
-					Either::Right(_) => Ok(format!(
-						r#"export default undefined as unknown as tg.{class};"#
-					)),
 				}
 			},
 

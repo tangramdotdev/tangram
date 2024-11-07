@@ -2,6 +2,7 @@ use crate::Cli;
 use futures::stream::TryStreamExt as _;
 use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
+use tokio::io::AsyncWriteExt as _;
 use tokio_util::io::StreamReader;
 
 /// Cat artifacts.
@@ -15,6 +16,8 @@ pub struct Args {
 impl Cli {
 	pub async fn command_artifact_cat(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+		let mut stdout = tokio::io::stdout();
+
 		for artifact in args.artifacts {
 			// Get the blob.
 			let blob = match artifact {
@@ -28,7 +31,7 @@ impl Cli {
 				},
 				tg::artifact::Id::Symlink(symlink) => {
 					let symlink = tg::Symlink::with_id(symlink);
-					let artifact = symlink.resolve(&handle).await?;
+					let artifact = symlink.try_resolve(&handle).await?;
 					match artifact {
 						None | Some(tg::Artifact::Symlink(_)) => {
 							return Err(tg::error!("failed to resolve the symlink"))
@@ -58,13 +61,18 @@ impl Cli {
 			);
 
 			// Copy from the reader to stdout.
-			let mut writer = tokio::io::stdout();
-			tokio::io::copy(&mut pin!(reader), &mut writer)
+			tokio::io::copy(&mut pin!(reader), &mut stdout)
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to write the blob contents to stdout")
 				})?;
 		}
+
+		// Flush.
+		stdout
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 
 		Ok(())
 	}

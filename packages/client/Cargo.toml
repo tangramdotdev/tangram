@@ -32,6 +32,7 @@ http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
+indoc = { workspace = true }
 itertools = { workspace = true }
 lsp-types = { workspace = true }
 mime = { workspace = true }

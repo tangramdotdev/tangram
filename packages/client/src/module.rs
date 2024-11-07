@@ -1,14 +1,12 @@
 use crate as tg;
-use std::path::{Path, PathBuf};
-use tangram_either::Either;
+use std::path::PathBuf;
 
 #[derive(
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 )]
 pub struct Module {
 	pub kind: Kind,
-	pub object: Option<Either<tg::object::Id, PathBuf>>,
-	pub path: Option<PathBuf>,
+	pub referent: tg::Referent<Item>,
 }
 
 #[derive(
@@ -39,90 +37,22 @@ pub enum Kind {
 	Target,
 }
 
-impl Module {
-	pub async fn with_package<H>(
-		handle: &H,
-		package: Either<tg::Object, PathBuf>,
-	) -> tg::Result<Self>
-	where
-		H: tg::Handle,
-	{
-		Self::try_with_package(handle, package)
-			.await?
-			.ok_or_else(|| tg::error!("the package does not contain a root module"))
-	}
-
-	pub async fn try_with_package<H>(
-		handle: &H,
-		package: Either<tg::Object, PathBuf>,
-	) -> tg::Result<Option<Self>>
-	where
-		H: tg::Handle,
-	{
-		let Some(name) = tg::package::try_get_root_module_file_name(
-			handle,
-			package.as_ref().map_right(AsRef::as_ref),
-		)
-		.await?
-		else {
-			return Ok(None);
-		};
-		let kind = if name.ends_with("js") {
-			tg::module::Kind::Js
-		} else if name.ends_with("ts") {
-			tg::module::Kind::Ts
-		} else {
-			unreachable!()
-		};
-		let object = match package {
-			Either::Left(object) => Either::Left(object.id(handle).await?),
-			Either::Right(path) => Either::Right(path),
-		};
-		let path = name.into();
-		let module = Self {
-			kind,
-			object: Some(object),
-			path: Some(path),
-		};
-		Ok(Some(module))
-	}
-
-	pub async fn with_path(path: impl AsRef<Path>) -> tg::Result<Self> {
-		let path = path.as_ref();
-		#[allow(clippy::case_sensitive_file_extension_comparisons)]
-		let kind = if path.extension().is_some_and(|extension| extension == "js") {
-			tg::module::Kind::Js
-		} else if path.extension().is_some_and(|extension| extension == "ts") {
-			tg::module::Kind::Ts
-		} else {
-			let metadata = tokio::fs::symlink_metadata(path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-			if metadata.is_dir() {
-				tg::module::Kind::Directory
-			} else if metadata.is_file() {
-				tg::module::Kind::File
-			} else if metadata.is_symlink() {
-				tg::module::Kind::Symlink
-			} else {
-				return Err(tg::error!("expected a directory, file, or symlink"));
-			}
-		};
-		let package = tg::package::try_get_nearest_package_path_for_path(path).await?;
-		let path = if let Some(package) = &package {
-			path.strip_prefix(package).unwrap()
-		} else {
-			path
-		};
-		let package = package.map(|package| Either::Right(package.to_owned()));
-		let module = Self {
-			kind,
-			object: package,
-			path: Some(path.to_owned()),
-		};
-
-		Ok(module)
-	}
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	derive_more::TryUnwrap,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+#[try_unwrap(ref)]
+pub enum Item {
+	Path(PathBuf),
+	Object(tg::object::Id),
 }
 
 impl std::fmt::Display for Kind {
@@ -164,6 +94,61 @@ impl std::str::FromStr for Kind {
 			"graph" => Ok(Self::Graph),
 			"target" => Ok(Self::Target),
 			_ => Err(tg::error!(%kind = s, "invalid kind")),
+		}
+	}
+}
+
+impl std::fmt::Display for Module {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.kind)?;
+		if let Some(tag) = &self.referent.tag {
+			write!(f, ":{tag}")?;
+		} else {
+			match &self.referent.item {
+				Item::Path(path) => {
+					write!(f, ":{}", path.display())?;
+				},
+				Item::Object(object) => {
+					write!(f, ":{object}")?;
+				},
+			}
+		}
+		if let Some(subpath) = &self.referent.subpath {
+			write!(f, ":{}", subpath.display())?;
+		}
+		Ok(())
+	}
+}
+
+impl std::fmt::Display for Item {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Path(path) => {
+				if path
+					.components()
+					.next()
+					.is_some_and(|component| matches!(component, std::path::Component::Normal(_)))
+				{
+					write!(f, "./")?;
+				}
+				write!(f, "{}", path.display())?;
+			},
+			Self::Object(object) => {
+				write!(f, "{object}")?;
+			},
+		}
+		Ok(())
+	}
+}
+
+impl std::str::FromStr for Item {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		if s.starts_with('.') || s.starts_with('/') {
+			Ok(Self::Path(s.into()))
+		} else {
+			Ok(Self::Object(s.parse()?))
 		}
 	}
 }

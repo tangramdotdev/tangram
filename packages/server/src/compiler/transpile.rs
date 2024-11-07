@@ -1,8 +1,16 @@
 use super::Compiler;
 use std::rc::Rc;
-use swc::ecma::{ast, visit::VisitMutWith};
-use swc_core as swc;
+use swc_core::{
+	self as swc,
+	ecma::{
+		ast::{self, Pass as _},
+		visit::VisitMutWith as _,
+	},
+};
 use tangram_client as tg;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug)]
 pub struct Output {
@@ -30,27 +38,28 @@ impl Compiler {
 			let top_level_mark = swc::common::Mark::new();
 
 			// Create the resolver.
-			let mut resolver =
-				swc::ecma::transforms::base::resolver(unresolved_mark, top_level_mark, true);
+			let resolver = swc::ecma::visit::visit_mut_pass(swc::ecma::transforms::base::resolver(
+				unresolved_mark,
+				top_level_mark,
+				true,
+			));
 
-			// Create the target visitor.
-			let mut target_visitor = TargetVisitor {
+			// Create the target.
+			let target = swc::ecma::visit::visit_mut_pass(TargetVisitor {
 				source_map: source_map.clone(),
 				errors: Vec::new(),
-			};
+			});
 
 			// Create the stripper.
-			let mut stripper =
+			let stripper =
 				swc::ecma::transforms::typescript::strip(unresolved_mark, top_level_mark);
 
 			// Create the fixer.
-			let mut fixer = swc::ecma::transforms::base::fixer::fixer(None);
+			let fixer =
+				swc::ecma::visit::visit_mut_pass(swc::ecma::transforms::base::fixer::fixer(None));
 
 			// Visit the module.
-			program.visit_mut_with(&mut resolver);
-			program.visit_mut_with(&mut target_visitor);
-			program.visit_mut_with(&mut stripper);
-			program.visit_mut_with(&mut fixer);
+			(resolver, target, stripper, fixer).process(&mut program);
 
 			// Create the writer.
 			let mut transpiled_text = Vec::new();
@@ -307,76 +316,5 @@ impl TargetVisitor {
 			spread: None,
 			expr: object.into(),
 		}];
-	}
-}
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use indoc::indoc;
-
-	#[test]
-	fn test_export_default_target() {
-		let text = indoc!(
-			"
-				export default tg.target(() => {});
-			"
-		);
-		let left = Compiler::transpile_module(text.to_owned())
-			.unwrap()
-			.transpiled_text;
-		let right = indoc!(
-			r#"
-				export default tg.target({
-					function: ()=>{}
-					module: import.meta.url,
-					name: "default",
-				});
-			"#
-		);
-		assert_eq!(left, right);
-	}
-
-	#[test]
-	fn test_export_named_target() {
-		let text = indoc!(
-			"
-				export let named = tg.target(() => {});
-			"
-		);
-		let left = Compiler::transpile_module(text.to_owned())
-			.unwrap()
-			.transpiled_text;
-		let right = indoc!(
-			r#"
-				export let named = tg.target({
-					function: ()=>{}
-					module: import.meta.url,
-					name: "named",
-				});
-			"#
-		);
-		assert_eq!(left, right);
-	}
-
-	#[test]
-	fn test_named_target() {
-		let text = indoc!(
-			r#"
-				tg.target("named", () => {});
-			"#
-		);
-		let left = Compiler::transpile_module(text.to_owned())
-			.unwrap()
-			.transpiled_text;
-		let right = indoc!(
-			r#"
-				tg.target({
-					function: ()=>{}
-					module: import.meta.url,
-					name: "named",
-				});
-			"#
-		);
-		assert_eq!(left, right);
 	}
 }

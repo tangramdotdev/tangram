@@ -1,38 +1,122 @@
 use crate as tg;
 use bytes::Bytes;
-use num::ToPrimitive;
-use std::collections::BTreeMap;
+use num::ToPrimitive as _;
+use std::fmt::Result;
 use tangram_either::Either;
 
-pub fn print(value: &tg::Value, pretty: bool) -> String {
-	Printer::print(value, pretty)
-}
-
-struct Printer {
+pub struct Printer<W> {
+	first: bool,
 	indent: u32,
-	pretty: bool,
-	string: String,
+	options: Options,
+	writer: W,
 }
 
-impl Printer {
-	fn print(value: &tg::Value, pretty: bool) -> String {
-		let mut printer = Self {
-			indent: 0,
-			pretty,
-			string: String::new(),
-		};
-		printer.value(value);
-		printer.string
-	}
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub recursive: bool,
+	pub style: Style,
+}
 
-	fn indent(&mut self) {
-		if self.pretty {
-			let indent = (0..self.indent).map(|_| '\t');
-			self.string.extend(indent);
+#[derive(Clone, Debug, Default, derive_more::IsVariant)]
+pub enum Style {
+	#[default]
+	Compact,
+	Pretty {
+		indentation: &'static str,
+	},
+}
+
+impl<W> Printer<W>
+where
+	W: std::fmt::Write,
+{
+	pub fn new(writer: W, options: Options) -> Self {
+		Self {
+			first: true,
+			indent: 0,
+			options,
+			writer,
 		}
 	}
 
-	fn value(&mut self, value: &tg::Value) {
+	fn indent(&mut self) -> Result {
+		if let Style::Pretty { indentation } = &self.options.style {
+			for _ in 0..self.indent {
+				write!(self.writer, "{indentation}")?;
+			}
+		}
+		Ok(())
+	}
+
+	fn start_map(&mut self) -> Result {
+		self.first = true;
+		write!(self.writer, "{{")?;
+		self.indent += 1;
+		Ok(())
+	}
+
+	fn map_entry(&mut self, key: &str, f: impl FnOnce(&mut Self) -> Result) -> Result {
+		if !self.first {
+			write!(self.writer, ",")?;
+		}
+		if self.options.style.is_pretty() {
+			writeln!(self.writer)?;
+			self.indent()?;
+		}
+		write!(self.writer, "\"{key}\":")?;
+		if self.options.style.is_pretty() {
+			write!(self.writer, " ")?;
+		}
+		f(self)?;
+		self.first = false;
+		Ok(())
+	}
+
+	fn finish_map(&mut self) -> Result {
+		self.indent -= 1;
+		if !self.first && self.options.style.is_pretty() {
+			write!(self.writer, ",")?;
+			writeln!(self.writer)?;
+			self.indent()?;
+		}
+		write!(self.writer, "}}")?;
+		self.first = false;
+		Ok(())
+	}
+
+	fn start_array(&mut self) -> Result {
+		self.first = true;
+		write!(self.writer, "[")?;
+		self.indent += 1;
+		Ok(())
+	}
+
+	fn array_value(&mut self, f: impl FnOnce(&mut Self) -> Result) -> Result {
+		if !self.first {
+			write!(self.writer, ",")?;
+		}
+		if self.options.style.is_pretty() {
+			writeln!(self.writer)?;
+			self.indent()?;
+		}
+		f(self)?;
+		self.first = false;
+		Ok(())
+	}
+
+	fn finish_array(&mut self) -> Result {
+		self.indent -= 1;
+		if !self.first && self.options.style.is_pretty() {
+			write!(self.writer, ",")?;
+			writeln!(self.writer)?;
+			self.indent()?;
+		}
+		write!(self.writer, "]")?;
+		self.first = false;
+		Ok(())
+	}
+
+	pub fn value(&mut self, value: &tg::Value) -> Result {
 		match value {
 			tg::Value::Null => self.null(),
 			tg::Value::Bool(v) => self.bool(*v),
@@ -47,66 +131,41 @@ impl Printer {
 		}
 	}
 
-	fn null(&mut self) {
-		self.string += "null";
+	pub fn null(&mut self) -> Result {
+		write!(self.writer, "null")
 	}
 
-	fn bool(&mut self, value: bool) {
-		self.string += if value { "true" } else { "false" };
+	pub fn bool(&mut self, value: bool) -> Result {
+		write!(self.writer, "{}", if value { "true" } else { "false" })
 	}
 
-	fn number(&mut self, value: f64) {
-		self.string += &value.to_string();
+	pub fn number(&mut self, value: f64) -> Result {
+		write!(self.writer, "{value}")
 	}
 
-	fn string(&mut self, value: &str) {
-		self.string += &format!("{value:#?}");
+	pub fn string(&mut self, value: &str) -> Result {
+		write!(self.writer, "\"{value}\"")
 	}
 
-	fn array(&mut self, value: &tg::value::Array) {
-		self.string.push('[');
-		if self.pretty && !value.is_empty() {
-			self.string.push('\n');
-		}
-		self.indent += 1;
+	pub fn array(&mut self, value: &tg::value::Array) -> Result {
+		self.start_array()?;
 		for value in value {
-			self.indent();
-			self.value(value);
-			self.string.push(',');
-			if self.pretty {
-				self.string.push('\n');
-			}
+			self.array_value(|s| s.value(value))?;
 		}
-		self.indent -= 1;
-		self.indent();
-		self.string.push(']');
+		self.finish_array()?;
+		Ok(())
 	}
 
-	fn map(&mut self, value: &tg::value::Map) {
-		self.string.push('{');
-		if self.pretty && !value.is_empty() {
-			self.string.push('\n');
-		}
-		self.indent += 1;
+	pub fn map(&mut self, value: &tg::value::Map) -> Result {
+		self.start_map()?;
 		for (key, value) in value {
-			self.indent();
-			self.string += &format!("{key:#?}");
-			self.string.push(':');
-			if self.pretty {
-				self.string.push(' ');
-			}
-			self.value(value);
-			self.string.push(',');
-			if self.pretty {
-				self.string.push('\n');
-			}
+			self.map_entry(key, |s| s.value(value))?;
 		}
-		self.indent -= 1;
-		self.indent();
-		self.string.push('}');
+		self.finish_map()?;
+		Ok(())
 	}
 
-	fn object(&mut self, value: &tg::Object) {
+	pub fn object(&mut self, value: &tg::Object) -> Result {
 		match value {
 			tg::Object::Leaf(v) => self.leaf(v),
 			tg::Object::Branch(v) => self.branch(v),
@@ -118,322 +177,581 @@ impl Printer {
 		}
 	}
 
-	fn leaf(&mut self, value: &tg::Leaf) {
-		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
+	pub fn artifact(&mut self, value: &tg::Artifact) -> Result {
+		match value {
+			tg::Artifact::Directory(directory) => self.directory(directory),
+			tg::Artifact::File(file) => self.file(file),
+			tg::Artifact::Symlink(symlink) => self.symlink(symlink),
 		}
-		let object = state.object().unwrap();
-		let bytes = data_encoding::BASE64.encode(&object.bytes);
-		self.string += "tg.leaf(";
-		self.string(&bytes);
-		self.string.push(')');
 	}
 
-	fn branch(&mut self, value: &tg::Branch) {
-		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
+	pub fn blob(&mut self, value: &tg::Blob) -> Result {
+		match value {
+			tg::Blob::Leaf(leaf) => self.leaf(leaf),
+			tg::Blob::Branch(branch) => self.branch(branch),
 		}
-		let object = state.object().unwrap();
-		let children = object
-			.children
-			.iter()
-			.map(|child| {
-				let size = child.size.to_f64().unwrap().into();
-				let blob = child.blob.clone().into();
-				[("size".to_owned(), size), ("blob".to_owned(), blob)]
-					.into_iter()
-					.collect::<tg::value::Map>()
-					.into()
-			})
-			.collect::<tg::value::Array>()
-			.into();
-		let map = [("children".to_owned(), children)].into_iter().collect();
-		self.string += "tg.branch(";
-		self.map(&map);
-		self.string.push(')');
 	}
 
-	fn directory(&mut self, value: &tg::Directory) {
+	pub fn leaf(&mut self, value: &tg::Leaf) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.leaf_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
-		let mut map = BTreeMap::new();
-		match object.as_ref() {
+		Ok(())
+	}
+
+	fn leaf_object(&mut self, object: &tg::leaf::Object) -> Result {
+		write!(self.writer, "tg.leaf(")?;
+		if let Ok(string) = String::from_utf8(object.bytes.to_vec()) {
+			self.string(&string)?;
+		}
+		write!(self.writer, ")")?;
+		Ok(())
+	}
+
+	pub fn branch(&mut self, value: &tg::Branch) -> Result {
+		let state = value.state().read().unwrap();
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.branch_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
+		}
+		Ok(())
+	}
+
+	fn branch_object(&mut self, object: &tg::branch::Object) -> Result {
+		write!(self.writer, "tg.branch(")?;
+		self.start_map()?;
+		for child in &object.children {
+			self.map_entry("size", |s| s.number(child.size.to_f64().unwrap()))?;
+			self.map_entry("blob", |s| s.blob(&child.blob))?;
+		}
+		self.finish_map()?;
+		write!(self.writer, ")")?;
+		Ok(())
+	}
+
+	pub fn directory(&mut self, value: &tg::Directory) -> Result {
+		let state = value.state().read().unwrap();
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.directory_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
+		}
+		Ok(())
+	}
+
+	fn directory_object(&mut self, object: &tg::directory::Object) -> Result {
+		write!(self.writer, "tg.directory(")?;
+		self.start_map()?;
+		match object {
 			tg::directory::Object::Normal { entries } => {
 				for (name, artifact) in entries {
-					map.insert(name.clone(), artifact.clone().into());
+					self.map_entry(name, |s| s.artifact(artifact))?;
 				}
 			},
 			tg::directory::Object::Graph { graph, node } => {
-				map.insert("graph".to_owned(), graph.clone().into());
-				map.insert("node".to_owned(), node.to_f64().unwrap().into());
+				self.map_entry("graph", |s| s.graph(graph))?;
+				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
 			},
 		}
-		self.string += "tg.directory(";
-		self.map(&map);
-		self.string.push(')');
+		self.finish_map()?;
+		write!(self.writer, ")")?;
+		Ok(())
 	}
 
-	fn file(&mut self, value: &tg::File) {
+	pub fn file(&mut self, value: &tg::File) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.file_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
-		let mut map = BTreeMap::new();
-		match object.as_ref() {
+		Ok(())
+	}
+
+	fn file_object(&mut self, object: &tg::file::Object) -> Result {
+		write!(self.writer, "tg.file(")?;
+		self.start_map()?;
+		match object {
 			tg::file::Object::Normal {
 				contents,
 				dependencies,
 				executable,
 			} => {
-				let contents = contents.clone().into();
-				map.insert("contents".to_owned(), contents);
+				self.map_entry("contents", |s| s.blob(contents))?;
 				if !dependencies.is_empty() {
-					let dependencies = dependencies
-						.iter()
-						.map(|(reference, dependency)| {
-							let key = reference.to_string();
-							let mut map = BTreeMap::new();
-							map.insert(
-								"object".to_owned(),
-								tg::Value::Object(dependency.object.clone()),
-							);
-							if let Some(tag) = &dependency.tag {
-								let tag = tg::Value::String(tag.to_string());
-								map.insert("tag".to_owned(), tag);
-							}
-							(key, tg::Value::Map(map))
-						})
-						.collect();
-					map.insert("dependencies".to_owned(), tg::Value::Map(dependencies));
+					self.map_entry("dependencies", |s| {
+						s.start_map()?;
+						for (reference, referent) in dependencies {
+							s.map_entry(reference.as_str(), |s| {
+								s.start_map()?;
+								s.map_entry("item", |s| s.object(&referent.item))?;
+								if let Some(tag) = &referent.tag {
+									s.map_entry("tag", |s| s.string(tag.as_str()))?;
+								}
+								if let Some(subpath) = &referent.subpath {
+									s.map_entry("subpath", |s| {
+										s.string(subpath.to_string_lossy().as_ref())
+									})?;
+								}
+								s.finish_map()?;
+								Ok(())
+							})?;
+						}
+						s.finish_map()?;
+						Ok(())
+					})?;
 				}
 				if *executable {
-					map.insert("executable".to_owned(), true.into());
+					self.map_entry("executable", |s| s.bool(true))?;
 				}
 			},
 			tg::file::Object::Graph { graph, node } => {
-				map.insert("graph".to_owned(), graph.clone().into());
-				map.insert("node".to_owned(), node.to_f64().unwrap().into());
+				self.map_entry("graph", |s| s.graph(graph))?;
+				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
 			},
 		}
-		self.string += "tg.file(";
-		self.map(&map);
-		self.string.push(')');
+		self.finish_map()?;
+		write!(self.writer, ")")?;
+		Ok(())
 	}
 
-	fn symlink(&mut self, value: &tg::Symlink) {
+	pub fn symlink(&mut self, value: &tg::Symlink) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.symlink_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
-		let mut map = BTreeMap::new();
-		match object.as_ref() {
-			tg::symlink::Object::Normal { artifact, path } => {
+		Ok(())
+	}
+
+	fn symlink_object(&mut self, object: &tg::symlink::Object) -> Result {
+		write!(self.writer, "tg.symlink(")?;
+		self.start_map()?;
+		match object {
+			tg::symlink::Object::Normal { artifact, subpath } => {
 				if let Some(artifact) = &artifact {
-					map.insert("artifact".to_owned(), artifact.clone().into());
+					self.map_entry("artifact", |s| s.artifact(artifact))?;
 				}
-				if let Some(path) = &path {
-					map.insert("path".to_owned(), path.clone().into());
+				if let Some(subpath) = &subpath {
+					self.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
 				}
 			},
 			tg::symlink::Object::Graph { graph, node } => {
-				map.insert("graph".to_owned(), graph.clone().into());
-				map.insert("node".to_owned(), node.to_f64().unwrap().into());
+				self.map_entry("graph", |s| s.graph(graph))?;
+				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
 			},
 		}
-		self.string += "tg.symlink(";
-		self.map(&map);
-		self.string.push(')');
+		self.finish_map()?;
+		write!(self.writer, ")")?;
+		Ok(())
 	}
 
-	fn graph(&mut self, value: &tg::Graph) {
+	pub fn graph(&mut self, value: &tg::Graph) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.graph_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
-		let mut map = BTreeMap::new();
-		let nodes = object
-			.nodes
-			.iter()
-			.map(|node| {
-				let mut map = BTreeMap::new();
-				match node {
-					tg::graph::Node::Directory(directory) => {
-						let tg::graph::node::Directory { entries } = directory;
-						let entries = entries
-							.iter()
-							.map(|(name, either)| {
-								let either = match either {
-									Either::Left(index) => index.to_f64().unwrap().into(),
-									Either::Right(artifact) => artifact.clone().into(),
-								};
-								(name.to_string(), either)
-							})
-							.collect::<BTreeMap<String, tg::Value>>();
-						map.insert("entries".to_owned(), entries.into());
-					},
-					tg::graph::Node::File(file) => {
-						let tg::graph::node::File {
-							contents,
-							dependencies,
-							executable,
-						} = file;
-						map.insert("contents".to_owned(), contents.clone().into());
-						if !dependencies.is_empty() {
-							let dependencies = dependencies
-								.iter()
-								.map(|(reference, dependency)| {
-									let key = reference.to_string();
-									let mut map = BTreeMap::new();
-									let object = match &dependency.object {
-										Either::Left(index) => {
-											tg::Value::Number(index.to_f64().unwrap())
-										},
-										Either::Right(object) => tg::Value::Object(object.clone()),
-									};
-									map.insert("object".to_owned(), object);
-									if let Some(tag) = &dependency.tag {
-										let tag = tg::Value::String(tag.to_string());
-										map.insert("tag".to_owned(), tag);
+		Ok(())
+	}
+
+	fn graph_object(&mut self, object: &tg::graph::Object) -> Result {
+		write!(self.writer, "tg.graph(")?;
+		self.start_map()?;
+		if !object.nodes.is_empty() {
+			self.map_entry("nodes", |s| {
+				s.start_array()?;
+				for node in &object.nodes {
+					s.array_value(|s| match node {
+						tg::graph::Node::Directory(directory) => {
+							s.start_map()?;
+							s.map_entry("kind", |s| s.string("directory"))?;
+							s.map_entry("entries", |s| {
+								s.start_map()?;
+								for (name, either) in &directory.entries {
+									s.map_entry(name, |s| {
+										match either {
+											Either::Left(index) => {
+												s.number(index.to_f64().unwrap())?;
+											},
+											Either::Right(artifact) => {
+												s.artifact(artifact)?;
+											},
+										}
+										Ok(())
+									})?;
+								}
+								s.finish_map()?;
+								Ok(())
+							})?;
+							s.finish_map()
+						},
+						tg::graph::Node::File(file) => {
+							s.start_map()?;
+							s.map_entry("kind", |s| s.string("file"))?;
+							s.map_entry("contents", |s| s.blob(&file.contents))?;
+							if !file.dependencies.is_empty() {
+								s.map_entry("dependencies", |s| {
+									s.start_map()?;
+									for (reference, referent) in &file.dependencies {
+										s.map_entry(reference.as_str(), |s| {
+											s.start_map()?;
+											s.map_entry("item", |s| {
+												match &referent.item {
+													Either::Left(index) => {
+														s.number(index.to_f64().unwrap())?;
+													},
+													Either::Right(object) => {
+														s.object(object)?;
+													},
+												}
+												Ok(())
+											})?;
+											if let Some(tag) = &referent.tag {
+												s.map_entry("tag", |s| s.string(tag.as_str()))?;
+											}
+											if let Some(subpath) = &referent.subpath {
+												s.map_entry("subpath", |s| {
+													s.string(subpath.to_string_lossy().as_ref())
+												})?;
+											}
+											s.finish_map()?;
+											Ok(())
+										})?;
 									}
-									(key, tg::Value::Map(map))
-								})
-								.collect();
-							map.insert("dependencies".to_owned(), tg::Value::Map(dependencies));
-						}
-						if *executable {
-							map.insert("executable".to_owned(), true.into());
-						}
-					},
-					tg::graph::Node::Symlink(symlink) => {
-						let tg::graph::node::Symlink { artifact, path } = symlink;
-						if let Some(either) = &artifact {
-							let either = match either {
-								Either::Left(index) => index.to_f64().unwrap().into(),
-								Either::Right(artifact) => artifact.clone().into(),
-							};
-							map.insert("artifact".to_owned(), either);
-						}
-						if let Some(path) = &path {
-							map.insert("path".to_owned(), path.clone().into());
-						}
-					},
+									s.finish_map()?;
+									Ok(())
+								})?;
+							}
+							if file.executable {
+								s.map_entry("executable", |s| s.bool(file.executable))?;
+							}
+							s.finish_map()
+						},
+						tg::graph::Node::Symlink(symlink) => {
+							s.start_map()?;
+							s.map_entry("kind", |s| s.string("symlink"))?;
+							if let Some(artifact) = &symlink.artifact {
+								s.map_entry("artifact", |s| {
+									match &artifact {
+										Either::Left(index) => {
+											s.number(index.to_f64().unwrap())?;
+										},
+										Either::Right(artifact) => {
+											s.artifact(artifact)?;
+										},
+									}
+									Ok(())
+								})?;
+							}
+							if let Some(subpath) = &symlink.subpath {
+								s.map_entry("subpath", |s| {
+									s.string(subpath.to_string_lossy().as_ref())
+								})?;
+							}
+							s.finish_map()
+						},
+					})?;
 				}
-				map.into()
-			})
-			.collect::<Vec<_>>();
-		map.insert("nodes".to_owned(), nodes.into());
-		self.string += "tg.graph(";
-		self.map(&map);
-		self.string.push(')');
+				s.finish_array()?;
+				Ok(())
+			})?;
+		}
+		self.finish_map()?;
+		write!(self.writer, ")")?;
+		Ok(())
 	}
 
-	fn target(&mut self, value: &tg::Target) {
+	pub fn target(&mut self, value: &tg::Target) -> Result {
 		let state = value.state().read().unwrap();
-		if let Some(id) = state.id() {
-			self.string += &id.to_string();
-			return;
+		match (state.id(), state.object(), self.options.recursive) {
+			(Some(id), None, _) | (Some(id), Some(_), false) => {
+				write!(self.writer, "{id}")?;
+			},
+			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				self.target_object(object)?;
+			},
+			(None, None, _) => unreachable!(),
 		}
-		let object = state.object().unwrap();
-		let mut map = BTreeMap::new();
+		Ok(())
+	}
+
+	fn target_object(&mut self, object: &tg::target::Object) -> Result {
+		write!(self.writer, "tg.target(")?;
+		self.start_map()?;
 		if !object.args.is_empty() {
-			map.insert("args".to_owned(), object.args.clone().into());
+			self.map_entry("args", |s| s.array(&object.args))?;
 		}
 		if let Some(checksum) = &object.checksum {
-			map.insert("checksum".to_owned(), checksum.to_string().into());
+			self.map_entry("checksum", |s| write!(s.writer, "\"{checksum}\""))?;
 		}
 		if !object.env.is_empty() {
-			map.insert("env".to_owned(), object.env.clone().into());
+			self.map_entry("env", |s| s.map(&object.env))?;
 		}
 		if let Some(executable) = &object.executable {
-			let key = "executable".to_owned();
-			let value = executable.clone().into();
-			map.insert(key, value);
+			self.map_entry("executable", |s| match executable {
+				tg::target::Executable::Artifact(artifact) => s.artifact(artifact),
+				tg::target::Executable::Module(module) => s.target_module(module),
+			})?;
 		}
-		map.insert("host".to_owned(), object.host.clone().into());
-		self.string += "tg.target(";
-		self.map(&map);
-		self.string.push(')');
+		self.map_entry("host", |s| s.string(&object.host))?;
+		self.finish_map()?;
+		write!(self.writer, ")")?;
+		Ok(())
 	}
 
-	fn bytes(&mut self, value: &Bytes) {
-		self.string += "tg.bytes(\"";
-		self.string += &data_encoding::BASE64.encode(value);
-		self.string += "\")";
+	pub fn target_module(&mut self, value: &tg::target::Module) -> Result {
+		self.start_map()?;
+		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
+		self.map_entry("referent", |s| {
+			s.start_map()?;
+			s.map_entry("item", |s| {
+				s.object(&value.referent.item)?;
+				Ok(())
+			})?;
+			if let Some(tag) = &value.referent.tag {
+				s.map_entry("tag", |s| s.string(tag.as_str()))?;
+			}
+			if let Some(subpath) = &value.referent.subpath {
+				s.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
+			}
+			s.finish_map()?;
+			Ok(())
+		})?;
+		self.finish_map()?;
+		Ok(())
 	}
 
-	fn mutation(&mut self, value: &tg::Mutation) {
-		let mut map = BTreeMap::new();
+	pub fn bytes(&mut self, value: &Bytes) -> Result {
+		write!(self.writer, "tg.bytes(")?;
+		write!(self.writer, "\"{}\"", data_encoding::BASE64.encode(value))?;
+		write!(self.writer, ")")?;
+		Ok(())
+	}
+
+	pub fn mutation(&mut self, value: &tg::Mutation) -> Result {
+		write!(self.writer, "tg.mutation(")?;
+		self.start_map()?;
 		match value {
 			tg::Mutation::Unset => {
-				map.insert("kind".to_owned(), "unset".to_owned().into());
+				self.map_entry("kind", |s| s.string("unset"))?;
 			},
 			tg::Mutation::Set { value } => {
-				map.insert("kind".to_owned(), "set".to_owned().into());
-				map.insert("value".to_owned(), value.as_ref().clone());
+				self.map_entry("kind", |s| s.string("set"))?;
+				self.map_entry("value", |s| s.value(value.as_ref()))?;
 			},
 			tg::Mutation::SetIfUnset { value } => {
-				map.insert("kind".to_owned(), "set_if_unset".to_owned().into());
-				map.insert("value".to_owned(), value.as_ref().clone());
+				self.map_entry("kind", |s| s.string("set_if_unset"))?;
+				self.map_entry("value", |s| s.value(&value.as_ref().clone()))?;
 			},
 			tg::Mutation::Prepend { values } => {
-				map.insert("kind".to_owned(), "prepend".to_owned().into());
-				map.insert("values".to_owned(), values.clone().into());
+				self.map_entry("kind", |s| s.string("prepend"))?;
+				self.map_entry("values", |s| s.array(values))?;
 			},
 			tg::Mutation::Append { values } => {
-				map.insert("kind".to_owned(), "append".to_owned().into());
-				map.insert("values".to_owned(), values.clone().into());
+				self.map_entry("kind", |s| s.string("append"))?;
+				self.map_entry("values", |s| s.array(values))?;
 			},
 			tg::Mutation::Prefix {
 				template,
 				separator,
 			} => {
-				map.insert("kind".to_owned(), "prefix".to_owned().into());
+				self.map_entry("kind", |s| s.string("prefix"))?;
 				if let Some(separator) = separator {
-					map.insert("separator".to_owned(), separator.clone().into());
+					self.map_entry("separator", |s| s.string(separator))?;
 				}
-				map.insert("template".to_owned(), template.clone().into());
+				self.map_entry("template", |s| s.template(template))?;
 			},
 			tg::Mutation::Suffix {
 				template,
 				separator,
 			} => {
-				map.insert("kind".to_owned(), "suffix".to_owned().into());
+				self.map_entry("kind", |s| s.string("suffix"))?;
 				if let Some(separator) = separator {
-					map.insert("separator".to_owned(), separator.clone().into());
+					self.map_entry("separator", |s| s.string(separator))?;
 				}
-				map.insert("template".to_owned(), template.clone().into());
+				self.map_entry("template", |s| s.template(template))?;
 			},
 		}
-		self.string += "tg.mutation(";
-		self.map(&map);
-		self.string.push(')');
+		self.finish_map()?;
+		write!(self.writer, ")")?;
+		Ok(())
 	}
 
-	fn template(&mut self, value: &tg::Template) {
-		let components = value
-			.components
-			.iter()
-			.map(|component| match component {
-				tg::template::Component::Artifact(artifact) => artifact.clone().into(),
-				tg::template::Component::String(string) => string.clone().into(),
+	pub fn template(&mut self, value: &tg::Template) -> Result {
+		write!(self.writer, "tg.template(")?;
+		self.start_array()?;
+		for component in &value.components {
+			match component {
+				tg::template::Component::Artifact(artifact) => {
+					self.artifact(artifact)?;
+				},
+				tg::template::Component::String(string) => {
+					self.string(string)?;
+				},
+			}
+		}
+		self.finish_array()?;
+		write!(self.writer, ")")?;
+		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use indoc::indoc;
+
+	#[test]
+	fn compact_map() {
+		let mut left = String::new();
+		let options = Options::default();
+		let mut printer = Printer::new(&mut left, options);
+		printer.start_map().unwrap();
+		printer.finish_map().unwrap();
+		let right = "{}";
+		assert_eq!(left, right);
+
+		let mut left = String::new();
+		let options = Options::default();
+		let mut printer = Printer::new(&mut left, options);
+		printer.start_map().unwrap();
+		printer.map_entry("foo", |s| s.string("bar")).unwrap();
+		printer.finish_map().unwrap();
+		let right = r#"{"foo":"bar"}"#;
+		assert_eq!(left, right);
+
+		let mut left = String::new();
+		let options = Options::default();
+		let mut printer = Printer::new(&mut left, options);
+		printer.start_map().unwrap();
+		printer.map_entry("foo", |s| s.string("bar")).unwrap();
+		printer.map_entry("baz", |s| s.string("qux")).unwrap();
+		printer.finish_map().unwrap();
+		let right = r#"{"foo":"bar","baz":"qux"}"#;
+		assert_eq!(left, right);
+	}
+
+	#[test]
+	fn pretty_map() {
+		let mut left = String::new();
+		let options = Options {
+			style: Style::Pretty { indentation: "\t" },
+			..Default::default()
+		};
+		let mut printer = Printer::new(&mut left, options);
+		printer.start_map().unwrap();
+		printer.finish_map().unwrap();
+		let right = "{}";
+		assert_eq!(left, right);
+
+		let mut left = String::new();
+		let options = Options {
+			style: Style::Pretty { indentation: "\t" },
+			..Default::default()
+		};
+		let mut printer = Printer::new(&mut left, options);
+		printer.start_map().unwrap();
+		printer.map_entry("foo", |s| s.string("bar")).unwrap();
+		printer.finish_map().unwrap();
+		let right = indoc!(
+			r#"
+				{
+					"foo": "bar",
+				}
+			"#
+		)
+		.trim();
+		assert_eq!(left, right);
+
+		let mut left = String::new();
+		let options = Options {
+			style: Style::Pretty { indentation: "\t" },
+			..Default::default()
+		};
+		let mut printer = Printer::new(&mut left, options);
+		printer.start_map().unwrap();
+		printer.map_entry("foo", |s| s.string("bar")).unwrap();
+		printer.map_entry("baz", |s| s.string("qux")).unwrap();
+		printer.finish_map().unwrap();
+		let right = indoc!(
+			r#"
+				{
+					"foo": "bar",
+					"baz": "qux",
+				}
+			"#
+		)
+		.trim();
+		assert_eq!(left, right);
+
+		let mut left = String::new();
+		let options = Options {
+			style: Style::Pretty { indentation: "\t" },
+			..Default::default()
+		};
+		let mut printer = Printer::new(&mut left, options);
+		printer.start_map().unwrap();
+		printer
+			.map_entry("foo", |s| {
+				s.start_map()?;
+				s.map_entry("foo", |s| s.string("foo"))?;
+				s.finish_map()?;
+				Ok(())
 			})
-			.collect();
-		self.string += "tg.template(";
-		self.array(&components);
-		self.string.push(')');
+			.unwrap();
+		printer
+			.map_entry("bar", |s| {
+				s.start_map()?;
+				s.map_entry("bar", |s| s.string("bar"))?;
+				s.finish_map()?;
+				Ok(())
+			})
+			.unwrap();
+		printer.finish_map().unwrap();
+		let right = indoc!(
+			r#"
+				{
+					"foo": {
+						"foo": "foo",
+					},
+					"bar": {
+						"bar": "bar",
+					},
+				}
+			"#
+		)
+		.trim();
+		assert_eq!(left, right);
 	}
 }

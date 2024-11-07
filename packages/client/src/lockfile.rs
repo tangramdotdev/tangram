@@ -22,7 +22,7 @@ pub enum Node {
 		contents: Option<tg::blob::Id>,
 
 		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-		dependencies: BTreeMap<tg::Reference, Dependency>,
+		dependencies: BTreeMap<tg::Reference, tg::Referent<Entry>>,
 
 		#[serde(default, skip_serializing_if = "is_false")]
 		executable: bool,
@@ -33,19 +33,11 @@ pub enum Node {
 		artifact: Option<Entry>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		path: Option<PathBuf>,
+		subpath: Option<PathBuf>,
 	},
 }
 
 pub type Entry = Either<usize, tg::object::Id>;
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Dependency {
-	pub object: Entry,
-
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub tag: Option<tg::Tag>,
-}
 
 impl Lockfile {
 	pub async fn try_read(path: &Path) -> tg::Result<Option<Self>> {
@@ -60,24 +52,5 @@ impl Lockfile {
 			|source| tg::error!(!source, %path = path.display(), "failed to deserialize lockfile"),
 		)?;
 		Ok(Some(lockfile))
-	}
-}
-
-impl Node {
-	#[must_use]
-	pub fn children(&self) -> Vec<Either<usize, tg::object::Id>> {
-		match self {
-			Self::Directory { entries } => entries.values().cloned().collect(),
-			Self::File { dependencies, .. } => dependencies
-				.values()
-				.map(|dependency: &Dependency| dependency.object.clone())
-				.collect(),
-			Self::Symlink { artifact, .. } => {
-				let Some(artifact) = artifact else {
-					return Vec::new();
-				};
-				vec![artifact.clone()]
-			},
-		}
 	}
 }

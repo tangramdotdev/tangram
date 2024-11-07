@@ -1,5 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
+use tangram_either::Either;
 
 /// Display a tree for a build or value.
 #[derive(Clone, Debug, clap::Args)]
@@ -22,35 +23,60 @@ pub struct Args {
 	pub reference: tg::Reference,
 }
 
-#[derive(Debug)]
-pub struct Tree {
-	pub title: String,
-	pub children: Vec<Self>,
-}
-
 impl Cli {
-	pub async fn command_tree(&self, _args: Args) -> tg::Result<()> {
-		Err(tg::error!("unimplemented"))
+	pub async fn command_tree(&self, args: Args) -> tg::Result<()> {
+		let referent = self.get_reference(&args.reference).await.map_err(
+			|source| tg::error!(!source, %reference = args.reference, "failed to get the reference"),
+		)?;
+		let options = crate::view::tree::Options {
+			depth: args.depth,
+			objects: true,
+			builds: true,
+			collapse_builds_on_success: true,
+		};
+		Self::tree_inner(self.handle().await?.clone(), referent.item, options).await?;
+		Ok(())
 	}
-}
 
-impl Tree {
-	pub fn print(&self) {
-		self.print_inner("");
-		println!();
-	}
+	pub async fn tree_inner(
+		handle: impl tg::Handle,
+		item: Either<tg::Build, tg::Object>,
+		options: crate::view::tree::Options,
+	) -> tg::Result<()> {
+		let mut stdout = std::io::stdout();
 
-	fn print_inner(&self, prefix: &str) {
-		print!("{}", self.title);
-		for (n, child) in self.children.iter().enumerate() {
-			print!("\n{prefix}");
-			if n < self.children.len() - 1 {
-				print!("├── ");
-				child.print_inner(&format!("{prefix}│   "));
-			} else {
-				print!("└── ");
-				child.print_inner(&format!("{prefix}    "));
+		// Create the tree.
+		let tree = crate::view::tree::Tree::new(&handle, item.clone(), options);
+
+		// Render the tree until it is finished.
+		loop {
+			// Clear.
+			let action = crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown);
+			crossterm::execute!(stdout, action).unwrap();
+
+			// If the tree is finished, then break.
+			if tree.is_finished() {
+				break;
 			}
+
+			// Save the current position.
+			let action = crossterm::cursor::SavePosition;
+			crossterm::execute!(stdout, action).unwrap();
+
+			// Print the tree.
+			println!("{}", tree.display());
+
+			// Restore the cursor position.
+			let action = crossterm::cursor::RestorePosition;
+			crossterm::execute!(stdout, action).unwrap();
+
+			// Sleep
+			tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 		}
+
+		// Print the tree.
+		println!("{}", tree.display());
+
+		Ok(())
 	}
 }

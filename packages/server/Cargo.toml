@@ -24,7 +24,9 @@ v8 = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
+deno_core_icudata = { workspace = true }
 proptest = { workspace = true }
+insta = { workspace = true }
 
 [dependencies]
 async-broadcast = { workspace = true }
@@ -36,6 +38,7 @@ biome_js_parser = { workspace = true }
 biome_js_syntax = { workspace = true }
 byte-unit = { workspace = true }
 bytes = { workspace = true }
+ctor = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
@@ -83,6 +86,7 @@ tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
 tangram_messenger  = { workspace = true }
+tangram_temp = { workspace = true }
 tangram_v8 = { workspace = true }
 tangram_version = { workspace = true }
 tangram_vfs = { workspace = true }

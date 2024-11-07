@@ -1,230 +1,183 @@
 use super::Compiler;
-use std::{ffi::OsStr, path::PathBuf};
+use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
-use tg::path::Ext as _;
+
+#[cfg(test)]
+mod tests;
 
 impl Compiler {
 	/// Resolve an import from a module.
 	pub async fn resolve_module(
 		&self,
-		referrer: Option<&tg::Module>,
+		referrer: &tg::Module,
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
 		let kind = import.kind;
 
-		// Get the object and path.
-		let (object, path) = 'a: {
-			if let Some(referrer) = referrer {
-				if let Some(Either::Left(tg::object::Id::Directory(referrer_package))) =
-					&referrer.object
-				{
-					let referrer_package = tg::Directory::with_id(referrer_package.clone());
-					let referrer_path = referrer
-						.path
-						.as_ref()
-						.ok_or_else(|| tg::error!("the referrer must have a path"))?;
+		// Get the referent.
+		let referent = match referrer {
+			// Handle a path referrer.
+			tg::Module {
+				referent:
+					tg::Referent {
+						item: tg::module::Item::Path(package),
+						subpath,
+						..
+					},
+				..
+			} => {
+				self.resolve_with_path_referrer(package, subpath.as_deref(), import)
+					.await?
+			},
 
-					// Handle a path import.
-					if let tg::reference::Path::Path(import_path) = import.reference.path() {
-						let path = referrer_path
-							.clone()
-							.parent()
-							.unwrap()
-							.join(import_path.clone())
-							.normalize();
-
-						// If the import is internal to the package, then use the imported path in the existing package.
-						if path.is_internal() {
-							let object = Either::Left(referrer_package.clone().into());
-							break 'a (object, Some(path));
-						}
-					}
-
-					// Otherwise, get the dependency from the referrer's file.
-					let referrer_file = referrer_package
-						.get(&self.server, referrer_path)
-						.await?
-						.try_unwrap_file()
-						.ok()
-						.ok_or_else(|| tg::error!("expected a file"))?;
-					let object = referrer_file
-						.get_dependency(&self.server, &import.reference)
-						.await?;
-					let object = Either::Left(object);
-					let path = None;
-
-					(object, path)
-				} else if let Some(Either::Right(referrer_package)) = &referrer.object {
-					let referrer_path = referrer
-						.path
-						.as_ref()
-						.ok_or_else(|| tg::error!("the referrer must have a path"))?;
-
-					// Handle a path import.
-					let import_path = import
-						.reference
-						.path()
-						.try_unwrap_path_ref()
-						.ok()
-						.or_else(|| import.reference.query()?.path.as_ref());
-					if let Some(import_path) = import_path {
-						let path = referrer_path
-							.parent()
-							.unwrap()
-							.join(import_path)
-							.normalize();
-
-						// If the import is internal to the package, then use the imported path in the existing package.
-						if path.is_internal() {
-							let object = referrer_package.clone();
-							break 'a (Either::Right(object), Some(path));
-						}
-
-						// Otherwise, return the path.
-						let object = referrer_package.clone().join(path).normalize();
-						break 'a (Either::Right(object), None);
-					}
-
-					// Try to find this module in an existing lockfile.
-					let Some((lockfile, node)) =
-						crate::lockfile::try_get_lockfile_node_for_module_path(
-							referrer_path.as_ref(),
-						)
-						.await?
-					else {
-						return Err(tg::error!("failed to resolve module"));
+			// Handle an object referrer.
+			tg::Module {
+				referent:
+					tg::Referent {
+						item: tg::module::Item::Object(object),
+						subpath,
+						..
+					},
+				..
+			} => {
+				let object = if let Some(subpath) = subpath {
+					let tg::object::Id::Directory(directory) = object else {
+						return Err(tg::error!("object with subpath must be a directory"));
 					};
-					let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[node]
-					else {
-						return Err(tg::error!("expected a file node"));
-					};
-
-					// Try to resolve using the node in the lockfile.
-					let Some(object) = dependencies
-						.get(&import.reference)
-						.map(|dependency| &dependency.object)
-					else {
-						return Err(tg::error!("failed to resolve module"));
-					};
-
-					let object = match object {
-						Either::Left(node) => crate::lockfile::create_artifact_for_lockfile_node(
-							&self.server,
-							&lockfile,
-							*node,
-						)
-						.await?
-						.into(),
-						Either::Right(object) => tg::Object::with_id(object.clone()),
-					};
-
-					(Either::Left(object), None)
-				} else {
-					return Err(tg::error!("the referrer must have an object"));
-				}
-			} else {
-				let object = tg::Object::with_id(
-					import
-						.reference
-						.path()
-						.try_unwrap_object_ref()
-						.ok()
-						.ok_or_else(|| tg::error!("invalid import"))?
-						.clone(),
-				);
-				let (object, path) = if let tg::Object::Symlink(symlink) = object.clone() {
-					let object = tg::Object::with_id(
-						symlink
-							.artifact(&self.server)
-							.await?
-							.ok_or_else(|| tg::error!("invalid symlink"))?
-							.id(&self.server)
-							.await?
-							.into(),
-					);
-					let path = symlink.path(&self.server).await?.map(PathBuf::from);
-					(object, path)
-				} else {
-					(object, None)
-				};
-				(Either::Left(object), path)
-			}
-		};
-
-		// If the kind is not known and the object and path refer to a package, then return its root module.
-		let (object, path) = if kind.is_some() {
-			(object, path)
-		} else {
-			match object {
-				Either::Left(object) => {
-					let object_ = if let Some(path) = &path {
-						object
-							.try_unwrap_directory_ref()
-							.ok()
-							.ok_or_else(|| tg::error!("expected a directory"))?
-							.try_get(&self.server, path)
-							.await?
-							.ok_or_else(|| {
-								let message = "expected the directory to contain the path";
-								tg::error!(?object, ?path, "{message}")
-							})?
-							.into()
-					} else {
-						object.clone()
-					};
-					if object_.try_unwrap_directory_ref().is_ok() {
-						if let Some(root_module_file_name) =
-							tg::package::try_get_root_module_file_name(
-								&self.server,
-								Either::Left(&object_),
-							)
-							.await?
-						{
-							let path = root_module_file_name.into();
-							(Either::Left(object_), Some(path))
-						} else {
-							(Either::Left(object), path)
-						}
-					} else {
-						(Either::Left(object), path)
-					}
-				},
-
-				Either::Right(object) => {
-					let path_ = if let Some(path) = &path {
-						object.join(path)
-					} else {
-						object.clone()
-					};
-					let metadata = tokio::fs::metadata(&path_)
+					let artifact = tg::Directory::with_id(directory.clone())
+						.get(&self.server, subpath)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-					if metadata.is_dir() {
-						if let Some(root_module_file_name) =
-							tg::package::try_get_root_module_file_name_for_package_path(&path_)
-								.await?
-						{
-							let path = root_module_file_name.parse().unwrap();
-							(Either::Right(object), Some(path))
-						} else {
-							(Either::Right(object), path)
-						}
-					} else {
-						(Either::Right(object), path)
-					}
-				},
-			}
+						.map_err(|source| tg::error!(!source, %directory, %subpath = subpath.display(), "failed to get directory entry"))?;
+					artifact.into()
+				} else {
+					tg::Object::with_id(object.clone())
+				};
+				let object = if let tg::Object::Directory(directory) = &object {
+					let root_module_file_name = tg::package::try_get_root_module_file_name(
+						&self.server,
+						Either::Left(&object),
+					)
+					.await?
+					.ok_or_else(|| tg::error!("invalid referrer"))?;
+					directory
+						.get(&self.server, root_module_file_name)
+						.await?
+						.into()
+				} else {
+					object
+				};
+				let file = object
+					.clone()
+					.try_unwrap_file()
+					.ok()
+					.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
+				let referent = file.get_dependency(&self.server, &import.reference).await?;
+				let object = referent.item.id(&self.server).await?.clone();
+				let item = tg::module::Item::Object(object);
+				let subpath = referent.subpath;
+				let tag = referent.tag;
+				tg::Referent { item, subpath, tag }
+			},
 		};
+
+		// If the kind is not known and the referent is a directory with a root module, then use its kind.
+		let kind =
+			if kind.is_some() {
+				kind
+			} else {
+				match &referent.item {
+					tg::module::Item::Path(path) => {
+						let path = if let Some(subpath) = &referent.subpath {
+							path.join(subpath)
+						} else {
+							path.clone()
+						};
+						let metadata = tokio::fs::metadata(&path)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+						if metadata.is_dir() {
+							let package = Either::Right(path.as_ref());
+							if let Some(name) =
+								tg::package::try_get_root_module_file_name(&self.server, package)
+									.await?
+							{
+								let name = Path::new(name);
+								let extension = name.extension();
+								if extension.is_some_and(|extension| extension == "js") {
+									Some(tg::module::Kind::Js)
+								} else if extension.is_some_and(|extension| extension == "ts") {
+									Some(tg::module::Kind::Ts)
+								} else {
+									None
+								}
+							} else {
+								None
+							}
+						} else {
+							None
+						}
+					},
+
+					tg::module::Item::Object(object) => {
+						let object =
+							if let Some(subpath) = &referent.subpath {
+								let object = tg::Object::with_id(object.clone());
+								let directory = object
+									.try_unwrap_directory_ref()
+									.ok()
+									.ok_or_else(|| tg::error!("expected a directory"))?;
+								let artifact = directory.get(&self.server, subpath).await.map_err(
+									|source| tg::error!(!source, "failed to get directory entry"),
+								)?;
+								let artifact = artifact.id(&self.server).await?.clone();
+								artifact.into()
+							} else {
+								object.clone()
+							};
+						if object.try_unwrap_directory_ref().is_ok() {
+							let object = tg::Object::with_id(object);
+							let package = Either::Left(&object);
+							if let Some(name) =
+								tg::package::try_get_root_module_file_name(&self.server, package)
+									.await?
+							{
+								let name = Path::new(name);
+								let extension = name.extension();
+								if extension.is_some_and(|extension| extension == "js") {
+									Some(tg::module::Kind::Js)
+								} else if extension.is_some_and(|extension| extension == "ts") {
+									Some(tg::module::Kind::Ts)
+								} else {
+									None
+								}
+							} else {
+								None
+							}
+						} else {
+							None
+						}
+					},
+				}
+			};
 
 		// If the kind is not known, then try to infer it from the path extension.
 		let kind = if let Some(kind) = kind {
 			Some(kind)
-		} else if let Some(path) = &path {
-			let extension = path.extension().and_then(OsStr::to_str);
-			if extension == Some("js") {
+		} else if let Some(subpath) = &referent.subpath {
+			let extension = subpath.extension();
+			if extension.is_some_and(|extension| extension == "js") {
 				Some(tg::module::Kind::Js)
-			} else if extension == Some("ts") {
+			} else if extension.is_some_and(|extension| extension == "ts") {
+				Some(tg::module::Kind::Ts)
+			} else {
+				None
+			}
+		} else if let tg::module::Item::Path(path) = &referent.item {
+			let extension = path.extension();
+			if extension.is_some_and(|extension| extension == "js") {
+				Some(tg::module::Kind::Js)
+			} else if extension.is_some_and(|extension| extension == "ts") {
 				Some(tg::module::Kind::Ts)
 			} else {
 				None
@@ -233,63 +186,174 @@ impl Compiler {
 			None
 		};
 
-		// If the kind is not known, then infer it from the object's kind.
-		let kind = if let Some(kind) = kind {
-			kind
-		} else {
-			match &object {
-				Either::Left(object) => {
-					let object = if let Some(path) = &path {
-						object
-							.try_unwrap_directory_ref()
-							.ok()
-							.ok_or_else(|| tg::error!("expected a directory"))?
-							.get(&self.server, path)
-							.await?
-							.into()
-					} else {
-						object.clone()
-					};
-					match &object {
-						tg::Object::Leaf(_) => tg::module::Kind::Leaf,
-						tg::Object::Branch(_) => tg::module::Kind::Branch,
-						tg::Object::Directory(_) => tg::module::Kind::Directory,
-						tg::Object::File(_) => tg::module::Kind::File,
-						tg::Object::Symlink(_) => tg::module::Kind::Symlink,
-						tg::Object::Graph(_) => tg::module::Kind::Graph,
-						tg::Object::Target(_) => tg::module::Kind::Target,
-					}
-				},
+		// Finally, if the kind is not known, then infer it from the object's kind.
+		let kind =
+			if let Some(kind) = kind {
+				kind
+			} else {
+				match &referent.item {
+					tg::module::Item::Path(path) => {
+						let path = if let Some(subpath) = &referent.subpath {
+							path.join(subpath)
+						} else {
+							path.clone()
+						};
+						let metadata = tokio::fs::symlink_metadata(&path)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+						if metadata.is_dir() {
+							tg::module::Kind::Directory
+						} else if metadata.is_file() {
+							tg::module::Kind::File
+						} else if metadata.is_symlink() {
+							tg::module::Kind::Symlink
+						} else {
+							return Err(tg::error!("expected a directory, file, or symlink"));
+						}
+					},
 
-				Either::Right(object) => {
-					let path = if let Some(path) = &path {
-						object.join(path)
-					} else {
-						object.clone()
-					};
-					let metadata = tokio::fs::symlink_metadata(&path)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-					if metadata.is_dir() {
-						tg::module::Kind::Directory
-					} else if metadata.is_file() {
-						tg::module::Kind::File
-					} else if metadata.is_symlink() {
-						tg::module::Kind::Symlink
-					} else {
-						return Err(tg::error!("expected a directory, file, or symlink"));
-					}
-				},
-			}
-		};
+					tg::module::Item::Object(object) => {
+						let object =
+							if let Some(subpath) = &referent.subpath {
+								let object = tg::Object::with_id(object.clone());
+								let directory = object
+									.try_unwrap_directory_ref()
+									.ok()
+									.ok_or_else(|| tg::error!("expected a directory"))?;
+								let artifact = directory.get(&self.server, subpath).await.map_err(
+									|source| tg::error!(!source, "failed to get directory entry"),
+								)?;
+								let artifact = artifact.id(&self.server).await?.clone();
+								artifact.into()
+							} else {
+								object.clone()
+							};
+						match &object {
+							tg::object::Id::Leaf(_) => tg::module::Kind::Leaf,
+							tg::object::Id::Branch(_) => tg::module::Kind::Branch,
+							tg::object::Id::Directory(_) => tg::module::Kind::Directory,
+							tg::object::Id::File(_) => tg::module::Kind::File,
+							tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
+							tg::object::Id::Graph(_) => tg::module::Kind::Graph,
+							tg::object::Id::Target(_) => tg::module::Kind::Target,
+						}
+					},
+				}
+			};
 
 		// Create the module.
-		let object = Some(match object {
-			Either::Left(object) => Either::Left(object.id(&self.server).await?),
-			Either::Right(object) => Either::Right(object),
-		});
-		let module = tg::Module { kind, object, path };
+		let module = tg::Module { kind, referent };
 
 		Ok(module)
+	}
+
+	// Given a package at a path and module at some subpath within it, resolve an import relative to the module.
+	async fn resolve_with_path_referrer(
+		&self,
+		package: &Path,
+		subpath: Option<&Path>,
+		import: &tg::Import,
+	) -> tg::Result<tg::Referent<tg::module::Item>> {
+		// Get the referrer within some lockfile.
+		let subpath = subpath.unwrap_or("".as_ref());
+		let module_path = package.join(subpath);
+
+		// Get the lockfile and its path.
+		let (lockfile_path, lockfile) = 'a: {
+			// Search the ancestors for a lockfile, if it exists.
+			for ancestor in module_path.ancestors().skip(1) {
+				// Check if the lockfile exists.
+				let lockfile_path = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
+				let exists = tokio::fs::try_exists(&lockfile_path).await.map_err(
+					|source| tg::error!(!source, %package = ancestor.display(), "failed to check if lockfile exists"),
+				)?;
+				if !exists {
+					continue;
+				}
+
+				// Parse the lockfile.
+				let contents = tokio::fs::read_to_string(&lockfile_path).await.map_err(
+					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to read lockfile"),
+				)?;
+				let lockfile = serde_json::from_str::<tg::Lockfile>(&contents).map_err(
+					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to deserialize lockfile"),
+				)?;
+				break 'a (lockfile_path, lockfile);
+			}
+
+			// Error if no lockfile is found.
+			return Err(tg::error!(%module = module_path.display(), "failed to find lockfile"));
+		};
+
+		// Find the referrer in the lockfile.
+		let module_index = self
+			.server
+			.find_node_index_in_lockfile(&module_path, &lockfile_path, &lockfile)
+			.await?;
+
+		// The module within the lockfile must be a file for it to have imports.
+		let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[module_index] else {
+			return Err(
+				tg::error!(%lockfile = lockfile_path.display(), %node = module_index, "expected a file node"),
+			);
+		};
+
+		// Get the import path.
+		let import_path = import
+			.reference
+			.item()
+			.try_unwrap_path_ref()
+			.ok()
+			.or_else(|| import.reference.options()?.path.as_ref());
+
+		match dependencies.get(&import.reference) {
+			// If this points to another node in the lockfile, find it within the lockfile.
+			Some(tg::Referent {
+				item: Either::Left(index),
+				subpath,
+				tag,
+			}) => {
+				let package_path = self
+					.server
+					.find_path_in_lockfile(*index, &lockfile_path, &lockfile)
+					.await?;
+				Ok(tg::Referent {
+					item: tg::module::Item::Path(package_path),
+					subpath: subpath.clone(),
+					tag: tag.clone(),
+				})
+			},
+
+			// Resolve objects normally.
+			Some(tg::Referent {
+				item: Either::Right(object),
+				subpath,
+				tag,
+			}) => Ok(tg::Referent {
+				item: tg::module::Item::Object(object.clone()),
+				subpath: subpath.clone(),
+				tag: tag.clone(),
+			}),
+
+			None => {
+				// If this is a path dependency but not in the dependencies table for the node, then it is an artifact dependency.
+				if let Some(import_path) = import_path {
+					let item = module_path.join(import_path);
+					return Ok(tg::Referent {
+						item: tg::module::Item::Path(item),
+						subpath: import
+							.reference
+							.options()
+							.and_then(|options| options.subpath.clone()),
+						tag: None,
+					});
+				};
+
+				// Otherwise we cannot resolve this reference.
+				Err(
+					tg::error!(%module = module_path.display(), %import = import.reference, "failed to resolve import"),
+				)
+			},
+		}
 	}
 }

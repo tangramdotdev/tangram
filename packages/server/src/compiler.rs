@@ -1,9 +1,8 @@
 use self::{document::Document, syscall::syscall};
-use crate::{tmp::Tmp, Server};
+use crate::{temp::Temp, Server};
 use dashmap::DashMap;
 use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt};
-use lsp::{notification::Notification as _, request::Request as _};
-use lsp_types as lsp;
+use lsp_types::{self as lsp, notification::Notification as _, request::Request as _};
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
 	path::{Path, PathBuf},
@@ -11,7 +10,6 @@ use std::{
 	sync::{Arc, Mutex},
 };
 use tangram_client as tg;
-use tangram_either::Either;
 use tangram_futures::task::Stop;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
@@ -55,8 +53,8 @@ pub struct Inner {
 	/// The documents.
 	documents: DashMap<tg::Module, Document, fnv::FnvBuildHasher>,
 
-	/// The library tmp.
-	library_tmp: Tmp,
+	/// The library temp.
+	library_temp: Temp,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
@@ -117,7 +115,7 @@ impl Compiler {
 	pub fn new(server: &crate::Server, main_runtime_handle: tokio::runtime::Handle) -> Self {
 		let diagnostics = tokio::sync::RwLock::new(BTreeMap::new());
 		let documents = DashMap::default();
-		let library_tmp = Tmp::new(server);
+		let library_temp = Temp::new(server);
 		let request_sender = Mutex::new(None);
 		let request_thread = Mutex::new(None);
 		let sender = std::sync::RwLock::new(None);
@@ -125,7 +123,7 @@ impl Compiler {
 		Self(Arc::new(Inner {
 			diagnostics,
 			documents,
-			library_tmp,
+			library_temp,
 			main_runtime_handle,
 			request_sender,
 			request_thread,
@@ -625,16 +623,21 @@ impl Compiler {
 		}
 		let path = Path::new(uri.path().as_str());
 
-		// Handle a path in the library tmp.
-		if let Ok(path) = path.strip_prefix(&self.library_tmp.path) {
+		// Handle a path in the library temp.
+		if let Ok(path) = path.strip_prefix(&self.library_temp.path) {
 			let kind = tg::module::Kind::Dts;
-			let object = None;
-			let path = Some(path.to_owned());
-			return Ok(tg::Module { kind, object, path });
+			let item = tg::module::Item::Path(path.to_owned());
+			let referent = tg::Referent {
+				item,
+				subpath: None,
+				tag: None,
+			};
+			let module = tg::Module { kind, referent };
+			return Ok(module);
 		}
 
 		// Handle a path in the checkouts directory.
-		if let Ok(path) = path.strip_prefix(self.server.checkouts_path()) {
+		if let Ok(path) = path.strip_prefix(self.server.cache_path()) {
 			#[allow(clippy::case_sensitive_file_extension_comparisons)]
 			let kind = if path.extension().is_some_and(|extension| extension == "js") {
 				tg::module::Kind::Js
@@ -664,39 +667,51 @@ impl Compiler {
 				.parse()
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
-			let object = Some(Either::Left(object));
-			let path = path.components().skip(1).collect::<PathBuf>();
-			let path = if path.as_os_str().is_empty() {
+			let item = tg::module::Item::Object(object);
+			let subpath = path.components().skip(1).collect::<PathBuf>();
+			let subpath = if subpath.as_os_str().is_empty() {
 				None
 			} else {
-				Some(path)
+				Some(subpath)
 			};
-			return Ok(tg::Module { kind, object, path });
+			let referent = tg::Referent {
+				item,
+				subpath,
+				tag: None,
+			};
+			let module = tg::Module { kind, referent };
+			return Ok(module);
 		}
 
-		tg::Module::with_path(path).await
+		// Create the module.
+		let module = self.server.module_for_path(path).await?;
+
+		Ok(module)
 	}
 
 	async fn lsp_uri_for_module(&self, module: &tg::Module) -> tg::Result<lsp::Uri> {
 		match module {
 			tg::Module {
 				kind: tg::module::Kind::Dts,
-				path: Some(path),
+				referent: tg::Referent {
+					item: tg::module::Item::Path(path),
+					..
+				},
 				..
 			} => {
 				let contents = self::load::LIBRARY
 					.get_file(path)
 					.ok_or_else(|| tg::error!("invalid path"))?
 					.contents();
-				let path = self.library_tmp.path.join(path);
+				let path = self.library_temp.path.join(path);
 				let exists = tokio::fs::try_exists(&path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
 				if !exists {
-					tokio::fs::create_dir_all(&self.library_tmp.path)
+					tokio::fs::create_dir_all(&self.library_temp.path)
 						.await
 						.map_err(|source| {
-							tg::error!(!source, "failed create the library tmp directory")
+							tg::error!(!source, "failed create the library temp directory")
 						})?;
 					tokio::fs::write(&path, contents)
 						.await
@@ -715,8 +730,12 @@ impl Compiler {
 			},
 
 			tg::Module {
-				object: Some(Either::Left(object)),
-				path,
+				referent:
+					tg::Referent {
+						item: tg::module::Item::Object(object),
+						subpath,
+						..
+					},
 				..
 			} => {
 				let artifact = tg::artifact::Id::try_from(object.clone())
@@ -729,33 +748,37 @@ impl Compiler {
 						.try_collect::<()>()
 						.await?;
 				}
-				let path = if let Some(path) = path {
+				let path = if let Some(subpath) = subpath {
 					self.server
-						.checkouts_path()
+						.cache_path()
 						.join(object.to_string())
-						.join(path)
+						.join(subpath)
 				} else {
-					self.server.checkouts_path().join(object.to_string())
+					self.server.cache_path().join(object.to_string())
 				};
 				let path = path.display();
-				Ok(format!("file://{path}").parse().unwrap())
+				let uri = format!("file://{path}").parse().unwrap();
+				Ok(uri)
 			},
 
 			tg::Module {
-				object: Some(Either::Right(object)),
-				path,
+				referent:
+					tg::Referent {
+						item: tg::module::Item::Path(path),
+						subpath,
+						..
+					},
 				..
 			} => {
-				let path = if let Some(path) = path {
-					object.clone().join(path.clone())
+				let path = if let Some(subpath) = subpath {
+					path.clone().join(subpath.clone())
 				} else {
-					object.clone()
+					path.clone()
 				};
 				let path = path.display();
-				Ok(format!("file://{path}").parse().unwrap())
+				let uri = format!("file://{path}").parse().unwrap();
+				Ok(uri)
 			},
-
-			_ => Err(tg::error!("invalid module")),
 		}
 	}
 }
@@ -818,7 +841,7 @@ impl crate::Server {
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);
 				let task = handle.lsp(input, output);
-				future::select(pin!(task), pin!(stop.stopped()))
+				future::select(pin!(task), pin!(stop.wait()))
 					.map(|output| match output {
 						future::Either::Left((Err(error), _)) => Err(error),
 						_ => Ok(()),

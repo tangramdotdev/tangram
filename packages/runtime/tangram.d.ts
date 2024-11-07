@@ -2,9 +2,13 @@
 
 interface ImportAttributes {
 	path?: string;
+	remote?: string;
+	subpath?: string;
 }
 
-interface ImportMeta {}
+interface ImportMeta {
+	module: tg.Module;
+}
 
 // @ts-ignore
 declare let console: {
@@ -371,7 +375,7 @@ declare namespace tg {
 
 		/** Get this file's dependencies. */
 		dependencies(): Promise<
-			{ [reference: string]: File.Dependency } | undefined
+			{ [reference: tg.Reference]: tg.Referent<tg.Object> } | undefined
 		>;
 
 		/** Get this file's dependencies as an array. */
@@ -395,15 +399,12 @@ declare namespace tg {
 		type ArgObject =
 			| {
 					contents?: tg.Blob.Arg | undefined;
-					dependencies?: { [reference: string]: Dependency } | undefined;
+					dependencies?:
+						| { [reference: tg.Reference]: tg.Referent<tg.Object> }
+						| undefined;
 					executable?: boolean | undefined;
 			  }
 			| { graph: tg.Graph; node: number };
-
-		export type Dependency = {
-			object: tg.Object;
-			tag?: string | undefined;
-		};
 	}
 
 	/** Create a symlink. */
@@ -429,8 +430,8 @@ declare namespace tg {
 		/** Get this symlink's artifact. */
 		artifact(): Promise<tg.Artifact | undefined>;
 
-		/** Get this symlink's path. */
-		path(): Promise<string | undefined>;
+		/** Get this symlink's subpath. */
+		subpath(): Promise<string | undefined>;
 
 		/** Resolve this symlink to the directory or file it refers to, or return undefined if none is found. */
 		resolve(): Promise<tg.Directory | tg.File | undefined>;
@@ -450,7 +451,7 @@ declare namespace tg {
 		type ArgObject =
 			| {
 					artifact?: tg.Artifact | undefined;
-					path?: string | undefined;
+					subpath?: string | undefined;
 			  }
 			| { graph: tg.Graph; node: number };
 	}
@@ -508,7 +509,7 @@ declare namespace tg {
 		type SymlinkNodeArg = {
 			kind: "symlink";
 			artifact?: number | tg.Artifact | undefined;
-			path?: string | undefined;
+			subpath?: string | undefined;
 		};
 
 		type Node = DirectoryNode | FileNode | SymlinkNode;
@@ -521,19 +522,16 @@ declare namespace tg {
 		type FileNode = {
 			kind: "file";
 			contents: tg.Blob;
-			dependencies: { [reference: string]: Dependency } | undefined;
+			dependencies:
+				| { [reference: tg.Reference]: tg.Referent<number | tg.Object> }
+				| undefined;
 			executable: boolean;
 		};
 
 		type SymlinkNode = {
 			kind: "symlink";
 			artifact: number | tg.Artifact | undefined;
-			path: string | undefined;
-		};
-
-		export type Dependency = {
-			object: number | tg.Object;
-			tag?: string | undefined;
+			subpath: string | undefined;
 		};
 	}
 
@@ -593,7 +591,7 @@ declare namespace tg {
 		env(): Promise<{ [key: string]: tg.Value }>;
 
 		/** Get this target's executable. */
-		executable(): Promise<tg.Graph | undefined>;
+		executable(): Promise<tg.Target.Executable | undefined>;
 
 		/** Get this target's host. */
 		host(): Promise<string>;
@@ -624,13 +622,16 @@ declare namespace tg {
 			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 
 			/** The target's executable. */
-			executable?: tg.Artifact | undefined;
+			executable?: tg.Target.ExecutableArg | undefined;
 
 			/** The system to build the target on. */
 			host?: string | undefined;
 		};
-	}
 
+		export type ExecutableArg = tg.Artifact | tg.Module;
+
+		export type Executable = tg.Artifact | tg.Module;
+	}
 
 	export namespace path {
 		/** A path component. **/
@@ -658,29 +659,20 @@ declare namespace tg {
 			export let isNormal: (component: Component) => component is Normal;
 		}
 
-		/** Split into path components */
-		export let components:  (path: string) => Array<Component>
-	
-		/** Normalize the path. */
-		export let normalize: (path: string) => string
+		/** Split a path into its components */
+		export let components: (path: string) => Array<Component>;
 
-		/** Return the parent path. */
-		export let parent: (path: string) => string | undefined
+		/** Create a path from an array of path components. */
+		export let fromComponents: (components: Array<path.Component>) => string;
 
-		/** Returns true if the path is absolute.  */
-		export let isAbsolute: (path: string) => boolean
+		/** Return true if the path is absolute.  */
+		export let isAbsolute: (path: string) => boolean;
 
-		/** Returns true if the path points outside the current directory. */
-		export let isExternal: (path: string) => boolean
+		/** Join paths. */
+		export let join: (...paths: Array<string | undefined>) => string;
 
-		/** Returns true if the path points inside the current directory. */
-		export let isInternal: (path: string) => boolean
-
-		/** Join a list of paths together. */
-		export let join: (...paths: Array<string|undefined>) => string
-
-		/** Convert an array of components into a path. */
-		export let fromComponents: (components: Array<path.Component>) => string
+		/** Return the path with its last component removed. */
+		export let parent: (path: string) => string | undefined;
 	}
 
 	/** Create a mutation. */
@@ -896,6 +888,36 @@ declare namespace tg {
 	/** Write to the log. */
 	export let log: (...args: Array<unknown>) => void;
 
+	export type Module = {
+		kind: tg.Module.Kind;
+		referent: tg.Referent<tg.Object.Id>;
+	};
+
+	export namespace Module {
+		export type Kind =
+			| "js"
+			| "ts"
+			| "dts"
+			| "object"
+			| "artifact"
+			| "blob"
+			| "leaf"
+			| "branch"
+			| "directory"
+			| "file"
+			| "symlink"
+			| "graph"
+			| "target";
+	}
+
+	export type Reference = string;
+
+	export type Referent<T> = {
+		item: T;
+		subpath?: string | undefined;
+		tag?: tg.Tag | undefined;
+	};
+
 	/** Resolve all deeply nested promises in an unresolved value. */
 	export let resolve: <T extends tg.Unresolved<tg.Value>>(
 		value: T,
@@ -960,6 +982,8 @@ declare namespace tg {
 
 	/** Sleep for the specified duration in seconds. */
 	export let sleep: (duration: number) => Promise<void>;
+
+	export type Tag = string;
 
 	type MaybeNestedArray<T> = T | Array<tg.MaybeNestedArray<T>>;
 

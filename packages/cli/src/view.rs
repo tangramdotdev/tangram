@@ -12,9 +12,9 @@ mod data;
 mod detail;
 mod info;
 mod log;
-mod tree;
 mod util;
 
+pub mod tree;
 /// View a build or value.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -41,25 +41,37 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let item = self.get_reference(&args.reference).await?;
-
-		// Get the node kind.
-		let node_kind = match item {
-			Either::Left(build) => self::tree::NodeKind::Build {
-				build,
-				remote: None,
-			},
-			Either::Right(object) => self::tree::NodeKind::Value {
-				name: None,
-				value: object.into(),
+		let referent = self.get_reference(&args.reference).await?;
+		let item = match referent.item {
+			Either::Left(build) => Either::Left(build),
+			Either::Right(object) => {
+				let object = if let Some(subpath) = &referent.subpath {
+					let directory = object
+						.try_unwrap_directory()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a directory"))?;
+					directory.get(&handle, subpath).await?.into()
+				} else {
+					object
+				};
+				Either::Right(object)
 			},
 		};
 
+		// Get the node kind.
+		let options = tree::Options {
+			depth: None,
+			objects: false,
+			builds: false,
+			collapse_builds_on_success: false,
+		};
+		let tree = tree::Tree::new(&handle, item, options);
+
 		// Start the viewer.
-		let viewer = Viewer::start(&handle, node_kind).await?;
+		let viewer = Viewer::start(&handle, tree).await?;
 
 		// Wait for the viewer to finish.
-		viewer.wait().await?;
+		viewer.wait().await;
 
 		Ok(())
 	}
@@ -69,7 +81,7 @@ impl<H> Viewer<H>
 where
 	H: tg::Handle,
 {
-	pub async fn start(handle: &H, node_kind: self::tree::NodeKind) -> tg::Result<Self>
+	pub async fn start(handle: &H, tree: tree::Tree<H>) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
@@ -85,7 +97,7 @@ where
 
 		// Create the app.
 		let rect = terminal.get_frame().area();
-		let app = app::App::new(handle, node_kind, rect);
+		let app = app::App::new(handle, tree.get_selected(), tree, rect);
 
 		// Spawn the task.
 		let task = tokio::task::spawn_blocking({
@@ -104,10 +116,10 @@ where
 		self.app.stop();
 	}
 
-	pub async fn wait(mut self) -> tg::Result<()> {
+	pub async fn wait(mut self) {
 		// Get the task.
 		let Some(task) = self.task.take() else {
-			return Ok(());
+			return;
 		};
 
 		// Join the task.
@@ -115,8 +127,6 @@ where
 
 		// Join the app.
 		self.app.wait().await;
-
-		Ok(())
 	}
 
 	fn task(

@@ -18,6 +18,7 @@ pub enum Error {
 pub struct Ignore {
 	root: Arc<RwLock<Node>>,
 	ignore_files: Vec<OsString>,
+	implicit: PatternSet,
 }
 
 struct Node {
@@ -43,6 +44,8 @@ struct Pattern {
 impl Ignore {
 	pub async fn new(
 		ignore_files: impl IntoIterator<Item = impl AsRef<Path>>,
+		allow: impl IntoIterator<Item = impl AsRef<str>>,
+		deny: impl IntoIterator<Item = impl AsRef<str>>,
 	) -> Result<Self, Error> {
 		let ignore_files = ignore_files
 			.into_iter()
@@ -51,7 +54,17 @@ impl Ignore {
 		let root = Arc::new(RwLock::new(
 			Node::new("/".into(), None, &ignore_files).await?,
 		));
-		Ok(Self { root, ignore_files })
+		let allow = allow
+			.into_iter()
+			.map(|s| s.as_ref().parse())
+			.try_collect()?;
+		let deny = deny.into_iter().map(|s| s.as_ref().parse()).try_collect()?;
+		let implicit = PatternSet { allow, deny };
+		Ok(Self {
+			root,
+			ignore_files,
+			implicit,
+		})
 	}
 
 	pub async fn should_ignore(
@@ -67,7 +80,7 @@ impl Ignore {
 			{
 				let node = current.read().await;
 				if let Some(patterns) = &node.patterns {
-					if patterns.should_ignore(&node.path, path, file_type) {
+					if patterns.should_ignore(&node.path, path, file_type, &self.implicit) {
 						return Ok(true);
 					}
 				}
@@ -185,14 +198,22 @@ impl Node {
 }
 
 impl PatternSet {
-	fn should_ignore(&self, root: &Path, path: &Path, file_type: std::fs::FileType) -> bool {
+	fn should_ignore(
+		&self,
+		root: &Path,
+		path: &Path,
+		file_type: std::fs::FileType,
+		implicit: &PatternSet,
+	) -> bool {
 		let allow = self
 			.allow
 			.iter()
+			.chain(implicit.allow.iter())
 			.any(|pattern| pattern.matches(root, path, file_type));
 		let deny = self
 			.deny
 			.iter()
+			.chain(implicit.deny.iter())
 			.any(|pattern| pattern.matches(root, path, file_type));
 		deny && !allow
 	}

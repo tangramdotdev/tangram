@@ -1,3 +1,4 @@
+use super::{input, unify};
 use crate::Server;
 use num::ToPrimitive;
 use std::{
@@ -8,8 +9,7 @@ use std::{
 use tangram_client::{self as tg, handle::Ext};
 use tangram_either::Either;
 
-use super::unify;
-
+#[derive(Debug)]
 pub struct Graph {
 	pub indices: BTreeMap<unify::Id, usize>,
 	pub nodes: Vec<Node>,
@@ -17,6 +17,7 @@ pub struct Graph {
 	pub objects: BTreeMap<tg::object::Id, usize>,
 }
 
+#[derive(Debug)]
 pub struct Node {
 	pub data: Option<tg::artifact::Data>,
 	pub id: Option<tg::object::Id>,
@@ -29,21 +30,31 @@ pub struct Node {
 pub struct Edge {
 	pub index: usize,
 	pub reference: tg::Reference,
+	pub subpath: Option<PathBuf>,
+	pub tag: Option<tg::Tag>,
+}
+
+#[derive(Clone, Debug)]
+struct RemappedEdge {
+	pub id: Either<usize, tg::object::Id>,
+	pub reference: tg::Reference,
+	pub subpath: Option<PathBuf>,
 	pub tag: Option<tg::Tag>,
 }
 
 impl Server {
 	pub(super) async fn create_object_graph(
 		&self,
+		input: &input::Graph,
+		unify: &unify::Graph,
 		root: &unify::Id,
-		unify: unify::Graph,
 	) -> tg::Result<Graph> {
 		let mut indices = BTreeMap::new();
 		let mut paths: BTreeMap<PathBuf, usize> = BTreeMap::new();
 		let mut nodes = Vec::with_capacity(unify.nodes.len());
 		let objects = BTreeMap::new();
 
-		self.create_object_graph_inner(root, &unify, &mut indices, &mut nodes, &mut paths)
+		self.create_object_graph_inner(input, unify, root, &mut indices, &mut nodes, &mut paths)
 			.await;
 
 		let mut graph = Graph {
@@ -52,15 +63,16 @@ impl Server {
 			paths,
 			objects,
 		};
-		self.create_objects(&mut graph).await?;
+		self.create_objects(input, &mut graph).await?;
 
 		Ok(graph)
 	}
 
 	async fn create_object_graph_inner(
 		&self,
+		input: &input::Graph,
+		unify: &unify::Graph,
 		node: &unify::Id,
-		graph: &unify::Graph,
 		indices: &mut BTreeMap<unify::Id, usize>,
 		nodes: &mut Vec<Node>,
 		paths: &mut BTreeMap<PathBuf, usize>,
@@ -75,8 +87,9 @@ impl Server {
 		indices.insert(node.clone(), index);
 
 		// Add the path if it exists.
-		if let Some(input) = graph.nodes.get(node).unwrap().object.as_ref().left() {
-			let path = input.read().await.arg.path.clone();
+		if let Some(input_index) = unify.nodes.get(node).unwrap().object.as_ref().left() {
+			let input_node = &input.nodes[*input_index];
+			let path = input_node.arg.path.clone();
 			paths.insert(path, index);
 		}
 
@@ -86,18 +99,26 @@ impl Server {
 			data: None,
 			edges: Vec::new(),
 			metadata: None,
-			unify: graph.nodes.get(node).unwrap().clone(),
+			unify: unify.nodes.get(node).unwrap().clone(),
 		});
 
 		// Recurse.
-		for (reference, node) in &graph.nodes.get(node).unwrap().outgoing {
-			let dependency_index =
-				Box::pin(self.create_object_graph_inner(node, graph, indices, nodes, paths)).await;
-			let tag = graph.nodes.get(node).unwrap().tag.clone();
+		for (reference, edge) in &unify.nodes.get(node).unwrap().edges {
+			let dependency_index = Box::pin(self.create_object_graph_inner(
+				input,
+				unify,
+				&edge.referent,
+				indices,
+				nodes,
+				paths,
+			))
+			.await;
+			let referrent = unify.nodes.get(&edge.referent).unwrap();
 			let edge = Edge {
 				index: dependency_index,
 				reference: reference.clone(),
-				tag,
+				subpath: edge.subpath.clone(),
+				tag: referrent.tag.clone(),
 			};
 			nodes[index].edges.push(edge);
 		}
@@ -105,11 +126,19 @@ impl Server {
 		index
 	}
 
-	pub(super) async fn create_objects(&self, graph: &mut Graph) -> tg::Result<()> {
+	pub(super) async fn create_objects(
+		&self,
+		input: &input::Graph,
+		graph: &mut Graph,
+	) -> tg::Result<()> {
 		let mut graph_metadata = BTreeMap::new();
 		let mut file_metadata = BTreeMap::new();
 
-		for scc in petgraph::algo::tarjan_scc(&*graph) {
+		// Partition the graph into its strongly connected components.
+		for mut scc in petgraph::algo::tarjan_scc(&*graph) {
+			// Iterate the scc in reverse order.
+			scc.reverse();
+
 			// Special case: the node is a bare object.
 			if scc.len() == 1 && graph.nodes[scc[0]].unify.object.is_right() {
 				let id = graph.nodes[scc[0]]
@@ -137,7 +166,7 @@ impl Server {
 			let mut nodes = Vec::new();
 			for old_index in &scc {
 				let node = self
-					.create_graph_node_data(*old_index, graph, &indices, &mut file_metadata)
+					.create_graph_node_data(input, graph, *old_index, &indices, &mut file_metadata)
 					.await?;
 				nodes.push(node);
 			}
@@ -158,14 +187,15 @@ impl Server {
 				);
 
 				// Update the graph.
-				let id: tg::object::Id = data.id()?.into();
+				let bytes = data.serialize()?;
+				let id = tg::artifact::Id::new(data.kind(), &bytes);
 				graph.nodes[index].data.replace(data);
-				graph.nodes[index].id.replace(id.clone());
+				graph.nodes[index].id.replace(id.clone().into());
 				graph.nodes[index].metadata.replace(metadata);
-				graph.objects.insert(id, index);
+				graph.objects.insert(id.into(), index);
 			} else {
 				// Otherwise, construct an object graph.
-				let object_graph = tg::graph::data::Data {
+				let object_graph = tg::graph::Data {
 					nodes: nodes.clone(),
 				};
 
@@ -173,10 +203,11 @@ impl Server {
 				let metadata = self.compute_graph_metadata(graph, &object_graph);
 
 				// Store the graph.
-				let id = object_graph.id()?;
 				let bytes = object_graph.serialize()?;
+				let id = tg::graph::Id::new(&bytes);
 				let arg = tg::object::put::Arg { bytes };
 				self.put_object(&id.clone().into(), arg).await?;
+
 				graph_metadata.insert(id.clone(), metadata);
 
 				for old_index in scc {
@@ -212,11 +243,12 @@ impl Server {
 					);
 
 					// Update the graph.
-					let id: tg::object::Id = data.id()?.into();
+					let bytes = data.serialize()?;
+					let id = tg::artifact::Id::new(data.kind(), &bytes);
 					graph.nodes[old_index].data.replace(data);
-					graph.nodes[old_index].id.replace(id.clone());
+					graph.nodes[old_index].id.replace(id.clone().into());
 					graph.nodes[old_index].metadata.replace(metadata);
-					graph.objects.insert(id, old_index);
+					graph.objects.insert(id.into(), old_index);
 				}
 			}
 		}
@@ -226,20 +258,17 @@ impl Server {
 
 	async fn create_graph_node_data(
 		&self,
-		index: usize,
+		input: &input::Graph,
 		graph: &mut Graph,
+		index: usize,
 		indices: &BTreeMap<usize, usize>,
 		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Get the input metadata, or skip if the node is an object.
-		let (path, metadata, is_root) = match graph.nodes[index].unify.object.clone() {
-			Either::Left(input) => {
-				let input = input.read().await;
-				(
-					input.arg.path.clone(),
-					input.metadata.clone(),
-					input.root.is_none(),
-				)
+		let (path, metadata) = match graph.nodes[index].unify.object.clone() {
+			Either::Left(input_index) => {
+				let input = &input.nodes[input_index];
+				(input.arg.path.clone(), input.metadata.clone())
 			},
 			Either::Right(_) => {
 				return Err(tg::error!("expected a node"));
@@ -256,7 +285,12 @@ impl Server {
 					let id = graph.nodes[edge.index].id.clone().unwrap();
 					Either::Right(id)
 				};
-				(edge.reference.clone(), edge.tag.clone(), id)
+				RemappedEdge {
+					reference: edge.reference.clone(),
+					id,
+					tag: edge.tag.clone(),
+					subpath: edge.subpath.clone(),
+				}
 			})
 			.collect::<Vec<_>>();
 
@@ -264,9 +298,10 @@ impl Server {
 		let node = if metadata.is_dir() {
 			let entries = edges
 				.into_iter()
-				.map(|(reference, _tag, id)| {
-					let name = reference
-						.path()
+				.map(|edge| {
+					let name = edge
+						.reference
+						.item()
 						.unwrap_path_ref()
 						.components()
 						.last()
@@ -275,11 +310,11 @@ impl Server {
 						.to_str()
 						.unwrap()
 						.to_owned();
-					let id = id.map_right(|id| id.try_into().unwrap());
+					let id = edge.id.map_right(|id| id.try_into().unwrap());
 					(name, id)
 				})
 				.collect();
-			let directory = tg::graph::data::node::Directory { entries };
+			let directory = tg::graph::data::Directory { entries };
 			tg::graph::data::Node::Directory(directory)
 		} else if metadata.is_file() {
 			let file = self
@@ -287,64 +322,21 @@ impl Server {
 				.await?;
 			tg::graph::data::Node::File(file)
 		} else if metadata.is_symlink() {
-			// Read the symlink
-			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let target = tokio::fs::read_link(&path).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to read symlink"),
-			)?;
-			drop(permit);
-
-			let dependency = edges.first().cloned();
-			let (artifact, path) = 'a: {
-				// If there is a dependency and it points outside the root, create a symlink with an artifact ID.
-				if is_root {
-					let artifact = dependency
-						.ok_or_else(|| tg::error!("expected a dependency"))?
-						.2;
-					let artifact = artifact.map_right(|id| id.try_into().unwrap());
-					break 'a (Some(artifact), None);
-				}
-
-				// Unrender the target.
-				let target = target
-					.to_str()
-					.ok_or_else(|| tg::error!("the symlink target must be valid UTF-8"))?;
-				let artifacts_path = self.artifacts_path();
-				let artifacts_path = artifacts_path
-					.to_str()
-					.ok_or_else(|| tg::error!("the artifacts path must be valid UTF-8"))?;
-				let template = tg::template::Data::unrender(artifacts_path, target)?;
-
-				// Check if this is a relative path symlink.
-				if template.components.len() == 1 {
-					let path = template.components[0]
-						.try_unwrap_string_ref()
-						.ok()
-						.ok_or_else(|| tg::error!("invalid symlink"))?
-						.clone();
-					break 'a (None, Some(path));
-				}
-
-				// Check if the symlink points within an artifact.
-				if template.components.len() == 2 {
-					let artifact = template.components[0]
-						.try_unwrap_artifact_ref()
-						.ok()
-						.ok_or_else(|| tg::error!("invalid symlink"))?
-						.clone();
-					let path = template.components[1]
-						.try_unwrap_string_ref()
-						.ok()
-						.ok_or_else(|| tg::error!("invalid sylink"))?
-						.clone();
-					let path = &path[1..];
-					break 'a (Some(Either::Right(artifact)), Some(path.to_owned()));
-				}
-				return Err(tg::error!("invalid symlink"));
+			let edge = edges.first().cloned().unwrap();
+			let artifact = edge.id.map_right(|object| match object {
+				tg::object::Id::Directory(a) => a.into(),
+				tg::object::Id::File(a) => a.into(),
+				tg::object::Id::Symlink(a) => a.into(),
+				_ => unreachable!(),
+			});
+			let subpath = edge
+				.subpath
+				.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
+			let symlink = tg::graph::data::Symlink {
+				artifact: Some(artifact),
+				subpath,
 			};
 
-			let path = path.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
-			let symlink = tg::graph::data::node::Symlink { artifact, path };
 			tg::graph::data::Node::Symlink(symlink)
 		} else {
 			return Err(tg::error!("invalid file type"));
@@ -358,19 +350,19 @@ impl Server {
 		path: &Path,
 		index: usize,
 		metadata: std::fs::Metadata,
-		edges: Vec<(
-			tg::Reference,
-			Option<tg::Tag>,
-			Either<usize, tg::object::Id>,
-		)>,
+		edges: Vec<RemappedEdge>,
 		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
-	) -> tg::Result<tg::graph::data::node::File> {
+	) -> tg::Result<tg::graph::data::File> {
 		// Compute the dependencies, which will be shared in all cases.
 		let dependencies = edges
 			.into_iter()
-			.map(|(reference, tag, object)| {
-				let dependency = tg::graph::data::node::Dependency { object, tag };
-				(reference, dependency)
+			.map(|edge| {
+				let dependency = tg::Referent {
+					item: edge.id,
+					tag: edge.tag,
+					subpath: edge.subpath,
+				};
+				(edge.reference, dependency)
 			})
 			.collect();
 
@@ -413,7 +405,7 @@ impl Server {
 			};
 
 			// Create the file.
-			let file = tg::graph::data::node::File {
+			let file = tg::graph::data::File {
 				contents,
 				dependencies,
 				executable,
@@ -441,7 +433,7 @@ impl Server {
 
 		let contents = output.blob;
 		let executable = metadata.permissions().mode() & 0o111 != 0;
-		let file = tg::graph::data::node::File {
+		let file = tg::graph::data::File {
 			contents,
 			dependencies,
 			executable,
@@ -461,17 +453,17 @@ impl Server {
 				tg::directory::Data::Normal { entries }.into()
 			},
 			tg::graph::data::Node::File(file) => {
-				let tg::graph::data::node::File {
+				let tg::graph::data::File {
 					contents,
 					executable,
 					dependencies,
 				} = file;
 				let dependencies = dependencies
 					.into_iter()
-					.map(|(reference, dependency)| {
-						let tg::graph::data::node::Dependency { object, tag } = dependency;
-						let object = object.unwrap_right();
-						(reference, tg::file::data::Dependency { object, tag })
+					.map(|(reference, referent)| {
+						let tg::Referent { item, tag, subpath } = referent;
+						let item = item.unwrap_right();
+						(reference, tg::Referent { item, subpath, tag })
 					})
 					.collect();
 				tg::file::Data::Normal {
@@ -482,9 +474,9 @@ impl Server {
 				.into()
 			},
 			tg::graph::data::Node::Symlink(symlink) => {
-				let tg::graph::data::node::Symlink { artifact, path } = symlink;
+				let tg::graph::data::Symlink { artifact, subpath } = symlink;
 				let artifact = artifact.map(Either::unwrap_right);
-				tg::symlink::Data::Normal { artifact, path }.into()
+				tg::symlink::Data::Normal { artifact, subpath }.into()
 			},
 		}
 	}
@@ -506,7 +498,7 @@ impl Server {
 					for entry in directory.entries.values() {
 						if let Either::Right(id) = &entry {
 							let node = graph.objects.get(&id.clone().into()).unwrap();
-							let metadata = graph.nodes[*node].metadata.unwrap();
+							let metadata = graph.nodes[*node].metadata.clone().unwrap();
 							complete &= metadata.complete;
 							count += metadata.count.unwrap_or(0);
 							depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
@@ -515,10 +507,10 @@ impl Server {
 					}
 				},
 				tg::graph::data::Node::File(file) => {
-					for dependency in file.dependencies.values() {
-						if let Either::Right(id) = &dependency.object {
+					for referent in file.dependencies.values() {
+						if let Either::Right(id) = &referent.item {
 							let node = graph.objects.get(id).unwrap();
-							let metadata = graph.nodes[*node].metadata.unwrap();
+							let metadata = graph.nodes[*node].metadata.clone().unwrap();
 							complete &= metadata.complete;
 							count += metadata.count.unwrap_or(0);
 							depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
@@ -529,7 +521,7 @@ impl Server {
 				tg::graph::data::Node::Symlink(symlink) => {
 					if let Some(Either::Right(id)) = &symlink.artifact {
 						let node = graph.objects.get(&id.clone().into()).unwrap();
-						let metadata = graph.nodes[*node].metadata.unwrap();
+						let metadata = graph.nodes[*node].metadata.clone().unwrap();
 						complete &= metadata.complete;
 						count += metadata.count.unwrap_or(0);
 						depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
@@ -556,7 +548,7 @@ impl Server {
 		file_metadata: &BTreeMap<usize, tg::object::Metadata>,
 		graph_metadata: &BTreeMap<tg::graph::Id, tg::object::Metadata>,
 	) -> tg::object::Metadata {
-		if let Some(metadata) = graph.nodes[index].metadata {
+		if let Some(metadata) = graph.nodes[index].metadata.clone() {
 			return metadata;
 		}
 
@@ -596,7 +588,7 @@ impl Server {
 			},
 			_ => {
 				for edge in &graph.nodes[index].edges {
-					let metadata = graph.nodes[edge.index].metadata.unwrap_or_else(|| {
+					let metadata = graph.nodes[edge.index].metadata.clone().unwrap_or_else(|| {
 						let data = graph.nodes[edge.index].data.as_ref().unwrap();
 						self.compute_object_metadata(
 							graph,

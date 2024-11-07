@@ -1,4 +1,4 @@
-use crate::{database::Transaction, tmp::Tmp, Server};
+use crate::{database::Transaction, temp::Temp, Server};
 use bytes::Bytes;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
@@ -31,12 +31,12 @@ impl Server {
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::blob::create::Output> {
 		// Create a temporary file.
-		let tmp = Tmp::new(self);
+		let temp = Temp::new(self);
 		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let file = tokio::fs::File::options()
 			.create_new(true)
 			.write(true)
-			.open(&tmp.path)
+			.open(&temp.path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open file for writing"))?;
 
@@ -46,7 +46,7 @@ impl Server {
 			.await?;
 
 		// Move the file to the blobs directory.
-		tokio::fs::rename(&tmp.path, self.blobs_path().join(blob.to_string()))
+		tokio::fs::rename(&temp.path, self.blobs_path().join(blob.to_string()))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to rename file"))?;
 
@@ -149,7 +149,7 @@ impl Server {
 							);
 							let children = chunk
 								.into_iter()
-								.map(|output| tg::branch::child::Data {
+								.map(|output| tg::branch::data::Child {
 									blob: output.blob,
 									size: output.size,
 								})
@@ -255,7 +255,7 @@ impl Server {
 						});
 				let children = output
 					.into_iter()
-					.map(|output| tg::branch::child::Data {
+					.map(|output| tg::branch::data::Child {
 						blob: output.blob,
 						size: output.size,
 					})
@@ -315,7 +315,7 @@ impl Server {
 		// Get a database connection.
 		let mut connection = self
 			.database
-			.connection(db::Priority::Low)
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 

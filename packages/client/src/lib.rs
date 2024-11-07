@@ -16,21 +16,21 @@ use url::Url;
 pub use tangram_either::{for_both, Either};
 
 pub use self::{
-	artifact::Artifact,
-	blob::Blob,
-	branch::Branch,
+	artifact::Handle as Artifact,
+	blob::Handle as Blob,
+	branch::Handle as Branch,
 	build::Build,
 	checksum::Checksum,
 	diagnostic::Diagnostic,
-	directory::Directory,
+	directory::Handle as Directory,
 	error::{ok, Error, Result},
-	file::File,
-	graph::Graph,
+	file::Handle as File,
+	graph::Handle as Graph,
 	handle::Handle,
 	health::Health,
 	id::Id,
 	import::Import,
-	leaf::Leaf,
+	leaf::Handle as Leaf,
 	location::Location,
 	lockfile::Lockfile,
 	module::Module,
@@ -39,9 +39,10 @@ pub use self::{
 	position::Position,
 	range::Range,
 	reference::Reference,
-	symlink::Symlink,
+	referent::Referent,
+	symlink::Handle as Symlink,
 	tag::Tag,
-	target::Target,
+	target::Handle as Target,
 	template::Template,
 	user::User,
 	value::Value,
@@ -70,11 +71,11 @@ pub mod module;
 pub mod mutation;
 pub mod object;
 pub mod package;
-pub mod path;
 pub mod position;
 pub mod progress;
 pub mod range;
 pub mod reference;
+pub mod referent;
 pub mod remote;
 pub mod runtime;
 pub mod symlink;
@@ -259,6 +260,7 @@ impl Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -294,6 +296,7 @@ impl Client {
 			connection
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -330,6 +333,7 @@ impl Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -366,6 +370,7 @@ impl Client {
 			connection
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -413,6 +418,7 @@ impl Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -458,6 +464,7 @@ impl Client {
 			connection
 				.await
 				.inspect_err(|error| {
+					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -818,7 +825,8 @@ impl tg::Handle for Client {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> + Send {
+	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
+	       + Send {
 		self.try_get_reference(reference)
 	}
 
@@ -904,5 +912,26 @@ impl std::ops::Deref for Client {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+/// Get the host.
+#[must_use]
+pub fn host() -> &'static str {
+	#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+	{
+		"aarch64-darwin"
+	}
+	#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+	{
+		"aarch64-linux"
+	}
+	#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+	{
+		"x86_64-darwin"
+	}
+	#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+	{
+		"x86_64-linux"
 	}
 }

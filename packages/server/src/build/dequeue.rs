@@ -30,7 +30,7 @@ impl Server {
 		while let Some(()) = events.next().await {
 			let connection = self
 				.database
-				.connection(db::Priority::Low)
+				.write_connection()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 			let p = connection.p();
@@ -51,11 +51,7 @@ impl Server {
 				"
 			);
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let timeout = self
-				.options
-				.advanced
-				.build_dequeue_timeout
-				.unwrap_or(Duration::from_secs(3600));
+			let timeout = self.config.advanced.build_dequeue_timeout;
 			let time = (time::OffsetDateTime::now_utc() - timeout)
 				.format(&Rfc3339)
 				.unwrap();
@@ -96,7 +92,7 @@ impl Server {
 		let stream = stream::once(future).filter_map(|option| future::ready(option.transpose()));
 
 		// Stop the stream when the server stops.
-		let stop = async move { stop.stopped().await };
+		let stop = async move { stop.wait().await };
 		let stream = stream.take_until(stop);
 
 		// Create the body.
