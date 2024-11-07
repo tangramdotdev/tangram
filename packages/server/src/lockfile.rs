@@ -1,9 +1,7 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::{
-	collections::{BTreeMap, BTreeSet, VecDeque},
+	collections::{BTreeSet, VecDeque},
 	path::{Path, PathBuf},
-	sync::RwLock,
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -118,135 +116,6 @@ async fn read_link(path: &Path) -> tg::Result<PathBuf> {
 		Err(error) if error.raw_os_error() == Some(libc::EINVAL) => Ok(path.to_owned()),
 		Err(source) => Err(tg::error!(!source, %path = path.display(), "failed to readlink")),
 	}
-}
-
-async fn _filter_lockfile(lockfile: &tg::Lockfile, node: usize) -> tg::Result<tg::Lockfile> {
-	let visited = RwLock::new(BTreeMap::new());
-	let nodes = RwLock::new(Vec::new());
-	_filter_lockfile_inner(lockfile, node, &visited, &nodes).await?;
-	Ok(tg::Lockfile {
-		nodes: nodes.into_inner().unwrap(),
-	})
-}
-
-async fn _filter_lockfile_inner(
-	lockfile: &tg::Lockfile,
-	node: usize,
-	visited: &RwLock<BTreeMap<usize, usize>>,
-	nodes: &RwLock<Vec<tg::lockfile::Node>>,
-) -> tg::Result<usize> {
-	if let Some(index) = visited.read().unwrap().get(&node) {
-		return Ok(*index);
-	};
-
-	let new_node = match &lockfile.nodes[node] {
-		tg::lockfile::Node::Directory { .. } => tg::lockfile::Node::Directory {
-			entries: BTreeMap::new(),
-		},
-		tg::lockfile::Node::File {
-			contents,
-			executable,
-			..
-		} => tg::lockfile::Node::File {
-			contents: contents.clone(),
-			dependencies: BTreeMap::new(),
-			executable: *executable,
-		},
-		tg::lockfile::Node::Symlink { subpath, .. } => tg::lockfile::Node::Symlink {
-			artifact: None,
-			subpath: subpath.clone(),
-		},
-	};
-
-	let index = {
-		let mut nodes = nodes.write().unwrap();
-		let index = nodes.len();
-		nodes.push(new_node);
-		index
-	};
-	visited.write().unwrap().insert(node, index);
-
-	match &lockfile.nodes[node] {
-		tg::lockfile::Node::Directory { entries } => {
-			let entries_ = entries
-				.iter()
-				.map(|(name, entry)| {
-					let name = name.clone();
-					let entry = entry.clone();
-					async move {
-						let entry = match entry {
-							Either::Left(index) => Either::Left(
-								Box::pin(_filter_lockfile_inner(lockfile, index, visited, nodes))
-									.await?,
-							),
-							Either::Right(id) => Either::Right(id.clone()),
-						};
-						Ok::<_, tg::Error>((name, entry))
-					}
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
-
-			let mut nodes = nodes.write().unwrap();
-			let tg::lockfile::Node::Directory { entries, .. } = &mut nodes[index] else {
-				unreachable!()
-			};
-			*entries = entries_;
-		},
-		tg::lockfile::Node::File { dependencies, .. } => {
-			let dependencies_ = dependencies
-				.iter()
-				.map(|(reference, referent)| {
-					let reference = reference.clone();
-					let item = referent.item.clone();
-					async move {
-						let item = match item {
-							Either::Left(index) => Either::Left(
-								Box::pin(_filter_lockfile_inner(lockfile, index, visited, nodes))
-									.await?,
-							),
-							Either::Right(id) => Either::Right(id.clone()),
-						};
-
-						let dependency = tg::Referent {
-							item,
-							subpath: referent.subpath.clone(),
-							tag: referent.tag.clone(),
-						};
-
-						Ok::<_, tg::Error>((reference, dependency))
-					}
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
-			let mut nodes = nodes.write().unwrap();
-			let tg::lockfile::Node::File { dependencies, .. } = &mut nodes[index] else {
-				unreachable!()
-			};
-			*dependencies = dependencies_;
-		},
-		tg::lockfile::Node::Symlink {
-			artifact: Some(entry),
-			..
-		} => {
-			let entry = match entry {
-				Either::Left(index) => Either::Left(
-					Box::pin(_filter_lockfile_inner(lockfile, *index, visited, nodes)).await?,
-				),
-				Either::Right(id) => Either::Right(id.clone()),
-			};
-			let mut nodes = nodes.write().unwrap();
-			let tg::lockfile::Node::Symlink { artifact, .. } = &mut nodes[index] else {
-				unreachable!()
-			};
-			artifact.replace(entry);
-		},
-		tg::lockfile::Node::Symlink { .. } => (),
-	}
-
-	Ok(index)
 }
 
 impl Server {

@@ -30,4 +30,3 @@ impl std::str::FromStr for Kind {
 		}
 	}
 }
-

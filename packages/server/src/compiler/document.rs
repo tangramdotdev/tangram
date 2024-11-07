@@ -196,7 +196,6 @@ impl Compiler {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in package"))?;
 
-
 		// Get the module.
 		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
