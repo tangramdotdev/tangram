@@ -21,7 +21,7 @@ const ALLOW: [&str; 0] = [];
 
 #[derive(Debug)]
 pub struct Graph {
-	pub nodes: Vec<RwLock<Node>>,
+	pub nodes: Vec<Node>,
 }
 
 #[derive(Clone, Debug)]
@@ -61,7 +61,7 @@ impl Server {
 		)?;
 
 		// Create a graph.
-		let graph = 'a: {
+		let mut graph = 'a: {
 			let arg_ = tg::artifact::checkin::Arg {
 				path,
 				..arg.clone()
@@ -87,7 +87,7 @@ impl Server {
 		graph.validate().await?;
 
 		// Pick lockfiles for each node.
-		self.select_lockfiles(&graph).await?;
+		self.select_lockfiles(&mut graph).await?;
 
 		Ok(graph)
 	}
@@ -158,8 +158,6 @@ impl Server {
 		} else {
 			let referrer = referrer.ok_or_else(|| tg::error!("expected a referrer"))?;
 			let referrer_path = state.read().await.graph.nodes[referrer]
-				.read()
-				.await
 				.arg
 				.path
 				.clone();
@@ -208,13 +206,13 @@ impl Server {
 			path: absolute_path.clone(),
 			..arg.clone()
 		};
-		let node = RwLock::new(Node {
+		let node = Node {
 			arg: arg_,
 			edges: Vec::new(),
 			metadata: metadata.clone(),
 			lockfile: None,
 			parent,
-		});
+		};
 		state_.graph.nodes.push(node);
 		let node = state_.graph.nodes.len() - 1;
 		state_.visited.insert(absolute_path.clone(), node);
@@ -246,9 +244,9 @@ impl Server {
 				.map_err(
 					|source| tg::error!(!source, %path = absolute_path.display(), "failed to collect input of parent"),
 				)?;
-			state.read().await.graph.nodes[node]
-				.write()
+			state.write()
 				.await
+				.graph.nodes[node]
 				.parent
 				.replace(parent);
 		}
@@ -262,7 +260,7 @@ impl Server {
 			)?;
 
 		// Update the node.
-		state.read().await.graph.nodes[node].write().await.edges = edges;
+		state.write().await.graph.nodes[node].edges = edges;
 
 		// Return the created node.
 		Ok(node)
@@ -277,8 +275,6 @@ impl Server {
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
 		let metadata = state.read().await.graph.nodes[referrer]
-			.read()
-			.await
 			.metadata
 			.clone();
 		if metadata.is_dir() {
@@ -443,8 +439,6 @@ impl Server {
 						// Get the root path.
 						let root_node = get_root_node(&state.read().await.graph, referrer).await;
 						let root_path = state.read().await.graph.nodes[root_node]
-							.read()
-							.await
 							.arg
 							.path
 							.clone();
@@ -458,8 +452,6 @@ impl Server {
 
 						// Don't follow paths that point outside the root.
 						let referrer_path = state.read().await.graph.nodes[referrer]
-							.read()
-							.await
 							.arg
 							.path
 							.clone();
@@ -477,11 +469,8 @@ impl Server {
 						let (node, subpath) = match path {
 							Some(path) if !is_external_path => {
 								// Get the parent of the referrer.
-								let parent = *state.read().await.graph.nodes[referrer]
-									.read()
-									.await
+								let parent = state.read().await.graph.nodes[referrer]
 									.parent
-									.as_ref()
 									.ok_or_else(|| tg::error!("expected a parent"))?;
 
 								// Collect the input of the referrent.
@@ -563,8 +552,6 @@ impl Server {
 						let root_node = get_root_node(&state.read().await.graph, referrer)
 							.await;
 						let root_path = state.read().await.graph.nodes[root_node]
-							.read()
-							.await
 							.arg
 							.path
 							.clone();
@@ -588,7 +575,7 @@ impl Server {
 							// Otherwise, treat it as a relative path.
 
 							// Get the parent of the referrer.
-							let parent = *state.read().await.graph.nodes[referrer].read().await.parent.as_ref().ok_or_else(|| tg::error!("expected a parent"))?;
+							let parent = state.read().await.graph.nodes[referrer].parent.ok_or_else(|| tg::error!("expected a parent"))?;
 
 							// Recurse.
 							self.collect_input_inner(Some(parent), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
@@ -634,8 +621,6 @@ impl Server {
 	) -> tg::Result<Vec<Edge>> {
 		// Check if this node's edges have already been created.
 		let existing = state.read().await.graph.nodes[referrer]
-			.read()
-			.await
 			.edges
 			.clone();
 		if !existing.is_empty() {
@@ -655,7 +640,7 @@ impl Server {
 		}
 
 		// Get the parent.
-		let parent = state.read().await.graph.nodes[referrer].read().await.parent;
+		let parent = state.read().await.graph.nodes[referrer].parent;
 
 		// Get the absolute path of the target.
 		let target_absolute_path = path.parent().unwrap().join(&target);
@@ -698,7 +683,7 @@ impl Server {
 }
 
 impl Server {
-	pub(super) async fn select_lockfiles(&self, graph: &Graph) -> tg::Result<()> {
+	pub(super) async fn select_lockfiles(&self, graph: &mut Graph) -> tg::Result<()> {
 		let visited = RwLock::new(BTreeSet::new());
 		self.select_lockfiles_inner(graph, 0, &visited).await?;
 		Ok(())
@@ -706,7 +691,7 @@ impl Server {
 
 	async fn select_lockfiles_inner(
 		&self,
-		graph: &Graph,
+		graph: &mut Graph,
 		node: usize,
 		visited: &RwLock<BTreeSet<usize>>,
 	) -> tg::Result<()> {
@@ -719,7 +704,7 @@ impl Server {
 		visited.write().await.insert(node);
 
 		// If this is not a root module, inherit the lockfile of the referrer.
-		let path = graph.nodes[node].read().await.arg.path.clone();
+		let path = graph.nodes[node].arg.path.clone();
 		let lockfile = if tg::package::is_root_module_path(path.as_ref()) {
 			// Try and find a lockfile.
 			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
@@ -732,27 +717,23 @@ impl Server {
 				.transpose()?
 		} else {
 			// Otherwise inherit from the referrer.
-			let parent = graph.nodes[node].read().await.parent;
+			let parent = graph.nodes[node].parent;
 			if let Some(parent) = parent {
-				graph.nodes[parent].read().await.lockfile.clone()
+				graph.nodes[parent].lockfile.clone()
 			} else {
 				None
 			}
 		};
-		graph.nodes[node].write().await.lockfile = lockfile;
+		graph.nodes[node].lockfile = lockfile;
 
 		// Recurse.
-		let edges = graph.nodes[node].read().await.edges.clone();
-		edges
-			.into_iter()
-			.filter_map(|edge| {
-				let fut = Box::pin(self.select_lockfiles_inner(graph, edge.node?, visited));
-				Some(fut)
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<()>()
-			.await?;
-
+		let edges = graph.nodes[node].edges.clone();
+		for edge in edges {
+			let Some(node) = edge.node else {
+				continue;
+			};
+			Box::pin(self.select_lockfiles_inner(graph, node, visited)).await?;
+		}
 		Ok(())
 	}
 }
@@ -760,7 +741,7 @@ impl Server {
 impl Graph {
 	async fn contains_path(&self, path: &Path) -> bool {
 		for node in &self.nodes {
-			if node.read().await.arg.path == path {
+			if node.arg.path == path {
 				return true;
 			}
 		}
@@ -775,14 +756,14 @@ impl Graph {
 			for _ in 0..depth {
 				eprint!("  ");
 			}
-			let path = self.nodes[node].read().await.arg.path.clone();
+			let path = self.nodes[node].arg.path.clone();
 			let subpath = subpath.map_or(String::new(), |p| p.display().to_string());
 			eprintln!("* {} {}", path.display(), subpath);
 			if visited.contains(&node) {
 				continue;
 			}
 			visited.insert(node);
-			for edge in &self.nodes[node].read().await.edges {
+			for edge in &self.nodes[node].edges {
 				if let Some(node) = edge.node {
 					stack.push((node, depth + 1, edge.subpath.clone()));
 				}
@@ -794,22 +775,22 @@ impl Graph {
 		let mut paths = BTreeMap::new();
 		let mut stack = vec![0];
 		while let Some(node) = stack.pop() {
-			let path = self.nodes[node].read().await.arg.path.clone();
+			let path = self.nodes[node].arg.path.clone();
 			if paths.contains_key(&path) {
 				continue;
 			}
 			paths.insert(path, node);
-			for edge in &self.nodes[node].read().await.edges {
+			for edge in &self.nodes[node].edges {
 				if let Some(child) = edge.node {
 					stack.push(child);
 				}
 			}
 		}
 		for (path, node) in &paths {
-			let Some(parent) = self.nodes[*node].read().await.parent else {
+			let Some(parent) = self.nodes[*node].parent else {
 				continue;
 			};
-			let parent = self.nodes[parent].read().await.arg.path.clone();
+			let parent = self.nodes[parent].arg.path.clone();
 			let _parent = paths.get(&parent).ok_or_else(
 				|| tg::error!(%path = path.display(), %parent = parent.display(), "missing parent node"),
 			)?;
@@ -828,8 +809,8 @@ async fn root_node_with_subpath(graph: &Graph, node: usize) -> (usize, Option<Pa
 	}
 
 	// Otherwise compute the subpath within the root.
-	let referent_path = graph.nodes[node].read().await.arg.path.clone();
-	let root_path = graph.nodes[root].read().await.arg.path.clone();
+	let referent_path = graph.nodes[node].arg.path.clone();
+	let root_path = graph.nodes[root].arg.path.clone();
 	let subpath = referent_path.diff(&root_path).unwrap();
 
 	// Return the root node and subpath.
@@ -839,13 +820,13 @@ async fn root_node_with_subpath(graph: &Graph, node: usize) -> (usize, Option<Pa
 impl State {
 	// Add a new node as a root to the state, and then return the paths of any nodes
 	async fn add_root_and_return_dangling_directories(&mut self, node: usize) -> Vec<PathBuf> {
-		let new_path = self.graph.nodes[node].read().await.arg.path.clone();
+		let new_path = self.graph.nodes[node].arg.path.clone();
 
 		// Update any nodes of the graph that are children.
 		let mut roots = Vec::with_capacity(self.roots.len() + 1);
 		let mut dangling = Vec::new();
 		for root in &self.roots {
-			let old_path = self.graph.nodes[*root].read().await.arg.path.clone();
+			let old_path = self.graph.nodes[*root].arg.path.clone();
 			let diff = new_path.diff(&old_path).unwrap();
 			if let Ok(child) = diff.strip_prefix("./") {
 				let dangling_directory = new_path.join(child.ancestors().last().unwrap());
@@ -867,7 +848,7 @@ impl State {
 	async fn find_root_of_path(&self, path: &Path) -> Option<usize> {
 		for root in &self.roots {
 			if path
-				.strip_prefix(&self.graph.nodes[*root].read().await.arg.path)
+				.strip_prefix(&self.graph.nodes[*root].arg.path)
 				.is_ok()
 			{
 				return Some(*root);
@@ -879,7 +860,7 @@ impl State {
 
 async fn get_root_node(graph: &Graph, mut node: usize) -> usize {
 	loop {
-		let Some(parent) = graph.nodes[node].read().await.parent else {
+		let Some(parent) = graph.nodes[node].parent else {
 			return node;
 		};
 		node = parent;

@@ -173,8 +173,8 @@ impl Server {
 			}
 			visited[output_index] = true;
 			let input_index = output.nodes[output_index].input;
-			let input = input.nodes[input_index].read().await;
-			if &input.arg.path == path {
+			let input_node = &input.nodes[input_index];
+			if &input_node.arg.path == path {
 				return Ok(Some(output.nodes[output_index].id.clone()));
 			}
 		}

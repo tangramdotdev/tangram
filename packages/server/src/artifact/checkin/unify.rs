@@ -107,7 +107,7 @@ impl Server {
 		graph: &mut Graph,
 		visited_graph_nodes: &mut BTreeMap<(tg::graph::Id, usize), Id>,
 	) -> tg::Result<Id> {
-		let input_node = input.nodes[node].read().await;
+		let input_node = &input.nodes[node];
 		if let Some(id) = graph.paths.get(&input_node.arg.path).cloned() {
 			return Ok(id);
 		}
@@ -726,8 +726,6 @@ impl Graph {
 				if !self.nodes.contains_key(&edge.referent) {
 					let referrer = match &node.object {
 						Either::Left(index) => input.nodes[*index]
-							.read()
-							.await
 							.arg
 							.path
 							.display()

@@ -354,7 +354,7 @@ impl Server {
 		for edge in &output.nodes[node].edges {
 			// Skip any children that are roots.
 			let input_index = output.nodes[edge.node].input;
-			if input.nodes[input_index].read().await.parent.is_none() {
+			if input.nodes[input_index].parent.is_none() {
 				continue;
 			}
 
@@ -786,7 +786,7 @@ impl Server {
 
 			// Get the input index.
 			let input_index = output.nodes[output_index].input;
-			if input.nodes[input_index].read().await.parent.is_none() {
+			if input.nodes[input_index].parent.is_none() {
 				// Create a temp.
 				let temp = Temp::new(self);
 
@@ -842,7 +842,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Check if we've visited this node.
 		let input_index = output.nodes[node].input;
-		let input_node = input.nodes[input_index].read().await.clone();
+		let input_node = input.nodes[input_index].clone();
 		if visited.contains(&input_node.arg.path) {
 			return Ok(());
 		}
@@ -863,7 +863,7 @@ impl Server {
 			let dependencies = output.nodes[node].edges.clone();
 			for edge in dependencies {
 				let input_index = output.nodes[edge.node].input;
-				let input_node_ = input.nodes[input_index].read().await;
+				let input_node_ = &input.nodes[input_index];
 				// Skip roots.
 				if input_node_.parent.is_none() {
 					continue;
@@ -1013,7 +1013,7 @@ impl Server {
 			.map(|edge| async move {
 				// Skip roots.
 				let input_index = output.nodes[edge.node].input;
-				let input_node = input.nodes[input_index].read().await;
+				let input_node = &input.nodes[input_index];
 				input_node.parent.as_ref()?;
 
 				let path = edge
@@ -1058,7 +1058,7 @@ impl Server {
 		let mut input_index = output.nodes[symlink].input;
 		let mut depth = 0;
 		loop {
-			let Some(parent) = input.nodes[input_index].read().await.parent else {
+			let Some(parent) = input.nodes[input_index].parent else {
 				break;
 			};
 			depth += 1;

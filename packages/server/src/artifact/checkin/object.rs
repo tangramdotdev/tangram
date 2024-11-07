@@ -88,7 +88,7 @@ impl Server {
 
 		// Add the path if it exists.
 		if let Some(input_index) = unify.nodes.get(node).unwrap().object.as_ref().left() {
-			let input_node = input.nodes[*input_index].read().await;
+			let input_node = &input.nodes[*input_index];
 			let path = input_node.arg.path.clone();
 			paths.insert(path, index);
 		}
@@ -265,7 +265,7 @@ impl Server {
 		// Get the input metadata, or skip if the node is an object.
 		let (path, metadata) = match graph.nodes[index].unify.object.clone() {
 			Either::Left(input_index) => {
-				let input = input.nodes[input_index].read().await;
+				let input = &input.nodes[input_index];
 				(input.arg.path.clone(), input.metadata.clone())
 			},
 			Either::Right(_) => {

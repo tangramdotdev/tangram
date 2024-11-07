@@ -180,7 +180,7 @@ impl Server {
 			metadata,
 			edges,
 			..
-		} = input.nodes[node].read().await.clone();
+		} = input.nodes[node].clone();
 
 		if metadata.is_dir()
 			&& tg::package::try_get_root_module_file_name_for_package_path(arg.path.as_ref())
@@ -213,7 +213,7 @@ impl Server {
 		// Recurse over the children.
 		for node in children {
 			// Skip any paths outside the workspace.
-			if input.nodes[node].read().await.parent.is_none() {
+			if input.nodes[node].parent.is_none() {
 				continue;
 			}
 			Box::pin(self.write_lockfiles_inner(input, node, lockfile, paths, visited)).await?;
