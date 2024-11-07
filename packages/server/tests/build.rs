@@ -700,16 +700,14 @@ where
 		let args = std::iter::once(target.into())
 			.chain(args.into_iter())
 			.collect();
-		let executable = Some(tg::target::Executable::Module(
-			tg::target::executable::Module {
-				kind: tg::module::Kind::Js,
-				referent: tg::Referent {
-					item: artifact,
-					subpath,
-					tag: None,
-				},
+		let executable = Some(tg::target::Executable::Module(tg::target::Module {
+			kind: tg::module::Kind::Js,
+			referent: tg::Referent {
+				item: artifact,
+				subpath,
+				tag: None,
 			},
-		));
+		}));
 		let host = "js";
 		let target = tg::target::Builder::new(host)
 			.args(args)

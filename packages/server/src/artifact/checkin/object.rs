@@ -187,14 +187,15 @@ impl Server {
 				);
 
 				// Update the graph.
-				let id: tg::object::Id = data.id()?.into();
+				let bytes = data.serialize()?;
+				let id = tg::artifact::Id::new(data.kind(), &bytes);
 				graph.nodes[index].data.replace(data);
-				graph.nodes[index].id.replace(id.clone());
+				graph.nodes[index].id.replace(id.clone().into());
 				graph.nodes[index].metadata.replace(metadata);
-				graph.objects.insert(id, index);
+				graph.objects.insert(id.into(), index);
 			} else {
 				// Otherwise, construct an object graph.
-				let object_graph = tg::graph::data::Data {
+				let object_graph = tg::graph::Data {
 					nodes: nodes.clone(),
 				};
 
@@ -202,8 +203,8 @@ impl Server {
 				let metadata = self.compute_graph_metadata(graph, &object_graph);
 
 				// Store the graph.
-				let id = object_graph.id()?;
 				let bytes = object_graph.serialize()?;
+				let id = tg::graph::Id::new(&bytes);
 				let arg = tg::object::put::Arg { bytes };
 				self.put_object(&id.clone().into(), arg).await?;
 
@@ -242,11 +243,12 @@ impl Server {
 					);
 
 					// Update the graph.
-					let id: tg::object::Id = data.id()?.into();
+					let bytes = data.serialize()?;
+					let id = tg::artifact::Id::new(data.kind(), &bytes);
 					graph.nodes[old_index].data.replace(data);
-					graph.nodes[old_index].id.replace(id.clone());
+					graph.nodes[old_index].id.replace(id.clone().into());
 					graph.nodes[old_index].metadata.replace(metadata);
-					graph.objects.insert(id, old_index);
+					graph.objects.insert(id.into(), old_index);
 				}
 			}
 		}
@@ -312,7 +314,7 @@ impl Server {
 					(name, id)
 				})
 				.collect();
-			let directory = tg::graph::data::node::Directory { entries };
+			let directory = tg::graph::data::Directory { entries };
 			tg::graph::data::Node::Directory(directory)
 		} else if metadata.is_file() {
 			let file = self
@@ -330,7 +332,7 @@ impl Server {
 			let subpath = edge
 				.subpath
 				.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
-			let symlink = tg::graph::data::node::Symlink {
+			let symlink = tg::graph::data::Symlink {
 				artifact: Some(artifact),
 				subpath,
 			};
@@ -350,7 +352,7 @@ impl Server {
 		metadata: std::fs::Metadata,
 		edges: Vec<RemappedEdge>,
 		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
-	) -> tg::Result<tg::graph::data::node::File> {
+	) -> tg::Result<tg::graph::data::File> {
 		// Compute the dependencies, which will be shared in all cases.
 		let dependencies = edges
 			.into_iter()
@@ -403,7 +405,7 @@ impl Server {
 			};
 
 			// Create the file.
-			let file = tg::graph::data::node::File {
+			let file = tg::graph::data::File {
 				contents,
 				dependencies,
 				executable,
@@ -431,7 +433,7 @@ impl Server {
 
 		let contents = output.blob;
 		let executable = metadata.permissions().mode() & 0o111 != 0;
-		let file = tg::graph::data::node::File {
+		let file = tg::graph::data::File {
 			contents,
 			dependencies,
 			executable,
@@ -451,7 +453,7 @@ impl Server {
 				tg::directory::Data::Normal { entries }.into()
 			},
 			tg::graph::data::Node::File(file) => {
-				let tg::graph::data::node::File {
+				let tg::graph::data::File {
 					contents,
 					executable,
 					dependencies,
@@ -472,7 +474,7 @@ impl Server {
 				.into()
 			},
 			tg::graph::data::Node::Symlink(symlink) => {
-				let tg::graph::data::node::Symlink { artifact, subpath } = symlink;
+				let tg::graph::data::Symlink { artifact, subpath } = symlink;
 				let artifact = artifact.map(Either::unwrap_right);
 				tg::symlink::Data::Normal { artifact, subpath }.into()
 			},

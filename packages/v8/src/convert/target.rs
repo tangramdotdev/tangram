@@ -163,7 +163,7 @@ impl FromV8 for tg::target::Executable {
 	}
 }
 
-impl ToV8 for tg::target::executable::Module {
+impl ToV8 for tg::target::Module {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
@@ -179,7 +179,7 @@ impl ToV8 for tg::target::executable::Module {
 	}
 }
 
-impl FromV8 for tg::target::executable::Module {
+impl FromV8 for tg::target::Module {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,

@@ -149,7 +149,7 @@ impl Server {
 							);
 							let children = chunk
 								.into_iter()
-								.map(|output| tg::branch::child::Data {
+								.map(|output| tg::branch::data::Child {
 									blob: output.blob,
 									size: output.size,
 								})
@@ -255,7 +255,7 @@ impl Server {
 						});
 				let children = output
 					.into_iter()
-					.map(|output| tg::branch::child::Data {
+					.map(|output| tg::branch::data::Child {
 						blob: output.blob,
 						size: output.size,
 					})

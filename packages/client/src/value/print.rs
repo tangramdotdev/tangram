@@ -521,7 +521,7 @@ where
 		if let Some(executable) = &object.executable {
 			self.map_entry("executable", |s| match executable {
 				tg::target::Executable::Artifact(artifact) => s.artifact(artifact),
-				tg::target::Executable::Module(module) => s.target_executable_module(module),
+				tg::target::Executable::Module(module) => s.target_module(module),
 			})?;
 		}
 		self.map_entry("host", |s| s.string(&object.host))?;
@@ -530,7 +530,7 @@ where
 		Ok(())
 	}
 
-	pub fn target_executable_module(&mut self, value: &tg::target::executable::Module) -> Result {
+	pub fn target_module(&mut self, value: &tg::target::Module) -> Result {
 		self.start_map()?;
 		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
 		self.map_entry("referent", |s| {

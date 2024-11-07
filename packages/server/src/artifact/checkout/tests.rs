@@ -254,7 +254,7 @@ async fn file_with_graph_object() -> tg::Result<()> {
 
 	let result = AssertUnwindSafe(async {
 		let blob = tg::Blob::from("hi from a graph");
-		let file_node = tg::graph::node::Node::File(tg::graph::node::File {
+		let file_node = tg::graph::object::Node::File(tg::graph::object::File {
 			contents: blob,
 			dependencies: BTreeMap::new(),
 			executable: false,

@@ -157,7 +157,7 @@ impl Cli {
 								subpath,
 								tag: referent.tag,
 							};
-							let module = tg::target::executable::Module { kind, referent };
+							let module = tg::target::Module { kind, referent };
 							executable = Some(tg::target::Executable::Module(module));
 							break;
 						}

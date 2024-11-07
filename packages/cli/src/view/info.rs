@@ -395,8 +395,8 @@ impl InfoViewExt for tg::target::Data {
 		];
 		if let Some(executable) = &self.executable {
 			let executable = match executable {
-				tg::target::executable::Data::Artifact(artifact) => artifact.to_string(),
-				tg::target::executable::Data::Module(module) => {
+				tg::target::data::Executable::Artifact(artifact) => artifact.to_string(),
+				tg::target::data::Executable::Module(module) => {
 					serde_json::to_string(module).unwrap()
 				},
 			};

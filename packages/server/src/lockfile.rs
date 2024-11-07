@@ -3,7 +3,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::{
 	collections::{BTreeMap, BTreeSet, VecDeque},
 	path::{Path, PathBuf},
-	sync::{Arc, RwLock},
+	sync::RwLock,
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -118,40 +118,6 @@ async fn read_link(path: &Path) -> tg::Result<PathBuf> {
 		Err(error) if error.raw_os_error() == Some(libc::EINVAL) => Ok(path.to_owned()),
 		Err(source) => Err(tg::error!(!source, %path = path.display(), "failed to readlink")),
 	}
-}
-
-pub async fn _create_artifact_for_lockfile_node(
-	server: &Server,
-	lockfile: &tg::Lockfile,
-	node: usize,
-) -> tg::Result<tg::Artifact> {
-	// Strip any unused nodes from the lockfile, which ensures that it is complete.
-	let lockfile = _filter_lockfile(lockfile, node).await?;
-
-	// Create artifacts for all the nodes of the lockfile.
-	let artifacts = server._create_artifact_data_for_lockfile(&lockfile).await?;
-
-	// Pull out the new root artifact.
-	let artifact = artifacts
-		.get(&0)
-		.ok_or_else(|| tg::error!("invalid lockfile"))?;
-
-	// Convert the data into an object.
-	let artifact = match artifact.clone() {
-		tg::artifact::Data::Directory(data) => {
-			let object: tg::directory::Object = data.try_into()?;
-			tg::Directory::with_object(Arc::new(object)).into()
-		},
-		tg::artifact::Data::File(data) => {
-			let object: tg::file::Object = data.try_into()?;
-			tg::File::with_object(Arc::new(object)).into()
-		},
-		tg::artifact::Data::Symlink(data) => {
-			let object: tg::symlink::Object = data.try_into()?;
-			tg::Symlink::with_object(Arc::new(object)).into()
-		},
-	};
-	Ok(artifact)
 }
 
 async fn _filter_lockfile(lockfile: &tg::Lockfile, node: usize) -> tg::Result<tg::Lockfile> {

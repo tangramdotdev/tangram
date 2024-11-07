@@ -391,20 +391,25 @@ impl Server {
 							async move {
 								let item = match &referent.item {
 									Either::Left(node) => match &graph_.nodes[*node] {
-										tg::graph::node::Node::Directory(_) => {
-											tg::directory::Data::Graph { graph, node: *node }
-												.id()?
-												.into()
+										tg::graph::object::Node::Directory(_) => {
+											let data =
+												tg::directory::Data::Graph { graph, node: *node };
+											let bytes = data.serialize()?;
+											let id = tg::directory::Id::new(&bytes);
+											id.into()
 										},
-										tg::graph::node::Node::File(_) => {
-											tg::file::Data::Graph { graph, node: *node }
-												.id()?
-												.into()
+										tg::graph::object::Node::File(_) => {
+											let data = tg::file::Data::Graph { graph, node: *node };
+											let bytes = data.serialize()?;
+											let id = tg::file::Id::new(&bytes);
+											id.into()
 										},
-										tg::graph::node::Node::Symlink(_) => {
-											tg::symlink::Data::Graph { graph, node: *node }
-												.id()?
-												.into()
+										tg::graph::object::Node::Symlink(_) => {
+											let data =
+												tg::symlink::Data::Graph { graph, node: *node };
+											let bytes = data.serialize()?;
+											let id = tg::symlink::Id::new(&bytes);
+											id.into()
 										},
 									},
 									Either::Right(object) => object.id(self).await?,
