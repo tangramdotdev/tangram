@@ -19,7 +19,6 @@ async fn simple_path_dependency() -> tg::Result<()> {
 		},
 		"foo",
 		|_, _, output| async move {
-			eprintln!("{output}");
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
@@ -233,18 +232,9 @@ async fn cyclic_dependencies() -> tg::Result<()> {
    	"graph": tg.graph({
    		"nodes": [
    			{
-   				"kind": "file",
-   				"contents": tg.leaf("import * as foo from "../foo""),
-   				"dependencies": {
-   					"../foo": {
-   						"item": 3,
-   					},
-   				},
-   			},
-   			{
    				"kind": "directory",
    				"entries": {
-   					"tangram.ts": 0,
+   					"tangram.ts": 1,
    				},
    			},
    			{
@@ -252,19 +242,28 @@ async fn cyclic_dependencies() -> tg::Result<()> {
    				"contents": tg.leaf("import * as bar from "../bar""),
    				"dependencies": {
    					"../bar": {
-   						"item": 1,
+   						"item": 2,
    					},
    				},
    			},
    			{
    				"kind": "directory",
    				"entries": {
-   					"tangram.ts": 2,
+   					"tangram.ts": 3,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import * as foo from "../foo""),
+   				"dependencies": {
+   					"../foo": {
+   						"item": 0,
+   					},
    				},
    			},
    		],
    	}),
-   	"node": 3,
+   	"node": 0,
    })
    "#);
 			Ok::<_, tg::Error>(())

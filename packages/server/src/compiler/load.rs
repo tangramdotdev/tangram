@@ -12,11 +12,10 @@ impl Compiler {
 			// Handle a declaration.
 			tg::Module {
 				kind: tg::module::Kind::Dts,
-				referent:
-					tg::Referent {
-						item: tg::module::Item::Path(path),
-						..
-					},
+				referent: tg::Referent {
+					item: tg::module::Item::Path(path),
+					..
+				},
 			} => {
 				let file_name = path.file_name().ok_or_else(|| tg::error!("invalid path"))?;
 				let file = LIBRARY

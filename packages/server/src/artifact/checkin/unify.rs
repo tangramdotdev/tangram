@@ -725,11 +725,7 @@ impl Graph {
 			for (reference, edge) in &node.edges {
 				if !self.nodes.contains_key(&edge.referent) {
 					let referrer = match &node.object {
-						Either::Left(index) => input.nodes[*index]
-							.arg
-							.path
-							.display()
-							.to_string(),
+						Either::Left(index) => input.nodes[*index].arg.path.display().to_string(),
 						Either::Right(object) => object.to_string(),
 					};
 					let error = tg::error!(%reference, %referrer, "failed to resolve dependency");

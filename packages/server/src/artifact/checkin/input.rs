@@ -157,10 +157,7 @@ impl Server {
 			path.to_owned()
 		} else {
 			let referrer = referrer.ok_or_else(|| tg::error!("expected a referrer"))?;
-			let referrer_path = state.read().await.graph.nodes[referrer]
-				.arg
-				.path
-				.clone();
+			let referrer_path = state.read().await.graph.nodes[referrer].arg.path.clone();
 			referrer_path.join(path.strip_prefix("./").unwrap_or(path))
 		};
 		let parent = path.parent().unwrap();
@@ -244,11 +241,7 @@ impl Server {
 				.map_err(
 					|source| tg::error!(!source, %path = absolute_path.display(), "failed to collect input of parent"),
 				)?;
-			state.write()
-				.await
-				.graph.nodes[node]
-				.parent
-				.replace(parent);
+			state.write().await.graph.nodes[node].parent.replace(parent);
 		}
 
 		// Get the edges.
@@ -274,9 +267,7 @@ impl Server {
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
-		let metadata = state.read().await.graph.nodes[referrer]
-			.metadata
-			.clone();
+		let metadata = state.read().await.graph.nodes[referrer].metadata.clone();
 		if metadata.is_dir() {
 			Box::pin(self.get_directory_edges(referrer, path, arg, state, progress)).await
 		} else if metadata.is_file() {
@@ -438,10 +429,7 @@ impl Server {
 					async move {
 						// Get the root path.
 						let root_node = get_root_node(&state.read().await.graph, referrer).await;
-						let root_path = state.read().await.graph.nodes[root_node]
-							.arg
-							.path
-							.clone();
+						let root_path = state.read().await.graph.nodes[root_node].arg.path.clone();
 
 						let id = referent.item;
 						let path = reference
@@ -451,10 +439,8 @@ impl Server {
 							.or_else(|| reference.options()?.path.as_ref());
 
 						// Don't follow paths that point outside the root.
-						let referrer_path = state.read().await.graph.nodes[referrer]
-							.arg
-							.path
-							.clone();
+						let referrer_path =
+							state.read().await.graph.nodes[referrer].arg.path.clone();
 						let is_external_path = path
 							.as_ref()
 							.map(|path| referrer_path.parent().unwrap().join(path))
@@ -620,9 +606,7 @@ impl Server {
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
 		// Check if this node's edges have already been created.
-		let existing = state.read().await.graph.nodes[referrer]
-			.edges
-			.clone();
+		let existing = state.read().await.graph.nodes[referrer].edges.clone();
 		if !existing.is_empty() {
 			return Ok(existing);
 		}
@@ -847,10 +831,7 @@ impl State {
 
 	async fn find_root_of_path(&self, path: &Path) -> Option<usize> {
 		for root in &self.roots {
-			if path
-				.strip_prefix(&self.graph.nodes[*root].arg.path)
-				.is_ok()
-			{
+			if path.strip_prefix(&self.graph.nodes[*root].arg.path).is_ok() {
 				return Some(*root);
 			}
 		}

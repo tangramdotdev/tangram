@@ -490,7 +490,6 @@ impl Provider {
 		connection
 			.execute(statement, params)
 			.await
-			.inspect_err(|source| eprintln!("{source}"))
 			.map_err(|source| tg::error!(!source, "failed to insert the root node"))?;
 
 		// Create the provider.

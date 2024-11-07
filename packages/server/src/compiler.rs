@@ -693,11 +693,10 @@ impl Compiler {
 		match module {
 			tg::Module {
 				kind: tg::module::Kind::Dts,
-				referent:
-					tg::Referent {
-						item: tg::module::Item::Path(path),
-						..
-					},
+				referent: tg::Referent {
+					item: tg::module::Item::Path(path),
+					..
+				},
 				..
 			} => {
 				let contents = self::load::LIBRARY

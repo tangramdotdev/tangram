@@ -803,14 +803,16 @@ impl Server {
 				.await?;
 
 				// Update the xattrs and file permissions.
-				self.update_xattrs_and_permissions(input, output, node, temp.path.clone())
+				self.update_xattrs_and_permissions(input, output, output_index, temp.path.clone())
 					.await?;
 
 				// Reset the file times to epoch.
 				self.set_file_times_to_epoch(&temp.path, true).await?;
 
 				// Rename to the checkouts directory.
-				let dest = self.cache_path().join(output.nodes[node].id.to_string());
+				let dest = self
+					.cache_path()
+					.join(output.nodes[output_index].id.to_string());
 				match tokio::fs::rename(&temp.path, &dest).await {
 					Ok(()) => (),
 					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
@@ -824,7 +826,6 @@ impl Server {
 				// Reset the top-level object times to epoch post-rename.
 				self.set_file_times_to_epoch(dest, false).await?;
 			}
-
 			// Recurse.
 			stack.extend(output.nodes[output_index].edges.iter().map(|e| e.node));
 		}
@@ -864,10 +865,6 @@ impl Server {
 			for edge in dependencies {
 				let input_index = output.nodes[edge.node].input;
 				let input_node_ = &input.nodes[input_index];
-				// Skip roots.
-				if input_node_.parent.is_none() {
-					continue;
-				}
 				let diff = input_node_.arg.path.diff(&input_node.arg.path).unwrap();
 				let dest = dest.join(&diff);
 				Box::pin(self.copy_or_move_all(input, output, edge.node, dest, visited, progress))
