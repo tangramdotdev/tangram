@@ -25,9 +25,8 @@ pub enum Artifact {
 
 impl fmt::Display for Artifact {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		serde_json::to_string(self)
-			.map_err(|_| std::fmt::Error)
-			.and_then(|json_string| write!(f, "{json_string}"))
+		let str = serde_json::to_string(self).map_err(|_| fmt::Error)?;
+		write!(f, "{str}")
 	}
 }
 
