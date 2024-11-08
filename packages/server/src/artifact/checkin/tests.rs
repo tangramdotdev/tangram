@@ -7,6 +7,82 @@ use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
 
 #[tokio::test]
+async fn file_through_symlink() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"a" => temp::directory! {
+				"tangram.ts" => r#"import "../b/c/d"#,
+			},
+			"b" => temp::directory! {
+				"c" => temp::symlink!("e"),
+				"e" => temp::directory! {
+					"d" => "hello, world!"
+				}
+			}
+		},
+		"a",
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"tangram.ts": tg.file({
+   		"contents": tg.leaf("import "../b/c/d"),
+   		"dependencies": {
+   			"../b/c/d": {
+   				"item": tg.file({
+   					"contents": tg.leaf("hello, world!"),
+   				}),
+   			},
+   		},
+   	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn external_symlink() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"a" => temp::directory! {
+				"tangram.ts" => r#"import "../b/c"#,
+			},
+			"b" => temp::directory! {
+				"c" => temp::symlink!("e"),
+				"e" => temp::directory! {
+					"d" => "hello, world!"
+				}
+			}
+		},
+		"a",
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"tangram.ts": tg.file({
+   		"contents": tg.leaf("import "../b/c"),
+   		"dependencies": {
+   			"../b/c": {
+   				"item": tg.symlink({
+   					"artifact": tg.directory({
+   						"d": tg.file({
+   							"contents": tg.leaf("hello, world!"),
+   						}),
+   					}),
+   				}),
+   			},
+   		},
+   	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn simple_path_dependency() -> tg::Result<()> {
 	test(
 		temp::directory! {

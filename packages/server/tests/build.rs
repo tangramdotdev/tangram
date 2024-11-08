@@ -79,7 +79,7 @@ async fn current_target_id() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r#""tgt_01kqv34y8zy67gzvck4y5fqs2zfgwtazsds4effyxybp2bqmrecvt0""#);
+			assert_snapshot!(output, @r#""tgt_013pjpzbkwh1mh1ttwadf06kdx76yb8k5zhsswzdjp7e17w4e1hw00""#);
 			Ok::<_, tg::Error>(())
 		},
 	)
