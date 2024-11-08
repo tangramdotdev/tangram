@@ -132,6 +132,7 @@ enum Command {
 
 	Init(self::package::init::Args),
 
+	#[command(alias = "ls")]
 	List(self::tag::list::Args),
 
 	Log(self::build::log::Args),
