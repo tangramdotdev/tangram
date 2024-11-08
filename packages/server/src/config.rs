@@ -175,7 +175,10 @@ impl Default for Advanced {
 	fn default() -> Self {
 		Self {
 			build_dequeue_timeout: std::time::Duration::from_secs(3600),
-			error_trace_options: tg::error::TraceOptions::default(),
+			error_trace_options: tg::error::TraceOptions {
+				internal: true,
+				reverse: false,
+			},
 			file_descriptor_semaphore_size: 1024,
 			preserve_temp_directories: false,
 			write_build_logs_to_database: false,
