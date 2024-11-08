@@ -1,6 +1,6 @@
 use crate::util::path::Ext as _;
 use crate::{temp::Temp, Server};
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
 use std::{
@@ -26,6 +26,7 @@ struct InnerArg<'a> {
 	files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
 	path: &'a PathBuf,
 	progress: &'a crate::progress::Handle<tg::artifact::checkout::Output>,
+	visited: Arc<DashSet<PathBuf, fnv::FnvBuildHasher>>,
 }
 
 impl Server {
@@ -65,6 +66,7 @@ impl Server {
 			let id = id.clone();
 			let arg = arg.clone();
 			let files = Arc::new(DashMap::default());
+			let visited = Arc::new(DashSet::default());
 			let progress = progress.clone();
 
 			async move {
@@ -75,7 +77,14 @@ impl Server {
 
 				// Checkout the artifact.
 				let output = server
-					.check_out_artifact_with_files(&id, &arg, &cache_directory, files, &progress)
+					.check_out_artifact_with_files(
+						&id,
+						&arg,
+						&cache_directory,
+						files,
+						visited,
+						&progress,
+					)
 					.await?;
 
 				if let Some(path) = arg.path {
@@ -128,6 +137,7 @@ impl Server {
 		arg: &tg::artifact::checkout::Arg,
 		cache_directory: &PathBuf,
 		files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
+		visited: Arc<DashSet<PathBuf, fnv::FnvBuildHasher>>,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
 	) -> tg::Result<tg::artifact::checkout::Output> {
 		// Get the artifact.
@@ -175,6 +185,7 @@ impl Server {
 				files,
 				path: &path,
 				progress,
+				visited,
 			};
 			self.check_out_inner(arg).await?;
 
@@ -212,6 +223,7 @@ impl Server {
 				files,
 				path: temp.as_ref().map_or(&path, |tmp| &tmp.path),
 				progress,
+				visited,
 			};
 			self.check_out_inner(arg).await?;
 
@@ -260,7 +272,12 @@ impl Server {
 			files,
 			path,
 			progress,
+			visited,
 		} = arg;
+		// Checking if the visited set contains the value before attempting to insert avoids write contention. Checking the return value of the insertion is required to avoid a race condition if the path was inserted in between the first check and attempted insertion.
+		if visited.contains(path) || !visited.insert(path.clone()) {
+			return Ok(());
+		}
 
 		// If the artifact is the same as the existing artifact, then return.
 		let id = artifact.id(self).await?;
@@ -282,6 +299,7 @@ impl Server {
 			files,
 			path,
 			progress,
+			visited,
 		};
 		match artifact {
 			tg::Artifact::Directory(_) => {
@@ -331,6 +349,7 @@ impl Server {
 			files,
 			path,
 			progress,
+			visited,
 		} = arg;
 
 		let directory = artifact
@@ -382,6 +401,7 @@ impl Server {
 			.map(|(name, artifact)| {
 				let existing_artifact = &existing_artifact;
 				let files = files.clone();
+				let visited = visited.clone();
 				async move {
 					// Retrieve an existing artifact.
 					let existing_artifact = match existing_artifact {
@@ -401,6 +421,7 @@ impl Server {
 						files,
 						path: &entry_path,
 						progress,
+						visited,
 					};
 					self.check_out_inner(arg).await?;
 
@@ -423,7 +444,7 @@ impl Server {
 			files,
 			path,
 			progress,
-			..
+			visited,
 		} = arg;
 
 		let file = artifact
@@ -462,6 +483,7 @@ impl Server {
 						&arg,
 						cache_directory,
 						files.clone(),
+						visited.clone(),
 						progress,
 					))
 					.await?;
@@ -549,6 +571,7 @@ impl Server {
 			files,
 			path,
 			progress,
+			visited,
 		} = arg;
 
 		let symlink = artifact
@@ -579,6 +602,7 @@ impl Server {
 					&arg,
 					cache_directory,
 					files,
+					visited,
 					progress,
 				))
 				.await?;
