@@ -1009,9 +1009,14 @@ impl Cli {
 		} else {
 			None
 		};
+		let default = crate::config::Tracing {
+	    filter: "tangram_cli=info,tangram_client=info,tangram_database=info,tangram_server=info,tangram_vfs=info".to_owned(),
+	    format: Some(crate::config::TracingFormat::Pretty),
+		};
 		let output_layer = config
 			.as_ref()
 			.and_then(|config| config.tracing.as_ref())
+			.or(Some(&default))
 			.map(|tracing| {
 				let filter =
 					tracing_subscriber::filter::EnvFilter::try_new(&tracing.filter).unwrap();
