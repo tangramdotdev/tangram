@@ -3,7 +3,7 @@ use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_temp::Temp;
 
 pub async fn test<F, Fut>(
-	config: serde_json::Value,
+	mut config: serde_json::Value,
 	args: &[&str],
 	assertions: F,
 ) -> std::io::Result<()>
@@ -11,6 +11,9 @@ where
 	F: FnOnce(&Server, String, String) -> Fut,
 	Fut: Future<Output = std::io::Result<()>>,
 {
+	if let Some(obj) = config.as_object_mut() {
+		obj.insert("tracing".to_string(), json!({}));
+	};
 	let mut server = Server::start(config).await?;
 	let result = AssertUnwindSafe(async {
 		let output = server.tg().args(args).output().await?;

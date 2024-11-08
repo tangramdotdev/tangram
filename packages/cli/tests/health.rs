@@ -14,7 +14,7 @@ async fn test_health() -> std::io::Result<()> {
 			"database": {
 				"kind": "sqlite",
 				"connections": 1
-			}
+			},
 		}),
 		&["health"],
 		|_, stdout, stderr| async move {

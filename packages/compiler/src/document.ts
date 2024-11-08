@@ -438,15 +438,14 @@ let convertSymbol = (
 		if (variableDeclaration.type.kind === "function") {
 			declarations.push({
 				kind: "function",
-				value: convertVariableDeclarationToFunctionDeclaration(
-					variableDeclaration
-				)
-			})
+				value:
+					convertVariableDeclarationToFunctionDeclaration(variableDeclaration),
+			});
 		} else {
-			 declarations.push({
+			declarations.push({
 				kind: "variable",
-				value: variableDeclaration
-			})
+				value: variableDeclaration,
+			});
 		}
 	}
 
@@ -536,13 +535,15 @@ let convertSymbol = (
 	return { declarations };
 };
 
-let convertVariableDeclarationToFunctionDeclaration = (declaration: VariableDeclaration): FunctionDeclaration => {
+let convertVariableDeclarationToFunctionDeclaration = (
+	declaration: VariableDeclaration,
+): FunctionDeclaration => {
 	return {
 		location: declaration.location,
 		signature: (declaration.type.value as FunctionType).signatures[0]!,
 		comment: declaration.comment,
 	};
-}
+};
 
 // ModuleSymbol.
 let convertModuleSymbol = (
