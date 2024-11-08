@@ -248,17 +248,21 @@ fn main() -> std::process::ExitCode {
 
 	// Run the command.
 	let result = runtime.block_on(cli.command(cli.args.command.clone()));
-	runtime.shutdown_background();
 
 	// Handle the result.
-	match result {
+	let code = match result {
 		Ok(()) => 0.into(),
 		Err(error) => {
 			eprintln!("{} failed to run the command", "error".red().bold());
 			Cli::print_error(&error, cli.config.as_ref());
 			1.into()
 		},
-	}
+	};
+
+	// Drop the CLI so the server stops.
+	drop(cli);
+
+	code
 }
 
 impl Cli {

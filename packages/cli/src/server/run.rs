@@ -19,6 +19,7 @@ impl Cli {
 			async move {
 				tokio::signal::ctrl_c().await.unwrap();
 				server.stop();
+				drop(server);
 				tokio::signal::ctrl_c().await.unwrap();
 				std::process::exit(130);
 			}
