@@ -91,9 +91,9 @@ type CheckoutTaskMap =
 	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
 
 impl Server {
-	pub async fn start(options: Config) -> tg::Result<Server> {
+	pub async fn start(config: Config) -> tg::Result<Server> {
 		// Ensure the path exists.
-		let path = options.path.clone();
+		let path = config.path.clone();
 		tokio::fs::create_dir_all(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -166,7 +166,7 @@ impl Server {
 		}
 
 		// Create the build semaphore.
-		let permits = options
+		let permits = config
 			.build
 			.as_ref()
 			.map(|build| build.concurrency)
@@ -176,11 +176,11 @@ impl Server {
 		// Create the build tasks.
 		let builds = TaskMap::default();
 
-		// Create the checkout tasks.
-		let checkouts = TaskMap::default();
+		// Create the checkout task map.
+		let checkout_task_map = TaskMap::default();
 
 		// Create the database.
-		let database = match &options.database {
+		let database = match &config.database {
 			self::config::Database::Sqlite(options) => {
 				let initialize = Arc::new(|connection: &sqlite::Connection| {
 					connection.pragma_update(None, "auto_vaccum", "incremental")?;
@@ -217,7 +217,7 @@ impl Server {
 
 		// Create the file system semaphore.
 		let file_descriptor_semaphore =
-			tokio::sync::Semaphore::new(options.advanced.file_descriptor_semaphore_size);
+			tokio::sync::Semaphore::new(config.advanced.file_descriptor_semaphore_size);
 
 		// Create the local pool handle.
 		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
@@ -225,7 +225,7 @@ impl Server {
 		);
 
 		// Create the messenger.
-		let messenger = match &options.messenger {
+		let messenger = match &config.messenger {
 			self::config::Messenger::Memory => {
 				Messenger::Left(tangram_messenger::memory::Messenger::new())
 			},
@@ -238,7 +238,7 @@ impl Server {
 		};
 
 		// Get the remotes.
-		let remotes = options
+		let remotes = config
 			.remotes
 			.iter()
 			.map(|(name, remote)| (name.clone(), remote.client.clone()))
@@ -259,13 +259,13 @@ impl Server {
 			build_permits,
 			build_semaphore,
 			builds,
-			checkout_task_map: checkouts,
+			checkout_task_map,
+			config,
 			database,
 			file_descriptor_semaphore,
 			local_pool_handle,
 			lock_file,
 			messenger,
-			config: options,
 			path,
 			remotes,
 			runtimes,
@@ -469,6 +469,8 @@ impl Server {
 		let shutdown = {
 			let server = server.clone();
 			async move {
+				tracing::trace!("started shutdown");
+
 				// Stop the HTTP task.
 				if let Some(task) = http_task {
 					task.stop();
@@ -546,6 +548,8 @@ impl Server {
 				if let Some(lock_file) = lock_file {
 					lock_file.set_len(0).await.ok();
 				}
+
+				tracing::trace!("finished shutdown");
 			}
 		};
 

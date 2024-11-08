@@ -247,6 +247,7 @@ fn main() -> std::process::ExitCode {
 
 	// Run the command.
 	let result = runtime.block_on(cli.command(cli.args.command.clone()));
+	runtime.shutdown_background();
 
 	// Handle the result.
 	match result {
