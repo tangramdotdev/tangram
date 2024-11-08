@@ -259,8 +259,8 @@ fn main() -> std::process::ExitCode {
 		},
 	};
 
-	// Drop the CLI so the server stops.
-	drop(cli);
+	// Drop the handle.
+	cli.handle.lock().unwrap().take();
 
 	code
 }
