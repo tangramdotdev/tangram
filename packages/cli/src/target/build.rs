@@ -353,24 +353,10 @@ impl Cli {
 			let artifact = tg::Artifact::try_from(output.clone())
 				.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
 
-			// If a path was provided, then ensure its parent directory exists and canonicalize it.
+			// Get the path.
 			let path = if let Some(path) = path {
-				let current = std::env::current_dir()
-					.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
-				let path = current.join(&path);
-				let parent = path
-					.parent()
-					.ok_or_else(|| tg::error!("the path must have a parent directory"))?;
-				let file_name = path
-					.file_name()
-					.ok_or_else(|| tg::error!("the path must have a file name"))?;
-				tokio::fs::create_dir_all(parent).await.map_err(|source| {
-					tg::error!(!source, "failed to create the parent directory")
-				})?;
-				let path = tokio::fs::canonicalize(parent)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-					.join(file_name);
+				let path = std::path::absolute(path)
+					.map_err(|source| tg::error!(!source, "failed to get the path"))?;
 				Some(path)
 			} else {
 				None

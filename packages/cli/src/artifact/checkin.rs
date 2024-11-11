@@ -34,11 +34,8 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the path.
-		let mut path = std::env::current_dir()
-			.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
-		if let Some(path_arg) = &args.path {
-			path.push(path_arg);
-		}
+		let path = std::path::absolute(args.path.unwrap_or_default())
+			.map_err(|source| tg::error!(!source, "failed to get the path"))?;
 
 		// Check in the artifact.
 		let arg = tg::artifact::checkin::Arg {
