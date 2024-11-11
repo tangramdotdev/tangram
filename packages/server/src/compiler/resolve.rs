@@ -1,5 +1,5 @@
 use super::Compiler;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -228,14 +228,22 @@ impl Compiler {
 							} else {
 								object.clone()
 							};
-						match &object {
-							tg::object::Id::Leaf(_) => tg::module::Kind::Leaf,
-							tg::object::Id::Branch(_) => tg::module::Kind::Branch,
-							tg::object::Id::Directory(_) => tg::module::Kind::Directory,
-							tg::object::Id::File(_) => tg::module::Kind::File,
-							tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
-							tg::object::Id::Graph(_) => tg::module::Kind::Graph,
-							tg::object::Id::Target(_) => tg::module::Kind::Target,
+						let uri: PathBuf = import.reference.uri().to_string().into();
+						let extension = uri.extension();
+						if extension.is_some_and(|extension| extension == "js") {
+							tg::module::Kind::Js
+						} else if extension.is_some_and(|extension| extension == "ts") {
+							tg::module::Kind::Ts
+						} else {
+							match &object {
+								tg::object::Id::Leaf(_) => tg::module::Kind::Leaf,
+								tg::object::Id::Branch(_) => tg::module::Kind::Branch,
+								tg::object::Id::Directory(_) => tg::module::Kind::Directory,
+								tg::object::Id::File(_) => tg::module::Kind::File,
+								tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
+								tg::object::Id::Graph(_) => tg::module::Kind::Graph,
+								tg::object::Id::Target(_) => tg::module::Kind::Target,
+							}
 						}
 					},
 				}
