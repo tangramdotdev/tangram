@@ -161,7 +161,7 @@ impl Server {
 			referrer_path.join(path.strip_prefix("./").unwrap_or(path))
 		};
 		let parent = path.parent().unwrap();
-		let file_name = path.file_name().unwrap();
+		let name = path.file_name().unwrap_or_default();
 
 		// Canonicalize the parent and join with the file name.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
@@ -170,7 +170,7 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, %path = parent.display(), "failed to canonicalize the path"),
 			)?
-			.join(file_name);
+			.join(name);
 		drop(permit);
 
 		// Get the file system metadata.

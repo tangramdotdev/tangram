@@ -493,3 +493,66 @@ where
 	cleanup(temp, server).await;
 	result.unwrap()
 }
+
+#[tokio::test]
+async fn import_from_parent() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"directory" => temp::directory! {
+				"baz" => temp::directory! {
+					"mod.tg.ts" => r#"import * as baz from "..";"#
+				},
+				"foo" => temp::directory!{},
+				"tangram.ts" => r#"import patches from "./foo" with { type: "directory" };"#,
+			}
+		},
+		"directory",
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"graph": tg.graph({
+   		"nodes": [
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"baz": 2,
+   					"foo": tg.directory({}),
+   					"tangram.ts": 1,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import patches from "./foo" with { type: "directory" };"),
+   				"dependencies": {
+   					"./foo": {
+   						"item": 0,
+   						"subpath": "./foo",
+   					},
+   				},
+   			},
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"mod.tg.ts": 3,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import * as baz from "..";"),
+   				"dependencies": {
+   					"..": {
+   						"item": 0,
+   						"subpath": "./baz",
+   					},
+   				},
+   			},
+   		],
+   	}),
+   	"node": 0,
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
