@@ -306,7 +306,7 @@ macro_rules! error {
 		$error.values.insert(stringify!($name).to_owned(), format!("{:?}", $value));
 		$crate::error!({ $error }, $($arg)*)
 	};
-	({ $error:ident }, !$source:expr, $($arg:tt)*) => {
+	({ $error:ident }, !$source:ident, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source = $crate::Error::from(source);
 		let source = std::sync::Arc::new(source);

@@ -1,7 +1,7 @@
-use futures::FutureExt as _;
+use futures::{Future, FutureExt as _};
 use indoc::indoc;
 use insta::assert_snapshot;
-use std::{future::Future, panic::AssertUnwindSafe};
+use std::panic::AssertUnwindSafe;
 use tangram_client::{self as tg, handle::Ext};
 use tangram_server::{Config, Server};
 use tangram_temp::{self as temp, Temp};

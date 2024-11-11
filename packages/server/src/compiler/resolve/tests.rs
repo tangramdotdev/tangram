@@ -1,7 +1,6 @@
 use crate::{compiler::Compiler, Config, Server};
-use futures::FutureExt;
+use futures::{Future, FutureExt};
 use std::{
-	future::Future,
 	panic::AssertUnwindSafe,
 	path::{Path, PathBuf},
 };

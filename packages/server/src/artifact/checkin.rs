@@ -4,6 +4,7 @@ use std::{path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_ignore::Ignore;
 
 mod input;
 mod lockfile;
@@ -12,6 +13,15 @@ mod output;
 #[cfg(test)]
 mod tests;
 mod unify;
+
+// Default list of ignore files.
+pub const IGNORE_FILES: [&str; 3] = [".tangramignore", ".tgignore", ".gitignore"];
+
+// Default list of ignore patterns.
+pub const DENY: [&str; 2] = [".DS_STORE", ".git"];
+
+// Default list of ignore override patterns.
+pub const ALLOW: [&str; 0] = [];
 
 impl Server {
 	pub async fn check_in_artifact(
@@ -184,6 +194,12 @@ impl Server {
 			);
 		}
 		Ok(None)
+	}
+
+	pub(crate) async fn ignore_for_checkin(&self) -> tg::Result<Ignore> {
+		Ignore::new(IGNORE_FILES, ALLOW, DENY)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create ignore tree"))
 	}
 }
 

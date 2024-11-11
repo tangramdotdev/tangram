@@ -5,8 +5,11 @@ use std::{
 	os::unix::{ffi::OsStrExt, fs::PermissionsExt as _},
 	path::Path,
 };
+use tangram_client as tg;
 use tokio::io::AsyncWriteExt as _;
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Artifact {
 	Directory {
 		entries: BTreeMap<Cow<'static, str>, Self>,
@@ -21,6 +24,55 @@ pub enum Artifact {
 }
 
 impl Artifact {
+	pub async fn with_path(path: &Path) -> tg::Result<Self> {
+		if path.is_dir() {
+			let mut entries = BTreeMap::new();
+			let mut read_dir = tokio::fs::read_dir(path)
+				.await
+				.map_err(|error| tg::error!(source = error, "could not read the directory"))?;
+			while let Some(entry) = read_dir
+				.next_entry()
+				.await
+				.map_err(|error| tg::error!(source = error, "could not read the directory entry"))?
+			{
+				let name = entry
+					.file_name()
+					.into_string()
+					.map_err(|_| tg::error!("could not convert the file name to a string"))?
+					.into();
+				let artifact = Box::pin(Artifact::with_path(entry.path().as_path())).await?;
+				entries.insert(name, artifact);
+			}
+			Ok(Self::Directory { entries })
+		} else if path.is_file() {
+			let contents =
+				Cow::Owned(tokio::fs::read_to_string(path).await.map_err(|error| {
+					tg::error!(source = error, "could not read file to string")
+				})?);
+			let permissions = tokio::fs::metadata(path)
+				.await
+				.map_err(|error| tg::error!(source = error, "could not read file metadata"))?
+				.permissions();
+			let executable = permissions.mode() & 0o111 != 0;
+			Ok(Self::File {
+				contents,
+				executable,
+			})
+		} else if path.is_symlink() {
+			let target = Cow::Owned(
+				tokio::fs::read_link(path)
+					.await
+					.unwrap()
+					.to_str()
+					.unwrap()
+					.to_owned(),
+			);
+			Ok(Self::Symlink { target })
+		} else {
+			Err(tg::error!(?path, "expected a file, directory, or symlink"))
+		}
+	}
+
 	pub async fn to_path(&self, path: &Path) -> std::io::Result<()> {
 		match self {
 			Self::Directory { entries } => {

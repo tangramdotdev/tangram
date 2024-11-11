@@ -117,16 +117,16 @@ impl Server {
 	}
 }
 
-#[allow(clippy::case_sensitive_file_extension_comparisons)]
-fn infer_module_kind(name: &str) -> tg::Result<tg::module::Kind> {
-	if name.ends_with(".d.ts") {
+pub(crate) fn infer_module_kind(path: impl AsRef<Path>) -> tg::Result<tg::module::Kind> {
+	let path = path.as_ref();
+	if path.ends_with(".d.ts") {
 		Ok(tg::module::Kind::Dts)
-	} else if name.ends_with(".ts") {
+	} else if path.extension().is_some_and(|ext| ext == "ts") {
 		Ok(tg::module::Kind::Ts)
-	} else if name.ends_with(".js") {
+	} else if path.extension().is_some_and(|ext| ext == "js") {
 		Ok(tg::module::Kind::Js)
 	} else {
-		Err(tg::error!(%file = name, "unknown or missing file extension"))
+		Err(tg::error!(%path = path.display(), "unknown or missing file extension"))
 	}
 }
 

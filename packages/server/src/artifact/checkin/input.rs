@@ -10,15 +10,6 @@ use tangram_either::Either;
 use tangram_ignore::Ignore;
 use tokio::sync::RwLock;
 
-// List of ignore files that checkin will consider.
-const IGNORE_FILES: [&str; 3] = [".tangramignore", ".tgignore", ".gitignore"];
-
-// List of patterns that checkin will ignore.
-const DENY: [&str; 2] = [".DS_STORE", ".git"];
-
-// List of patterns that checkin will not ignore.
-const ALLOW: [&str; 0] = [];
-
 #[derive(Debug)]
 pub struct Graph {
 	pub nodes: Vec<Node>,
@@ -123,9 +114,7 @@ impl Server {
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Graph> {
 		// Create the ignore tree.
-		let ignore = Ignore::new(IGNORE_FILES, ALLOW, DENY)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create ignore tree"))?;
+		let ignore = self.ignore_for_checkin().await?;
 
 		// Initialize state.
 		let state = RwLock::new(State {

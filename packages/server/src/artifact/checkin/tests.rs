@@ -1,7 +1,7 @@
 use crate::{util::fs::cleanup, Config, Server};
-use futures::FutureExt as _;
+use futures::{Future, FutureExt as _};
 use insta::assert_snapshot;
-use std::{future::Future, panic::AssertUnwindSafe, pin::pin};
+use std::{panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
