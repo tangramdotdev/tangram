@@ -13,20 +13,6 @@ impl Compiler {
 		referrer: &tg::Module,
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
-		let mut trace = false;
-		if import.reference.uri().to_string().contains("zstd.tg.ts")
-			&& referrer
-				.referent
-				.subpath
-				.as_ref()
-				.is_some_and(|subpath| subpath.display().to_string().contains("dependencies.tg.ts"))
-		{
-			trace = true;
-		}
-		if trace {
-			tracing::debug!(?referrer, ?import);
-		}
-
 		let mut kind = import.kind;
 
 		// Get the referent.
@@ -55,9 +41,6 @@ impl Compiler {
 					},
 				..
 			} => {
-				if trace {
-					tracing::debug!(?object, ?subpath);
-				}
 				let object = if let Some(subpath) = subpath {
 					let tg::object::Id::Directory(directory) = object else {
 						return Err(tg::error!("object with subpath must be a directory"));
@@ -107,18 +90,12 @@ impl Compiler {
 				tg::Referent { item, subpath, tag }
 			},
 		};
-		if trace {
-			tracing::debug!(?referent);
-		}
 
 		// If the kind is not known and the referent is a directory with a root module, then use its kind.
 		let kind =
 			if kind.is_some() {
 				kind
 			} else {
-				if trace {
-					tracing::debug!(?referent, "a");
-				}
 				match &referent.item {
 					tg::module::Item::Path(path) => {
 						let path = if let Some(subpath) = &referent.subpath {
@@ -153,9 +130,6 @@ impl Compiler {
 					},
 
 					tg::module::Item::Object(object) => {
-						if trace {
-							tracing::debug!(?object, "b");
-						}
 						let object =
 							if let Some(subpath) = &referent.subpath {
 								let object = tg::Object::with_id(object.clone());
@@ -183,9 +157,6 @@ impl Compiler {
 						} else {
 							None
 						};
-						if trace {
-							tracing::debug!(?name);
-						}
 
 						if let Some(name) = name {
 							let extension = name.extension();
@@ -202,9 +173,6 @@ impl Compiler {
 					},
 				}
 			};
-		if trace {
-			tracing::debug!(?kind);
-		}
 
 		// If the kind is not known, then try to infer it from the path extension.
 		let kind = if let Some(kind) = kind {
@@ -288,9 +256,6 @@ impl Compiler {
 
 		// Create the module.
 		let module = tg::Module { kind, referent };
-		if trace {
-			tracing::debug!(?module);
-		}
 
 		Ok(module)
 	}
