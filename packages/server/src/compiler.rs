@@ -699,6 +699,7 @@ impl Compiler {
 				},
 				..
 			} => {
+				let path = path.strip_prefix("./").unwrap_or(path);
 				let contents = self::load::LIBRARY
 					.get_file(path)
 					.ok_or_else(|| tg::error!("invalid path"))?

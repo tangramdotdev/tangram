@@ -106,6 +106,7 @@ rustls = "0.23"
 scopeguard = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
+serde_repr = "0.1.19"
 serde_urlencoded = "0.7"
 serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
