@@ -1,5 +1,5 @@
 use super::Compiler;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -13,7 +13,7 @@ impl Compiler {
 		referrer: &tg::Module,
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
-		let kind = import.kind;
+		let mut kind = import.kind;
 
 		// Get the referent.
 		let referent = match referrer {
@@ -73,6 +73,16 @@ impl Compiler {
 					.ok()
 					.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
 				let referent = file.get_dependency(&self.server, &import.reference).await?;
+				// We no longer have the file extension, so set the module kind based on the import URI.
+				if let Some(extension) =
+					PathBuf::from(import.reference.uri().to_string()).extension()
+				{
+					if extension == "js" {
+						kind = Some(tg::module::Kind::Js);
+					} else if extension == "ts" {
+						kind = Some(tg::module::Kind::Ts);
+					}
+				}
 				let object = referent.item.id(&self.server).await?.clone();
 				let item = tg::module::Item::Object(object);
 				let subpath = referent.subpath;
