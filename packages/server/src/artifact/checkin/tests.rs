@@ -449,6 +449,31 @@ async fn package() -> tg::Result<()> {
 	.await
 }
 
+#[tokio::test]
+async fn import_from_parent() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"baz" => temp::directory! {
+				"mod.tg.ts" => r#"import * as baz from "..";"#
+			},
+			"foo" => temp::directory!{},
+			"tangram.ts" => r#"import patches from "./foo" with { type: "directory" };"#,
+		},
+		"directory",
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+   tg.directory({
+	"tangram.ts": tg.file({
+		"contents": tg.leaf("export default tg.target(() => {})"),
+	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
 async fn test<F, Fut>(artifact: temp::Artifact, path: &str, assertions: F) -> tg::Result<()>
 where
 	F: FnOnce(Server, tg::Artifact, String) -> Fut,
