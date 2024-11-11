@@ -6,7 +6,7 @@ use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 #[tokio::test]
-async fn test_path_dep() -> tg::Result<()> {
+async fn test_all() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			".tangramignore" => "foo",
