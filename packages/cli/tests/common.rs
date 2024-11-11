@@ -1,5 +1,5 @@
-use futures::FutureExt as _;
-use std::{future::Future, panic::AssertUnwindSafe, path::PathBuf};
+use futures::{Future, FutureExt as _};
+use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_temp::Temp;
 
 pub async fn test<F, Fut>(

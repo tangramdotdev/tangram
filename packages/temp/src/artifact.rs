@@ -2,14 +2,14 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{
 	borrow::Cow,
 	collections::BTreeMap,
-	fmt,
 	os::unix::{ffi::OsStrExt, fs::PermissionsExt as _},
 	path::Path,
 };
 use tangram_client as tg;
 use tokio::io::AsyncWriteExt as _;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Artifact {
 	Directory {
 		entries: BTreeMap<Cow<'static, str>, Self>,
@@ -23,34 +23,25 @@ pub enum Artifact {
 	},
 }
 
-impl fmt::Display for Artifact {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		let str = serde_json::to_string(self).map_err(|_| fmt::Error)?;
-		write!(f, "{str}")
-	}
-}
-
 impl Artifact {
-	pub async fn from_path(path: &Path) -> tg::Result<Self> {
+	pub async fn with_path(path: &Path) -> tg::Result<Self> {
 		if path.is_dir() {
 			let mut entries = BTreeMap::new();
 			let mut read_dir = tokio::fs::read_dir(path)
 				.await
-				.map_err(|error| tg::error!(source = error, "could not read directory"))?;
+				.map_err(|error| tg::error!(source = error, "could not read the directory"))?;
 			while let Some(entry) = read_dir
 				.next_entry()
 				.await
-				.map_err(|error| tg::error!(source = error, "could not read directory entry"))?
+				.map_err(|error| tg::error!(source = error, "could not read the directory entry"))?
 			{
-				entries.insert(
-					Cow::Owned(
-						entry
-							.file_name()
-							.into_string()
-							.map_err(|_| tg::error!("could not convert the file name to string"))?,
-					),
-					Box::pin(Artifact::from_path(entry.path().as_path())).await?,
-				);
+				let name = entry
+					.file_name()
+					.into_string()
+					.map_err(|_| tg::error!("could not convert the file name to a string"))?
+					.into();
+				let artifact = Box::pin(Artifact::with_path(entry.path().as_path())).await?;
+				entries.insert(name, artifact);
 			}
 			Ok(Self::Directory { entries })
 		} else if path.is_file() {
@@ -78,10 +69,7 @@ impl Artifact {
 			);
 			Ok(Self::Symlink { target })
 		} else {
-			Err(tg::error!(
-				"{:?} is not a file, directory, or symlink",
-				path
-			))
+			Err(tg::error!(?path, "expected a file, directory, or symlink"))
 		}
 	}
 

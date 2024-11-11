@@ -1,8 +1,4 @@
-use crate::{
-	util::path::Ext as _,
-	util::path::{ALLOW, DENY, IGNORE_FILES},
-	Server,
-};
+use crate::{util::path::Ext as _, Server};
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{
 	collections::{BTreeMap, BTreeSet},
@@ -118,9 +114,7 @@ impl Server {
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Graph> {
 		// Create the ignore tree.
-		let ignore = Ignore::new(IGNORE_FILES, ALLOW, DENY)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create ignore tree"))?;
+		let ignore = self.ignore_for_checkin().await?;
 
 		// Initialize state.
 		let state = RwLock::new(State {

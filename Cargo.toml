@@ -78,7 +78,7 @@ im = "15"
 include_dir = "0.7"
 indexmap = "2"
 indoc = "2"
-insta = { version = "1", features = ["redactions", "yaml"] }
+insta = { version = "1", features = ["json", "redactions", "yaml"] }
 itertools = "0.13"
 libc = "0.2"
 lsp-types = "0.97"

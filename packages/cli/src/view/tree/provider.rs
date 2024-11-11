@@ -1,5 +1,8 @@
 use super::{node::Indicator, Method};
-use futures::{future::BoxFuture, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
+use futures::{
+	future::{self, BoxFuture},
+	stream, FutureExt as _, StreamExt as _, TryStreamExt as _,
+};
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, fmt::Write as _, pin::pin};
 use tangram_client as tg;
@@ -641,7 +644,7 @@ impl Provider {
 			value => {
 				let value_ = value.clone();
 				let title = Box::new(move |()| {
-					let fut = std::future::ready(value_.to_string());
+					let fut = future::ready(value_.to_string());
 					Box::pin(fut) as BoxFuture<'static, _>
 				});
 				Self {
