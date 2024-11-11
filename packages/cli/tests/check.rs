@@ -202,6 +202,53 @@ async fn nested_export_default() -> std::io::Result<()> {
 }
 
 #[tokio::test]
+async fn imports_from_subpaths() -> std::io::Result<()> {
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import * as foo from "./foo/foo.tg.ts";
+			export default tg.target(() => foo.build());
+		"#),
+		"sdk" => temp::directory! {
+			"deps" => temp::directory! {
+				"zstd.tg.ts" => indoc!(r#"
+					export const build = tg.target(() => tg.directory());	
+				"#)
+			},
+			"deps.tg.ts" => indoc!(r#"
+					import * as bar from "./zstd/bar.tg.ts"
+					export const build = tg.target(() => bar.build());
+					export default build;
+				"#),
+		},
+		"bar" => temp::directory! {
+			"bar.tg.ts" => indoc!(r"
+					export const build = tg.target(() => tg.directory());
+					export default build;
+				"),
+		},
+		"baz" => temp::directory! {
+			"baz.tg.ts" => indoc!(r"
+					export const build = tg.target(() => tg.directory());
+					export default build;
+				"),
+		}
+	};
+	let artifact_temp = Temp::new_persistent();
+	artifact.to_path(artifact_temp.as_ref()).await?;
+
+	test(
+		json!({}),
+		&["check", artifact_temp.path().to_str().unwrap()],
+		|_, stdout, stderr| async move {
+			assert_snapshot!(stdout, @"");
+			assert_snapshot!(stderr, @"");
+			Ok(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn default_by_name_many() -> std::io::Result<()> {
 	let artifact = temp::directory! {
 		"tangram.ts" => {
