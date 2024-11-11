@@ -5,12 +5,12 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub enum Directory {
-	Normal {
-		entries: BTreeMap<String, tg::Artifact>,
-	},
 	Graph {
 		graph: tg::Graph,
 		node: usize,
+	},
+	Normal {
+		entries: BTreeMap<String, tg::Artifact>,
 	},
 }
 

@@ -259,14 +259,14 @@ where
 		write!(self.writer, "tg.directory(")?;
 		self.start_map()?;
 		match object {
+			tg::directory::Object::Graph { graph, node } => {
+				self.map_entry("graph", |s| s.graph(graph))?;
+				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
+			},
 			tg::directory::Object::Normal { entries } => {
 				for (name, artifact) in entries {
 					self.map_entry(name, |s| s.artifact(artifact))?;
 				}
-			},
-			tg::directory::Object::Graph { graph, node } => {
-				self.map_entry("graph", |s| s.graph(graph))?;
-				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
 			},
 		}
 		self.finish_map()?;
@@ -292,6 +292,10 @@ where
 		write!(self.writer, "tg.file(")?;
 		self.start_map()?;
 		match object {
+			tg::file::Object::Graph { graph, node } => {
+				self.map_entry("graph", |s| s.graph(graph))?;
+				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
+			},
 			tg::file::Object::Normal {
 				contents,
 				dependencies,
@@ -325,10 +329,6 @@ where
 					self.map_entry("executable", |s| s.bool(true))?;
 				}
 			},
-			tg::file::Object::Graph { graph, node } => {
-				self.map_entry("graph", |s| s.graph(graph))?;
-				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
-			},
 		}
 		self.finish_map()?;
 		write!(self.writer, ")")?;
@@ -353,6 +353,10 @@ where
 		write!(self.writer, "tg.symlink(")?;
 		self.start_map()?;
 		match object {
+			tg::symlink::Object::Graph { graph, node } => {
+				self.map_entry("graph", |s| s.graph(graph))?;
+				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
+			},
 			tg::symlink::Object::Normal { artifact, subpath } => {
 				if let Some(artifact) = &artifact {
 					self.map_entry("artifact", |s| s.artifact(artifact))?;
@@ -360,10 +364,6 @@ where
 				if let Some(subpath) = &subpath {
 					self.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
 				}
-			},
-			tg::symlink::Object::Graph { graph, node } => {
-				self.map_entry("graph", |s| s.graph(graph))?;
-				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
 			},
 		}
 		self.finish_map()?;

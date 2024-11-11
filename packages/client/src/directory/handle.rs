@@ -120,6 +120,11 @@ impl Directory {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
+			Object::Graph { graph, node } => {
+				let graph = graph.id(handle).await?;
+				let node = *node;
+				Ok(Data::Graph { graph, node })
+			},
 			Object::Normal { entries } => {
 				let entries = entries
 					.iter()
@@ -130,11 +135,6 @@ impl Directory {
 					.try_collect()
 					.await?;
 				Ok(Data::Normal { entries })
-			},
-			Object::Graph { graph, node } => {
-				let graph = graph.id(handle).await?;
-				let node = *node;
-				Ok(Data::Graph { graph, node })
 			},
 		}
 	}
@@ -166,7 +166,6 @@ impl Directory {
 	{
 		let object = self.object(handle).await?;
 		let entries = match object.as_ref() {
-			Object::Normal { entries } => entries.clone(),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -208,6 +207,7 @@ impl Directory {
 					})
 					.collect::<tg::Result<_>>()?
 			},
+			Object::Normal { entries } => entries.clone(),
 		};
 		Ok(entries)
 	}
@@ -218,7 +218,6 @@ impl Directory {
 	{
 		let object = self.object(handle).await?;
 		let artifact = match object.as_ref() {
-			Object::Normal { entries } => entries.get(name).cloned(),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -253,6 +252,7 @@ impl Directory {
 					Some(Either::Right(artifact)) => Some(artifact.clone()),
 				}
 			},
+			Object::Normal { entries } => entries.get(name).cloned(),
 		};
 		Ok(artifact)
 	}

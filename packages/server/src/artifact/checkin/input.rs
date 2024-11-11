@@ -377,7 +377,6 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to deserialize xattr"))?;
 
 			let dependencies = match xattr {
-				tg::file::Data::Normal { dependencies, .. } => dependencies,
 				tg::file::Data::Graph { graph, node } => {
 					let graph_ = tg::Graph::with_id(graph.clone()).object(self).await?;
 					graph_.nodes[node]
@@ -426,6 +425,7 @@ impl Server {
 						.try_collect()
 						.await?
 				},
+				tg::file::Data::Normal { dependencies, .. } => dependencies,
 			};
 			let edges = dependencies
 				.into_iter()

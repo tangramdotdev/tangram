@@ -304,9 +304,6 @@ impl Server {
 
 			// Get the contents' ID.
 			let contents = match file {
-				// If this is a normal file we have no work to do.
-				tg::file::Data::Normal { contents, .. } => contents.clone(),
-
 				// If the file is a pointer into a graph, we need to fetch the graph and convert its data.
 				tg::file::Data::Graph { graph, node } => {
 					let graph = tg::Graph::with_id(graph.clone()).data(self).await?;
@@ -315,6 +312,9 @@ impl Server {
 					};
 					file.contents.clone()
 				},
+
+				// If this is a normal file we have no work to do.
+				tg::file::Data::Normal { contents, .. } => contents.clone(),
 			};
 
 			// Create a symlink to the file in the blobs directory.
@@ -619,13 +619,13 @@ impl Server {
 		match &output.nodes[node].data {
 			tg::artifact::Data::File(file) => {
 				let executable = match &file {
-					tg::file::Data::Normal { executable, .. } => *executable,
 					tg::file::Data::Graph { graph, node } => {
 						tg::Graph::with_id(graph.clone()).object(self).await?.nodes[*node]
 							.try_unwrap_file_ref()
 							.map_err(|_| tg::error!("expected a file"))?
 							.executable
 					},
+					tg::file::Data::Normal { executable, .. } => *executable,
 				};
 
 				let permissions = if executable { 0o0755 } else { 0o0644 };

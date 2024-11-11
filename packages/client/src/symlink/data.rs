@@ -6,17 +6,17 @@ use std::{collections::BTreeSet, path::PathBuf};
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Symlink {
+	Graph {
+		graph: tg::graph::Id,
+		node: usize,
+	},
+
 	Normal {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		artifact: Option<tg::artifact::Id>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		subpath: Option<PathBuf>,
-	},
-
-	Graph {
-		graph: tg::graph::Id,
-		node: usize,
 	},
 }
 
@@ -35,8 +35,8 @@ impl Symlink {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
-			Self::Normal { artifact, .. } => artifact.clone().into_iter().map_into().collect(),
 			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+			Self::Normal { artifact, .. } => artifact.clone().into_iter().map_into().collect(),
 		}
 	}
 }

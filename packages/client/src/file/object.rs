@@ -5,14 +5,14 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub enum File {
+	Graph {
+		graph: tg::Graph,
+		node: usize,
+	},
 	Normal {
 		contents: tg::Blob,
 		dependencies: BTreeMap<tg::Reference, tg::Referent<tg::Object>>,
 		executable: bool,
-	},
-	Graph {
-		graph: tg::Graph,
-		node: usize,
 	},
 }
 
@@ -20,6 +20,7 @@ impl File {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
+			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
 			Self::Normal {
 				contents,
 				dependencies,
@@ -31,7 +32,6 @@ impl File {
 					.map(|dependency| dependency.item.clone());
 				std::iter::once(contents).chain(dependencies).collect()
 			},
-			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
 		}
 	}
 }
@@ -41,6 +41,10 @@ impl TryFrom<Data> for File {
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		match data {
+			Data::Graph { graph, node } => {
+				let graph = tg::Graph::with_id(graph);
+				Ok(Self::Graph { graph, node })
+			},
 			Data::Normal {
 				contents,
 				dependencies,
@@ -63,10 +67,6 @@ impl TryFrom<Data> for File {
 					dependencies,
 					executable,
 				})
-			},
-			Data::Graph { graph, node } => {
-				let graph = tg::Graph::with_id(graph);
-				Ok(Self::Graph { graph, node })
 			},
 		}
 	}

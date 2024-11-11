@@ -1,5 +1,4 @@
-use crate::util::path::Ext as _;
-use crate::{temp::Temp, Server};
+use crate::{temp::Temp, util::path::Ext, Server};
 use dashmap::{DashMap, DashSet};
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
@@ -274,6 +273,7 @@ impl Server {
 			progress,
 			visited,
 		} = arg;
+
 		// Checking if the visited set contains the value before attempting to insert avoids write contention. Checking the return value of the insertion is required to avoid a race condition if the path was inserted in between the first check and attempted insertion.
 		if visited.contains(path) || !visited.insert(path.clone()) {
 			return Ok(());
@@ -281,6 +281,7 @@ impl Server {
 
 		// If the artifact is the same as the existing artifact, then return.
 		let id = artifact.id(self).await?;
+
 		match existing_artifact {
 			None => (),
 			Some(existing_artifact) => {
@@ -588,6 +589,7 @@ impl Server {
 		let artifact = symlink.artifact(self).await?;
 		let subpath = symlink.subpath(self).await?;
 
+		// Fail if the symlink is garbage.
 		if artifact.is_none() && subpath.is_none() {
 			return Err(tg::error!("invalid symlink"));
 		}
@@ -612,10 +614,8 @@ impl Server {
 		// Render the target.
 		let mut target: PathBuf = PathBuf::new();
 		if let Some(artifact) = &artifact {
-			let path = cache_directory
-				.diff(path.parent().unwrap())
-				.unwrap()
-				.join(artifact.id(self).await?.to_string());
+			let diff = cache_directory.diff(path.parent().unwrap()).unwrap();
+			let path = diff.join(artifact.id(self).await?.to_string());
 			target.push(path);
 		}
 		if let Some(subpath) = subpath {

@@ -6,6 +6,11 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum File {
+	Graph {
+		graph: tg::graph::Id,
+		node: usize,
+	},
+
 	Normal {
 		contents: tg::blob::Id,
 
@@ -14,11 +19,6 @@ pub enum File {
 
 		#[serde(default, skip_serializing_if = "is_false")]
 		executable: bool,
-	},
-
-	Graph {
-		graph: tg::graph::Id,
-		node: usize,
 	},
 }
 

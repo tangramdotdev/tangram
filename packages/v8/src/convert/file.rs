@@ -72,6 +72,18 @@ impl ToV8 for tg::file::Object {
 		let object = v8::Object::new(scope);
 
 		match self {
+			tg::file::Object::Graph { graph, node } => {
+				let key =
+					v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
+				let value = graph.to_v8(scope)?;
+				object.set(scope, key.into(), value);
+
+				let key =
+					v8::String::new_external_onebyte_static(scope, "node".as_bytes()).unwrap();
+				let value = node.to_v8(scope)?;
+				object.set(scope, key.into(), value);
+			},
+
 			tg::file::Object::Normal {
 				contents,
 				dependencies,
@@ -90,18 +102,6 @@ impl ToV8 for tg::file::Object {
 				let key = v8::String::new_external_onebyte_static(scope, "executable".as_bytes())
 					.unwrap();
 				let value = executable.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-
-			tg::file::Object::Graph { graph, node } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
-				let value = graph.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "node".as_bytes()).unwrap();
-				let value = node.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
 		}

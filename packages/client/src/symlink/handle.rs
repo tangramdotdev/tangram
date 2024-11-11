@@ -115,6 +115,11 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
+			Object::Graph { graph, node } => {
+				let graph = graph.id(handle).await?;
+				let node = *node;
+				Ok(Data::Graph { graph, node })
+			},
 			Object::Normal { artifact, subpath } => {
 				let artifact = if let Some(artifact) = &artifact {
 					Some(artifact.id(handle).await?)
@@ -123,11 +128,6 @@ impl Symlink {
 				};
 				let subpath = subpath.clone();
 				Ok(Data::Normal { artifact, subpath })
-			},
-			Object::Graph { graph, node } => {
-				let graph = graph.id(handle).await?;
-				let node = *node;
-				Ok(Data::Graph { graph, node })
 			},
 		}
 	}
@@ -153,7 +153,6 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Normal { artifact, .. } => Ok(artifact.clone()),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -192,6 +191,7 @@ impl Symlink {
 				};
 				Ok(artifact)
 			},
+			Object::Normal { artifact, .. } => Ok(artifact.clone()),
 		}
 	}
 
@@ -201,7 +201,6 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Normal { subpath, .. } => Ok(subpath.clone()),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -214,6 +213,7 @@ impl Symlink {
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
 				Ok(symlink.subpath.clone())
 			},
+			Object::Normal { subpath, .. } => Ok(subpath.clone()),
 		}
 	}
 

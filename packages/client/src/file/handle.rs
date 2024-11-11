@@ -117,6 +117,11 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
+			Object::Graph { graph, node } => {
+				let graph = graph.id(handle).await?;
+				let node = *node;
+				Ok(Data::Graph { graph, node })
+			},
 			Object::Normal {
 				contents,
 				dependencies,
@@ -144,11 +149,6 @@ impl File {
 					executable,
 				})
 			},
-			Object::Graph { graph, node } => {
-				let graph = graph.id(handle).await?;
-				let node = *node;
-				Ok(Data::Graph { graph, node })
-			},
 		}
 	}
 }
@@ -175,7 +175,6 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Normal { contents, .. } => Ok(contents.clone()),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -189,6 +188,7 @@ impl File {
 				let contents = file.contents.clone();
 				Ok(contents)
 			},
+			Object::Normal { contents, .. } => Ok(contents.clone()),
 		}
 	}
 
@@ -201,7 +201,6 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		let entries = match object.as_ref() {
-			Object::Normal { dependencies, .. } => dependencies.clone(),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -246,6 +245,7 @@ impl File {
 					})
 					.try_collect()?
 			},
+			Object::Normal { dependencies, .. } => dependencies.clone(),
 		};
 		Ok(entries)
 	}
@@ -273,7 +273,6 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		let referent = match object.as_ref() {
-			Object::Normal { dependencies, .. } => dependencies.get(reference).cloned(),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -308,6 +307,7 @@ impl File {
 					tag: referent.tag.clone(),
 				})
 			},
+			Object::Normal { dependencies, .. } => dependencies.get(reference).cloned(),
 		};
 		Ok(referent)
 	}
@@ -318,7 +318,6 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Normal { executable, .. } => Ok(*executable),
 			Object::Graph { graph, node } => {
 				let object = graph.object(handle).await?;
 				let node = object
@@ -331,6 +330,7 @@ impl File {
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				Ok(file.executable)
 			},
+			Object::Normal { executable, .. } => Ok(*executable),
 		}
 	}
 

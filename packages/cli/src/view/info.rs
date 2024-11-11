@@ -269,15 +269,15 @@ impl InfoViewExt for tg::branch::Data {
 impl InfoViewExt for tg::directory::Data {
 	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
 		let rows = match self {
+			tg::directory::Data::Graph { graph, .. } => {
+				vec![("graph", graph.to_string())]
+			},
 			tg::directory::Data::Normal { entries } => {
 				let mut rows = Vec::new();
 				for (name, artifact) in entries {
 					rows.push((name.as_str(), artifact.to_string()));
 				}
 				rows
-			},
-			tg::directory::Data::Graph { graph, .. } => {
-				vec![("graph", graph.to_string())]
 			},
 		};
 		let len = rows.len();
@@ -301,6 +301,9 @@ impl InfoViewExt for tg::directory::Data {
 impl InfoViewExt for tg::file::Data {
 	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
 		let rows = match self {
+			tg::file::Data::Graph { graph, .. } => {
+				vec![("graph", graph.to_string())]
+			},
 			tg::file::Data::Normal {
 				contents,
 				executable,
@@ -310,9 +313,6 @@ impl InfoViewExt for tg::file::Data {
 					("contents", contents.to_string()),
 					("executable", executable.to_string()),
 				]
-			},
-			tg::file::Data::Graph { graph, .. } => {
-				vec![("graph", graph.to_string())]
 			},
 		};
 		let len = rows.len();
@@ -336,6 +336,9 @@ impl InfoViewExt for tg::file::Data {
 impl InfoViewExt for tg::symlink::Data {
 	fn render(&self, scroll: usize, area: Rect, buf: &mut Buffer) -> usize {
 		let rows = match self {
+			tg::symlink::Data::Graph { graph, .. } => {
+				vec![("graph", graph.to_string())]
+			},
 			tg::symlink::Data::Normal {
 				artifact, subpath, ..
 			} => {
@@ -347,9 +350,6 @@ impl InfoViewExt for tg::symlink::Data {
 					rows.push(("subpath", subpath.to_string_lossy().into_owned()));
 				}
 				rows
-			},
-			tg::symlink::Data::Graph { graph, .. } => {
-				vec![("graph", graph.to_string())]
 			},
 		};
 		let len = rows.len();

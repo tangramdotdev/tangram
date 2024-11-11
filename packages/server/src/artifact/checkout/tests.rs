@@ -2,6 +2,7 @@ use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt as _;
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, path::PathBuf, pin::pin};
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
 
@@ -492,6 +493,110 @@ async fn nested_cyclic_links() -> tg::Result<()> {
 		assert_eq!(target, expected);
 
 		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(server_temp, server).await;
+	result.unwrap()
+}
+
+#[tokio::test]
+async fn modified_directory() -> tg::Result<()> {
+	let server_temp = Temp::new();
+	let server_options = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_options).await?;
+	let result = AssertUnwindSafe({
+		let server = server.clone();
+		async move {
+			// Create a new graph that contains a file and link that points to it.
+			let graph = tg::graph::Object {
+				nodes: vec![
+					tg::graph::Node::Directory(tg::graph::object::Directory {
+						entries: [
+							("file".to_owned(), Either::Left(1)),
+							("link".to_owned(), Either::Left(2)),
+						]
+						.into_iter()
+						.collect(),
+					}),
+					tg::graph::Node::File(tg::graph::object::File {
+						contents: tg::Blob::with_reader(&server, b"a".as_slice()).await?,
+						dependencies: BTreeMap::new(),
+						executable: false,
+					}),
+					tg::graph::Node::Symlink(tg::graph::object::Symlink {
+						artifact: Some(Either::Left(0)),
+						subpath: Some("file".into()),
+					}),
+				],
+			};
+			let graph = tg::Graph::with_object(graph);
+
+			// Create a new directory with a file not contained within the graph.
+			let other_file =
+				tg::File::with_contents(tg::Blob::with_reader(&server, b"b".as_slice()).await?);
+			let entries = [
+				(
+					"file".to_owned(),
+					tg::File::with_graph_and_node(graph.clone(), 1).into(),
+				),
+				(
+					"link".to_owned(),
+					tg::Symlink::with_graph_and_node(graph.clone(), 2).into(),
+				),
+				("other-file".to_owned(), other_file.clone().into()),
+			]
+			.into_iter()
+			.collect();
+			let directory = tg::Directory::with_entries(entries);
+
+			// Assert the entries of the new directory.
+			assert_eq!(
+				tg::File::with_graph_and_node(graph.clone(), 1)
+					.id(&server)
+					.await?,
+				directory
+					.entries(&server)
+					.await?
+					.get("file")
+					.unwrap()
+					.id(&server)
+					.await?
+					.unwrap_file(),
+			);
+			assert_eq!(
+				tg::Symlink::with_graph_and_node(graph.clone(), 2)
+					.id(&server)
+					.await?,
+				directory
+					.entries(&server)
+					.await?
+					.get("link")
+					.unwrap()
+					.id(&server)
+					.await?
+					.unwrap_symlink(),
+			);
+			assert_eq!(
+				other_file.id(&server).await?,
+				directory
+					.entries(&server)
+					.await?
+					.get("other-file")
+					.unwrap()
+					.id(&server)
+					.await?
+					.unwrap_file(),
+			);
+			let temp = temp::Temp::new();
+			let artifact = tg::Artifact::from(directory);
+			let arg = tg::artifact::checkout::Arg {
+				path: Some(temp.path().to_owned()),
+				..tg::artifact::checkout::Arg::default()
+			};
+			let _path = artifact.check_out(&server, arg).await?;
+			Ok::<_, tg::Error>(())
+		}
 	})
 	.catch_unwind()
 	.await;

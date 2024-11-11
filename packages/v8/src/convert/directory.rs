@@ -74,13 +74,6 @@ impl ToV8 for tg::directory::Object {
 		let object = v8::Object::new(scope);
 
 		match self {
-			tg::directory::Object::Normal { entries } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "entries".as_bytes()).unwrap();
-				let value = entries.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-
 			tg::directory::Object::Graph { graph, node } => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
@@ -90,6 +83,13 @@ impl ToV8 for tg::directory::Object {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "node".as_bytes()).unwrap();
 				let value = node.to_v8(scope)?;
+				object.set(scope, key.into(), value);
+			},
+
+			tg::directory::Object::Normal { entries } => {
+				let key =
+					v8::String::new_external_onebyte_static(scope, "entries".as_bytes()).unwrap();
+				let value = entries.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
 		}
