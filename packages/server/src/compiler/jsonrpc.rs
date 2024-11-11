@@ -40,7 +40,8 @@ pub struct ResponseError {
 	pub message: String,
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde_repr::Serialize_repr, serde_repr::Deserialize_repr)]
+#[repr(i64)]
 pub enum ResponseErrorCode {
 	// The following error codes are defined by JSON-RPC.
 	ParseError = -32700,
