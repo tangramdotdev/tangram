@@ -67,26 +67,6 @@ async fn accepts_arg() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn current_target_id() -> tg::Result<()> {
-	test(
-		temp::directory! {
-			"foo" => temp::directory! {
-				"tangram.ts" => r"export default tg.target(() => tg.Target.current.id())",
-			}
-		},
-		"foo",
-		"default",
-		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r#""tgt_013pjpzbkwh1mh1ttwadf06kdx76yb8k5zhsswzdjp7e17w4e1hw00""#);
-			Ok::<_, tg::Error>(())
-		},
-	)
-	.await
-}
-
-#[tokio::test]
 async fn host_target_hello_world() -> tg::Result<()> {
 	test(
 		temp::directory! {

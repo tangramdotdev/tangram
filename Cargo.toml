@@ -44,7 +44,7 @@ unused_async = "allow"
 [workspace.dependencies]
 async-broadcast = "0.7"
 async-channel = "2"
-async-compression = { version = "=0.4.12", features = ["all"] }
+async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.37"
 biome_js_formatter = "0.5"
 biome_js_parser = "0.5"
