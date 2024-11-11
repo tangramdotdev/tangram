@@ -1,4 +1,5 @@
 use futures::{Future, FutureExt as _};
+use serde_json::json;
 use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_temp::Temp;
 
@@ -12,7 +13,12 @@ where
 	Fut: Future<Output = std::io::Result<()>>,
 {
 	if let Some(obj) = config.as_object_mut() {
-		obj.insert("tracing".to_string(), json!({}));
+		obj.insert(
+			"tracing".to_string(),
+			json!({
+				"filter": "tangram_tracing=debug"
+			}),
+		);
 	};
 	let mut server = Server::start(config).await?;
 	let result = AssertUnwindSafe(async {

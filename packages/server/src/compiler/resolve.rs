@@ -1,5 +1,5 @@
 use super::Compiler;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -14,14 +14,20 @@ impl Compiler {
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
 		let mut trace = false;
-		if import.reference.uri().to_string().contains("zstd.tg.ts") {
+		if import.reference.uri().to_string().contains("zstd.tg.ts")
+			&& referrer
+				.referent
+				.subpath
+				.as_ref()
+				.is_some_and(|subpath| subpath.display().to_string().contains("dependencies.tg.ts"))
+		{
 			trace = true;
 		}
 		if trace {
 			tracing::debug!(?referrer, ?import);
 		}
 
-		let kind = import.kind;
+		let mut kind = import.kind;
 
 		// Get the referent.
 		let referent = match referrer {
@@ -49,6 +55,9 @@ impl Compiler {
 					},
 				..
 			} => {
+				if trace {
+					tracing::debug!(?object, ?subpath);
+				}
 				let object = if let Some(subpath) = subpath {
 					let tg::object::Id::Directory(directory) = object else {
 						return Err(tg::error!("object with subpath must be a directory"));
@@ -81,6 +90,16 @@ impl Compiler {
 					.ok()
 					.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
 				let referent = file.get_dependency(&self.server, &import.reference).await?;
+				// We no longer have the file extension, so set the module kind based on the import URI.
+				if let Some(extension) =
+					PathBuf::from(import.reference.uri().to_string()).extension()
+				{
+					if extension == "js" {
+						kind = Some(tg::module::Kind::Js);
+					} else if extension == "ts" {
+						kind = Some(tg::module::Kind::Ts);
+					}
+				}
 				let object = referent.item.id(&self.server).await?.clone();
 				let item = tg::module::Item::Object(object);
 				let subpath = referent.subpath;
@@ -97,6 +116,9 @@ impl Compiler {
 			if kind.is_some() {
 				kind
 			} else {
+				if trace {
+					tracing::debug!(?referent, "a");
+				}
 				match &referent.item {
 					tg::module::Item::Path(path) => {
 						let path = if let Some(subpath) = &referent.subpath {
@@ -131,6 +153,9 @@ impl Compiler {
 					},
 
 					tg::module::Item::Object(object) => {
+						if trace {
+							tracing::debug!(?object, "b");
+						}
 						let object =
 							if let Some(subpath) = &referent.subpath {
 								let object = tg::Object::with_id(object.clone());
@@ -158,6 +183,9 @@ impl Compiler {
 						} else {
 							None
 						};
+						if trace {
+							tracing::debug!(?name);
+						}
 
 						if let Some(name) = name {
 							let extension = name.extension();
@@ -260,6 +288,9 @@ impl Compiler {
 
 		// Create the module.
 		let module = tg::Module { kind, referent };
+		if trace {
+			tracing::debug!(?module);
+		}
 
 		Ok(module)
 	}
