@@ -13,6 +13,14 @@ impl Compiler {
 		referrer: &tg::Module,
 		import: &tg::Import,
 	) -> tg::Result<tg::Module> {
+		let mut trace = false;
+		if import.reference.uri().to_string().contains("zstd.tg.ts") {
+			trace = true;
+		}
+		if trace {
+			tracing::debug!(?referrer, ?import);
+		}
+
 		let kind = import.kind;
 
 		// Get the referent.
@@ -80,6 +88,9 @@ impl Compiler {
 				tg::Referent { item, subpath, tag }
 			},
 		};
+		if trace {
+			tracing::debug!(?referent);
+		}
 
 		// If the kind is not known and the referent is a directory with a root module, then use its kind.
 		let kind =
@@ -135,22 +146,25 @@ impl Compiler {
 							} else {
 								object.clone()
 							};
-						if object.try_unwrap_directory_ref().is_ok() {
+
+						let name = if object.try_unwrap_directory_ref().is_ok() {
 							let object = tg::Object::with_id(object);
 							let package = Either::Left(&object);
-							if let Some(name) =
-								tg::package::try_get_root_module_file_name(&self.server, package)
-									.await?
-							{
-								let name = Path::new(name);
-								let extension = name.extension();
-								if extension.is_some_and(|extension| extension == "js") {
-									Some(tg::module::Kind::Js)
-								} else if extension.is_some_and(|extension| extension == "ts") {
-									Some(tg::module::Kind::Ts)
-								} else {
-									None
-								}
+							tg::package::try_get_root_module_file_name(&self.server, package)
+								.await?
+								.map(Path::new)
+						} else if object.try_unwrap_file_ref().is_ok() {
+							referent.subpath.as_deref()
+						} else {
+							None
+						};
+
+						if let Some(name) = name {
+							let extension = name.extension();
+							if extension.is_some_and(|extension| extension == "js") {
+								Some(tg::module::Kind::Js)
+							} else if extension.is_some_and(|extension| extension == "ts") {
+								Some(tg::module::Kind::Ts)
 							} else {
 								None
 							}
@@ -160,6 +174,9 @@ impl Compiler {
 					},
 				}
 			};
+		if trace {
+			tracing::debug!(?kind);
+		}
 
 		// If the kind is not known, then try to infer it from the path extension.
 		let kind = if let Some(kind) = kind {
