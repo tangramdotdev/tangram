@@ -62,8 +62,8 @@ pub struct Inner {
 	/// The request sender.
 	request_sender: Mutex<Option<RequestSender>>,
 
-	/// The request thread.
-	request_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+	/// The request task.
+	request_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 
 	/// The sender.
 	sender: std::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
@@ -117,7 +117,7 @@ impl Compiler {
 		let documents = DashMap::default();
 		let library_temp = Temp::new(server);
 		let request_sender = Mutex::new(None);
-		let request_thread = Mutex::new(None);
+		let request_task = Mutex::new(None);
 		let sender = std::sync::RwLock::new(None);
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 		Self(Arc::new(Inner {
@@ -126,7 +126,7 @@ impl Compiler {
 			library_temp,
 			main_runtime_handle,
 			request_sender,
-			request_thread,
+			request_task,
 			sender,
 			server: server.clone(),
 			workspaces,
@@ -499,16 +499,16 @@ impl Compiler {
 	}
 
 	async fn request(&self, request: Request) -> tg::Result<Response> {
-		// Spawn the request handler thread if necessary.
+		// Spawn the request handler task if necessary.
 		{
-			let mut request_thread = self.request_thread.lock().unwrap();
-			if request_thread.is_none() {
+			let mut request_task = self.request_task.lock().unwrap();
+			if request_task.is_none() {
 				let (request_sender, request_receiver) =
 					tokio::sync::mpsc::unbounded_channel::<(Request, ResponseSender)>();
 				self.request_sender.lock().unwrap().replace(request_sender);
-				request_thread.replace(std::thread::spawn({
-					let server = self.clone();
-					move || Self::run_request_handler(server, request_receiver)
+				request_task.replace(tokio::task::spawn_blocking({
+					let compiler = self.clone();
+					move || compiler.run_request_handler(request_receiver)
 				}));
 			}
 		}
@@ -537,7 +537,7 @@ impl Compiler {
 	}
 
 	/// Run the request handler.
-	fn run_request_handler(self, mut request_receiver: RequestReceiver) {
+	fn run_request_handler(&self, mut request_receiver: RequestReceiver) {
 		// Create the isolate.
 		let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
 		let mut isolate = v8::Isolate::new(params);
@@ -551,7 +551,7 @@ impl Compiler {
 		let scope = &mut v8::ContextScope::new(scope, context);
 
 		// Set the server on the context.
-		context.set_slot(self);
+		context.set_slot(self.clone());
 
 		// Add the syscall function to the global.
 		let syscall_string =
