@@ -1,6 +1,6 @@
 use super::{input, object};
 use crate::{temp::Temp, util::path::Ext as _, Server};
-use futures::{future, stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
 use std::{
 	collections::BTreeSet,
@@ -365,7 +365,7 @@ impl Server {
 				.or_else(|| edge.reference.options()?.path.as_ref())
 				.cloned()
 				.ok_or_else(|| tg::error!("expected a path dependency"))?;
-
+			let path_ = path.strip_prefix("./").unwrap_or(path_.as_ref());
 			// We could use metadata from the input, or the data, this avoids having to acquire a lock.
 			let path = if matches!(&output.nodes[node].id, tg::artifact::Id::Directory(_)) {
 				path.join(path_)
@@ -523,7 +523,11 @@ impl Server {
 					Ok(()) => return Ok(()),
 					Err(error) if error.raw_os_error() == Some(libc::ENOTEMPTY) => return Ok(()),
 					Err(error) if error.raw_os_error() == Some(libc::ENODEV) => (),
-					Err(source) => return Err(tg::error!(!source, "failed to rename directory")),
+					Err(source) => {
+						return Err(
+							tg::error!(!source, %src = input_node.arg.path.display(), %dst = dest.display(), "failed to rename directory"),
+						)
+					},
 				}
 			}
 			tokio::fs::create_dir_all(&dest)
@@ -534,7 +538,8 @@ impl Server {
 				let input_index = output.nodes[edge.node].input;
 				let input_node_ = &input.nodes[input_index];
 				let diff = input_node_.arg.path.diff(&input_node.arg.path).unwrap();
-				let dest = dest.join(&diff);
+				let diff = diff.strip_prefix(".").unwrap_or(diff.as_ref());
+				let dest = dest.join(diff);
 				Box::pin(self.copy_or_move_all(input, output, edge.node, dest, visited, progress))
 					.await?;
 			}
@@ -671,39 +676,30 @@ impl Server {
 			tg::artifact::Data::Symlink(_) => (),
 		}
 
-		// Recurse over path dependencies.
+		// Recurse over directory entries.
+		if !matches!(
+			output.nodes[node].data.kind(),
+			tg::artifact::Kind::Directory
+		) {
+			return Ok(());
+		}
 		let dependencies = output.nodes[node].edges.clone();
 		let dependencies = dependencies
 			.into_iter()
-			.map(|edge| async move {
-				// Skip roots.
-				let input_index = output.nodes[edge.node].input;
-				let input_node = &input.nodes[input_index];
-				input_node.parent.as_ref()?;
-
+			.filter_map(|edge| {
 				let path = edge
 					.reference
 					.item()
 					.try_unwrap_path_ref()
 					.ok()
 					.or_else(|| edge.reference.options()?.path.as_ref())?;
-
 				Some((path.clone(), edge.node))
 			})
-			.collect::<FuturesUnordered<_>>()
-			.filter_map(future::ready)
-			.collect::<Vec<_>>()
-			.await;
+			.collect::<Vec<_>>();
 
 		for (subpath, next_node) in dependencies {
-			let dest = if matches!(
-				&output.nodes[node].data,
-				tg::artifact::Data::File(_) | tg::artifact::Data::Symlink(_)
-			) {
-				dest.parent().unwrap().join(&subpath)
-			} else {
-				dest.join(&subpath)
-			};
+			let subpath = subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
+			let dest = dest.join(&subpath);
 			Box::pin(
 				self.update_xattrs_and_permissions_inner(input, output, next_node, dest, visited),
 			)

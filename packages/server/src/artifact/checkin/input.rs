@@ -348,6 +348,19 @@ impl Server {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
+
+		// Update the parents of any children.
+		let mut state = state.write().await;
+		for edge in &vec {
+			let Some(node) = edge.node else {
+				continue;
+			};
+			state.graph.nodes[node].parent.replace(referrer);
+			if let Some(root_index) = state.roots.iter().position(|root| *root == node) {
+				state.roots.remove(root_index);
+			}
+		}
+		drop(state);
 		Ok(vec)
 	}
 
@@ -624,7 +637,7 @@ impl Server {
 		let target_absolute_path = path.parent().unwrap().join(&target);
 		let target_absolute_path = tokio::fs::canonicalize(&target_absolute_path.parent().unwrap())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
+			.map_err(|source| tg::error!(!source, %path = target_absolute_path.display(), "failed to canonicalize the path"))?
 			.join(target_absolute_path.file_name().unwrap());
 
 		// Collect the input of the target.
@@ -814,7 +827,9 @@ impl State {
 			}
 		}
 		// Add the new node to the new list of roots.
-		roots.push(node);
+		if roots.is_empty() {
+			roots.push(node);
+		}
 
 		// Update the list of roots.
 		self.roots = roots;

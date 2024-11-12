@@ -21,6 +21,7 @@ async fn file_through_symlink() -> tg::Result<()> {
 			}
 		},
 		"a",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -57,6 +58,7 @@ async fn external_symlink() -> tg::Result<()> {
 			}
 		},
 		"a",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -94,6 +96,7 @@ async fn simple_path_dependency() -> tg::Result<()> {
 			},
 		},
 		"foo",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -137,6 +140,7 @@ async fn nested_packages() -> tg::Result<()> {
 			},
 		},
 		"foo",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -210,6 +214,7 @@ async fn package_with_submodules() -> tg::Result<()> {
 			}
 		},
 		"package",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -262,6 +267,7 @@ async fn symlink() -> tg::Result<()> {
 			}
 		},
 		"directory",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -302,6 +308,7 @@ async fn cyclic_dependencies() -> tg::Result<()> {
 			},
 		},
 		"directory/foo",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -361,6 +368,7 @@ async fn directory() -> tg::Result<()> {
 			}
 		},
 		"directory",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -412,6 +420,7 @@ async fn file() -> tg::Result<()> {
 			}
 		},
 		"directory",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -435,6 +444,7 @@ async fn package() -> tg::Result<()> {
 			}
 		},
 		"directory",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -447,51 +457,6 @@ async fn package() -> tg::Result<()> {
 		},
 	)
 	.await
-}
-
-async fn test<F, Fut>(artifact: temp::Artifact, path: &str, assertions: F) -> tg::Result<()>
-where
-	F: FnOnce(Server, tg::Artifact, String) -> Fut,
-	Fut: Future<Output = tg::Result<()>>,
-{
-	let temp = Temp::new();
-	let options = Config::with_path(temp.path().to_owned());
-	let server = Server::start(options).await?;
-	let result = AssertUnwindSafe(async {
-		let directory = Temp::new();
-		artifact.to_path(directory.as_ref()).await.map_err(
-			|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
-		)?;
-		let arg = tg::artifact::checkin::Arg {
-			destructive: false,
-			deterministic: false,
-			ignore: true,
-			locked: false,
-			path: directory.as_ref().join(path),
-		};
-		std::mem::forget(directory);
-		let stream = server.check_in_artifact(arg).await?;
-		let output = pin!(stream)
-			.try_last()
-			.await?
-			.and_then(|event| event.try_unwrap_output().ok())
-			.ok_or_else(|| tg::error!("stream ended without output"))?;
-		let artifact = tg::Artifact::with_id(output.artifact);
-		let object = tg::Object::from(artifact.clone());
-		object.load_recursive(&server).await?;
-		let value = tg::Value::from(artifact.clone());
-		let options = tg::value::print::Options {
-			recursive: true,
-			style: tg::value::print::Style::Pretty { indentation: "\t" },
-		};
-		let output = value.print(options);
-		(assertions)(server.clone(), artifact, output).await?;
-		Ok::<_, tg::Error>(())
-	})
-	.catch_unwind()
-	.await;
-	cleanup(temp, server).await;
-	result.unwrap()
 }
 
 #[tokio::test]
@@ -507,6 +472,7 @@ async fn import_from_parent() -> tg::Result<()> {
 			}
 		},
 		"directory",
+		false,
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
@@ -555,4 +521,130 @@ async fn import_from_parent() -> tg::Result<()> {
 		},
 	)
 	.await
+}
+
+#[tokio::test]
+async fn directory_destructive() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"directory" => temp::directory! {
+				"a" => temp::directory! {
+					"b" => temp::directory! {
+						"c" => temp::symlink!("../../a/d/e")
+					},
+					"d" => temp::directory! {
+						"e" => temp::symlink!("../../a/f/g"),
+					},
+					"f" => temp::directory! {
+						"g" => ""
+					}
+				},
+			},
+		},
+		"directory",
+		true,
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"graph": tg.graph({
+   		"nodes": [
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"a": 1,
+   				},
+   			},
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"b": 4,
+   					"d": 2,
+   					"f": tg.directory({
+   						"g": tg.file({
+   							"contents": tg.leaf(""),
+   						}),
+   					}),
+   				},
+   			},
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"e": 3,
+   				},
+   			},
+   			{
+   				"kind": "symlink",
+   				"artifact": 0,
+   				"subpath": "a/f/g",
+   			},
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"c": 5,
+   				},
+   			},
+   			{
+   				"kind": "symlink",
+   				"artifact": 0,
+   				"subpath": "a/d/e",
+   			},
+   		],
+   	}),
+   	"node": 0,
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+async fn test<F, Fut>(
+	artifact: temp::Artifact,
+	path: &str,
+	destructive: bool,
+	assertions: F,
+) -> tg::Result<()>
+where
+	F: FnOnce(Server, tg::Artifact, String) -> Fut,
+	Fut: Future<Output = tg::Result<()>>,
+{
+	let temp = Temp::new();
+	let options = Config::with_path(temp.path().to_owned());
+	let server = Server::start(options).await?;
+	let result = AssertUnwindSafe(async {
+		let directory = Temp::new();
+		artifact.to_path(directory.as_ref()).await.map_err(
+			|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
+		)?;
+		let arg = tg::artifact::checkin::Arg {
+			destructive,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			path: directory.as_ref().join(path),
+		};
+		std::mem::forget(directory);
+		let stream = server.check_in_artifact(arg).await?;
+		let output = pin!(stream)
+			.try_last()
+			.await?
+			.and_then(|event| event.try_unwrap_output().ok())
+			.ok_or_else(|| tg::error!("stream ended without output"))?;
+		let artifact = tg::Artifact::with_id(output.artifact);
+		let object = tg::Object::from(artifact.clone());
+		object.load_recursive(&server).await?;
+		let value = tg::Value::from(artifact.clone());
+		let options = tg::value::print::Options {
+			recursive: true,
+			style: tg::value::print::Style::Pretty { indentation: "\t" },
+		};
+		let output = value.print(options);
+		(assertions)(server.clone(), artifact, output).await?;
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(temp, server).await;
+	result.unwrap()
 }

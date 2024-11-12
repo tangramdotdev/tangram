@@ -6,12 +6,12 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Directory {
-	Normal {
-		entries: BTreeMap<String, tg::artifact::Id>,
-	},
 	Graph {
 		graph: tg::graph::Id,
 		node: usize,
+	},
+	Normal {
+		entries: BTreeMap<String, tg::artifact::Id>,
 	},
 }
 
@@ -30,8 +30,8 @@ impl Directory {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
-			Self::Normal { entries } => entries.values().cloned().map(Into::into).collect(),
 			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+			Self::Normal { entries } => entries.values().cloned().map(Into::into).collect(),
 		}
 	}
 }
