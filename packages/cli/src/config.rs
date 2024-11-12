@@ -180,6 +180,10 @@ pub struct Build {
 	/// The maximum build depth.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_depth: Option<u64>,
+
+	/// The remotes to build for.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remotes: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -238,11 +242,7 @@ pub struct ObjectIndexer {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Remote {
-	/// Enable remote builds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub build: Option<bool>,
-
-	/// The server's url.
+	/// The remote's url.
 	pub url: Url,
 }
 

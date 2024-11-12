@@ -23,16 +23,18 @@ impl Server {
 			)
 			.chain(
 				self.config
+					.build
+					.as_ref()
+					.unwrap()
 					.remotes
 					.iter()
-					.filter(|(_, remote)| remote.build)
-					.map(|(name, remote)| {
+					.filter_map(|name| {
+						let remote = self.remotes.get(name)?.clone();
 						let arg = tg::build::dequeue::Arg::default();
-						remote
-							.client
-							.dequeue_build(arg)
+						let future = async move { remote.dequeue_build(arg).await }
 							.map_ok(|output| (output, Some(name.clone())))
-							.boxed()
+							.boxed();
+						Some(future)
 					}),
 			);
 			let (output, remote) = match future::select_ok(futures).await {

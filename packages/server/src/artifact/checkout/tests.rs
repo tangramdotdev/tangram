@@ -9,8 +9,8 @@ use tangram_temp::{self as temp, Temp};
 #[tokio::test]
 async fn file() -> tg::Result<()> {
 	let server_temp = Temp::new();
-	let server_options = Config::with_path(server_temp.path().to_owned());
-	let server = Server::start(server_options).await?;
+	let server_config = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let file = tg::File::with_contents("test");
@@ -51,8 +51,8 @@ async fn file() -> tg::Result<()> {
 #[tokio::test]
 async fn executable_file() -> tg::Result<()> {
 	let server_temp = Temp::new();
-	let server_options = Config::with_path(server_temp.path().to_owned());
-	let server = Server::start(server_options).await?;
+	let server_config = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let file = tg::file::Builder::new("test").executable(true).build();
@@ -95,8 +95,8 @@ async fn executable_file() -> tg::Result<()> {
 #[tokio::test]
 async fn symlink() -> tg::Result<()> {
 	let server_temp = Temp::new();
-	let server_options = Config::with_path(server_temp.path().to_owned());
-	let server = Server::start(server_options).await?;
+	let server_config = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let test_artifact = temp::directory! {
@@ -168,8 +168,8 @@ async fn symlink() -> tg::Result<()> {
 #[tokio::test]
 async fn symlink_shared_target() -> tg::Result<()> {
 	let server_temp = Temp::new();
-	let server_options = Config::with_path(server_temp.path().to_owned());
-	let server = Server::start(server_options).await?;
+	let server_config = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let test_artifact = temp::directory! {
@@ -244,8 +244,8 @@ async fn symlink_shared_target() -> tg::Result<()> {
 #[tokio::test]
 async fn symlink_to_symlink() -> tg::Result<()> {
 	let server_temp = Temp::new();
-	let server_options = Config::with_path(server_temp.path().to_owned());
-	let server = Server::start(server_options).await?;
+	let server_config = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let test_artifact = temp::directory! {
@@ -326,8 +326,8 @@ async fn symlink_to_symlink() -> tg::Result<()> {
 #[tokio::test]
 async fn file_with_graph_object() -> tg::Result<()> {
 	let server_temp = Temp::new();
-	let server_options = Config::with_path(server_temp.path().to_owned());
-	let server = Server::start(server_options).await?;
+	let server_config = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let blob = tg::Blob::from("hi from a graph");
@@ -378,8 +378,8 @@ async fn file_with_graph_object() -> tg::Result<()> {
 #[tokio::test]
 async fn directory() -> tg::Result<()> {
 	let server_temp = Temp::new();
-	let server_options = Config::with_path(server_temp.path().to_owned());
-	let server = Server::start(server_options).await?;
+	let server_config = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let test_artifact = temp::directory! {
@@ -438,8 +438,8 @@ async fn directory() -> tg::Result<()> {
 #[tokio::test]
 async fn nested_cyclic_links() -> tg::Result<()> {
 	let server_temp = Temp::new();
-	let server_options = Config::with_path(server_temp.path().to_owned());
-	let server = Server::start(server_options).await?;
+	let server_config = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let test_artifact = temp::directory! {
@@ -503,8 +503,8 @@ async fn nested_cyclic_links() -> tg::Result<()> {
 #[tokio::test]
 async fn modified_directory() -> tg::Result<()> {
 	let server_temp = Temp::new();
-	let server_options = Config::with_path(server_temp.path().to_owned());
-	let server = Server::start(server_options).await?;
+	let server_config = Config::with_path(server_temp.path().to_owned());
+	let server = Server::start(server_config).await?;
 	let result = AssertUnwindSafe({
 		let server = server.clone();
 		async move {

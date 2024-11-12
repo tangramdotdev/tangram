@@ -222,11 +222,14 @@ impl Server {
 			},
 		};
 
-		// Get the remotes.
+		// Create the remotes.
 		let remotes = config
 			.remotes
 			.iter()
-			.map(|(name, remote)| (name.clone(), remote.client.clone()))
+			.map(|(name, remote)| {
+				let client = tg::Client::new(remote.url.clone());
+				(name.clone(), client)
+			})
 			.collect();
 
 		// Create the runtimes.
@@ -555,6 +558,16 @@ impl Server {
 	pub async fn wait(&self) {
 		let task = self.task.lock().unwrap().clone().unwrap();
 		task.wait().await.unwrap();
+	}
+
+	#[must_use]
+	pub fn config(&self) -> &Config {
+		&self.config
+	}
+
+	#[must_use]
+	pub fn url(&self) -> &Url {
+		&self.config.url
 	}
 
 	#[must_use]

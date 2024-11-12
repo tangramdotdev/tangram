@@ -8,18 +8,30 @@ use tangram_temp::Temp;
 #[tokio::test]
 async fn push_file() -> tg::Result<()> {
 	let remote_temp = Temp::new();
-	let remote_options = Config::with_path(remote_temp.path().to_owned());
-	let remote = Server::start(remote_options).await?;
+	let remote_config = Config::with_path(remote_temp.path().to_owned());
+	let remote = Server::start(remote_config).await?;
 
 	let server_temp = Temp::new();
-	let server_options =
-		Config::with_path_and_remote(server_temp.path().to_owned(), remote_temp.path());
-	let server = Server::start(server_options).await?;
+	let mut server_config = Config::with_path(server_temp.path().to_owned());
+	server_config.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
+	.into();
+	let server = Server::start(server_config).await?;
 
 	let other_temp = Temp::new();
-	let other_options =
-		Config::with_path_and_remote(other_temp.path().to_owned(), remote_temp.path());
-	let other = Server::start(other_options).await?;
+	let mut other_config = Config::with_path(other_temp.path().to_owned());
+	other_config.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
+	.into();
+	let other = Server::start(other_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let file = tg::File::with_contents("test");
@@ -54,18 +66,30 @@ async fn push_file() -> tg::Result<()> {
 #[tokio::test]
 async fn push_simple_directory() -> tg::Result<()> {
 	let remote_temp = Temp::new();
-	let remote_options = Config::with_path(remote_temp.path().to_owned());
-	let remote = Server::start(remote_options).await?;
+	let remote_config = Config::with_path(remote_temp.path().to_owned());
+	let remote = Server::start(remote_config).await?;
 
 	let server_temp = Temp::new();
-	let server_options =
-		Config::with_path_and_remote(server_temp.path().to_owned(), remote_temp.path());
-	let server = Server::start(server_options).await?;
+	let mut server_config = Config::with_path(server_temp.path().to_owned());
+	server_config.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
+	.into();
+	let server = Server::start(server_config).await?;
 
 	let other_temp = Temp::new();
-	let other_options =
-		Config::with_path_and_remote(other_temp.path().to_owned(), remote_temp.path());
-	let other = Server::start(other_options).await?;
+	let mut other_config = Config::with_path(other_temp.path().to_owned());
+	other_config.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
+	.into();
+	let other = Server::start(other_config).await?;
 
 	let result = AssertUnwindSafe(async {
 		let directory = tg::directory! {

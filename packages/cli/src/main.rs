@@ -425,8 +425,7 @@ impl Cli {
 		let remotes = [(
 			"default".to_owned(),
 			tangram_server::config::Remote {
-				build: false,
-				client: tg::Client::new(Url::parse("https://api.tangram.dev").unwrap()),
+				url: "https://api.tangram.dev".parse().unwrap(),
 			},
 		)]
 		.into();
@@ -522,6 +521,9 @@ impl Cli {
 			}
 			if let Some(max_depth) = build.as_ref().and_then(|config| config.max_depth) {
 				build_.max_depth = max_depth;
+			}
+			if let Some(remotes) = build.as_ref().and_then(|config| config.remotes.clone()) {
+				build_.remotes = remotes;
 			}
 			config.build = Some(build_);
 		}
@@ -647,10 +649,8 @@ impl Cli {
 						},
 						Some(remote) => {
 							let name = name.clone();
-							let build = remote.build.unwrap_or_default();
 							let url = remote.url.clone();
-							let client = tg::Client::new(url);
-							let remote = tangram_server::config::Remote { build, client };
+							let remote = tangram_server::config::Remote { url };
 							config.remotes.insert(name, remote);
 						},
 					}

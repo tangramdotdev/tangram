@@ -699,7 +699,7 @@ impl Server {
 
 		for (subpath, next_node) in dependencies {
 			let subpath = subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
-			let dest = dest.join(&subpath);
+			let dest = dest.join(subpath);
 			Box::pin(
 				self.update_xattrs_and_permissions_inner(input, output, next_node, dest, visited),
 			)
