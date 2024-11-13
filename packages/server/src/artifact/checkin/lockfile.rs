@@ -278,25 +278,17 @@ fn check_if_references_module(
 						!dependencies.is_empty() || path.map_or(false, tg::package::is_module_path);
 					visited[node].replace(retain);
 					for (reference, referent) in dependencies {
-						if let Some(child_node) = try_find_in_lockfile_nodes(
-							nodes,
-							&referent.item,
-							referent.subpath.as_deref(),
-						)? {
-							let path = referent
-								.subpath
-								.as_deref()
-								.or_else(|| {
-									reference
-										.item()
-										.try_unwrap_path_ref()
-										.ok()
-										.map(PathBuf::as_path)
-								})
-								.or_else(|| reference.options()?.path.as_deref());
-							*visited[node].as_mut().unwrap() |=
-								check_if_references_module(nodes, path, child_node, visited)?;
+						let path = reference
+							.item()
+							.try_unwrap_path_ref()
+							.ok()
+							.or_else(|| reference.options()?.path.as_ref())
+							.map(AsRef::as_ref);
+						let Either::Left(child_node) = &referent.item else {
+							continue;
 						};
+						*visited[node].as_mut().unwrap() |=
+							check_if_references_module(nodes, path, *child_node, visited)?;
 					}
 				},
 				tg::lockfile::Node::Symlink {

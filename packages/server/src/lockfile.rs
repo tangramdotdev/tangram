@@ -257,10 +257,8 @@ impl Server {
 						|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the path"),
 					)?;
 
-					// Strip the subpath from the canoncial path to get the package path.
-					let subpath = dependency.subpath.as_deref().unwrap_or("".as_ref());
 					let current_package_node = dependency_package_node;
-					let current_package_path = strip_subpath(&path, subpath)?;
+					let current_package_path = path.to_owned();
 
 					// Recurse on the dependency's package.
 					let arg = FindInLockfileArg {

@@ -150,16 +150,21 @@ impl Server {
 			referrer_path.join(path.strip_prefix("./").unwrap_or(path))
 		};
 		let parent = path.parent().unwrap();
-		let name = path.file_name().unwrap_or_default();
 
 		// Canonicalize the parent and join with the file name.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let absolute_path = tokio::fs::canonicalize(parent)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %path = parent.display(), "failed to canonicalize the path"),
-			)?
-			.join(name);
+		let parent = tokio::fs::canonicalize(parent).await.map_err(
+			|source| tg::error!(!source, %path = parent.display(), "failed to canonicalize the path"),
+		)?;
+		let absolute_path = match path.components().last().unwrap() {
+			std::path::Component::CurDir => parent,
+			std::path::Component::ParentDir => parent
+				.parent()
+				.ok_or_else(|| tg::error!(%path = path.display(), "invalid path"))?
+				.to_owned(),
+			std::path::Component::Normal(normal) => parent.join(normal),
+			_ => return Err(tg::error!(%path = path.display(), "invalid path")),
+		};
 		drop(permit);
 
 		// Get the file system metadata.
@@ -574,7 +579,24 @@ impl Server {
 							self.collect_input_inner(Some(parent), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						};
 
-						let (node, subpath) = root_node_with_subpath(&state.read().await.graph, child).await;
+
+						// If the child is a module and the import kind is not directory, get the subpath.
+						let (child_path, is_directory) = {
+							let state = state.read().await;
+							(state.graph.nodes[child].arg.path.clone(), state.graph.nodes[child].metadata.is_dir())
+						};
+						let (node, subpath) = if is_directory {
+							if matches!(&import.kind, Some(tg::module::Kind::Directory)) {
+								(child, None)
+							} else {
+								let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+								let subpath = tg::package::try_get_root_module_file_name(self,Either::Right(&child_path)).await.map_err(|source| tg::error!(!source, %path = child_path.display(), "failed to get root module file name"))?
+									.map(PathBuf::from);
+								(child, subpath)
+							}
+						} else {
+							root_node_with_subpath(&state.read().await.graph, child).await
+						};
 
 						// Create the edge.
 						let edge = Edge {

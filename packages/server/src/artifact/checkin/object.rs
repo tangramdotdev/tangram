@@ -64,7 +64,6 @@ impl Server {
 			objects,
 		};
 		self.create_objects(input, &mut graph).await?;
-
 		Ok(graph)
 	}
 
@@ -176,7 +175,6 @@ impl Server {
 				let index = scc[0];
 				let node = nodes[0].clone();
 				let data = self.create_normal_artifact_data(node);
-
 				// Get the metadata.
 				let metadata = self.compute_object_metadata(
 					graph,
@@ -189,6 +187,7 @@ impl Server {
 				// Update the graph.
 				let bytes = data.serialize()?;
 				let id = tg::artifact::Id::new(data.kind(), &bytes);
+
 				graph.nodes[index].data.replace(data);
 				graph.nodes[index].id.replace(id.clone().into());
 				graph.nodes[index].metadata.replace(metadata);

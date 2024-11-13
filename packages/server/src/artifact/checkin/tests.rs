@@ -105,6 +105,7 @@ async fn simple_path_dependency() -> tg::Result<()> {
    						"contents": tg.leaf(""),
    					}),
    				}),
+   				"subpath": "tangram.ts",
    			},
    		},
    	}),
@@ -140,58 +141,64 @@ async fn nested_packages() -> tg::Result<()> {
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
-   	"graph": tg.graph({
-   		"nodes": [
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"bar": 2,
-   					"baz": tg.directory({
+   	"bar": tg.directory({
+   		"tangram.ts": tg.file({
+   			"contents": tg.leaf("
+   						import * as baz from "../baz";
+   					"),
+   			"dependencies": {
+   				"../baz": {
+   					"item": tg.directory({
    						"tangram.ts": tg.file({
    							"contents": tg.leaf(""),
    						}),
    					}),
-   					"tangram.ts": 1,
+   					"subpath": "tangram.ts",
    				},
    			},
-   			{
-   				"kind": "file",
-   				"contents": tg.leaf("
+   		}),
+   	}),
+   	"baz": tg.directory({
+   		"tangram.ts": tg.file({
+   			"contents": tg.leaf(""),
+   		}),
+   	}),
+   	"tangram.ts": tg.file({
+   		"contents": tg.leaf("
    					import * as bar from "./bar";
    					import * as baz from "./baz";
    				"),
-   				"dependencies": {
-   					"./bar": {
-   						"item": 0,
-   						"subpath": "./bar",
-   					},
-   					"./baz": {
-   						"item": 0,
-   						"subpath": "./baz",
-   					},
-   				},
-   			},
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"tangram.ts": 3,
-   				},
-   			},
-   			{
-   				"kind": "file",
-   				"contents": tg.leaf("
+   		"dependencies": {
+   			"./bar": {
+   				"item": tg.directory({
+   					"tangram.ts": tg.file({
+   						"contents": tg.leaf("
    						import * as baz from "../baz";
    					"),
-   				"dependencies": {
-   					"../baz": {
-   						"item": 0,
-   						"subpath": "./baz",
-   					},
-   				},
+   						"dependencies": {
+   							"../baz": {
+   								"item": tg.directory({
+   									"tangram.ts": tg.file({
+   										"contents": tg.leaf(""),
+   									}),
+   								}),
+   								"subpath": "tangram.ts",
+   							},
+   						},
+   					}),
+   				}),
+   				"subpath": "tangram.ts",
    			},
-   		],
+   			"./baz": {
+   				"item": tg.directory({
+   					"tangram.ts": tg.file({
+   						"contents": tg.leaf(""),
+   					}),
+   				}),
+   				"subpath": "tangram.ts",
+   			},
+   		},
    	}),
-   	"node": 0,
    })
    "#);
 			Ok::<_, tg::Error>(())
@@ -310,6 +317,7 @@ async fn cyclic_dependencies() -> tg::Result<()> {
    				"dependencies": {
    					"../bar": {
    						"item": 2,
+   						"subpath": "tangram.ts",
    					},
    				},
    			},
@@ -325,6 +333,7 @@ async fn cyclic_dependencies() -> tg::Result<()> {
    				"dependencies": {
    					"../foo": {
    						"item": 0,
+   						"subpath": "tangram.ts",
    					},
    				},
    			},
@@ -445,25 +454,22 @@ async fn import_from_parent() -> tg::Result<()> {
    			{
    				"kind": "directory",
    				"entries": {
-   					"baz": 2,
+   					"baz": 1,
    					"foo": tg.directory({}),
-   					"tangram.ts": 1,
-   				},
-   			},
-   			{
-   				"kind": "file",
-   				"contents": tg.leaf("import patches from "./foo" with { type: "directory" };"),
-   				"dependencies": {
-   					"./foo": {
-   						"item": 0,
-   						"subpath": "./foo",
-   					},
+   					"tangram.ts": tg.file({
+   						"contents": tg.leaf("import patches from "./foo" with { type: "directory" };"),
+   						"dependencies": {
+   							"./foo": {
+   								"item": tg.directory({}),
+   							},
+   						},
+   					}),
    				},
    			},
    			{
    				"kind": "directory",
    				"entries": {
-   					"mod.tg.ts": 3,
+   					"mod.tg.ts": 2,
    				},
    			},
    			{
@@ -472,7 +478,7 @@ async fn import_from_parent() -> tg::Result<()> {
    				"dependencies": {
    					"..": {
    						"item": 0,
-   						"subpath": "./baz",
+   						"subpath": "tangram.ts",
    					},
    				},
    			},

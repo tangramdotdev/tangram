@@ -648,7 +648,7 @@ impl Server {
 				let id = Either::Left(get_reference_from_pattern(pat));
 				let edge = Edge {
 					referent: id,
-					subpath: None,
+					subpath: referent.subpath.clone(),
 				};
 				edges.insert(reference, edge);
 			} else {
