@@ -227,7 +227,11 @@ impl Server {
 					};
 					edges.insert(reference, edge);
 				},
-				tg::reference::Item::Path(_) => return Err(tg::error!("unimplemented")),
+				tg::reference::Item::Path(_) => {
+					if !input_node.metadata.is_symlink() {
+						return Err(tg::error!("invalid input graph"));
+					}
+				},
 			}
 		}
 

@@ -608,9 +608,9 @@ impl Server {
 		&self,
 		referrer: usize,
 		path: &Path,
-		arg: &tg::artifact::checkin::Arg,
+		_arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		_progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
 		// Check if this node's edges have already been created.
 		let existing = state.read().await.graph.nodes[referrer].edges.clone();
@@ -620,56 +620,72 @@ impl Server {
 
 		// Read the symlink.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let target = tokio::fs::read_link(path).await.map_err(
+		let reference = tokio::fs::read_link(path).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to read symlink"),
 		)?;
 		drop(permit);
 
-		// Error if this is an absolute path.
-		if target.is_absolute() {
-			return Err(tg::error!("cannot check in an absolute path symlink"));
+		// Error if this is an absolute path or empty.
+		if reference.is_absolute() {
+			return Err(
+				tg::error!(%path = path.display(), %target = reference.display(), "cannot check in an absolute path symlink"),
+			);
+		} else if reference.as_os_str().is_empty() {
+			return Err(
+				tg::error!(%path = path.display(),  "cannot check in a path with an empty target"),
+			);
 		}
 
-		// Get the parent.
-		let parent = state.read().await.graph.nodes[referrer].parent;
+		// Get the full target by joining with the parent.
+		let target = path.parent().unwrap().join(&reference);
 
-		// Get the absolute path of the target.
-		let target_absolute_path = path.parent().unwrap().join(&target);
-		let target_absolute_path = tokio::fs::canonicalize(&target_absolute_path.parent().unwrap())
+		// Canonicalize the parent of the target and join with the last element.
+		let parent = tokio::fs::canonicalize(&target.parent().unwrap())
 			.await
-			.map_err(|source| tg::error!(!source, %path = target_absolute_path.display(), "failed to canonicalize the path"))?
-			.join(target_absolute_path.file_name().unwrap());
+			.map_err(|source| tg::error!(!source, %target = target.display(), "failed to canonicalize the target's parent"))?;
 
-		// Collect the input of the target.
-		let node = if state
-			.read()
-			.await
-			.find_root_of_path(&target_absolute_path)
-			.await
-			.is_none()
-		{
-			Box::pin(self.collect_input_inner(
-				Some(referrer),
-				&target_absolute_path,
-				arg,
-				state,
-				progress,
-			))
-			.await?
-		} else {
-			Box::pin(self.collect_input_inner(parent, &target, arg, state, progress)).await?
+		// Create the full target.
+		let target = match target.components().last().unwrap() {
+			std::path::Component::CurDir => parent,
+			std::path::Component::ParentDir => parent
+				.parent()
+				.ok_or_else(|| tg::error!("invalid symlink"))?
+				.to_owned(),
+			std::path::Component::Normal(normal) => parent.join(normal),
+			_ => return Err(tg::error!(%target = reference.display(), "invalid symlink")),
 		};
 
-		// Get the root node and subpath.
-		let (root, subpath) = root_node_with_subpath(&state.read().await.graph, node).await;
-
-		Ok(vec![Edge {
-			reference: tg::Reference::with_path(target),
-			node: Some(root),
-			object: None,
-			subpath,
-			tag: None,
-		}])
+		// Check if this is a checkin of a bundled artifact.
+		let edge = if let Ok(subpath) = target.strip_prefix(self.artifacts_path()) {
+			let mut components = subpath.components();
+			let object = components
+				.next()
+				.ok_or_else(
+					|| tg::error!(%subpath = subpath.display(), "expected a subpath component"),
+				)?
+				.as_os_str()
+				.to_str()
+				.ok_or_else(|| tg::error!(%subpath = subpath.display(), "invalid subpath"))?
+				.parse()
+				.map_err(|_| tg::error!(%subpath = subpath.display(), "expected an object id"))?;
+			let subpath = components.collect();
+			Edge {
+				reference: tg::Reference::with_path(reference),
+				subpath: Some(subpath),
+				node: None,
+				object: Some(object),
+				tag: None,
+			}
+		} else {
+			Edge {
+				reference: tg::Reference::with_path(reference),
+				subpath: None,
+				node: None,
+				object: None,
+				tag: None,
+			}
+		};
+		Ok(vec![edge])
 	}
 }
 
@@ -836,15 +852,6 @@ impl State {
 
 		// Return any dangling directories.
 		dangling
-	}
-
-	async fn find_root_of_path(&self, path: &Path) -> Option<usize> {
-		for root in &self.roots {
-			if path.strip_prefix(&self.graph.nodes[*root].arg.path).is_ok() {
-				return Some(*root);
-			}
-		}
-		None
 	}
 }
 

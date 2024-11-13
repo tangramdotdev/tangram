@@ -265,10 +265,10 @@ impl Server {
 		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Get the input metadata, or skip if the node is an object.
-		let (path, metadata) = match graph.nodes[index].unify.object.clone() {
+		let (input_index, path, metadata) = match graph.nodes[index].unify.object.clone() {
 			Either::Left(input_index) => {
 				let input = &input.nodes[input_index];
-				(input.arg.path.clone(), input.metadata.clone())
+				(input_index, input.arg.path.clone(), input.metadata.clone())
 			},
 			Either::Right(_) => {
 				return Err(tg::error!("expected a node"));
@@ -322,22 +322,36 @@ impl Server {
 				.await?;
 			tg::graph::data::Node::File(file)
 		} else if metadata.is_symlink() {
-			let edge = edges.first().cloned().unwrap();
-			let artifact = edge.id.map_right(|object| match object {
-				tg::object::Id::Directory(a) => a.into(),
-				tg::object::Id::File(a) => a.into(),
-				tg::object::Id::Symlink(a) => a.into(),
-				_ => unreachable!(),
-			});
-			let subpath = edge
-				.subpath
-				.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
-			let symlink = tg::graph::data::Symlink {
-				artifact: Some(artifact),
-				subpath,
-			};
-
-			tg::graph::data::Node::Symlink(symlink)
+			if let Some(edge) = edges.first().cloned() {
+				let artifact = edge.id.map_right(|object| match object {
+					tg::object::Id::Directory(a) => a.into(),
+					tg::object::Id::File(a) => a.into(),
+					tg::object::Id::Symlink(a) => a.into(),
+					_ => unreachable!(),
+				});
+				let subpath = edge
+					.subpath
+					.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
+				let symlink = tg::graph::data::Symlink {
+					artifact: Some(artifact),
+					subpath,
+				};
+				tg::graph::data::Node::Symlink(symlink)
+			} else {
+				let target = input.nodes[input_index]
+					.edges
+					.first()
+					.ok_or_else(|| tg::error!("invalid input graph"))?
+					.reference
+					.item()
+					.try_unwrap_path_ref()
+					.map_err(|_| tg::error!("expected a path item"))?;
+				let symlink = tg::graph::data::Symlink {
+					artifact: None,
+					subpath: Some(target.clone()),
+				};
+				tg::graph::data::Node::Symlink(symlink)
+			}
 		} else {
 			return Err(tg::error!("invalid file type"));
 		};
