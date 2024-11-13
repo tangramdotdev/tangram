@@ -67,11 +67,7 @@ async fn external_symlink() -> tg::Result<()> {
    		"dependencies": {
    			"../b/c": {
    				"item": tg.symlink({
-   					"artifact": tg.directory({
-   						"d": tg.file({
-   							"contents": tg.leaf("hello, world!"),
-   						}),
-   					}),
+   					"subpath": "./e",
    				}),
    			},
    		},
@@ -271,21 +267,9 @@ async fn symlink() -> tg::Result<()> {
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
-   	"graph": tg.graph({
-   		"nodes": [
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"link": 1,
-   				},
-   			},
-   			{
-   				"kind": "symlink",
-   				"artifact": 0,
-   			},
-   		],
+   	"link": tg.symlink({
+   		"subpath": ".",
    	}),
-   	"node": 0,
    })
    "#);
 			Ok::<_, tg::Error>(())
@@ -372,37 +356,17 @@ async fn directory() -> tg::Result<()> {
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
-   	"graph": tg.graph({
-   		"nodes": [
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"hello.txt": tg.file({
-   						"contents": tg.leaf("Hello, world!"),
-   					}),
-   					"link": 3,
-   					"subdirectory": 1,
-   				},
-   			},
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"sublink": 2,
-   				},
-   			},
-   			{
-   				"kind": "symlink",
-   				"artifact": 0,
-   				"subpath": "link",
-   			},
-   			{
-   				"kind": "symlink",
-   				"artifact": 0,
-   				"subpath": "hello.txt",
-   			},
-   		],
+   	"hello.txt": tg.file({
+   		"contents": tg.leaf("Hello, world!"),
    	}),
-   	"node": 0,
+   	"link": tg.symlink({
+   		"subpath": "./hello.txt",
+   	}),
+   	"subdirectory": tg.directory({
+   		"sublink": tg.symlink({
+   			"subpath": "../link",
+   		}),
+   	}),
    })
    "#);
 			Ok::<_, tg::Error>(())
@@ -546,51 +510,23 @@ async fn directory_destructive() -> tg::Result<()> {
 		|_, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
-   	"graph": tg.graph({
-   		"nodes": [
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"a": 1,
-   				},
-   			},
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"b": 4,
-   					"d": 2,
-   					"f": tg.directory({
-   						"g": tg.file({
-   							"contents": tg.leaf(""),
-   						}),
-   					}),
-   				},
-   			},
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"e": 3,
-   				},
-   			},
-   			{
-   				"kind": "symlink",
-   				"artifact": 0,
-   				"subpath": "a/f/g",
-   			},
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"c": 5,
-   				},
-   			},
-   			{
-   				"kind": "symlink",
-   				"artifact": 0,
-   				"subpath": "a/d/e",
-   			},
-   		],
+   	"a": tg.directory({
+   		"b": tg.directory({
+   			"c": tg.symlink({
+   				"subpath": "../../a/d/e",
+   			}),
+   		}),
+   		"d": tg.directory({
+   			"e": tg.symlink({
+   				"subpath": "../../a/f/g",
+   			}),
+   		}),
+   		"f": tg.directory({
+   			"g": tg.file({
+   				"contents": tg.leaf(""),
+   			}),
+   		}),
    	}),
-   	"node": 0,
    })
    "#);
 			Ok::<_, tg::Error>(())
