@@ -20,11 +20,11 @@ pub struct Graph {
 // A node within the package graph.
 #[derive(Clone, Debug)]
 pub struct Node {
-	// The result of this node (None if we do not know if it is successful or not).
-	pub errors: Vec<tg::Error>,
-
 	// Direct dependencies.
 	pub edges: BTreeMap<tg::Reference, Edge>,
+
+	// The result of this node (None if we do not know if it is successful or not).
+	pub errors: Vec<tg::Error>,
 
 	// The underlying object.
 	pub object: Either<usize, tg::object::Id>,
@@ -52,6 +52,7 @@ pub struct Unresolved {
 #[derive(Clone, Debug)]
 pub struct Edge {
 	pub referent: Id,
+	pub path: Option<PathBuf>,
 	pub subpath: Option<PathBuf>,
 }
 
@@ -132,6 +133,7 @@ impl Server {
 				let reference = edge.reference.clone();
 				let edge = Edge {
 					referent: id,
+					path: edge.path,
 					subpath: edge.subpath,
 				};
 				edges.insert(reference, edge);
@@ -155,6 +157,7 @@ impl Server {
 				let reference = edge.reference.clone();
 				let edge = Edge {
 					referent: id,
+					path: edge.path.clone(),
 					subpath: edge.subpath.clone(),
 				};
 				edges.insert(reference, edge);
@@ -196,6 +199,7 @@ impl Server {
 				let reference = edge.reference.clone();
 				let edge = Edge {
 					referent: id,
+					path: edge.path,
 					subpath: edge.subpath,
 				};
 				edges.insert(reference, edge);
@@ -214,6 +218,7 @@ impl Server {
 					let reference = edge.reference.clone();
 					let edge = Edge {
 						referent: id,
+						path: edge.path,
 						subpath: edge.subpath,
 					};
 					edges.insert(reference, edge);
@@ -223,6 +228,7 @@ impl Server {
 					let reference = edge.reference.clone();
 					let edge = Edge {
 						referent: id,
+						path: edge.path,
 						subpath: edge.subpath,
 					};
 					edges.insert(reference, edge);
@@ -237,8 +243,8 @@ impl Server {
 
 		// Create the node.
 		let node = Node {
-			errors: Vec::new(),
 			edges,
+			errors: Vec::new(),
 			object: Either::Left(node),
 			tag: None,
 		};
@@ -260,8 +266,8 @@ impl Server {
 
 		// Create a node.
 		let node = Node {
-			errors: Vec::new(),
 			edges: BTreeMap::new(),
+			errors: Vec::new(),
 			object: Either::Right(object),
 			tag: None,
 		};
@@ -629,6 +635,7 @@ impl Server {
 			.await?;
 			let edge = Edge {
 				referent: id,
+				path: None,
 				subpath: None,
 			};
 			edges.insert(reference, edge);
@@ -648,6 +655,7 @@ impl Server {
 				let id = Either::Left(get_reference_from_pattern(pat));
 				let edge = Edge {
 					referent: id,
+					path: None,
 					subpath: referent.subpath.clone(),
 				};
 				edges.insert(reference, edge);
@@ -669,6 +677,7 @@ impl Server {
 				.await?;
 				let edge = Edge {
 					referent: id,
+					path: None,
 					subpath: referent.subpath,
 				};
 				edges.insert(reference, edge);
@@ -696,6 +705,7 @@ impl Server {
 			.await?;
 			let edge = Edge {
 				referent: id,
+				path: None,
 				subpath: None,
 			};
 			edges.insert(reference, edge);

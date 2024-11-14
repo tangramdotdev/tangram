@@ -161,6 +161,7 @@ impl Cli {
 					let subpath = Some(name.parse().unwrap());
 					let referent = tg::Referent {
 						item,
+						path: referent.path,
 						subpath,
 						tag: referent.tag,
 					};

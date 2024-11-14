@@ -105,6 +105,8 @@ impl std::fmt::Display for Module {
 		write!(f, "{}", self.kind)?;
 		if let Some(tag) = &self.referent.tag {
 			write!(f, ":{tag}")?;
+		} else if let Some(path) = &self.referent.path {
+			write!(f, ":{}", path.display())?;
 		} else {
 			match &self.referent.item {
 				Item::Path(path) => {

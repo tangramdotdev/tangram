@@ -629,6 +629,7 @@ impl Compiler {
 			let item = tg::module::Item::Path(path.to_owned());
 			let referent = tg::Referent {
 				item,
+				path: None,
 				subpath: None,
 				tag: None,
 			};
@@ -676,6 +677,7 @@ impl Compiler {
 			};
 			let referent = tg::Referent {
 				item,
+				path: None,
 				subpath,
 				tag: None,
 			};

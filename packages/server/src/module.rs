@@ -30,6 +30,7 @@ impl Server {
 					kind,
 					referent: tg::Referent {
 						item: tg::module::Item::Object(package.clone().into()),
+						path: None,
 						subpath: Some(root_module_name.into()),
 						tag: None,
 					},
@@ -51,6 +52,7 @@ impl Server {
 					kind,
 					referent: tg::Referent {
 						item: tg::module::Item::Path(path),
+						path: None,
 						subpath: Some(root_module_file_name.into()),
 						tag: None,
 					},
@@ -111,6 +113,7 @@ impl Server {
 			kind,
 			referent: tg::Referent {
 				item: tg::module::Item::Path(package.clone()),
+				path: None,
 				subpath: Some(subpath),
 				tag: None,
 			},

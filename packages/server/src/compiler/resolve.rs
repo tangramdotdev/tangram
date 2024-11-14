@@ -274,6 +274,7 @@ impl Compiler {
 			// If this points to another node in the lockfile, find it within the lockfile.
 			Some(tg::Referent {
 				item: Either::Left(index),
+				path,
 				subpath,
 				tag,
 			}) => {
@@ -284,6 +285,7 @@ impl Compiler {
 				Ok(tg::Referent {
 					item: tg::module::Item::Path(package_path),
 					subpath: subpath.clone(),
+					path: path.clone(),
 					tag: tag.clone(),
 				})
 			},
@@ -291,10 +293,12 @@ impl Compiler {
 			// Resolve objects normally.
 			Some(tg::Referent {
 				item: Either::Right(object),
+				path,
 				subpath,
 				tag,
 			}) => Ok(tg::Referent {
 				item: tg::module::Item::Object(object.clone()),
+				path: path.clone(),
 				subpath: subpath.clone(),
 				tag: tag.clone(),
 			}),
@@ -310,6 +314,7 @@ impl Compiler {
 					let item = module_parent.join(import_path);
 					return Ok(tg::Referent {
 						item: tg::module::Item::Path(item),
+						path: None,
 						subpath: import
 							.reference
 							.options()
@@ -361,8 +366,14 @@ impl Compiler {
 		let referent = file.get_dependency(&self.server, &import.reference).await?;
 		let object = referent.item.id(&self.server).await?.clone();
 		let item = tg::module::Item::Object(object);
+		let path = referent.path;
 		let subpath = referent.subpath;
 		let tag = referent.tag;
-		Ok(tg::Referent { item, subpath, tag })
+		Ok(tg::Referent {
+			item,
+			path,
+			subpath,
+			tag,
+		})
 	}
 }

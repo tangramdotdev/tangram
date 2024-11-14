@@ -854,6 +854,7 @@ impl Server {
 					};
 					let dependency = tg::Referent {
 						item,
+						path: referent.path.clone(),
 						subpath: referent.subpath.clone(),
 						tag: referent.tag.clone(),
 					};
@@ -994,9 +995,15 @@ impl Server {
 								object => Either::Right(object.id(self).await?),
 							},
 						};
+						let path = referent.path.clone();
 						let subpath = referent.subpath.clone();
 						let tag = referent.tag.clone();
-						let dependency = tg::Referent { item, subpath, tag };
+						let dependency = tg::Referent {
+							item,
+							path,
+							subpath,
+							tag,
+						};
 						dependencies.insert(reference.clone(), dependency);
 					}
 					let contents = file.contents.id(self).await?;

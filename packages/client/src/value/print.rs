@@ -309,6 +309,9 @@ where
 							s.map_entry(reference.as_str(), |s| {
 								s.start_map()?;
 								s.map_entry("item", |s| s.object(&referent.item))?;
+								if let Some(path) = &referent.path {
+									s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
+								}
 								if let Some(tag) = &referent.tag {
 									s.map_entry("tag", |s| s.string(tag.as_str()))?;
 								}

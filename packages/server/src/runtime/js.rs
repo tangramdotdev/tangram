@@ -128,6 +128,7 @@ impl Runtime {
 			kind: root.kind,
 			referent: tg::Referent {
 				item: tg::module::Item::Object(root.referent.item),
+				path: root.referent.path,
 				subpath: root.referent.subpath,
 				tag: root.referent.tag,
 			},

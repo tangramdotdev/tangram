@@ -32,6 +32,7 @@ async fn file_through_symlink() -> tg::Result<()> {
    				"item": tg.file({
    					"contents": tg.leaf("hello, world!"),
    				}),
+   				"path": "../b/e/d",
    			},
    		},
    	}),
@@ -69,6 +70,7 @@ async fn external_symlink() -> tg::Result<()> {
    				"item": tg.symlink({
    					"subpath": "e",
    				}),
+   				"path": "../b/c",
    			},
    		},
    	}),
@@ -105,6 +107,7 @@ async fn simple_path_dependency() -> tg::Result<()> {
    						"contents": tg.leaf(""),
    					}),
    				}),
+   				"path": "../bar",
    				"subpath": "tangram.ts",
    			},
    		},
@@ -153,6 +156,7 @@ async fn nested_packages() -> tg::Result<()> {
    							"contents": tg.leaf(""),
    						}),
    					}),
+   					"path": "baz",
    					"subpath": "tangram.ts",
    				},
    			},
@@ -182,11 +186,13 @@ async fn nested_packages() -> tg::Result<()> {
    										"contents": tg.leaf(""),
    									}),
    								}),
+   								"path": "baz",
    								"subpath": "tangram.ts",
    							},
    						},
    					}),
    				}),
+   				"path": "bar",
    				"subpath": "tangram.ts",
    			},
    			"./baz": {
@@ -195,6 +201,7 @@ async fn nested_packages() -> tg::Result<()> {
    						"contents": tg.leaf(""),
    					}),
    				}),
+   				"path": "baz",
    				"subpath": "tangram.ts",
    			},
    		},
@@ -461,6 +468,7 @@ async fn import_from_parent() -> tg::Result<()> {
    						"dependencies": {
    							"./foo": {
    								"item": tg.directory({}),
+   								"path": "foo",
    							},
    						},
    					}),
