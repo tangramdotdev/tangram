@@ -134,7 +134,7 @@ impl File {
 						let object = referent.item.id(handle).await?;
 						let dependency = tg::Referent {
 							item: object,
-							subpath: None,
+							subpath: referent.subpath.clone(),
 							tag: referent.tag.clone(),
 						};
 						Ok::<_, tg::Error>((reference.clone(), dependency))
@@ -238,7 +238,7 @@ impl File {
 						};
 						let referent = tg::Referent {
 							item,
-							subpath: None,
+							subpath: referent.subpath.clone(),
 							tag: referent.tag.clone(),
 						};
 						Ok::<_, tg::Error>((reference.clone(), referent))

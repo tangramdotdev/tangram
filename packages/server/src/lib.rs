@@ -277,11 +277,11 @@ impl Server {
 		let artifacts_exists = tokio::fs::try_exists(&artifacts_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
-		let checkouts_exists = tokio::fs::try_exists(&cache_path)
+		let cache_exists = tokio::fs::try_exists(&cache_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
 		if let Some(options) = server.config.vfs {
-			if artifacts_exists && !checkouts_exists {
+			if artifacts_exists && !cache_exists {
 				tokio::fs::rename(&artifacts_path, &cache_path)
 					.await
 					.map_err(|source| {
@@ -298,9 +298,7 @@ impl Server {
 				})?;
 			tokio::fs::create_dir_all(&cache_path)
 				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the checkouts directory")
-				})?;
+				.map_err(|source| tg::error!(!source, "failed to create the cache directory"))?;
 			let kind = if cfg!(target_os = "macos") {
 				vfs::Kind::Nfs
 			} else if cfg!(target_os = "linux") {
@@ -319,13 +317,13 @@ impl Server {
 				server.vfs.lock().unwrap().replace(vfs);
 			}
 		} else {
-			if checkouts_exists {
+			if cache_exists {
 				tokio::fs::rename(&cache_path, &artifacts_path)
 					.await
 					.map_err(|source| {
 						tg::error!(
 							!source,
-							"failed to move the artifacts directory to the checkouts directory"
+							"failed to move the artifacts directory to the cache directory"
 						)
 					})?;
 			}

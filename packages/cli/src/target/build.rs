@@ -134,37 +134,38 @@ impl Cli {
 			// Otherwise, the object must be a directory containing a root module, or a file.
 			let executable = match object {
 				tg::Object::Directory(directory) => {
-					let mut executable = None;
-					for name in tg::package::ROOT_MODULE_FILE_NAMES {
-						if directory.try_get_entry(&handle, name).await?.is_some() {
-							let kind = if Path::new(name)
-								.extension()
-								.map_or(false, |extension| extension == "js")
-							{
-								tg::module::Kind::Js
-							} else if Path::new(name)
-								.extension()
-								.map_or(false, |extension| extension == "ts")
-							{
-								tg::module::Kind::Ts
-							} else {
-								unreachable!();
-							};
-							let item = directory.clone().into();
-							let subpath = Some(name.parse().unwrap());
-							let referent = tg::Referent {
-								item,
-								subpath,
-								tag: referent.tag,
-							};
-							let module = tg::target::Module { kind, referent };
-							executable = Some(tg::target::Executable::Module(module));
+					let mut name = None;
+					for name_ in tg::package::ROOT_MODULE_FILE_NAMES {
+						if directory.try_get_entry(&handle, name_).await?.is_some() {
+							name = Some(name_);
 							break;
 						}
 					}
-					executable.ok_or_else(|| {
+					let name = name.ok_or_else(|| {
 						tg::error!("expected the directory to contain a root module")
-					})?
+					})?;
+					let kind = if Path::new(name)
+						.extension()
+						.map_or(false, |extension| extension == "js")
+					{
+						tg::module::Kind::Js
+					} else if Path::new(name)
+						.extension()
+						.map_or(false, |extension| extension == "ts")
+					{
+						tg::module::Kind::Ts
+					} else {
+						unreachable!();
+					};
+					let item = directory.clone().into();
+					let subpath = Some(name.parse().unwrap());
+					let referent = tg::Referent {
+						item,
+						subpath,
+						tag: referent.tag,
+					};
+					let module = tg::target::Module { kind, referent };
+					tg::target::Executable::Module(module)
 				},
 
 				tg::Object::File(file) => tg::target::Executable::Artifact(file.into()),

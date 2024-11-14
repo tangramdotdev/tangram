@@ -21,13 +21,13 @@ impl Compiler {
 			tg::Module {
 				referent:
 					tg::Referent {
-						item: tg::module::Item::Path(package),
+						item: tg::module::Item::Path(path),
 						subpath,
 						..
 					},
 				..
 			} => {
-				self.resolve_with_path_referrer(package, subpath.as_deref(), import)
+				self.resolve_with_path_referrer(path, subpath.as_deref(), import)
 					.await?
 			},
 
@@ -41,43 +41,8 @@ impl Compiler {
 					},
 				..
 			} => {
-				let object = if let Some(subpath) = subpath {
-					let tg::object::Id::Directory(directory) = object else {
-						return Err(tg::error!("object with subpath must be a directory"));
-					};
-					let artifact = tg::Directory::with_id(directory.clone())
-						.get(&self.server, subpath)
-						.await
-						.map_err(|source| tg::error!(!source, %directory, %subpath = subpath.display(), "failed to get directory entry"))?;
-					artifact.into()
-				} else {
-					tg::Object::with_id(object.clone())
-				};
-				let object = if let tg::Object::Directory(directory) = &object {
-					let root_module_file_name = tg::package::try_get_root_module_file_name(
-						&self.server,
-						Either::Left(&object),
-					)
+				self.resolve_module_with_object_referrer(object, subpath.as_deref(), import)
 					.await?
-					.ok_or_else(|| tg::error!("invalid referrer"))?;
-					directory
-						.get(&self.server, root_module_file_name)
-						.await?
-						.into()
-				} else {
-					object
-				};
-				let file = object
-					.clone()
-					.try_unwrap_file()
-					.ok()
-					.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
-				let referent = file.get_dependency(&self.server, &import.reference).await?;
-				let object = referent.item.id(&self.server).await?.clone();
-				let item = tg::module::Item::Object(object);
-				let subpath = referent.subpath;
-				let tag = referent.tag;
-				tg::Referent { item, subpath, tag }
 			},
 		};
 
@@ -247,16 +212,15 @@ impl Compiler {
 		Ok(module)
 	}
 
-	// Given a package at a path and module at some subpath within it, resolve an import relative to the module.
 	async fn resolve_with_path_referrer(
 		&self,
-		package: &Path,
+		path: &Path,
 		subpath: Option<&Path>,
 		import: &tg::Import,
 	) -> tg::Result<tg::Referent<tg::module::Item>> {
 		// Get the referrer within some lockfile.
 		let subpath = subpath.unwrap_or("".as_ref());
-		let module_path = package.join(subpath);
+		let module_path = path.join(subpath);
 
 		// Get the lockfile and its path.
 		let (lockfile_path, lockfile) = 'a: {
@@ -360,5 +324,45 @@ impl Compiler {
 				)
 			},
 		}
+	}
+
+	async fn resolve_module_with_object_referrer(
+		&self,
+		object: &tangram_client::object::Id,
+		subpath: Option<&Path>,
+		import: &tangram_client::Import,
+	) -> Result<tangram_client::Referent<tangram_client::module::Item>, tangram_client::Error> {
+		let object = if let Some(subpath) = subpath {
+			let tg::object::Id::Directory(directory) = object else {
+				return Err(tg::error!("object with subpath must be a directory"));
+			};
+			let artifact = tg::Directory::with_id(directory.clone()).get(&self.server, subpath).await.map_err(|source| tg::error!(!source, %directory, %subpath = subpath.display(), "failed to get directory entry"))?;
+			artifact.into()
+		} else {
+			tg::Object::with_id(object.clone())
+		};
+		let object = if let tg::Object::Directory(directory) = &object {
+			let root_module_file_name =
+				tg::package::try_get_root_module_file_name(&self.server, Either::Left(&object))
+					.await?
+					.ok_or_else(|| tg::error!("invalid referrer"))?;
+			directory
+				.get(&self.server, root_module_file_name)
+				.await?
+				.into()
+		} else {
+			object
+		};
+		let file = object
+			.clone()
+			.try_unwrap_file()
+			.ok()
+			.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
+		let referent = file.get_dependency(&self.server, &import.reference).await?;
+		let object = referent.item.id(&self.server).await?.clone();
+		let item = tg::module::Item::Object(object);
+		let subpath = referent.subpath;
+		let tag = referent.tag;
+		Ok(tg::Referent { item, subpath, tag })
 	}
 }

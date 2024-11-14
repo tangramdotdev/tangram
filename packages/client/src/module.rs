@@ -46,10 +46,12 @@ pub enum Kind {
 	PartialEq,
 	PartialOrd,
 	derive_more::TryUnwrap,
+	derive_more::Unwrap,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
 #[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Item {
 	Path(PathBuf),
 	Object(tg::object::Id),
@@ -146,7 +148,7 @@ impl std::str::FromStr for Item {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		if s.starts_with('.') || s.starts_with('/') {
-			Ok(Self::Path(s.into()))
+			Ok(Self::Path(s.strip_prefix("./").unwrap_or(s).into()))
 		} else {
 			Ok(Self::Object(s.parse()?))
 		}

@@ -476,21 +476,18 @@ async fn nested_cyclic_links() -> tg::Result<()> {
 		let output = tg::Artifact::with_id(incoming_artifact_id.clone())
 			.check_out(&server, arg)
 			.await?;
+
 		let target = tokio::fs::read_link(output.join("b/c"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read link"))?;
-		let expected = PathBuf::from("../.tangram/artifacts")
-			.join(incoming_artifact_id.to_string())
-			.join("b/d");
-		assert_eq!(target, expected);
+		let right = PathBuf::from("b/d");
+		assert_eq!(target, right);
 
 		let target = tokio::fs::read_link(output.join("b/d"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read link"))?;
-		let expected = PathBuf::from("../.tangram/artifacts")
-			.join(incoming_artifact_id.to_string())
-			.join("b/c");
-		assert_eq!(target, expected);
+		let right = PathBuf::from("b/c");
+		assert_eq!(target, right);
 
 		Ok::<_, tg::Error>(())
 	})

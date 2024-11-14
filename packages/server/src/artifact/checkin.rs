@@ -1,4 +1,4 @@
-use crate::{util::path::Ext as _, Server};
+use crate::Server;
 use futures::{Stream, StreamExt as _};
 use std::{path::PathBuf, pin::pin};
 use tangram_client as tg;
@@ -49,34 +49,32 @@ impl Server {
 	/// Attempt to store an artifact in the database.
 	async fn check_in_artifact_task(
 		&self,
-		arg: tg::artifact::checkin::Arg,
+		mut arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
+		// Canonicalize the path's parent.
+		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
+
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
-		if let Some(path) = arg
-			.path
-			.diff(self.cache_path())
-			.filter(|path| matches!(path.components().next(), Some(std::path::Component::CurDir)))
-		{
-			let components = path.components().collect::<Vec<_>>();
-			let id = components
-				.get(1)
+		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
+			let id = path
+				.components()
+				.next()
 				.map(|component| {
 					let std::path::Component::Normal(name) = component else {
 						return Err(tg::error!("invalid path"));
 					};
 					name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))
 				})
-				.ok_or_else(|| tg::error!("cannot check in the checkouts directory"))??
+				.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
 				.parse()?;
-			if components.len() < 2 {
+			if path.components().count() == 1 {
 				let output = tg::artifact::checkin::Output { artifact: id };
 				return Ok(output);
 			}
-			let mut path = PathBuf::new();
-			for component in &components[2..] {
-				path.push(component);
-			}
+			let path = path.components().skip(1).collect::<PathBuf>();
 			let artifact = tg::Artifact::with_id(id);
 			let directory = artifact
 				.try_unwrap_directory()

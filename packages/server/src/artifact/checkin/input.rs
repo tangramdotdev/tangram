@@ -1,4 +1,4 @@
-use crate::{util::path::Ext as _, Server};
+use crate::Server;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{
 	collections::{BTreeMap, BTreeSet},
@@ -284,11 +284,11 @@ impl Server {
 		// Get the directory entries.
 		let mut names = Vec::new();
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let mut entries = tokio::fs::read_dir(&path).await.map_err(
+		let mut read_dir = tokio::fs::read_dir(&path).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to get the directory entries"),
 		)?;
 		loop {
-			let Some(entry) = entries.next_entry().await.map_err(
+			let Some(entry) = read_dir.next_entry().await.map_err(
 				|source| tg::error!(!source, %path = path.display(), "failed to get directory entry"),
 			)?
 			else {
@@ -316,7 +316,7 @@ impl Server {
 			}
 			names.push(name);
 		}
-		drop(entries);
+		drop(read_dir);
 		drop(permit);
 
 		let vec: Vec<_> = names
@@ -436,70 +436,14 @@ impl Server {
 			};
 			let edges = dependencies
 				.into_iter()
-				.map(|(reference, referent)| {
-					let arg = arg.clone();
-					async move {
-						// Get the root path.
-						let root_node = get_root_node(&state.read().await.graph, referrer).await;
-						let root_path = state.read().await.graph.nodes[root_node].arg.path.clone();
-
-						let id = referent.item;
-						let path = reference
-							.item()
-							.try_unwrap_path_ref()
-							.ok()
-							.or_else(|| reference.options()?.path.as_ref());
-
-						// Don't follow paths that point outside the root.
-						let referrer_path =
-							state.read().await.graph.nodes[referrer].arg.path.clone();
-						let is_external_path = path
-							.as_ref()
-							.map(|path| referrer_path.parent().unwrap().join(path))
-							.and_then(|path| path.diff(&root_path))
-							.map_or(false, |diff| {
-								diff.components().next().is_some_and(|component| {
-									matches!(component, std::path::Component::ParentDir)
-								})
-							});
-
-						// Recurse if necessary.
-						let (node, subpath) = match path {
-							Some(path) if !is_external_path => {
-								// Get the parent of the referrer.
-								let parent = state.read().await.graph.nodes[referrer]
-									.parent
-									.ok_or_else(|| tg::error!("expected a parent"))?;
-
-								// Collect the input of the referrent.
-								let node = self
-									.collect_input_inner(Some(parent), path, &arg, state, progress)
-									.await
-									.map_err(|source| {
-										tg::error!(!source, "failed to collect child input")
-									})?;
-								let (node, subpath) =
-									root_node_with_subpath(&state.read().await.graph, node).await;
-								(Some(node), subpath)
-							},
-							_ => (None, None),
-						};
-
-						let edge = Edge {
-							reference,
-							node,
-							object: Some(id),
-							subpath,
-							tag: referent.tag,
-						};
-
-						Ok::<_, tg::Error>(edge)
-					}
+				.map(|(reference, referent)| Edge {
+					reference,
+					node: None,
+					object: Some(referent.item),
+					subpath: referent.subpath,
+					tag: referent.tag,
 				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect()
-				.await?;
-
+				.collect();
 			return Ok(edges);
 		}
 
@@ -554,8 +498,8 @@ impl Server {
 							.path
 							.clone();
 
-						let absolute_path = path.parent().unwrap().join(import_path.strip_prefix("./").unwrap_or(import_path));
-						let is_external = absolute_path.diff(&root_path).map_or(false, |path| path.components().next().is_some_and(|component| matches!(component, std::path::Component::ParentDir)));
+						let absolute_path = crate::util::fs::canonicalize_parent(path.parent().unwrap().join(import_path)).await.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
+						let is_external = absolute_path.strip_prefix(&root_path).is_err();
 
 						// If the import is of a module and points outside the root, return an error.
 						if (import_path.is_absolute() ||
@@ -642,43 +586,32 @@ impl Server {
 
 		// Read the symlink.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let reference = tokio::fs::read_link(path).await.map_err(
+		let target = tokio::fs::read_link(path).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to read symlink"),
 		)?;
 		drop(permit);
 
 		// Error if this is an absolute path or empty.
-		if reference.is_absolute() {
+		if target.is_absolute() {
 			return Err(
-				tg::error!(%path = path.display(), %target = reference.display(), "cannot check in an absolute path symlink"),
+				tg::error!(%path = path.display(), %target = target.display(), "cannot check in an absolute path symlink"),
 			);
-		} else if reference.as_os_str().is_empty() {
+		} else if target.as_os_str().is_empty() {
 			return Err(
 				tg::error!(%path = path.display(),  "cannot check in a path with an empty target"),
 			);
 		}
 
 		// Get the full target by joining with the parent.
-		let target = path.parent().unwrap().join(&reference);
-
-		// Canonicalize the parent of the target and join with the last element.
-		let parent = tokio::fs::canonicalize(&target.parent().unwrap())
-			.await
-			.map_err(|source| tg::error!(!source, %target = target.display(), "failed to canonicalize the target's parent"))?;
-
-		// Create the full target.
-		let target = match target.components().last().unwrap() {
-			std::path::Component::CurDir => parent,
-			std::path::Component::ParentDir => parent
-				.parent()
-				.ok_or_else(|| tg::error!("invalid symlink"))?
-				.to_owned(),
-			std::path::Component::Normal(normal) => parent.join(normal),
-			_ => return Err(tg::error!(%target = reference.display(), "invalid symlink")),
-		};
+		let target_absolute_path =
+			crate::util::fs::canonicalize_parent(path.parent().unwrap().join(&target))
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to canonicalize the path's parent")
+				})?;
 
 		// Check if this is a checkin of a bundled artifact.
-		let edge = if let Ok(subpath) = target.strip_prefix(self.artifacts_path()) {
+		let edge = if let Ok(subpath) = target_absolute_path.strip_prefix(self.artifacts_path()) {
 			let mut components = subpath.components();
 			let object = components
 				.next()
@@ -692,7 +625,7 @@ impl Server {
 				.map_err(|_| tg::error!(%subpath = subpath.display(), "expected an object id"))?;
 			let subpath = components.collect();
 			Edge {
-				reference: tg::Reference::with_path(reference),
+				reference: tg::Reference::with_path(target),
 				subpath: Some(subpath),
 				node: None,
 				object: Some(object),
@@ -700,7 +633,7 @@ impl Server {
 			}
 		} else {
 			Edge {
-				reference: tg::Reference::with_path(reference),
+				reference: tg::Reference::with_path(target),
 				subpath: None,
 				node: None,
 				object: None,
@@ -709,9 +642,7 @@ impl Server {
 		};
 		Ok(vec![edge])
 	}
-}
 
-impl Server {
 	pub(super) async fn select_lockfiles(&self, graph: &mut Graph) -> tg::Result<()> {
 		let visited = RwLock::new(BTreeSet::new());
 		self.select_lockfiles_inner(graph, 0, &visited).await?;
@@ -840,7 +771,7 @@ async fn root_node_with_subpath(graph: &Graph, node: usize) -> (usize, Option<Pa
 	// Otherwise compute the subpath within the root.
 	let referent_path = graph.nodes[node].arg.path.clone();
 	let root_path = graph.nodes[root].arg.path.clone();
-	let subpath = referent_path.diff(&root_path).unwrap();
+	let subpath = referent_path.strip_prefix(&root_path).unwrap().to_owned();
 
 	// Return the root node and subpath.
 	(root, Some(subpath))
@@ -856,14 +787,14 @@ impl State {
 		let mut dangling = Vec::new();
 		for root in &self.roots {
 			let old_path = self.graph.nodes[*root].arg.path.clone();
-			let diff = new_path.diff(&old_path).unwrap();
-			if let Ok(child) = diff.strip_prefix("./") {
+			if let Ok(child) = new_path.strip_prefix(&old_path) {
 				let dangling_directory = new_path.join(child.ancestors().last().unwrap());
 				dangling.push(dangling_directory);
 			} else {
 				roots.push(*root);
 			}
 		}
+
 		// Add the new node to the new list of roots.
 		if roots.is_empty() {
 			roots.push(node);

@@ -1,7 +1,6 @@
 use super::Compiler;
 use include_dir::include_dir;
 use tangram_client as tg;
-use tangram_either::Either;
 
 pub const LIBRARY: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 
@@ -17,10 +16,9 @@ impl Compiler {
 					..
 				},
 			} => {
-				let file_name = path.file_name().ok_or_else(|| tg::error!("invalid path"))?;
 				let file = LIBRARY
-					.get_file(file_name)
-					.ok_or_else(|| tg::error!(?file_name, "failed to find the library module"))?;
+					.get_file(path)
+					.ok_or_else(|| tg::error!(?path, "failed to find the library module"))?;
 				let text = file.contents_utf8().unwrap().to_owned();
 				Ok(text)
 			},
@@ -45,7 +43,7 @@ impl Compiler {
 
 				// Otherwise, load from the path.
 				let path = if let Some(subpath) = subpath {
-					path.clone().join(subpath)
+					path.join(subpath)
 				} else {
 					path.clone()
 				};
@@ -76,34 +74,10 @@ impl Compiler {
 				} else {
 					object
 				};
-
-				let file = match &object {
-					tg::Object::Directory(directory) => {
-						let root_module = tg::package::try_get_root_module_file_name(
-							&self.server,
-							Either::Left(&object),
-						)
-						.await?
-						.ok_or_else(|| tg::error!("expected a root module"))?;
-						directory
-							.get(&self.server, root_module)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to get root module"))?
-							.try_unwrap_file()
-							.map_err(|source| tg::error!(!source, "expected a file"))?
-					},
-					tg::Object::File(file) => file.clone(),
-					tg::Object::Symlink(symlink) => symlink
-						.try_resolve(&self.server)
-						.await?
-						.ok_or_else(|| tg::error!("the symlink is dangling"))?
-						.try_into()
-						.ok()
-						.ok_or_else(|| tg::error!("the symlink must point to a file"))?,
-					_ => {
-						return Err(tg::error!("module object must be an artifact"));
-					},
-				};
+				let file = object
+					.try_unwrap_file()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
 				let text = file.text(&self.server).await?;
 				Ok(text)
 			},

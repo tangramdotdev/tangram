@@ -216,7 +216,7 @@ impl std::str::FromStr for Item {
 			return Ok(Self::Object(object));
 		}
 		if s.starts_with('.') || s.starts_with('/') {
-			let path = s.into();
+			let path = s.strip_prefix("./").unwrap_or(s).into();
 			return Ok(Self::Path(path));
 		}
 		if let Ok(tag) = s.parse() {

@@ -67,7 +67,7 @@ async fn external_symlink() -> tg::Result<()> {
    		"dependencies": {
    			"../b/c": {
    				"item": tg.symlink({
-   					"subpath": "./e",
+   					"subpath": "e",
    				}),
    			},
    		},
@@ -236,7 +236,7 @@ async fn package_with_submodules() -> tg::Result<()> {
    				"dependencies": {
    					"./foo.tg.ts": {
    						"item": 0,
-   						"subpath": "./foo.tg.ts",
+   						"subpath": "foo.tg.ts",
    					},
    				},
    			},
@@ -246,7 +246,7 @@ async fn package_with_submodules() -> tg::Result<()> {
    				"dependencies": {
    					"./tangram.ts": {
    						"item": 0,
-   						"subpath": "./tangram.ts",
+   						"subpath": "tangram.ts",
    					},
    				},
    			},
@@ -369,7 +369,7 @@ async fn directory() -> tg::Result<()> {
    		"contents": tg.leaf("Hello, world!"),
    	}),
    	"link": tg.symlink({
-   		"subpath": "./hello.txt",
+   		"subpath": "hello.txt",
    	}),
    	"subdirectory": tg.directory({
    		"sublink": tg.symlink({

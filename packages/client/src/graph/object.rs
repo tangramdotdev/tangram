@@ -118,7 +118,7 @@ impl Node {
 						};
 						let referent = tg::Referent {
 							item,
-							subpath: None,
+							subpath: referent.subpath.clone(),
 							tag: referent.tag.clone(),
 						};
 						Ok::<_, tg::Error>((reference.clone(), referent))

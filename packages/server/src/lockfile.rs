@@ -258,7 +258,7 @@ impl Server {
 					)?;
 
 					let current_package_node = dependency_package_node;
-					let current_package_path = path.to_owned();
+					let current_package_path = path.clone();
 
 					// Recurse on the dependency's package.
 					let arg = FindInLockfileArg {

@@ -1,4 +1,4 @@
-use crate::{util::path::Ext as _, Server};
+use crate::Server;
 use futures::{stream, Future, Stream, TryStreamExt as _};
 use std::{path::PathBuf, sync::Arc};
 use tangram_client as tg;
@@ -38,23 +38,17 @@ impl Proxy {
 		Self(Arc::new(inner))
 	}
 
-	fn host_path_for_guest_path(&self, path: PathBuf) -> tg::Result<PathBuf> {
+	fn host_path_for_guest_path(&self, path: PathBuf) -> PathBuf {
 		// Get the path map. If there is no path map, then the guest path is the host path.
 		let Some(path_map) = &self.path_map else {
-			return Ok(path);
+			return path;
 		};
 
 		// Map the path.
-		if let Some(path) = path
-			.diff(&path_map.output_guest)
-			.filter(|path| matches!(path.components().next(), Some(std::path::Component::CurDir)))
-		{
-			Ok(path_map.output_host.join(path))
+		if let Ok(path) = path.strip_prefix(&path_map.output_guest) {
+			path_map.output_host.join(path)
 		} else {
-			let path = path
-				.diff("/")
-				.ok_or_else(|| tg::error!("the path must be absolute"))?;
-			Ok(path_map.root_host.join(path))
+			path_map.root_host.join(path)
 		}
 	}
 
@@ -92,7 +86,7 @@ impl tg::Handle for Proxy {
 			+ 'static,
 	> {
 		// Replace the path with the host path.
-		arg.path = self.host_path_for_guest_path(arg.path.clone())?;
+		arg.path = self.host_path_for_guest_path(arg.path.clone());
 
 		// Perform the checkin.
 		let stream = self.server.check_in_artifact(arg).await?;
@@ -111,7 +105,7 @@ impl tg::Handle for Proxy {
 	> {
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {
-			*path = self.host_path_for_guest_path(path.clone())?;
+			*path = self.host_path_for_guest_path(path.clone());
 		}
 
 		// Check out the artifact.

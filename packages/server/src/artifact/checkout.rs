@@ -1,4 +1,4 @@
-use crate::{temp::Temp, util::path::Ext, Server};
+use crate::{temp::Temp, Server};
 use dashmap::{DashMap, DashSet};
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
@@ -614,8 +614,8 @@ impl Server {
 		// Render the target.
 		let mut target: PathBuf = PathBuf::new();
 		if let Some(artifact) = &artifact {
-			let diff = cache_directory.diff(path.parent().unwrap()).unwrap();
-			let path = diff.join(artifact.id(self).await?.to_string());
+			let path = crate::util::path::diff(path.parent().unwrap(), cache_directory).unwrap();
+			let path = path.join(artifact.id(self).await?.to_string());
 			target.push(path);
 		}
 		if let Some(subpath) = subpath {
