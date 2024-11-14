@@ -817,25 +817,3 @@ async fn get_root_node(graph: &Graph, mut node: usize) -> usize {
 		node = parent;
 	}
 }
-
-impl std::fmt::Display for Edge {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{{ reference: {}", self.reference)?;
-		if let Some(node) = &self.node {
-			write!(f, ", node: {node}")?;
-		}
-		if let Some(object) = &self.object {
-			write!(f, ", object: {object}")?;
-		}
-		if let Some(path) = &self.path {
-			write!(f, ", path: {}", path.display())?;
-		}
-		if let Some(subpath) = &self.subpath {
-			write!(f, ", subpath: {}", subpath.display())?;
-		}
-		if let Some(tag) = &self.tag {
-			write!(f, ", tag: {tag}")?;
-		}
-		write!(f, " }}")
-	}
-}
