@@ -67,7 +67,7 @@ struct Args {
 	path: Option<PathBuf>,
 
 	/// Override the `url` key in the config.
-	#[arg(short, long)]
+	#[arg(short, long, env = "TANGRAM_URL")]
 	url: Option<Url>,
 }
 
