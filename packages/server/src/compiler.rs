@@ -35,6 +35,8 @@ pub mod rename;
 pub mod resolve;
 pub mod symbols;
 pub mod syscall;
+#[cfg(test)]
+pub mod tests;
 pub mod transpile;
 pub mod version;
 pub mod workspace;
