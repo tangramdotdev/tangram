@@ -488,84 +488,96 @@ impl Cli {
 		}
 
 		// Set the authentication options.
-		if let Some(authentication) = self
+		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.authentication.as_ref())
 		{
-			let mut authentication_ = tangram_server::config::Authentication::default();
-			if let Some(providers) = authentication.providers.as_ref() {
-				if let Some(github) = providers.github.as_ref() {
-					authentication_.providers.github = Some(tangram_server::config::Oauth {
-						auth_url: github.auth_url.clone(),
-						client_id: github.client_id.clone(),
-						client_secret: github.client_secret.clone(),
-						redirect_url: github.redirect_url.clone(),
-						token_url: github.token_url.clone(),
-					});
+			None => (),
+			Some(None) => {
+				config.authentication = None;
+			},
+			Some(Some(authentication)) => {
+				let mut authentication_ = tangram_server::config::Authentication::default();
+				if let Some(providers) = authentication.providers.as_ref() {
+					if let Some(github) = providers.github.as_ref() {
+						authentication_.providers.github = Some(tangram_server::config::Oauth {
+							auth_url: github.auth_url.clone(),
+							client_id: github.client_id.clone(),
+							client_secret: github.client_secret.clone(),
+							redirect_url: github.redirect_url.clone(),
+							token_url: github.token_url.clone(),
+						});
+					}
 				}
-			}
-			config.authentication = Some(authentication_);
+				config.authentication = Some(authentication_);
+			},
 		}
 
 		// Set the build options.
-		if let Some(build) = self.config.as_ref().and_then(|config| config.build.clone()) {
-			let mut build_ = tangram_server::config::Build::default();
-			if let Some(concurrency) = build.as_ref().and_then(|config| config.concurrency) {
-				build_.concurrency = concurrency;
-			}
-			if let Some(heartbeat_interval) =
-				build.as_ref().and_then(|config| config.heartbeat_interval)
-			{
-				build_.heartbeat_interval = heartbeat_interval;
-			}
-			if let Some(max_depth) = build.as_ref().and_then(|config| config.max_depth) {
-				build_.max_depth = max_depth;
-			}
-			if let Some(remotes) = build.as_ref().and_then(|config| config.remotes.clone()) {
-				build_.remotes = remotes;
-			}
-			config.build = Some(build_);
+		match self.config.as_ref().and_then(|config| config.build.clone()) {
+			None => (),
+			Some(None) => {
+				config.build = None;
+			},
+			Some(Some(build)) => {
+				let mut build_ = tangram_server::config::Build::default();
+				if let Some(concurrency) = build.concurrency {
+					build_.concurrency = concurrency;
+				}
+				if let Some(heartbeat_interval) = build.heartbeat_interval {
+					build_.heartbeat_interval = heartbeat_interval;
+				}
+				if let Some(max_depth) = build.max_depth {
+					build_.max_depth = max_depth;
+				}
+				if let Some(remotes) = build.remotes.clone() {
+					build_.remotes = remotes;
+				}
+				config.build = Some(build_);
+			},
 		}
 
 		// Set the build heartbeat monitor options.
-		if let Some(build_heartbeat_monitor) = self
+		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.build_heartbeat_monitor.clone())
 		{
-			let mut build_heartbeat_monitor_ =
-				tangram_server::config::BuildHeartbeatMonitor::default();
-			if let Some(interval) = build_heartbeat_monitor
-				.as_ref()
-				.and_then(|config| config.interval)
-			{
-				build_heartbeat_monitor_.interval = interval;
-			}
-			if let Some(limit) = build_heartbeat_monitor
-				.as_ref()
-				.and_then(|config| config.limit)
-			{
-				build_heartbeat_monitor_.limit = limit;
-			}
-			if let Some(timeout) = build_heartbeat_monitor
-				.as_ref()
-				.and_then(|config| config.timeout)
-			{
-				build_heartbeat_monitor_.timeout = timeout;
-			}
-			config.build_heartbeat_monitor = Some(build_heartbeat_monitor_);
+			None => (),
+			Some(None) => {
+				config.build_heartbeat_monitor = None;
+			},
+			Some(Some(build_heartbeat_monitor)) => {
+				let mut build_heartbeat_monitor_ =
+					tangram_server::config::BuildHeartbeatMonitor::default();
+				if let Some(interval) = build_heartbeat_monitor.interval {
+					build_heartbeat_monitor_.interval = interval;
+				}
+				if let Some(limit) = build_heartbeat_monitor.limit {
+					build_heartbeat_monitor_.limit = limit;
+				}
+				if let Some(timeout) = build_heartbeat_monitor.timeout {
+					build_heartbeat_monitor_.timeout = timeout;
+				}
+				config.build_heartbeat_monitor = Some(build_heartbeat_monitor_);
+			},
 		}
 
 		// Set the build indexer options.
-		if self
+		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.build_indexer.clone())
-			.is_some()
 		{
-			let build_indexer = tangram_server::config::BuildIndexer::default();
-			config.build_indexer = Some(build_indexer);
+			None => (),
+			Some(None) => {
+				config.build_indexer = None;
+			},
+			Some(Some(_build_indexer)) => {
+				let build_indexer_ = tangram_server::config::BuildIndexer::default();
+				config.build_indexer = Some(build_indexer_);
+			},
 		}
 
 		// Set the database options.
@@ -618,19 +630,25 @@ impl Cli {
 		}
 
 		// Set the object indexer options.
-		if let Some(object_indexer) = self
+		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.object_indexer.clone())
 		{
-			let mut object_indexer_ = tangram_server::config::ObjectIndexer::default();
-			if let Some(batch_size) = object_indexer.as_ref().and_then(|config| config.batch_size) {
-				object_indexer_.batch_size = batch_size;
-			}
-			if let Some(timeout) = object_indexer.as_ref().and_then(|config| config.timeout) {
-				object_indexer_.timeout = timeout;
-			}
-			config.object_indexer = Some(object_indexer_);
+			None => (),
+			Some(None) => {
+				config.object_indexer = None;
+			},
+			Some(Some(object_indexer)) => {
+				let mut object_indexer_ = tangram_server::config::ObjectIndexer::default();
+				if let Some(batch_size) = object_indexer.batch_size {
+					object_indexer_.batch_size = batch_size;
+				}
+				if let Some(timeout) = object_indexer.timeout {
+					object_indexer_.timeout = timeout;
+				}
+				config.object_indexer = Some(object_indexer_);
+			},
 		}
 
 		// Set the remote options.
@@ -641,8 +659,8 @@ impl Cli {
 		{
 			None => (),
 			Some(None) => config.remotes.clear(),
-			Some(Some(remotes_)) => {
-				for (name, remote) in remotes_ {
+			Some(Some(remotes)) => {
+				for (name, remote) in remotes {
 					match remote {
 						None => {
 							config.remotes.remove(name);
@@ -659,20 +677,24 @@ impl Cli {
 		}
 
 		// Set the vfs options.
-		if let Some(vfs) = self.config.as_ref().and_then(|config| config.vfs.clone()) {
-			let mut vfs_ = tangram_server::config::Vfs::default();
-			if let Some(cache_ttl) = vfs.as_ref().and_then(|config| config.cache_ttl) {
-				vfs_.cache_ttl = cache_ttl;
-			}
-			if let Some(cache_size) = vfs.as_ref().and_then(|config| config.cache_size) {
-				vfs_.cache_size = cache_size;
-			}
-			if let Some(database_connections) =
-				vfs.as_ref().and_then(|config| config.database_connections)
-			{
-				vfs_.database_connections = database_connections;
-			}
-			config.vfs = Some(vfs_);
+		match self.config.as_ref().and_then(|config| config.vfs.clone()) {
+			None => (),
+			Some(None) => {
+				config.vfs = None;
+			},
+			Some(Some(vfs)) => {
+				let mut vfs_ = tangram_server::config::Vfs::default();
+				if let Some(cache_ttl) = vfs.cache_ttl {
+					vfs_.cache_ttl = cache_ttl;
+				}
+				if let Some(cache_size) = vfs.cache_size {
+					vfs_.cache_size = cache_size;
+				}
+				if let Some(database_connections) = vfs.database_connections {
+					vfs_.database_connections = database_connections;
+				}
+				config.vfs = Some(vfs_);
+			},
 		}
 
 		// Start the server.

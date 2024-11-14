@@ -10,8 +10,13 @@ pub struct Config {
 	pub advanced: Option<Advanced>,
 
 	/// Configure authentication.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub authentication: Option<Authentication>,
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub authentication: Option<Option<Authentication>>,
 
 	/// Configure builds.
 	#[allow(clippy::option_option)]
