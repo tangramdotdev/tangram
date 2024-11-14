@@ -118,6 +118,7 @@ impl Node {
 						};
 						let referent = tg::Referent {
 							item,
+							path: referent.path.clone(),
 							subpath: referent.subpath.clone(),
 							tag: referent.tag.clone(),
 						};
@@ -200,6 +201,7 @@ impl TryFrom<tg::graph::data::Node> for Node {
 					.map(|(reference, referent)| {
 						let referent = tg::Referent {
 							item: referent.item.map_right(tg::Object::with_id),
+							path: referent.path.clone(),
 							subpath: referent.subpath,
 							tag: referent.tag,
 						};

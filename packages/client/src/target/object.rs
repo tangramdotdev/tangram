@@ -61,9 +61,15 @@ impl Module {
 	{
 		let kind = self.kind;
 		let item = self.referent.item.id(handle).await?;
+		let path = self.referent.path.clone();
 		let subpath = self.referent.subpath.clone();
 		let tag = self.referent.tag.clone();
-		let referent = tg::Referent { item, subpath, tag };
+		let referent = tg::Referent {
+			item,
+			path,
+			subpath,
+			tag,
+		};
 		let data = tg::target::data::Module { kind, referent };
 		Ok(data)
 	}
@@ -111,9 +117,15 @@ impl TryFrom<tg::target::data::Module> for Module {
 	fn try_from(data: tg::target::data::Module) -> std::result::Result<Self, Self::Error> {
 		let kind = data.kind;
 		let item = tg::Object::with_id(data.referent.item);
+		let path = data.referent.path;
 		let subpath = data.referent.subpath;
 		let tag = data.referent.tag;
-		let referent = tg::Referent { item, subpath, tag };
+		let referent = tg::Referent {
+			item,
+			path,
+			subpath,
+			tag,
+		};
 		let module = Self { kind, referent };
 		Ok(module)
 	}

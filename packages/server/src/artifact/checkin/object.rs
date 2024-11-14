@@ -29,6 +29,7 @@ pub struct Node {
 #[derive(Debug)]
 pub struct Edge {
 	pub index: usize,
+	pub path: Option<PathBuf>,
 	pub reference: tg::Reference,
 	pub subpath: Option<PathBuf>,
 	pub tag: Option<tg::Tag>,
@@ -37,6 +38,7 @@ pub struct Edge {
 #[derive(Clone, Debug)]
 struct RemappedEdge {
 	pub id: Either<usize, tg::object::Id>,
+	pub path: Option<PathBuf>,
 	pub reference: tg::Reference,
 	pub subpath: Option<PathBuf>,
 	pub tag: Option<tg::Tag>,
@@ -115,6 +117,7 @@ impl Server {
 			let referrent = unify.nodes.get(&edge.referent).unwrap();
 			let edge = Edge {
 				index: dependency_index,
+				path: edge.path.clone(),
 				reference: reference.clone(),
 				subpath: edge.subpath.clone(),
 				tag: referrent.tag.clone(),
@@ -285,10 +288,11 @@ impl Server {
 					Either::Right(id)
 				};
 				RemappedEdge {
-					reference: edge.reference.clone(),
 					id,
-					tag: edge.tag.clone(),
+					path: edge.path.clone(),
+					reference: edge.reference.clone(),
 					subpath: edge.subpath.clone(),
+					tag: edge.tag.clone(),
 				}
 			})
 			.collect::<Vec<_>>();
@@ -372,6 +376,7 @@ impl Server {
 			.map(|edge| {
 				let dependency = tg::Referent {
 					item: edge.id,
+					path: edge.path,
 					tag: edge.tag,
 					subpath: edge.subpath,
 				};
@@ -474,9 +479,22 @@ impl Server {
 				let dependencies = dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						let tg::Referent { item, tag, subpath } = referent;
+						let tg::Referent {
+							item,
+							path,
+							tag,
+							subpath,
+						} = referent;
 						let item = item.unwrap_right();
-						(reference, tg::Referent { item, subpath, tag })
+						(
+							reference,
+							tg::Referent {
+								item,
+								path,
+								subpath,
+								tag,
+							},
+						)
 					})
 					.collect();
 				tg::file::Data::Normal {

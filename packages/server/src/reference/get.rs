@@ -15,6 +15,7 @@ impl Server {
 				let item = Either::Left(build.clone());
 				let output = tg::Referent {
 					item,
+					path: None,
 					subpath: None,
 					tag: None,
 				};
@@ -27,6 +28,7 @@ impl Server {
 					.and_then(|options| options.subpath.clone());
 				let output = tg::Referent {
 					item,
+					path: None,
 					subpath,
 					tag: None,
 				};
@@ -53,6 +55,7 @@ impl Server {
 				let output = tg::Referent {
 					item,
 					subpath,
+					path: None,
 					tag: None,
 				};
 				Ok(Some(output))
@@ -70,6 +73,7 @@ impl Server {
 					.and_then(|options| options.subpath.clone());
 				let output = tg::Referent {
 					item,
+					path: None,
 					subpath,
 					tag: Some(tag),
 				};

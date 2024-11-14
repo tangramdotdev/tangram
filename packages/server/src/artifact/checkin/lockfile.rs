@@ -100,8 +100,14 @@ impl Server {
 				let reference = edge.reference.clone();
 				let tag = edge.tag.clone();
 				let item = self.get_lockfile_entry(graph, edge.index);
+				let path = edge.path.clone();
 				let subpath = edge.subpath.clone();
-				let referent = tg::Referent { item, subpath, tag };
+				let referent = tg::Referent {
+					item,
+					path,
+					subpath,
+					tag,
+				};
 				(reference, referent)
 			})
 			.collect();
@@ -363,7 +369,13 @@ fn strip_nodes_inner(
 			let dependencies = dependencies
 				.into_iter()
 				.filter_map(|(reference, referent)| {
-					let item = match referent.item {
+					let tg::Referent {
+						item,
+						path,
+						subpath,
+						tag,
+					} = referent;
+					let item = match item {
 						Either::Left(node) => Either::Left(strip_nodes_inner(
 							old_nodes,
 							node,
@@ -373,9 +385,15 @@ fn strip_nodes_inner(
 						)?),
 						Either::Right(id) => Either::Right(id),
 					};
-					let tag = referent.tag;
-					let subpath = referent.subpath;
-					Some((reference, tg::Referent { item, subpath, tag }))
+					Some((
+						reference,
+						tg::Referent {
+							item,
+							path,
+							subpath,
+							tag,
+						},
+					))
 				})
 				.collect();
 

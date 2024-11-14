@@ -12,6 +12,12 @@ where
 		let value = self.item.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
+		if let Some(path) = &self.path {
+			let key = v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
+			let value = path.to_v8(scope)?;
+			object.set(scope, key.into(), value);
+		}
+
 		if let Some(subpath) = &self.subpath {
 			let key = v8::String::new_external_onebyte_static(scope, "subpath".as_bytes()).unwrap();
 			let value = subpath.to_v8(scope)?;
@@ -42,6 +48,15 @@ where
 		let item = <_>::from_v8(scope, item)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the item"))?;
 
+		let path = v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
+		let path = value.get(scope, path.into()).unwrap();
+		let path: Option<String> = <_>::from_v8(scope, path)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the subpath"))?;
+		let path = path
+			.map(|path| path.parse())
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the subpath"))?;
+
 		let subpath = v8::String::new_external_onebyte_static(scope, "subpath".as_bytes()).unwrap();
 		let subpath = value.get(scope, subpath.into()).unwrap();
 		let subpath: Option<String> = <_>::from_v8(scope, subpath)
@@ -60,6 +75,11 @@ where
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
 
-		Ok(Self { item, subpath, tag })
+		Ok(Self {
+			item,
+			path,
+			subpath,
+			tag,
+		})
 	}
 }

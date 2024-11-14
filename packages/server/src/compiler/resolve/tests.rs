@@ -21,6 +21,7 @@ async fn path_dependency_path() -> tg::Result<()> {
 				referent: tg::Referent {
 					item: tg::module::Item::Path(path),
 					subpath: Some("foo.tg.ts".into()),
+					path: None,
 					tag: None,
 				},
 			};
@@ -48,6 +49,7 @@ async fn path_dependency_object() -> tg::Result<()> {
 				referent: tg::Referent {
 					item: tg::module::Item::Object(artifact.id(&server).await?.into()),
 					subpath: Some("foo.tg.ts".into()),
+					path: None,
 					tag: None,
 				},
 			};
@@ -80,6 +82,7 @@ async fn package_path_dependency_path() -> tg::Result<()> {
 				referent: tg::Referent {
 					item: tg::module::Item::Path(path),
 					subpath: Some("tangram.ts".into()),
+					path: Some("../bar".into()),
 					tag: None,
 				},
 			};
@@ -113,6 +116,7 @@ async fn package_path_dependency_object() -> tg::Result<()> {
 				referent: tg::Referent {
 					item: tg::module::Item::Object(object),
 					subpath: Some("tangram.ts".into()),
+					path: None,
 					tag: None,
 				},
 			};
@@ -161,6 +165,7 @@ where
 			referent: tg::Referent {
 				item: tg::module::Item::Path(directory.path().join(path)),
 				subpath: Some(PathBuf::from(subpath)),
+				path: None,
 				tag: None,
 			},
 		};
@@ -221,6 +226,7 @@ where
 			referent: tg::Referent {
 				item: tg::module::Item::Object(item),
 				subpath: Some(PathBuf::from(subpath)),
+				path: None,
 				tag: None,
 			},
 		};

@@ -8,6 +8,9 @@ pub struct Referent<T> {
 	pub item: T,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub subpath: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

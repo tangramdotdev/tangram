@@ -19,8 +19,8 @@ pub struct Graph {
 pub struct Node {
 	pub arg: tg::artifact::checkin::Arg,
 	pub edges: Vec<Edge>,
-	pub metadata: std::fs::Metadata,
 	pub lockfile: Option<(Arc<tg::Lockfile>, usize)>,
+	pub metadata: std::fs::Metadata,
 	pub parent: Option<usize>,
 }
 
@@ -30,6 +30,7 @@ pub struct Edge {
 	pub subpath: Option<PathBuf>,
 	pub node: Option<usize>,
 	pub object: Option<tg::object::Id>,
+	pub path: Option<PathBuf>,
 	pub tag: Option<tg::Tag>,
 }
 
@@ -147,24 +148,14 @@ impl Server {
 		} else {
 			let referrer = referrer.ok_or_else(|| tg::error!("expected a referrer"))?;
 			let referrer_path = state.read().await.graph.nodes[referrer].arg.path.clone();
-			referrer_path.join(path.strip_prefix("./").unwrap_or(path))
+			referrer_path.join(path)
 		};
-		let parent = path.parent().unwrap();
 
-		// Canonicalize the parent and join with the file name.
+		// Canonicalize the path.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let parent = tokio::fs::canonicalize(parent).await.map_err(
-			|source| tg::error!(!source, %path = parent.display(), "failed to canonicalize the path"),
+		let absolute_path = crate::util::fs::canonicalize_parent(&path).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to canonicalize path"),
 		)?;
-		let absolute_path = match path.components().last().unwrap() {
-			std::path::Component::CurDir => parent,
-			std::path::Component::ParentDir => parent
-				.parent()
-				.ok_or_else(|| tg::error!(%path = path.display(), "invalid path"))?
-				.to_owned(),
-			std::path::Component::Normal(normal) => parent.join(normal),
-			_ => return Err(tg::error!(%path = path.display(), "invalid path")),
-		};
 		drop(permit);
 
 		// Get the file system metadata.
@@ -200,8 +191,8 @@ impl Server {
 		let node = Node {
 			arg: arg_,
 			edges: Vec::new(),
-			metadata: metadata.clone(),
 			lockfile: None,
+			metadata: metadata.clone(),
 			parent,
 		};
 		state_.graph.nodes.push(node);
@@ -340,11 +331,13 @@ impl Server {
 
 					// Create the edge.
 					let reference = tg::Reference::with_path(&name);
+					let path = crate::util::path::diff(&arg.path, &path)?;
 					let edge = Edge {
 						reference,
 						subpath: None,
 						node: Some(node),
 						object: None,
+						path: Some(path),
 						tag: None,
 					};
 					Ok::<_, tg::Error>(edge)
@@ -422,6 +415,7 @@ impl Server {
 								};
 								let dependency = tg::Referent {
 									item,
+									path: referent.path.clone(),
 									tag: referent.tag.clone(),
 									subpath: referent.subpath.clone(),
 								};
@@ -441,6 +435,7 @@ impl Server {
 					node: None,
 					object: Some(referent.item),
 					subpath: referent.subpath,
+					path: referent.path,
 					tag: referent.tag,
 				})
 				.collect();
@@ -543,10 +538,12 @@ impl Server {
 						};
 
 						// Create the edge.
+						let path = crate::util::path::diff( &arg.path, &child_path)?;
 						let edge = Edge {
 							reference,
 							node: Some(node),
 							object: None,
+							path: Some(path),
 							subpath,
 							tag: None,
 						};
@@ -558,6 +555,7 @@ impl Server {
 						reference: import.reference,
 						node: None,
 						object: None,
+						path: None,
 						subpath: None,
 						tag: None,
 					})
@@ -574,7 +572,7 @@ impl Server {
 		&self,
 		referrer: usize,
 		path: &Path,
-		_arg: &tg::artifact::checkin::Arg,
+		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		_progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
@@ -611,6 +609,7 @@ impl Server {
 				})?;
 
 		// Check if this is a checkin of a bundled artifact.
+		let path = crate::util::path::diff(&arg.path, &target_absolute_path)?;
 		let edge = if let Ok(subpath) = target_absolute_path.strip_prefix(self.artifacts_path()) {
 			let mut components = subpath.components();
 			let object = components
@@ -629,6 +628,7 @@ impl Server {
 				subpath: Some(subpath),
 				node: None,
 				object: Some(object),
+				path: Some(path),
 				tag: None,
 			}
 		} else {
@@ -637,6 +637,7 @@ impl Server {
 				subpath: None,
 				node: None,
 				object: None,
+				path: Some(path),
 				tag: None,
 			}
 		};
@@ -814,5 +815,27 @@ async fn get_root_node(graph: &Graph, mut node: usize) -> usize {
 			return node;
 		};
 		node = parent;
+	}
+}
+
+impl std::fmt::Display for Edge {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{{ reference: {}", self.reference)?;
+		if let Some(node) = &self.node {
+			write!(f, ", node: {node}")?;
+		}
+		if let Some(object) = &self.object {
+			write!(f, ", object: {object}")?;
+		}
+		if let Some(path) = &self.path {
+			write!(f, ", path: {}", path.display())?;
+		}
+		if let Some(subpath) = &self.subpath {
+			write!(f, ", subpath: {}", subpath.display())?;
+		}
+		if let Some(tag) = &self.tag {
+			write!(f, ", tag: {tag}")?;
+		}
+		write!(f, " }}")
 	}
 }

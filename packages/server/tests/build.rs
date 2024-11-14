@@ -684,6 +684,7 @@ where
 			kind: tg::module::Kind::Js,
 			referent: tg::Referent {
 				item: artifact,
+				path: None,
 				subpath,
 				tag: None,
 			},

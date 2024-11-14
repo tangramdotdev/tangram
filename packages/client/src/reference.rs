@@ -155,6 +155,7 @@ impl Reference {
 					.item
 					.map_left(tg::Build::with_id)
 					.map_right(tg::Object::with_id),
+				path: referent.path,
 				subpath: referent.subpath,
 				tag: referent.tag,
 			})

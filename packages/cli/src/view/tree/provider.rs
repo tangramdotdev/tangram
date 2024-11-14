@@ -297,9 +297,15 @@ impl Provider {
 				},
 				tg::target::Executable::Module(module) => module.referent,
 			};
-			let tg::Referent { item, subpath, tag } = executable_referent;
+			let tg::Referent {
+				item,
+				path,
+				subpath,
+				tag,
+			} = executable_referent;
 			let executable_referent = tg::Referent {
 				item: item.id(handle).await?,
+				path,
 				subpath,
 				tag,
 			};
@@ -317,6 +323,7 @@ impl Provider {
 				async move {
 					let referent = tg::Referent {
 						item: referent.item.id(handle).await?,
+						path: referent.path.clone(),
 						subpath: referent.subpath.clone(),
 						tag: referent.tag.clone(),
 					};

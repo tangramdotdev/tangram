@@ -42,6 +42,7 @@ impl Server {
 			kind: tg::module::Kind::Dts,
 			referent: tg::Referent {
 				item: tg::module::Item::Path("tangram.d.ts".into()),
+				path: None,
 				subpath: None,
 				tag: None,
 			},
