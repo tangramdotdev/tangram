@@ -37,15 +37,25 @@ impl Server {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>,
 	> {
 		let progress = crate::progress::Handle::new();
-		tokio::spawn({
+		let task = tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
 			let progress = progress.clone();
+			async move { server.check_out_artifact_task(&id, arg, &progress).await }
+		});
+		tokio::spawn({
+			let progress = progress.clone();
 			async move {
-				let result = server.check_out_artifact_task(&id, arg, &progress).await;
-				match result {
-					Ok(output) => progress.output(output),
-					Err(error) => progress.error(error),
+				match task.await {
+					Ok(Ok(output)) => {
+						progress.output(output);
+					},
+					Ok(Err(error)) => {
+						progress.error(error);
+					},
+					Err(source) => {
+						progress.error(tg::error!(!source, "the task panicked"));
+					},
 				};
 			}
 		});

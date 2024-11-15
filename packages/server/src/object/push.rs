@@ -36,7 +36,7 @@ impl Server {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let metadata = src.get_object_metadata(object).await?;
 		let progress = crate::progress::Handle::new();
-		tokio::spawn({
+		let task = tokio::spawn({
 			let src = src.clone();
 			let dst = dst.clone();
 			let object = object.clone();
@@ -54,12 +54,27 @@ impl Server {
 					Some(0),
 					metadata.weight.map(Into::into),
 				);
-				let result = Self::push_or_pull_object_inner(&src, &dst, &object, &progress).await;
+				let result = Self::push_or_pull_object_inner(&src, &dst, &object, &progress)
+					.await
+					.map(|_| ());
 				progress.finish("objects");
 				progress.finish("bytes");
-				match result {
-					Ok(_) => progress.output(()),
-					Err(error) => progress.error(error),
+				result
+			}
+		});
+		tokio::spawn({
+			let progress = progress.clone();
+			async move {
+				match task.await {
+					Ok(Ok(output)) => {
+						progress.output(output);
+					},
+					Ok(Err(error)) => {
+						progress.error(error);
+					},
+					Err(source) => {
+						progress.error(tg::error!(!source, "the task panicked"));
+					},
 				};
 			}
 		});

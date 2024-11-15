@@ -42,7 +42,7 @@ impl Server {
 		let output = src.get_build(build).await?;
 		let metadata = Self::get_build_metadata(src, &output, &arg).await?;
 		let progress = crate::progress::Handle::new();
-		tokio::spawn({
+		let task = tokio::spawn({
 			let src = src.clone();
 			let dst = dst.clone();
 			let build = build.clone();
@@ -66,14 +66,28 @@ impl Server {
 					Some(0),
 					metadata.object_weight.map(Into::into),
 				);
-				let result =
-					Self::push_or_pull_build_inner(&src, &dst, &build, arg, &progress).await;
+				let result = Self::push_or_pull_build_inner(&src, &dst, &build, arg, &progress)
+					.await
+					.map(|_| ());
 				progress.finish("builds");
 				progress.finish("objects");
 				progress.finish("bytes");
-				match result {
-					Ok(_) => progress.output(()),
-					Err(error) => progress.error(error),
+				result
+			}
+		});
+		tokio::spawn({
+			let progress = progress.clone();
+			async move {
+				match task.await {
+					Ok(Ok(output)) => {
+						progress.output(output);
+					},
+					Ok(Err(error)) => {
+						progress.error(error);
+					},
+					Err(source) => {
+						progress.error(tg::error!(!source, "the task panicked"));
+					},
 				};
 			}
 		});

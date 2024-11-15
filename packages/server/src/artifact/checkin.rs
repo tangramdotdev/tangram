@@ -31,14 +31,24 @@ impl Server {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>,
 	> {
 		let progress = crate::progress::Handle::new();
-		tokio::spawn({
+		let task = tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
+			async move { server.check_in_artifact_task(arg, Some(&progress)).await }
+		});
+		tokio::spawn({
+			let progress = progress.clone();
 			async move {
-				let result = server.check_in_artifact_task(arg, Some(&progress)).await;
-				match result {
-					Ok(output) => progress.output(output),
-					Err(error) => progress.error(error),
+				match task.await {
+					Ok(Ok(output)) => {
+						progress.output(output);
+					},
+					Ok(Err(error)) => {
+						progress.error(error);
+					},
+					Err(source) => {
+						progress.error(tg::error!(!source, "the task panicked"));
+					},
 				};
 			}
 		});
@@ -56,6 +66,8 @@ impl Server {
 		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
+
+		panic!("at the disco");
 
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
