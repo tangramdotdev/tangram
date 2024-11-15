@@ -1,6 +1,8 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
-use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt, TryStreamExt as _};
+use futures::{
+	future::BoxFuture, stream::FuturesUnordered, Future, FutureExt, TryFutureExt, TryStreamExt as _,
+};
 use std::{
 	collections::BTreeMap,
 	path::{Path, PathBuf},
@@ -126,13 +128,24 @@ impl Directory {
 				Ok(Data::Graph { graph, node })
 			},
 			Object::Normal { entries } => {
+				#[allow(clippy::manual_async_fn)]
+				fn future(
+					handle: impl tg::Handle,
+					artifact: tg::Artifact,
+				) -> impl Future<Output = tg::Result<tg::artifact::Id>> + Send {
+					async move { artifact.id(&handle).await }
+				}
 				let entries = entries
 					.iter()
 					.map(|(name, artifact)| {
-						let name = name.clone();
-						let fut = artifact_id_future(artifact, handle)
-							.then(move |result| async move { Ok::<_, tg::Error>((name, result?)) });
-						fut
+						let artifact = artifact.clone();
+						let handle = handle.clone();
+						async move {
+							let artifact = tokio::spawn(future(handle, artifact))
+								.map(|result| result.unwrap())
+								.await?;
+							Ok::<_, tg::Error>((name.clone(), artifact))
+						}
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
@@ -355,15 +368,4 @@ macro_rules! directory {
 		)*
 		$crate::Directory::with_entries(entries)
 	}};
-}
-
-fn artifact_id_future(
-	artifact: &tg::Artifact,
-	handle: &impl tg::Handle,
-) -> BoxFuture<'static, tg::Result<tg::artifact::Id>> {
-	let artifact = artifact.clone();
-	let handle = handle.clone();
-	let fut = tokio::spawn(async move { artifact.id(&handle).await })
-		.then(|result| async move { result.map_err(|_| tg::error!("failed to join task"))? });
-	fut.boxed()
 }
