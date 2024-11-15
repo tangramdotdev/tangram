@@ -103,28 +103,13 @@ impl Server {
 	// Check in the artifact.
 	async fn check_in_artifact_inner(
 		&self,
-		mut arg: tg::artifact::checkin::Arg,
+		arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Verify the path is absolute.
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(%path = arg.path.display(), "expected an absolute path"));
 		}
-
-		// Canonicalize the path.
-		let path = tokio::fs::canonicalize(
-			arg.path
-				.parent()
-				.ok_or_else(|| tg::error!("expected a parent path"))?,
-		)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?
-		.join(
-			arg.path
-				.file_name()
-				.ok_or_else(|| tg::error!("expected a non-empty path"))?,
-		);
-		arg.path = path;
 
 		// Create the input graph.
 		let input = self
@@ -163,9 +148,7 @@ impl Server {
 			.await?;
 
 		// Write lockfiles.
-		let lockfile = self.create_lockfile(&object).await?;
-		self.write_lockfiles(&input, &lockfile, &object.paths)
-			.await?;
+		self.write_lockfile(&input, &object).await?;
 
 		// Write the artifact data to the database.
 		self.write_output_to_database(&output).await?;

@@ -165,6 +165,7 @@ where
 		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
+
 		let referrer = tg::Module {
 			kind,
 			referent: tg::Referent {
@@ -218,6 +219,7 @@ where
 		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
+
 		let item = artifact
 			.clone()
 			.unwrap_directory()

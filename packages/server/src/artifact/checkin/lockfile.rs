@@ -1,20 +1,65 @@
 use super::{input, object};
 use crate::Server;
-use std::{
-	collections::BTreeMap,
-	path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 
 impl Server {
-	pub(super) async fn create_lockfile(&self, graph: &object::Graph) -> tg::Result<tg::Lockfile> {
+	pub(super) async fn write_lockfile(
+		&self,
+		input: &input::Graph,
+		object: &object::Graph,
+	) -> tg::Result<()> {
+		// Create the lockfile.
+		let lockfile = self
+			.create_lockfile(&object, &input.nodes[0].arg.path)
+			.await?;
+
+		// Skip empty lockfiles.
+		if lockfile.nodes.is_empty() {
+			return Ok(());
+		};
+
+		// Get the path to the root of the input graph.
+		let root_path = &input.nodes[0].arg.path;
+
+		// If the root item is a directory, the lockfile goes within it. Otherwise, write it next to the file.
+		let lockfile_path = if input.nodes[0].metadata.is_dir() {
+			root_path.join(tg::package::LOCKFILE_FILE_NAME)
+		} else {
+			root_path
+				.parent()
+				.unwrap()
+				.join(tg::package::LOCKFILE_FILE_NAME)
+		};
+
+		// Serialize the lockfile.
+		let lockfile = serde_json::to_vec_pretty(&lockfile)
+			.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
+
+		// Write to disk.
+		tokio::fs::write(&lockfile_path, &lockfile).await.map_err(
+			|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write lockfile"),
+		)?;
+		Ok(())
+	}
+
+	async fn create_lockfile(
+		&self,
+		graph: &object::Graph,
+		path: &Path,
+	) -> tg::Result<tg::Lockfile> {
 		let mut nodes = Vec::new();
 		for node in 0..graph.nodes.len() {
 			let node = self.create_lockfile_node(graph, node).await?;
 			nodes.push(node);
 		}
-		let nodes = self.strip_lockfile_nodes(&nodes, 0)?;
+
+		let root = *graph
+			.paths
+			.get(path)
+			.ok_or_else(|| tg::error!("failed to get root object"))?;
+		let nodes = self.strip_lockfile_nodes(&nodes, root)?;
 		Ok(tg::Lockfile { nodes })
 	}
 
@@ -151,81 +196,6 @@ impl Server {
 			Either::Left(_) => Either::Left(node),
 			Either::Right(id) => Either::Right(id.clone()),
 		}
-	}
-}
-
-impl Server {
-	pub(super) async fn write_lockfiles(
-		&self,
-		input: &input::Graph,
-		lockfile: &tg::Lockfile,
-		paths: &BTreeMap<PathBuf, usize>,
-	) -> tg::Result<()> {
-		let mut visited = vec![false; input.nodes.len()];
-		self.write_lockfiles_inner(input, 0, lockfile, paths, &mut visited)
-			.await
-	}
-
-	pub(super) async fn write_lockfiles_inner(
-		&self,
-		input: &input::Graph,
-		node: usize,
-		lockfile: &tg::Lockfile,
-		paths: &BTreeMap<PathBuf, usize>,
-		visited: &mut [bool],
-	) -> tg::Result<()> {
-		// Check if we've visited this node yet.
-		if visited[node] {
-			return Ok(());
-		}
-		visited[node] = true;
-
-		// Extract the input data.
-		let input::Node {
-			arg,
-			metadata,
-			edges,
-			..
-		} = input.nodes[node].clone();
-
-		if metadata.is_dir()
-			&& tg::package::try_get_root_module_file_name_for_package_path(arg.path.as_ref())
-				.await?
-				.is_some()
-		{
-			if lockfile.nodes.is_empty() {
-				return Ok(());
-			}
-
-			let contents = serde_json::to_string_pretty(&lockfile)
-				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let lockfile_path = arg.path.join(tg::package::LOCKFILE_FILE_NAME);
-			tokio::fs::write(&lockfile_path, &contents)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
-			tokio::fs::write(&lockfile_path, &contents)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
-			return Ok(());
-		}
-
-		// Get the children of this node.
-		let children = edges
-			.iter()
-			.filter_map(|edge| edge.node)
-			.collect::<Vec<_>>();
-
-		// Recurse over the children.
-		for node in children {
-			// Skip any paths outside the workspace.
-			if input.nodes[node].parent.is_none() {
-				continue;
-			}
-			Box::pin(self.write_lockfiles_inner(input, node, lockfile, paths, visited)).await?;
-		}
-
-		Ok(())
 	}
 
 	#[allow(clippy::unused_self)]
