@@ -67,8 +67,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
-		panic!("at the disco");
-
 		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
 		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
 			let id = path
