@@ -46,8 +46,8 @@ impl Artifact {
 		H: tg::Handle,
 	{
 		match self {
-			Self::Directory(directory) => Ok(directory.id(handle).await?.into()),
-			Self::File(file) => Ok(file.id(handle).await?.into()),
+			Self::Directory(directory) => Ok(Box::pin(directory.id(handle)).await?.into()),
+			Self::File(file) => Ok(Box::pin(file.id(handle)).await?.into()),
 			Self::Symlink(symlink) => Ok(Box::pin(symlink.id(handle)).await?.into()),
 		}
 	}

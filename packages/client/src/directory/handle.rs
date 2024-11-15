@@ -1,6 +1,6 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
-use futures::{stream::FuturesOrdered, TryStreamExt as _};
+use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt, TryStreamExt as _};
 use std::{
 	collections::BTreeMap,
 	path::{Path, PathBuf},
@@ -128,10 +128,13 @@ impl Directory {
 			Object::Normal { entries } => {
 				let entries = entries
 					.iter()
-					.map(|(name, artifact)| async move {
-						Ok::<_, tg::Error>((name.clone(), artifact.id(handle).await?))
+					.map(|(name, artifact)| {
+						let name = name.clone();
+						let fut = artifact_id_future(artifact, handle)
+							.then(move |result| async move { Ok::<_, tg::Error>((name, result?)) });
+						fut
 					})
-					.collect::<FuturesOrdered<_>>()
+					.collect::<FuturesUnordered<_>>()
 					.try_collect()
 					.await?;
 				Ok(Data::Normal { entries })
@@ -352,4 +355,15 @@ macro_rules! directory {
 		)*
 		$crate::Directory::with_entries(entries)
 	}};
+}
+
+fn artifact_id_future(
+	artifact: &tg::Artifact,
+	handle: &impl tg::Handle,
+) -> BoxFuture<'static, tg::Result<tg::artifact::Id>> {
+	let artifact = artifact.clone();
+	let handle = handle.clone();
+	let fut = tokio::spawn(async move { artifact.id(&handle).await })
+		.then(|result| async move { result.map_err(|_| tg::error!("failed to join task"))? });
+	fut.boxed()
 }
