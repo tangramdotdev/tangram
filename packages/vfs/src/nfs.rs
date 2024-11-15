@@ -111,7 +111,7 @@ where
 		let listener = TcpListener::bind(&addr).await?;
 
 		// Unmount.
-		Self::unmount(&server.path).await.ok();
+		unmount(&server.path).await.ok();
 
 		// Mount.
 		Self::mount(&server.path, &server.host, server.port).await?;
@@ -199,7 +199,7 @@ where
 		task_tracker.wait().await;
 
 		// Unmount.
-		Self::unmount(&self.path)
+		unmount(&self.path)
 			.await
 			.inspect_err(|error| {
 				tracing::error!(?error, "failed to unmount");
@@ -226,17 +226,6 @@ where
 		if !status.success() {
 			return Err(Error::other("failed to mount"));
 		}
-		Ok(())
-	}
-
-	async fn unmount(path: &Path) -> Result<(), std::io::Error> {
-		tokio::process::Command::new("umount")
-			.args(["-f"])
-			.arg(path)
-			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::null())
-			.status()
-			.await?;
 		Ok(())
 	}
 
@@ -1385,4 +1374,15 @@ impl FileAttrData {
 		}
 		buf
 	}
+}
+
+pub async fn unmount(path: &Path) -> Result<(), std::io::Error> {
+	tokio::process::Command::new("umount")
+		.args(["-f"])
+		.arg(path)
+		.stdout(std::process::Stdio::null())
+		.stderr(std::process::Stdio::null())
+		.status()
+		.await?;
+	Ok(())
 }

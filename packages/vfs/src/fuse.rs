@@ -91,7 +91,7 @@ where
 		}));
 
 		// Unmount.
-		Self::unmount(path).await.ok();
+		unmount(path).await.ok();
 
 		// Mount.
 		let fd = Self::mount(path)
@@ -245,7 +245,7 @@ where
 		task_tracker.close();
 		task_tracker.wait().await;
 
-		Self::unmount(path)
+		unmount(path)
 			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
 			.ok();
@@ -701,18 +701,6 @@ where
 		}
 	}
 
-	async fn unmount(path: &Path) -> Result<()> {
-		tokio::process::Command::new("fusermount3")
-			.args(["-u"])
-			.arg(path)
-			.stdin(std::process::Stdio::null())
-			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::null())
-			.status()
-			.await?;
-		Ok(())
-	}
-
 	async fn fuse_attr_out(&self, node: u64) -> Result<fuse_attr_out> {
 		let attr = self.provider.getattr(node).await?;
 		let (size, mode) = match attr.typ {
@@ -844,4 +832,16 @@ impl<P> std::ops::Deref for Server<P> {
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
+}
+
+pub async fn unmount(path: &Path) -> Result<()> {
+	tokio::process::Command::new("fusermount3")
+		.args(["-u"])
+		.arg(path)
+		.stdin(std::process::Stdio::null())
+		.stdout(std::process::Stdio::null())
+		.stderr(std::process::Stdio::null())
+		.status()
+		.await?;
+	Ok(())
 }
