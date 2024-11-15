@@ -26,7 +26,13 @@ impl Temp {
 	}
 
 	fn with_persistent(remove: bool) -> Self {
-		let temp_path = Path::new("/tmp");
+		let temp_path = if cfg!(target_os = "linux") {
+			Path::new("/tmp")
+		} else if cfg!(target_os = "macos") {
+			Path::new("/private/tmp")
+		} else {
+			unreachable!()
+		};
 		let name = rand::thread_rng()
 			.sample_iter(&Alphanumeric)
 			.take(16)
