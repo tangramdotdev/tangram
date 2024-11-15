@@ -310,15 +310,17 @@ where
 								s.start_map()?;
 								s.map_entry("item", |s| s.object(&referent.item))?;
 								if let Some(path) = &referent.path {
-									s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
-								}
-								if let Some(tag) = &referent.tag {
-									s.map_entry("tag", |s| s.string(tag.as_str()))?;
+									s.map_entry("path", |s| {
+										s.string(path.to_string_lossy().as_ref())
+									})?;
 								}
 								if let Some(subpath) = &referent.subpath {
 									s.map_entry("subpath", |s| {
 										s.string(subpath.to_string_lossy().as_ref())
 									})?;
+								}
+								if let Some(tag) = &referent.tag {
+									s.map_entry("tag", |s| s.string(tag.as_str()))?;
 								}
 								s.finish_map()?;
 								Ok(())
@@ -440,13 +442,18 @@ where
 												}
 												Ok(())
 											})?;
-											if let Some(tag) = &referent.tag {
-												s.map_entry("tag", |s| s.string(tag.as_str()))?;
+											if let Some(path) = &referent.path {
+												s.map_entry("path", |s| {
+													s.string(path.to_string_lossy().as_ref())
+												})?;
 											}
 											if let Some(subpath) = &referent.subpath {
 												s.map_entry("subpath", |s| {
 													s.string(subpath.to_string_lossy().as_ref())
 												})?;
+											}
+											if let Some(tag) = &referent.tag {
+												s.map_entry("tag", |s| s.string(tag.as_str()))?;
 											}
 											s.finish_map()?;
 											Ok(())
@@ -542,11 +549,14 @@ where
 				s.object(&value.referent.item)?;
 				Ok(())
 			})?;
-			if let Some(tag) = &value.referent.tag {
-				s.map_entry("tag", |s| s.string(tag.as_str()))?;
+			if let Some(path) = &value.referent.path {
+				s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 			}
 			if let Some(subpath) = &value.referent.subpath {
 				s.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
+			}
+			if let Some(tag) = &value.referent.tag {
+				s.map_entry("tag", |s| s.string(tag.as_str()))?;
 			}
 			s.finish_map()?;
 			Ok(())

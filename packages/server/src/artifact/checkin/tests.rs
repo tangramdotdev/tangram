@@ -243,6 +243,7 @@ async fn package_with_submodules() -> tg::Result<()> {
    				"dependencies": {
    					"./foo.tg.ts": {
    						"item": 0,
+   						"path": "foo.tg.ts",
    						"subpath": "foo.tg.ts",
    					},
    				},
@@ -253,6 +254,7 @@ async fn package_with_submodules() -> tg::Result<()> {
    				"dependencies": {
    					"./tangram.ts": {
    						"item": 0,
+   						"path": "tangram.ts",
    						"subpath": "tangram.ts",
    					},
    				},
@@ -324,6 +326,7 @@ async fn cyclic_dependencies() -> tg::Result<()> {
    				"dependencies": {
    					"../bar": {
    						"item": 2,
+   						"path": "../bar",
    						"subpath": "tangram.ts",
    					},
    				},
@@ -340,6 +343,7 @@ async fn cyclic_dependencies() -> tg::Result<()> {
    				"dependencies": {
    					"../foo": {
    						"item": 0,
+   						"path": "",
    						"subpath": "tangram.ts",
    					},
    				},
@@ -486,6 +490,7 @@ async fn import_from_parent() -> tg::Result<()> {
    				"dependencies": {
    					"..": {
    						"item": 0,
+   						"path": "",
    						"subpath": "tangram.ts",
    					},
    				},

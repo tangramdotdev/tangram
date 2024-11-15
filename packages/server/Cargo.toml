@@ -25,6 +25,7 @@ zstd = { workspace = true }
 
 [dev-dependencies]
 deno_core_icudata = { workspace = true }
+pretty_assertions = { workspace = true }
 proptest = { workspace = true }
 insta = { workspace = true }
 

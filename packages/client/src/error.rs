@@ -328,7 +328,7 @@ macro_rules! error {
 		$error.message = Some(format!($($arg)*));
 	};
 	($($arg:tt)*) => {{
-		let mut __error = $crate::Error {
+		let mut error = $crate::Error {
 			message: Some(String::new()),
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
@@ -340,17 +340,17 @@ macro_rules! error {
 			stack: None,
 			values: std::collections::BTreeMap::new(),
 		};
-		$crate::error!({ __error }, $($arg)*);
-		$crate::Error::from(__error)
+		$crate::error!({ error }, $($arg)*);
+		error
 	}};
 }
 
 #[macro_export]
 macro_rules! function {
 	() => {{
-		struct __Dummy {}
-		std::any::type_name::<__Dummy>()
-			.strip_suffix("::__Dummy")
+		struct Marker;
+		std::any::type_name::<Marker>()
+			.strip_suffix("::Marker")
 			.unwrap()
 	}};
 }

@@ -1,5 +1,6 @@
 use crate::{compiler::Compiler, Config, Server};
 use futures::{Future, FutureExt};
+use pretty_assertions::assert_eq;
 use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
@@ -20,8 +21,8 @@ async fn path_dependency_path() -> tg::Result<()> {
 				kind: tg::module::Kind::Ts,
 				referent: tg::Referent {
 					item: tg::module::Item::Path(path),
+					path: Some("".into()),
 					subpath: Some("foo.tg.ts".into()),
-					path: None,
 					tag: None,
 				},
 			};
@@ -48,8 +49,8 @@ async fn path_dependency_object() -> tg::Result<()> {
 				kind: tg::module::Kind::Ts,
 				referent: tg::Referent {
 					item: tg::module::Item::Object(artifact.id(&server).await?.into()),
+					path: Some("".into()),
 					subpath: Some("foo.tg.ts".into()),
-					path: None,
 					tag: None,
 				},
 			};
@@ -81,8 +82,8 @@ async fn package_path_dependency_path() -> tg::Result<()> {
 				kind: tg::module::Kind::Ts,
 				referent: tg::Referent {
 					item: tg::module::Item::Path(path),
-					subpath: Some("tangram.ts".into()),
 					path: Some("../bar".into()),
+					subpath: Some("tangram.ts".into()),
 					tag: None,
 				},
 			};
@@ -115,8 +116,8 @@ async fn package_path_dependency_object() -> tg::Result<()> {
 				kind: tg::module::Kind::Ts,
 				referent: tg::Referent {
 					item: tg::module::Item::Object(object),
+					path: Some("../bar".into()),
 					subpath: Some("tangram.ts".into()),
-					path: None,
 					tag: None,
 				},
 			};
@@ -144,9 +145,9 @@ where
 	let server = Server::start(options).await?;
 	let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
 	let result = AssertUnwindSafe(async {
-		let directory = Temp::new();
-		artifact.to_path(directory.as_ref()).await.map_err(
-			|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
+		let temp = Temp::new();
+		artifact.to_path(temp.as_ref()).await.map_err(
+			|source| tg::error!(!source, %path = temp.path().display(), "failed to write the artifact"),
 		)?;
 		tg::Artifact::check_in(
 			&server,
@@ -155,7 +156,7 @@ where
 				deterministic: false,
 				ignore: true,
 				locked: false,
-				path: directory.path().join(path),
+				path: temp.path().join(path),
 			},
 		)
 		.await
@@ -163,14 +164,14 @@ where
 		let referrer = tg::Module {
 			kind,
 			referent: tg::Referent {
-				item: tg::module::Item::Path(directory.path().join(path)),
+				item: tg::module::Item::Path(temp.path().join(path)),
+				path: Some(path.into()),
 				subpath: Some(PathBuf::from(subpath)),
-				path: None,
 				tag: None,
 			},
 		};
 		let module = compiler.resolve_module(&referrer, &import).await?;
-		(assertions)(server.clone(), directory.path().to_owned(), module).await?;
+		(assertions)(server.clone(), temp.path().to_owned(), module).await?;
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()
@@ -225,8 +226,8 @@ where
 			kind,
 			referent: tg::Referent {
 				item: tg::module::Item::Object(item),
+				path: Some(path.into()),
 				subpath: Some(PathBuf::from(subpath)),
-				path: None,
 				tag: None,
 			},
 		};

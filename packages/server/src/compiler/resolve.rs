@@ -152,59 +152,61 @@ impl Compiler {
 		};
 
 		// Finally, if the kind is not known, then infer it from the object's kind.
-		let kind =
-			if let Some(kind) = kind {
-				kind
-			} else {
-				match &referent.item {
-					tg::module::Item::Path(path) => {
-						let path = if let Some(subpath) = &referent.subpath {
-							path.join(subpath)
-						} else {
-							path.clone()
-						};
-						let metadata = tokio::fs::symlink_metadata(&path)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-						if metadata.is_dir() {
-							tg::module::Kind::Directory
-						} else if metadata.is_file() {
-							tg::module::Kind::File
-						} else if metadata.is_symlink() {
-							tg::module::Kind::Symlink
-						} else {
-							return Err(tg::error!("expected a directory, file, or symlink"));
-						}
-					},
+		let kind = if let Some(kind) = kind {
+			kind
+		} else {
+			match &referent.item {
+				tg::module::Item::Path(path) => {
+					let path = if let Some(subpath) = &referent.subpath {
+						path.join(subpath)
+					} else {
+						path.clone()
+					};
+					let metadata = tokio::fs::symlink_metadata(&path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+					if metadata.is_dir() {
+						tg::module::Kind::Directory
+					} else if metadata.is_file() {
+						tg::module::Kind::File
+					} else if metadata.is_symlink() {
+						tg::module::Kind::Symlink
+					} else {
+						return Err(tg::error!("expected a directory, file, or symlink"));
+					}
+				},
 
-					tg::module::Item::Object(object) => {
-						let object =
-							if let Some(subpath) = &referent.subpath {
-								let object = tg::Object::with_id(object.clone());
-								let directory = object
-									.try_unwrap_directory_ref()
-									.ok()
-									.ok_or_else(|| tg::error!("expected a directory"))?;
-								let artifact = directory.get(&self.server, subpath).await.map_err(
-									|source| tg::error!(!source, "failed to get directory entry"),
-								)?;
-								let artifact = artifact.id(&self.server).await?.clone();
-								artifact.into()
-							} else {
-								object.clone()
-							};
-						match &object {
-							tg::object::Id::Leaf(_) => tg::module::Kind::Leaf,
-							tg::object::Id::Branch(_) => tg::module::Kind::Branch,
-							tg::object::Id::Directory(_) => tg::module::Kind::Directory,
-							tg::object::Id::File(_) => tg::module::Kind::File,
-							tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
-							tg::object::Id::Graph(_) => tg::module::Kind::Graph,
-							tg::object::Id::Target(_) => tg::module::Kind::Target,
-						}
-					},
-				}
-			};
+				tg::module::Item::Object(object) => {
+					let object = if let Some(subpath) = &referent.subpath {
+						let object = tg::Object::with_id(object.clone());
+						let directory = object
+							.try_unwrap_directory_ref()
+							.ok()
+							.ok_or_else(|| tg::error!("expected a directory"))?;
+						let artifact =
+							directory
+								.get(&self.server, subpath)
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to get the directory entry")
+								})?;
+						let artifact = artifact.id(&self.server).await?.clone();
+						artifact.into()
+					} else {
+						object.clone()
+					};
+					match &object {
+						tg::object::Id::Leaf(_) => tg::module::Kind::Leaf,
+						tg::object::Id::Branch(_) => tg::module::Kind::Branch,
+						tg::object::Id::Directory(_) => tg::module::Kind::Directory,
+						tg::object::Id::File(_) => tg::module::Kind::File,
+						tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
+						tg::object::Id::Graph(_) => tg::module::Kind::Graph,
+						tg::object::Id::Target(_) => tg::module::Kind::Target,
+					}
+				},
+			}
+		};
 
 		// Create the module.
 		let module = tg::Module { kind, referent };
@@ -229,7 +231,7 @@ impl Compiler {
 				// Check if the lockfile exists.
 				let lockfile_path = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
 				let exists = tokio::fs::try_exists(&lockfile_path).await.map_err(
-					|source| tg::error!(!source, %package = ancestor.display(), "failed to check if lockfile exists"),
+					|source| tg::error!(!source, %package = ancestor.display(), "failed to check if the lockfile exists"),
 				)?;
 				if !exists {
 					continue;
@@ -237,16 +239,16 @@ impl Compiler {
 
 				// Parse the lockfile.
 				let contents = tokio::fs::read_to_string(&lockfile_path).await.map_err(
-					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to read lockfile"),
+					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to read the lockfile"),
 				)?;
 				let lockfile = serde_json::from_str::<tg::Lockfile>(&contents).map_err(
-					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to deserialize lockfile"),
+					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to deserialize the lockfile"),
 				)?;
 				break 'a (lockfile_path, lockfile);
 			}
 
 			// Error if no lockfile is found.
-			return Err(tg::error!(%module = module_path.display(), "failed to find lockfile"));
+			return Err(tg::error!(%module = module_path.display(), "failed to find the lockfile"));
 		};
 
 		// Find the referrer in the lockfile.

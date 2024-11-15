@@ -210,11 +210,16 @@ macro_rules! directory {
 
 #[macro_export]
 macro_rules! file {
-	($contents:expr, $executable:expr) => {{
-		$crate::artifact::Artifact::File {
-			contents: $contents.into(),
-			executable: $executable,
-		}
+	(@$executable:ident executable = $value:expr $(, $($arg:tt)*)?) => {
+		$executable = $value;
+		$crate::file!(@$executable $($($arg)*)?);
+	};
+	(@$executable:ident) => {};
+	($contents:expr $(, $($arg:tt)*)?) => {{
+		let contents = $contents.into();
+		let mut executable = false;
+		$crate::file!(@executable $($($arg)*)?);
+		$crate::artifact::Artifact::File { contents, executable }
 	}};
 }
 
