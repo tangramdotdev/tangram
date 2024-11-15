@@ -82,7 +82,7 @@ async fn package_path_dependency_path() -> tg::Result<()> {
 				kind: tg::module::Kind::Ts,
 				referent: tg::Referent {
 					item: tg::module::Item::Path(path),
-					path: Some("../bar".into()),
+					path: Some("bar".into()),
 					subpath: Some("tangram.ts".into()),
 					tag: None,
 				},
@@ -110,13 +110,17 @@ async fn package_path_dependency_object() -> tg::Result<()> {
 		"tangram.ts",
 		tg::Import::with_specifier_and_attributes("../bar", None).unwrap(),
 		|server, artifact, module| async move {
-			let artifact = artifact.unwrap_directory().get(&server, "bar").await?;
+			let artifact = artifact
+				.unwrap_directory()
+				.get(&server, "bar")
+				.await
+				.unwrap();
 			let object = artifact.id(&server).await?.into();
 			let right = tg::Module {
 				kind: tg::module::Kind::Ts,
 				referent: tg::Referent {
 					item: tg::module::Item::Object(object),
-					path: Some("../bar".into()),
+					path: Some("bar".into()),
 					subpath: Some("tangram.ts".into()),
 					tag: None,
 				},
@@ -156,7 +160,7 @@ where
 				deterministic: false,
 				ignore: true,
 				locked: false,
-				path: temp.path().join(path),
+				path: temp.path().to_owned(),
 			},
 		)
 		.await
@@ -209,7 +213,7 @@ where
 				deterministic: false,
 				ignore: true,
 				locked: false,
-				path: directory.path().join(path),
+				path: directory.path().to_owned(),
 			},
 		)
 		.await

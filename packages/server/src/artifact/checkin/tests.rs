@@ -121,7 +121,7 @@ async fn simple_path_dependency() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn nested_packages() -> tg::Result<()> {
+async fn package_with_ndested_dependencies() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"foo" => temp::directory! {
@@ -215,7 +215,7 @@ async fn nested_packages() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn package_with_submodules() -> tg::Result<()> {
+async fn package_with_cyclic_modules() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"package" => temp::directory! {
@@ -243,6 +243,7 @@ async fn package_with_submodules() -> tg::Result<()> {
    				"dependencies": {
    					"./foo.tg.ts": {
    						"item": 0,
+   						"path": "",
    						"subpath": "foo.tg.ts",
    					},
    				},
@@ -253,6 +254,7 @@ async fn package_with_submodules() -> tg::Result<()> {
    				"dependencies": {
    					"./tangram.ts": {
    						"item": 0,
+   						"path": "",
    						"subpath": "tangram.ts",
    					},
    				},
@@ -260,6 +262,40 @@ async fn package_with_submodules() -> tg::Result<()> {
    		],
    	}),
    	"node": 0,
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn directory_with_nested_packages() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => "",
+			},
+			"bar" => temp::directory! {
+				"tangram.ts" => "",
+			}
+		},
+		"",
+		false,
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"bar": tg.directory({
+   		"tangram.ts": tg.file({
+   			"contents": tg.leaf(""),
+   		}),
+   	}),
+   	"foo": tg.directory({
+   		"tangram.ts": tg.file({
+   			"contents": tg.leaf(""),
+   		}),
+   	}),
    })
    "#);
 			Ok::<_, tg::Error>(())

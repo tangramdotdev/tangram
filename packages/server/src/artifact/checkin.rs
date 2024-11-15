@@ -18,7 +18,7 @@ mod unify;
 pub const IGNORE_FILES: [&str; 3] = [".tangramignore", ".tgignore", ".gitignore"];
 
 // Default list of ignore patterns.
-pub const DENY: [&str; 2] = [".DS_STORE", ".git"];
+pub const DENY: [&str; 2] = [".DS_Store", ".git"];
 
 // Default list of ignore override patterns.
 pub const ALLOW: [&str; 0] = [];
