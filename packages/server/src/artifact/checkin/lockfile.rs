@@ -12,7 +12,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Create the lockfile.
 		let lockfile = self
-			.create_lockfile(&object, &input.nodes[0].arg.path)
+			.create_lockfile(object, &input.nodes[0].arg.path)
 			.await?;
 
 		// Skip empty lockfiles.

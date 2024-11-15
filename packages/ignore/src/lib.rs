@@ -7,12 +7,12 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
+	Glob(globset::Error),
 	Io(std::io::Error),
-	NonNormalizedPath(PathBuf),
-	Parse(globset::Error),
-	StripPrefix(std::path::StripPrefixError),
+	#[display("{}", _0.display())]
+	Path(#[error(not(source))] PathBuf),
 }
 
 pub struct Ignore {
@@ -72,7 +72,11 @@ impl Ignore {
 		path: &Path,
 		file_type: std::fs::FileType,
 	) -> Result<bool, Error> {
-		let mut components = path.strip_prefix("/")?.components().peekable();
+		let mut components = path
+			.strip_prefix("/")
+			.map_err(|_| Error::Path(path.to_owned()))?
+			.components()
+			.peekable();
 
 		let mut current = self.root.clone();
 		while let Some(component) = components.next() {
@@ -88,7 +92,7 @@ impl Ignore {
 
 			// Otherwise keep searching.
 			let std::path::Component::Normal(name) = component else {
-				return Err(Error::NonNormalizedPath(path.to_owned()));
+				return Err(Error::Path(path.to_owned()));
 			};
 
 			// Find the child.
@@ -135,12 +139,13 @@ impl Node {
 	) -> Result<Self, Error> {
 		let patterns = Self::try_parse_ignore_files(&path, ignore_files).await?;
 		let children = Vec::new();
-		Ok(Self {
+		let node = Self {
 			path,
 			name,
 			patterns,
 			children,
-		})
+		};
+		Ok(node)
 	}
 
 	async fn try_parse_ignore_files(
@@ -191,6 +196,7 @@ impl Node {
 				})
 				.try_collect::<_, (), _>()?;
 			let patterns = PatternSet { allow, deny };
+
 			return Ok(Some(patterns));
 		}
 
@@ -232,6 +238,7 @@ impl Pattern {
 
 impl FromStr for Pattern {
 	type Err = Error;
+
 	fn from_str(mut line: &str) -> Result<Self, Error> {
 		let mut absolute = false;
 		let mut allowlist = false;
@@ -261,56 +268,13 @@ impl FromStr for Pattern {
 		if line.ends_with("/**") {
 			line.push_str("/*");
 		}
-
 		let glob = globset::Glob::new(&line)?.compile_matcher();
-
-		Ok(Self {
+		let pattern = Self {
 			allowlist,
 			only_directories,
 			glob,
-		})
-	}
-}
-
-impl std::fmt::Display for Error {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Io(e) => write!(f, "io error: {e}"),
-			Self::NonNormalizedPath(path) => {
-				write!(f, "expected a normalized path, got {}", path.display())
-			},
-			Self::Parse(e) => write!(f, "parse error: {e}"),
-			Self::StripPrefix(e) => write!(f, "path error: {e}"),
-		}
-	}
-}
-
-impl std::error::Error for Error {
-	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-		match self {
-			Self::Io(e) => Some(e),
-			Self::NonNormalizedPath(_) => None,
-			Self::Parse(e) => Some(e),
-			Self::StripPrefix(e) => Some(e),
-		}
-	}
-}
-
-impl From<std::io::Error> for Error {
-	fn from(value: std::io::Error) -> Self {
-		Self::Io(value)
-	}
-}
-
-impl From<globset::Error> for Error {
-	fn from(value: globset::Error) -> Self {
-		Self::Parse(value)
-	}
-}
-
-impl From<std::path::StripPrefixError> for Error {
-	fn from(value: std::path::StripPrefixError) -> Self {
-		Self::StripPrefix(value)
+		};
+		Ok(pattern)
 	}
 }
 

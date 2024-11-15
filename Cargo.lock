@@ -5587,6 +5587,7 @@ dependencies = [
 name = "tangram_ignore"
 version = "0.0.0"
 dependencies = [
+ "derive_more",
  "futures",
  "globset",
  "itertools 0.13.0",

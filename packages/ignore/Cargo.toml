@@ -10,6 +10,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+derive_more = { workspace = true }
 futures = { workspace = true }
 globset = { workspace = true }
 itertools = { workspace = true }

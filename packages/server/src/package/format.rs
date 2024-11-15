@@ -9,9 +9,18 @@ use tangram_ignore::Ignore;
 mod tests;
 
 impl Server {
-	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
+	pub async fn format_package(&self, mut arg: tg::package::format::Arg) -> tg::Result<()> {
+		// Canonicalize the path's parent.
+		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
+
+		// Create the ignore.
 		let ignore = self.ignore_for_checkin().await?;
+
+		// Format.
 		self.format_package_inner(&arg.path, &ignore).await?;
+
 		Ok(())
 	}
 
