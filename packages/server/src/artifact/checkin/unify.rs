@@ -121,8 +121,8 @@ impl Server {
 
 		// Add dependencies.
 		let input_edges = input_node.edges.clone();
-		'outer: for edge in input_edges {
-			if let Some(node) = edge.node {
+		'outer: for input_edge in input_edges {
+			if let Some(node) = input_edge.node {
 				let id = Box::pin(self.create_unification_graph_from_input(
 					input,
 					node,
@@ -130,18 +130,18 @@ impl Server {
 					visited_graph_nodes,
 				))
 				.await?;
-				let reference = edge.reference.clone();
-				let edge = Edge {
+				let reference = input_edge.reference.clone();
+				let unify_edge = Edge {
 					referent: id,
-					path: edge.path,
-					subpath: edge.subpath,
+					path: input_edge.path.clone(),
+					subpath: input_edge.subpath.clone(),
 				};
-				edges.insert(reference, edge);
+				edges.insert(reference, unify_edge);
 				continue;
 			}
 
-			if let Some(id) = &edge.object {
-				let id = if let Some(tag) = &edge.tag {
+			if let Some(id) = &input_edge.object {
+				let id = if let Some(tag) = &input_edge.tag {
 					let unify = false;
 					self.create_unification_node_from_tagged_object(
 						graph,
@@ -154,11 +154,11 @@ impl Server {
 					self.create_unification_node_from_object(graph, id.clone())
 						.await?
 				};
-				let reference = edge.reference.clone();
+				let reference = input_edge.reference.clone();
 				let edge = Edge {
 					referent: id,
-					path: edge.path.clone(),
-					subpath: edge.subpath.clone(),
+					path: input_edge.path.clone(),
+					subpath: input_edge.subpath.clone(),
 				};
 				edges.insert(reference, edge);
 				continue;
@@ -173,7 +173,7 @@ impl Server {
 				let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[node] else {
 					break 'a;
 				};
-				let Some(referrent) = dependencies.get(&edge.reference) else {
+				let Some(referrent) = dependencies.get(&input_edge.reference) else {
 					if input_node.arg.locked {
 						return Err(tg::error!("lockfile is out of date"))?;
 					};
@@ -196,40 +196,40 @@ impl Server {
 					self.create_unification_node_from_object(graph, object.clone())
 						.await?
 				};
-				let reference = edge.reference.clone();
+				let reference = input_edge.reference.clone();
 				let edge = Edge {
 					referent: id,
-					path: edge.path,
-					subpath: edge.subpath,
+					path: input_edge.path.clone(),
+					subpath: input_edge.subpath.clone(),
 				};
 				edges.insert(reference, edge);
 				continue 'outer;
 			}
 
 			// Otherwise, create partial nodes.
-			match edge.reference.item() {
+			match input_edge.reference.item() {
 				tg::reference::Item::Build(_) => {
-					return Err(tg::error!(%reference = edge.reference, "invalid reference"))
+					return Err(tg::error!(%reference = input_edge.reference, "invalid reference"))
 				},
 				tg::reference::Item::Object(object) => {
 					let id = self
 						.create_unification_node_from_object(graph, object.clone())
 						.await?;
-					let reference = edge.reference.clone();
+					let reference = input_edge.reference.clone();
 					let edge = Edge {
 						referent: id,
-						path: edge.path,
-						subpath: edge.subpath,
+						path: input_edge.path.clone(),
+						subpath: input_edge.subpath.clone(),
 					};
 					edges.insert(reference, edge);
 				},
 				tg::reference::Item::Tag(pattern) => {
 					let id = Either::Left(get_reference_from_pattern(pattern));
-					let reference = edge.reference.clone();
+					let reference = input_edge.reference.clone();
 					let edge = Edge {
 						referent: id,
-						path: edge.path,
-						subpath: edge.subpath,
+						path: input_edge.path.clone(),
+						subpath: input_edge.subpath.clone(),
 					};
 					edges.insert(reference, edge);
 				},
@@ -774,5 +774,22 @@ impl Graph {
 
 	fn add_error(&mut self, node: &Id, error: tg::Error) {
 		self.nodes.get_mut(node).unwrap().errors.push(error);
+	}
+}
+
+impl std::fmt::Display for Edge {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match &self.referent {
+			Either::Left(reference) => write!(f, "(reference: {reference}")?,
+			Either::Right(index) => write!(f, "(index: {index}")?,
+		};
+		if let Some(path) = &self.path {
+			write!(f, ", path: {}", path.display())?;
+		}
+		if let Some(subpath) = &self.subpath {
+			write!(f, ", subpath: {}", subpath.display())?;
+		}
+		write!(f, ")")?;
+		Ok(())
 	}
 }

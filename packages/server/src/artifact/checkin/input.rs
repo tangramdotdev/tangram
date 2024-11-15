@@ -331,13 +331,12 @@ impl Server {
 
 					// Create the edge.
 					let reference = tg::Reference::with_path(&name);
-					let path = crate::util::path::diff(&arg.path, &path)?;
 					let edge = Edge {
 						reference,
 						subpath: None,
 						node: Some(node),
 						object: None,
-						path: Some(path),
+						path: None,
 						tag: None,
 					};
 					Ok::<_, tg::Error>(edge)
@@ -538,7 +537,8 @@ impl Server {
 						};
 
 						// Create the edge.
-						let path = crate::util::path::diff( &arg.path, &child_path)?;
+						let package_path = state.read().await.graph.nodes[node].arg.path.clone();
+						let path = crate::util::path::diff(&arg.path, &package_path)?;
 						let edge = Edge {
 							reference,
 							node: Some(node),
@@ -608,7 +608,7 @@ impl Server {
 					tg::error!(!source, "failed to canonicalize the path's parent")
 				})?;
 
-		// Check if this is a checkin of a bundled artifact.
+		// Check if this is a checkin of an artifact.
 		let path = crate::util::path::diff(&arg.path, &target_absolute_path)?;
 		let edge = if let Ok(subpath) = target_absolute_path.strip_prefix(self.artifacts_path()) {
 			let mut components = subpath.components();
@@ -815,5 +815,28 @@ async fn get_root_node(graph: &Graph, mut node: usize) -> usize {
 			return node;
 		};
 		node = parent;
+	}
+}
+
+impl std::fmt::Display for Edge {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "(reference: {}", self.reference)?;
+		if let Some(node) = &self.node {
+			write!(f, ", node: {node}")?;
+		}
+		if let Some(object) = &self.object {
+			write!(f, ", object: {object}")?;
+		}
+		if let Some(path) = &self.path {
+			write!(f, ", path: {}", path.display())?;
+		}
+		if let Some(subpath) = &self.subpath {
+			write!(f, ", subpath: {}", subpath.display())?;
+		}
+		if let Some(tag) = &self.tag {
+			write!(f, ", tag: {tag}")?;
+		}
+		write!(f, ")")?;
+		Ok(())
 	}
 }

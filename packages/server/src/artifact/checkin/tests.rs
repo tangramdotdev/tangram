@@ -243,7 +243,6 @@ async fn package_with_submodules() -> tg::Result<()> {
    				"dependencies": {
    					"./foo.tg.ts": {
    						"item": 0,
-   						"path": "foo.tg.ts",
    						"subpath": "foo.tg.ts",
    					},
    				},
@@ -254,7 +253,6 @@ async fn package_with_submodules() -> tg::Result<()> {
    				"dependencies": {
    					"./tangram.ts": {
    						"item": 0,
-   						"path": "tangram.ts",
    						"subpath": "tangram.ts",
    					},
    				},

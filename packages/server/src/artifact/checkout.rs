@@ -9,7 +9,7 @@ use std::{
 	pin::pin,
 	sync::Arc,
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, progress::Level};
 use tangram_either::Either;
 use tangram_futures::{stream::TryStreamExt as _, task::Task};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
