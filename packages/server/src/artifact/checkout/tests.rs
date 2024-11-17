@@ -3,6 +3,7 @@ use futures::{Future, FutureExt as _};
 use insta::assert_json_snapshot;
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, path::PathBuf, pin::pin};
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
 
@@ -130,13 +131,63 @@ async fn graph() -> tg::Result<()> {
 			executable: false,
 		})],
 	});
-	let file = tg::File::with_graph_and_node(graph, 0);
-	test(file, |_, artifact| async move {
+	let artifact = tg::File::with_graph_and_node(graph, 0);
+	test(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "file",
     "contents": "Hello, World!",
     "executable": false
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+#[tokio::test]
+async fn cyclic_symlink() -> tg::Result<()> {
+	let graph = tg::Graph::with_object(tg::graph::Object {
+		nodes: vec![
+			tg::graph::object::Node::Directory(tg::graph::object::Directory {
+				entries: [("link".to_owned(), Either::Left(1))].into(),
+			}),
+			tg::graph::object::Node::Symlink(tg::graph::object::Symlink {
+				artifact: Some(Either::Left(0)),
+				subpath: Some("link".into()),
+			}),
+		],
+	});
+	let artifact = tg::Directory::with_graph_and_node(graph, 0);
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "directory",
+    "entries": {
+      ".tangram": {
+        "kind": "directory",
+        "entries": {
+          "artifacts": {
+            "kind": "directory",
+            "entries": {
+              "dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng": {
+                "kind": "directory",
+                "entries": {
+                  "link": {
+                    "kind": "symlink",
+                    "target": "../dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng/link"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "link": {
+        "kind": "symlink",
+        "target": ".tangram/artifacts/dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng/link"
+      }
+    }
   }
   "#);
 		Ok::<_, tg::Error>(())
@@ -155,7 +206,7 @@ where
 	let result = AssertUnwindSafe(async {
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
-			dependencies: false,
+			dependencies: true,
 			force: false,
 			path: Some(temp.path().to_owned()),
 		};

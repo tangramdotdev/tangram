@@ -269,7 +269,7 @@ impl Server {
 			false
 		};
 
-		// If this is a file, we need to create a hardlink in the checkouts directory and create a symlink for its contents in the blobs directory that points to the corresponding entry in the checkouts directory.
+		// If this is a file, we need to create a hardlink in the cache directory and create a symlink for its contents in the blobs directory that points to the corresponding entry in the cache directory.
 		if let tg::artifact::Data::File(file) = &&output.nodes[node].data {
 			// Create hard link to the file or copy as needed.
 			let dst = self.cache_path().join(output.nodes[node].id.to_string());
@@ -432,7 +432,7 @@ impl<'a> petgraph::visit::IntoNodeIdentifiers for GraphImpl<'a> {
 }
 
 impl Server {
-	pub(super) async fn copy_or_move_to_checkouts_directory(
+	pub(super) async fn copy_or_move_to_cache_directory(
 		&self,
 		input: &input::Graph,
 		output: &Graph,
@@ -473,7 +473,7 @@ impl Server {
 				// Reset the file times to epoch.
 				self.set_file_times_to_epoch(&temp.path, true).await?;
 
-				// Rename to the checkouts directory.
+				// Rename to the cache directory.
 				let dest = self
 					.cache_path()
 					.join(output.nodes[output_index].id.to_string());

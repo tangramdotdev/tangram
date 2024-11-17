@@ -304,7 +304,7 @@ impl Server {
 					.map_err(|source| {
 						tg::error!(
 							!source,
-							"failed to move the artifacts directory to the checkouts path"
+							"failed to move the artifacts directory to the cache path"
 						)
 					})?;
 			}

@@ -67,7 +67,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
-		// If this is a checkin of a path in the checkouts directory, then retrieve the corresponding artifact.
+		// If this is a checkin of a path in the cache directory, then retrieve the corresponding artifact.
 		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
 			let id = path
 				.components()
@@ -144,7 +144,7 @@ impl Server {
 			.ok_or_else(|| tg::error!(%path = arg.path.display(), "missing path in output"))?;
 
 		// Copy or move files.
-		self.copy_or_move_to_checkouts_directory(&input, &output, 0, progress)
+		self.copy_or_move_to_cache_directory(&input, &output, 0, progress)
 			.await?;
 
 		// Write lockfiles.

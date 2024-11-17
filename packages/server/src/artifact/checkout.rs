@@ -20,7 +20,7 @@ mod tests;
 struct InnerArg<'a> {
 	arg: &'a tg::artifact::checkout::Arg,
 	artifact: &'a tg::Artifact,
-	cache_directory: &'a PathBuf,
+	cache_path: &'a PathBuf,
 	existing_artifact: Option<&'a tg::Artifact>,
 	files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
 	path: &'a PathBuf,
@@ -79,9 +79,9 @@ impl Server {
 			let progress = progress.clone();
 
 			async move {
-				// Compute the checkouts path.
-				let cache_directory = server
-					.get_cache_directory_for_path(&id, arg.path.as_deref())
+				// Compute the cache path.
+				let cache_path = server
+					.get_cache_path_for_path(&id, arg.path.as_deref())
 					.await?;
 
 				// Checkout the artifact.
@@ -89,7 +89,7 @@ impl Server {
 					.check_out_artifact_with_files(
 						&id,
 						&arg,
-						&cache_directory,
+						&cache_path,
 						files,
 						visited,
 						&progress,
@@ -97,7 +97,7 @@ impl Server {
 					.await?;
 
 				if let Some(path) = arg.path {
-					// Create the lockfile for external checkouts.
+					// Create the lockfile.
 					let artifact = tg::Artifact::with_id(id.clone());
 					let lockfile = server
 						.create_lockfile_with_artifact(&artifact)
@@ -144,7 +144,7 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: &tg::artifact::checkout::Arg,
-		cache_directory: &PathBuf,
+		cache_path: &PathBuf,
 		files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
 		visited: Arc<DashSet<PathBuf, fnv::FnvBuildHasher>>,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
@@ -166,7 +166,7 @@ impl Server {
 			}
 			if (path.as_ref() as &Path).starts_with(self.cache_path()) {
 				return Err(
-					tg::error!(%path = path.display(), "cannot check out an artifact to the checkouts directory"),
+					tg::error!(%path = path.display(), "cannot check out an artifact to the cache directory"),
 				);
 			}
 
@@ -189,7 +189,7 @@ impl Server {
 			let arg = InnerArg {
 				arg,
 				artifact: &artifact,
-				cache_directory,
+				cache_path,
 				existing_artifact: existing_artifact.as_ref(),
 				files,
 				path: &path,
@@ -203,9 +203,9 @@ impl Server {
 
 			Ok(output)
 		} else {
-			// Get the path in the checkouts directory.
+			// Get the path in the artifacts directory.
 			let id = artifact.id(self).await?;
-			let path = cache_directory.join(id.to_string());
+			let path = cache_path.join(id.to_string());
 			let artifact_path = self.artifacts_path().join(id.to_string());
 
 			// If there is already a file system object at the path, then return.
@@ -220,14 +220,14 @@ impl Server {
 			}
 
 			// Create a temp.
-			let temp = (cache_directory == &self.cache_path()).then(|| Temp::new(self));
+			let temp = (cache_path == &self.cache_path()).then(|| Temp::new(self));
 
 			// Perform the checkout to the tmp.
 			let files = Arc::new(DashMap::default());
 			let arg = InnerArg {
 				arg,
 				artifact: &artifact,
-				cache_directory,
+				cache_path,
 				existing_artifact: None,
 				files,
 				path: temp.as_ref().map_or(&path, |tmp| &tmp.path),
@@ -242,22 +242,22 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to create output directory"))?;
 			}
 
-			// Move the checkout to the checkouts directory.
-			if let Some(tmp) = temp {
-				match tokio::fs::rename(&tmp, &path).await {
+			// Move the checkout to the path.
+			if let Some(temp) = temp {
+				match tokio::fs::rename(&temp, &path).await {
 					Ok(()) => (),
 
-					// If the entry in the checkouts directory exists, then remove the checkout to the tmp.
+					// If the file system object exists, then remove the checkout to the temp.
 					Err(ref error)
 						if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
 					{
-						crate::util::fs::remove(&tmp).await.ok();
+						crate::util::fs::remove(&temp).await.ok();
 					},
 
 					// Otherwise, return the error.
 					Err(source) => {
 						return Err(
-							tg::error!(!source, %tmp = tmp.path.display(), %path = path.display(), "failed to move the checkout to the checkouts directory"),
+							tg::error!(!source, %tmp = temp.path.display(), %path = path.display(), "failed to move the checkout to the cache directory"),
 						);
 					},
 				};
@@ -276,7 +276,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			cache_directory,
+			cache_path,
 			existing_artifact,
 			files,
 			path,
@@ -305,7 +305,7 @@ impl Server {
 		let arg_ = InnerArg {
 			arg,
 			artifact,
-			cache_directory,
+			cache_path,
 			existing_artifact,
 			files,
 			path,
@@ -355,7 +355,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			cache_directory,
+			cache_path,
 			existing_artifact,
 			files,
 			path,
@@ -427,7 +427,7 @@ impl Server {
 					let arg = InnerArg {
 						arg,
 						artifact,
-						cache_directory,
+						cache_path,
 						existing_artifact: existing_artifact.as_ref(),
 						files,
 						path: &entry_path,
@@ -450,7 +450,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			cache_directory,
+			cache_path,
 			existing_artifact,
 			files,
 			path,
@@ -492,7 +492,7 @@ impl Server {
 					Box::pin(self.check_out_artifact_with_files(
 						artifact,
 						&arg,
-						cache_directory,
+						cache_path,
 						files.clone(),
 						visited.clone(),
 						progress,
@@ -521,7 +521,7 @@ impl Server {
 		}
 
 		// Attempt to use the file from an internal checkout.
-		let internal_checkout_path = cache_directory.join(id.to_string());
+		let internal_checkout_path = cache_path.join(id.to_string());
 		if arg.path.is_none() {
 			// If this checkout is internal, then create a hard link.
 			let result = tokio::fs::hard_link(&internal_checkout_path, path).await;
@@ -577,7 +577,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
-			cache_directory,
+			cache_path,
 			existing_artifact,
 			files,
 			path,
@@ -610,12 +610,7 @@ impl Server {
 				let id = artifact.id(self).await?;
 				let arg = tg::artifact::checkout::Arg::default();
 				Box::pin(self.check_out_artifact_with_files(
-					&id,
-					&arg,
-					cache_directory,
-					files,
-					visited,
-					progress,
+					&id, &arg, cache_path, files, visited, progress,
 				))
 				.await?;
 			}
@@ -624,7 +619,7 @@ impl Server {
 		// Render the target.
 		let mut target: PathBuf = PathBuf::new();
 		if let Some(artifact) = &artifact {
-			let path = crate::util::path::diff(path.parent().unwrap(), cache_directory).unwrap();
+			let path = crate::util::path::diff(path.parent().unwrap(), cache_path).unwrap();
 			let path = path.join(artifact.id(self).await?.to_string());
 			target.push(path);
 		}
@@ -639,11 +634,9 @@ impl Server {
 
 		Ok(())
 	}
-}
 
-impl Server {
 	#[allow(clippy::unused_self, clippy::unused_async)]
-	async fn get_cache_directory_for_path(
+	async fn get_cache_path_for_path(
 		&self,
 		artifact: &tg::artifact::Id,
 		output_path: Option<&Path>,
@@ -651,83 +644,17 @@ impl Server {
 		let Some(output_path) = output_path else {
 			return Ok(self.cache_path());
 		};
-
 		if !output_path.is_absolute() {
 			return Err(tg::error!(%path = output_path.display(), "expected an absolute path"));
 		}
-
-		let cache_directory = if let tg::artifact::Id::Directory(_) = artifact {
+		let cache_path = if let tg::artifact::Id::Directory(_) = artifact {
 			output_path.join(".tangram/artifacts")
 		} else {
 			output_path.parent().unwrap().join(".tangram/artifacts")
 		};
-
-		Ok(cache_directory)
+		Ok(cache_path)
 	}
-}
 
-impl Server {
-	pub(crate) async fn handle_check_out_artifact_request<H>(
-		handle: &H,
-		request: http::Request<Incoming>,
-		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
-	where
-		H: tg::Handle,
-	{
-		// Parse the ID.
-		let id = id.parse()?;
-
-		// Get the accept header.
-		let accept = request
-			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()?;
-
-		// Get the arg.
-		let arg = request.json().await?;
-
-		// Get the stream.
-		let stream = handle.check_out_artifact(&id, arg).await?;
-
-		let (content_type, body) = match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None => {
-				pin!(stream)
-					.try_last()
-					.await?
-					.and_then(|event| event.try_unwrap_output().ok())
-					.ok_or_else(|| tg::error!("stream ended without output"))?;
-				(None, Outgoing::empty())
-			},
-
-			Some((mime::TEXT, mime::EVENT_STREAM)) => {
-				let content_type = mime::TEXT_EVENT_STREAM;
-				let stream = stream.map(|result| match result {
-					Ok(event) => event.try_into(),
-					Err(error) => error.try_into(),
-				});
-				(Some(content_type), Outgoing::sse(stream))
-			},
-
-			_ => {
-				return Err(tg::error!(?accept, "invalid accept header"));
-			},
-		};
-
-		// Create the response.
-		let mut response = http::Response::builder();
-		if let Some(content_type) = content_type {
-			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
-		}
-		let response = response.body(body).unwrap();
-
-		Ok(response)
-	}
-}
-
-impl Server {
 	async fn create_lockfile_with_artifact(
 		&self,
 		artifact: &tg::Artifact,
@@ -1047,5 +974,66 @@ impl Server {
 		}
 
 		Ok(indices)
+	}
+}
+
+impl Server {
+	pub(crate) async fn handle_check_out_artifact_request<H>(
+		handle: &H,
+		request: http::Request<Incoming>,
+		id: &str,
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
+		// Parse the ID.
+		let id = id.parse()?;
+
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()?;
+
+		// Get the arg.
+		let arg = request.json().await?;
+
+		// Get the stream.
+		let stream = handle.check_out_artifact(&id, arg).await?;
+
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None => {
+				pin!(stream)
+					.try_last()
+					.await?
+					.and_then(|event| event.try_unwrap_output().ok())
+					.ok_or_else(|| tg::error!("stream ended without output"))?;
+				(None, Outgoing::empty())
+			},
+
+			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+				let content_type = mime::TEXT_EVENT_STREAM;
+				let stream = stream.map(|result| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
+				});
+				(Some(content_type), Outgoing::sse(stream))
+			},
+
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		};
+
+		// Create the response.
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
+
+		Ok(response)
 	}
 }
