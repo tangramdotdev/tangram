@@ -433,8 +433,8 @@ declare namespace tg {
 		/** Get this symlink's subpath. */
 		subpath(): Promise<string | undefined>;
 
-		/** Resolve this symlink to the directory or file it refers to, or return undefined if none is found. */
-		resolve(): Promise<tg.Directory | tg.File | undefined>;
+		/** Resolve this symlink to the artifact it refers to, or return undefined if none is found. */
+		resolve(): Promise<tg.Artifact | undefined>;
 	}
 
 	export namespace Symlink {

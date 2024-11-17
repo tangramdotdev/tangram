@@ -234,18 +234,15 @@ impl Symlink {
 		if let Some(tg::Artifact::Symlink(symlink)) = artifact {
 			artifact = Box::pin(symlink.try_resolve(handle)).await?;
 		}
-		let path = self.subpath(handle).await?.clone();
-		if artifact.is_some() && path.is_none() {
-			return Ok(artifact);
-		} else if artifact.is_none() && path.is_some() {
-			return Err(tg::error!("cannot resolve with no artifact"));
-		} else if artifact.is_some() && path.is_some() {
-			if let Some(tg::Artifact::Directory(directory)) = artifact {
-				return directory.try_get(handle, &path.unwrap_or_default()).await;
-			}
-			return Err(tg::error!("expected a directory"));
+		let subpath = self.subpath(handle).await?.clone();
+		match (artifact, subpath) {
+			(None, Some(_)) => Err(tg::error!("cannot resolve a symlink with no artifact")),
+			(Some(artifact), None) => Ok(Some(artifact)),
+			(Some(tg::Artifact::Directory(directory)), Some(subpath)) => {
+				directory.try_get(handle, subpath).await
+			},
+			_ => Err(tg::error!("invalid symlink")),
 		}
-		Err(tg::error!("invalid symlink"))
 	}
 }
 

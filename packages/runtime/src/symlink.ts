@@ -185,20 +185,17 @@ export class Symlink {
 		}
 	}
 
-	async resolve(): Promise<tg.Directory | tg.File | undefined> {
+	async resolve(): Promise<tg.Artifact | undefined> {
 		let artifact = await this.artifact();
 		if (artifact instanceof Symlink) {
 			artifact = await artifact.resolve();
 		}
 		let subpath = await this.subpath();
-		if (artifact !== undefined && !subpath) {
+		if (artifact === undefined && subpath) {
+			throw new Error("cannot resolve a symlink with no artifact");
+		} else if (artifact !== undefined && !subpath) {
 			return artifact;
-		} else if (artifact === undefined && subpath) {
-			throw new Error("expected an artifact");
-		} else if (artifact !== undefined && subpath) {
-			if (!(artifact instanceof tg.Directory)) {
-				throw new Error("expected a directory");
-			}
+		} else if (artifact instanceof tg.Directory && subpath) {
 			return await artifact.tryGet(subpath);
 		} else {
 			throw new Error("invalid symlink");

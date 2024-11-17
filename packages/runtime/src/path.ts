@@ -27,32 +27,33 @@ export namespace path {
 		};
 	}
 
-	export let components = (pathArg: string): Array<Component> => {
-		let subComponents = pathArg.split("/");
-		if ((subComponents.at(-1) as string).length === 0) {
-			subComponents.pop();
+	export let components = (arg: string): Array<Component> => {
+		let components = arg.split("/");
+		if (components.at(0)?.length === 0) {
+			components[0] = Component.Root;
 		}
-		return pathArg.startsWith("/")
-			? [Component.Root, ...subComponents.slice(1)]
-			: subComponents;
+		components = components.filter((component, i) => {
+			if (i > 0 && component === Component.Current) {
+				return false;
+			}
+			if (component.length === 0) {
+				return false;
+			}
+			return true;
+		});
+		return components;
 	};
 
 	export let fromComponents = (components: Array<Component>): string => {
-		if (components.length === 0) {
-			return "";
-		} else if (components[0] === Component.Root) {
+		if (components[0] === Component.Root) {
 			return `/${components.slice(1).join("/")}`;
 		} else {
 			return components.join("/");
 		}
 	};
 
-	export let isAbsolute = (pathArg: string): boolean => {
-		if (pathArg.length === 0) {
-			return false;
-		}
-		let component = path.components(pathArg)[0];
-		return component === Component.Root;
+	export let isAbsolute = (arg: string): boolean => {
+		return arg.startsWith("/");
 	};
 
 	export let join = (...args: Array<string | undefined>): string => {
@@ -67,13 +68,10 @@ export namespace path {
 				components = components.concat(path.components(arg));
 			}
 		}
-		return path.fromComponents(components);
+		return fromComponents(components);
 	};
 
 	export let parent = (arg: string): string | undefined => {
-		if (arg.length === 0) {
-			throw new Error("expected a non-empty string");
-		}
 		let components = path.components(arg);
 		if (components.length === 0) {
 			return undefined;

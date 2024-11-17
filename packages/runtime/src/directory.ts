@@ -160,36 +160,59 @@ export class Directory {
 		}
 	}
 
-	async get(arg: string): Promise<Directory | tg.File> {
+	async get(arg: string): Promise<tg.Artifact> {
 		let artifact = await this.tryGet(arg);
 		tg.assert(artifact, `Failed to get the directory entry "${arg}".`);
 		return artifact;
 	}
 
-	async tryGet(arg: string): Promise<Directory | tg.File | undefined> {
-		let artifact: Directory | tg.File = this;
-		let currentPath = "";
-		for (let component of tg.path.components(arg)) {
-			if (!tg.path.Component.isNormal(component)) {
-				throw new Error("all path components must be normal");
+	async tryGet(arg: string): Promise<tg.Artifact | undefined> {
+		let components = tg.path.components(arg);
+		let artifact: tg.Artifact = this;
+		let parents: Array<tg.Directory> = [];
+		while (true) {
+			let component = components.shift();
+			if (component === undefined) {
+				break;
+			} else if (component === tg.path.Component.Root) {
+				throw new Error("invalid path");
+			} else if (component === ".") {
+				continue;
+			} else if (component === "..") {
+				let parent = parents.pop();
+				if (!parent) {
+					throw new Error("path is external");
+				}
+				artifact = parent;
+				continue;
 			}
 			if (!(artifact instanceof Directory)) {
 				return undefined;
 			}
-			currentPath = tg.path.join(currentPath, component);
-			let entry: tg.Artifact | undefined = (await artifact.entries())[
-				component
-			];
+			let entries = await artifact.entries();
+			let entry: tg.Artifact | undefined = entries[component];
 			if (entry === undefined) {
 				return undefined;
-			} else if (entry instanceof tg.Symlink) {
-				let resolved = await entry.resolve();
-				if (resolved === undefined) {
-					return undefined;
+			}
+			parents.push(artifact);
+			artifact = entry;
+			if (entry instanceof tg.Symlink) {
+				let artifact_ = await entry.artifact();
+				let subpath = await entry.subpath();
+				if (artifact_ === undefined && subpath !== undefined) {
+					let parent = parents.pop();
+					if (!parent) {
+						throw new Error("path is external");
+					}
+					artifact = parent;
+					components.unshift(...tg.path.components(subpath));
+				} else if (artifact_ !== undefined && subpath === undefined) {
+					return artifact_;
+				} else if (artifact_ instanceof tg.Directory && subpath !== undefined) {
+					return await artifact_.tryGet(subpath);
+				} else {
+					throw new Error("invalid symlink");
 				}
-				artifact = resolved;
-			} else {
-				artifact = entry;
 			}
 		}
 		return artifact;

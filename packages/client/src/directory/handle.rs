@@ -1,11 +1,7 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
 use futures::{stream::FuturesUnordered, Future, FutureExt as _, TryStreamExt as _};
-use std::{
-	collections::BTreeMap,
-	path::{Path, PathBuf},
-	sync::Arc,
-};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tangram_either::Either;
 
 #[derive(Clone, Debug)]
@@ -290,57 +286,87 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		let path = path.as_ref();
-		if path.is_absolute() {
-			return Err(tg::error!(%path = path.display(), "expected a relative path"));
-		}
+		let mut path = path.as_ref().to_owned();
 
+		// Track the current artifact.
 		let mut artifact: tg::Artifact = self.clone().into();
 
-		// Track the current path.
-		let mut current_path = PathBuf::new();
+		// Track the parent directories.
+		let mut parents: Vec<tg::Directory> = vec![];
 
 		// Handle each path component.
-		for component in path.components() {
-			// Skip current directory components.
-			if matches!(component, std::path::Component::CurDir) {
-				continue;
-			}
+		loop {
+			// Handle the first path component.
+			let Some(component) = path.components().next() else {
+				break;
+			};
+			let name = match component {
+				// Prefix and root components are not allowed.
+				std::path::Component::Prefix(_) | std::path::Component::RootDir => {
+					return Err(tg::error!("invalid path"));
+				},
 
-			// The artifact must be a directory.
-			let Some(directory) = artifact.try_unwrap_directory_ref().ok() else {
+				// Ignore current components.
+				std::path::Component::CurDir => {
+					path = path.components().skip(1).collect();
+					continue;
+				},
+
+				// If the component is a parent component, then remove the last parent and continue.
+				std::path::Component::ParentDir => {
+					path = path.components().skip(1).collect();
+					artifact = parents
+						.pop()
+						.ok_or_else(|| tg::error!("the path is external"))?
+						.into();
+					continue;
+				},
+
+				std::path::Component::Normal(name) => {
+					let name = name
+						.to_str()
+						.ok_or_else(|| tg::error!("invalid path"))?
+						.to_owned();
+					path = path.components().skip(1).collect();
+					name
+				},
+			};
+
+			// Get the artifact. If it doesn't exist, then return `None`.
+			let directory = artifact
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("the path is external"))?;
+			let Some(entry) = directory.try_get_entry(handle, &name).await? else {
 				return Ok(None);
 			};
-
-			// Update the current path.
-			current_path.push(component);
-
-			// Get the entry. If it doesn't exist, return `None`.
-			let std::path::Component::Normal(name) = component else {
-				return Err(
-					tg::error!(%path = path.display(), "the path must contain only normal components"),
-				);
-			};
-
-			let name = name
-				.to_str()
-				.ok_or_else(|| tg::error!("expected a utf-8 encoded path"))?;
-
-			let Some(entry) = directory.try_get_entry(handle, name).await? else {
-				return Ok(None);
-			};
-
-			// Get the artifact.
+			parents.push(directory.clone());
 			artifact = entry;
 
-			// If the artifact is a symlink, then resolve it.
+			// Handle a symlink.
 			if let tg::Artifact::Symlink(symlink) = &artifact {
-				match Box::pin(symlink.try_resolve(handle))
-					.await
-					.map_err(|source| tg::error!(!source, "failed to resolve the symlink"))?
-				{
-					Some(resolved) => artifact = resolved,
-					None => return Ok(None),
+				let mut artifact_ = symlink.artifact(handle).await?.clone();
+				if let Some(tg::Artifact::Symlink(symlink)) = artifact_ {
+					artifact_ = Box::pin(symlink.try_resolve(handle)).await?;
+				}
+				let subpath = symlink.subpath(handle).await?.clone();
+				match (artifact_, subpath) {
+					(None, Some(target)) => {
+						artifact = parents
+							.pop()
+							.ok_or_else(|| tg::error!("the path is external"))?
+							.into();
+						path = target.join(path);
+					},
+					(Some(artifact), None) => {
+						return Ok(Some(artifact));
+					},
+					(Some(tg::Artifact::Directory(directory)), Some(subpath)) => {
+						return Box::pin(directory.try_get(handle, subpath)).await;
+					},
+					_ => {
+						return Err(tg::error!("invalid symlink"));
+					},
 				}
 			}
 		}
