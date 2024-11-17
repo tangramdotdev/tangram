@@ -1,8 +1,6 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
-use futures::{
-	future::BoxFuture, stream::FuturesUnordered, Future, FutureExt, TryFutureExt, TryStreamExt as _,
-};
+use futures::{stream::FuturesUnordered, Future, FutureExt as _, TryStreamExt as _};
 use std::{
 	collections::BTreeMap,
 	path::{Path, PathBuf},
