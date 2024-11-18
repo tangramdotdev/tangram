@@ -152,7 +152,7 @@ where
 
 	pub fn new(handle: &H, item: Either<tg::Build, tg::Object>, options: Options) -> Self {
 		let provider = match item {
-			Either::Left(build) => Provider::build(handle, None, None, build),
+			Either::Left(build) => Provider::build(handle, None, &build),
 			Either::Right(object) => Provider::object(handle, None, &object),
 		};
 		let roots = vec![Node::new(None, provider, options)];

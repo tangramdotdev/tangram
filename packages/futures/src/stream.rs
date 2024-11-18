@@ -115,9 +115,9 @@ where
 
 			match this.stream.as_mut().poll_next(cx) {
 				Poll::Ready(Some(item)) => {
-					let fut = (this.predicate)(&item);
+					let future = (this.predicate)(&item);
 					*this.pending_item = Some(item);
-					this.pending_predicate.set(Some(fut));
+					this.pending_predicate.set(Some(future));
 				},
 				Poll::Ready(None) => {
 					*this.done = true;

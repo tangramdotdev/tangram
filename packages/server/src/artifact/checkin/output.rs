@@ -111,7 +111,7 @@ impl Server {
 				if object.nodes[edge.index].unify.object.is_right() {
 					return None;
 				}
-				let fut = Box::pin(
+				let future = Box::pin(
 					self.create_output_graph_inner(input, object, edge.index, state),
 				)
 				.map(|node| {
@@ -121,7 +121,7 @@ impl Server {
 						node,
 					})
 				});
-				Some(fut)
+				Some(future)
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()

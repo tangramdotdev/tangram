@@ -229,7 +229,7 @@ where
 
 	fn spawn_build_children_task(self_: &Arc<RwLock<Self>>) {
 		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-		let fut = {
+		let future = {
 			let mut self_ = self_.write().unwrap();
 			let Some(build_children) = &mut self_.provider.build_children else {
 				return;
@@ -237,7 +237,7 @@ where
 			build_children(sender)
 		};
 		let task = Task::spawn(|stop| {
-			let subtask = Task::spawn(|_| fut);
+			let subtask = Task::spawn(|_| future);
 			let parent = self_.clone();
 			async move {
 				if matches!(parent.read().unwrap().options.depth, Some(0)) {
@@ -278,7 +278,7 @@ where
 	fn spawn_log_task(self_: &Arc<RwLock<Self>>) {
 		let (sender, mut receiver) = tokio::sync::watch::channel(String::new());
 
-		let fut = {
+		let future = {
 			let mut self_ = self_.write().unwrap();
 			let Some(log) = &mut self_.provider.log else {
 				return;
@@ -286,7 +286,7 @@ where
 			log(sender)
 		};
 
-		let subtask = Task::spawn(|_| fut);
+		let subtask = Task::spawn(|_| future);
 		let task = Task::spawn({
 			let self_ = self_.clone();
 			move |stop| async move {
@@ -312,7 +312,7 @@ where
 	}
 
 	fn spawn_object_children_task(self_: &Arc<RwLock<Self>>) {
-		let fut = {
+		let future = {
 			let mut self_ = self_.write().unwrap();
 			let Some(object_children) = self_.provider.object_children.as_mut() else {
 				return;
@@ -328,7 +328,7 @@ where
 					return;
 				}
 				options.depth = options.depth.map(|d| d.saturating_sub(1));
-				let children = fut
+				let children = future
 					.await
 					.into_iter()
 					.map(|provider| Self::new(Some(parent.clone()), provider, options))
@@ -343,7 +343,7 @@ where
 
 	fn spawn_status_task(self_: &Arc<RwLock<Self>>) {
 		let (sender, mut receiver) = tokio::sync::watch::channel(Indicator::Created);
-		let fut = {
+		let future = {
 			let mut self_ = self_.write().unwrap();
 			let Some(status) = &mut self_.provider.status else {
 				return;
@@ -351,7 +351,7 @@ where
 			status(sender)
 		};
 
-		let subtask = Task::spawn(|_| fut);
+		let subtask = Task::spawn(|_| future);
 		let task = Task::spawn({
 			let self_ = self_.clone();
 			move |stop| async move {
@@ -406,7 +406,7 @@ where
 	}
 
 	fn spawn_title_task(self_: &Arc<RwLock<Self>>) {
-		let fut = {
+		let future = {
 			let Some(title) = &mut self_.write().unwrap().provider.title else {
 				return;
 			};
@@ -417,7 +417,7 @@ where
 			let self_ = self_.clone();
 			async move {
 				let stop = pin::pin!(stop.wait());
-				if let future::Either::Right((title, _)) = future::select(stop, fut).await {
+				if let future::Either::Right((title, _)) = future::select(stop, future).await {
 					self_.write().unwrap().title.replace(title);
 				}
 			}

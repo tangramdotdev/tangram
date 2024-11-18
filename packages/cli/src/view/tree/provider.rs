@@ -1,10 +1,10 @@
 use super::{node::Indicator, Method};
 use futures::{
 	future::{self, BoxFuture},
-	stream, FutureExt as _, StreamExt as _, TryStreamExt as _,
+	FutureExt as _, StreamExt as _,
 };
 use num::ToPrimitive as _;
-use std::{collections::BTreeMap, fmt::Write as _, pin::pin};
+use std::{collections::BTreeMap, fmt::Write as _};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -25,8 +25,8 @@ impl Provider {
 		H: tg::Handle,
 	{
 		let title = Box::new(|()| {
-			let fut = async move { String::new() };
-			Box::pin(fut) as BoxFuture<'static, _>
+			let future = async move { String::new() };
+			Box::pin(future) as BoxFuture<'static, _>
 		});
 
 		let object_children = {
@@ -35,14 +35,14 @@ impl Provider {
 			Box::new(move |()| {
 				let handle = handle.clone();
 				let value = value.clone();
-				let fut = async move {
+				let future = async move {
 					value
 						.iter()
 						.enumerate()
 						.map(|(index, value)| Self::value(&handle, Some(index.to_string()), value))
 						.collect::<Vec<_>>()
 				};
-				fut.boxed()
+				future.boxed()
 			})
 		};
 
@@ -55,13 +55,7 @@ impl Provider {
 		}
 	}
 
-	#[allow(clippy::needless_pass_by_value)]
-	pub fn build<H>(
-		handle: &H,
-		parent: Option<tg::Build>,
-		name: Option<String>,
-		build: tg::Build,
-	) -> Self
+	pub fn build<H>(handle: &H, name: Option<String>, build: &tg::Build) -> Self
 	where
 		H: tg::Handle,
 	{
@@ -69,15 +63,14 @@ impl Provider {
 			let handle = handle.clone();
 			let build = build.clone();
 			Box::new(move |()| {
-				let parent = parent.clone();
 				let handle = handle.clone();
 				let build = build.clone();
-				let fut = async move {
-					Self::build_title(&handle, parent, build)
+				let future = async move {
+					Self::build_title(&handle, build)
 						.await
 						.unwrap_or_else(|error| format!("error: {error}"))
 				};
-				Box::pin(fut) as BoxFuture<'static, _>
+				Box::pin(future) as BoxFuture<'static, _>
 			})
 		};
 
@@ -86,10 +79,9 @@ impl Provider {
 			let build = build.clone();
 			Box::new(move |sender: tokio::sync::mpsc::UnboundedSender<Self>| {
 				let handle = handle.clone();
-				// let parent = parent
 				let build = build.clone();
 				let sender = sender.clone();
-				let fut = async move {
+				let future = async move {
 					let Ok(mut children) = build
 						.children(&handle, tg::build::children::get::Arg::default())
 						.await
@@ -100,11 +92,11 @@ impl Provider {
 						let Ok(child) = child else {
 							continue;
 						};
-						let child = Self::build(&handle, Some(build.clone()), None, child);
+						let child = Self::build(&handle, None, &child);
 						sender.send(child).ok();
 					}
 				};
-				fut.boxed()
+				future.boxed()
 			})
 		};
 
@@ -114,14 +106,14 @@ impl Provider {
 			Box::new(move |()| {
 				let handle = handle.clone();
 				let build = build.clone();
-				let fut = async move {
+				let future = async move {
 					let Ok(target) = build.target(&handle).await else {
 						return Vec::new();
 					};
 					let child = Self::object(&handle, Some("target".to_owned()), &target.into());
 					vec![child]
 				};
-				fut.boxed()
+				future.boxed()
 			})
 		};
 
@@ -131,7 +123,7 @@ impl Provider {
 			Box::new(move |watch: tokio::sync::watch::Sender<_>| {
 				let handle = handle.clone();
 				let build = build.clone();
-				let fut = async move {
+				let future = async move {
 					let Ok(mut status) = build.status(&handle).await else {
 						return;
 					};
@@ -155,7 +147,7 @@ impl Provider {
 					};
 					watch.send(indicator).ok();
 				};
-				fut.boxed()
+				future.boxed()
 			})
 		};
 
@@ -165,7 +157,7 @@ impl Provider {
 			Box::new(move |watch: tokio::sync::watch::Sender<String>| {
 				let handle = handle.clone();
 				let build = build.clone();
-				let fut = async move {
+				let future = async move {
 					let mut last_line = String::new();
 					let Ok(mut log) = build
 						.log(
@@ -194,7 +186,7 @@ impl Provider {
 						last_line.push('\n');
 					}
 				};
-				fut.boxed()
+				future.boxed()
 			})
 		};
 
@@ -209,135 +201,35 @@ impl Provider {
 		}
 	}
 
-	async fn build_title<H>(
-		handle: &H,
-		parent: Option<tg::Build>,
-		build: tg::Build,
-	) -> tg::Result<String>
+	async fn build_title<H>(handle: &H, build: tg::Build) -> tg::Result<String>
 	where
 		H: tg::Handle,
 	{
 		let mut title = String::new();
 		let target = build.target(handle).await?;
 		let host = target.host(handle).await?;
-
-		// If this is a builtin, use the first arg.
-		if host.as_str() == "builtin" {
-			let name = target
-				.args(handle)
-				.await?
-				.first()
-				.and_then(|arg| arg.try_unwrap_string_ref().ok())
-				.cloned()
-				.ok_or_else(|| tg::error!("expected a string"))?;
-			write!(title, "{name}").unwrap();
-			return Ok(title);
-		}
-
-		'a: {
-			let Some(parent) = parent else {
-				break 'a;
-			};
-
-			// Get the parent's executable.
-			let parent_executable = parent
-				.target(handle)
-				.await?
-				.executable(handle)
-				.await?
-				.clone()
-				.ok_or_else(|| tg::error!("expected the parent's target to have an executable"))?;
-			let parent_executable_referent = match parent_executable {
-				tg::target::Executable::Artifact(_) => {
-					break 'a;
-				},
-				tg::target::Executable::Module(module) => module.referent,
-			};
-			let tg::Referent { item, subpath, .. } = parent_executable_referent;
-			let artifact = tg::Artifact::try_from(item)
-				.ok()
-				.ok_or_else(|| tg::error!("expected an artifact"))?;
-			let parent_executable_file = match artifact {
-				tg::Artifact::Directory(directory) => {
-					let subpath = subpath.ok_or_else(|| tg::error!("expected a subpath"))?;
-					let artifact = directory.get(handle, subpath).await?;
-					match artifact {
-						tg::Artifact::Directory(_) => {
-							return Err(tg::error!("expected a file"));
-						},
-						tg::Artifact::File(file) => file,
-						tg::Artifact::Symlink(symlink) => symlink
-							.resolve(handle)
-							.await?
-							.try_unwrap_file()
-							.ok()
-							.ok_or_else(|| tg::error!("expected a file"))?,
-					}
-				},
-				tg::Artifact::File(file) => file,
-				tg::Artifact::Symlink(symlink) => symlink
-					.resolve(handle)
-					.await?
-					.try_unwrap_file()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a file"))?,
-			};
-
-			// Get the build's executable.
-			let executable = build
-				.target(handle)
-				.await?
-				.executable(handle)
-				.await?
-				.clone()
-				.ok_or_else(|| tg::error!("expected the target to have an executable"))?;
-			let executable_referent = match executable {
-				tg::target::Executable::Artifact(_) => {
-					break 'a;
-				},
-				tg::target::Executable::Module(module) => module.referent,
-			};
-			let tg::Referent {
-				item,
-				path,
-				subpath,
-				tag,
-			} = executable_referent;
-			let executable_referent = tg::Referent {
-				item: item.id(handle).await?,
-				path,
-				subpath,
-				tag,
-			};
-
-			// Try to find the build in the parent executable's dependencies.
-			if let Some(reference) = pin!(stream::iter(
-				parent_executable_file
-					.dependencies(handle)
-					.await?
-					.into_iter()
-					.map(Ok),
-			)
-			.try_filter_map(|(reference, referent)| {
-				let executable_referent = executable_referent.clone();
-				async move {
-					let referent = tg::Referent {
-						item: referent.item.id(handle).await?,
-						path: referent.path.clone(),
-						subpath: referent.subpath.clone(),
-						tag: referent.tag.clone(),
-					};
-					Ok::<_, tg::Error>((referent == executable_referent).then_some(reference))
-				}
-			}))
-			.try_next()
+		let executable = build
+			.target(handle)
 			.await?
-			{
-				write!(title, "{reference}").unwrap();
-			}
+			.executable(handle)
+			.await?
+			.clone()
+			.ok_or_else(|| tg::error!("expected the target to have an executable"))?;
+		let referent = match executable {
+			tg::target::Executable::Artifact(artifact) => tg::Referent {
+				item: artifact.into(),
+				path: None,
+				subpath: None,
+				tag: None,
+			},
+			tg::target::Executable::Module(module) => module.referent,
+		};
+		if let Some(path) = &referent.path {
+			write!(title, "{}", path.display()).unwrap();
+		} else if let Some(tag) = &referent.tag {
+			write!(title, "{tag}").unwrap();
 		}
-
-		if host.as_str() == "js" {
+		if host.as_str() == "builtin" || host.as_str() == "js" {
 			let name = target
 				.args(handle)
 				.await?
@@ -348,7 +240,6 @@ impl Provider {
 				write!(title, "#{name}").unwrap();
 			}
 		}
-
 		Ok(title)
 	}
 
@@ -357,8 +248,8 @@ impl Provider {
 		H: tg::Handle,
 	{
 		let title = Box::new(|()| {
-			let fut = async move { String::new() };
-			Box::pin(fut) as BoxFuture<'static, _>
+			let future = async move { String::new() };
+			Box::pin(future) as BoxFuture<'static, _>
 		});
 
 		let object_children = {
@@ -367,13 +258,13 @@ impl Provider {
 			Box::new(move |()| {
 				let handle = handle.clone();
 				let value = value.clone();
-				let fut = async move {
+				let future = async move {
 					value
 						.iter()
 						.map(|(name, value)| Self::value(&handle, Some(name.clone()), value))
 						.collect::<Vec<_>>()
 				};
-				fut.boxed()
+				future.boxed()
 			})
 		};
 
@@ -391,8 +282,8 @@ impl Provider {
 		H: tg::Handle,
 	{
 		let title = Box::new(move |()| {
-			let fut = async move { "mutation".to_owned() };
-			Box::pin(fut) as BoxFuture<'static, _>
+			let future = async move { "mutation".to_owned() };
+			Box::pin(future) as BoxFuture<'static, _>
 		});
 
 		Self {
@@ -413,13 +304,13 @@ impl Provider {
 			Box::new(move |()| {
 				let handle = handle.clone();
 				let object = object.clone();
-				let fut = async move {
+				let future = async move {
 					match object.id(&handle).await {
 						Ok(id) => id.to_string(),
 						Err(error) => error.to_string(),
 					}
 				};
-				Box::pin(fut) as BoxFuture<'static, _>
+				Box::pin(future) as BoxFuture<'static, _>
 			})
 		};
 
@@ -429,14 +320,14 @@ impl Provider {
 			Box::new(move |()| {
 				let handle = handle.clone();
 				let object = object.clone();
-				let fut = async move {
+				let future = async move {
 					Self::object_children(&handle, &object)
 						.await
 						.into_iter()
 						.map(|(name, value)| Self::value(&handle, name, &value))
 						.collect::<Vec<_>>()
 				};
-				fut.boxed()
+				future.boxed()
 			})
 		};
 
@@ -651,8 +542,8 @@ impl Provider {
 			value => {
 				let value_ = value.clone();
 				let title = Box::new(move |()| {
-					let fut = future::ready(value_.to_string());
-					Box::pin(fut) as BoxFuture<'static, _>
+					let future = future::ready(value_.to_string());
+					Box::pin(future) as BoxFuture<'static, _>
 				});
 				Self {
 					item: Some(Either::Right(value.clone())),
