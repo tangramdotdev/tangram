@@ -5,7 +5,8 @@ use tangram_client as tg;
 use tangram_either::Either;
 
 impl Server {
-	pub(super) async fn write_lockfile(
+	/// Attempt to write a lockfile. If the lockfile is empty, the destination is read-only, this is a no-op.
+	pub(super) async fn try_write_lockfile(
 		&self,
 		input: &input::Graph,
 		object: &object::Graph,
@@ -38,9 +39,20 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
 
 		// Write to disk.
-		tokio::fs::write(&lockfile_path, &lockfile).await.map_err(
-			|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write lockfile"),
-		)?;
+		match tokio::fs::write(&lockfile_path, &lockfile).await {
+			Ok(()) => (),
+
+			// If there is an EPERM because the destination is RO, ignore.
+			Err(ref error) if error.raw_os_error() == Some(libc::EPERM) => (),
+
+			// Return all other errors.
+			Err(source) => {
+				return Err(
+					tg::error!(!source, %path = lockfile_path.display(), "failed to write lockfile"),
+				);
+			},
+		}
+
 		Ok(())
 	}
 

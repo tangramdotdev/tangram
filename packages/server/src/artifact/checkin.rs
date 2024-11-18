@@ -147,8 +147,10 @@ impl Server {
 		self.copy_or_move_to_cache_directory(&input, &output, 0, progress)
 			.await?;
 
-		// Write lockfiles.
-		self.write_lockfile(&input, &object).await?;
+		// If this is a non-destructive checkin, attempt to write a lockfile.
+		if !arg.destructive {
+			self.try_write_lockfile(&input, &object).await?;
+		}
 
 		// Write the artifact data to the database.
 		self.write_output_to_database(&output).await?;

@@ -588,6 +588,51 @@ async fn directory_destructive() -> tg::Result<()> {
 	.await
 }
 
+#[tokio::test]
+async fn destructive_package() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"tangram.ts" => r#"import * as a from "./a.tg.ts"#,
+			"a.tg.ts" => "",
+		},
+		"",
+		true,
+		|_server, _artifact, output| async move {
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"graph": tg.graph({
+   		"nodes": [
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"a.tg.ts": tg.file({
+   						"contents": tg.leaf(""),
+   					}),
+   					"tangram.ts": 1,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import * as a from "./a.tg.ts"),
+   				"dependencies": {
+   					"./a.tg.ts": {
+   						"item": 0,
+   						"path": "",
+   						"subpath": "a.tg.ts",
+   					},
+   				},
+   			},
+   		],
+   	}),
+   	"node": 0,
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
 async fn test<F, Fut>(
 	artifact: temp::Artifact,
 	path: &str,
