@@ -1,7 +1,10 @@
-use crate::{compiler::Compiler, Server};
+use crate::Server;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+
+#[cfg(test)]
+mod tests;
 
 impl Server {
 	pub async fn check_package(
@@ -25,7 +28,9 @@ impl Server {
 		}
 
 		// Create the compiler.
-		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
+		let compiler = self
+			.start_compiler(&tokio::runtime::Handle::current())
+			.await;
 
 		// Create the module.
 		let module = self
@@ -37,6 +42,9 @@ impl Server {
 
 		// Create the output.
 		let output = tg::package::check::Output { diagnostics };
+
+		// Stop the compiler.
+		self.stop_compiler(&compiler).await;
 
 		Ok(output)
 	}

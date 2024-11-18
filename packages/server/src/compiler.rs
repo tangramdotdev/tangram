@@ -10,7 +10,7 @@ use std::{
 	sync::{Arc, Mutex},
 };
 use tangram_client as tg;
-use tangram_futures::task::Stop;
+use tangram_futures::task::{Stop, Task};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 use tokio::io::{
@@ -46,6 +46,12 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/compiler.js.
 #[derive(Clone)]
 pub struct Compiler(Arc<Inner>);
 
+impl PartialEq for Compiler {
+	fn eq(&self, other: &Self) -> bool {
+		Arc::ptr_eq(&self.0, &other.0)
+	}
+}
+
 pub struct Inner {
 	/// The diagnostics.
 	diagnostics: tokio::sync::RwLock<BTreeMap<lsp::Uri, Vec<tg::Diagnostic>>>,
@@ -68,8 +74,14 @@ pub struct Inner {
 	/// The sender.
 	sender: std::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
 
+	/// The serve task.
+	serve_task: tokio::sync::Mutex<Option<Task<()>>>,
+
 	/// The server.
 	server: Server,
+
+	/// The stop task.
+	stop_task: Mutex<Option<Task<()>>>,
 
 	/// The workspaces.
 	workspaces: tokio::sync::RwLock<BTreeSet<PathBuf>>,
@@ -119,8 +131,12 @@ impl Compiler {
 		let request_sender = Mutex::new(None);
 		let request_task = Mutex::new(None);
 		let sender = std::sync::RwLock::new(None);
+		let serve_task = tokio::sync::Mutex::new(None);
+		let stop_task = Mutex::new(None);
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
-		Self(Arc::new(Inner {
+
+		// Create the compiler.
+		let compiler = Self(Arc::new(Inner {
 			diagnostics,
 			documents,
 			library_temp,
@@ -128,12 +144,47 @@ impl Compiler {
 			request_sender,
 			request_task,
 			sender,
+			serve_task,
 			server: server.clone(),
+			stop_task,
 			workspaces,
-		}))
+		}));
+
+		// Spawn the task.
+		let task = Task::spawn(|stop| {
+			let compiler = compiler.clone();
+			async move {
+				stop.wait().await;
+				compiler.request_sender.lock().unwrap().take();
+				let task = compiler.request_task.lock().unwrap().take();
+				if let Some(task) = task {
+					task.await.unwrap();
+				}
+			}
+		});
+		compiler.stop_task.lock().unwrap().replace(task);
+
+		compiler
 	}
 
 	pub async fn serve(
+		self,
+		input: impl AsyncBufRead + Send + Unpin + 'static,
+		output: impl AsyncWrite + Send + Unpin + 'static,
+	) -> tg::Result<()> {
+		let task = Task::spawn(|stop| {
+			let compiler = self.clone();
+			async move {
+				future::select(pin!(stop.wait()), pin!(compiler.serve_inner(input, output))).await;
+			}
+		});
+		self.serve_task.lock().await.replace(task.clone());
+		task.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the compiler serve task failed"))
+	}
+
+	async fn serve_inner(
 		self,
 		mut input: impl AsyncBufRead + Send + Unpin + 'static,
 		mut output: impl AsyncWrite + Send + Unpin + 'static,
@@ -173,7 +224,9 @@ impl Compiler {
 		// Read incoming messages.
 		loop {
 			// Read a message.
-			let message = Self::read_incoming_message(&mut input).await?;
+			let Some(message) = Self::read_incoming_message(&mut input).await? else {
+				break;
+			};
 
 			// If the message is the exit notification, then break.
 			if matches!(&message,
@@ -203,7 +256,7 @@ impl Compiler {
 		Ok(())
 	}
 
-	async fn read_incoming_message<R>(reader: &mut R) -> tg::Result<jsonrpc::Message>
+	async fn read_incoming_message<R>(reader: &mut R) -> tg::Result<Option<jsonrpc::Message>>
 	where
 		R: AsyncBufRead + Unpin,
 	{
@@ -216,7 +269,7 @@ impl Compiler {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read a line"))?;
 			if n == 0 {
-				break;
+				return Ok(None);
 			}
 			if !line.ends_with("\r\n") {
 				return Err(tg::error!(?line, "unexpected line ending"));
@@ -616,6 +669,23 @@ impl Compiler {
 		}
 	}
 
+	pub async fn stop(&self) {
+		self.stop_task.lock().unwrap().as_ref().unwrap().stop();
+		let serve_task = self.serve_task.lock().await.clone();
+		if let Some(serve_task) = serve_task {
+			serve_task.stop();
+		}
+	}
+
+	pub async fn wait(&self) {
+		let stop_task = self.stop_task.lock().unwrap().clone().unwrap();
+		stop_task.wait().await.unwrap();
+		let serve_task = self.serve_task.lock().await.clone();
+		if let Some(serve_task) = serve_task {
+			serve_task.wait().await.unwrap();
+		}
+	}
+
 	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
 		// Verify the scheme and get the path.
 		if uri.scheme().unwrap().as_str() != "file" {
@@ -788,8 +858,13 @@ impl Compiler {
 
 impl crate::Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
-		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
+		let compiler = self
+			.start_compiler(&tokio::runtime::Handle::current())
+			.await;
 		let text = compiler.format(text).await?;
+
+		self.stop_compiler(&compiler).await;
+
 		Ok(text)
 	}
 
@@ -798,8 +873,14 @@ impl crate::Server {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
-		compiler.serve(input, output).await?;
+		let compiler = self
+			.start_compiler(&tokio::runtime::Handle::current())
+			.await;
+
+		compiler.clone().serve(input, output).await?;
+
+		self.stop_compiler(&compiler).await;
+
 		Ok(())
 	}
 }
