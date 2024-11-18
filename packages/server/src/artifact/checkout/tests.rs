@@ -245,7 +245,6 @@ where
 			.ok_or_else(|| tg::error!("stream ended without output"))?;
 		let artifact = temp::Artifact::with_path(temp.path()).await?;
 		(assertions)(server.clone(), artifact).await?;
-		eprintln!("got artifact");
 
 		Ok::<_, tg::Error>(())
 	})

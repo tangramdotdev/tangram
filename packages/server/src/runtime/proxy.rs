@@ -48,7 +48,9 @@ impl Proxy {
 		if let Ok(path) = path.strip_prefix(&path_map.output_guest) {
 			path_map.output_host.join(path)
 		} else {
-			path_map.root_host.join(path.strip_prefix("/").unwrap_or(path.as_ref()))
+			path_map
+				.root_host
+				.join(path.strip_prefix("/").unwrap_or(path.as_ref()))
 		}
 	}
 
