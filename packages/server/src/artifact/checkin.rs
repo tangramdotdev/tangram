@@ -65,7 +65,7 @@ impl Server {
 		// Canonicalize the path's parent.
 		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
+			.map_err(|source| tg::error!(!source, %path = &arg.path.display(), "failed to canonicalize the path's parent"))?;
 
 		// If this is a checkin of a path in the cache directory, then retrieve the corresponding artifact.
 		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
