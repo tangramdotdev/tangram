@@ -1,9 +1,10 @@
 use crate::{temp::Temp, Server};
 use dashmap::{DashMap, DashSet};
-use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt, Stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
 use std::{
 	collections::{BTreeMap, BTreeSet},
+	future::Future,
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
 	pin::pin,
@@ -17,14 +18,17 @@ use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 #[cfg(test)]
 mod tests;
 
-struct InnerArg<'a> {
-	arg: &'a tg::artifact::checkout::Arg,
-	artifact: &'a tg::Artifact,
-	cache_path: &'a PathBuf,
-	existing_artifact: Option<&'a tg::Artifact>,
+#[derive(Clone)]
+struct InnerArg {
+	arg: tg::artifact::checkout::Arg,
+	artifact: tg::Artifact,
+	cache_path: PathBuf,
+	existing_artifact: Option<tg::Artifact>,
 	files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
-	path: &'a PathBuf,
-	progress: &'a crate::progress::Handle<tg::artifact::checkout::Output>,
+	temp_path: PathBuf,
+	final_path: PathBuf,
+	root_path: PathBuf,
+	progress: crate::progress::Handle<tg::artifact::checkout::Output>,
 	visited: Arc<DashSet<PathBuf, fnv::FnvBuildHasher>>,
 }
 
@@ -97,7 +101,7 @@ impl Server {
 					.await?;
 
 				if let Some(path) = arg.path {
-					// Create the lockfile.
+					// Create the lockfile for external checkouts.
 					let artifact = tg::Artifact::with_id(id.clone());
 					let lockfile = server
 						.create_lockfile_with_artifact(&artifact)
@@ -111,10 +115,11 @@ impl Server {
 						} else {
 							path.parent().unwrap().join("tangram.lock")
 						};
-						let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
+
 						let contents = serde_json::to_vec(&lockfile).map_err(|source| {
 							tg::error!(!source, "failed to serialize lockfile")
 						})?;
+						let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
 						tokio::fs::write(&lockfile_path, &contents).await.map_err(
 							|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write lockfile"),
 						)?;
@@ -166,7 +171,7 @@ impl Server {
 			}
 			if (path.as_ref() as &Path).starts_with(self.cache_path()) {
 				return Err(
-					tg::error!(%path = path.display(), "cannot check out an artifact to the cache directory"),
+					tg::error!(%path = path.display(), "cannot check out an artifact to the cache path"),
 				);
 			}
 
@@ -187,23 +192,25 @@ impl Server {
 
 			// Perform the checkout.
 			let arg = InnerArg {
-				arg,
-				artifact: &artifact,
-				cache_path,
-				existing_artifact: existing_artifact.as_ref(),
-				files,
-				path: &path,
-				progress,
-				visited,
+				arg: arg.clone(),
+				artifact: artifact.clone(),
+				cache_path: cache_path.clone(),
+				existing_artifact: existing_artifact.clone(),
+				files: files.clone(),
+				temp_path: path.clone(),
+				final_path: path.clone(),
+				root_path: path.clone(),
+				progress: progress.clone(),
+				visited: visited.clone(),
 			};
-			self.check_out_inner(arg).await?;
+			Box::pin(self.check_out_inner(arg)).await?;
 
 			// Create the output.
 			let output = tg::artifact::checkout::Output { path };
 
 			Ok(output)
 		} else {
-			// Get the path in the artifacts directory.
+			// Get the path in the cache path.
 			let id = artifact.id(self).await?;
 			let path = cache_path.join(id.to_string());
 			let artifact_path = self.artifacts_path().join(id.to_string());
@@ -220,48 +227,47 @@ impl Server {
 			}
 
 			// Create a temp.
-			let temp = (cache_path == &self.cache_path()).then(|| Temp::new(self));
+			let temp = Temp::new(self);
 
-			// Perform the checkout to the tmp.
+			// Perform the checkout to the temp.
 			let files = Arc::new(DashMap::default());
 			let arg = InnerArg {
-				arg,
-				artifact: &artifact,
-				cache_path,
+				arg: arg.clone(),
+				artifact: artifact.clone(),
+				cache_path: cache_path.clone(),
 				existing_artifact: None,
 				files,
-				path: temp.as_ref().map_or(&path, |tmp| &tmp.path),
-				progress,
-				visited,
+				temp_path: temp.path.clone(),
+				final_path: path.clone(),
+				root_path: path.clone(),
+				progress: progress.clone(),
+				visited: visited.clone(),
 			};
-			self.check_out_inner(arg).await?;
-
+			Box::pin(self.check_out_inner(arg)).await?;
 			if let Some(parent) = path.parent() {
 				tokio::fs::create_dir_all(parent)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create output directory"))?;
 			}
 
-			// Move the checkout to the path.
-			if let Some(temp) = temp {
-				match tokio::fs::rename(&temp, &path).await {
-					Ok(()) => (),
+			// Move the checkout to the cache path.
+			match tokio::fs::rename(&temp.path, &path).await {
+				Ok(()) => (),
 
-					// If the file system object exists, then remove the checkout to the temp.
-					Err(ref error)
-						if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
-					{
-						crate::util::fs::remove(&temp).await.ok();
-					},
+				// If the entry in the cache path exists, then remove the checkout to the temp.
+				Err(ref error)
+					if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
+				{
+					crate::util::fs::remove(&temp.path).await.ok();
+				},
 
-					// Otherwise, return the error.
-					Err(source) => {
-						return Err(
-							tg::error!(!source, %tmp = temp.path.display(), %path = path.display(), "failed to move the checkout to the cache directory"),
-						);
-					},
-				};
-			}
+				// Otherwise, return the error.
+				Err(source) => {
+					return Err(
+						tg::error!(!source, %temp = temp.path.display(), %path = path.display(), "failed to move the checkout to the cache directory"),
+					);
+				},
+			};
 
 			// Create the output.
 			let output = tg::artifact::checkout::Output {
@@ -272,27 +278,28 @@ impl Server {
 		}
 	}
 
-	async fn check_out_inner(&self, arg: InnerArg<'_>) -> tg::Result<()> {
+	async fn check_out_inner(&self, arg: InnerArg) -> tg::Result<()> {
 		let InnerArg {
 			arg,
 			artifact,
 			cache_path,
 			existing_artifact,
 			files,
-			path,
+			temp_path,
+			final_path,
+			root_path,
 			progress,
 			visited,
 		} = arg;
 
-		// Checking if the visited set contains the value before attempting to insert avoids write contention. Checking the return value of the insertion is required to avoid a race condition if the path was inserted in between the first check and attempted insertion.
-		if visited.contains(path) || !visited.insert(path.clone()) {
+		// Check if this artifact has already been checked out by this task to avoid cycles.
+		if !visited.insert(final_path.clone()) {
 			return Ok(());
 		}
 
 		// If the artifact is the same as the existing artifact, then return.
 		let id = artifact.id(self).await?;
-
-		match existing_artifact {
+		match &existing_artifact {
 			None => (),
 			Some(existing_artifact) => {
 				if id == existing_artifact.id(self).await? {
@@ -303,31 +310,33 @@ impl Server {
 
 		// Call the appropriate function for the artifact's type.
 		let arg_ = InnerArg {
-			arg,
-			artifact,
+			arg: arg.clone(),
+			artifact: artifact.clone(),
 			cache_path,
 			existing_artifact,
 			files,
-			path,
+			temp_path: temp_path.clone(),
+			final_path,
+			root_path,
 			progress,
 			visited,
 		};
 		match artifact {
 			tg::Artifact::Directory(_) => {
-				Box::pin(self.check_out_directory(arg_)).await.map_err(
-					|source| tg::error!(!source, %id, %path = path.display(), "failed to check out the directory"),
+				Box::pin(self.check_out_directory(&arg_)).await.map_err(
+					|source| tg::error!(!source, %id, %path = temp_path.display(), "failed to check out the directory"),
 				)?;
 			},
 
 			tg::Artifact::File(_) => {
-				Box::pin(self.check_out_file(arg_)).await.map_err(
-					|source| tg::error!(!source, %id, %path = path.display(), "failed to check out the file"),
+				Box::pin(self.check_out_file(&arg_)).await.map_err(
+					|source| tg::error!(!source, %id, %path = temp_path.display(), "failed to check out the file"),
 				)?;
 			},
 
 			tg::Artifact::Symlink(_) => {
-				Box::pin(self.check_out_symlink(arg_)).await.map_err(
-					|source| tg::error!(!source, %id, %path = path.display(), "failed to check out the symlink"),
+				Box::pin(self.check_out_symlink(&arg_)).await.map_err(
+					|source| tg::error!(!source, %id, %path = temp_path.display(), "failed to check out the symlink"),
 				)?;
 			},
 		}
@@ -335,7 +344,7 @@ impl Server {
 		// If this is an internal checkout, then set the file system object's modified time to the epoch.
 		if arg.path.is_none() {
 			tokio::task::spawn_blocking({
-				let path = path.clone();
+				let path = temp_path.clone();
 				move || {
 					let epoch =
 						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
@@ -351,14 +360,16 @@ impl Server {
 		Ok(())
 	}
 
-	async fn check_out_directory(&self, arg: InnerArg<'_>) -> tg::Result<()> {
+	async fn check_out_directory(&self, arg: &InnerArg) -> tg::Result<()> {
 		let InnerArg {
 			arg,
 			artifact,
 			cache_path,
 			existing_artifact,
 			files,
-			path,
+			temp_path,
+			final_path,
+			root_path,
 			progress,
 			visited,
 		} = arg;
@@ -378,7 +389,7 @@ impl Server {
 					.keys()
 					.map(|name| async move {
 						if !directory.entries(self).await?.contains_key(name) {
-							let entry_path = path.clone().join(name);
+							let entry_path = temp_path.clone().join(name);
 							crate::util::fs::remove(&entry_path).await.ok();
 						}
 						Ok::<_, tg::Error>(())
@@ -390,21 +401,26 @@ impl Server {
 
 			// If there is an existing file system object at the path and it is not a directory, then remove it, create a directory, and continue.
 			Some(_) => {
-				crate::util::fs::remove(path).await.ok();
-				tokio::fs::create_dir_all(path)
+				crate::util::fs::remove(temp_path).await.ok();
+				tokio::fs::create_dir_all(temp_path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 			},
 
 			// If there is no artifact at this path, then create a directory.
 			None => {
-				tokio::fs::create_dir_all(path)
+				tokio::fs::create_dir_all(temp_path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 			},
 		}
 
 		// Recurse into the entries.
+		#[allow(clippy::manual_async_fn)]
+		fn future(server: Server, arg: InnerArg) -> impl Future<Output = tg::Result<()>> + Send {
+			async move { server.check_out_inner(arg).await }
+		}
+
 		directory
 			.entries(self)
 			.await?
@@ -423,19 +439,23 @@ impl Server {
 					};
 
 					// Recurse.
-					let entry_path = path.clone().join(name);
+					let temp_path = temp_path.clone().join(name);
+					let final_path = final_path.clone().join(name);
 					let arg = InnerArg {
-						arg,
-						artifact,
-						cache_path,
-						existing_artifact: existing_artifact.as_ref(),
+						arg: arg.clone(),
+						artifact: artifact.clone(),
+						cache_path: cache_path.clone(),
+						existing_artifact: existing_artifact.clone(),
 						files,
-						path: &entry_path,
-						progress,
+						temp_path,
+						final_path,
+						root_path: root_path.clone(),
+						progress: progress.clone(),
 						visited,
 					};
-					self.check_out_inner(arg).await?;
-
+					tokio::spawn(future(self.clone(), arg))
+						.map(|result| result.unwrap())
+						.await?;
 					Ok::<_, tg::Error>(())
 				}
 			})
@@ -446,16 +466,17 @@ impl Server {
 		Ok(())
 	}
 
-	async fn check_out_file(&self, arg: InnerArg<'_>) -> tg::Result<()> {
+	async fn check_out_file(&self, arg: &InnerArg) -> tg::Result<()> {
 		let InnerArg {
 			arg,
 			artifact,
 			cache_path,
 			existing_artifact,
 			files,
-			path,
+			temp_path,
 			progress,
 			visited,
+			..
 		} = arg;
 
 		let file = artifact
@@ -465,7 +486,7 @@ impl Server {
 
 		// Handle an existing artifact at the path.
 		if existing_artifact.is_some() {
-			crate::util::fs::remove(path).await.ok();
+			crate::util::fs::remove(temp_path).await.ok();
 		};
 
 		// Check out the file's dependencies.
@@ -484,6 +505,10 @@ impl Server {
 			dependencies
 				.iter()
 				.map(|artifact| async {
+					// Don't recurse on artifacts that have already been checked out.
+					if visited.contains(&cache_path.join(artifact.to_string())) {
+						return Ok(());
+					}
 					let arg = tg::artifact::checkout::Arg {
 						force: false,
 						path: None,
@@ -512,11 +537,10 @@ impl Server {
 		let id = file.id(self).await?;
 		let existing_path = files.get(&id).map(|path| path.clone());
 		if let Some(existing_path) = existing_path {
-			let permit = self.file_descriptor_semaphore.acquire().await;
-			tokio::fs::copy(&existing_path, &path).await.map_err(
-				|source| tg::error!(!source, %existing_path = path.display(), %to = path.display(), %id, "failed to copy the file"),
+			let _permit = self.file_descriptor_semaphore.acquire().await;
+			tokio::fs::copy(&existing_path, &temp_path).await.map_err(
+				|source| tg::error!(!source, %existing_path = temp_path.display(), %to = temp_path.display(), %id, "failed to copy the file"),
 			)?;
-			drop(permit);
 			return Ok(());
 		}
 
@@ -524,15 +548,14 @@ impl Server {
 		let internal_checkout_path = cache_path.join(id.to_string());
 		if arg.path.is_none() {
 			// If this checkout is internal, then create a hard link.
-			let result = tokio::fs::hard_link(&internal_checkout_path, path).await;
+			let result = tokio::fs::hard_link(&internal_checkout_path, temp_path).await;
 			if result.is_ok() {
 				return Ok(());
 			}
 		} else {
 			// If this checkout is external, then copy the file.
-			let permit = self.file_descriptor_semaphore.acquire().await;
-			let result = tokio::fs::copy(&internal_checkout_path, path).await;
-			drop(permit);
+			let _permit = self.file_descriptor_semaphore.acquire().await;
+			let result = tokio::fs::copy(&internal_checkout_path, temp_path).await;
 			if result.is_ok() {
 				return Ok(());
 			}
@@ -542,7 +565,7 @@ impl Server {
 		let permit = self.file_descriptor_semaphore.acquire().await;
 		tokio::io::copy(
 			&mut file.reader(self).await?,
-			&mut tokio::fs::File::create(path)
+			&mut tokio::fs::File::create(temp_path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the file"))?,
 		)
@@ -553,7 +576,7 @@ impl Server {
 		// Make the file executable if necessary.
 		if file.executable(self).await? {
 			let permissions = std::fs::Permissions::from_mode(0o755);
-			tokio::fs::set_permissions(path, permissions)
+			tokio::fs::set_permissions(temp_path, permissions)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
@@ -563,24 +586,26 @@ impl Server {
 		let xattr = file.data(self).await?;
 		let json = serde_json::to_vec(&xattr)
 			.map_err(|error| tg::error!(source = error, "failed to serialize the dependencies"))?;
-		xattr::set(path, name, &json).map_err(|source| {
+		xattr::set(temp_path, name, &json).map_err(|source| {
 			tg::error!(!source, "failed to set the extended attribute for the file")
 		})?;
 
 		// Add the path to the files map.
-		files.insert(id.clone(), path.clone());
+		files.insert(id.clone(), temp_path.clone());
 
 		Ok(())
 	}
 
-	async fn check_out_symlink(&self, arg: InnerArg<'_>) -> tg::Result<()> {
+	async fn check_out_symlink(&self, arg: &InnerArg) -> tg::Result<()> {
 		let InnerArg {
 			arg,
 			artifact,
 			cache_path,
 			existing_artifact,
 			files,
-			path,
+			temp_path,
+			final_path,
+			root_path,
 			progress,
 			visited,
 		} = arg;
@@ -592,7 +617,7 @@ impl Server {
 
 		// Handle an existing artifact at the path.
 		if existing_artifact.is_some() {
-			crate::util::fs::remove(&path).await.ok();
+			crate::util::fs::remove(&temp_path).await.ok();
 		};
 
 		// Get the symlink's data.
@@ -608,33 +633,55 @@ impl Server {
 		if arg.dependencies {
 			if let Some(artifact) = &artifact {
 				let id = artifact.id(self).await?;
-				let arg = tg::artifact::checkout::Arg::default();
-				Box::pin(self.check_out_artifact_with_files(
-					&id, &arg, cache_path, files, visited, progress,
-				))
-				.await?;
+
+				// Don't recurse on artifacts that are already checked out.
+				if !visited.contains(&cache_path.join(id.to_string())) {
+					let arg = tg::artifact::checkout::Arg::default();
+					Box::pin(self.check_out_artifact_with_files(
+						&id,
+						&arg,
+						cache_path,
+						files.clone(),
+						visited.clone(),
+						progress,
+					))
+					.await?;
+				}
 			}
 		}
 
 		// Render the target.
 		let mut target: PathBuf = PathBuf::new();
 		if let Some(artifact) = &artifact {
-			let path = crate::util::path::diff(path.parent().unwrap(), cache_path).unwrap();
-			let path = path.join(artifact.id(self).await?.to_string());
-			target.push(path);
+			// Get the artifact ID.
+			let id = artifact.id(self).await?;
+
+			if final_path.starts_with(&root_path) {
+				// If this symlink is within the root being checked in, the target is relative to that root.
+				let diff =
+					crate::util::path::diff(&final_path.parent().unwrap(), &root_path).unwrap();
+				target.push(diff);
+			} else {
+				// Otherwise, the target is relative to the cache path.
+				let diff =
+					crate::util::path::diff(final_path.parent().unwrap(), cache_path).unwrap();
+				target.push(diff.join(id.to_string()));
+			}
 		}
 		if let Some(subpath) = subpath {
 			target.push(subpath);
 		}
 
 		// Create the symlink.
-		tokio::fs::symlink(&target, &path)
+		tokio::fs::symlink(&target, &temp_path)
 			.await
-			.map_err(|source| tg::error!(!source, %src = target.display(), %dst = path.display(), "failed to create the symlink"))?;
+			.map_err(|source| tg::error!(!source, %src = target.display(), %dst = temp_path.display(), "failed to create the symlink"))?;
 
 		Ok(())
 	}
+}
 
+impl Server {
 	#[allow(clippy::unused_self, clippy::unused_async)]
 	async fn get_cache_path_for_path(
 		&self,
@@ -644,14 +691,17 @@ impl Server {
 		let Some(output_path) = output_path else {
 			return Ok(self.cache_path());
 		};
+
 		if !output_path.is_absolute() {
 			return Err(tg::error!(%path = output_path.display(), "expected an absolute path"));
 		}
+
 		let cache_path = if let tg::artifact::Id::Directory(_) = artifact {
 			output_path.join(".tangram/artifacts")
 		} else {
 			output_path.parent().unwrap().join(".tangram/artifacts")
 		};
+
 		Ok(cache_path)
 	}
 

@@ -601,12 +601,13 @@ impl Server {
 		}
 
 		// Get the full target by joining with the parent.
-		let target_absolute_path =
-			crate::util::fs::canonicalize_parent(path.parent().unwrap().join(&target))
-				.await
-				.map_err(|source| {
-					tg::error!(!source, %path = path.display(), "failed to canonicalize the path's parent")
-				})?;
+		let target_absolute_path = crate::util::fs::canonicalize_parent(
+			path.parent().unwrap().join(&target),
+		)
+		.await
+		.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the path's parent"),
+		)?;
 
 		// Check if this is a checkin of an artifact.
 		let path = crate::util::path::diff(&arg.path, &target_absolute_path)?;

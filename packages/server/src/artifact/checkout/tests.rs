@@ -123,6 +123,32 @@ async fn symlink_shared_target() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn deeply_nested_directory() -> tg::Result<()> {
+	let temp = Temp::new();
+	let config = Config::with_path(temp.path().to_owned());
+	let server = Server::start(config).await?;
+	let result = AssertUnwindSafe({
+		let server = server.clone();
+		async move {
+			let mut last = tg::Artifact::from(tg::file!("hello"));
+			for n in 0..512 {
+				let entries = [(format!("{n}"), last.clone())].into_iter().collect();
+				last = tg::Directory::with_entries(entries).into();
+			}
+			last.store(&server).await?;
+			last.unload();
+			last.check_out(&server, tg::artifact::checkout::Arg::default())
+				.await?;
+			Ok::<_, tg::Error>(())
+		}
+	})
+	.catch_unwind()
+	.await;
+	cleanup(temp, server).await;
+	result.unwrap()
+}
+
+#[tokio::test]
 async fn graph() -> tg::Result<()> {
 	let graph = tg::Graph::with_object(tg::graph::Object {
 		nodes: vec![tg::graph::object::Node::File(tg::graph::object::File {
@@ -175,7 +201,7 @@ async fn cyclic_symlink() -> tg::Result<()> {
                 "entries": {
                   "link": {
                     "kind": "symlink",
-                    "target": "../dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng/link"
+                    "target": "link"
                   }
                 }
               }
@@ -185,7 +211,7 @@ async fn cyclic_symlink() -> tg::Result<()> {
       },
       "link": {
         "kind": "symlink",
-        "target": ".tangram/artifacts/dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng/link"
+        "target": "link"
       }
     }
   }
@@ -219,6 +245,8 @@ where
 			.ok_or_else(|| tg::error!("stream ended without output"))?;
 		let artifact = temp::Artifact::with_path(temp.path()).await?;
 		(assertions)(server.clone(), artifact).await?;
+		eprintln!("got artifact");
+
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()
