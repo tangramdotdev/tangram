@@ -492,7 +492,7 @@ impl Server {
 							.path
 							.clone();
 
-						let absolute_path = crate::util::fs::canonicalize_parent(path.parent().unwrap().join(import_path)).await.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
+						let absolute_path = crate::util::fs::canonicalize_parent(path.parent().unwrap().join(import_path)).await.map_err(|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the path's parent"))?;
 						let is_external = absolute_path.strip_prefix(&root_path).is_err();
 
 						// If the import is of a module and points outside the root, return an error.
@@ -605,7 +605,7 @@ impl Server {
 			crate::util::fs::canonicalize_parent(path.parent().unwrap().join(&target))
 				.await
 				.map_err(|source| {
-					tg::error!(!source, "failed to canonicalize the path's parent")
+					tg::error!(!source, %path = path.display(), "failed to canonicalize the path's parent")
 				})?;
 
 		// Check if this is a checkin of an artifact.
