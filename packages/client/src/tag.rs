@@ -4,6 +4,7 @@ use tangram_version::Version;
 use winnow::{
 	ascii::{alphanumeric1, dec_uint},
 	combinator::{alt, opt, preceded, separated},
+	error::{ErrMode, FromExternalError as _},
 	prelude::*,
 	token::take_while,
 };
@@ -148,6 +149,20 @@ fn component(input: &mut &str) -> PResult<Component> {
 fn string(input: &mut &str) -> PResult<Component> {
 	let component =
 		take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-').parse_next(input)?;
+	if str::parse::<crate::object::Id>(component).is_ok() {
+		return Err(ErrMode::from_external_error(
+			input,
+			winnow::error::ErrorKind::Fail,
+			tg::error!("component is not a tag if it is an build id"),
+		));
+	}
+	if str::parse::<crate::build::Id>(component).is_ok() {
+		return Err(ErrMode::from_external_error(
+			input,
+			winnow::error::ErrorKind::Fail,
+			tg::error!("component is not a tag if it is an build id"),
+		));
+	}
 	Ok(Component(component.to_owned()))
 }
 
@@ -196,5 +211,14 @@ mod tests {
 		assert!("".parse::<tg::Tag>().is_err());
 		assert!("hello/".parse::<tg::Tag>().is_err());
 		assert!("hello//world".parse::<tg::Tag>().is_err());
+
+		assert!("fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
+			.parse::<tg::Tag>()
+			.is_err());
+		assert!(
+			"hello/fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260/world"
+				.parse::<tg::Tag>()
+				.is_err()
+		);
 	}
 }
