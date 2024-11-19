@@ -127,6 +127,9 @@ impl Server {
 	) -> tg::Result<LockfileNode> {
 		let current_package_path = lockfile_path.parent().unwrap().to_owned();
 		let current_package_node = 0;
+		if lockfile.nodes.is_empty() {
+			return Err(tg::error!("invalid lockfile"));
+		}
 		let mut visited = vec![false; lockfile.nodes.len()];
 
 		let arg = FindInLockfileArg {
