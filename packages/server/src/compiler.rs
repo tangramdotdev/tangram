@@ -160,9 +160,19 @@ impl Compiler {
 				if let Some(task) = task {
 					task.await.unwrap();
 				}
+				let mut compilers = compiler.server.compilers.write().unwrap();
+				if let Some(pos) = compilers.iter().position(|c| *c == compiler) {
+					compilers.remove(pos);
+				}
 			}
 		});
 		compiler.stop_task.lock().unwrap().replace(task);
+		compiler
+			.server
+			.compilers
+			.write()
+			.unwrap()
+			.push(compiler.clone());
 
 		compiler
 	}
@@ -858,12 +868,10 @@ impl Compiler {
 
 impl crate::Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
-		let compiler = self
-			.start_compiler(&tokio::runtime::Handle::current())
-			.await;
+		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		let text = compiler.format(text).await?;
 
-		self.stop_compiler(&compiler).await;
+		compiler.stop().await;
 
 		Ok(text)
 	}
@@ -873,13 +881,11 @@ impl crate::Server {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let compiler = self
-			.start_compiler(&tokio::runtime::Handle::current())
-			.await;
+		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 
 		compiler.clone().serve(input, output).await?;
 
-		self.stop_compiler(&compiler).await;
+		compiler.stop().await;
 
 		Ok(())
 	}

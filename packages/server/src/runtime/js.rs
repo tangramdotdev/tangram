@@ -165,7 +165,7 @@ impl Runtime {
 			build: build.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-			compiler: server.start_compiler(&main_runtime_handle).await,
+			compiler: Compiler::new(server, main_runtime_handle.clone()),
 			log_sender: RefCell::new(Some(log_sender)),
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
@@ -376,7 +376,8 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to join the log task"))?;
 
-		server.stop_compiler(&state.compiler).await;
+		// Stop the compiler.
+		state.compiler.stop().await;
 
 		result
 	}

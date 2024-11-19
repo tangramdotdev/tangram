@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{compiler::Compiler, Server};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -25,9 +25,7 @@ impl Server {
 		}
 
 		// Create the compiler.
-		let compiler = self
-			.start_compiler(&tokio::runtime::Handle::current())
-			.await;
+		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 
 		// Create the module.
 		let module = self
@@ -37,7 +35,8 @@ impl Server {
 		// Document the module.
 		let output = compiler.document(&module).await?;
 
-		self.stop_compiler(&compiler).await;
+		// Stop the compiler.
+		compiler.stop().await;
 
 		Ok(output)
 	}

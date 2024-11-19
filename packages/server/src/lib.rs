@@ -62,7 +62,7 @@ pub struct Inner {
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
-	compilers: tokio::sync::RwLock<Vec<Compiler>>,
+	compilers: RwLock<Vec<Compiler>>,
 	checkout_task_map: CheckoutTaskMap,
 	config: Config,
 	database: Database,
@@ -164,7 +164,7 @@ impl Server {
 		let builds = TaskMap::default();
 
 		// Create the compilers.
-		let compilers = tokio::sync::RwLock::new(Vec::new());
+		let compilers = RwLock::new(Vec::new());
 
 		// Create the checkout task map.
 		let checkout_task_map = TaskMap::default();
@@ -481,9 +481,10 @@ impl Server {
 				tracing::trace!("started shutdown");
 
 				// Stop the compilers. This needs to happen before stopping the HTTP requests.
-				let compilers = server.compilers.read().await.clone();
+				let compilers = server.compilers.read().unwrap().clone();
 				for compiler in compilers {
-					server.stop_compiler(&compiler).await;
+					compiler.stop().await;
+					compiler.wait().await;
 				}
 
 				// Stop the HTTP task.
@@ -629,24 +630,6 @@ impl Server {
 	#[must_use]
 	pub fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
-	}
-
-	#[must_use]
-	pub async fn start_compiler(&self, main_runtime_handle: &tokio::runtime::Handle) -> Compiler {
-		let compiler = Compiler::new(self, main_runtime_handle.clone());
-		let mut compilers = self.compilers.write().await;
-
-		compilers.push(compiler.clone());
-		compiler
-	}
-
-	pub async fn stop_compiler(&self, compiler: &Compiler) {
-		let mut compilers = self.compilers.write().await;
-		if let Some(pos) = compilers.iter().position(|c| c == compiler) {
-			compiler.stop().await;
-			compiler.wait().await;
-			compilers.remove(pos);
-		}
 	}
 }
 

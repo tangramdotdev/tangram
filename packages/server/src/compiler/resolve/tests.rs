@@ -1,4 +1,4 @@
-use crate::{Config, Server};
+use crate::{compiler::Compiler, Config, Server};
 use futures::{Future, FutureExt};
 use pretty_assertions::assert_eq;
 use std::{panic::AssertUnwindSafe, path::PathBuf};
@@ -147,9 +147,7 @@ where
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
-	let compiler = server
-		.start_compiler(&tokio::runtime::Handle::current())
-		.await;
+	let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
 	let result = AssertUnwindSafe(async {
 		let temp = Temp::new();
 		artifact.to_path(temp.as_ref()).await.map_err(
@@ -203,9 +201,7 @@ where
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
-	let compiler = server
-		.start_compiler(&tokio::runtime::Handle::current())
-		.await;
+	let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
 	let result = AssertUnwindSafe(async {
 		let directory = Temp::new();
 		artifact.to_path(directory.as_ref()).await.map_err(
