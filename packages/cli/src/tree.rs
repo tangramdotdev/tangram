@@ -1,4 +1,7 @@
+use std::pin::pin;
+
 use crate::Cli;
+use futures::future;
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -49,13 +52,14 @@ impl Cli {
 		let tree = crate::view::tree::Tree::new(&handle, item.clone(), options);
 
 		// Render the tree until it is finished.
+		let mut done = false;
 		loop {
 			// Clear.
 			let action = crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown);
 			crossterm::execute!(stdout, action).unwrap();
 
-			// If the tree is finished, then break.
-			if tree.is_finished() {
+			// If we're done waiting for the tree, then break.
+			if done {
 				break;
 			}
 
@@ -70,8 +74,11 @@ impl Cli {
 			let action = crossterm::cursor::RestorePosition;
 			crossterm::execute!(stdout, action).unwrap();
 
-			// Sleep
-			tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+			// Sleep and wait for the tree to finish.
+			let sleep = tokio::time::sleep(std::time::Duration::from_millis(100));
+			if let future::Either::Left(_) = future::select(pin!(tree.wait()), pin!(sleep)).await {
+				done = true;
+			}
 		}
 
 		// Print the tree.

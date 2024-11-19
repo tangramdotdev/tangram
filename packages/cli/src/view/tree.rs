@@ -1,7 +1,4 @@
-use self::{
-	node::{Indicator, Node},
-	provider::Provider,
-};
+use self::{node::Node, provider::Provider};
 use super::commands::Commands;
 use futures::{future::BoxFuture, stream::FuturesUnordered, StreamExt as _};
 use num::ToPrimitive;
@@ -129,25 +126,6 @@ where
 
 	pub fn hit_test(&self, x: u16, y: u16) -> bool {
 		self.state.read().unwrap().rect.contains(Position { x, y })
-	}
-
-	pub fn is_finished(&self) -> bool {
-		let indicator = self
-			.state
-			.read()
-			.unwrap()
-			.roots
-			.last()
-			.unwrap()
-			.read()
-			.unwrap()
-			.indicator;
-		indicator.map_or(true, |indicator| {
-			matches!(
-				indicator,
-				Indicator::Canceled | Indicator::Failed | Indicator::Succeeded
-			)
-		})
 	}
 
 	pub fn new(handle: &H, item: Either<tg::Build, tg::Object>, options: Options) -> Self {
