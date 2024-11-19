@@ -54,6 +54,9 @@ impl Server {
 		// Get the doc.
 		let doc = compiler.document(&module).await?;
 
+		// Stop the compiler.
+		compiler.stop().await;
+
 		Ok(doc)
 	}
 }

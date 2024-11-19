@@ -3,6 +3,9 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
+#[cfg(test)]
+mod tests;
+
 impl Server {
 	pub async fn check_package(
 		&self,
@@ -37,6 +40,9 @@ impl Server {
 
 		// Create the output.
 		let output = tg::package::check::Output { diagnostics };
+
+		// Stop the compiler.
+		compiler.stop().await;
 
 		Ok(output)
 	}

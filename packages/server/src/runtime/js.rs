@@ -376,6 +376,9 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to join the log task"))?;
 
+		// Stop the compiler.
+		state.compiler.stop().await;
+
 		result
 	}
 }
