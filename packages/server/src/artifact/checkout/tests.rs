@@ -221,6 +221,66 @@ async fn cyclic_symlink() -> tg::Result<()> {
 	.await
 }
 
+#[tokio::test]
+async fn shared_directory_dependency() -> tg::Result<()> {
+	let temp = Temp::new();
+	let config = Config::with_path(temp.path().to_owned());
+	let server = Server::start(config).await?;
+
+	let result = AssertUnwindSafe(async {
+		let a = tg::directory! {
+			"bin" => tg::directory! {
+				"a" => "",
+			},
+			"usr" => tg::symlink!(None, Some(PathBuf::from("."))),
+		};
+		let b =
+			tg::Symlink::with_artifact_and_subpath(Some(a.clone().into()), Some("bin/a".into()));
+		let c = tg::File::with_object(tg::file::Object::Normal {
+			contents: tg::Blob::with_reader(&server, b"c".as_slice()).await?,
+			dependencies: [
+				(
+					tg::Reference::with_object(&a.id(&server).await?.into()),
+					tg::Referent {
+						item: a.clone().into(),
+						path: None,
+						subpath: None,
+						tag: None,
+					},
+				),
+				(
+					tg::Reference::with_object(&b.id(&server).await?.into()),
+					tg::Referent {
+						item: b.clone().into(),
+						path: None,
+						subpath: None,
+						tag: None,
+					},
+				),
+			]
+			.into_iter()
+			.collect(),
+			executable: false,
+		});
+		let d = tg::directory! {
+			"c" => c,
+		};
+		let temp = Temp::new();
+		let arg = tg::artifact::checkout::Arg {
+			dependencies: true,
+			force: false,
+			path: Some(temp.path().to_owned()),
+		};
+		tg::Artifact::from(d).check_out(&server, arg).await?;
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+
+	cleanup(temp, server).await;
+	result.unwrap()
+}
+
 async fn test<F, Fut>(artifact: impl Into<tg::Artifact>, assertions: F) -> tg::Result<()>
 where
 	F: FnOnce(Server, temp::Artifact) -> Fut,
