@@ -4,6 +4,7 @@ use tangram_version::Version;
 use winnow::{
 	ascii::{alphanumeric1, dec_uint},
 	combinator::{alt, opt, preceded, separated},
+	error::{ErrMode, FromExternalError as _},
 	prelude::*,
 	token::take_while,
 };
@@ -146,8 +147,17 @@ fn component(input: &mut &str) -> PResult<Component> {
 }
 
 fn string(input: &mut &str) -> PResult<Component> {
-	let component =
-		take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-').parse_next(input)?;
+	let component = take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-')
+		.verify(|value: &str| {
+			if value.parse::<tg::build::Id>().is_ok() {
+				return false;
+			}
+			if value.parse::<tg::object::Id>().is_ok() {
+				return false;
+			}
+			true
+		})
+		.parse_next(input)?;
 	Ok(Component(component.to_owned()))
 }
 
@@ -196,5 +206,14 @@ mod tests {
 		assert!("".parse::<tg::Tag>().is_err());
 		assert!("hello/".parse::<tg::Tag>().is_err());
 		assert!("hello//world".parse::<tg::Tag>().is_err());
+
+		assert!("fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
+			.parse::<tg::Tag>()
+			.is_err());
+		assert!(
+			"hello/fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260/world"
+				.parse::<tg::Tag>()
+				.is_err()
+		);
 	}
 }
