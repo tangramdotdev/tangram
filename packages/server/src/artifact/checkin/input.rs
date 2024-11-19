@@ -659,7 +659,7 @@ impl Server {
 			crate::lockfile::try_get_lockfile_node_for_module_path(path.as_ref())
 				.await
 				.map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to get lockfile for path"),
+					|source| tg::error!(!source, %path = path.display(), "failed to get lockfile node for path"),
 				)?
 				.map(|(lockfile, node)| Ok::<_, tg::Error>((Arc::new(lockfile), node)))
 				.transpose()?

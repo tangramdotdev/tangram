@@ -97,7 +97,7 @@ pub async fn try_get_node_for_module_path(
 						.try_unwrap_path_ref()
 						.ok()
 						.or_else(|| reference.options()?.path.as_ref())?;
-					let path = node_path.join(path);
+					let path = node_path.parent().unwrap().join(path);
 					let index = *referent.item.as_ref().left()?;
 					Some((index, path))
 				});
