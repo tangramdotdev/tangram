@@ -579,7 +579,8 @@ impl Server {
 		tokio::task::spawn_blocking({
 			let dest = dest.to_path_buf();
 			move || {
-				set_file_times_to_epoch_inner(&dest, recursive)?;
+				let mut visited = BTreeSet::new();
+				set_file_times_to_epoch_inner(&dest, recursive, &mut visited)?;
 				Ok::<_, tg::Error>(())
 			}
 		})
@@ -751,7 +752,15 @@ impl Server {
 	}
 }
 
-fn set_file_times_to_epoch_inner(path: &Path, recursive: bool) -> tg::Result<()> {
+fn set_file_times_to_epoch_inner(
+	path: &Path,
+	recursive: bool,
+	visited: &mut BTreeSet<PathBuf>,
+) -> tg::Result<()> {
+	if !visited.insert(path.to_owned()) {
+		return Ok(());
+	}
+
 	let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 	if recursive && path.is_dir() {
 		for entry in std::fs::read_dir(path)
@@ -759,7 +768,7 @@ fn set_file_times_to_epoch_inner(path: &Path, recursive: bool) -> tg::Result<()>
 		{
 			let entry =
 				entry.map_err(|error| tg::error!(source = error, "could not read entry"))?;
-			set_file_times_to_epoch_inner(&entry.path(), recursive)?;
+			set_file_times_to_epoch_inner(&entry.path(), recursive, visited)?;
 		}
 	}
 
