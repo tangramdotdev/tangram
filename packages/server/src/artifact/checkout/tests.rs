@@ -190,25 +190,6 @@ async fn cyclic_symlink() -> tg::Result<()> {
   {
     "kind": "directory",
     "entries": {
-      ".tangram": {
-        "kind": "directory",
-        "entries": {
-          "artifacts": {
-            "kind": "directory",
-            "entries": {
-              "dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng": {
-                "kind": "directory",
-                "entries": {
-                  "link": {
-                    "kind": "symlink",
-                    "target": "link"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
       "link": {
         "kind": "symlink",
         "target": "link"
