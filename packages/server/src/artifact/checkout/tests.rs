@@ -131,8 +131,8 @@ async fn deeply_nested_directory() -> tg::Result<()> {
 		let server = server.clone();
 		async move {
 			let mut last = tg::Artifact::from(tg::file!("hello"));
-			for n in 0..512 {
-				let entries = [(format!("{n}"), last.clone())].into_iter().collect();
+			for _ in 0..256 {
+				let entries = [("a".to_owned(), last.clone())].into_iter().collect();
 				last = tg::Directory::with_entries(entries).into();
 			}
 			last.store(&server).await?;

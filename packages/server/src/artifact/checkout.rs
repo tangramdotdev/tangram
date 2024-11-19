@@ -22,6 +22,7 @@ mod tests;
 struct InnerArg {
 	arg: tg::artifact::checkout::Arg,
 	artifact: tg::Artifact,
+	root_artifact: tg::Artifact,
 	cache_path: PathBuf,
 	existing_artifact: Option<tg::Artifact>,
 	files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
@@ -194,6 +195,7 @@ impl Server {
 			let arg = InnerArg {
 				arg: arg.clone(),
 				artifact: artifact.clone(),
+				root_artifact: artifact.clone(),
 				cache_path: cache_path.to_owned(),
 				existing_artifact: existing_artifact.clone(),
 				files: files.clone(),
@@ -218,7 +220,7 @@ impl Server {
 			// If there is already a file system object at the path, then return.
 			if tokio::fs::try_exists(&path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to stat the path"))?
+				.map_err(|source| tg::error!(!source, %path = path.display(), "failed to stat the path"))?
 			{
 				let output = tg::artifact::checkout::Output {
 					path: artifact_path,
@@ -234,6 +236,7 @@ impl Server {
 			let arg = InnerArg {
 				arg: arg.clone(),
 				artifact: artifact.clone(),
+				root_artifact: artifact.clone(),
 				cache_path: cache_path.to_owned(),
 				existing_artifact: None,
 				files,
@@ -282,6 +285,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
+			root_artifact,
 			cache_path,
 			existing_artifact,
 			files,
@@ -312,6 +316,7 @@ impl Server {
 		let arg_ = InnerArg {
 			arg: arg.clone(),
 			artifact: artifact.clone(),
+			root_artifact,
 			cache_path,
 			existing_artifact,
 			files,
@@ -364,6 +369,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
+			root_artifact,
 			cache_path,
 			existing_artifact,
 			files,
@@ -444,6 +450,7 @@ impl Server {
 					let arg = InnerArg {
 						arg: arg.clone(),
 						artifact: artifact.clone(),
+						root_artifact: root_artifact.clone(),
 						cache_path: cache_path.clone(),
 						existing_artifact: existing_artifact.clone(),
 						files,
@@ -537,7 +544,7 @@ impl Server {
 		let id = file.id(self).await?;
 		let existing_path = files.get(&id).map(|path| path.clone());
 		if let Some(existing_path) = existing_path {
-			let _permit = self.file_descriptor_semaphore.acquire().await;
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			tokio::fs::copy(&existing_path, &temp_path).await.map_err(
 				|source| tg::error!(!source, %existing_path = temp_path.display(), %to = temp_path.display(), %id, "failed to copy the file"),
 			)?;
@@ -554,7 +561,7 @@ impl Server {
 			}
 		} else {
 			// If this checkout is external, then copy the file.
-			let _permit = self.file_descriptor_semaphore.acquire().await;
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			let result = tokio::fs::copy(&internal_checkout_path, temp_path).await;
 			if result.is_ok() {
 				return Ok(());
@@ -562,7 +569,7 @@ impl Server {
 		}
 
 		// Create the file.
-		let permit = self.file_descriptor_semaphore.acquire().await;
+		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		tokio::io::copy(
 			&mut file.reader(self).await?,
 			&mut tokio::fs::File::create(temp_path)
@@ -600,6 +607,7 @@ impl Server {
 		let InnerArg {
 			arg,
 			artifact,
+			root_artifact,
 			cache_path,
 			existing_artifact,
 			files,
@@ -632,13 +640,13 @@ impl Server {
 		// Check out the symlink's artifact if necessary.
 		if arg.dependencies {
 			if let Some(artifact) = &artifact {
-				let id = artifact.id(self).await?;
+				let target_id = artifact.id(self).await?;
 
 				// Don't recurse on artifacts that are already checked out.
-				if !visited.contains(&cache_path.join(id.to_string())) {
+				if !visited.contains(&cache_path.join(target_id.to_string())) {
 					let arg = tg::artifact::checkout::Arg::default();
 					Box::pin(self.check_out_artifact_with_files(
-						&id,
+						&target_id,
 						&arg,
 						cache_path,
 						files.clone(),
@@ -653,19 +661,21 @@ impl Server {
 		// Render the target.
 		let mut target: PathBuf = PathBuf::new();
 		if let Some(artifact) = &artifact {
-			// Get the artifact ID.
-			let id = artifact.id(self).await?;
+			// Get the artifact IDs.
+			let target_id = artifact.id(self).await?;
+			let root_id = root_artifact.id(self).await?;
+			let link_id = symlink.id(self).await?.into();
 
-			if final_path.starts_with(root_path) {
-				// If this symlink is within the root being checked in, the target is relative to that root.
+			if root_id == link_id || root_id != target_id {
+				// If this symlink is the root item or the target artifact is different from the root, write a symlink relative to the cache directory.
+				let diff =
+					crate::util::path::diff(final_path.parent().unwrap(), cache_path).unwrap();
+				target.push(diff.join(target_id.to_string()));
+			} else {
+				// Otherwise, write a relative path to the root.
 				let diff =
 					crate::util::path::diff(final_path.parent().unwrap(), root_path).unwrap();
 				target.push(diff);
-			} else {
-				// Otherwise, the target is relative to the cache path.
-				let diff =
-					crate::util::path::diff(final_path.parent().unwrap(), cache_path).unwrap();
-				target.push(diff.join(id.to_string()));
 			}
 		}
 		if let Some(subpath) = subpath {
