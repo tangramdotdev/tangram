@@ -139,6 +139,16 @@ impl Server {
 			return Err(tg::error!(%path = absolute_path.display(), "invalid file type"));
 		}
 
+		// If this is a module file, ensure the parent is collected.
+		if metadata.is_file() && tg::package::is_module_path(&absolute_path) {
+			let parent = absolute_path.parent().unwrap().to_owned();
+			Box::pin(self.create_input_graph_inner(None, &parent, arg, state, progress))
+				.await
+				.map_err(
+					|source| tg::error!(!source, %path = absolute_path.display(), "failed to collect input of parent"),
+				)?;
+		}
+
 		// Get a write lock on the state to avoid a race condition.
 		let mut state_ = state.write().await;
 
@@ -185,17 +195,6 @@ impl Server {
 				.map_err(
 					|source| tg::error!(!source, %path = dangling.display(), "failed to collect dangling directory"),
 				)?;
-		}
-
-		// If this is a module file, ensure the parent is collected.
-		if metadata.is_file() && tg::package::is_module_path(&absolute_path) {
-			let parent = absolute_path.parent().unwrap().to_owned();
-			let parent = Box::pin(self.create_input_graph_inner(None, &parent, arg, state, progress))
-				.await
-				.map_err(
-					|source| tg::error!(!source, %path = absolute_path.display(), "failed to collect input of parent"),
-				)?;
-			state.write().await.graph.nodes[node].parent.replace(parent);
 		}
 
 		// Get the edges.
@@ -486,8 +485,7 @@ impl Server {
 							self.create_input_graph_inner(Some(parent), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						};
 
-
-						// If the child is a module and the import kind is not directory, get the subpath.
+						// If the child is a package and the import kind is not directory, get the subpath.
 						let (child_path, is_directory) = {
 							let state = state.read().await;
 							(state.graph.nodes[child].arg.path.clone(), state.graph.nodes[child].metadata.is_dir())
@@ -502,7 +500,14 @@ impl Server {
 								(child, subpath)
 							}
 						} else {
-							root_node_with_subpath(&state.read().await.graph, child).await
+							let (node, subpath) = root_node_with_subpath(&state.read().await.graph, child).await;
+
+							// Sanity check.
+							if tg::package::is_module_path(&child_path) && subpath.is_none() {
+								return Err(tg::error!(%path = child_path.display(), "expected a subpath"));
+							}
+
+							(node, subpath)
 						};
 
 						// Create the edge.
