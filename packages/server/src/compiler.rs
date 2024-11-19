@@ -46,12 +46,6 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/compiler.js.
 #[derive(Clone)]
 pub struct Compiler(Arc<Inner>);
 
-impl PartialEq for Compiler {
-	fn eq(&self, other: &Self) -> bool {
-		Arc::ptr_eq(&self.0, &other.0)
-	}
-}
-
 pub struct Inner {
 	/// The diagnostics.
 	diagnostics: tokio::sync::RwLock<BTreeMap<lsp::Uri, Vec<tg::Diagnostic>>>,
@@ -80,8 +74,8 @@ pub struct Inner {
 	/// The server.
 	server: Server,
 
-	/// The stop task.
-	stop_task: Mutex<Option<Task<()>>>,
+	/// The task.
+	task: Mutex<Option<Task<()>>>,
 
 	/// The workspaces.
 	workspaces: tokio::sync::RwLock<BTreeSet<PathBuf>>,
@@ -146,27 +140,44 @@ impl Compiler {
 			sender,
 			serve_task,
 			server: server.clone(),
-			stop_task,
+			task: stop_task,
 			workspaces,
 		}));
 
 		// Spawn the task.
-		let task = Task::spawn(|stop| {
+		let shutdown = {
 			let compiler = compiler.clone();
 			async move {
-				stop.wait().await;
+				// Stop and wait the serve task.
+				let serve_task = compiler.serve_task.lock().await.clone();
+				if let Some(serve_task) = serve_task {
+					serve_task.stop();
+					serve_task.wait().await.unwrap();
+				}
+
+				// Stop and wait the request task.
 				compiler.request_sender.lock().unwrap().take();
 				let task = compiler.request_task.lock().unwrap().take();
 				if let Some(task) = task {
 					task.await.unwrap();
 				}
+
+				// Remove the compiler from the server.
 				let mut compilers = compiler.server.compilers.write().unwrap();
 				if let Some(pos) = compilers.iter().position(|c| *c == compiler) {
 					compilers.remove(pos);
 				}
 			}
+		};
+
+		// Spawn the task.
+		let task = Task::spawn(|stop| async move {
+			stop.wait().await;
+			shutdown.await;
 		});
-		compiler.stop_task.lock().unwrap().replace(task);
+		compiler.task.lock().unwrap().replace(task);
+
+		// Add the compiler to the server.
 		compiler
 			.server
 			.compilers
@@ -178,27 +189,32 @@ impl Compiler {
 	}
 
 	pub async fn serve(
-		self,
+		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
 		let task = Task::spawn(|stop| {
 			let compiler = self.clone();
 			async move {
-				future::select(pin!(stop.wait()), pin!(compiler.serve_inner(input, output))).await;
+				compiler.serve_inner(input, output, stop).await;
 			}
 		});
 		self.serve_task.lock().await.replace(task.clone());
 		task.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the compiler serve task failed"))
+			.map_err(|source| tg::error!(!source, "the compiler serve task failed"))?;
+		Ok(())
 	}
 
 	async fn serve_inner(
-		self,
+		&self,
 		mut input: impl AsyncBufRead + Send + Unpin + 'static,
 		mut output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> tg::Result<()> {
+		stop: Stop,
+	) {
+		// Create the task tracker.
+		let task_tracker = tokio_util::task::TaskTracker::new();
+
 		// Create a channel to send outgoing messages.
 		let (outgoing_message_sender, mut outgoing_message_receiver) =
 			tokio::sync::mpsc::unbounded_channel::<jsonrpc::Message>();
@@ -234,8 +250,22 @@ impl Compiler {
 		// Read incoming messages.
 		loop {
 			// Read a message.
-			let Some(message) = Self::read_incoming_message(&mut input).await? else {
-				break;
+			let read = Self::read_incoming_message(&mut input);
+			let result = match future::select(pin!(read), pin!(stop.wait())).await {
+				future::Either::Left((result, _)) => result,
+				future::Either::Right(((), _)) => {
+					break;
+				},
+			};
+			let message = match result {
+				Ok(Some(message)) => message,
+				Ok(None) => {
+					break;
+				},
+				Err(error) => {
+					tracing::error!(?error, "failed to read an incoming message");
+					break;
+				},
 			};
 
 			// If the message is the exit notification, then break.
@@ -249,21 +279,29 @@ impl Compiler {
 			};
 
 			// Spawn a task to handle the message.
-			tokio::spawn({
-				let server = self.clone();
+			task_tracker.spawn({
+				let compiler = self.clone();
 				async move {
-					server.handle_message(message).await;
+					compiler.handle_message(message).await;
 				}
 			});
 		}
+
+		// Wait for all tasks to complete.
+		task_tracker.close();
+		task_tracker.wait().await;
 
 		// Drop the outgoing message sender.
 		self.sender.write().unwrap().take().unwrap();
 
 		// Wait for the outgoing message task to complete.
-		outgoing_message_task.await.unwrap()?;
-
-		Ok(())
+		outgoing_message_task
+			.await
+			.unwrap()
+			.inspect_err(|error| {
+				tracing::error!(?error, "the outgoing message task failed");
+			})
+			.ok();
 	}
 
 	async fn read_incoming_message<R>(reader: &mut R) -> tg::Result<Option<jsonrpc::Message>>
@@ -680,20 +718,12 @@ impl Compiler {
 	}
 
 	pub async fn stop(&self) {
-		self.stop_task.lock().unwrap().as_ref().unwrap().stop();
-		let serve_task = self.serve_task.lock().await.clone();
-		if let Some(serve_task) = serve_task {
-			serve_task.stop();
-		}
+		self.task.lock().unwrap().as_ref().unwrap().stop();
 	}
 
 	pub async fn wait(&self) {
-		let stop_task = self.stop_task.lock().unwrap().clone().unwrap();
-		stop_task.wait().await.unwrap();
-		let serve_task = self.serve_task.lock().await.clone();
-		if let Some(serve_task) = serve_task {
-			serve_task.wait().await.unwrap();
-		}
+		let task = self.task.lock().unwrap().clone().unwrap();
+		task.wait().await.unwrap();
 	}
 
 	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
@@ -870,9 +900,7 @@ impl crate::Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		let text = compiler.format(text).await?;
-
 		compiler.stop().await;
-
 		Ok(text)
 	}
 
@@ -882,11 +910,8 @@ impl crate::Server {
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
-
-		compiler.clone().serve(input, output).await?;
-
+		compiler.serve(input, output).await?;
 		compiler.stop().await;
-
 		Ok(())
 	}
 }
@@ -959,5 +984,11 @@ impl std::ops::Deref for Compiler {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+impl PartialEq for Compiler {
+	fn eq(&self, other: &Self) -> bool {
+		Arc::ptr_eq(&self.0, &other.0)
 	}
 }

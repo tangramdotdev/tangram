@@ -149,7 +149,7 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		arg: &tg::artifact::checkout::Arg,
-		cache_path: &PathBuf,
+		cache_path: &Path,
 		files: Arc<DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>>,
 		visited: Arc<DashSet<PathBuf, fnv::FnvBuildHasher>>,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
@@ -194,7 +194,7 @@ impl Server {
 			let arg = InnerArg {
 				arg: arg.clone(),
 				artifact: artifact.clone(),
-				cache_path: cache_path.clone(),
+				cache_path: cache_path.to_owned(),
 				existing_artifact: existing_artifact.clone(),
 				files: files.clone(),
 				temp_path: path.clone(),
@@ -234,7 +234,7 @@ impl Server {
 			let arg = InnerArg {
 				arg: arg.clone(),
 				artifact: artifact.clone(),
-				cache_path: cache_path.clone(),
+				cache_path: cache_path.to_owned(),
 				existing_artifact: None,
 				files,
 				temp_path: temp.path.clone(),
@@ -656,10 +656,10 @@ impl Server {
 			// Get the artifact ID.
 			let id = artifact.id(self).await?;
 
-			if final_path.starts_with(&root_path) {
+			if final_path.starts_with(root_path) {
 				// If this symlink is within the root being checked in, the target is relative to that root.
 				let diff =
-					crate::util::path::diff(&final_path.parent().unwrap(), &root_path).unwrap();
+					crate::util::path::diff(final_path.parent().unwrap(), root_path).unwrap();
 				target.push(diff);
 			} else {
 				// Otherwise, the target is relative to the cache path.
