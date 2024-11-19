@@ -715,8 +715,22 @@ impl Server {
 		output: &Graph,
 		symlink: usize,
 	) -> tg::Result<PathBuf> {
-		// Get the outgoing edge.
-		if let Some(output_edge) = output.nodes[symlink].edges.first() {
+		// Get the artifact and subpath, if they exist..
+		let artifact_and_subpath = output.nodes[symlink]
+			.edges
+			.first()
+			.map(|edge| (output.nodes[edge.node].id.clone(), edge.subpath.clone()))
+			.or_else(|| {
+				let tg::artifact::Data::Symlink(tg::symlink::Data::Normal {
+					artifact: Some(artifact),
+					subpath,
+				}) = output.nodes[symlink].data.clone()
+				else {
+					return None;
+				};
+				Some((artifact, subpath))
+			});
+		if let Some((artifact, subpath)) = artifact_and_subpath {
 			// Find how deep this node is in the output tree.
 			let mut input_index = output.nodes[symlink].input;
 			let mut depth = 0;
@@ -729,8 +743,8 @@ impl Server {
 			}
 
 			// Create the target.
-			let id = output.nodes[output_edge.node].id.to_string();
-			let subpath = output_edge.subpath.clone().unwrap_or_default();
+			let id = artifact.to_string();
+			let subpath = subpath.unwrap_or_default();
 
 			let components = (0..depth)
 				.map(|_| std::path::Component::ParentDir)
@@ -739,16 +753,19 @@ impl Server {
 				))))
 				.chain(subpath.components());
 
-			Ok(components.collect())
-		} else if let tg::artifact::Data::Symlink(tg::symlink::Data::Normal {
+			return Ok(components.collect());
+		}
+
+		// Otherwise write the target directly.
+		if let tg::artifact::Data::Symlink(tg::symlink::Data::Normal {
 			artifact: None,
 			subpath: Some(target),
 		}) = &output.nodes[symlink].data
 		{
-			Ok(target.clone())
-		} else {
-			return Err(tg::error!("invalid symlink"));
+			return Ok(target.clone());
 		}
+
+		Err(tg::error!(?symlink = &output.nodes[symlink], "invalid symlink"))
 	}
 }
 

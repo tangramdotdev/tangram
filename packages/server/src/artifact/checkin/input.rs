@@ -44,36 +44,29 @@ struct State {
 impl Server {
 	pub(super) async fn create_input_graph(
 		&self,
-		arg: tg::artifact::checkin::Arg,
+		mut arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Graph> {
-		// Make a best guess for the input.
-		let path = self.find_root(&arg.path).await.map_err(
+		// Find the root path.
+		arg.path = self.find_root(&arg.path).await.map_err(
 			|source| tg::error!(!source, %path = arg.path.display(), "failed to find root path for checkin"),
 		)?;
 
-		// Create a graph.
-		let mut graph = 'a: {
-			let arg_ = tg::artifact::checkin::Arg {
-				path,
-				..arg.clone()
-			};
-			let graph = self.collect_input(arg_, progress).await?;
+		// Create the ignore tree.
+		let ignore = self.ignore_for_checkin().await?;
 
-			// Check if the graph contains the path.
-			if graph.contains_path(&arg.path).await {
-				break 'a graph;
-			}
+		// Initialize state.
+		let state = RwLock::new(State {
+			ignore,
+			roots: Vec::new(),
+			visited: BTreeMap::new(),
+			graph: Graph { nodes: Vec::new() },
+		});
 
-			// Otherwise use the parent.
-			let path = arg
-				.path
-				.parent()
-				.ok_or_else(|| tg::error!("cannot check in root"))?
-				.to_owned();
-			let arg_ = tg::artifact::checkin::Arg { path, ..arg };
-			self.collect_input(arg_, progress).await?
-		};
+		// Create the graph.
+		self.create_input_graph_inner(None, arg.path.as_ref(), &arg, &state, progress)
+			.await?;
+		let State { mut graph, .. } = state.into_inner();
 
 		// Validate the input graph.
 		graph.validate().await?;
@@ -109,31 +102,7 @@ impl Server {
 		Ok(path.to_owned())
 	}
 
-	async fn collect_input(
-		&self,
-		arg: tg::artifact::checkin::Arg,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<Graph> {
-		// Create the ignore tree.
-		let ignore = self.ignore_for_checkin().await?;
-
-		// Initialize state.
-		let state = RwLock::new(State {
-			ignore,
-			roots: Vec::new(),
-			visited: BTreeMap::new(),
-			graph: Graph { nodes: Vec::new() },
-		});
-
-		// Collect input.
-		self.collect_input_inner(None, arg.path.as_ref(), &arg, &state, progress)
-			.await?;
-
-		let State { graph, .. } = state.into_inner();
-		Ok(graph)
-	}
-
-	async fn collect_input_inner(
+	async fn create_input_graph_inner(
 		&self,
 		referrer: Option<usize>,
 		path: &Path,
@@ -211,7 +180,7 @@ impl Server {
 
 		// Collect any dangling directories.
 		for dangling in dangling {
-			Box::pin(self.collect_input_inner(None, &dangling, arg, state, progress))
+			Box::pin(self.create_input_graph_inner(None, &dangling, arg, state, progress))
 				.await
 				.map_err(
 					|source| tg::error!(!source, %path = dangling.display(), "failed to collect dangling directory"),
@@ -221,7 +190,7 @@ impl Server {
 		// If this is a module file, ensure the parent is collected.
 		if metadata.is_file() && tg::package::is_module_path(&absolute_path) {
 			let parent = absolute_path.parent().unwrap().to_owned();
-			let parent = Box::pin(self.collect_input_inner(None, &parent, arg, state, progress))
+			let parent = Box::pin(self.create_input_graph_inner(None, &parent, arg, state, progress))
 				.await
 				.map_err(
 					|source| tg::error!(!source, %path = absolute_path.display(), "failed to collect input of parent"),
@@ -317,7 +286,7 @@ impl Server {
 					let path = path.join(&name);
 
 					// Follow the edge.
-					let node = Box::pin(self.collect_input_inner(
+					let node = Box::pin(self.create_input_graph_inner(
 						Some(referrer),
 						name.as_ref(),
 						arg,
@@ -506,7 +475,7 @@ impl Server {
 						// Get the input of the referent.
 						let child = if is_external {
 							// If this is an external import, treat it as a root using the absolute path.
-							self.collect_input_inner(Some(referrer), &absolute_path, &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
+							self.create_input_graph_inner(Some(referrer), &absolute_path, &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						} else {
 							// Otherwise, treat it as a relative path.
 
@@ -514,7 +483,7 @@ impl Server {
 							let parent = state.read().await.graph.nodes[referrer].parent.ok_or_else(|| tg::error!("expected a parent"))?;
 
 							// Recurse.
-							self.collect_input_inner(Some(parent), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
+							self.create_input_graph_inner(Some(parent), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 						};
 
 
@@ -610,8 +579,20 @@ impl Server {
 		)?;
 
 		// Check if this is a checkin of an artifact.
+		let artifacts_path = {
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+			let mut artifacts_path = None;
+			for ancestor in path.ancestors().skip(1) {
+				let path = ancestor.join(".tangram/artifacts");
+				if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
+					artifacts_path.replace(path);
+					break;
+				}
+			}
+			artifacts_path.unwrap_or(self.artifacts_path())
+		};
 		let path = crate::util::path::diff(&arg.path, &target_absolute_path)?;
-		let edge = if let Ok(subpath) = target_absolute_path.strip_prefix(self.artifacts_path()) {
+		let edge = if let Ok(subpath) = target_absolute_path.strip_prefix(artifacts_path) {
 			let mut components = subpath.components();
 			let object = components
 				.next()
@@ -701,15 +682,6 @@ impl Server {
 }
 
 impl Graph {
-	async fn contains_path(&self, path: &Path) -> bool {
-		for node in &self.nodes {
-			if node.arg.path == path {
-				return true;
-			}
-		}
-		false
-	}
-
 	#[allow(dead_code)]
 	pub(super) async fn print(&self) {
 		let mut visited = BTreeSet::new();

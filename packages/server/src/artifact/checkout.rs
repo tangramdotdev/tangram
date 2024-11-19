@@ -218,10 +218,9 @@ impl Server {
 			let artifact_path = self.artifacts_path().join(id.to_string());
 
 			// If there is already a file system object at the path, then return.
-			if tokio::fs::try_exists(&path)
-				.await
-				.map_err(|source| tg::error!(!source, %path = path.display(), "failed to stat the path"))?
-			{
+			if tokio::fs::try_exists(&path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to stat the path"),
+			)? {
 				let output = tg::artifact::checkout::Output {
 					path: artifact_path,
 				};
