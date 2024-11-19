@@ -4,7 +4,6 @@ use tangram_version::Version;
 use winnow::{
 	ascii::{alphanumeric1, dec_uint},
 	combinator::{alt, opt, preceded, separated},
-	error::{ErrMode, FromExternalError as _},
 	prelude::*,
 	token::take_while,
 };
