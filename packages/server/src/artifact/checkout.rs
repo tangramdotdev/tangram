@@ -245,7 +245,13 @@ impl Server {
 				progress: progress.clone(),
 				visited: visited.clone(),
 			};
-			Box::pin(self.check_out_inner(arg)).await?;
+			if !Box::pin(self.check_out_inner(arg)).await? {
+				// Only attempt a rename if check_out_inner returns true.
+				return Ok(tg::artifact::checkout::Output {
+					path: artifact_path,
+				});
+			}
+
 			if let Some(parent) = path.parent() {
 				tokio::fs::create_dir_all(parent)
 					.await
@@ -280,7 +286,7 @@ impl Server {
 		}
 	}
 
-	async fn check_out_inner(&self, arg: InnerArg) -> tg::Result<()> {
+	async fn check_out_inner(&self, arg: InnerArg) -> tg::Result<bool> {
 		let InnerArg {
 			arg,
 			artifact,
@@ -297,7 +303,7 @@ impl Server {
 
 		// Check if this artifact has already been checked out by this task to avoid cycles.
 		if !visited.insert(final_path.clone()) {
-			return Ok(());
+			return Ok(false);
 		}
 
 		// If the artifact is the same as the existing artifact, then return.
@@ -306,7 +312,7 @@ impl Server {
 			None => (),
 			Some(existing_artifact) => {
 				if id == existing_artifact.id(self).await? {
-					return Ok(());
+					return Ok(false);
 				}
 			},
 		}
@@ -361,7 +367,7 @@ impl Server {
 			.unwrap()?;
 		}
 
-		Ok(())
+		Ok(true)
 	}
 
 	async fn check_out_directory(&self, arg: &InnerArg) -> tg::Result<()> {
@@ -423,7 +429,10 @@ impl Server {
 		// Recurse into the entries.
 		#[allow(clippy::manual_async_fn)]
 		fn future(server: Server, arg: InnerArg) -> impl Future<Output = tg::Result<()>> + Send {
-			async move { server.check_out_inner(arg).await }
+			async move {
+				server.check_out_inner(arg).await?;
+				Ok(())
+			}
 		}
 
 		directory
