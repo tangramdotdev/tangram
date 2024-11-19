@@ -19,7 +19,8 @@ async fn test_all() -> tg::Result<()> {
 				"tangram.ts" => r#"export default   "formatted""#,
 			},
 			"tangram.ts" => r#"export default   "formatted""#,
-		},
+		}
+		.into(),
 		|_, artifact| async move {
 			assert_json_snapshot!(artifact, @r#"
    {

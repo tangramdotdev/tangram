@@ -5723,6 +5723,7 @@ dependencies = [
 name = "tangram_temp"
 version = "0.0.0"
 dependencies = [
+ "derive_more",
  "futures",
  "rand",
  "serde",

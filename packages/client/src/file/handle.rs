@@ -394,6 +394,10 @@ impl std::fmt::Display for File {
 
 #[macro_export]
 macro_rules! file {
+	(@$builder:ident dependencies = $dependencies:expr $(, $($arg:tt)*)?) => {
+		$builder = $builder.dependencies($dependencies);
+		$crate::file!(@$builder $($($arg)*)?)
+	};
 	(@$builder:ident executable = $executable:expr $(, $($arg:tt)*)?) => {
 		$builder = $builder.executable($executable);
 		$crate::file!(@$builder $($($arg)*)?)

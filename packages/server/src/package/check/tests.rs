@@ -70,11 +70,12 @@ async fn nonexistent_function() -> tg::Result<()> {
 	.await
 }
 
-async fn test<F, Fut>(artifact: temp::Artifact, assertions: F) -> tg::Result<()>
+async fn test<F, Fut>(artifact: impl Into<temp::Artifact>, assertions: F) -> tg::Result<()>
 where
 	F: FnOnce(Server, tg::package::check::Output) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
+	let artifact = artifact.into();
 	let directory = Temp::new_persistent();
 	artifact.to_path(directory.as_ref()).await.map_err(
 		|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),

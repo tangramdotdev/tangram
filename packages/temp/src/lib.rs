@@ -5,7 +5,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 
-pub use self::artifact::Artifact;
+pub use self::artifact::{Artifact, Directory, File, Symlink};
 
 pub mod artifact;
 

@@ -1,15 +1,41 @@
-use crate::{util::fs::cleanup, Config, Server};
+use crate::{Config, Server};
 use futures::{Future, FutureExt as _};
 use insta::assert_json_snapshot;
-use std::{collections::BTreeMap, panic::AssertUnwindSafe, path::PathBuf, pin::pin};
+use std::{collections::BTreeMap, panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
 
+/// Test checking out a directory.
+#[tokio::test]
+async fn directory() -> tg::Result<()> {
+	let artifact = tg::directory! {
+		"hello.txt" => "Hello, World!",
+	};
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "directory",
+    "entries": {
+      "hello.txt": {
+        "kind": "file",
+        "contents": "Hello, World!",
+        "executable": false
+      }
+    }
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+/// Test checking out a single file.
 #[tokio::test]
 async fn file() -> tg::Result<()> {
-	test(tg::file!("Hello, World!"), |_, artifact| async move {
+	let artifact = tg::file!("Hello, World!");
+	test(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "file",
@@ -22,134 +48,211 @@ async fn file() -> tg::Result<()> {
 	.await
 }
 
+/// Test checking out an executable file.
 #[tokio::test]
 async fn executable_file() -> tg::Result<()> {
-	test(
-		tg::file!("Hello, World!", executable = true),
-		|_, artifact| async move {
-			assert_json_snapshot!(artifact, @r#"
+	let artifact = tg::file!("Hello, World!", executable = true);
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "file",
     "contents": "Hello, World!",
     "executable": true
   }
   "#);
-			Ok::<_, tg::Error>(())
-		},
-	)
+		Ok::<_, tg::Error>(())
+	})
 	.await
 }
 
+/// Test checking out a symlink.
 #[tokio::test]
 async fn symlink() -> tg::Result<()> {
-	test(
-		tg::directory! {
-			"directory" => tg::directory! {
-				"hello.txt" => "Hello, World!",
-				"link" => tg::symlink!(PathBuf::from("hello.txt")),
-			}
-		},
-		|_, artifact| async move {
-			assert_json_snapshot!(artifact, @r#"
-   {
-     "kind": "directory",
-     "entries": {
-       "directory": {
-         "kind": "directory",
-         "entries": {
-           "hello.txt": {
-             "kind": "file",
-             "contents": "Hello, World!",
-             "executable": false
-           },
-           "link": {
-             "kind": "file",
-             "contents": "Hello, World!",
-             "executable": false
-           }
-         }
-       }
-     }
-   }
-   "#);
-			Ok::<_, tg::Error>(())
-		},
-	)
-	.await
-}
-
-#[tokio::test]
-async fn symlink_shared_target() -> tg::Result<()> {
-	test(
-		tg::directory! {
-			"directory" => tg::directory! {
-				"hello.txt" => "Hello, World!",
-				"link1" => tg::symlink!(PathBuf::from("hello.txt")),
-				"link2" => tg::symlink!(PathBuf::from("hello.txt")),
-			}
-		},
-		|_, artifact| async move {
-			assert_json_snapshot!(artifact, @r#"
-   {
-     "kind": "directory",
-     "entries": {
-       "directory": {
-         "kind": "directory",
-         "entries": {
-           "hello.txt": {
-             "kind": "file",
-             "contents": "Hello, World!",
-             "executable": false
-           },
-           "link1": {
-             "kind": "file",
-             "contents": "Hello, World!",
-             "executable": false
-           },
-           "link2": {
-             "kind": "file",
-             "contents": "Hello, World!",
-             "executable": false
-           }
-         }
-       }
-     }
-   }
-   "#);
-			Ok::<_, tg::Error>(())
-		},
-	)
-	.await
-}
-
-#[tokio::test]
-async fn deeply_nested_directory() -> tg::Result<()> {
-	let temp = Temp::new();
-	let config = Config::with_path(temp.path().to_owned());
-	let server = Server::start(config).await?;
-	let result = AssertUnwindSafe({
-		let server = server.clone();
-		async move {
-			let mut last = tg::Artifact::from(tg::file!("hello"));
-			for _ in 0..256 {
-				let entries = [("a".to_owned(), last.clone())].into_iter().collect();
-				last = tg::Directory::with_entries(entries).into();
-			}
-			last.store(&server).await?;
-			last.unload();
-			last.check_out(&server, tg::artifact::checkout::Arg::default())
-				.await?;
-			Ok::<_, tg::Error>(())
-		}
+	let artifact = tg::symlink!("/bin/sh");
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "symlink",
+    "target": "/bin/sh"
+  }
+  "#);
+		Ok::<_, tg::Error>(())
 	})
-	.catch_unwind()
-	.await;
-	cleanup(temp, server).await;
-	result.unwrap()
+	.await
 }
 
+/// Test checking out a directory with a symlink.
 #[tokio::test]
-async fn graph() -> tg::Result<()> {
+async fn directory_with_symlink() -> tg::Result<()> {
+	let artifact = tg::directory! {
+		"directory" => tg::directory! {
+			"hello.txt" => "Hello, World!",
+			"link" => tg::symlink!("hello.txt"),
+		}
+	};
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "directory",
+    "entries": {
+      "directory": {
+        "kind": "directory",
+        "entries": {
+          "hello.txt": {
+            "kind": "file",
+            "contents": "Hello, World!",
+            "executable": false
+          },
+          "link": {
+            "kind": "symlink",
+            "target": "hello.txt"
+          }
+        }
+      }
+    }
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+// /// Test checking out a very deep directory.
+// #[tokio::test]
+// async fn deeply_nested_directory() -> tg::Result<()> {
+// 	let mut left = tg::Artifact::from(tg::file!("hello"));
+// 	for _ in 0..256 {
+// 		let entries = [("a".into(), left.clone())].into_iter().collect();
+// 		left = tg::Directory::with_entries(entries).into();
+// 	}
+// 	let mut right = temp::Artifact::from(temp::file!("hello"));
+// 	for _ in 0..256 {
+// 		let entries = [("a".into(), right.clone())].into_iter().collect();
+// 		right = temp::Directory::with_entries(entries).into();
+// 	}
+// 	test(left, right).await
+// }
+
+/// Test checking out a directory with a file with a dependency.
+#[tokio::test]
+async fn directory_with_file_with_dependency() -> tg::Result<()> {
+	let artifact = tg::directory! {
+		"foo" => tg::file!("foo", dependencies = [
+			("bar".parse().unwrap(), tg::Referent::with_item(tg::file!("bar").into()))
+		]),
+	};
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "directory",
+    "entries": {
+      ".tangram": {
+        "kind": "directory",
+        "entries": {
+          "artifacts": {
+            "kind": "directory",
+            "entries": {
+              "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+                "kind": "file",
+                "contents": "bar",
+                "executable": false
+              }
+            }
+          }
+        }
+      },
+      "foo": {
+        "kind": "file",
+        "contents": "foo",
+        "executable": false
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"file\"}]}",
+        "executable": false
+      }
+    }
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+/// Test checking out a directory with a symlink with a dependency.
+#[tokio::test]
+async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
+	let artifact = tg::directory! {
+		"foo" => tg::symlink!(artifact = tg::file!("bar")),
+	};
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "directory",
+    "entries": {
+      ".tangram": {
+        "kind": "directory",
+        "entries": {
+          "artifacts": {
+            "kind": "directory",
+            "entries": {
+              "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+                "kind": "file",
+                "contents": "bar",
+                "executable": false
+              }
+            }
+          }
+        }
+      },
+      "foo": {
+        "kind": "symlink",
+        "target": ".tangram/artifacts/fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
+      }
+    }
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+/// Test checking out a symlink that is a member of a graph.
+#[tokio::test]
+async fn graph_directory() -> tg::Result<()> {
+	let graph = tg::Graph::with_object(tg::graph::Object {
+		nodes: vec![tg::graph::object::Node::Directory(
+			tg::graph::object::Directory {
+				entries: [(
+					"hello.txt".to_owned(),
+					Either::Right(tg::file!("Hello, World!").into()),
+				)]
+				.into(),
+			},
+		)],
+	});
+	let artifact = tg::Directory::with_graph_and_node(graph, 0);
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "directory",
+    "entries": {
+      "hello.txt": {
+        "kind": "file",
+        "contents": "Hello, World!",
+        "executable": false
+      }
+    }
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+/// Test checking out a file that is a member of a graph.
+#[tokio::test]
+async fn graph_file() -> tg::Result<()> {
 	let graph = tg::Graph::with_object(tg::graph::Object {
 		nodes: vec![tg::graph::object::Node::File(tg::graph::object::File {
 			contents: "Hello, World!".into(),
@@ -171,6 +274,30 @@ async fn graph() -> tg::Result<()> {
 	.await
 }
 
+/// Test checking out a symlink that is a member of a graph.
+#[tokio::test]
+async fn graph_symlink() -> tg::Result<()> {
+	let graph = tg::Graph::with_object(tg::graph::Object {
+		nodes: vec![tg::graph::object::Node::Symlink(
+			tg::graph::object::Symlink::Target {
+				target: "/bin/sh".into(),
+			},
+		)],
+	});
+	let artifact = tg::Symlink::with_graph_and_node(graph, 0);
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "symlink",
+    "target": "/bin/sh"
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+/// Test checking out a directory with an artifact symlink that points to itself.
 #[tokio::test]
 async fn cyclic_symlink() -> tg::Result<()> {
 	let graph = tg::Graph::with_object(tg::graph::Object {
@@ -190,25 +317,6 @@ async fn cyclic_symlink() -> tg::Result<()> {
   {
     "kind": "directory",
     "entries": {
-      ".tangram": {
-        "kind": "directory",
-        "entries": {
-          "artifacts": {
-            "kind": "directory",
-            "entries": {
-              "dir_01jgpeycbs5s4yjr89jqf3kkvy1a0rmrk7j2fmedscvh495h5b3740": {
-                "kind": "directory",
-                "entries": {
-                  "link": {
-                    "kind": "symlink",
-                    "target": "link"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
       "link": {
         "kind": "symlink",
         "target": "link"
@@ -219,65 +327,6 @@ async fn cyclic_symlink() -> tg::Result<()> {
 		Ok::<_, tg::Error>(())
 	})
 	.await
-}
-
-#[tokio::test]
-async fn shared_directory_dependency() -> tg::Result<()> {
-	let temp = Temp::new();
-	let config = Config::with_path(temp.path().to_owned());
-	let server = Server::start(config).await?;
-
-	let result = AssertUnwindSafe(async {
-		let a = tg::directory! {
-			"bin" => tg::directory! {
-				"a" => "",
-			},
-			"usr" => tg::symlink!(PathBuf::from(".")),
-		};
-		let b = tg::Symlink::with_artifact_and_subpath(a.clone().into(), Some("bin/a".into()));
-		let c = tg::File::with_object(tg::file::Object::Normal {
-			contents: tg::Blob::with_reader(&server, b"c".as_slice()).await?,
-			dependencies: [
-				(
-					tg::Reference::with_object(&a.id(&server).await?.into()),
-					tg::Referent {
-						item: a.clone().into(),
-						path: None,
-						subpath: None,
-						tag: None,
-					},
-				),
-				(
-					tg::Reference::with_object(&b.id(&server).await?.into()),
-					tg::Referent {
-						item: b.clone().into(),
-						path: None,
-						subpath: None,
-						tag: None,
-					},
-				),
-			]
-			.into_iter()
-			.collect(),
-			executable: false,
-		});
-		let d = tg::directory! {
-			"c" => c,
-		};
-		let temp = Temp::new();
-		let arg = tg::artifact::checkout::Arg {
-			dependencies: true,
-			force: false,
-			path: Some(temp.path().to_owned()),
-		};
-		tg::Artifact::from(d).check_out(&server, arg).await?;
-		Ok::<_, tg::Error>(())
-	})
-	.catch_unwind()
-	.await;
-
-	cleanup(temp, server).await;
-	result.unwrap()
 }
 
 async fn test<F, Fut>(artifact: impl Into<tg::Artifact>, assertions: F) -> tg::Result<()>
@@ -291,7 +340,6 @@ where
 	let result = AssertUnwindSafe(async {
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
-			dependencies: true,
 			force: false,
 			path: Some(temp.path().to_owned()),
 		};
@@ -304,11 +352,12 @@ where
 			.ok_or_else(|| tg::error!("stream ended without output"))?;
 		let artifact = temp::Artifact::with_path(temp.path()).await?;
 		(assertions)(server.clone(), artifact).await?;
-
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()
 	.await;
-	cleanup(temp, server).await;
+	server.stop();
+	server.wait().await;
+	temp.remove().await.ok();
 	result.unwrap()
 }

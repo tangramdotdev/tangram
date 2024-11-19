@@ -647,7 +647,6 @@ async fn external_symlink_roundtrip() -> tg::Result<()> {
 		// Check out the artifact.
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
-			dependencies: true,
 			force: false,
 			path: Some(temp.path().to_owned()),
 		};
@@ -707,7 +706,7 @@ async fn ignore() -> tg::Result<()> {
 }
 
 async fn test<F, Fut>(
-	artifact: temp::Artifact,
+	artifact: impl Into<temp::Artifact>,
 	path: &str,
 	destructive: bool,
 	assertions: F,
@@ -716,6 +715,7 @@ where
 	F: FnOnce(Server, tg::Artifact, String) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
+	let artifact = artifact.into();
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;

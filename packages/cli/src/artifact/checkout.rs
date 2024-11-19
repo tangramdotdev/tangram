@@ -17,10 +17,6 @@ pub struct Args {
 	/// The path to check out the artifact to.
 	#[arg(index = 2)]
 	pub path: Option<PathBuf>,
-
-	/// Whether to check out the artifact's references.
-	#[arg(long)]
-	pub dependencies: Option<bool>,
 }
 
 impl Cli {
@@ -40,7 +36,6 @@ impl Cli {
 		let arg = tg::artifact::checkout::Arg {
 			force: args.force,
 			path,
-			dependencies: args.dependencies.unwrap_or(true),
 		};
 		let stream = handle
 			.check_out_artifact(&args.artifact, arg)

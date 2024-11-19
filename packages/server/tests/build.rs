@@ -642,7 +642,7 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() -> tg::Result<()> {
 }
 
 async fn test<F, Fut>(
-	artifact: temp::Artifact,
+	artifact: impl Into<temp::Artifact>,
 	path: &str,
 	target: &str,
 	args: Vec<tg::Value>,
@@ -652,6 +652,7 @@ where
 	F: FnOnce(Server, tg::build::Outcome) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
+	let artifact = artifact.into();
 	let artifact_temp = Temp::new_persistent();
 	artifact.to_path(artifact_temp.as_ref()).await.map_err(
 		|source| tg::error!(!source, %path = artifact_temp.path().display(), "failed to write the artifact"),

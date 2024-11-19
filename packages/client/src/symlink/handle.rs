@@ -165,8 +165,8 @@ impl Symlink {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
 				match symlink {
-					tg::graph::object::Symlink::Artifact { .. } => Ok(None),
 					tg::graph::object::Symlink::Target { target } => Ok(Some(target.clone())),
+					tg::graph::object::Symlink::Artifact { .. } => Ok(None),
 				}
 			},
 			Object::Target { target } => Ok(Some(target.clone())),
@@ -191,9 +191,7 @@ impl Symlink {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
 				match symlink {
-					tg::graph::object::Symlink::Target { target } => {
-						Ok(Some(tg::Symlink::with_target(target.clone()).into()))
-					},
+					tg::graph::object::Symlink::Target { .. } => Ok(None),
 					tg::graph::object::Symlink::Artifact { artifact, .. } => {
 						let artifact = match artifact {
 							Either::Left(node) => {
@@ -244,8 +242,8 @@ impl Symlink {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
 				match symlink {
-					tg::graph::object::Symlink::Artifact { subpath, .. } => Ok(subpath.clone()),
 					tg::graph::object::Symlink::Target { .. } => Ok(None),
+					tg::graph::object::Symlink::Artifact { subpath, .. } => Ok(subpath.clone()),
 				}
 			},
 			Object::Target { .. } => Ok(None),
@@ -292,16 +290,16 @@ impl std::fmt::Display for Symlink {
 
 #[macro_export]
 macro_rules! symlink {
-	($target:expr) => {
-		$crate::Symlink::with_target($target.into())
-	};
-	(target = $target:expr) => {
-		$crate::Symlink::with_target($target.into())
+	(artifact = $artifact:expr, subpath = $subpath:expr) => {
+		$crate::Symlink::with_artifact_and_subpath($artifact.into(), $subpath.into())
 	};
 	(artifact = $artifact:expr) => {
 		$crate::Symlink::with_artifact_and_subpath($artifact.into(), None)
 	};
-	(artifact = $artifact:expr, subpath = $subpath:expr) => {
-		$crate::Symlink::with_artifact_and_subpath($artifact.into(), $subpath.into())
+	(target = $target:expr) => {
+		$crate::Symlink::with_target($target.into())
+	};
+	($target:expr) => {
+		$crate::Symlink::with_target($target.into())
 	};
 }

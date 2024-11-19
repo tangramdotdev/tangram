@@ -6,7 +6,7 @@ use tangram_temp::{self as temp, Temp};
 #[tokio::test]
 async fn test() {
 	let temp = Temp::new();
-	let directory = temp::directory! {
+	let artifact = temp::Artifact::from(temp::directory! {
 		".DS_Store" => temp::file!(""),
 		".gitignore" => temp::file!(indoc!("
 			foo
@@ -20,11 +20,9 @@ async fn test() {
 		},
 		"foo.txt" => temp::file!(""),
 		"bar.txt" => temp::file!(""),
-		"directory" => temp::directory! {
-
-		},
-	};
-	directory.to_path(temp.path()).await.unwrap();
+		"directory" => temp::directory! {},
+	});
+	artifact.to_path(temp.path()).await.unwrap();
 	let file_names = vec![".gitignore".into()];
 	let global = indoc!(
 		"

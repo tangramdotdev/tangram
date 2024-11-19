@@ -18,11 +18,15 @@ impl Temp {
 		let preserve = server.config.advanced.preserve_temp_directories;
 		Self { path, preserve }
 	}
+
+	pub fn path(&self) -> &Path {
+		&self.path
+	}
 }
 
 impl AsRef<Path> for Temp {
 	fn as_ref(&self) -> &Path {
-		&self.path
+		self.path()
 	}
 }
 
