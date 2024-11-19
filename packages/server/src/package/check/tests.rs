@@ -15,7 +15,11 @@ async fn hello_world() -> tg::Result<()> {
 			"#),
 		},
 		|_, output| async move {
-			assert_json_snapshot!(output, @"");
+			assert_json_snapshot!(output, @r#"
+   {
+     "diagnostics": []
+   }
+   "#);
 			Ok(())
 		},
 	)
@@ -31,7 +35,35 @@ async fn nonexistent_function() -> tg::Result<()> {
 			"),
 		},
 		|_, output| async move {
-			assert_json_snapshot!(output, @"");
+			assert_json_snapshot!(output, @r#"
+   {
+     "diagnostics": [
+       {
+         "location": {
+           "module": {
+             "kind": "ts",
+             "referent": {
+               "item": "dir_01sb97esva2e75cyaar1szc6835pcvkzd0eb486m5fmye3etcd3nc0",
+               "subpath": "tangram.ts"
+             }
+           },
+           "range": {
+             "start": {
+               "line": 0,
+               "character": 31
+             },
+             "end": {
+               "line": 0,
+               "character": 34
+             }
+           }
+         },
+         "severity": "error",
+         "message": "Cannot find name 'foo'."
+       }
+     ]
+   }
+   "#);
 			Ok(())
 		},
 	)
