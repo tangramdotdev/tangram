@@ -147,22 +147,17 @@ fn component(input: &mut &str) -> PResult<Component> {
 }
 
 fn string(input: &mut &str) -> PResult<Component> {
-	let component =
-		take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-').parse_next(input)?;
-	if str::parse::<crate::object::Id>(component).is_ok() {
-		return Err(ErrMode::from_external_error(
-			input,
-			winnow::error::ErrorKind::Fail,
-			tg::error!("component is not a tag if it is an build id"),
-		));
-	}
-	if str::parse::<crate::build::Id>(component).is_ok() {
-		return Err(ErrMode::from_external_error(
-			input,
-			winnow::error::ErrorKind::Fail,
-			tg::error!("component is not a tag if it is an build id"),
-		));
-	}
+	let component = take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-')
+		.verify(|value: &str| {
+			if value.parse::<tg::build::Id>().is_ok() {
+				return false;
+			}
+			if value.parse::<tg::object::Id>().is_ok() {
+				return false;
+			}
+			true
+		})
+		.parse_next(input)?;
 	Ok(Component(component.to_owned()))
 }
 
