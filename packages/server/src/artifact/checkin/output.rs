@@ -493,6 +493,7 @@ impl Server {
 			// Recurse.
 			stack.extend(output.nodes[output_index].edges.iter().map(|e| e.node));
 		}
+
 		Ok(())
 	}
 

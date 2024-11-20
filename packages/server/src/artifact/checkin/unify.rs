@@ -35,7 +35,7 @@ pub struct Node {
 
 pub type Id = Either<tg::Reference, usize>;
 
-// An un-resolved reference in the graph.
+// An unresolved reference in the graph.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Unresolved {
 	// The source node of the edge.

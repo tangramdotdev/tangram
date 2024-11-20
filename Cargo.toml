@@ -45,7 +45,7 @@ unused_async = "allow"
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
-async-nats = "0.37"
+async-nats = "0.38"
 biome_js_formatter = "0.5"
 biome_js_parser = "0.5"
 biome_js_syntax = "0.5"

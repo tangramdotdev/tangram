@@ -320,11 +320,10 @@ impl vfs::Provider for Provider {
 		let Some(tg::Artifact::File(_)) = artifact else {
 			return Ok(Vec::new());
 		};
-		let var_name = vec![
+		Ok(vec![
 			tg::file::XATTR_DATA_NAME.to_owned(),
 			tg::file::XATTR_METADATA_NAME.to_owned(),
-		];
-		Ok(var_name)
+		])
 	}
 
 	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {

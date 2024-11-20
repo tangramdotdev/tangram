@@ -60,15 +60,14 @@ impl Server {
 				// Get the path.
 				let path = entry.path();
 
-				// Get the file type.
+				// Check to see if the path should be ignored.
 				let file_type = entry
 					.file_type()
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get file type"))?;
-
-				// Check to see if the path should be ignored.
+					.map_err(|source| tg::error!(!source, "failed to get the file type"))?;
+				let is_directory = file_type.is_dir();
 				if ignore
-					.should_ignore(path.as_ref(), file_type)
+					.matches(path.as_ref(), Some(is_directory))
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to check if the path should be ignored")

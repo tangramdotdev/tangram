@@ -193,11 +193,7 @@ let getImportAttributesFromImportExpression = (
 /** Convert a module to a TypeScript file name. */
 export let fileNameFromModule = (module: Module): string => {
 	if (module.kind === "dts") {
-		let item = module.referent.item!;
-		if (item.startsWith("./")) {
-			item = item.slice(2);
-		}
-		return `/library/${item}`;
+		return `/library/${module.referent.item!.slice(2)}`;
 	}
 	let json = syscall("encoding_json_encode", module);
 	let utf8 = syscall("encoding_utf8_encode", json);
@@ -217,7 +213,7 @@ export let fileNameFromModule = (module: Module): string => {
 export let moduleFromFileName = (fileName: string): Module => {
 	if (fileName.startsWith("/library/")) {
 		let path = fileName.slice(9);
-		let referent = { item: "./" + path };
+		let referent = { item: `./${path}` };
 		return {
 			kind: "dts",
 			referent,

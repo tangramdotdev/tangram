@@ -87,7 +87,7 @@ impl Server {
 		}
 
 		// Look for a `tangram.ts`.
-		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let path = path.parent().unwrap();
 		for path in path.ancestors() {
 			for root_module_name in tg::package::ROOT_MODULE_FILE_NAMES {
@@ -97,6 +97,7 @@ impl Server {
 				}
 			}
 		}
+		drop(permit);
 
 		// Otherwise return the parent.
 		Ok(path.to_owned())
@@ -123,7 +124,7 @@ impl Server {
 		// Canonicalize the path.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let absolute_path = crate::util::fs::canonicalize_parent(&path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to canonicalize path"),
+			|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the parent"),
 		)?;
 		drop(permit);
 
@@ -157,7 +158,7 @@ impl Server {
 			return Ok(*node);
 		}
 
-		// Lookup the parent if it exists.
+		// Look up the parent if it exists.
 		let parent = absolute_path
 			.parent()
 			.and_then(|parent| state_.visited.get(parent).copied());
@@ -260,16 +261,18 @@ impl Server {
 				let file_type = entry
 					.file_type()
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get file type"))?;
-				if state
+					.map_err(|source| tg::error!(!source, "failed to get the file type"))?;
+				let is_directory = file_type.is_dir();
+				let ignored = state
 					.write()
 					.await
 					.ignore
-					.should_ignore(&path.join(&name), file_type)
+					.matches(&path.join(&name), Some(is_directory))
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to check if the path should be ignored")
-					})? {
+					})?;
+				if ignored {
 					continue;
 				}
 			}

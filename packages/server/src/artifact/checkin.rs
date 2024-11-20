@@ -1,5 +1,6 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _};
+use indoc::indoc;
 use std::{path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
@@ -14,15 +15,6 @@ mod output;
 mod tests;
 mod unify;
 
-// Default list of ignore files.
-pub const IGNORE_FILES: [&str; 3] = [".tangramignore", ".tgignore", ".gitignore"];
-
-// Default list of ignore patterns.
-pub const DENY: [&str; 2] = [".DS_Store", ".git"];
-
-// Default list of ignore override patterns.
-pub const ALLOW: [&str; 0] = [];
-
 impl Server {
 	pub async fn check_in_artifact(
 		&self,
@@ -34,7 +26,7 @@ impl Server {
 		let task = tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			async move { server.check_in_artifact_task(arg, Some(&progress)).await }
+			async move { server.check_in_artifact_inner(arg, Some(&progress)).await }
 		});
 		tokio::spawn({
 			let progress = progress.clone();
@@ -56,8 +48,8 @@ impl Server {
 		Ok(stream)
 	}
 
-	/// Attempt to store an artifact in the database.
-	async fn check_in_artifact_task(
+	// Check in the artifact.
+	async fn check_in_artifact_inner(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
@@ -96,23 +88,8 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Check in the artifact.
-		self.check_in_artifact_inner(arg.clone(), progress).await
-	}
-
-	// Check in the artifact.
-	async fn check_in_artifact_inner(
-		&self,
-		arg: tg::artifact::checkin::Arg,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<tg::artifact::checkin::Output> {
-		// Verify the path is absolute.
-		if !arg.path.is_absolute() {
-			return Err(tg::error!(%path = arg.path.display(), "expected an absolute path"));
-		}
-
 		// Create the input graph.
-		let input = self
+		let input_graph = self
 			.create_input_graph(arg.clone(), progress)
 			.await
 			.map_err(
@@ -120,40 +97,40 @@ impl Server {
 			)?;
 
 		// Create the unification graph and get its root node.
-		let (unify, root) = self
-			.create_unification_graph(&input, arg.deterministic)
+		let (unification_graph, root) = self
+			.create_unification_graph(&input_graph, arg.deterministic)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to construct the object graph"))?;
 
 		// Create the object graph.
-		let object = self
-			.create_object_graph(&input, &unify, &root)
+		let object_graph = self
+			.create_object_graph(&input_graph, &unification_graph, &root)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create object graph"))?;
 
 		// Create the output graph.
-		let output = self
-			.create_output_graph(&input, &object)
+		let output_graph = self
+			.create_output_graph(&input_graph, &object_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output graph"))?;
 
-		// Get the artifact ID.
-		let artifact = self
-			.find_output_from_input(&arg.path, &input, &output)
-			.await?
-			.ok_or_else(|| tg::error!(%path = arg.path.display(), "missing path in output"))?;
-
-		// Copy or move files.
-		self.copy_or_move_to_cache_directory(&input, &output, 0, progress)
+		// Copy or move to the cache directory.
+		self.copy_or_move_to_cache_directory(&input_graph, &output_graph, 0, progress)
 			.await?;
 
-		// If this is a non-destructive checkin, attempt to write a lockfile.
+		// If this is a non-destructive checkin, then attempt to write a lockfile.
 		if !arg.destructive {
-			self.try_write_lockfile(&input, &object).await?;
+			self.try_write_lockfile(&input_graph, &object_graph).await?;
 		}
 
-		// Write the artifact data to the database.
-		self.write_output_to_database(&output).await?;
+		// Write the output to the database.
+		self.write_output_to_database(&output_graph).await?;
+
+		// Get the artifact.
+		let artifact = self
+			.find_output_from_input(&arg.path, &input_graph, &output_graph)
+			.await?
+			.ok_or_else(|| tg::error!(%path = arg.path.display(), "missing path in output"))?;
 
 		// Create the output.
 		let output = tg::artifact::checkin::Output { artifact };
@@ -190,9 +167,22 @@ impl Server {
 	}
 
 	pub(crate) async fn ignore_for_checkin(&self) -> tg::Result<Ignore> {
-		Ignore::new(IGNORE_FILES, ALLOW, DENY)
+		let file_names = vec![
+			".tangramignore".into(),
+			".tgignore".into(),
+			".gitignore".into(),
+		];
+		let global = indoc!(
+			"
+				.DS_Store
+				.git
+				.tangram
+				tangram.lock
+			"
+		);
+		Ignore::new(file_names, Some(global))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create ignore tree"))
+			.map_err(|source| tg::error!(!source, "failed to create the ignore"))
 	}
 }
 

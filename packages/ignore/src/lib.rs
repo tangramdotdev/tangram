@@ -1,299 +1,232 @@
-use itertools::Itertools;
+use globset::{Candidate, GlobBuilder, GlobSet, GlobSetBuilder};
 use std::{
+	collections::BTreeMap,
 	ffi::OsString,
 	path::{Path, PathBuf},
-	str::FromStr,
-	sync::Arc,
+	sync::{Arc, RwLock},
 };
-use tokio::sync::RwLock;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
 	Glob(globset::Error),
 	Io(std::io::Error),
-	#[display("{}", _0.display())]
-	Path(#[error(not(source))] PathBuf),
-}
-
-pub struct Ignore {
-	root: Arc<RwLock<Node>>,
-	ignore_files: Vec<OsString>,
-	implicit: PatternSet,
-}
-
-struct Node {
-	path: PathBuf,
-	name: Option<OsString>,
-	patterns: Option<PatternSet>,
-	children: Vec<Arc<RwLock<Self>>>,
+	Path,
 }
 
 #[derive(Debug)]
-struct PatternSet {
-	allow: Vec<Pattern>,
-	deny: Vec<Pattern>,
+pub struct Ignore {
+	file_names: Vec<OsString>,
+	global: Option<File>,
+	root: Arc<RwLock<Node>>,
+}
+
+#[derive(Debug)]
+struct Node {
+	children: BTreeMap<OsString, Arc<RwLock<Self>>>,
+	files: Vec<File>,
+}
+
+#[derive(Debug)]
+struct File {
+	glob_set: GlobSet,
+	patterns: Vec<Pattern>,
 }
 
 #[derive(Debug)]
 struct Pattern {
-	allowlist: bool,
-	only_directories: bool,
-	glob: globset::GlobMatcher,
+	negated: bool,
+	#[allow(dead_code)]
+	string: String,
+	trailing_slash: bool,
 }
 
 impl Ignore {
-	pub async fn new(
-		ignore_files: impl IntoIterator<Item = impl AsRef<Path>>,
-		allow: impl IntoIterator<Item = impl AsRef<str>>,
-		deny: impl IntoIterator<Item = impl AsRef<str>>,
-	) -> Result<Self, Error> {
-		let ignore_files = ignore_files
-			.into_iter()
-			.map(|path| path.as_ref().as_os_str().to_owned())
-			.collect::<Vec<_>>();
-		let root = Arc::new(RwLock::new(
-			Node::new("/".into(), None, &ignore_files).await?,
-		));
-		let allow = allow
-			.into_iter()
-			.map(|s| s.as_ref().parse())
-			.try_collect()?;
-		let deny = deny.into_iter().map(|s| s.as_ref().parse()).try_collect()?;
-		let implicit = PatternSet { allow, deny };
+	pub async fn new(file_names: Vec<OsString>, global: Option<&str>) -> Result<Self, Error> {
+		let root = Self::node_with_path_and_file_names(Path::new("/"), &file_names).await?;
+		let global = if let Some(global) = global {
+			Some(Self::file_with_contents(global)?)
+		} else {
+			None
+		};
 		Ok(Self {
+			file_names,
+			global,
 			root,
-			ignore_files,
-			implicit,
 		})
 	}
 
-	pub async fn should_ignore(
-		&self,
-		path: &Path,
-		file_type: std::fs::FileType,
-	) -> Result<bool, Error> {
+	pub async fn matches(&self, path: &Path, is_directory: Option<bool>) -> Result<bool, Error> {
+		// Check if the path is a directory if necessary.
+		let is_directory = if let Some(is_directory) = is_directory {
+			is_directory
+		} else {
+			tokio::fs::symlink_metadata(path).await?.is_dir()
+		};
+
+		// Split the path into components.
 		let mut components = path
 			.strip_prefix("/")
-			.map_err(|_| Error::Path(path.to_owned()))?
+			.map_err(|_| Error::Path)?
 			.components()
 			.peekable();
 
-		let mut current = self.root.clone();
+		// Get or create the nodes.
+		let mut path = PathBuf::from("/");
+		let mut nodes = vec![self.root.clone()];
 		while let Some(component) = components.next() {
-			// Check if this ignore has a pattern for the path.
-			{
-				let node = current.read().await;
-				if let Some(patterns) = &node.patterns {
-					if patterns.should_ignore(&node.path, path, file_type, &self.implicit) {
-						return Ok(true);
-					}
-				}
-			}
-
-			// Otherwise keep searching.
+			path.push(component);
 			let std::path::Component::Normal(name) = component else {
-				return Err(Error::Path(path.to_owned()));
+				return Err(Error::Path);
 			};
-
-			// Find the child.
-			let mut next = None;
-			{
-				let node = current.read().await;
-				for child in &node.children {
-					if child.read().await.name.as_deref() == Some(name) {
-						next.replace(child.clone());
-						break;
-					}
-				}
-			}
-
-			current = if let Some(child) = next {
-				// If the child was found, recurse.
+			let node = nodes.last().unwrap();
+			let option = node.read().unwrap().children.get(name).cloned();
+			let child = if let Some(child) = option {
 				child
 			} else if components.peek().is_some() {
-				// If this is not the last path component and there is no child yet, create one.
-				let node = current.read().await;
-				let path = node.path.join(name);
-				let child = Arc::new(RwLock::new(
-					Node::new(path, Some(name.to_owned()), &self.ignore_files).await?,
-				));
-				drop(node);
-
-				// Add the child to the parent and then recurse.
-				current.write().await.children.push(child.clone());
+				let child = Self::node_with_path_and_file_names(&path, &self.file_names).await?;
+				node.write()
+					.unwrap()
+					.children
+					.insert(name.to_owned(), child.clone());
 				child
 			} else {
 				break;
 			};
+			nodes.push(child);
+		}
+
+		// Match.
+		let mut matches = Vec::new();
+		for (node, node_path) in std::iter::zip(nodes.iter().rev(), path.ancestors().skip(1)) {
+			let candidate = Candidate::new(path.strip_prefix(node_path).unwrap());
+			let files = &node.read().unwrap().files;
+			for file in files {
+				file.glob_set
+					.matches_candidate_into(&candidate, &mut matches);
+				if let Some(index) = matches.last() {
+					let pattern = file.patterns.get(*index).unwrap();
+					if !pattern.trailing_slash || is_directory {
+						return Ok(!pattern.negated);
+					}
+				}
+			}
+		}
+		if let Some(global) = &self.global {
+			let candidate = Candidate::new(path.strip_prefix("/").unwrap());
+			global
+				.glob_set
+				.matches_candidate_into(&candidate, &mut matches);
+			if let Some(index) = matches.last() {
+				let pattern = global.patterns.get(*index).unwrap();
+				if !pattern.trailing_slash || is_directory {
+					return Ok(!pattern.negated);
+				}
+			}
 		}
 
 		Ok(false)
 	}
-}
 
-impl Node {
-	async fn new(
-		path: PathBuf,
-		name: Option<OsString>,
-		ignore_files: &[OsString],
-	) -> Result<Self, Error> {
-		let patterns = Self::try_parse_ignore_files(&path, ignore_files).await?;
-		let children = Vec::new();
-		let node = Self {
-			path,
-			name,
-			patterns,
-			children,
-		};
+	async fn node_with_path_and_file_names(
+		path: &Path,
+		file_names: &[OsString],
+	) -> Result<Arc<RwLock<Node>>, Error> {
+		let mut files = Vec::new();
+		for name in file_names {
+			let contents = match tokio::fs::read_to_string(path.join(name)).await {
+				Ok(contents) => contents,
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+					continue;
+				},
+				Err(error) => return Err(error.into()),
+			};
+			let file = Self::file_with_contents(&contents)?;
+			files.push(file);
+		}
+		let node = Arc::new(RwLock::new(Node {
+			children: BTreeMap::new(),
+			files,
+		}));
 		Ok(node)
 	}
 
-	async fn try_parse_ignore_files(
-		path: &Path,
-		ignore_files: &[OsString],
-	) -> Result<Option<PatternSet>, Error> {
-		for ignore_file in ignore_files {
-			let path = path.join(ignore_file);
-			let contents = match tokio::fs::read_to_string(&path).await {
-				Ok(contents) => contents,
-				Err(error) if error.raw_os_error() == Some(libc::ENOENT) => continue,
-				Err(error) => {
-					return Err(error.into());
-				},
+	fn file_with_contents(contents: &str) -> Result<File, Error> {
+		// Create the patterns and glob set builder.
+		let mut patterns = Vec::new();
+		let mut glob_set = GlobSetBuilder::new();
+
+		// Handle each line.
+		for mut line in contents.lines() {
+			// Skip commented lines.
+			if line.starts_with('#') {
+				continue;
+			}
+
+			// Trim the end.
+			if !line.ends_with("\\ ") {
+				line = line.trim_end();
+			}
+
+			// Skip empty lines.
+			if line.is_empty() {
+				continue;
+			}
+
+			// Create the glob. This code is derived from here: <https://github.com/BurntSushi/ripgrep/blob/79cbe89deb1151e703f4d91b19af9cdcc128b765/crates/ignore/src/gitignore.rs#L436>.
+			let mut absolute = false;
+			let mut negated = false;
+			let mut trailing_slash = false;
+			if line.starts_with("\\!") || line.starts_with("\\#") {
+				line = &line[1..];
+				absolute = line.chars().nth(0) == Some('/');
+			} else {
+				if line.starts_with('!') {
+					negated = true;
+					line = &line[1..];
+				}
+				if line.starts_with('/') {
+					line = &line[1..];
+					absolute = true;
+				}
+			}
+			if line.as_bytes().last() == Some(&b'/') {
+				trailing_slash = true;
+				line = &line[..line.len() - 1];
+				if line.as_bytes().last() == Some(&b'\\') {
+					line = &line[..line.len() - 1];
+				}
+			}
+			let mut string = line.to_owned();
+			if !absolute && !line.chars().any(|c| c == '/') && !string.starts_with("**/") {
+				string = format!("**/{string}");
+			}
+			if string.ends_with("/**") {
+				string = format!("{string}/*");
+			}
+			let glob = GlobBuilder::new(&string)
+				.literal_separator(true)
+				.case_insensitive(false)
+				.backslash_escape(true)
+				.build()?;
+
+			// Add the glob to the glob set.
+			glob_set.add(glob);
+
+			// Add the pattern.
+			let pattern = Pattern {
+				negated,
+				string,
+				trailing_slash,
 			};
-
-			// Parse the contents.
-			let mut allow = Vec::new();
-			let mut deny = Vec::new();
-			contents
-				.lines()
-				.filter_map(|mut line| {
-					// A line starting with # is a comment.
-					if line.starts_with('#') {
-						return None;
-					}
-
-					// Trailing spaces are ignored unless they are quoted with a backslash.
-					if line.ends_with("\\ ") {
-						line = line.trim_end();
-					}
-
-					// Empty lines are ignored.
-					if line.is_empty() {
-						return None;
-					}
-
-					Some(line)
-				})
-				.map(|line| {
-					let pattern = line.parse::<Pattern>()?;
-					if pattern.allowlist {
-						allow.push(pattern);
-					} else {
-						deny.push(pattern);
-					}
-					Ok::<_, Error>(())
-				})
-				.try_collect::<_, (), _>()?;
-			let patterns = PatternSet { allow, deny };
-
-			return Ok(Some(patterns));
+			patterns.push(pattern);
 		}
 
-		Ok(None)
-	}
-}
+		// Build the glob set.
+		let glob_set = glob_set.build()?;
 
-impl PatternSet {
-	fn should_ignore(
-		&self,
-		root: &Path,
-		path: &Path,
-		file_type: std::fs::FileType,
-		implicit: &PatternSet,
-	) -> bool {
-		let allow = self
-			.allow
-			.iter()
-			.chain(implicit.allow.iter())
-			.any(|pattern| pattern.matches(root, path, file_type));
-		let deny = self
-			.deny
-			.iter()
-			.chain(implicit.deny.iter())
-			.any(|pattern| pattern.matches(root, path, file_type));
-		deny && !allow
-	}
-}
-
-impl Pattern {
-	fn matches(&self, root: &Path, path: &Path, file_type: std::fs::FileType) -> bool {
-		let path = path.strip_prefix(root).unwrap_or(path);
-		if self.only_directories && !file_type.is_dir() {
-			return false;
-		}
-		self.glob.is_match(path)
-	}
-}
-
-impl FromStr for Pattern {
-	type Err = Error;
-
-	fn from_str(mut line: &str) -> Result<Self, Error> {
-		let mut absolute = false;
-		let mut allowlist = false;
-		let mut only_directories = false;
-		if line.starts_with("\\!") || line.starts_with("\\#") {
-			line = &line[1..];
-			absolute = line.starts_with('/');
-		} else {
-			if line.starts_with('!') {
-				allowlist = true;
-				line = &line[1..];
-			}
-			if line.starts_with('/') {
-				absolute = true;
-				line = &line[1..];
-			}
-		}
-		if line.ends_with('/') {
-			only_directories = true;
-			line = &line[..line.len() - 1];
-		}
-		let mut line = if !absolute && !line.chars().any(|c| c == '/') && !line.starts_with("**/") {
-			format!("**/{line}")
-		} else {
-			line.to_owned()
-		};
-		if line.ends_with("/**") {
-			line.push_str("/*");
-		}
-		let glob = globset::Glob::new(&line)?.compile_matcher();
-		let pattern = Self {
-			allowlist,
-			only_directories,
-			glob,
-		};
-		Ok(pattern)
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::Pattern;
-
-	#[test]
-	fn pattern() {
-		let file_type = std::fs::metadata(".").unwrap().file_type();
-
-		let root = "/home/user";
-		let path = "/home/user/thing";
-		let pattern: Pattern = "thing".parse().unwrap();
-		assert!(pattern.matches(root.as_ref(), path.as_ref(), file_type));
-
-		let root = "/home/user";
-		let path = "/home/user/thing";
-		let pattern: Pattern = "/thing".parse().unwrap();
-		assert!(pattern.matches(root.as_ref(), path.as_ref(), file_type));
+		Ok(File { glob_set, patterns })
 	}
 }

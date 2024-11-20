@@ -677,6 +677,36 @@ async fn external_symlink_roundtrip() -> tg::Result<()> {
 	result.unwrap()
 }
 
+#[tokio::test]
+async fn ignore() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			".DS_Store" => temp::file!(""),
+			".git" => temp::directory! {
+				"config" => temp::file!(""),
+			},
+			".tangram" => temp::directory! {
+				"config" => temp::file!(""),
+			},
+			"tangram.lock" => temp::file!(r#"{"nodes":[]}"#),
+			"tangram.ts" => temp::file!(""),
+		},
+		"",
+		false,
+		|_, _, output| async move {
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"tangram.ts": tg.file({
+   		"contents": tg.leaf(""),
+   	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
 async fn test<F, Fut>(
 	artifact: temp::Artifact,
 	path: &str,
@@ -702,7 +732,6 @@ where
 			locked: false,
 			path: directory.as_ref().join(path),
 		};
-		std::mem::forget(directory);
 		let stream = server.check_in_artifact(arg).await?;
 		let output = pin!(stream)
 			.try_last()
