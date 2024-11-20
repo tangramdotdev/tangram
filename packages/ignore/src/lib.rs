@@ -87,10 +87,13 @@ impl Ignore {
 				child
 			} else if components.peek().is_some() {
 				let child = Self::node_with_path_and_file_names(&path, &self.file_names).await?;
-				node.write()
+				let child = node
+					.write()
 					.unwrap()
 					.children
-					.insert(name.to_owned(), child.clone());
+					.entry(name.to_owned())
+					.or_insert(child)
+					.clone();
 				child
 			} else {
 				break;
