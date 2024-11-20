@@ -127,7 +127,7 @@ where
 
 		// Get at least one chunk.
 		let position = Some(std::io::SeekFrom::End(0));
-		let length = Some(0);
+		let length = Some(-1);
 		let timeout = Duration::from_millis(16);
 		let timeout = tokio::time::sleep(timeout);
 		let arg = tg::build::log::get::Arg {
@@ -143,16 +143,10 @@ where
 			.boxed()
 			.try_next()
 			.await?;
-
 		let max_position = chunk.map_or(0, |chunk| {
 			chunk.position + chunk.bytes.len().to_u64().unwrap()
 		});
 		self.max_position.store(max_position, Ordering::Relaxed);
-
-		// Seed the front of the log.
-		if max_position > 0 {
-			self.update_log_stream(false).await?;
-		}
 
 		// Start tailing if necessary.
 		self.update_log_stream(true).await?;
@@ -299,7 +293,7 @@ where
 					(Some(SeekFrom::Start(position)), None)
 				},
 				Some(position) => (Some(SeekFrom::Start(position)), Some(3 * area / 2)),
-				None => (None, None),
+				None => (Some(SeekFrom::End(0)), Some(-3 * area / 2)),
 			}
 		} else {
 			let position = chunks.first().map(|chunk| chunk.position);
@@ -313,7 +307,7 @@ where
 					Some(SeekFrom::Start(position)),
 					Some(-length.to_i64().unwrap()),
 				),
-				None => (None, Some(-length.to_i64().unwrap())),
+				None => (Some(SeekFrom::End(0)), Some(-length.to_i64().unwrap())),
 			}
 		};
 
