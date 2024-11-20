@@ -480,7 +480,7 @@ impl Server {
 			async move {
 				tracing::trace!("started shutdown");
 
-				// Stop the compilers. This needs to happen before stopping the HTTP requests.
+				// Stop the compilers.
 				let compilers = server.compilers.read().unwrap().clone();
 				for compiler in compilers {
 					compiler.stop().await;
@@ -490,67 +490,82 @@ impl Server {
 				// Stop the HTTP task.
 				if let Some(task) = http_task {
 					task.stop();
-					task.wait().await.unwrap();
+					let result = task.wait().await;
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the http task panicked");
+						}
+					}
 				}
 
 				// Abort the build spawn task.
 				if let Some(task) = build_spawn_task {
 					task.abort();
 					let result = task.await;
-					let result = match result {
-						Ok(()) => Ok(()),
-						Err(error) if error.is_cancelled() => Ok(()),
-						Err(error) => Err(error),
-					};
-					result.unwrap();
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the build spawn task panicked");
+						}
+					}
 				}
 
 				// Abort the object index task.
 				if let Some(task) = object_indexer_task {
 					task.abort();
 					let result = task.await;
-					let result = match result {
-						Ok(()) => Ok(()),
-						Err(error) if error.is_cancelled() => Ok(()),
-						Err(error) => Err(error),
-					};
-					result.unwrap();
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the object index task panicked");
+						}
+					}
 				}
 
 				// Abort the build index task.
 				if let Some(task) = build_indexer_task {
 					task.abort();
 					let result = task.await;
-					let result = match result {
-						Ok(()) => Ok(()),
-						Err(error) if error.is_cancelled() => Ok(()),
-						Err(error) => Err(error),
-					};
-					result.unwrap();
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the build index task panicked");
+						}
+					}
 				}
 
 				// Abort the build heartbeat monitor task.
 				if let Some(task) = build_heartbeat_monitor_task {
 					task.abort();
 					let result = task.await;
-					let result = match result {
-						Ok(()) => Ok(()),
-						Err(error) if error.is_cancelled() => Ok(()),
-						Err(error) => Err(error),
-					};
-					result.unwrap();
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the build heartbeat monitor task panicked");
+						}
+					}
 				}
 
-				// Abort the build tasks.
-				server.builds.abort_all();
-				server.builds.wait().await;
+				// Stop the build tasks.
+				server.builds.stop_all();
+				let results = server.builds.wait().await;
+				for result in results {
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "a build task panicked");
+						}
+					}
+				}
 
 				// Remove the runtimes.
 				server.runtimes.write().unwrap().clear();
 
 				// Abort the checkout tasks.
 				server.checkout_task_map.abort_all();
-				server.checkout_task_map.wait().await;
+				let results = server.checkout_task_map.wait().await;
+				for result in results {
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "a checkout task panicked");
+						}
+					}
+				}
 
 				// Stop the VFS.
 				let vfs = server.vfs.lock().unwrap().take();

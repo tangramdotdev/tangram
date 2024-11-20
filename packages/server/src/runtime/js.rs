@@ -91,10 +91,10 @@ impl Runtime {
 			}
 		});
 		let abort_handle = task.abort_handle();
-
 		scopeguard::defer! {
 			abort_handle.abort();
 			if let Some(isolate_handle) = isolate_handle_receiver.borrow().as_ref() {
+				tracing::trace!("terminating execution");
 				isolate_handle.terminate_execution();
 			}
 		};

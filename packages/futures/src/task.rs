@@ -1,7 +1,8 @@
 use dashmap::DashMap;
 use futures::{
 	future::{self, BoxFuture},
-	Future, FutureExt as _, TryFutureExt as _,
+	stream::FuturesUnordered,
+	Future, FutureExt as _, StreamExt as _, TryFutureExt as _,
 };
 use itertools::Itertools as _;
 use std::{
@@ -110,15 +111,18 @@ where
 		}
 	}
 
-	pub async fn wait(&self) {
+	pub async fn wait(&self) -> Vec<Result<T, Arc<tokio::task::JoinError>>> {
 		let tasks = self
 			.map
 			.iter()
 			.map(|entry| entry.value().clone())
 			.collect_vec();
-		for task in tasks {
-			task.wait().await.unwrap();
-		}
+		tasks
+			.into_iter()
+			.map(|task| async move { task.wait().await })
+			.collect::<FuturesUnordered<_>>()
+			.collect()
+			.await
 	}
 }
 
