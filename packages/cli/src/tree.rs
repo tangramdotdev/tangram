@@ -1,6 +1,7 @@
 use std::pin::pin;
 
 use crate::Cli;
+use atty::is;
 use futures::future;
 use tangram_client as tg;
 use tangram_either::Either;
@@ -51,34 +52,41 @@ impl Cli {
 		// Create the tree.
 		let tree = crate::view::tree::Tree::new(&handle, item.clone(), options);
 
-		// Render the tree until it is finished.
-		let mut done = false;
-		loop {
-			// Clear.
-			let action = crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown);
-			crossterm::execute!(stdout, action).unwrap();
+		if is(atty::Stream::Stdout) {
+			// Render the tree until it is finished.
+			let mut done = false;
+			loop {
+				// Clear.
+				let action =
+					crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown);
+				crossterm::execute!(stdout, action).unwrap();
 
-			// If we're done waiting for the tree, then break.
-			if done {
-				break;
+				// If we're done waiting for the tree, then break.
+				if done {
+					break;
+				}
+
+				// Save the current position.
+				let action = crossterm::cursor::SavePosition;
+				crossterm::execute!(stdout, action).unwrap();
+
+				// Print the tree.
+				println!("{}", tree.display());
+
+				// Restore the cursor position.
+				let action = crossterm::cursor::RestorePosition;
+				crossterm::execute!(stdout, action).unwrap();
+
+				// Sleep and wait for the tree to finish.
+				let sleep = tokio::time::sleep(std::time::Duration::from_millis(100));
+				if let future::Either::Left(_) =
+					future::select(pin!(tree.wait()), pin!(sleep)).await
+				{
+					done = true;
+				}
 			}
-
-			// Save the current position.
-			let action = crossterm::cursor::SavePosition;
-			crossterm::execute!(stdout, action).unwrap();
-
-			// Print the tree.
-			println!("{}", tree.display());
-
-			// Restore the cursor position.
-			let action = crossterm::cursor::RestorePosition;
-			crossterm::execute!(stdout, action).unwrap();
-
-			// Sleep and wait for the tree to finish.
-			let sleep = tokio::time::sleep(std::time::Duration::from_millis(100));
-			if let future::Either::Left(_) = future::select(pin!(tree.wait()), pin!(sleep)).await {
-				done = true;
-			}
+		} else {
+			tree.wait().await;
 		}
 
 		// Print the tree.
