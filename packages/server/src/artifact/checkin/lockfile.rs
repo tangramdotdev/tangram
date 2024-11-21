@@ -242,6 +242,9 @@ impl Server {
 		let mut should_retain = vec![None; old_nodes.len()];
 		check_if_references_module(old_nodes, None, root, &mut should_retain)?;
 
+		let mut is_tagged = vec![None; old_nodes.len()];
+		check_if_transitively_tagged(old_nodes, false, root, &mut is_tagged)?;
+
 		// Strip nodes that don't reference tag dependencies.
 		let mut new_nodes = Vec::with_capacity(old_nodes.len());
 		let mut visited = vec![None; old_nodes.len()];
@@ -251,6 +254,7 @@ impl Server {
 			&mut visited,
 			&mut new_nodes,
 			&should_retain,
+			&is_tagged,
 		);
 
 		// Construct a new lockfile with only stripped nodes.
@@ -328,6 +332,53 @@ fn check_if_references_module(
 	}
 }
 
+// Recursively compute the file nodes whose contents should be retained
+#[allow(clippy::match_on_vec_items)]
+fn check_if_transitively_tagged(
+	nodes: &[tg::lockfile::Node],
+	referrer_tagged: bool,
+	node: usize,
+	visited: &mut Vec<Option<bool>>,
+) -> tg::Result<()> {
+	match visited[node] {
+		None => match &nodes[node] {
+			tg::lockfile::Node::Directory { entries } => {
+				visited[node].replace(referrer_tagged);
+				for entry in entries.values() {
+					let child_node = entry.as_ref().left().copied().unwrap();
+					check_if_transitively_tagged(nodes, referrer_tagged, child_node, visited)?;
+				}
+			},
+			tg::lockfile::Node::File { dependencies, .. } => {
+				visited[node].replace(referrer_tagged);
+				for referent in dependencies.values() {
+					let Either::Left(child_node) = &referent.item else {
+						continue;
+					};
+					let referrer_tagged = referent.tag.is_some() || referrer_tagged;
+					check_if_transitively_tagged(nodes, referrer_tagged, *child_node, visited)?;
+				}
+			},
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
+				visited[node].replace(referrer_tagged);
+				if let Some(child_node) =
+					try_find_in_lockfile_nodes(nodes, artifact, subpath.as_deref())?
+				{
+					check_if_transitively_tagged(nodes, referrer_tagged, child_node, visited)?;
+				}
+			},
+			tg::lockfile::Node::Symlink(_) => {
+				visited[node].replace(false);
+			},
+		},
+		Some(false) if referrer_tagged => {
+			visited[node].replace(true);
+		},
+		_ => (),
+	}
+	Ok(())
+}
+
 // Recursively create a new list of nodes that have their path dependencies removed, while preserving nodes that transitively reference any tag dependencies.
 fn strip_nodes_inner(
 	old_nodes: &[tg::lockfile::Node],
@@ -335,6 +386,7 @@ fn strip_nodes_inner(
 	visited: &mut Vec<Option<usize>>,
 	new_nodes: &mut Vec<Option<tg::lockfile::Node>>,
 	should_retain: &[Option<bool>],
+	is_tagged: &[Option<bool>],
 ) -> Option<usize> {
 	if !should_retain[node].unwrap() {
 		return None;
@@ -353,10 +405,15 @@ fn strip_nodes_inner(
 				.into_iter()
 				.filter_map(|(name, entry)| {
 					let entry = match entry {
-						Either::Left(node) => {
-							strip_nodes_inner(old_nodes, node, visited, new_nodes, should_retain)
-								.map(Either::Left)
-						},
+						Either::Left(node) => strip_nodes_inner(
+							old_nodes,
+							node,
+							visited,
+							new_nodes,
+							should_retain,
+							is_tagged,
+						)
+						.map(Either::Left),
 						Either::Right(id) => Some(Either::Right(id)),
 					};
 					Some((name, entry?))
@@ -369,7 +426,7 @@ fn strip_nodes_inner(
 		tg::lockfile::Node::File {
 			dependencies,
 			executable,
-			..
+			contents,
 		} => {
 			let dependencies = dependencies
 				.into_iter()
@@ -387,6 +444,7 @@ fn strip_nodes_inner(
 							visited,
 							new_nodes,
 							should_retain,
+							is_tagged,
 						)?),
 						Either::Right(id) => Either::Right(id),
 					};
@@ -402,9 +460,16 @@ fn strip_nodes_inner(
 				})
 				.collect();
 
+			// Retain the contents if this is a tagged node.
+			let contents = if matches!(is_tagged[node], Some(true)) {
+				contents
+			} else {
+				None
+			};
+
 			// Create the node.
 			new_nodes[new_node].replace(tg::lockfile::Node::File {
-				contents: None,
+				contents,
 				dependencies,
 				executable,
 			});
@@ -421,7 +486,7 @@ fn strip_nodes_inner(
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
 				Either::Left(node) => {
-					strip_nodes_inner(old_nodes, node, visited, new_nodes, should_retain)
+					strip_nodes_inner(old_nodes, node, visited, new_nodes, should_retain, is_tagged)
 						.map(Either::Left)
 				},
 				Either::Right(id) => Some(Either::Right(id)),
