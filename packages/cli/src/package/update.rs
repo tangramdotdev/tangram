@@ -20,7 +20,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 
 		// Remove an existing lockfile.
-		tokio::fs::remove_file(path.clone().join("tangram.lock"))
+		tokio::fs::remove_file(path.clone().join(tg::package::LOCKFILE_FILE_NAME))
 			.await
 			.ok();
 

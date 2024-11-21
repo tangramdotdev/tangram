@@ -112,9 +112,9 @@ impl Server {
 					// Write the lockfile if it is not empty.
 					if !lockfile.nodes.is_empty() {
 						let lockfile_path = if matches!(artifact, tg::Artifact::Directory(_)) {
-							path.join("tangram.lock")
+							path.join(tg::package::LOCKFILE_FILE_NAME)
 						} else {
-							path.parent().unwrap().join("tangram.lock")
+							path.parent().unwrap().join(tg::package::LOCKFILE_FILE_NAME)
 						};
 
 						let contents = serde_json::to_vec(&lockfile).map_err(|source| {
