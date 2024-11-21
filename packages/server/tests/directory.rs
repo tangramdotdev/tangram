@@ -51,3 +51,15 @@ async fn get_file_through_symlink() -> tg::Result<()> {
 	result.unwrap().unwrap();
 	Ok(())
 }
+
+#[ctor::ctor]
+fn ctor() {
+	// Set the file descriptor limit.
+	let limit = 65536;
+	let rlimit = libc::rlimit {
+		rlim_cur: limit,
+		rlim_max: limit,
+	};
+	let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &rlimit) };
+	assert!(ret == 0, "failed to set the file descriptor limit");
+}
