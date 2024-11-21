@@ -253,6 +253,20 @@ impl Server {
 					.await?;
 			},
 		};
+		
+		// Set the file system object's modified time to the epoch.
+			tokio::task::spawn_blocking({
+				let path = dest_path.clone();
+				move || {
+					let epoch =
+						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+					filetime::set_symlink_file_times(path, epoch, epoch)
+						.map_err(|source| tg::error!(!source, "failed to set the modified time"))?;
+					Ok::<_, tg::Error>(())
+				}
+			})
+			.await
+			.unwrap()?;
 
 		// There is no additional work to do if the dest/final paths are the same.
 		if dest_path == final_path {
