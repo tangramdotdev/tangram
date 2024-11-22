@@ -1,10 +1,8 @@
+import { unreachable } from "./assert";
 import * as tg from "./index.ts";
-import { flatten } from "./util.ts";
 
-export let symlink = async (
-	...args: tg.Args<Symlink.Arg>
-): Promise<Symlink> => {
-	return await Symlink.new(...args);
+export let symlink = async (arg: Symlink.Arg): Promise<Symlink> => {
+	return await Symlink.new(arg);
 };
 
 export class Symlink {
@@ -22,76 +20,67 @@ export class Symlink {
 		return new Symlink({ id });
 	}
 
-	static async new(...args: tg.Args<Symlink.Arg>): Promise<Symlink> {
-		let arg = await Symlink.arg(...args);
-		if ("graph" in arg) {
-			return new Symlink({ object: arg });
+	static async new(arg: Symlink.Arg): Promise<Symlink> {
+		let resolved = await Symlink.arg(arg);
+		if ("graph" in resolved && "node" in resolved) {
+			return new Symlink({ object: resolved });
+		} else if ("target" in resolved) {
+			let symlink = new Symlink({ object: resolved });
+			return symlink;
+		} else if ("artifact" in resolved) {
+			return new Symlink({
+				object: {
+					artifact: resolved.artifact,
+					subpath: resolved.subpath,
+				},
+			});
 		}
-		let artifact = arg.artifact;
-		let subpath = arg.subpath !== undefined ? arg.subpath : undefined;
-		let object = { artifact, subpath };
-		return new Symlink({ object });
+		return unreachable("invalid symlink arguments");
 	}
 
-	static async arg(...args: tg.Args<Symlink.Arg>): Promise<Symlink.ArgObject> {
-		let resolved = await Promise.all(args.map(tg.resolve));
-		if (resolved.length === 1) {
-			const arg = resolved[0];
-			if (typeof arg === "object" && "graph" in arg) {
-				return arg;
+	static async arg(arg: Symlink.Arg): Promise<Symlink.ArgObject> {
+		let resolved = await tg.resolve(arg);
+		if (typeof resolved === "object" && "graph" in resolved) {
+			return resolved;
+		}
+		if (typeof resolved === "string") {
+			return { target: resolved };
+		} else if (tg.Artifact.is(resolved)) {
+			return { artifact: resolved, subpath: undefined };
+		} else if (resolved instanceof tg.Template) {
+			tg.assert(resolved.components.length <= 2);
+			let [firstComponent, secondComponent] = resolved.components;
+			if (typeof firstComponent === "string" && secondComponent === undefined) {
+				return { target: firstComponent };
+			} else if (
+				tg.Artifact.is(firstComponent) &&
+				secondComponent === undefined
+			) {
+				return { artifact: firstComponent, subpath: undefined };
+			} else if (
+				tg.Artifact.is(firstComponent) &&
+				typeof secondComponent === "string"
+			) {
+				tg.assert(secondComponent.startsWith("/"));
+				return {
+					artifact: firstComponent,
+					subpath: secondComponent.slice(1),
+				};
+			} else {
+				throw new Error("invalid template");
 			}
+		} else if (resolved instanceof Symlink) {
+			if ("target" in resolved) {
+				return { target: resolved.target };
+			} else if ("artifact" in resolved) {
+				let subpath = await resolved.subpath();
+				let artifact = resolved.artifact;
+				return { artifact, subpath };
+			}
+		} else {
+			return resolved;
 		}
-		if (resolved.some((arg) => typeof arg === "object" && "graph" in arg)) {
-			throw new Error("only a single graph arg is supported");
-		}
-		let flattened = flatten(resolved);
-		let objects = await Promise.all(
-			flattened.map(async (arg) => {
-				if (arg === undefined) {
-					return {};
-				} else if (typeof arg === "string") {
-					return { subpath: arg };
-				} else if (tg.Artifact.is(arg)) {
-					return { artifact: arg, subpath: tg.Mutation.unset() };
-				} else if (arg instanceof tg.Template) {
-					tg.assert(arg.components.length <= 2);
-					let [firstComponent, secondComponent] = arg.components;
-					if (
-						typeof firstComponent === "string" &&
-						secondComponent === undefined
-					) {
-						return { subpath: firstComponent };
-					} else if (
-						tg.Artifact.is(firstComponent) &&
-						secondComponent === undefined
-					) {
-						return { artifact: firstComponent, subpath: tg.Mutation.unset() };
-					} else if (
-						tg.Artifact.is(firstComponent) &&
-						typeof secondComponent === "string"
-					) {
-						tg.assert(secondComponent.startsWith("/"));
-						return {
-							artifact: firstComponent,
-							subpath: secondComponent.slice(1),
-						};
-					} else {
-						throw new Error("invalid template");
-					}
-				} else if (arg instanceof Symlink) {
-					let subpath = await arg.subpath();
-					return { artifact: await arg.artifact(), subpath };
-				} else {
-					return arg;
-				}
-			}),
-		);
-		let mutations = await tg.Args.createMutations(objects, {
-			artifact: "set",
-			subpath: "set",
-		});
-		let arg = await tg.Args.applyMutations(mutations);
-		return arg;
+		return unreachable();
 	}
 
 	static expect(value: unknown): Symlink {
@@ -132,9 +121,9 @@ export class Symlink {
 
 	async artifact(): Promise<tg.Artifact | undefined> {
 		const object = await this.object();
-		if (!("graph" in object)) {
+		if ("artifact" in object) {
 			return object.artifact;
-		} else {
+		} else if ("graph" in object) {
 			const nodes = await object.graph.nodes();
 			const node = nodes[object.node];
 			tg.assert(node !== undefined, `invalid index ${object.node}`);
@@ -171,9 +160,9 @@ export class Symlink {
 
 	async subpath(): Promise<string | undefined> {
 		const object = await this.object();
-		if (!("graph" in object)) {
+		if ("artifact" in object) {
 			return object.subpath;
-		} else {
+		} else if ("graph" in object) {
 			const nodes = await object.graph.nodes();
 			const node = nodes[object.node];
 			tg.assert(node !== undefined, `invalid index ${object.node}`);
@@ -182,6 +171,8 @@ export class Symlink {
 				`expected a symlink node, got ${node}`,
 			);
 			return node.subpath;
+		} else if ("target" in object) {
+			return object.target;
 		}
 	}
 
@@ -204,29 +195,25 @@ export class Symlink {
 }
 
 export namespace Symlink {
-	export type Arg =
-		| undefined
-		| string
-		| tg.Artifact
-		| tg.Template
-		| Symlink
-		| ArgObject;
+	export type Arg = string | tg.Artifact | tg.Template | Symlink | ArgObject;
 
 	export type ArgObject =
+		| { graph: tg.Graph; node: number }
+		| { target: string }
 		| {
-				artifact?: tg.Artifact | undefined;
+				artifact: tg.Artifact;
 				subpath?: string | undefined;
-		  }
-		| { graph: tg.Graph; node: number };
+		  };
 
 	export type Id = string;
 
 	export type Object =
+		| { graph: tg.Graph; node: number }
+		| { target: string }
 		| {
-				artifact: tg.Artifact | undefined;
+				artifact: tg.Artifact;
 				subpath: string | undefined;
-		  }
-		| { graph: tg.Graph; node: number };
+		  };
 
 	export type State = tg.Object.State<Symlink.Id, Symlink.Object>;
 }
