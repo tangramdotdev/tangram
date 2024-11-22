@@ -22,13 +22,37 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, ?path, "failed to create the directory"))?;
 
+		// Check if there is already a root module for the path.
+		for name in tg::package::ROOT_MODULE_FILE_NAMES {
+			let module_path = path.join(name);
+			if tokio::fs::try_exists(&module_path).await.unwrap_or(false) {
+				return Err(
+					tg::error!(%module_path = module_path.display(), "found existing root module"),
+				);
+			}
+		}
+
+		// Determine the reference to use for the autobuild package.
+		let autobuild_reference = if let Some(autobuild_reference) = self
+			.config
+			.as_ref()
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.init_autobuild_reference.as_ref())
+		{
+			autobuild_reference.as_str()
+		} else {
+			"autobuild"
+		};
+
 		// Define the files to generate.
 		let mut files = Vec::new();
 		files.push((
 			path.join("tangram.ts"),
 			formatdoc!(
 				r#"
-					export default tg.target(() => tg.file("Hello, World!"));
+					import autobuild from "{autobuild_reference}";
+					import source from "." with {{ type: "directory" }};
+					export default tg.target(() => autobuild({{ source }}));
 				"#,
 			),
 		));

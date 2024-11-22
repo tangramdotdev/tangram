@@ -104,11 +104,15 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
+		let reference = args
+			.reference
+			.clone()
+			.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Get the remote.
 		let remote = args
 			.remote
+			.clone()
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the reference.
@@ -141,9 +145,15 @@ impl Cli {
 							break;
 						}
 					}
-					let name = name.ok_or_else(|| {
-						tg::error!("expected the directory to contain a root module")
-					})?;
+					if name.is_none() {
+						tracing::info!("no root module found, performing init");
+						self.command_package_init(crate::package::init::Args {
+							path: Some(reference.as_str().into()),
+						})
+						.await?;
+						return Box::pin(self.command_target_build_inner(args)).await;
+					}
+					let name = name.unwrap();
 					let kind = if Path::new(name)
 						.extension()
 						.map_or(false, |extension| extension == "js")
