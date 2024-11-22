@@ -104,12 +104,38 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
+		let reference = args
+			.reference
+			.clone()
+			.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Get the remote.
 		let remote = args
 			.remote
+			.clone()
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
+
+		// If the reference is a path to a directory and the path does not contain a root module, then init.
+		if let Ok(path) = reference.item().try_unwrap_path_ref() {
+			let mut exists = false;
+			for name in tg::package::ROOT_MODULE_FILE_NAMES {
+				let module_path = path.join(name);
+				exists = tokio::fs::try_exists(&module_path)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, ?path, "failed to check if the path exists")
+					})?;
+				if exists {
+					break;
+				}
+			}
+			if !exists {
+				self.command_package_init(crate::package::init::Args {
+					path: Some(path.clone()),
+				})
+				.await?;
+			}
+		}
 
 		// Get the reference.
 		let referent = self.get_reference(&reference).await?;
@@ -141,9 +167,7 @@ impl Cli {
 							break;
 						}
 					}
-					let name = name.ok_or_else(|| {
-						tg::error!("expected the directory to contain a root module")
-					})?;
+					let name = name.ok_or_else(|| tg::error!("no root module found"))?;
 					let kind = if Path::new(name)
 						.extension()
 						.map_or(false, |extension| extension == "js")

@@ -113,6 +113,10 @@ pub struct Advanced {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_semaphore_size: Option<usize>,
 
+	/// The path to the preferred autobuild package for `tangram init`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub init_autobuild_reference: Option<tg::Reference>,
+
 	/// Whether to preserve temporary directories.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub preserve_temp_directories: Option<bool>,
