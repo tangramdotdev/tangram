@@ -68,7 +68,7 @@ async fn external_symlink() -> tg::Result<()> {
    		"dependencies": {
    			"../b/c": {
    				"item": tg.symlink({
-   					"subpath": "e",
+   					"target": "e",
    				}),
    				"path": "../b/c",
    			},
@@ -318,7 +318,7 @@ async fn symlink() -> tg::Result<()> {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"link": tg.symlink({
-   		"subpath": ".",
+   		"target": ".",
    	}),
    })
    "#);
@@ -414,11 +414,11 @@ async fn directory() -> tg::Result<()> {
    		"contents": tg.leaf("Hello, world!"),
    	}),
    	"link": tg.symlink({
-   		"subpath": "hello.txt",
+   		"target": "hello.txt",
    	}),
    	"subdirectory": tg.directory({
    		"sublink": tg.symlink({
-   			"subpath": "../link",
+   			"target": "../link",
    		}),
    	}),
    })
@@ -566,12 +566,12 @@ async fn directory_destructive() -> tg::Result<()> {
    	"a": tg.directory({
    		"b": tg.directory({
    			"c": tg.symlink({
-   				"subpath": "../../a/d/e",
+   				"target": "../../a/d/e",
    			}),
    		}),
    		"d": tg.directory({
    			"e": tg.symlink({
-   				"subpath": "../../a/f/g",
+   				"target": "../../a/f/g",
    			}),
    		}),
    		"f": tg.directory({
