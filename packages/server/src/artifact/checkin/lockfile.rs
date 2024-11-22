@@ -239,11 +239,14 @@ impl Server {
 		old_nodes: &[tg::lockfile::Node],
 		root: usize,
 	) -> tg::Result<Vec<tg::lockfile::Node>> {
-		let mut should_retain = vec![None; old_nodes.len()];
-		check_if_references_module(old_nodes, None, root, &mut should_retain)?;
+		let mut references_module = vec![None; old_nodes.len()];
+		check_if_references_module(old_nodes, None, root, &mut references_module)?;
 
 		let mut is_tagged = vec![None; old_nodes.len()];
 		check_if_transitively_tagged(old_nodes, false, root, &mut is_tagged)?;
+
+		let mut in_graph = vec![false; old_nodes.len()];
+		check_if_in_graph(old_nodes, &mut in_graph);
 
 		// Strip nodes that don't reference tag dependencies.
 		let mut new_nodes = Vec::with_capacity(old_nodes.len());
@@ -253,8 +256,9 @@ impl Server {
 			root,
 			&mut visited,
 			&mut new_nodes,
-			&should_retain,
+			&references_module,
 			&is_tagged,
+			&in_graph,
 		);
 
 		// Construct a new lockfile with only stripped nodes.
@@ -379,6 +383,15 @@ fn check_if_transitively_tagged(
 	Ok(())
 }
 
+fn check_if_in_graph(nodes: &[tg::lockfile::Node], visited: &mut [bool]) {
+	for scc in petgraph::algo::tarjan_scc(&LockfileGraphImpl(nodes)) {
+		let in_graph = scc.len() > 1;
+		for node in scc {
+			visited[node] = in_graph;
+		}
+	}
+}
+
 // Recursively create a new list of nodes that have their path dependencies removed, while preserving nodes that transitively reference any tag dependencies.
 fn strip_nodes_inner(
 	old_nodes: &[tg::lockfile::Node],
@@ -387,13 +400,19 @@ fn strip_nodes_inner(
 	new_nodes: &mut Vec<Option<tg::lockfile::Node>>,
 	should_retain: &[Option<bool>],
 	is_tagged: &[Option<bool>],
+	in_graph: &[bool],
 ) -> Option<usize> {
-	if !should_retain[node].unwrap() {
+	if
+		matches!(should_retain[node], Some(false))
+	||  matches!(is_tagged[node], Some(true))
+	|| !in_graph[node] {
 		return None;
 	}
+	
 	if let Some(visited) = visited[node] {
 		return Some(visited);
 	}
+
 
 	let new_node = new_nodes.len();
 	visited[node].replace(new_node);
@@ -412,6 +431,7 @@ fn strip_nodes_inner(
 							new_nodes,
 							should_retain,
 							is_tagged,
+							in_graph,
 						)
 						.map(Either::Left),
 						Either::Right(id) => Some(Either::Right(id)),
@@ -445,6 +465,7 @@ fn strip_nodes_inner(
 							new_nodes,
 							should_retain,
 							is_tagged,
+							in_graph,
 						)?),
 						Either::Right(id) => Either::Right(id),
 					};
@@ -486,7 +507,7 @@ fn strip_nodes_inner(
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
 				Either::Left(node) => {
-					strip_nodes_inner(old_nodes, node, visited, new_nodes, should_retain, is_tagged)
+					strip_nodes_inner(old_nodes, node, visited, new_nodes, should_retain, is_tagged, in_graph)
 						.map(Either::Left)
 				},
 				Either::Right(id) => Some(Either::Right(id)),
@@ -540,4 +561,65 @@ fn try_find_in_lockfile_nodes(
 		}
 	}
 	Ok(Some(node))
+}
+
+struct LockfileGraphImpl<'a>(&'a [tg::lockfile::Node]);
+
+impl<'a> petgraph::visit::GraphBase for LockfileGraphImpl<'a> {
+	type EdgeId = (usize, usize);
+	type NodeId = usize;
+}
+
+#[allow(clippy::needless_arbitrary_self_type)]
+impl<'a> petgraph::visit::NodeIndexable for &'a LockfileGraphImpl<'a> {
+	fn from_index(self: &Self, i: usize) -> Self::NodeId {
+		i
+	}
+
+	fn node_bound(self: &Self) -> usize {
+		self.0.len()
+	}
+
+	fn to_index(self: &Self, a: Self::NodeId) -> usize {
+		a
+	}
+}
+
+impl<'a> petgraph::visit::IntoNeighbors for &'a LockfileGraphImpl<'a> {
+	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
+	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
+		match &self.0[a] {
+			tg::lockfile::Node::Directory { entries } => {
+				let it = entries
+					.values()
+					.filter_map(|entry| entry.as_ref().left().copied());
+				Box::new(it)
+			},
+			tg::lockfile::Node::File { dependencies, .. } => {
+				let it = dependencies
+					.values()
+					.filter_map(|referent| referent.item.as_ref().left().copied());
+				Box::new(it)
+			},
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
+				let it = artifact
+					.as_ref()
+					.left()
+					.copied()
+					.into_iter();
+				Box::new(it)
+			},
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { .. }) => {
+				let it = None.into_iter();
+				Box::new(it)
+			}
+		}
+	}
+}
+
+impl<'a> petgraph::visit::IntoNodeIdentifiers for &'a LockfileGraphImpl<'a> {
+	type NodeIdentifiers = std::ops::Range<usize>;
+	fn node_identifiers(self) -> Self::NodeIdentifiers {
+		0..self.0.len()
+	}
 }

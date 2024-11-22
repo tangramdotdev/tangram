@@ -345,3 +345,59 @@ fn strip_subpath(base: &Path, subpath: &Path) -> tg::Result<PathBuf> {
 		.collect();
 	Ok(path)
 }
+
+struct LockfileGraphImpl<'a>(&'a tg::Lockfile);
+
+impl<'a> petgraph::visit::GraphBase for LockfileGraphImpl<'a> {
+	type EdgeId = (usize, usize);
+	type NodeId = usize;
+}
+
+#[allow(clippy::needless_arbitrary_self_type)]
+impl<'a> petgraph::visit::NodeIndexable for &'a LockfileGraphImpl<'a> {
+	fn from_index(self: &Self, i: usize) -> Self::NodeId {
+		i
+	}
+
+	fn node_bound(self: &Self) -> usize {
+		self.0.nodes.len()
+	}
+
+	fn to_index(self: &Self, a: Self::NodeId) -> usize {
+		a
+	}
+}
+
+impl<'a> petgraph::visit::IntoNeighbors for &'a LockfileGraphImpl<'a> {
+	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
+	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
+		match &self.0.nodes[a] {
+			tg::lockfile::Node::Directory { entries } => {
+				let it = entries
+					.values()
+					.filter_map(|entry| entry.as_ref().left().copied());
+				Box::new(it)
+			},
+			tg::lockfile::Node::File { dependencies, .. } => {
+				let it = dependencies
+					.values()
+					.filter_map(|referent| referent.item.as_ref().left().copied());
+				Box::new(it)
+			},
+			tg::lockfile::Node::Symlink { artifact, .. } => {
+				let it = artifact
+					.as_ref()
+					.and_then(|artifact| artifact.as_ref().left().copied())
+					.into_iter();
+				Box::new(it)
+			},
+		}
+	}
+}
+
+impl<'a> petgraph::visit::IntoNodeIdentifiers for &'a LockfileGraphImpl<'a> {
+	type NodeIdentifiers = std::ops::Range<usize>;
+	fn node_identifiers(self) -> Self::NodeIdentifiers {
+		0..self.0.nodes.len()
+	}
+}
