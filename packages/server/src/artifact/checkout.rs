@@ -864,21 +864,27 @@ impl Server {
 				}
 			},
 
-			tg::artifact::Object::Symlink(symlink) => {
-				let tg::symlink::Object::Normal { artifact, subpath } = symlink.as_ref() else {
-					unreachable!();
-				};
-				let artifact = if let Some(artifact) = artifact {
-					let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
-						artifact, nodes, visited, graphs,
-					))
-					.await?;
-					Some(Either::Left(index))
-				} else {
-					None
-				};
-				let subpath = subpath.as_ref().map(PathBuf::from);
-				tg::lockfile::Node::Symlink { artifact, subpath }
+			tg::artifact::Object::Symlink(symlink) => match symlink.as_ref() {
+				tg::symlink::Object::Graph { .. } => unreachable!(),
+				tg::symlink::Object::Target { target } => {
+					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
+						target: target.clone(),
+					})
+				},
+				tg::symlink::Object::Artifact { artifact, subpath } => {
+					let artifact = {
+						let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+							artifact, nodes, visited, graphs,
+						))
+						.await?;
+						Either::Left(index)
+					};
+					let subpath = subpath.as_ref().map(PathBuf::from);
+					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+						artifact,
+						subpath,
+					})
+				},
 			},
 		};
 
@@ -1011,21 +1017,29 @@ impl Server {
 					}
 				},
 
-				tg::graph::Node::Symlink(symlink) => {
-					let artifact = match &symlink.artifact {
-						Some(Either::Left(index)) => Some(indices[*index]),
-						Some(Either::Right(artifact)) => {
-							let index = Box::pin(self.get_or_create_lockfile_node_with_artifact(
+				tg::graph::Node::Symlink(tg::graph::object::Symlink::Artifact {
+					artifact,
+					subpath,
+				}) => {
+					let artifact = match artifact {
+						Either::Left(index) => indices[*index],
+						Either::Right(artifact) => {
+							Box::pin(self.get_or_create_lockfile_node_with_artifact(
 								artifact, nodes, visited, graphs,
 							))
-							.await?;
-							Some(index)
+							.await?
 						},
-						None => None,
 					};
-					let artifact = artifact.map(Either::Left);
-					let subpath = symlink.subpath.clone().map(PathBuf::from);
-					tg::lockfile::Node::Symlink { artifact, subpath }
+					let artifact = Either::Left(artifact);
+					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+						artifact,
+						subpath: subpath.clone(),
+					})
+				},
+				tg::graph::Node::Symlink(tg::graph::object::Symlink::Target { target }) => {
+					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
+						target: target.clone(),
+					})
 				},
 			};
 			let index = indices[old_index];

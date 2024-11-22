@@ -429,12 +429,9 @@ impl Provider {
 						(None, tg::Value::Object(tg::Object::Graph(graph.clone()))),
 					]
 				},
-				tg::symlink::Object::Normal { artifact, .. } => {
-					let mut children = Vec::new();
-					if let Some(child) = artifact {
-						children.push((None, tg::Value::Object(child.clone().into())));
-					}
-					children
+				tg::symlink::Object::Target { .. } => Vec::new(),
+				tg::symlink::Object::Artifact { artifact, .. } => {
+					vec![(None, tg::Value::Object(artifact.clone().into()))]
 				},
 			},
 			tg::object::Object::Graph(graph) => graph
@@ -494,17 +491,19 @@ impl Provider {
 						}
 						(Some(index.to_string()), tg::Value::Map(value))
 					},
-					tg::graph::Node::Symlink(symlink) => {
+					tg::graph::Node::Symlink(tg::graph::object::Symlink::Target { .. }) => {
+						(Some(index.to_string()), tg::Value::Map(BTreeMap::new()))
+					},
+					tg::graph::Node::Symlink(tg::graph::object::Symlink::Artifact {
+						artifact,
+						..
+					}) => {
 						let mut value = BTreeMap::new();
-						if let Some(artifact) = &symlink.artifact {
-							let object = match artifact {
-								Either::Left(index) => tg::Value::Number(index.to_f64().unwrap()),
-								Either::Right(artifact) => {
-									tg::Value::Object(artifact.clone().into())
-								},
-							};
-							value.insert("artifact".into(), object);
-						}
+						let object = match artifact {
+							Either::Left(index) => tg::Value::Number(index.to_f64().unwrap()),
+							Either::Right(artifact) => tg::Value::Object(artifact.clone().into()),
+						};
+						value.insert("artifact".into(), object);
 						(Some(index.to_string()), tg::Value::Map(value))
 					},
 				})

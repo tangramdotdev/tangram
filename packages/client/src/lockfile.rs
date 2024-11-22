@@ -28,9 +28,16 @@ pub enum Node {
 		executable: bool,
 	},
 
-	Symlink {
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		artifact: Option<Entry>,
+	Symlink(Symlink),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum Symlink {
+	Target {
+		target: PathBuf,
+	},
+	Artifact {
+		artifact: Entry,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		subpath: Option<PathBuf>,

@@ -84,7 +84,14 @@ impl ToV8 for tg::symlink::Object {
 				object.set(scope, key.into(), value);
 			},
 
-			tg::symlink::Object::Normal { artifact, subpath } => {
+			tg::symlink::Object::Target { target } => {
+				let key =
+					v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
+				let value = target.to_v8(scope)?;
+				object.set(scope, key.into(), value);
+			},
+
+			tg::symlink::Object::Artifact { artifact, subpath } => {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
 				let value = artifact.to_v8(scope)?;
@@ -120,6 +127,14 @@ impl FromV8 for tg::symlink::Object {
 			return Ok(Self::Graph { graph, node });
 		}
 
+		let target = v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
+		let target = value.get(scope, target.into()).unwrap();
+		let target = <_>::from_v8(scope, target)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the target"))?;
+		if let Some(target) = target {
+			return Ok(Self::Target { target });
+		}
+
 		let artifact =
 			v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
 		let artifact = value.get(scope, artifact.into()).unwrap();
@@ -131,6 +146,6 @@ impl FromV8 for tg::symlink::Object {
 		let subpath = <_>::from_v8(scope, subpath)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the subpath"))?;
 
-		Ok(Self::Normal { artifact, subpath })
+		Ok(Self::Artifact { artifact, subpath })
 	}
 }

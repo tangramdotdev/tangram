@@ -278,9 +278,9 @@ impl Server {
 					}
 				}
 			},
-			tg::lockfile::Node::Symlink { artifact, subpath } => {
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
 				// Get the referent artifact.
-				let Some(Either::Left(artifact)) = artifact else {
+				let Either::Left(artifact) = artifact else {
 					return Ok(None);
 				};
 
@@ -315,6 +315,9 @@ impl Server {
 				if let Some(result) = result {
 					return Ok(Some(result));
 				}
+			},
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { .. }) => {
+				return Ok(None);
 			},
 		}
 

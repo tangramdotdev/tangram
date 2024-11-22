@@ -36,12 +36,16 @@ pub struct File {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Symlink {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<Either<usize, tg::artifact::Id>>,
+pub enum Symlink {
+	Target {
+		target: PathBuf,
+	},
+	Artifact {
+		artifact: Either<usize, tg::artifact::Id>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub subpath: Option<PathBuf>,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		subpath: Option<PathBuf>,
+	},
 }
 
 impl Graph {
@@ -80,8 +84,12 @@ impl Graph {
 						}
 					}
 				},
-				tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, .. }) => {
-					if let Some(Either::Right(id)) = artifact {
+				tg::graph::data::Node::Symlink(symlink) => {
+					if let tg::graph::data::Symlink::Artifact {
+						artifact: Either::Right(id),
+						..
+					} = symlink
+					{
 						children.insert(id.clone().into());
 					}
 				},

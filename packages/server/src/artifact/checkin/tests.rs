@@ -641,9 +641,8 @@ async fn external_symlink_roundtrip() -> tg::Result<()> {
 	let result = AssertUnwindSafe(async {
 		let directory = tg::directory! {
 			"file" => "contents",
-		}
-		.into();
-		let symlink = tg::symlink!(Some(directory), Some(PathBuf::from("file")));
+		};
+		let symlink = tg::symlink_artifact!(directory, Some(PathBuf::from("file")));
 
 		// Check out the artifact.
 		let temp = Temp::new();

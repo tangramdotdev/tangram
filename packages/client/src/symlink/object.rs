@@ -9,8 +9,11 @@ pub enum Symlink {
 		graph: tg::Graph,
 		node: usize,
 	},
-	Normal {
-		artifact: Option<tg::Artifact>,
+	Target {
+		target: PathBuf,
+	},
+	Artifact {
+		artifact: tg::Artifact,
 		subpath: Option<PathBuf>,
 	},
 }
@@ -20,7 +23,8 @@ impl Symlink {
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
 			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
-			Self::Normal { artifact, .. } => artifact.clone().into_iter().map_into().collect(),
+			Self::Target { .. } => vec![],
+			Self::Artifact { artifact, .. } => [artifact.clone()].into_iter().map_into().collect(),
 		}
 	}
 }
@@ -34,9 +38,10 @@ impl TryFrom<Data> for Symlink {
 				let graph = tg::Graph::with_id(graph);
 				Ok(Self::Graph { graph, node })
 			},
-			Data::Normal { artifact, subpath } => {
-				let artifact = artifact.map(tg::Artifact::with_id);
-				Ok(Self::Normal { artifact, subpath })
+			Data::Target { target } => Ok(Self::Target { target }),
+			Data::Artifact { artifact, subpath } => {
+				let artifact = tg::Artifact::with_id(artifact);
+				Ok(Self::Artifact { artifact, subpath })
 			},
 		}
 	}

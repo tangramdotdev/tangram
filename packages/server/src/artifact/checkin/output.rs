@@ -415,11 +415,14 @@ impl<'a> petgraph::visit::IntoNeighbors for GraphImpl<'a> {
 					.values()
 					.filter_map(|referent| referent.item.as_ref().left().copied()),
 			),
-			tg::lockfile::Node::Symlink { artifact, .. } => Box::new(
-				artifact
-					.iter()
-					.filter_map(|entry| entry.as_ref().left().copied()),
-			),
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, .. }) => {
+				Box::new(
+					std::iter::once(artifact).filter_map(|entry| entry.as_ref().left().copied()),
+				)
+			},
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target: _ }) => {
+				Box::new(std::iter::empty())
+			},
 		}
 	}
 }
@@ -722,10 +725,8 @@ impl Server {
 			.first()
 			.map(|edge| (output.nodes[edge.node].id.clone(), edge.subpath.clone()))
 			.or_else(|| {
-				let tg::artifact::Data::Symlink(tg::symlink::Data::Normal {
-					artifact: Some(artifact),
-					subpath,
-				}) = output.nodes[symlink].data.clone()
+				let tg::artifact::Data::Symlink(tg::symlink::Data::Artifact { artifact, subpath }) =
+					output.nodes[symlink].data.clone()
 				else {
 					return None;
 				};
@@ -758,10 +759,8 @@ impl Server {
 		}
 
 		// Otherwise write the target directly.
-		if let tg::artifact::Data::Symlink(tg::symlink::Data::Normal {
-			artifact: None,
-			subpath: Some(target),
-		}) = &output.nodes[symlink].data
+		if let tg::artifact::Data::Symlink(tg::symlink::Data::Target { target }) =
+			&output.nodes[symlink].data
 		{
 			return Ok(target.clone());
 		}
