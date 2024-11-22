@@ -25,7 +25,10 @@ impl Cli {
 		// Check if there is already a root module for the path.
 		for name in tg::package::ROOT_MODULE_FILE_NAMES {
 			let module_path = path.join(name);
-			if tokio::fs::try_exists(&module_path).await.unwrap_or(false) {
+			let exists = tokio::fs::try_exists(&module_path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to check if the path exists"))?;
+			if exists {
 				return Err(
 					tg::error!(%module_path = module_path.display(), "found existing root module"),
 				);
