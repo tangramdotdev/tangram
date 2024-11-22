@@ -5,6 +5,7 @@ use std::{future::Future, panic::AssertUnwindSafe, path::Path};
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
+#[allow(dead_code)]
 struct TestArtifact {
 	// The server the artifact exists upon.
 	server: Server,
@@ -38,13 +39,6 @@ async fn directory() -> tg::Result<()> {
             	}),
             })
             "#);
-			assert_snapshot!(&output_b, @r#"
-            tg.directory({
-            	"hello.txt": tg.file({
-            		"contents": tg.leaf("hello, world!"),
-            	}),
-            })
-            "#);
 			Ok(())
 		},
 	)
@@ -62,11 +56,6 @@ async fn file() -> tg::Result<()> {
 			let output_b = b.output().await;
 			assert_eq!(&output_a, &output_b);
 			assert_snapshot!(&output_a, @r#"
-            tg.file({
-            	"contents": tg.leaf("hello, world!"),
-            })
-            "#);
-			assert_snapshot!(&output_b, @r#"
             tg.file({
             	"contents": tg.leaf("hello, world!"),
             })
@@ -95,10 +84,30 @@ async fn symlink() -> tg::Result<()> {
             	"subpath": "hello.txt",
             })
             "#);
-			assert_snapshot!(&output_b, @r#"
-            tg.symlink({
-            	"subpath": "hello.txt",
-            })"#);
+			Ok(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn path_dependency() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"import * as bar from "../bar""#,
+			},
+			"bar" => temp::directory! {
+				"tangram.ts" => r#""#,
+			},
+		},
+		"foo".as_ref(),
+		|a, b| async move {
+			assert_eq!(a.id().await, b.id().await);
+			let output_a = a.output().await;
+			let output_b = b.output().await;
+			assert_eq!(&output_a, &output_b);
+			assert_snapshot!(&output_a, @r#""#);
 			Ok(())
 		},
 	)
@@ -187,7 +196,6 @@ where
 	})
 	.catch_unwind()
 	.await;
-
 	// Cleanup the servers.
 	cleanup(temp1, server1).await;
 	cleanup(temp2, server2).await;

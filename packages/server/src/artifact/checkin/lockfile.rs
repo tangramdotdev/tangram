@@ -61,7 +61,7 @@ impl Server {
 		graph: &object::Graph,
 		path: &Path,
 	) -> tg::Result<tg::Lockfile> {
-		let mut nodes = Vec::new();
+		let mut nodes = Vec::with_capacity(graph.nodes.len());
 		for node in 0..graph.nodes.len() {
 			let node = self.create_lockfile_node(graph, node).await?;
 			nodes.push(node);
@@ -321,9 +321,9 @@ fn check_if_transitively_tagged(
 		None => match &nodes[node] {
 			tg::lockfile::Node::Directory { entries } => {
 				visited[node].replace(referrer_tagged);
-				for (name, entry) in entries {
+				for entry in entries.values() {
 					let child_node = entry.as_ref().left().copied().unwrap();
-					check_if_transitively_tagged(nodes, referrer_tagged, child_node, visited);
+					check_if_transitively_tagged(nodes, referrer_tagged, child_node, visited)?;
 				}
 			},
 			tg::lockfile::Node::File { dependencies, .. } => {
