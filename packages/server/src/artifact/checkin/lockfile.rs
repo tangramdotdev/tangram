@@ -61,7 +61,7 @@ impl Server {
 		graph: &object::Graph,
 		path: &Path,
 	) -> tg::Result<tg::Lockfile> {
-		let mut nodes = Vec::new();
+		let mut nodes = Vec::with_capacity(graph.nodes.len());
 		for node in 0..graph.nodes.len() {
 			let node = self.create_lockfile_node(graph, node).await?;
 			nodes.push(node);
