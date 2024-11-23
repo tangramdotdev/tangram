@@ -38,9 +38,11 @@ impl Symlink {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
-			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().collect(),
 			Self::Target { .. } => BTreeSet::new(),
-			Self::Artifact { artifact, .. } => [artifact.clone()].into_iter().map_into().collect(),
+			Self::Artifact { artifact, .. } => {
+				std::iter::once(artifact.clone()).map_into().collect()
+			},
 		}
 	}
 }

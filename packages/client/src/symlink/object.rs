@@ -22,9 +22,11 @@ impl Symlink {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().collect(),
 			Self::Target { .. } => vec![],
-			Self::Artifact { artifact, .. } => [artifact.clone()].into_iter().map_into().collect(),
+			Self::Artifact { artifact, .. } => {
+				std::iter::once(artifact.clone()).map_into().collect()
+			},
 		}
 	}
 }
