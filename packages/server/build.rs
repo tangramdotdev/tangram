@@ -134,6 +134,13 @@ fn main() {
 	// Build the compiler.
 	println!("cargo:rerun-if-changed=../../packages/compiler");
 	std::process::Command::new("bun")
+		.args(["run", "--cwd", "../../packages/compiler", "check"])
+		.status()
+		.unwrap()
+		.success()
+		.then_some(())
+		.unwrap();
+	std::process::Command::new("bun")
 		.args([
 			"build",
 			"--minify",
@@ -160,6 +167,13 @@ fn main() {
 
 	// Build the runtime.
 	println!("cargo:rerun-if-changed=../../packages/runtime");
+	std::process::Command::new("bun")
+		.args(["run", "--cwd", "../../packages/runtime", "check"])
+		.status()
+		.unwrap()
+		.success()
+		.then_some(())
+		.unwrap();
 	std::process::Command::new("bun")
 		.args([
 			"build",
