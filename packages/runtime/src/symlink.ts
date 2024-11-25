@@ -1,4 +1,3 @@
-import { unreachable } from "./assert";
 import * as tg from "./index.ts";
 
 export let symlink = async (arg: Symlink.Arg): Promise<Symlink> => {
@@ -35,7 +34,7 @@ export class Symlink {
 				},
 			});
 		}
-		return unreachable("invalid symlink arguments");
+		return tg.unreachable("invalid symlink arguments");
 	}
 
 	static async arg(arg: Symlink.Arg): Promise<Symlink.ArgObject> {
@@ -70,17 +69,20 @@ export class Symlink {
 				throw new Error("invalid template");
 			}
 		} else if (resolved instanceof Symlink) {
-			if ("target" in resolved) {
-				return { target: resolved.target };
-			} else if ("artifact" in resolved) {
-				let subpath = await resolved.subpath();
-				let artifact = resolved.artifact;
+			let target = await resolved.target();
+			let artifact = await resolved.artifact();
+			let subpath = await resolved.subpath();
+			if (target !== undefined) {
+				return { target };
+			} else if (artifact !== undefined) {
 				return { artifact, subpath };
+			} else {
+				tg.unreachable();
 			}
 		} else {
 			return resolved;
 		}
-		return unreachable();
+		return tg.unreachable();
 	}
 
 	static expect(value: unknown): Symlink {
@@ -119,6 +121,27 @@ export class Symlink {
 		}
 	}
 
+	async target(): Promise<string | undefined> {
+		const object = await this.object();
+		if ("graph" in object) {
+			const nodes = await object.graph.nodes();
+			const node = nodes[object.node];
+			tg.assert(node !== undefined, `invalid index ${object.node}`);
+			tg.assert(
+				node.kind === "symlink",
+				`expected a symlink node, got ${node}`,
+			);
+			if (!("target" in node)) {
+				return undefined;
+			}
+			return node.target;
+		} else if ("target" in object) {
+			return object.target;
+		} else if ("artifact" in object) {
+			return undefined;
+		}
+	}
+
 	async artifact(): Promise<tg.Artifact | undefined> {
 		const object = await this.object();
 		if ("artifact" in object) {
@@ -131,6 +154,9 @@ export class Symlink {
 				node.kind === "symlink",
 				`expected a symlink node, got ${node}`,
 			);
+			if (!("artifact" in node)) {
+				return undefined;
+			}
 			const artifact = node.artifact;
 			if (artifact === undefined || tg.Artifact.is(artifact)) {
 				return artifact;
@@ -160,9 +186,7 @@ export class Symlink {
 
 	async subpath(): Promise<string | undefined> {
 		const object = await this.object();
-		if ("artifact" in object) {
-			return object.subpath;
-		} else if ("graph" in object) {
+		if ("graph" in object) {
 			const nodes = await object.graph.nodes();
 			const node = nodes[object.node];
 			tg.assert(node !== undefined, `invalid index ${object.node}`);
@@ -170,9 +194,14 @@ export class Symlink {
 				node.kind === "symlink",
 				`expected a symlink node, got ${node}`,
 			);
+			if (!("subpath" in node)) {
+				return undefined;
+			}
 			return node.subpath;
 		} else if ("target" in object) {
-			return object.target;
+			return undefined;
+		} else if ("artifact" in object) {
+			return object.subpath;
 		}
 	}
 

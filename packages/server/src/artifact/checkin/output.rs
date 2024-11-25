@@ -415,13 +415,13 @@ impl<'a> petgraph::visit::IntoNeighbors for GraphImpl<'a> {
 					.values()
 					.filter_map(|referent| referent.item.as_ref().left().copied()),
 			),
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target: _ }) => {
+				Box::new(std::iter::empty())
+			},
 			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, .. }) => {
 				Box::new(
 					std::iter::once(artifact).filter_map(|entry| entry.as_ref().left().copied()),
 				)
-			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target: _ }) => {
-				Box::new(std::iter::empty())
 			},
 		}
 	}

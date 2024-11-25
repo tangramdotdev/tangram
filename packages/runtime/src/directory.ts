@@ -197,15 +197,16 @@ export class Directory {
 			parents.push(artifact);
 			artifact = entry;
 			if (entry instanceof tg.Symlink) {
+				let target = await entry.target();
 				let artifact_ = await entry.artifact();
 				let subpath = await entry.subpath();
-				if (artifact_ === undefined && subpath !== undefined) {
+				if (target !== undefined) {
 					let parent = parents.pop();
 					if (!parent) {
 						throw new Error("path is external");
 					}
 					artifact = parent;
-					components.unshift(...tg.path.components(subpath));
+					components.unshift(...tg.path.components(target));
 				} else if (artifact_ !== undefined && subpath === undefined) {
 					return artifact_;
 				} else if (artifact_ instanceof tg.Directory && subpath !== undefined) {

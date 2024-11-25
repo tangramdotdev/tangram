@@ -642,7 +642,7 @@ async fn external_symlink_roundtrip() -> tg::Result<()> {
 		let directory = tg::directory! {
 			"file" => "contents",
 		};
-		let symlink = tg::symlink_artifact!(directory, Some(PathBuf::from("file")));
+		let symlink = tg::symlink!(artifact = directory, subpath = Some(PathBuf::from("file")));
 
 		// Check out the artifact.
 		let temp = Temp::new();

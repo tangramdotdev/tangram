@@ -46,7 +46,7 @@ async fn symlink() -> tg::Result<()> {
 		tg::directory! {
 			"directory" => tg::directory! {
 				"hello.txt" => "Hello, World!",
-				"link" => tg::symlink_target!(PathBuf::from("hello.txt")),
+				"link" => tg::symlink!(PathBuf::from("hello.txt")),
 			}
 		},
 		|_, artifact| async move {
@@ -84,8 +84,8 @@ async fn symlink_shared_target() -> tg::Result<()> {
 		tg::directory! {
 			"directory" => tg::directory! {
 				"hello.txt" => "Hello, World!",
-				"link1" => tg::symlink_target!(PathBuf::from("hello.txt")),
-				"link2" => tg::symlink_target!(PathBuf::from("hello.txt")),
+				"link1" => tg::symlink!(PathBuf::from("hello.txt")),
+				"link2" => tg::symlink!(PathBuf::from("hello.txt")),
 			}
 		},
 		|_, artifact| async move {
@@ -232,7 +232,7 @@ async fn shared_directory_dependency() -> tg::Result<()> {
 			"bin" => tg::directory! {
 				"a" => "",
 			},
-			"usr" => tg::symlink_target!(PathBuf::from(".")),
+			"usr" => tg::symlink!(PathBuf::from(".")),
 		};
 		let b = tg::Symlink::with_artifact_and_subpath(a.clone().into(), Some("bin/a".into()));
 		let c = tg::File::with_object(tg::file::Object::Normal {

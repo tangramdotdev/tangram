@@ -1,4 +1,3 @@
-import { unreachable } from "./assert";
 import * as tg from "./index.ts";
 
 export let checksum = (
@@ -32,7 +31,7 @@ export namespace Checksum {
 		} else if (tg.Artifact.is(input)) {
 			return await tg.Artifact.checksum(input, algorithm);
 		} else {
-			return unreachable();
+			return tg.unreachable();
 		}
 	};
 	Checksum.new = new_;

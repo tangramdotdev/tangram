@@ -501,12 +501,12 @@ impl Server {
 				.into()
 			},
 			tg::graph::data::Node::Symlink(symlink) => match symlink {
+				tg::graph::data::Symlink::Target { target } => {
+					tg::symlink::Data::Target { target }.into()
+				},
 				tg::graph::data::Symlink::Artifact { artifact, subpath } => {
 					let artifact = Either::unwrap_right(artifact);
 					tg::symlink::Data::Artifact { artifact, subpath }.into()
-				},
-				tg::graph::data::Symlink::Target { target } => {
-					tg::symlink::Data::Target { target }.into()
 				},
 			},
 		}
@@ -549,6 +549,7 @@ impl Server {
 						}
 					}
 				},
+				tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target { .. }) => (),
 				tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Artifact {
 					artifact,
 					..
@@ -562,7 +563,6 @@ impl Server {
 						weight += metadata.weight.unwrap_or(0);
 					}
 				},
-				tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target { .. }) => (),
 			}
 		}
 

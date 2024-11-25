@@ -627,18 +627,15 @@ impl Server {
 			crate::util::fs::remove(&temp_path).await.ok();
 		};
 
-		// Get the symlink's data.
+		// Render the target.
+		let target = symlink.target(self).await?;
 		let artifact = symlink.artifact(self).await?;
 		let subpath = symlink.subpath(self).await?;
-
-		// Fail if the symlink is garbage.
-		if artifact.is_none() && subpath.is_none() {
-			return Err(tg::error!("invalid symlink"));
-		}
-
-		// Check out the symlink's artifact if necessary.
-		if arg.dependencies {
-			if let Some(artifact) = &artifact {
+		let target = if let Some(target) = &target {
+			target.to_owned()
+		} else if let Some(artifact) = &artifact {
+			// If dependencies are enabled, then check out the symlink's artifact.
+			if arg.dependencies {
 				let target_id = artifact.id(self).await?;
 
 				// Don't recurse on artifacts that are already checked out.
@@ -655,11 +652,10 @@ impl Server {
 					.await?;
 				}
 			}
-		}
 
-		// Render the target.
-		let mut target: PathBuf = PathBuf::new();
-		if let Some(artifact) = &artifact {
+			// Render the target.
+			let mut target: PathBuf = PathBuf::new();
+
 			// Get the artifact IDs.
 			let target_id = artifact.id(self).await?;
 			let root_id = root_artifact.id(self).await?;
@@ -676,10 +672,14 @@ impl Server {
 					crate::util::path::diff(final_path.parent().unwrap(), root_path).unwrap();
 				target.push(diff);
 			}
-		}
-		if let Some(subpath) = subpath {
-			target.push(subpath);
-		}
+			if let Some(subpath) = subpath {
+				target.push(subpath);
+			}
+
+			target
+		} else {
+			return Err(tg::error!("invalid symlink"));
+		};
 
 		// Create the symlink.
 		tokio::fs::symlink(&target, &temp_path)
@@ -1017,6 +1017,12 @@ impl Server {
 					}
 				},
 
+				tg::graph::Node::Symlink(tg::graph::object::Symlink::Target { target }) => {
+					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
+						target: target.clone(),
+					})
+				},
+
 				tg::graph::Node::Symlink(tg::graph::object::Symlink::Artifact {
 					artifact,
 					subpath,
@@ -1034,11 +1040,6 @@ impl Server {
 					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
 						artifact,
 						subpath: subpath.clone(),
-					})
-				},
-				tg::graph::Node::Symlink(tg::graph::object::Symlink::Target { target }) => {
-					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
-						target: target.clone(),
 					})
 				},
 			};

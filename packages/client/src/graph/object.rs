@@ -145,6 +145,11 @@ impl Node {
 			},
 
 			Self::Symlink(symlink) => match symlink {
+				tg::graph::object::Symlink::Target { target } => Ok(
+					tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target {
+						target: target.clone(),
+					}),
+				),
 				tg::graph::object::Symlink::Artifact { artifact, subpath } => {
 					let artifact = match artifact {
 						Either::Left(index) => Either::Left(*index),
@@ -155,11 +160,6 @@ impl Node {
 						tg::graph::data::Symlink::Artifact { artifact, subpath },
 					))
 				},
-				tg::graph::object::Symlink::Target { target } => Ok(
-					tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target {
-						target: target.clone(),
-					}),
-				),
 			},
 		}
 	}
@@ -227,6 +227,9 @@ impl TryFrom<tg::graph::data::Node> for Node {
 				let node = Node::File(file);
 				Ok(node)
 			},
+			tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target { target }) => {
+				Ok(Node::Symlink(tg::graph::object::Symlink::Target { target }))
+			},
 			tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Artifact {
 				artifact,
 				subpath,
@@ -235,9 +238,6 @@ impl TryFrom<tg::graph::data::Node> for Node {
 				let symlink = tg::graph::object::Symlink::Artifact { artifact, subpath };
 				let node = Node::Symlink(symlink);
 				Ok(node)
-			},
-			tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target { target }) => {
-				Ok(Node::Symlink(tg::graph::object::Symlink::Target { target }))
 			},
 		}
 	}

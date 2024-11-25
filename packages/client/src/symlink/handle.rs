@@ -134,11 +134,6 @@ impl Symlink {
 
 impl Symlink {
 	#[must_use]
-	pub fn with_artifact_and_subpath(artifact: tg::Artifact, subpath: Option<PathBuf>) -> Self {
-		Self::with_object(Object::Artifact { artifact, subpath })
-	}
-
-	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
 		Self::with_object(Object::Graph { graph, node })
 	}
@@ -146,6 +141,37 @@ impl Symlink {
 	#[must_use]
 	pub fn with_target(target: PathBuf) -> Self {
 		Self::with_object(Object::Target { target })
+	}
+
+	#[must_use]
+	pub fn with_artifact_and_subpath(artifact: tg::Artifact, subpath: Option<PathBuf>) -> Self {
+		Self::with_object(Object::Artifact { artifact, subpath })
+	}
+
+	pub async fn target<H>(&self, handle: &H) -> tg::Result<Option<PathBuf>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.object(handle).await?;
+		match object.as_ref() {
+			Object::Graph { graph, node } => {
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let symlink = node
+					.try_unwrap_symlink_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a symlink"))?;
+				match symlink {
+					tg::graph::object::Symlink::Artifact { .. } => Ok(None),
+					tg::graph::object::Symlink::Target { target } => Ok(Some(target.clone())),
+				}
+			},
+			Object::Target { target } => Ok(Some(target.clone())),
+			Object::Artifact { .. } => Ok(None),
+		}
 	}
 
 	pub async fn artifact<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
@@ -219,10 +245,10 @@ impl Symlink {
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
 				match symlink {
 					tg::graph::object::Symlink::Artifact { subpath, .. } => Ok(subpath.clone()),
-					tg::graph::object::Symlink::Target { target } => Ok(Some(target.clone())),
+					tg::graph::object::Symlink::Target { .. } => Ok(None),
 				}
 			},
-			Object::Target { target } => Ok(Some(target.clone())),
+			Object::Target { .. } => Ok(None),
 			Object::Artifact { subpath, .. } => Ok(subpath.clone()),
 		}
 	}
@@ -265,15 +291,17 @@ impl std::fmt::Display for Symlink {
 }
 
 #[macro_export]
-macro_rules! symlink_artifact {
-	($artifact:expr, $subpath:expr) => {
-		$crate::Symlink::with_artifact_and_subpath($artifact.into(), $subpath.into())
-	};
-}
-
-#[macro_export]
-macro_rules! symlink_target {
+macro_rules! symlink {
 	($target:expr) => {
 		$crate::Symlink::with_target($target.into())
+	};
+	(target = $target:expr) => {
+		$crate::Symlink::with_target($target.into())
+	};
+	(artifact = $artifact:expr) => {
+		$crate::Symlink::with_artifact_and_subpath($artifact.into(), None)
+	};
+	(artifact = $artifact:expr, subpath = $subpath:expr) => {
+		$crate::Symlink::with_artifact_and_subpath($artifact.into(), $subpath.into())
 	};
 }

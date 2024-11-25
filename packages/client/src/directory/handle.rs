@@ -345,23 +345,24 @@ impl Directory {
 
 			// Handle a symlink.
 			if let tg::Artifact::Symlink(symlink) = &artifact {
+				let target = symlink.target(handle).await?.clone();
 				let mut artifact_ = symlink.artifact(handle).await?.clone();
 				if let Some(tg::Artifact::Symlink(symlink)) = artifact_ {
 					artifact_ = Box::pin(symlink.try_resolve(handle)).await?;
 				}
 				let subpath = symlink.subpath(handle).await?.clone();
-				match (artifact_, subpath) {
-					(None, Some(target)) => {
+				match (target, artifact_, subpath) {
+					(Some(target), _, _) => {
 						artifact = parents
 							.pop()
 							.ok_or_else(|| tg::error!("the path is external"))?
 							.into();
 						path = target.join(path);
 					},
-					(Some(artifact), None) => {
+					(_, Some(artifact), None) => {
 						return Ok(Some(artifact));
 					},
-					(Some(tg::Artifact::Directory(directory)), Some(subpath)) => {
+					(_, Some(tg::Artifact::Directory(directory)), Some(subpath)) => {
 						return Box::pin(directory.try_get(handle, subpath)).await;
 					},
 					_ => {

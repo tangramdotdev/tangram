@@ -473,6 +473,11 @@ where
 							s.start_map()?;
 							s.map_entry("kind", |s| s.string("symlink"))?;
 							match symlink {
+								tg::graph::object::Symlink::Target { target } => {
+									s.map_entry("target", |s| {
+										s.string(target.to_string_lossy().as_ref())
+									})?;
+								},
 								tg::graph::object::Symlink::Artifact { artifact, subpath } => {
 									s.map_entry("artifact", |s| {
 										match &artifact {
@@ -490,11 +495,6 @@ where
 											s.string(subpath.to_string_lossy().as_ref())
 										})?;
 									}
-								},
-								tg::graph::object::Symlink::Target { target } => {
-									s.map_entry("target", |s| {
-										s.string(target.to_string_lossy().as_ref())
-									})?;
 								},
 							}
 							s.finish_map()

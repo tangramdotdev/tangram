@@ -141,6 +141,19 @@ impl ToV8 for tg::graph::Node {
 				object.set(scope, key.into(), value);
 			},
 
+			tg::graph::Node::Symlink(tg::graph::object::Symlink::Target { target }) => {
+				let key =
+					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
+				let value =
+					v8::String::new_external_onebyte_static(scope, "symlink".as_bytes()).unwrap();
+				object.set(scope, key.into(), value.into());
+
+				let key =
+					v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
+				let value = target.to_v8(scope)?;
+				object.set(scope, key.into(), value);
+			},
+
 			tg::graph::Node::Symlink(tg::graph::object::Symlink::Artifact {
 				artifact,
 				subpath,
@@ -159,18 +172,6 @@ impl ToV8 for tg::graph::Node {
 				let key =
 					v8::String::new_external_onebyte_static(scope, "subpath".as_bytes()).unwrap();
 				let value = subpath.to_v8(scope)?;
-				object.set(scope, key.into(), value);
-			},
-			tg::graph::Node::Symlink(tg::graph::object::Symlink::Target { target }) => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-				let value =
-					v8::String::new_external_onebyte_static(scope, "symlink".as_bytes()).unwrap();
-				object.set(scope, key.into(), value.into());
-
-				let key =
-					v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
-				let value = target.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
 		}

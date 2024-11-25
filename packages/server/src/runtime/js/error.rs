@@ -191,7 +191,7 @@ fn get_location(
 		Some(id) => {
 			// Get the module.
 			let modules = state.modules.borrow();
-			let module = modules.get(id - 1)?;
+			let module = modules.get(id - 1).unwrap();
 
 			// Get the source.
 			let source = tg::error::Source::Module(module.module.clone());
