@@ -55,6 +55,7 @@ where
 		let lines = state
 			.text
 			.lines()
+			.map(|line| line.replace('\t', "  "))
 			.skip(state.scroll)
 			.map(Line::raw)
 			.collect::<Vec<_>>();
