@@ -408,7 +408,7 @@ declare namespace tg {
 	}
 
 	/** Create a symlink. */
-	export let symlink: (...args: tg.Args<tg.Symlink.Arg>) => Promise<tg.Symlink>;
+	export let symlink: (arg: tg.Symlink.Arg) => Promise<tg.Symlink>;
 
 	/** A symlink. */
 	export class Symlink {
@@ -435,25 +435,23 @@ declare namespace tg {
 
 		/** Resolve this symlink to the artifact it refers to, or return undefined if none is found. */
 		resolve(): Promise<tg.Artifact | undefined>;
+
+		/** Get this symlink's target. */
+		target(): Promise<string | undefined>;
 	}
 
 	export namespace Symlink {
 		export type Id = string;
 
-		export type Arg =
-			| undefined
-			| string
-			| tg.Artifact
-			| tg.Template
-			| tg.Symlink
-			| ArgObject;
+		export type Arg = string | tg.Artifact | tg.Template | Symlink | ArgObject;
 
 		type ArgObject =
+			| { graph: tg.Graph; node: number }
+			| { target: string }
 			| {
-					artifact?: tg.Artifact | undefined;
+					artifact: tg.Artifact;
 					subpath?: string | undefined;
-			  }
-			| { graph: tg.Graph; node: number };
+			  };
 	}
 
 	/** Create a graph. */
@@ -506,11 +504,16 @@ declare namespace tg {
 			executable?: boolean | undefined;
 		};
 
-		type SymlinkNodeArg = {
-			kind: "symlink";
-			artifact?: number | tg.Artifact | undefined;
-			subpath?: string | undefined;
-		};
+		type SymlinkNodeArg =
+			| {
+					kind: "symlink";
+					target: string;
+			  }
+			| {
+					kind: "symlink";
+					artifact: number | tg.Artifact;
+					subpath?: string | undefined;
+			  };
 
 		type Node = DirectoryNode | FileNode | SymlinkNode;
 
@@ -528,11 +531,16 @@ declare namespace tg {
 			executable: boolean;
 		};
 
-		type SymlinkNode = {
-			kind: "symlink";
-			artifact: number | tg.Artifact | undefined;
-			subpath: string | undefined;
-		};
+		type SymlinkNode =
+			| {
+					kind: "symlink";
+					target: string;
+			  }
+			| {
+					kind: "symlink";
+					artifact: number | tg.Artifact;
+					subpath: string | undefined;
+			  };
 	}
 
 	/** Create a target. */
