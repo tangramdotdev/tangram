@@ -187,15 +187,38 @@ impl Server {
 					.clone()
 					.try_unwrap_symlink()
 					.unwrap();
-				symlink.subpath.map(PathBuf::from)
+				match symlink {
+					tg::graph::object::Symlink::Artifact {
+						artifact: _,
+						subpath,
+					} => subpath.map(PathBuf::from),
+					tg::graph::object::Symlink::Target { target } => Some(target),
+				}
 			},
-			tg::symlink::Data::Normal { subpath, .. } => subpath.as_ref().map(PathBuf::from),
+			tg::symlink::Data::Target { target } => Some(PathBuf::from(target)),
+			tg::symlink::Data::Artifact {
+				artifact: _,
+				subpath,
+			} => subpath.clone().map(PathBuf::from),
 		};
 		let artifact = graph.nodes[node]
 			.edges
 			.first()
 			.map(|edge| self.get_lockfile_entry(graph, edge.index));
-		Ok(tg::lockfile::Node::Symlink { artifact, subpath })
+		match artifact {
+			Some(artifact) => Ok(tg::lockfile::Node::Symlink(
+				tg::lockfile::Symlink::Artifact { artifact, subpath },
+			)),
+			None => {
+				if let Some(subpath) = subpath {
+					Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
+						target: subpath,
+					}))
+				} else {
+					Err(tg::error!("unable to determine subpath for lockfile"))
+				}
+			},
+		}
 	}
 
 	#[allow(clippy::unused_self)]
@@ -279,10 +302,10 @@ fn check_if_references_module(
 							check_if_references_module(nodes, path, *child_node, visited)?;
 					}
 				},
-				tg::lockfile::Node::Symlink {
-					artifact: Some(artifact),
+				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+					artifact,
 					subpath,
-				} => {
+				}) => {
 					let retain = subpath
 						.as_ref()
 						.map_or(false, |subpath| tg::package::is_module_path(subpath));
@@ -295,7 +318,7 @@ fn check_if_references_module(
 							check_if_references_module(nodes, path, child_node, visited)?;
 					}
 				},
-				tg::lockfile::Node::Symlink { .. } => {
+				tg::lockfile::Node::Symlink(_) => {
 					visited[node].replace(false);
 				},
 			}
@@ -387,19 +410,37 @@ fn strip_nodes_inner(
 			});
 		},
 
-		tg::lockfile::Node::Symlink { artifact, subpath } => {
+		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target }) => {
+			new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
+				tg::lockfile::Symlink::Target {
+					target: target.clone(),
+				},
+			));
+		},
+		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
-				Some(Either::Left(node)) => {
+				Either::Left(node) => {
 					strip_nodes_inner(old_nodes, node, visited, new_nodes, should_retain)
 						.map(Either::Left)
 				},
-				Some(Either::Right(id)) => Some(Either::Right(id)),
-				None => None,
+				Either::Right(id) => Some(Either::Right(id)),
 			};
 
 			// Create the node.
-			new_nodes[new_node].replace(tg::lockfile::Node::Symlink { artifact, subpath });
+			if let Some(artifact) = artifact {
+				new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
+					tg::lockfile::Symlink::Artifact { artifact, subpath },
+				));
+			} else {
+				new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
+					if let Some(subpath) = subpath {
+						tg::lockfile::Symlink::Target { target: subpath }
+					} else {
+						return None;
+					},
+				));
+			}
 		},
 	}
 

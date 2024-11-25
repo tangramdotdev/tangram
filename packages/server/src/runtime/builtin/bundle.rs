@@ -154,7 +154,7 @@ impl Runtime {
 				if let Some(path) = path.as_ref() {
 					target.push(path);
 				}
-				let symlink = tg::Symlink::with_artifact_and_subpath(None, Some(target));
+				let symlink = tg::Symlink::with_target(target);
 				Ok(symlink.into())
 			},
 		}

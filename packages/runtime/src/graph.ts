@@ -37,11 +37,20 @@ export class Graph {
 						executable: node.executable ?? false,
 					};
 				} else if (node.kind === "symlink") {
-					return {
-						kind: "symlink" as const,
-						artifact: node.artifact ?? undefined,
-						subpath: node.subpath !== undefined ? node.subpath : undefined,
-					};
+					if ("target" in node) {
+						return {
+							kind: "symlink" as const,
+							target: node.target,
+						};
+					} else if ("artifact" in node) {
+						return {
+							kind: "symlink" as const,
+							artifact: node.artifact ?? undefined,
+							subpath: node.subpath !== undefined ? node.subpath : undefined,
+						};
+					} else {
+						return tg.unreachable();
+					}
 				} else {
 					return tg.unreachable(node);
 				}
@@ -106,23 +115,26 @@ export class Graph {
 					}
 					nodes.push(node);
 				} else if (argNode.kind === "symlink") {
-					let node: tg.Graph.SymlinkNodeArg = {
-						kind: "symlink" as const,
-					};
-					if ("artifact" in argNode) {
-						if (
-							argNode.artifact !== undefined &&
-							typeof argNode.artifact === "number"
-						) {
-							node.artifact = argNode.artifact + offset;
+					if ("target" in argNode) {
+						nodes.push({
+							kind: "symlink" as const,
+							target: argNode.target,
+						});
+					} else if ("artifact" in argNode) {
+						let artifact: number | tg.Artifact;
+						if (typeof argNode.artifact === "number") {
+							artifact = argNode.artifact + offset;
 						} else {
-							node.artifact = argNode.artifact;
+							artifact = argNode.artifact;
 						}
+						nodes.push({
+							kind: "symlink" as const,
+							artifact,
+							subpath: argNode.subpath,
+						});
+					} else {
+						return tg.unreachable();
 					}
-					if ("subpath" in argNode) {
-						node.subpath = argNode.subpath;
-					}
-					nodes.push(node);
 				} else {
 					return tg.unreachable();
 				}
@@ -198,11 +210,16 @@ export namespace Graph {
 		executable?: boolean | undefined;
 	};
 
-	export type SymlinkNodeArg = {
-		kind: "symlink";
-		artifact?: number | tg.Artifact | undefined;
-		subpath?: string | undefined;
-	};
+	export type SymlinkNodeArg =
+		| {
+				kind: "symlink";
+				target: string;
+		  }
+		| {
+				kind: "symlink";
+				artifact: number | tg.Artifact;
+				subpath?: string | undefined;
+		  };
 
 	export type Object = {
 		nodes: Array<Node>;
@@ -224,11 +241,16 @@ export namespace Graph {
 		executable: boolean;
 	};
 
-	export type SymlinkNode = {
-		kind: "symlink";
-		artifact: number | tg.Artifact | undefined;
-		subpath: string | undefined;
-	};
+	export type SymlinkNode =
+		| {
+				kind: "symlink";
+				target: string;
+		  }
+		| {
+				kind: "symlink";
+				artifact: number | tg.Artifact;
+				subpath: string | undefined;
+		  };
 
 	export type State = tg.Object.State<Graph.Id, Graph.Object>;
 }

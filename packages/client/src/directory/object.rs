@@ -18,7 +18,7 @@ impl Directory {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().collect(),
 			Self::Normal { entries } => entries.values().cloned().map(Into::into).collect(),
 		}
 	}

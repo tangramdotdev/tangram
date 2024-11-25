@@ -231,6 +231,7 @@ impl Server {
 					}
 				}
 			},
+
 			tg::lockfile::Node::File { dependencies, .. } => {
 				for (reference, dependency) in dependencies {
 					// Skip dependencies that are not contained in the lockfile.
@@ -278,9 +279,14 @@ impl Server {
 					}
 				}
 			},
-			tg::lockfile::Node::Symlink { artifact, subpath } => {
+
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { .. }) => {
+				return Ok(None);
+			},
+
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
 				// Get the referent artifact.
-				let Some(Either::Left(artifact)) = artifact else {
+				let Either::Left(artifact) = artifact else {
 					return Ok(None);
 				};
 

@@ -362,10 +362,11 @@ where
 				self.map_entry("graph", |s| s.graph(graph))?;
 				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
 			},
-			tg::symlink::Object::Normal { artifact, subpath } => {
-				if let Some(artifact) = &artifact {
-					self.map_entry("artifact", |s| s.artifact(artifact))?;
-				}
+			tg::symlink::Object::Target { target } => {
+				self.map_entry("target", |s| s.string(target.to_string_lossy().as_ref()))?;
+			},
+			tg::symlink::Object::Artifact { artifact, subpath } => {
+				self.map_entry("artifact", |s| s.artifact(artifact))?;
 				if let Some(subpath) = &subpath {
 					self.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
 				}
@@ -471,23 +472,30 @@ where
 						tg::graph::Node::Symlink(symlink) => {
 							s.start_map()?;
 							s.map_entry("kind", |s| s.string("symlink"))?;
-							if let Some(artifact) = &symlink.artifact {
-								s.map_entry("artifact", |s| {
-									match &artifact {
-										Either::Left(index) => {
-											s.number(index.to_f64().unwrap())?;
-										},
-										Either::Right(artifact) => {
-											s.artifact(artifact)?;
-										},
+							match symlink {
+								tg::graph::object::Symlink::Target { target } => {
+									s.map_entry("target", |s| {
+										s.string(target.to_string_lossy().as_ref())
+									})?;
+								},
+								tg::graph::object::Symlink::Artifact { artifact, subpath } => {
+									s.map_entry("artifact", |s| {
+										match &artifact {
+											Either::Left(index) => {
+												s.number(index.to_f64().unwrap())?;
+											},
+											Either::Right(artifact) => {
+												s.artifact(artifact)?;
+											},
+										}
+										Ok(())
+									})?;
+									if let Some(subpath) = subpath {
+										s.map_entry("subpath", |s| {
+											s.string(subpath.to_string_lossy().as_ref())
+										})?;
 									}
-									Ok(())
-								})?;
-							}
-							if let Some(subpath) = &symlink.subpath {
-								s.map_entry("subpath", |s| {
-									s.string(subpath.to_string_lossy().as_ref())
-								})?;
+								},
 							}
 							s.finish_map()
 						},

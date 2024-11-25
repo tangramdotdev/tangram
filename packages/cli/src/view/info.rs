@@ -339,13 +339,14 @@ impl InfoViewExt for tg::symlink::Data {
 			tg::symlink::Data::Graph { graph, .. } => {
 				vec![("graph", graph.to_string())]
 			},
-			tg::symlink::Data::Normal {
+			tg::symlink::Data::Target { target } => {
+				vec![("target", target.to_string_lossy().into_owned())]
+			},
+			tg::symlink::Data::Artifact {
 				artifact, subpath, ..
 			} => {
 				let mut rows = vec![];
-				if let Some(artifact) = artifact {
-					rows.push(("artifact", artifact.to_string()));
-				}
+				rows.push(("artifact", artifact.to_string()));
 				if let Some(subpath) = subpath {
 					rows.push(("subpath", subpath.to_string_lossy().into_owned()));
 				}

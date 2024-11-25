@@ -12,7 +12,7 @@ async fn get_symlink() -> tg::Result<()> {
 	let result = AssertUnwindSafe(async {
 		let directory = tg::directory! {
 			"file.txt" => "Hello, World!",
-			"link" => tg::symlink!(None, Some("file.txt".into())),
+			"link" => tg::symlink!("file.txt"),
 		};
 		let artifact = directory.get(&server, "link").await?;
 		assert!(artifact.is_file());
@@ -37,7 +37,7 @@ async fn get_file_through_symlink() -> tg::Result<()> {
 			"directory" => tg::directory! {
 				"file.txt" => "Hello, World!",
 			},
-			"link" => tg::symlink!(None, Some("directory".into())),
+			"link" => tg::symlink!("directory"),
 		};
 		let artifact = directory.get(&server, "link/file.txt").await?;
 		assert!(artifact.is_file());

@@ -120,14 +120,13 @@ impl Symlink {
 				let node = *node;
 				Ok(Data::Graph { graph, node })
 			},
-			Object::Normal { artifact, subpath } => {
-				let artifact = if let Some(artifact) = &artifact {
-					Some(artifact.id(handle).await?)
-				} else {
-					None
-				};
+			Object::Target { target } => Ok(Data::Target {
+				target: target.clone(),
+			}),
+			Object::Artifact { artifact, subpath } => {
+				let artifact = artifact.id(handle).await?;
 				let subpath = subpath.clone();
-				Ok(Data::Normal { artifact, subpath })
+				Ok(Data::Artifact { artifact, subpath })
 			},
 		}
 	}
@@ -135,16 +134,44 @@ impl Symlink {
 
 impl Symlink {
 	#[must_use]
-	pub fn with_artifact_and_subpath(
-		artifact: Option<tg::Artifact>,
-		subpath: Option<PathBuf>,
-	) -> Self {
-		Self::with_object(Object::Normal { artifact, subpath })
+	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
+		Self::with_object(Object::Graph { graph, node })
 	}
 
 	#[must_use]
-	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
-		Self::with_object(Object::Graph { graph, node })
+	pub fn with_target(target: PathBuf) -> Self {
+		Self::with_object(Object::Target { target })
+	}
+
+	#[must_use]
+	pub fn with_artifact_and_subpath(artifact: tg::Artifact, subpath: Option<PathBuf>) -> Self {
+		Self::with_object(Object::Artifact { artifact, subpath })
+	}
+
+	pub async fn target<H>(&self, handle: &H) -> tg::Result<Option<PathBuf>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.object(handle).await?;
+		match object.as_ref() {
+			Object::Graph { graph, node } => {
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(*node)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let symlink = node
+					.try_unwrap_symlink_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a symlink"))?;
+				match symlink {
+					tg::graph::object::Symlink::Artifact { .. } => Ok(None),
+					tg::graph::object::Symlink::Target { target } => Ok(Some(target.clone())),
+				}
+			},
+			Object::Target { target } => Ok(Some(target.clone())),
+			Object::Artifact { .. } => Ok(None),
+		}
 	}
 
 	pub async fn artifact<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
@@ -163,35 +190,40 @@ impl Symlink {
 					.try_unwrap_symlink_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
-				let artifact = if let Some(either) = &symlink.artifact {
-					let artifact = match either {
-						Either::Left(node) => {
-							let kind = object
-								.nodes
-								.get(*node)
-								.ok_or_else(|| tg::error!("invalid index"))?
-								.kind();
-							match kind {
-								tg::artifact::Kind::Directory => {
-									tg::Directory::with_graph_and_node(graph.clone(), *node).into()
-								},
-								tg::artifact::Kind::File => {
-									tg::File::with_graph_and_node(graph.clone(), *node).into()
-								},
-								tg::artifact::Kind::Symlink => {
-									tg::Symlink::with_graph_and_node(graph.clone(), *node).into()
-								},
-							}
-						},
-						Either::Right(artifact) => artifact.clone(),
-					};
-					Some(artifact)
-				} else {
-					None
-				};
-				Ok(artifact)
+				match symlink {
+					tg::graph::object::Symlink::Target { target } => {
+						Ok(Some(tg::Symlink::with_target(target.clone()).into()))
+					},
+					tg::graph::object::Symlink::Artifact { artifact, .. } => {
+						let artifact = match artifact {
+							Either::Left(node) => {
+								let kind = object
+									.nodes
+									.get(*node)
+									.ok_or_else(|| tg::error!("invalid index"))?
+									.kind();
+								match kind {
+									tg::artifact::Kind::Directory => {
+										tg::Directory::with_graph_and_node(graph.clone(), *node)
+											.into()
+									},
+									tg::artifact::Kind::File => {
+										tg::File::with_graph_and_node(graph.clone(), *node).into()
+									},
+									tg::artifact::Kind::Symlink => {
+										tg::Symlink::with_graph_and_node(graph.clone(), *node)
+											.into()
+									},
+								}
+							},
+							Either::Right(artifact) => artifact.clone(),
+						};
+						Ok(Some(artifact))
+					},
+				}
 			},
-			Object::Normal { artifact, .. } => Ok(artifact.clone()),
+			Object::Target { .. } => Ok(None),
+			Object::Artifact { artifact, .. } => Ok(Some(artifact.clone())),
 		}
 	}
 
@@ -211,9 +243,13 @@ impl Symlink {
 					.try_unwrap_symlink_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
-				Ok(symlink.subpath.clone())
+				match symlink {
+					tg::graph::object::Symlink::Artifact { subpath, .. } => Ok(subpath.clone()),
+					tg::graph::object::Symlink::Target { .. } => Ok(None),
+				}
 			},
-			Object::Normal { subpath, .. } => Ok(subpath.clone()),
+			Object::Target { .. } => Ok(None),
+			Object::Artifact { subpath, .. } => Ok(subpath.clone()),
 		}
 	}
 
@@ -256,7 +292,16 @@ impl std::fmt::Display for Symlink {
 
 #[macro_export]
 macro_rules! symlink {
-	($artifact:expr, $subpath:expr) => {
+	($target:expr) => {
+		$crate::Symlink::with_target($target.into())
+	};
+	(target = $target:expr) => {
+		$crate::Symlink::with_target($target.into())
+	};
+	(artifact = $artifact:expr) => {
+		$crate::Symlink::with_artifact_and_subpath($artifact.into(), None)
+	};
+	(artifact = $artifact:expr, subpath = $subpath:expr) => {
 		$crate::Symlink::with_artifact_and_subpath($artifact.into(), $subpath.into())
 	};
 }

@@ -335,10 +335,7 @@ impl Server {
 				let subpath = edge
 					.subpath
 					.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
-				let symlink = tg::graph::data::Symlink {
-					artifact: Some(artifact),
-					subpath,
-				};
+				let symlink = tg::graph::data::Symlink::Artifact { artifact, subpath };
 				tg::graph::data::Node::Symlink(symlink)
 			} else {
 				let target = input.nodes[input_index]
@@ -349,9 +346,8 @@ impl Server {
 					.item()
 					.try_unwrap_path_ref()
 					.map_err(|_| tg::error!("expected a path item"))?;
-				let symlink = tg::graph::data::Symlink {
-					artifact: None,
-					subpath: Some(target.clone()),
+				let symlink = tg::graph::data::Symlink::Target {
+					target: target.clone(),
 				};
 				tg::graph::data::Node::Symlink(symlink)
 			}
@@ -504,10 +500,14 @@ impl Server {
 				}
 				.into()
 			},
-			tg::graph::data::Node::Symlink(symlink) => {
-				let tg::graph::data::Symlink { artifact, subpath } = symlink;
-				let artifact = artifact.map(Either::unwrap_right);
-				tg::symlink::Data::Normal { artifact, subpath }.into()
+			tg::graph::data::Node::Symlink(symlink) => match symlink {
+				tg::graph::data::Symlink::Target { target } => {
+					tg::symlink::Data::Target { target }.into()
+				},
+				tg::graph::data::Symlink::Artifact { artifact, subpath } => {
+					let artifact = Either::unwrap_right(artifact);
+					tg::symlink::Data::Artifact { artifact, subpath }.into()
+				},
 			},
 		}
 	}
@@ -549,8 +549,12 @@ impl Server {
 						}
 					}
 				},
-				tg::graph::data::Node::Symlink(symlink) => {
-					if let Some(Either::Right(id)) = &symlink.artifact {
+				tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target { .. }) => (),
+				tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Artifact {
+					artifact,
+					..
+				}) => {
+					if let Either::Right(id) = artifact {
 						let node = graph.objects.get(&id.clone().into()).unwrap();
 						let metadata = graph.nodes[*node].metadata.clone().unwrap();
 						complete &= metadata.complete;

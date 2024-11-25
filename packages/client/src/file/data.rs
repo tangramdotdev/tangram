@@ -37,7 +37,7 @@ impl File {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
-			Self::Graph { graph, .. } => [graph.clone()].into_iter().map_into().collect(),
+			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().collect(),
 			Self::Normal {
 				contents,
 				dependencies,

@@ -46,7 +46,7 @@ async fn symlink() -> tg::Result<()> {
 		tg::directory! {
 			"directory" => tg::directory! {
 				"hello.txt" => "Hello, World!",
-				"link" => tg::symlink!(None, Some(PathBuf::from("hello.txt"))),
+				"link" => tg::symlink!(PathBuf::from("hello.txt")),
 			}
 		},
 		|_, artifact| async move {
@@ -84,8 +84,8 @@ async fn symlink_shared_target() -> tg::Result<()> {
 		tg::directory! {
 			"directory" => tg::directory! {
 				"hello.txt" => "Hello, World!",
-				"link1" => tg::symlink!(None, Some(PathBuf::from("hello.txt"))),
-				"link2" => tg::symlink!(None, Some(PathBuf::from("hello.txt"))),
+				"link1" => tg::symlink!(PathBuf::from("hello.txt")),
+				"link2" => tg::symlink!(PathBuf::from("hello.txt")),
 			}
 		},
 		|_, artifact| async move {
@@ -178,8 +178,8 @@ async fn cyclic_symlink() -> tg::Result<()> {
 			tg::graph::object::Node::Directory(tg::graph::object::Directory {
 				entries: [("link".to_owned(), Either::Left(1))].into(),
 			}),
-			tg::graph::object::Node::Symlink(tg::graph::object::Symlink {
-				artifact: Some(Either::Left(0)),
+			tg::graph::object::Node::Symlink(tg::graph::object::Symlink::Artifact {
+				artifact: Either::Left(0),
 				subpath: Some("link".into()),
 			}),
 		],
@@ -196,7 +196,7 @@ async fn cyclic_symlink() -> tg::Result<()> {
           "artifacts": {
             "kind": "directory",
             "entries": {
-              "dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng": {
+              "dir_01jgpeycbs5s4yjr89jqf3kkvy1a0rmrk7j2fmedscvh495h5b3740": {
                 "kind": "directory",
                 "entries": {
                   "link": {
@@ -232,10 +232,9 @@ async fn shared_directory_dependency() -> tg::Result<()> {
 			"bin" => tg::directory! {
 				"a" => "",
 			},
-			"usr" => tg::symlink!(None, Some(PathBuf::from("."))),
+			"usr" => tg::symlink!(PathBuf::from(".")),
 		};
-		let b =
-			tg::Symlink::with_artifact_and_subpath(Some(a.clone().into()), Some("bin/a".into()));
+		let b = tg::Symlink::with_artifact_and_subpath(a.clone().into(), Some("bin/a".into()));
 		let c = tg::File::with_object(tg::file::Object::Normal {
 			contents: tg::Blob::with_reader(&server, b"c".as_slice()).await?,
 			dependencies: [
