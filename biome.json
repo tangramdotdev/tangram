@@ -20,6 +20,7 @@
 				"useConst": "off"
 			},
 			"suspicious": {
+				"noConfusingVoidType": "off",
 				"noExplicitAny": "off",
 				"noRedeclare": "off",
 				"useIsArray": "off"

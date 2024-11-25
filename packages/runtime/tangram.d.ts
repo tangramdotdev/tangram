@@ -546,17 +546,17 @@ declare namespace tg {
 	/** Create a target. */
 	export function target<
 		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
+		R extends void | tg.Value = void | tg.Value,
 	>(function_: (...args: A) => tg.Unresolved<R>): tg.Target<A, R>;
 	export function target<
 		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
+		R extends void | tg.Value = void | tg.Value,
 	>(...args: tg.Args<tg.Target.Arg>): Promise<tg.Target<A, R>>;
 
 	/** A target. */
 	export interface Target<
 		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
+		R extends void | tg.Value = void | tg.Value,
 	> {
 		/** Build this target. */
 		// biome-ignore lint/style/useShorthandFunctionType: interface is necessary .
@@ -566,7 +566,7 @@ declare namespace tg {
 	/** A target. */
 	export class Target<
 		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
+		R extends void | tg.Value = void | tg.Value,
 	> extends globalThis.Function {
 		/** Get a target with an ID. */
 		static withId(id: tg.Target.Id): tg.Target;
@@ -940,8 +940,9 @@ declare namespace tg {
 	 * Unresolved<Array<{ key: string }>> = MaybePromise<Array<MaybePromise<{ key: MaybePromise<string> }>>>
 	 * ```
 	 */
-	export type Unresolved<T extends tg.Value> = tg.MaybePromise<
+	export type Unresolved<T extends void | tg.Value> = tg.MaybePromise<
 		T extends
+			| void
 			| undefined
 			| boolean
 			| number
@@ -970,7 +971,8 @@ declare namespace tg {
 	 * Resolved<Promise<Array<Promise<string>>>> = Array<string>
 	 * ```
 	 */
-	export type Resolved<T extends tg.Unresolved<tg.Value>> = T extends
+	export type Resolved<T extends tg.Unresolved<void | tg.Value>> = T extends
+		| void
 		| undefined
 		| boolean
 		| number
