@@ -437,7 +437,7 @@ fn strip_nodes_inner(
 					if let Some(subpath) = subpath {
 						tg::lockfile::Symlink::Target { target: subpath }
 					} else {
-						todo!()
+						return None;
 					},
 				));
 			}
