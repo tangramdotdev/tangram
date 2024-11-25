@@ -491,12 +491,17 @@ impl Provider {
 						}
 						(Some(index.to_string()), tg::Value::Map(value))
 					},
-					tg::graph::Node::Symlink(tg::graph::object::Symlink::Target { .. }) => {
-						(Some(index.to_string()), tg::Value::Map(BTreeMap::new()))
+					tg::graph::Node::Symlink(tg::graph::object::Symlink::Target { target }) => {
+						let mut value = BTreeMap::new();
+						value.insert(
+							"target".into(),
+							tg::Value::String(target.to_str().unwrap().to_owned()),
+						);
+						(Some(index.to_string()), tg::Value::Map(value))
 					},
 					tg::graph::Node::Symlink(tg::graph::object::Symlink::Artifact {
 						artifact,
-						..
+						subpath,
 					}) => {
 						let mut value = BTreeMap::new();
 						let object = match artifact {
@@ -504,6 +509,12 @@ impl Provider {
 							Either::Right(artifact) => tg::Value::Object(artifact.clone().into()),
 						};
 						value.insert("artifact".into(), object);
+						if let Some(subpath) = subpath {
+							value.insert(
+								"subpath".into(),
+								tg::Value::String(subpath.to_str().unwrap().to_owned()),
+							);
+						}
 						(Some(index.to_string()), tg::Value::Map(value))
 					},
 				})
