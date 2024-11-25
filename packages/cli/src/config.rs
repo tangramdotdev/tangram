@@ -4,6 +4,7 @@ use tangram_client::{self as tg, util::serde::is_false};
 use url::Url;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
 	/// Advanced configuration.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,6 +96,7 @@ pub struct Config {
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Advanced {
 	/// The duration after which a build that is dequeued but not started may be dequeued again.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -136,6 +138,7 @@ pub struct Advanced {
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BuildHeartbeatMonitor {
 	/// The duration to pause when there are no builds that need to be canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -153,21 +156,25 @@ pub struct BuildHeartbeatMonitor {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BuildIndexer {}
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Authentication {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub providers: Option<AuthenticationProviders>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthenticationProviders {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub github: Option<Oauth>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Oauth {
 	pub auth_url: String,
 	pub client_id: String,
@@ -177,6 +184,7 @@ pub struct Oauth {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Build {
 	/// The maximum number of concurrent builds.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -203,6 +211,7 @@ pub enum Database {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct PostgresDatabase {
 	/// The number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -225,7 +234,7 @@ pub struct SqliteDatabase {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Messenger {
 	#[default]
 	Memory,
@@ -233,6 +242,7 @@ pub enum Messenger {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct NatsMessenger {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Url>,
@@ -240,6 +250,7 @@ pub struct NatsMessenger {
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObjectIndexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
@@ -250,12 +261,14 @@ pub struct ObjectIndexer {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Remote {
 	/// The remote's url.
 	pub url: Url,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Tracing {
 	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub filter: String,
@@ -284,6 +297,7 @@ pub enum TracingFormat {
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Vfs {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub cache_ttl: Option<Duration>,
