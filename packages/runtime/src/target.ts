@@ -16,7 +16,11 @@ type FunctionArg<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends void | tg.Value = void | tg.Value,
 > = {
-	function: (...args: A) => tg.Unresolved<R>;
+	function: (
+		...args: A
+	) => R extends void
+		? MaybePromise<void>
+		: tg.Unresolved<Extract<R, tg.Value>>;
 	module: tg.Module;
 	name: string;
 };

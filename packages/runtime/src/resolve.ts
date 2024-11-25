@@ -1,10 +1,9 @@
-import * as im from "immutable";
+import im from "immutable";
 import * as tg from "./index.ts";
 import type { MaybePromise } from "./util.ts";
 
-export type Unresolved<T extends void | tg.Value> = MaybePromise<
+export type Unresolved<T extends tg.Value> = MaybePromise<
 	T extends
-		| void
 		| undefined
 		| boolean
 		| number
@@ -21,8 +20,7 @@ export type Unresolved<T extends void | tg.Value> = MaybePromise<
 				: never
 >;
 
-export type Resolved<T extends Unresolved<void | tg.Value>> = T extends
-	| void
+export type Resolved<T extends Unresolved<tg.Value>> = T extends
 	| undefined
 	| boolean
 	| number

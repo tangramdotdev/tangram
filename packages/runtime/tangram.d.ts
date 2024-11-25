@@ -547,7 +547,13 @@ declare namespace tg {
 	export function target<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends void | tg.Value = void | tg.Value,
-	>(function_: (...args: A) => tg.Unresolved<R>): tg.Target<A, R>;
+	>(
+		function_: (
+			...args: A
+		) => R extends void
+			? MaybePromise<void>
+			: tg.Unresolved<Extract<R, tg.Value>>,
+	): tg.Target<A, R>;
 	export function target<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends void | tg.Value = void | tg.Value,
@@ -940,9 +946,8 @@ declare namespace tg {
 	 * Unresolved<Array<{ key: string }>> = MaybePromise<Array<MaybePromise<{ key: MaybePromise<string> }>>>
 	 * ```
 	 */
-	export type Unresolved<T extends void | tg.Value> = tg.MaybePromise<
+	export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 		T extends
-			| void
 			| undefined
 			| boolean
 			| number
@@ -971,8 +976,7 @@ declare namespace tg {
 	 * Resolved<Promise<Array<Promise<string>>>> = Array<string>
 	 * ```
 	 */
-	export type Resolved<T extends tg.Unresolved<void | tg.Value>> = T extends
-		| void
+	export type Resolved<T extends tg.Unresolved<tg.Value>> = T extends
 		| undefined
 		| boolean
 		| number
