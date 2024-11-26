@@ -355,7 +355,7 @@ pub trait Ext: tg::Handle {
 				let position = if forward {
 					chunk.position + chunk.bytes.len().to_u64().unwrap()
 				} else {
-					chunk.position - 1
+					chunk.position.saturating_sub(1)
 				};
 				state.arg.position = Some(SeekFrom::Start(position));
 			});
