@@ -677,6 +677,70 @@ async fn external_symlink_roundtrip() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn file_with_symlink_dependency() -> tg::Result<()> {
+	let temp = Temp::new();
+	let config = Config::with_path(temp.path().to_owned());
+	let server = Server::start(config).await?;
+	let result = AssertUnwindSafe(async {
+		let dependency_file = tg::file!("contents");
+		let dependency_dir = tg::directory! {
+			"dependency" => dependency_file
+		};
+		let dependency_symlink =
+			tg::Symlink::with_artifact_and_subpath(dependency_dir.into(), None);
+
+		let file = tg::File::with_object(tg::file::Object::Normal {
+			contents: tg::Blob::with_reader(&server, b"c".as_slice()).await?,
+			dependencies: [(
+				tg::Reference::with_object(&dependency_symlink.id(&server).await?.into()),
+				tg::Referent {
+					item: dependency_symlink.clone().into(),
+					path: None,
+					subpath: None,
+					tag: None,
+				},
+			)]
+			.into_iter()
+			.collect(),
+			executable: false,
+		});
+
+		// Check out the artifact.
+		let temp = Temp::new();
+		tokio::fs::create_dir_all(temp.path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create temp path"))?;
+		let arg = tg::artifact::checkout::Arg {
+			dependencies: true,
+			force: false,
+			path: Some(temp.path().join("file")),
+		};
+		let path = tg::Artifact::from(file.clone())
+			.check_out(&server, arg)
+			.await?;
+
+		// Check the artifact back in.
+		let arg = tg::artifact::checkin::Arg {
+			deterministic: true,
+			destructive: false,
+			ignore: true,
+			locked: true,
+			path,
+		};
+		let artifact = tg::Artifact::check_in(&server, arg)
+			.await?
+			.try_unwrap_file()
+			.map_err(|_| tg::error!("expected a file"))?;
+		assert_eq!(artifact.id(&server).await?, file.id(&server).await?);
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(temp, server).await;
+	result.unwrap()
+}
+
+#[tokio::test]
 async fn ignore() -> tg::Result<()> {
 	test(
 		temp::directory! {

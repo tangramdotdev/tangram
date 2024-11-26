@@ -215,7 +215,7 @@ impl Server {
 						target: subpath,
 					}))
 				} else {
-					Err(tg::error!("unable to determine subpath for lockfile"))
+					Err(tg::error!(?data, "unable to determine subpath for lockfile"))
 				}
 			},
 		}
