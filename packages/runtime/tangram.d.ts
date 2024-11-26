@@ -408,7 +408,7 @@ declare namespace tg {
 	}
 
 	/** Create a symlink. */
-	export let symlink: (arg: tg.Symlink.Arg) => Promise<tg.Symlink>;
+	export let symlink: (arg: tg.Unresolved<tg.Symlink.Arg>) => Promise<tg.Symlink>;
 
 	/** A symlink. */
 	export class Symlink {
@@ -416,7 +416,7 @@ declare namespace tg {
 		static withId(id: tg.Symlink.Id): tg.Symlink;
 
 		/** Create a symlink. */
-		static new(...args: Args<tg.Symlink.Arg>): Promise<tg.Symlink>;
+		static new(arg: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink>;
 
 		/** Expect that a value is a `tg.Symlink`. */
 		static expect(value: unknown): tg.Symlink;

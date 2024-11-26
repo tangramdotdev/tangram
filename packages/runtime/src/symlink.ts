@@ -19,7 +19,7 @@ export class Symlink {
 		return new Symlink({ id });
 	}
 
-	static async new(arg: Symlink.Arg): Promise<Symlink> {
+	static async new(arg: tg.Unresolved<Symlink.Arg>): Promise<Symlink> {
 		let resolved = await Symlink.arg(arg);
 		if ("graph" in resolved && "node" in resolved) {
 			return new Symlink({ object: resolved });
@@ -37,7 +37,9 @@ export class Symlink {
 		return tg.unreachable("invalid symlink arguments");
 	}
 
-	static async arg(arg: Symlink.Arg): Promise<Symlink.ArgObject> {
+	static async arg(
+		arg: tg.Unresolved<Symlink.Arg>,
+	): Promise<Symlink.ArgObject> {
 		let resolved = await tg.resolve(arg);
 		if (typeof resolved === "object" && "graph" in resolved) {
 			return resolved;
