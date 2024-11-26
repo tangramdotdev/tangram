@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import type { UnresolvedInner } from "./resolve.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
@@ -18,9 +19,7 @@ type FunctionArg<
 > = {
 	function: (
 		...args: A
-	) => R extends void
-		? MaybePromise<void>
-		: tg.Unresolved<Extract<R, tg.Value>>;
+	) => MaybePromise<R extends void ? void : UnresolvedInner<Exclude<R, void>>>;
 	module: tg.Module;
 	name: string;
 };

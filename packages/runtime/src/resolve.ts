@@ -2,23 +2,27 @@ import im from "immutable";
 import * as tg from "./index.ts";
 import type { MaybePromise } from "./util.ts";
 
-export type Unresolved<T extends tg.Value> = MaybePromise<
-	T extends
-		| undefined
-		| boolean
-		| number
-		| string
-		| tg.Object
-		| Uint8Array
-		| tg.Mutation
-		| tg.Template
-		? T
-		: T extends Array<infer U extends tg.Value>
-			? Array<Unresolved<U>>
-			: T extends { [key: string]: tg.Value }
-				? { [K in keyof T]: Unresolved<T[K]> }
-				: never
->;
+export type Unresolved<T extends tg.Value> = MaybePromise<UnresolvedInner<T>>;
+
+export type UnresolvedInner<T extends tg.Value> = T extends
+	| undefined
+	| boolean
+	| number
+	| string
+	| tg.Object
+	| Uint8Array
+	| tg.Mutation
+	| tg.Template
+	? T
+	: T extends Array<infer U extends tg.Value>
+		? Array<Unresolved<U>>
+		: T extends {
+					[key: string]: tg.Value;
+				}
+			? {
+					[K in keyof T]: Unresolved<T[K]>;
+				}
+			: never;
 
 export type Resolved<T extends Unresolved<tg.Value>> = T extends
 	| undefined

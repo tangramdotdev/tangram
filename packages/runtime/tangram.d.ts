@@ -408,7 +408,9 @@ declare namespace tg {
 	}
 
 	/** Create a symlink. */
-	export let symlink: (arg: tg.Unresolved<tg.Symlink.Arg>) => Promise<tg.Symlink>;
+	export let symlink: (
+		arg: tg.Unresolved<tg.Symlink.Arg>,
+	) => Promise<tg.Symlink>;
 
 	/** A symlink. */
 	export class Symlink {
@@ -550,9 +552,9 @@ declare namespace tg {
 	>(
 		function_: (
 			...args: A
-		) => R extends void
-			? MaybePromise<void>
-			: tg.Unresolved<Extract<R, tg.Value>>,
+		) => MaybePromise<
+			R extends void ? void : tg.UnresolvedInner<Exclude<R, void>>
+		>,
 	): tg.Target<A, R>;
 	export function target<
 		A extends Array<tg.Value> = Array<tg.Value>,
@@ -947,22 +949,28 @@ declare namespace tg {
 	 * ```
 	 */
 	export type Unresolved<T extends tg.Value> = tg.MaybePromise<
-		T extends
-			| undefined
-			| boolean
-			| number
-			| string
-			| tg.Object
-			| Uint8Array
-			| tg.Mutation
-			| tg.Template
-			? T
-			: T extends Array<infer U extends tg.Value>
-				? Array<tg.Unresolved<U>>
-				: T extends { [key: string]: tg.Value }
-					? { [K in keyof T]: tg.Unresolved<T[K]> }
-					: never
+		tg.UnresolvedInner<T>
 	>;
+
+	type UnresolvedInner<T extends tg.Value> = T extends
+		| undefined
+		| boolean
+		| number
+		| string
+		| tg.Object
+		| Uint8Array
+		| tg.Mutation
+		| tg.Template
+		? T
+		: T extends Array<infer U extends tg.Value>
+			? Array<Unresolved<U>>
+			: T extends {
+						[key: string]: tg.Value;
+					}
+				? {
+						[K in keyof T]: Unresolved<T[K]>;
+					}
+				: never;
 
 	/**
 	 * This computed type performs the inverse of `Unresolved`. It takes a type and returns the output of calling `resolve` on a value of that type. Here are some examples:
