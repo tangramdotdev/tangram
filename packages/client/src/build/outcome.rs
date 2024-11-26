@@ -3,16 +3,31 @@ use futures::{future, Future, StreamExt as _, TryStreamExt as _};
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+	serde::Deserialize,
+)]
 #[serde(try_from = "Data")]
 #[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Outcome {
 	Canceled,
 	Failed(tg::Error),
 	Succeeded(tg::Value),
 }
 
-#[derive(Clone, Debug, derive_more::TryUnwrap, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	serde::Deserialize,
+	serde::Serialize,
+)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 #[try_unwrap(ref)]
 pub enum Data {

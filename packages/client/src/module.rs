@@ -45,6 +45,8 @@ pub enum Kind {
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::From,
+	derive_more::IsVariant,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
 	serde_with::DeserializeFromStr,

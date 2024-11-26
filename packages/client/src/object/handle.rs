@@ -6,6 +6,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 	Clone,
 	Debug,
 	derive_more::From,
+	derive_more::IsVariant,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,

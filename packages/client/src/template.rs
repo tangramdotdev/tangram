@@ -192,7 +192,14 @@ impl From<&str> for Template {
 pub mod component {
 	use crate as tg;
 
-	#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap, derive_more::Unwrap)]
+	#[derive(
+		Clone,
+		Debug,
+		derive_more::From,
+		derive_more::IsVariant,
+		derive_more::TryUnwrap,
+		derive_more::Unwrap,
+	)]
 	#[try_unwrap(ref)]
 	#[unwrap(ref)]
 	pub enum Component {
@@ -204,6 +211,8 @@ pub mod component {
 		Clone,
 		Debug,
 		PartialEq,
+		derive_more::From,
+		derive_more::IsVariant,
 		derive_more::TryUnwrap,
 		derive_more::Unwrap,
 		serde::Deserialize,

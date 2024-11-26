@@ -12,6 +12,7 @@ use bytes::Bytes;
 	PartialEq,
 	PartialOrd,
 	derive_more::From,
+	derive_more::IsVariant,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
