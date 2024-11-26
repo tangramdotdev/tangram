@@ -167,7 +167,7 @@ impl Server {
 			// Check if there is a solution in the lock file.
 			let lockfile = input_node.lockfile.clone();
 			'a: {
-				let Some((lockfile, node)) = lockfile else {
+				let Some(lockfile) = lockfile.map(|lockfile| lockfile.contents) else {
 					break 'a;
 				};
 				let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[node] else {

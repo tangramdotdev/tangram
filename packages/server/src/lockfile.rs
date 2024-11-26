@@ -1,6 +1,7 @@
 use crate::Server;
+use itertools::Itertools;
 use std::{
-	collections::{BTreeSet, VecDeque},
+	collections::{BTreeMap, BTreeSet, VecDeque},
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
@@ -24,7 +25,7 @@ pub(crate) struct LockfileNode {
 
 pub async fn try_get_lockfile_node_for_module_path(
 	path: &Path,
-) -> tg::Result<Option<(tg::Lockfile, usize)>> {
+) -> tg::Result<Option<(tg::Lockfile, PathBuf, usize)>> {
 	if !tg::package::is_module_path(path) || !path.is_absolute() {
 		return Err(tg::error!(%path = path.display(), "expected an absolute module path"));
 	}
@@ -41,7 +42,7 @@ pub async fn try_get_lockfile_node_for_module_path(
 			if let Some(node) =
 				try_get_node_for_module_path(path, &lockfile, &lockfile_path).await?
 			{
-				return Ok(Some((lockfile, node)));
+				return Ok(Some((lockfile, lockfile_path, node)));
 			}
 		}
 	}
@@ -344,6 +345,254 @@ fn strip_subpath(base: &Path, subpath: &Path) -> tg::Result<PathBuf> {
 		.take(base.components().count() - subpath.components().count())
 		.collect();
 	Ok(path)
+}
+
+/// The objects referenced by a lockfile.
+pub struct Objects {
+	/// The graphs contained within the lockfile.
+	pub graphs: Vec<tg::graph::Data>,
+
+	/// The object data for each node in the graph.
+	pub objects: Vec<Option<tg::object::Data>>,
+}
+
+pub fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
+	fn create_normal_data(
+		index: usize,
+		node: &tg::lockfile::Node,
+	) -> tg::Result<Option<tg::object::Data>> {
+		match node {
+			tg::lockfile::Node::Directory { entries } => {
+				let entries = entries
+					.iter()
+					.map(|(name, entry)| {
+						let entry = entry
+							.as_ref()
+							.right()
+							.ok_or_else(|| tg::error!(%node = index, "expected an artifact ID"))?;
+						let entry: tg::artifact::Id = entry.clone().try_into().map_err(
+							|_| tg::error!(%node = index, %name, "expected an artifact ID"),
+						)?;
+						Ok::<_, tg::Error>((name.clone(), entry))
+					})
+					.try_collect()?;
+				let data = tg::directory::Data::Normal { entries };
+				Ok(Some(tg::object::Data::Directory(data)))
+			},
+			tg::lockfile::Node::File {
+				contents,
+				dependencies,
+				executable,
+			} => {
+				// Ignore files missing their contents.
+				let Some(contents) = contents.clone() else {
+					return Ok(None);
+				};
+
+				let dependencies = dependencies
+					.iter()
+					.map(|(reference, referent)| {
+						let item =
+							referent.item.as_ref().right().ok_or_else(
+								|| tg::error!(%node = index, "expected an object ID"),
+							)?;
+						let reference = reference.clone();
+						let referent = tg::Referent {
+							item: item.clone(),
+							path: referent.path.clone(),
+							subpath: referent.subpath.clone(),
+							tag: referent.tag.clone(),
+						};
+						Ok::<_, tg::Error>((reference, referent))
+					})
+					.try_collect()?;
+				let data = tg::file::Data::Normal {
+					contents,
+					dependencies,
+					executable: *executable,
+				};
+				Ok(Some(tg::object::Data::File(data)))
+			},
+			tg::lockfile::Node::Symlink { artifact, subpath } => {
+				let artifact = artifact
+					.as_ref()
+					.map(|artifact| {
+						let id: tg::artifact::Id = artifact
+							.clone()
+							.right()
+							.ok_or_else(|| tg::error!("expected an artifact ID"))?
+							.try_into()?;
+						Ok::<_, tg::Error>(id)
+					})
+					.transpose()
+					.map_err(|_| tg::error!(%node = index, "expected an artifact ID"))?;
+				let subpath = subpath.clone();
+				let data = tg::symlink::Data::Normal { artifact, subpath };
+				Ok(Some(tg::object::Data::Symlink(data)))
+			},
+		}
+	}
+
+	fn create_graph_data(
+		index: usize,
+		node: &tg::lockfile::Node,
+		graph_indices: &BTreeMap<usize, usize>,
+		objects: &[Option<tg::object::Data>],
+	) -> tg::Result<Option<tg::graph::data::Node>> {
+		match node {
+			tg::lockfile::Node::Directory { entries } => {
+				let entries = entries
+					.iter()
+					.map(|(name, entry)| {
+						let entry = match entry {
+							Either::Left(index) => {
+								get_lockfile_item(*index, graph_indices, objects)?
+							},
+							Either::Right(id) => Either::Right(id.clone().try_into()?),
+						};
+						let name = name.clone();
+						Ok::<_, tg::Error>((name, entry))
+					})
+					.try_collect()
+					.map_err(
+						|source| tg::error!(!source, %node = index, "invalid directory entries"),
+					)?;
+				let data = tg::graph::data::Node::Directory(tg::graph::data::Directory { entries });
+				Ok(Some(data))
+			},
+			tg::lockfile::Node::File {
+				contents,
+				dependencies,
+				executable,
+			} => {
+				let Some(contents) = contents.clone() else {
+					return Ok(None);
+				};
+				let dependencies = dependencies
+					.iter()
+					.map(|(reference, referent)| {
+						let item = match &referent.item {
+							Either::Left(index) => {
+								get_lockfile_item(*index, graph_indices, objects)?
+									.map_right(|id| id.into())
+							},
+							Either::Right(id) => Either::Right(id.clone()),
+						};
+						let reference = reference.clone();
+						let referent = tg::Referent {
+							item,
+							path: referent.path.clone(),
+							subpath: referent.subpath.clone(),
+							tag: referent.tag.clone(),
+						};
+						Ok::<_, tg::Error>((reference, referent))
+					})
+					.try_collect()
+					.map_err(
+						|source| tg::error!(!source, %node = index, "invalid file dependencies"),
+					)?;
+				let data = tg::graph::data::Node::File(tg::graph::data::File {
+					contents,
+					dependencies,
+					executable: *executable,
+				});
+				Ok(Some(data))
+			},
+			tg::lockfile::Node::Symlink { artifact, subpath } => {
+				let artifact = match artifact {
+					Some(Either::Left(index)) => {
+						Some(get_lockfile_item(*index, graph_indices, objects)?)
+					},
+					Some(Either::Right(id)) => Some(Either::Right(id.clone().try_into()?)),
+					None => None,
+				};
+				let subpath = subpath.clone();
+				let data =
+					tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, subpath });
+				Ok(Some(data))
+			},
+		}
+	}
+
+	let mut graphs = Vec::new();
+	let mut objects = Vec::new();
+
+	'outer: for mut scc in petgraph::algo::tarjan_scc(&LockfileGraphImpl(lockfile)) {
+		scc.reverse();
+
+		// Skip SCCs that are missing file contents.
+		if scc.len() == 1 {
+			let data = create_normal_data(scc[0], &lockfile.nodes[scc[0]])
+				.map_err(|source| tg::error!(!source, "invalid lockfile"))?;
+			objects.push(data);
+			continue;
+		}
+
+		// Allocate space for the new nodes.
+		let mut nodes = Vec::with_capacity(scc.len());
+
+		// Assign indices.
+		let indices = scc
+			.iter()
+			.copied()
+			.enumerate()
+			.map(|(graph_index, lockfile_index)| (lockfile_index, graph_index))
+			.collect::<BTreeMap<_, _>>();
+
+		// Create new nodes.
+		for lockfile_index in scc.iter().copied() {
+			let Some(node) = create_graph_data(
+				lockfile_index,
+				&lockfile.nodes[lockfile_index],
+				&indices,
+				&objects,
+			)?
+			else {
+				continue 'outer;
+			};
+			nodes.push(node);
+		}
+
+		// Create the graph data.
+		let data = tg::graph::Data { nodes };
+		let id = tg::graph::Id::new(&data.serialize()?);
+
+		// Create the objects' data.
+		for (graph_index, lockfile_index) in scc.iter().copied().enumerate() {
+			let data = match data.nodes[graph_index].kind() {
+				tg::artifact::Kind::Directory => tg::directory::Data::Graph { graph: id.clone(), node: graph_index }.into(),
+				tg::artifact::Kind::File => tg::file::Data::Graph { graph: id.clone(), node: graph_index }.into(),
+				tg::artifact::Kind::Symlink => tg::symlink::Data::Graph { graph: id.clone(), node: graph_index }.into(),
+			};
+			objects[lockfile_index].replace(data);
+		}
+
+		graphs.push(data);
+	}
+	
+	// Collect all the objects.
+	let objects = Objects {
+		graphs,
+		objects,
+	};
+	Ok(objects)
+}
+
+fn get_lockfile_item(
+	lockfile_index: usize,
+	graph_indices: &BTreeMap<usize, usize>,
+	objects: &[Option<tg::object::Data>],
+) -> tg::Result<Either<usize, tg::artifact::Id>> {
+	if let Some(index) = graph_indices.get(&lockfile_index) {
+		return Ok(Either::Left(*index));
+	}
+
+	if let Some(data) = &objects[lockfile_index] {
+		let id = tg::object::Id::new(data.kind(), &data.serialize()?).try_into()?;
+		return Ok(Either::Right(id));
+	}
+
+	Err(tg::error!("invalid lockfile"))
 }
 
 struct LockfileGraphImpl<'a>(&'a tg::Lockfile);

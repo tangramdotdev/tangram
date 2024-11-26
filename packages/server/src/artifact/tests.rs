@@ -114,6 +114,31 @@ async fn path_dependency() -> tg::Result<()> {
 	.await
 }
 
+
+#[tokio::test]
+async fn cyclic_path_dependency() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"import * as bar from "../bar""#,
+			},
+			"bar" => temp::directory! {
+				"tangram.ts" => r#"import * as foo from "../foo""#,
+			},
+		},
+		"foo".as_ref(),
+		|a, b| async move {
+			assert_eq!(a.id().await, b.id().await);
+			let output_a = a.output().await;
+			let output_b = b.output().await;
+			assert_eq!(&output_a, &output_b);
+			assert_snapshot!(&output_a, @r#""#);
+			Ok(())
+		},
+	)
+	.await
+}
+
 async fn test<F, Fut>(checkin: temp::Artifact, path: &Path, assertions: F) -> tg::Result<()>
 where
 	F: FnOnce(TestArtifact, TestArtifact) -> Fut,
@@ -136,7 +161,7 @@ where
 
 		// Realize the artifact.
 		checkin.to_path(temp.path()).await.unwrap();
-
+		
 		// Check in the artifact to the first server.
 		let arg = tg::artifact::checkin::Arg {
 			path: temp.path().join(path),
@@ -146,6 +171,7 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server1, arg).await?;
+		eprintln!("initial checkin");
 
 		// Check the artifact out from the first server.
 		let temp = Temp::new();
@@ -156,6 +182,7 @@ where
 		};
 		let path = artifact.check_out(&server1, arg).await?;
 		let checkout = temp::Artifact::with_path(&path).await?;
+		eprintln!("initial checkout");
 
 		// Create the test data for the first server.
 		let artifact1 = TestArtifact {
@@ -175,6 +202,7 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server2, arg).await?;
+		eprintln!("symmetric checkin");
 
 		// Check it out.
 		let temp = Temp::new();
@@ -191,6 +219,7 @@ where
 			checkin,
 			checkout,
 		};
+		eprintln!("symmetric checkout");
 
 		assertions(artifact1, artifact2).await
 	})
