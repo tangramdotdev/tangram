@@ -43,7 +43,7 @@ impl Server {
 			Ok(()) => (),
 
 			// If there is an EPERM because the destination is RO, ignore.
-			Err(ref error) if error.raw_os_error() == Some(libc::EPERM) => (),
+			Err(error) if error.raw_os_error() == Some(libc::EPERM) => (),
 
 			// Return all other errors.
 			Err(source) => {

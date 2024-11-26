@@ -284,7 +284,7 @@ impl Server {
 		// Check if the artifacts path exists. in the case where the VFS was ungracefully shutdown, remove the artifacts path return false.
 		let artifacts_exists = match tokio::fs::try_exists(&artifacts_path).await {
 			Ok(exists) => exists,
-			Err(ref error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
+			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
 				if cfg!(target_os = "macos") {
 					tangram_vfs::nfs::unmount(&artifacts_path)
 						.await

@@ -257,7 +257,7 @@ impl Server {
 				Ok(()) => (),
 
 				// If the entry in the cache path exists, then remove the checkout to the temp.
-				Err(ref error)
+				Err(error)
 					if matches!(error.raw_os_error(), Some(libc::ENOTEMPTY | libc::EEXIST)) =>
 				{
 					crate::util::fs::remove(&temp.path).await.ok();
