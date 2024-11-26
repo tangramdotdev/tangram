@@ -214,16 +214,24 @@ impl<'de, 'a, 's> serde::Deserializer<'de> for Deserializer<'a, 's> {
 		V: serde::de::Visitor<'de>,
 	{
 		let uint8_array = v8::Local::<v8::Uint8Array>::try_from(self.value).unwrap();
-		let slice = unsafe {
-			let ptr = uint8_array
-				.data()
-				.cast::<u8>()
-				.add(uint8_array.byte_offset());
-			let len = uint8_array.byte_length();
-			std::slice::from_raw_parts(ptr, len)
+		let bytes = if let Some(data) = uint8_array
+			.get_backing_store()
+			.and_then(|backing_store| backing_store.data())
+		{
+			let offset = uint8_array.byte_offset();
+			let length = uint8_array.byte_length();
+			let slice = unsafe {
+				std::slice::from_raw_parts(data.cast::<u8>().as_ptr().add(offset), length)
+			};
+			slice.to_owned()
+		} else {
+			let length = uint8_array.byte_length();
+			if length > 0 {
+				return Err(Error::custom("invalid uint8array"));
+			}
+			Vec::new()
 		};
-		let value = slice.to_owned();
-		visitor.visit_byte_buf(value)
+		visitor.visit_byte_buf(bytes)
 	}
 
 	fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>

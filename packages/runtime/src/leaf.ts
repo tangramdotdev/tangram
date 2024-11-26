@@ -44,7 +44,7 @@ export class Leaf {
 			offset += entry.byteLength;
 		}
 		let object = { bytes };
-		return new Leaf({ object: object });
+		return new Leaf({ object });
 	}
 
 	static expect(value: unknown): Leaf {
