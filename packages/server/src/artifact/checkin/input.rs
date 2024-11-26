@@ -82,16 +82,13 @@ impl Server {
 
 		// Fill in the missing file edges.
 		self
-			.infer_file_edges(&state)
+			.infer_file_edges(&arg, &state)
 			.await?;
 
 		// Validate the input graph.
-		let State { mut graph, .. } = state.into_inner();
+		let State { graph, .. } = state.into_inner();
 		graph.validate().await?;
-		
-		// Compute the edges of any files that require lockfiles.
-		// self.get_file_data_edges(&mut graph).await?;
-
+	
 		Ok(graph)
 	}
 
@@ -729,53 +726,52 @@ impl Server {
 		lockfile: Arc<Lockfile>,
 		arg: &tg::artifact::checkin::Arg,
 	) -> tg::Result<usize> {
-		// Check if this node has been visited.
-		let mut state_ = state.write().await;
-		let lockfile_node = if let Some(index) = state_.visited.get(&path).copied() {
-			if state_.graph.nodes[index].data.is_none() &&
-				!state_.graph.nodes[index].edges.is_empty() {
-					return Ok(index)
-				}
-			state_.graph
-				.nodes
-				[index]
-				.lockfile
-				.ok_or_else(|| tg::error!("incomplete input graph"))?
-				.1
-		} else {
-			// Find the path in the lockfile.
+		// // Check if this node has been visited.
+		// let mut state_ = state.write().await;
+		// let lockfile_node = if let Some(index) = state_.visited.get(&path).copied() {
+		// 	if state_.graph.nodes[index].data.is_none() &&
+		// 		!state_.graph.nodes[index].edges.is_empty() {
+		// 			return Ok(index)
+		// 		}
+		// 	state_.graph
+		// 		.nodes
+		// 		[index]
+		// 		.lockfile
+		// 		.ok_or_else(|| tg::error!("incomplete input graph"))?
+		// 		.1
+		// } else {
+		// 	// Find the path in the lockfile.
 
-			// Get the object file data
+		// 	// Get the object file data
 
-			// Get the file system metadata
+		// 	// Get the file system metadata
 
-			// 
-			todo!()
-		}
-		match state_.visited.entry(path.clone()) {
-			std::collections::btree_map::Entry::Occupied(occupied) {
-				let index = *occupied.get();
-				let node = &state_.graph.nodes[index];
-				if node.data.is_none() || node.edges.is_empty() {
-					return Ok(index)
-				}
-			},
-			std::collections::btree_map::Entry::Vacant(vacant) => {
-				let (node, data) = lockfile.find_node(&path)?;
-				let node = Node {
-					arg: tg::artifact::checkin::Arg {
-						path: path.clone(),
-						..arg.clone()
-					},
-					data,
-					edges: Vec::new(),
-					lockfile: Some(Lockfile.clone(), node),
-					metadata,
-					parent,
-				};
-			},
-		}
-
+		// 	// 
+		// 	todo!()
+		// }
+		// match state_.visited.entry(path.clone()) {
+		// 	std::collections::btree_map::Entry::Occupied(occupied) {
+		// 		let index = *occupied.get();
+		// 		let node = &state_.graph.nodes[index];
+		// 		if node.data.is_none() || node.edges.is_empty() {
+		// 			return Ok(index)
+		// 		}
+		// 	},
+		// 	std::collections::btree_map::Entry::Vacant(vacant) => {
+		// 		let (node, data) = lockfile.find_node(&path)?;
+		// 		let node = Node {
+		// 			arg: tg::artifact::checkin::Arg {
+		// 				path: path.clone(),
+		// 				..arg.clone()
+		// 			},
+		// 			data,
+		// 			edges: Vec::new(),
+		// 			lockfile: Some(Lockfile.clone(), node),
+		// 			metadata,
+		// 			parent,
+		// 		};
+		// 	},
+		// }
 
 		todo!()
 	}
