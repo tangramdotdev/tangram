@@ -175,6 +175,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> + Send;
 
+	fn post_object(
+		&self,
+		arg: tg::object::post::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::post::Output>> + Send;
+
 	fn push_object(
 		&self,
 		id: &tg::object::Id,

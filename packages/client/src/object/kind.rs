@@ -1,6 +1,6 @@
 use crate as tg;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr)]
 pub enum Kind {
 	Leaf,
 	Branch,

@@ -61,6 +61,69 @@ impl Server {
 		}
 	}
 
+	pub(crate) async fn module_for_package_and_subpath(
+		&self,
+		package: Either<tg::directory::Id, PathBuf>,
+		subpath: PathBuf,
+	) -> tg::Result<tg::Module> {
+		match package {
+			Either::Left(package) => {
+				// Ensure the module exists.
+				let module = tg::Directory::with_id(package.clone())
+					.get(self, &subpath)
+					.await
+					.map_err(
+						|source| tg::error!(!source, %package, %subpath = subpath.display(), "failed to get module for subpath in package"),
+					)?;
+				if !module.is_file() {
+					return Err(
+						tg::error!(%package, %subpath = subpath.display(), "expected a file"),
+					);
+				}
+
+				// Infer the kind.
+				let kind = infer_module_kind(&subpath)?;
+
+				// Create the module.
+				Ok(tg::Module {
+					kind,
+					referent: tg::Referent {
+						item: tg::module::Item::Object(package.clone().into()),
+						path: None,
+						subpath: Some(subpath),
+						tag: None,
+					},
+				})
+			},
+
+			Either::Right(path) => {
+				// Get the module file name.
+				let entry = tokio::fs::metadata(path.join(&subpath)).await.map_err(
+					|source| tg::error!(!source, %package = path.display(), %subpath = subpath.display(), "module at path and subpath does not exist"),
+				)?;
+				if !entry.is_file() {
+					return Err(
+						tg::error!(%package = path.display(), %subpath = subpath.display(), "expected a file"),
+					);
+				}
+
+				// Infer the kind.
+				let kind = infer_module_kind(path.join(&subpath))?;
+
+				// Create the module
+				Ok(tg::Module {
+					kind,
+					referent: tg::Referent {
+						item: tg::module::Item::Path(path),
+						path: None,
+						subpath: Some(subpath),
+						tag: None,
+					},
+				})
+			},
+		}
+	}
+
 	pub(crate) async fn module_for_path(&self, path: &Path) -> tg::Result<tg::Module> {
 		// Find the lockfile.
 		let (lockfile_path, lockfile) = 'a: {

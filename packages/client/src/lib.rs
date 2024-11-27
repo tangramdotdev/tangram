@@ -777,6 +777,13 @@ impl tg::Handle for Client {
 		self.put_object(id, arg)
 	}
 
+	fn post_object(
+		&self,
+		arg: tg::object::post::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::post::Output>> {
+		self.post_object(arg)
+	}
+
 	fn push_object(
 		&self,
 		id: &tg::object::Id,

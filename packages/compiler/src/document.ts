@@ -47,12 +47,14 @@ type Declaration =
 
 type ClassDeclaration = {
 	location: Location;
-	constructSignature: ConstructSignature;
+	constructSignature?: Signature | undefined;
+	callSignature?: Signature | undefined;
 	properties: Array<ClassProperty>;
 	comment: Comment;
+	typeParameters: { [key: string]: TypeParameter };
 };
 
-type ConstructSignature = {
+type Signature = {
 	parameters: { [key: string]: Parameter };
 	return: Type;
 };
@@ -61,6 +63,7 @@ type ClassProperty = {
 	name: string;
 	type: Type;
 	static?: boolean;
+	accessor?: "get" | "set" | undefined;
 	private?: boolean;
 	comment: Comment;
 };
@@ -97,8 +100,9 @@ type InterfaceDeclaration = {
 	location: Location;
 	indexSignature: IndexSignature | undefined;
 	properties: { [key: string]: InterfaceProperty };
-	constructSignatures: Array<ConstructSignature>;
+	constructSignatures: Array<Signature>;
 	comment: Comment;
+	typeParameters: { [key: string]: TypeParameter };
 };
 
 type InterfaceProperty = {
@@ -220,7 +224,7 @@ type MappedType = {
 type ObjectType = {
 	properties: { [key: string]: ObjectProperty };
 	indexSignature: IndexSignature | undefined;
-	constructSignatures: Array<ConstructSignature>;
+	constructSignatures: Array<Signature>;
 };
 
 type ObjectProperty = {
@@ -412,10 +416,7 @@ let convertSymbol = (
 	}
 
 	// Class.
-	if (
-		ts.SymbolFlags.Class & symbolFlags &&
-		!(ts.SymbolFlags.Interface & symbolFlags)
-	) {
+	if (ts.SymbolFlags.Class & symbolFlags) {
 		declarations.push({
 			kind: "class",
 			value: convertClassSymbol(
@@ -606,6 +607,13 @@ let convertClassSymbol = (
 	// Get the instance type properties of the class.
 	let instanceType = typeChecker.getDeclaredTypeOfSymbol(symbol);
 	for (let instanceProperty of typeChecker.getPropertiesOfType(instanceType)) {
+		const propertySymbolParent = instanceProperty.declarations?.[0]?.parent;
+		if (!propertySymbolParent || !ts.isClassDeclaration(propertySymbolParent)) {
+			continue;
+		}
+		if (propertySymbolParent !== declaration) {
+			continue;
+		}
 		if (instanceProperty.flags & ts.SymbolFlags.ClassMember) {
 			properties.push(
 				convertClassPropertySymbol(
@@ -622,7 +630,11 @@ let convertClassSymbol = (
 	let staticType = typeChecker.getTypeOfSymbolAtLocation(symbol, declaration);
 	for (let staticProperty of typeChecker.getPropertiesOfType(staticType)) {
 		// Ignore prototype.
-		if (staticProperty.flags & ts.SymbolFlags.Prototype) continue;
+		if (
+			staticProperty.flags &
+			(ts.SymbolFlags.ModuleMember | ts.SymbolFlags.Prototype)
+		)
+			continue;
 
 		if (staticProperty.flags & ts.SymbolFlags.ClassMember) {
 			properties.push(
@@ -637,22 +649,48 @@ let convertClassSymbol = (
 	}
 
 	// Get the constructor signature.
-	let constructSignature = staticType
-		.getConstructSignatures()
-		.map((signature) => {
-			return convertConstructSignature(
-				typeChecker,
-				signature,
-				packageExports,
-				thisModule,
-			);
-		})[0]!;
+	let signature = staticType.getConstructSignatures()[0]!;
+	let constructSignature = undefined;
+	let constructSignatureParent = signature.declaration?.parent;
+	if (
+		constructSignatureParent &&
+		ts.isClassDeclaration(constructSignatureParent)
+	) {
+		constructSignature = convertSignature(
+			typeChecker,
+			signature,
+			packageExports,
+			thisModule,
+		);
+	}
+
+	// Get the call signature.
+	let callSignatures = instanceType.getCallSignatures().map((signature) => {
+		return convertSignature(typeChecker, signature, packageExports, thisModule);
+	});
+
+	let typeParameters: { [key: string]: TypeParameter } = {};
+	if (declaration.typeParameters) {
+		typeParameters = Object.fromEntries(
+			declaration.typeParameters?.map((typeParameter) => [
+				typeParameter.name.getText(),
+				convertTypeParameterNode(
+					typeChecker,
+					typeParameter,
+					packageExports,
+					thisModule,
+				),
+			]),
+		);
+	}
 
 	return {
 		location: convertLocation(declaration),
 		properties,
 		constructSignature,
+		callSignature: callSignatures[0],
 		comment: convertComment(typeChecker, declaration, symbol),
+		typeParameters,
 	};
 };
 
@@ -875,20 +913,26 @@ let convertTypeAliasSymbol = (
 		packageExports,
 		thisModule,
 	);
-	let typeParameters = declaration.typeParameters?.map((typeParameter) => [
-		typeParameter.name.getText(),
-		convertTypeParameterNode(
-			typeChecker,
-			typeParameter,
-			packageExports,
-			thisModule,
-		),
-	]);
+
+	let typeParameters: { [key: string]: TypeParameter } = {};
+	if (declaration.typeParameters) {
+		typeParameters = Object.fromEntries(
+			declaration.typeParameters?.map((typeParameter) => [
+				typeParameter.name.getText(),
+				convertTypeParameterNode(
+					typeChecker,
+					typeParameter,
+					packageExports,
+					thisModule,
+				),
+			]),
+		);
+	}
 
 	return {
 		location: convertLocation(declaration),
 		type,
-		typeParameters: Object.fromEntries(typeParameters ?? []),
+		typeParameters,
 		comment: convertComment(typeChecker, declaration, symbol),
 	};
 };
@@ -978,8 +1022,19 @@ let convertInterfaceSymbol = (
 				}),
 		);
 
+		let typeParameters = declaration.typeParameters?.map((typeParameter) => [
+			typeParameter.name.getText(),
+			convertTypeParameterNode(
+				typeChecker,
+				typeParameter,
+				packageExports,
+				thisModule,
+			),
+		]);
+
 		return {
 			location: convertLocation(declaration),
+			typeParameters: Object.fromEntries(typeParameters || []),
 			indexSignature,
 			constructSignatures,
 			properties,
@@ -1015,12 +1070,12 @@ let convertIndexSignature = (
 };
 
 // ConstructSignature.
-let convertConstructSignature = (
+let convertSignature = (
 	typeChecker: ts.TypeChecker,
 	signature: ts.Signature,
 	packageExports: Array<ts.Symbol>,
 	thisModule: Module,
-): ConstructSignature => {
+): Signature => {
 	// Get the parameters.
 	let parameters = Object.fromEntries(
 		signature.parameters.map((parameter) => {
@@ -1087,7 +1142,7 @@ let convertConstructSignatureDeclaration = (
 	declaration: ts.ConstructSignatureDeclaration,
 	packageExports: Array<ts.Symbol>,
 	thisModule: Module,
-): ConstructSignature => {
+): Signature => {
 	// Get the parameters.
 	let parameters = Object.fromEntries(
 		declaration.parameters.map((parameter) => {
@@ -1205,6 +1260,12 @@ let convertClassPropertySymbol = (
 		type,
 		static: (flags & ts.ModifierFlags.Static) !== 0,
 		private: (flags & ts.ModifierFlags.Private) !== 0,
+		accessor:
+			property.valueDeclaration!.kind === ts.SyntaxKind.GetAccessor
+				? "get"
+				: property.valueDeclaration!.kind === ts.SyntaxKind.SetAccessor
+					? "set"
+					: undefined,
 	};
 };
 

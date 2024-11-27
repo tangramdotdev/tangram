@@ -4,10 +4,12 @@
       "kind": "directory",
       "entries": {
         "tangram.ts": 1
-      }
+      },
+      "id": "dir_01djpctx0f1w0en44cxa3yx0076enc1xepwpdfaksjazfgvvkq15c0"
     },
     {
       "kind": "file",
+      "contents": "lef_01e6cvvzrphdktn82yrrj171c44ttpjf11r88zfdkstg9t8gj573gg",
       "dependencies": {
         "./Cargo.lock": {
           "item": 0,
@@ -49,13 +51,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01ycrjgf6bexp0y7gdjb3g05gy2kd1hwe6sg18e6f3vx6vc1eepc2g"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 3
-      }
+      },
+      "id": "dir_01wyybmva690pgay3wh2hj7fdk0qb0pm2ed75edhxjknp5vjjd61gg"
     },
     {
       "kind": "file",
@@ -65,7 +69,8 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01mcw06hdpmy5wyyeh0b6r3d1m51sx3yr9cr30bxbhgrvmazjgp020"
     },
     {
       "kind": "directory",
@@ -93,42 +98,49 @@
         "utils.tg.ts": 83,
         "wrap": 84,
         "wrap.tg.ts": 87
-      }
+      },
+      "id": "dir_01k5q1a93w7cts3jhb2a6y195f9fdxgrmjnebdb9dm0xaftghgx7ag"
     },
     {
       "kind": "file",
+      "contents": "lef_01h8r3t0dd6xhw2k6re6affwwxdy75vfd16ax143qzkt3m3fvjvsng",
       "dependencies": {
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_013gtv3qskvsk8h1z0r68ns2jvygbbfqh8c9555tz6tbgafbvtdjng"
     },
     {
       "kind": "file",
+      "contents": "lef_01bv95b368x6zgcdrf2t52hxwc9ac9fc205s975pf2b4zqt4v95nkg",
       "dependencies": {
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./wrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap.tg.ts"
         }
-      }
+      },
+      "id": "fil_01w7znrc54rxpnphwtmzdzyygcy258jadsanjspg23tf5t4fcskpw0"
     },
     {
       "kind": "file",
+      "contents": "lef_0106jwg5tnx131zh28q3dy3hz370ckhgc9paa1e039s6qs3g5xt1hg",
       "dependencies": {
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01kj71y34g0vjdyk25rkd4pafr3hfprkkpywd3pys2tg8n2nazw1e0"
     },
     {
       "kind": "directory",
@@ -136,204 +148,232 @@
         "make.tg.ts": 9,
         "musl.tg.ts": 10,
         "sdk.tg.ts": 11
-      }
+      },
+      "id": "dir_01bwtreh44kh4zdfat0vj6eyx0p0xm6b2q00qner1fb6515v0v4s6g"
     },
     {
       "kind": "file",
+      "contents": "lef_01y3zpshbc05j23passtdn45s6qs4cb1xgkwgbzft4vpxsnkb5j4s0",
       "dependencies": {
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./sdk.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap/sdk.tg.ts"
         }
-      }
+      },
+      "id": "fil_018txp3001ckm370pzre6a68vsc40grf9nsrytdgt3w2s9nzvfbyhg"
     },
     {
       "kind": "file",
+      "contents": "lef_01w0ffhzd6m4m6v9hk7rztaz14xh9vtwengae8fk5tf6ja3t83v66g",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./musl_permission.patch": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap/musl_permission.patch"
         }
-      }
+      },
+      "id": "fil_0113wwp6c884exaxzqw4413ms25za30951nc3f05esdgbnx7qn8fv0"
     },
     {
       "kind": "file",
+      "contents": "lef_01kxg9ppgwq74bn7t3df3avcbwycevc232185z2012v6es55ccq4eg",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01v7xaeb8xmh59fkx4h8f19jjymbhdrw7z9x2t617hz5pgkrxy6sj0"
     },
     {
       "kind": "file",
+      "contents": "lef_01zxt8ckhytbea16anwck4fnw9c0rpx3xtvbj95sd2tvnem5h1bfr0",
       "dependencies": {
         "./bootstrap/make.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap/make.tg.ts"
         },
         "./bootstrap/musl.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap/musl.tg.ts"
         },
         "./bootstrap/sdk.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap/sdk.tg.ts"
         },
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
-    },
-    {
-      "kind": "file"
+      },
+      "id": "fil_01vxtgfbs5rmrdcbptvvve4f5207kke6b789qfztqsgs8t7c4wecag"
     },
     {
       "kind": "file",
+      "id": "fil_01emq5yb0rw3g746rta4wcnpw2e05rrt4xbqxky82m7m3wcdzy6g9g"
+    },
+    {
+      "kind": "file",
+      "contents": "lef_016tsm9taw56tpmq22r5yt0r7kcq5n9b0qmrkvmcw6rapnae3xhr4g",
       "dependencies": {
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01009pjh58xef3ej27fb1d195fq8f5pkkn51dgewdy7hwnqq7p266g"
     },
     {
       "kind": "file",
+      "contents": "lef_01r8065j97kja7sfxhka08hb8yvz4hc85jjcpeetgccpv7x2gd7geg",
       "dependencies": {
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
-    },
-    {
-      "kind": "file"
+      },
+      "id": "fil_018rz2tn8ch96nq2nsb17dczrygvwbxrvs0nc0zgffrh8caer4j3e0"
     },
     {
       "kind": "file",
+      "id": "fil_01wafh1tje1c412qk3kr36htj8f33vpbrjr049ersz8y1sdbw4k64g"
+    },
+    {
+      "kind": "file",
+      "contents": "lef_01y9m6p2m6f0jghwn9ztcfmw5dvfatnr8j11z74v969w76mf8agehg",
       "dependencies": {
         "./bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./utils/coreutils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/coreutils.tg.ts"
         },
         "./wrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap.tg.ts"
         }
-      }
+      },
+      "id": "fil_01kyh25pw374m9p1z0gp2ew2eakjwsqvp07f1p1h03ez4y2dg0w0mg"
     },
     {
       "kind": "file",
+      "contents": "bch_01jscak1mfrb69ps0pmq9s92fpbd7st1y5t0f6hk4j3e2rxjsvcg00",
       "dependencies": {
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01v8vcbgq8mfea0cfhgqbmtk4cjmb62n97sxw23hdb1cgk1ps46fng"
     },
     {
       "kind": "directory",
       "entries": {
         "container.tg.ts": 20
-      }
+      },
+      "id": "dir_01x6rshpb6fp5kxc1jzj3hteynked8xvj5mbem7kx3v13tm8rfhqbg"
     },
     {
       "kind": "file",
+      "contents": "lef_01kvmcscbekhxzfpcs1tt4m870pqsh5ddt4rv16hyw9r5n2fa0477g",
       "dependencies": {
         "../sdk/dependencies/zstd.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/zstd.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_017a7jmxe2wa1emf1ekp2nn2n6t4e3qvj77g5h9tpkv1h668x78ww0"
     },
     {
       "kind": "file",
+      "contents": "lef_01bnzvs68gz7088g8cv3530mw0facf38wf16h87ch6er2vex2983c0",
       "dependencies": {
         "./bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "./image/container.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "image/container.tg.ts"
         },
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01qn70fqka5sxgsfy91mzcb8s4e87tadx53t48cxapxw9eqskkgj60"
     },
     {
       "kind": "file",
+      "contents": "lef_01v2s07henzews4e8a158hfk1d2c13wf4t2y4f9fv82f6hy1ygxfxg",
       "dependencies": {
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_013pdjdfsb4j32htavy9w5qc5pfx0tjhnpfw5ygnk4z6a7e3a16j20"
     },
     {
       "kind": "file",
+      "contents": "lef_0116wfjce7t3sz03rgwqytzkkcjx48vjw62t38gj3gp5az25dy7jm0",
       "dependencies": {
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01zkfz4s7p595b115yzkb3pypdvz3rft889002wmz3wermgyt6kw2g"
     },
     {
       "kind": "directory",
@@ -351,27 +391,30 @@
         "mold.tg.ts": 60,
         "ninja.tg.ts": 61,
         "proxy.tg.ts": 62
-      }
+      },
+      "id": "dir_01847zn71rf9ph9hnpycz4w2q1byvs3yddb2stgh7dth832rct57fg"
     },
     {
       "kind": "file",
+      "contents": "lef_01jfrvtwr818g6eatnqg9d2htgyb3w0zegttnp9eaab6bngj5kdq4g",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./ninja.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/ninja.tg.ts"
         }
-      }
+      },
+      "id": "fil_01vnxg8kzhfh56y21pewmyyg3b3nvxvm2q5r99bdtry52rpe6r0fag"
     },
     {
       "kind": "directory",
@@ -388,262 +431,283 @@
         "python.tg.ts": 36,
         "zlib.tg.ts": 37,
         "zstd.tg.ts": 38
-      }
+      },
+      "id": "dir_01873qwvbxg9jqgf4k8err38bce4nadz9snp1hvjhm5emza4mt5ayg"
     },
     {
       "kind": "file",
+      "contents": "lef_010sj5gf23ws152b51mxpd3g6xcacwk3sq42pegpqsjq7gc0h7wtr0",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01veqj7h45zhzj2an7xjh92rhf910cghvkdhx6q0rzzmqd5e4z5zs0"
     },
     {
       "kind": "file",
+      "contents": "lef_017pd9f2gkv141h5y4jatrzdd04t4n3stjm6b8jgkmb6480mm14vh0",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_0113rjjbe6wv1rmjqzqx9j1qjg3ma8ce0pxyze7qp3x4ex6czrkvs0"
     },
     {
       "kind": "file",
+      "contents": "lef_01rytcx2bnbq7r9n365skbcqhn9r00szn4tk4kxa3c5nt9bkf060hg",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01ffr2zy0df5h4g008xsrj5bja2kerf6sdbe369ykwrv70pk21xgag"
     },
     {
       "kind": "file",
+      "contents": "lef_01j3g9keey5eyvem37xae88zxg7v1ypf4h5x89ftx6d2mqkbxds9pg",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01mnvmaq5mthbv5gacy0458w3mfrckze3362f4cp9zyg4n8zm8n930"
     },
     {
       "kind": "file",
+      "contents": "lef_01ht3ephekre8sypbfaq52tm7rmbecessz7pvkvbsrw4gn6fj0ny40",
       "dependencies": {
-        "../../bootstrap.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "bootstrap.tg.ts"
-        },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01427m054yghzyc5dn5zj4emm82h3zypk6092te29qsx73k6q6asyg"
     },
     {
       "kind": "file",
+      "contents": "lef_01jewc0bf51hn4nq8y07aedfzbjz6zpz87xtkx0vngzpxjkx628a0g",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01fraah1wshxy2vp4afkbg9nq30mrrev5we360q5mc2b8aedra2t30"
     },
     {
       "kind": "file",
+      "contents": "lef_01mvxk1tn2kq3d16vv69ptw5z4whx35hy93h25xnfrws2rvm4gf70g",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01p44418cxw1756j3q4t9he85z103rgtc1gkzx8930nrn3srafqdkg"
     },
     {
       "kind": "file",
+      "contents": "lef_01axkg577844m8ehgqnnrhmyyww4962ngwq3jf6sdp7vsgeykr0ctg",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_016b1b8f3dpy35w14qb9wrhm95jpdgjeq3cvbhwv3an5ye1gr9xztg"
     },
     {
       "kind": "file",
+      "contents": "lef_01g9jd96hyfs2812ryr58340746qwmg8adwh6r2akn6bhc1natyqh0",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./perl_no_fix_deps.patch": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/perl_no_fix_deps.patch"
         }
-      }
+      },
+      "id": "fil_015p548j11jgfsc8c23r765spw0cmdmr28aeweanse46jenrra4c40"
     },
     {
       "kind": "file",
+      "contents": "lef_01xamtdaej3t9yb0k6km5hs19jpwpqt1em889hndh5qq3tdcjtgn90",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01xt93qxb40jenhj7y97v4cghq7040874qtpymdg1da35xv79p4wz0"
     },
     {
       "kind": "file",
+      "contents": "lef_01kf9tr2b1n2k4hz22vevprh7fykj5ytx9bsyz7v62x3caep9hmfeg",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01ekj4ejey9h8g8ap2s1s2rryzrn4pdw61t850g61a0ws81xna65gg"
     },
     {
       "kind": "file",
+      "contents": "lef_01nprvtbjn9wmve63ac44nnj96bhb9n24t2bwv8jy7dxje0gfn5e60",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_019xn79a9mqj4ms74xj60fkk0zphnr9yvyzs21t2prj5fxp93pnexg"
     },
     {
       "kind": "file",
+      "contents": "lef_01ps1recg1wf4bp2cnr1j763qakg8g6xexe9r335055204ee1yffc0",
       "dependencies": {
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./dependencies/bison.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/bison.tg.ts"
         },
         "./dependencies/flex.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/flex.tg.ts"
         },
         "./dependencies/gmp.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/gmp.tg.ts"
         },
         "./dependencies/isl.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/isl.tg.ts"
         },
         "./dependencies/libxcrypt.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/libxcrypt.tg.ts"
         },
         "./dependencies/m4.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/m4.tg.ts"
         },
         "./dependencies/mpc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/mpc.tg.ts"
         },
         "./dependencies/mpfr.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/mpfr.tg.ts"
         },
         "./dependencies/perl.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/perl.tg.ts"
         },
         "./dependencies/python.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/python.tg.ts"
         },
         "./dependencies/zlib.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies/zlib.tg.ts"
         },
         "./dependencies/zstd.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/dependencies/zstd.tg.ts"
+          "item": 38,
+          "path": "sdk/dependencies/zstd.tg.ts"
         }
-      }
+      },
+      "id": "fil_01y30y18nv6adwsh3awetmt5rs962spha3ydc3jv12dagtdez09940"
     },
     {
       "kind": "directory",
@@ -651,660 +715,755 @@
         "binutils.tg.ts": 41,
         "gcc.tg.ts": 42,
         "toolchain.tg.ts": 43
-      }
+      },
+      "id": "dir_017ymz5q2xdt4ca4b07q3bf5xsk1jx9epf47mj45q125e7tfqjxnmg"
     },
     {
       "kind": "file",
+      "contents": "lef_013m54krf54w544xmsma31xcqv3m4g4g79x2np9c4kthenqtdagmhg",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01cngfqsvk2w3h6yde563a7kbb14rv00cxkewbt2x9xxbhzrjf6x4g"
     },
     {
       "kind": "file",
+      "contents": "lef_01598k6b15btqryy5ty9dcs9z7pcj1f92febnrzdj6ka45qm99kwx0",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../sdk.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../dependencies.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies.tg.ts"
         },
         "../libc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/libc.tg.ts"
         },
         "../libc/glibc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/libc/glibc.tg.ts"
         }
-      }
+      },
+      "id": "fil_01rb5g9fqn95fqwdrnsa69cd7293v91j9k5a4re982r6x5xpfmrb5g"
     },
     {
       "kind": "file",
+      "contents": "lef_015d51kybnpq6jwp6vjvh50tfkznxp2y8napekh2nrsjn434kz8mq0",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../dependencies.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies.tg.ts"
         },
         "../kernel_headers.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/kernel_headers.tg.ts"
         },
         "../libc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/libc.tg.ts"
         },
         "../proxy.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/proxy.tg.ts"
         },
         "./binutils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu/binutils.tg.ts"
         },
         "./gcc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu/gcc.tg.ts"
         }
-      }
+      },
+      "id": "fil_016cpecx9nex9by2xxhm1k9y0de95s97ngs8m19ksqpvcdmajn37h0"
     },
     {
       "kind": "file",
+      "contents": "lef_017jzxztvm72bd120s6v825f8tgmt665g7fbz2j3rxwek6dzqafadg",
       "dependencies": {
-        "./gnu/binutils.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/gnu/binutils.tg.ts"
-        },
         "./gnu/gcc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu/gcc.tg.ts"
         },
         "./gnu/toolchain.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu/toolchain.tg.ts"
         }
-      }
+      },
+      "id": "fil_01t96v16xkvtb0er8kx415ggzsmmkwcac5xn0hnec3aexp3weag1bg"
     },
     {
       "kind": "file",
+      "contents": "lef_01390tb7dxknhfhqmn3s2eebak7nk67grwafczrwzb6kyfakmsm2qg",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01f4vng5ebesn6zpw1psa132q430vzh20zxsga6j1x1b9k3vmc91v0"
     },
     {
       "kind": "directory",
       "entries": {
         "glibc.tg.ts": 47,
         "musl.tg.ts": 48
-      }
+      },
+      "id": "dir_01d2658696v673f8jcqnh8x85zy1yhyfw90zjh2y6jwky57xwb9gr0"
     },
     {
       "kind": "file",
+      "contents": "lef_01655m5r8q0tj3fj5qbhmm1q1qj139v8hhqksgqdzb1qzp63abrz60",
       "dependencies": {
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_010fv8t55cnv9gy29qt585rwkr7569tkm8fe03f47y24h03nz29adg"
     },
     {
       "kind": "file",
+      "contents": "lef_01qqzzyeghs946331zhb06rmwhv1p0bfprvpybv2qq2yvfwz8vknzg",
       "dependencies": {
         "../../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./musl_permission.patch": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/libc/musl_permission.patch"
         }
-      }
+      },
+      "id": "fil_015kz8wrve28mxs147a9kphtrx40smwj3dz7vyq7kynbmw6gada29g"
     },
     {
       "kind": "file",
+      "contents": "lef_017rz7gzpz8htc5m15mp6yx9rwktv0q9sjj07wzdstssfv1p2ch1m0",
       "dependencies": {
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./kernel_headers.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/kernel_headers.tg.ts"
         },
         "./libc/glibc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/libc/glibc.tg.ts"
         },
         "./libc/musl.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/libc/musl.tg.ts"
         }
-      }
+      },
+      "id": "fil_01xg6vq1ectby8yaa2r72xk7wfzz4yhefhvraaxbmm9dmxpf0jhh6g"
     },
     {
       "kind": "directory",
       "entries": {
         "apple_libdispatch.tg.ts": 51,
-        "apple_libtapi.tg.ts": 52,
-        "cctools_port.tg.ts": 53,
-        "git.tg.ts": 54,
-        "libbsd.tg.ts": 55,
+        "apple_libtapi.tg.ts": 53,
+        "cctools_port.tg.ts": 54,
+        "git.tg.ts": 55,
+        "libbsd.tg.ts": 52,
         "libmd.tg.ts": 56,
         "ncurses.tg.ts": 57,
         "systemtap-sdt.tg.ts": 58
-      }
+      },
+      "id": "dir_01fzje92r1yz8rdcfe9pgs64x6s3rsx7haebww05pwgwaadgcmnnq0"
     },
     {
       "kind": "file",
+      "contents": "lef_01ntzjnr3escb1vcq1kww17eqy906nsmcb79719c89v8ez8ye398n0",
       "dependencies": {
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../cmake.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/cmake.tg.ts"
         },
         "./libbsd.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/llvm/libbsd.tg.ts"
+          "item": 52,
+          "path": "sdk/llvm/libbsd.tg.ts"
         }
-      }
+      },
+      "id": "fil_01bhsj1jeztqrqrrsq92jynqy185q8mtewvk74td50qc9g262kkdqg"
     },
     {
       "kind": "file",
-      "dependencies": {
-        "../../bootstrap.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "bootstrap.tg.ts"
-        },
-        "../../tangram.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "tangram.ts"
-        },
-        "../cmake.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/cmake.tg.ts"
-        },
-        "../dependencies.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/dependencies.tg.ts"
-        },
-        "../ninja.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/ninja.tg.ts"
-        }
-      }
-    },
-    {
-      "kind": "file",
+      "contents": "lef_013zzc15g23zds7aab4vkyw03xnfrn5139ynbck1ynpm65d0e12z00",
       "dependencies": {
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "tangram.ts"
-        },
-        "./apple_libdispatch.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/llvm/apple_libdispatch.tg.ts"
-        },
-        "./apple_libtapi.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/llvm/apple_libtapi.tg.ts"
-        }
-      }
-    },
-    {
-      "kind": "file",
-      "dependencies": {
-        "../../tangram.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "tangram.ts"
-        },
-        "../dependencies/zlib.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/dependencies/zlib.tg.ts"
-        }
-      }
-    },
-    {
-      "kind": "file",
-      "dependencies": {
-        "../../tangram.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./libmd.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/llvm/libmd.tg.ts"
         }
-      }
+      },
+      "id": "fil_01rnnp5wwhbzhg49aab9s8ngshbb73r5f9avzf6ktre7vb9a1a93e0"
     },
     {
       "kind": "file",
+      "contents": "lef_01jeg6ymb4pyym8ac4bdx8hgteewqr1xz3ydy5rsthvy0pbyw10wr0",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "tangram.ts"
+        },
+        "../cmake.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/cmake.tg.ts"
+        },
+        "../dependencies.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/dependencies.tg.ts"
+        },
+        "../ninja.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/ninja.tg.ts"
+        }
+      },
+      "id": "fil_01yzqcrs5hc4t99weetqgd5q7egvfj1jsyzq9yms165k0hn0we0hjg"
+    },
+    {
+      "kind": "file",
+      "contents": "lef_0135ksaqar67jhk2pttv1x9kav6qq8wqjemehksc0acmg5rh8vxwx0",
       "dependencies": {
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
+        },
+        "./apple_libdispatch.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm/apple_libdispatch.tg.ts"
+        },
+        "./apple_libtapi.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm/apple_libtapi.tg.ts"
         }
-      }
+      },
+      "id": "fil_01szrv3b61ey1mdk8faff2q12585cxm0eh0n0yb60y118w5dxdexng"
     },
     {
       "kind": "file",
+      "contents": "lef_0152wqe4vtzpxyd94b624qjxsg7hqgr676hfscgmfgthg5g2gyj930",
       "dependencies": {
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
+        },
+        "../dependencies/zlib.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/dependencies/zlib.tg.ts"
         }
-      }
+      },
+      "id": "fil_01smrd7m685326jgk05tewmk8fr4gamxmhfbf47p63rrmk7h4bmwk0"
     },
     {
       "kind": "file",
+      "contents": "lef_01m2vtfrzqhay60a3j82s2skybsme0nj3x8qb6q0ff818s400z4w1g",
       "dependencies": {
         "../../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01q2stv4xqt9nkpwbj8zwnf1yawg2t5xyfm00tnqa42dvmfdh3g060"
     },
     {
       "kind": "file",
+      "contents": "lef_01kvxd0xnwp1dknaa1td1mcz9ktpx91rf045kbn25aqzsf9emsten0",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_019n9n7ywj3pdde1bwc3k8c8jextsaen16n4k1rc2zq5wmc2r2gfag"
+    },
+    {
+      "kind": "file",
+      "contents": "lef_011t9fy71mnkv3kqeh48be4f1sxcph1ga5jsskt868ekhg316dpdv0",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01r5nfzt3mf9bqfe3sgvgy2jry3x97ymc7andtyzmgh8f1t2vfg95g"
+    },
+    {
+      "kind": "file",
+      "contents": "lef_01yea3a78bmdk7wr7j3pbb51tf84kjb88eh02r5h1xn5p8zgrmn3d0",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../wrap/test/inspectProcess.c": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/test/inspectProcess.c"
         },
         "./cmake.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/cmake.tg.ts"
         },
         "./dependencies.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/dependencies.tg.ts"
         },
         "./libc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/libc.tg.ts"
-        },
-        "./llvm/apple_libdispatch.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/llvm/apple_libdispatch.tg.ts"
-        },
-        "./llvm/apple_libtapi.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/llvm/apple_libtapi.tg.ts"
         },
         "./llvm/cctools_port.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/llvm/cctools_port.tg.ts"
         },
         "./llvm/git.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/llvm/git.tg.ts"
-        },
-        "./llvm/libbsd.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/llvm/libbsd.tg.ts"
-        },
-        "./llvm/libmd.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/llvm/libmd.tg.ts"
         },
         "./llvm/ncurses.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/llvm/ncurses.tg.ts"
         }
-      }
+      },
+      "id": "fil_01ch9dzqrxcc9pc9yq5t7xe94nd2h4eg1b672hcn70dp1dq7m1rt50"
     },
     {
       "kind": "file",
+      "contents": "lef_01fngc2xmhnv7vt6wk86prz7z48nm8v11yjzw158b648x41yjzrx7g",
       "dependencies": {
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./cmake.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/cmake.tg.ts"
         },
         "./dependencies/zstd.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/dependencies/zstd.tg.ts"
+          "item": 38,
+          "path": "sdk/dependencies/zstd.tg.ts"
         },
         "./mold_blake3_disable_neon_flag.patch": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/mold_blake3_disable_neon_flag.patch"
         }
-      }
+      },
+      "id": "fil_01vrvfhzfmhe5mtf0nbvdrbyshmvyz4ke22tt6q5f7k6b3qp7y9a80"
     },
     {
       "kind": "file",
+      "contents": "lef_01ctv91c81sjz78q9qgqy13fvpyrn8sv8af8smf80xdrmxa8x6qzs0",
       "dependencies": {
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./cmake.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/cmake.tg.ts"
         }
-      }
+      },
+      "id": "fil_01kqfv2g8rds5c5tj4h8j80fmp5wqmf75zmchqm4nx98v7pkghqfrg"
     },
     {
       "kind": "file",
+      "contents": "lef_01vdy07xjqjyyhnh680ab5jpzexkpvn6mxrh0vfb9ny0bfmr99c3h0",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../wrap/injection.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/injection.tg.ts"
         },
         "../wrap/test/inspectProcess.c": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/test/inspectProcess.c"
         },
         "../wrap/workspace.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/workspace.tg.ts"
         },
         "./gnu.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu.tg.ts"
         },
         "./llvm.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/llvm.tg.ts"
         }
-      }
+      },
+      "id": "fil_017b51r2mvcdmqdqww1kre263jr03a9stmddpxn6xc83hshh4cs3cg"
     },
     {
       "kind": "file",
+      "contents": "lef_01pjt5rs5qskex2kpaanep59v9cn072q1se2b6dzxybgfzr3jadqrg",
       "dependencies": {
         "./bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
-        },
-        "./sdk/cmake.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/cmake.tg.ts"
-        },
-        "./sdk/dependencies.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/dependencies.tg.ts"
         },
         "./sdk/gnu.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu.tg.ts"
         },
         "./sdk/gnu/binutils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu/binutils.tg.ts"
-        },
-        "./sdk/kernel_headers.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/kernel_headers.tg.ts"
         },
         "./sdk/libc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/libc.tg.ts"
         },
         "./sdk/llvm.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/llvm.tg.ts"
         },
         "./sdk/mold.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/mold.tg.ts"
-        },
-        "./sdk/ninja.tg.ts": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "sdk/ninja.tg.ts"
         },
         "./sdk/proxy.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/proxy.tg.ts"
         },
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01q2cptvevj5fqzjx5e51qefy60qw8yfgtpn6dpyv4mgt75j9cq270"
     },
     {
       "kind": "file",
+      "contents": "lef_01xhg9ad03hs2dmszzzd5jb5tkxha00v6dkf9zckkkq2pawqbn9qw0",
       "dependencies": {
         "./args.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "args.tg.ts"
         },
         "./assert.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "assert.tg.ts"
         },
         "./autotools.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "autotools.tg.ts"
         },
         "./bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
+        },
+        "./bootstrap/make.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "bootstrap/make.tg.ts"
         },
         "./certificates.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "certificates.tg.ts"
         },
         "./directory.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "directory.tg.ts"
         },
         "./dollar.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "dollar.tg.ts"
         },
         "./download.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "download.tg.ts"
         },
         "./env.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "env.tg.ts"
         },
         "./file.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "file.tg.ts"
         },
         "./image.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "image.tg.ts"
         },
         "./patch.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "patch.tg.ts"
         },
         "./phases.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "phases.tg.ts"
         },
         "./sdk.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk.tg.ts"
+        },
+        "./sdk/cmake.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/cmake.tg.ts"
+        },
+        "./sdk/dependencies.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/dependencies.tg.ts"
+        },
+        "./sdk/gnu/binutils.tg.ts": {
+          "item": 41,
+          "path": "sdk/gnu/binutils.tg.ts"
+        },
+        "./sdk/gnu/gcc.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/gnu/gcc.tg.ts"
+        },
+        "./sdk/gnu/toolchain.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/gnu/toolchain.tg.ts"
+        },
+        "./sdk/kernel_headers.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/kernel_headers.tg.ts"
+        },
+        "./sdk/llvm.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm.tg.ts"
+        },
+        "./sdk/llvm/apple_libdispatch.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm/apple_libdispatch.tg.ts"
+        },
+        "./sdk/llvm/apple_libtapi.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm/apple_libtapi.tg.ts"
+        },
+        "./sdk/llvm/cctools_port.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm/cctools_port.tg.ts"
+        },
+        "./sdk/llvm/git.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm/git.tg.ts"
+        },
+        "./sdk/llvm/libbsd.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm/libbsd.tg.ts"
+        },
+        "./sdk/llvm/libmd.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm/libmd.tg.ts"
+        },
+        "./sdk/llvm/ncurses.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/llvm/ncurses.tg.ts"
+        },
+        "./sdk/mold.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/mold.tg.ts"
+        },
+        "./sdk/ninja.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/ninja.tg.ts"
+        },
+        "./sdk/proxy.tg.ts": {
+          "item": 4,
+          "path": "",
+          "subpath": "sdk/proxy.tg.ts"
         },
         "./triple.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "triple.tg.ts"
         },
         "./utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         },
         "./wrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap.tg.ts"
         },
         "./wrap/injection.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/injection.tg.ts"
+        },
+        "./wrap/test/inspectProcess.c": {
+          "item": 4,
+          "path": "",
+          "subpath": "wrap/test/inspectProcess.c"
         },
         "./wrap/workspace.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/workspace.tg.ts"
         }
-      }
+      },
+      "id": "fil_016ep109snqhw6ddq5sqs63f9p78tk4gf96b0jmdknq7s2ncnphf30"
     },
     {
-      "kind": "file"
+      "kind": "file",
+      "id": "fil_0124yemsm11twyfffr48mzeqvx28b3x9v7sb22rxpf0f2kmwt7p8x0"
     },
     {
       "kind": "directory",
@@ -1325,564 +1484,606 @@
         "sed.tg.ts": 80,
         "tar.tg.ts": 81,
         "xz.tg.ts": 82
-      }
+      },
+      "id": "dir_01njqad97vv6618br88bx6628hc1w60re2m9gjp81znn08m7fhyf80"
     },
     {
       "kind": "file",
+      "contents": "lef_01jy86wctcrpam58dy6mmfvehp0cfas8zfkv7cervst47geav1vz4g",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         },
         "./attr_basename.patch": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/attr_basename.patch"
         }
-      }
+      },
+      "id": "fil_017cyj7jtbdszb5qscxs9gh1qm6bxsbzhyhwj00d8r4xmyyvw5m6y0"
     },
     {
       "kind": "file",
+      "contents": "lef_018hqewrs5eagft1m9wmm6m4e2sx1jxhng1djw1a6y2qmyb2hswwg0",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_01xvzfzpn7cs5mxwwmfre0jvq50kqyrqz5eyrx10ck4e63yt3kbr4g"
     },
     {
       "kind": "file",
+      "contents": "lef_013tqkct048yfmhjwtxw5ynyghpge89fv01ez3j119b90yvxz7nxt0",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         },
         "./bzip2_dylib_detect_os.patch": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/bzip2_dylib_detect_os.patch"
         }
-      }
+      },
+      "id": "fil_018k2nxeysjt8p6fexgza4qekfr4r126wtk9aqvkz0r5s5p2qqkkgg"
     },
     {
       "kind": "file",
+      "contents": "lef_01fx0dmt3ezk91e23qmx91z439tbvvdhkr5qmvxqqn7n602j9ms0p0",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         },
         "./attr.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/attr.tg.ts"
         },
         "./coreutils-always-preserve-xattrs.patch": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/coreutils-always-preserve-xattrs.patch"
         },
         "./file_cmds.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/file_cmds.tg.ts"
         },
         "./libiconv.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/libiconv.tg.ts"
         }
-      }
+      },
+      "id": "fil_01tbkqnn1eqj5v9h7vzxn5b9jfv5vjdjwbg1c39rsf5acyr0xhv5y0"
     },
     {
       "kind": "file",
+      "contents": "lef_01k843m6ex8sbg8014112t0acj15hbk10p2qbckcqmf0eqt42xz220",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_01tw3nd1qs708wheywfz5rbpajtwvhyhw0e4csw24a15f1sm8fc6jg"
     },
     {
       "kind": "file",
+      "contents": "lef_01fsame68fp1wc98v7rq7trwe9511hpt5ve8sz4abndzxzf82ehtn0",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_011ys66tw71by22xc2vddxtxgcz9ycdgxzh0pazdv9stam7kd6gyb0"
     },
     {
       "kind": "file",
+      "contents": "lef_01t255tw3f4aq6axyarp6abq3svk2z5vfd2hz4rj3nwawj11et9bhg",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         },
         "./findutils-disable-locate.diff": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/findutils-disable-locate.diff"
         }
-      }
+      },
+      "id": "fil_011yzt58wtj4ksp3zjg06k6ddny283ksxd231vtppm0p4rtcweh0ng"
     },
     {
       "kind": "file",
+      "contents": "lef_01jw51j8yvqvb3ndqc0jcp99nr7skbfpryxv9x00208r8c44p5dk9g",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_0101ewzeqf26vnvzkwjj5hycn510aexmr2cdxae7adc6shkndk1xt0"
     },
     {
       "kind": "file",
+      "contents": "lef_01xhc4kk906s4f0nn5x3netybcve8zwrwsk0axmgv8s0pg8aakbs10",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_013n706cs60yra3pvxsamt7d0awyvce4fwfvakchzmga98yb5mhn4g"
     },
     {
       "kind": "file",
+      "contents": "lef_01cybgkemm1075tcs63gaeq2h3kkcwfbq6x0q94yxsr42grk33fn40",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_01kjbr2dwecjg51282n8mt77dpzq62je7m9fkn7vfvy20sr4qk1jh0"
     },
     {
       "kind": "file",
+      "contents": "lef_01w6wfkc8ftdje0mnbp1fv5hyhwa290hff92wz92wwmz5rv9znk6jg",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_01vagdbyh5wjy7q6bc3c33gsmfr71ayjhe83fj1wevrs3xmp3fcrsg"
     },
     {
       "kind": "file",
+      "contents": "lef_01d5xzye801019d530z9hz2sha0yjyys3r2y7pggw74kmtzmjayyw0",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_01dv383jg9zs1t8492cbpwzk9663yybbes2rrwseg9q77j4v88fkzg"
     },
     {
       "kind": "file",
+      "contents": "lef_018nz4ke3sybjz8tfy9h01sv6n9495aasqd23g9n0r3641twmyymag",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_0163bm1exd6d3ym59t5ph4chmqp7qq9sfyky7yb73yy2snfkrecc5g"
     },
     {
       "kind": "file",
+      "contents": "lef_01851bg4rj5mg6e0mj144gqnqsv93x2tk4mtt3vmh68e7j3rgff1rg",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_01x0tf823m8sfasbxvg0yw2q49zwneez96r7730mcesy4dwkz4p8h0"
     },
     {
       "kind": "file",
+      "contents": "lef_01x1qr3yc7j0sk3j3rpc604n45zdc31g9m2nzyjds091xj4g7tbcw0",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         },
         "./libiconv.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/libiconv.tg.ts"
         }
-      }
+      },
+      "id": "fil_01j9m4dr8tvmx2y418d704pvhf9sjj4en0n5jk5jcjyv0kfmpjv9zg"
     },
     {
       "kind": "file",
+      "contents": "lef_01pbmjkn4tsn8s75fywha054mpg691eatawtzpnrgxm9df8zz71w2g",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "../utils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils.tg.ts"
         }
-      }
+      },
+      "id": "fil_01qpa42n0nzb42gy13e04pmw9cgrhtkadf1a2k6xq66vbhwes3ggb0"
     },
     {
       "kind": "file",
+      "contents": "lef_01sk1y8g43v203f4x972wy5cwdy1z2be81pr40za7naq6vj4b0fq0g",
       "dependencies": {
         "./bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./utils/attr.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/attr.tg.ts"
         },
         "./utils/bash.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/bash.tg.ts"
         },
         "./utils/bzip2.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/bzip2.tg.ts"
         },
         "./utils/coreutils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/coreutils.tg.ts"
         },
         "./utils/diffutils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/diffutils.tg.ts"
         },
         "./utils/file_cmds.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/file_cmds.tg.ts"
         },
         "./utils/findutils.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/findutils.tg.ts"
         },
         "./utils/gawk.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/gawk.tg.ts"
         },
         "./utils/grep.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/grep.tg.ts"
         },
         "./utils/gzip.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/gzip.tg.ts"
         },
         "./utils/libiconv.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/libiconv.tg.ts"
         },
         "./utils/make.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/make.tg.ts"
         },
         "./utils/patch.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/patch.tg.ts"
         },
         "./utils/sed.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/sed.tg.ts"
         },
         "./utils/tar.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/tar.tg.ts"
         },
         "./utils/xz.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "utils/xz.tg.ts"
         }
-      }
+      },
+      "id": "fil_01356py3dmeckj63av5dqjadg47nxnnrd3dykcnc1n2wv60c4tah7g"
     },
     {
       "kind": "directory",
       "entries": {
         "injection.tg.ts": 85,
         "workspace.tg.ts": 86
-      }
+      },
+      "id": "dir_011es6hwphssezfqxav50ff5kdv7h7ww76xmv4ynvbjy6r6k5nh1dg"
     },
     {
       "kind": "file",
+      "contents": "lef_0196k3h7fg104twqvj9pwbc4324pqa69hjd0zfxzgmevrpfeq94f20",
       "dependencies": {
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../sdk/gnu.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01acp2wjgdnscra11ev25ghsnn9r9rf4c915h81cyx3vcwv9aqbcng"
     },
     {
       "kind": "file",
+      "contents": "lef_01p8sykgd66da5xfksgwrvf1w8nyjgwjjmfs36r14v0kbe028kgac0",
       "dependencies": {
         "../Cargo.lock": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "Cargo.lock"
         },
         "../Cargo.toml": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "Cargo.toml"
         },
         "../bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "../sdk/gnu.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu.tg.ts"
         },
         "../tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01qsap1g7xvrb747pz5g4c8bkxz04d2dd81c8myx1n38kcqr9q1bq0"
     },
     {
       "kind": "file",
+      "contents": "lef_01fzd4q1rc25qvvam3aaxy63152vqjanr7ja8ny2qtdk82b9qash8g",
       "dependencies": {
         "./bootstrap.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "bootstrap.tg.ts"
         },
         "./sdk/gnu.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/gnu.tg.ts"
         },
         "./sdk/libc.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "sdk/libc.tg.ts"
         },
         "./tangram.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "./wrap/injection.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/injection.tg.ts"
         },
         "./wrap/test/driver.c": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/test/driver.c"
         },
         "./wrap/test/greet.c": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/test/greet.c"
         },
         "./wrap/test/inspectProcess.c": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/test/inspectProcess.c"
         },
         "./wrap/workspace.tg.ts": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "",
           "subpath": "wrap/workspace.tg.ts"
         }
-      }
+      },
+      "id": "fil_01bfsk0f8cz7hzt24p933nwmcyw3p90x6xv002hsxe1wz1na1r3bh0"
     },
     {
       "kind": "directory",
@@ -1891,56 +2092,61 @@
         "cargo.tg.ts": 137,
         "proxy.tg.ts": 138,
         "tangram.ts": 139
-      }
+      },
+      "id": "dir_01p2dx2qdrgp0xbghmc7pa5hj6yk42ryaepe2ym9k7hfcwpd4k5jjg"
     },
     {
       "kind": "file",
+      "contents": "lef_01r69krvrr7mfbnq0r687sa4gqeh08nhat3pyts00d3gdk806e9f3g",
       "dependencies": {
         "./proxy.tg.ts": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "proxy.tg.ts"
         },
         "./tangram.ts": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "curl?path=..%2Fcurl": {
           "item": 90,
-          "path": "../packages/packages/curl",
+          "path": "../curl",
           "subpath": "tangram.ts"
         },
         "openssl?path=..%2Fopenssl": {
           "item": 129,
-          "path": "../packages/packages/openssl",
+          "path": "../openssl",
           "subpath": "tangram.ts"
         },
         "std?path=..%2Fstd": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "../std",
           "subpath": "tangram.ts"
         },
         "zlib?path=..%2Fzlib": {
           "item": 119,
-          "path": "../packages/packages/zlib",
+          "path": "../zlib",
           "subpath": "tangram.ts"
         },
         "zstd?path=..%2Fzstd": {
           "item": 135,
-          "path": "../packages/packages/zstd",
+          "path": "../zstd",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01wz55z4y36xv2d1zvg4ws29af9ba2em5qhmtcbn4br96y1554tx6g"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 91
-      }
+      },
+      "id": "dir_01hf13tbc5anp3t1drp7nx449kn8cn2mmfjc9anezxj1hjpc2ey4r0"
     },
     {
       "kind": "file",
+      "contents": "lef_01nnknwje2b7gj9dge58g5awpmkw6x73320acz20ewpj7wcraz4jxg",
       "dependencies": {
         "libpsl?path=..%2Flibpsl": {
           "item": 92,
@@ -1977,16 +2183,19 @@
           "path": "../packages/packages/zstd",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01w94k7f1e6xmgsrzzf7e9ka9gf0wcryehtz87n248qmrg7t6kd2s0"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 93
-      }
+      },
+      "id": "dir_01s9gs82sp9re5zt6ryp791nsn3qn7anxsapcgdw2t8dja59ndh5ng"
     },
     {
       "kind": "file",
+      "contents": "lef_01fydjyaf20xngbwhp84m6mg0jzqjyqvghc5ngqwq4dxmkkmdpjnc0",
       "dependencies": {
         "python?path=..%2Fpython": {
           "item": 94,
@@ -1998,17 +2207,20 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01bdpa0ry8jc0rcj4s7bpzyxmx9d2z3yptywqwzkysyfj3tys9716g"
     },
     {
       "kind": "directory",
       "entries": {
         "requirements.tg.ts": 95,
         "tangram.ts": 96
-      }
+      },
+      "id": "dir_01e4fjrqcxjh6dhhh92nstdwwgjex3g73rvy4qhc49rwyw1swz1e0g"
     },
     {
       "kind": "file",
+      "contents": "lef_01b6b9n5p2f6pn0ff0aqawr64f35fbyc21sgth5z7ba67ytvczx7t0",
       "dependencies": {
         "./tangram.ts": {
           "item": 94,
@@ -2025,10 +2237,12 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_011j5arb34mnwxy71gfyka6medq8r2t658d7cnptn6bvm2jhvyjtwg"
     },
     {
       "kind": "file",
+      "contents": "lef_0178kjbrrs53c5gwb9z4krg72j10mraes792nwgy3jvvmxqvh7ytfg",
       "dependencies": {
         "./requirements.tg.ts": {
           "item": 94,
@@ -2095,13 +2309,15 @@
           "path": "../packages/packages/zlib",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01tdrgsfs2hptw4mh514ehabxhw71q8r1r47s4n5czerg4fn0hxep0"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 98
-      }
+      },
+      "id": "dir_01nwbemh2qgpeqryqyv559xnbrmhc55b83vf220kwehphwemqks8mg"
     },
     {
       "kind": "file",
@@ -2116,13 +2332,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_0156n59cta6n5hjgw3az98tsa5yqxszph1sh7bjakakycnz0hgt3pg"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 100
-      }
+      },
+      "id": "dir_01pk6zgh0nd3ss8pan0125hhxw97ewrdw8fepn30de02vtp5gq4kng"
     },
     {
       "kind": "file",
@@ -2132,16 +2350,19 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01f7wm20sbbpe7836zgatk0r38dn6e5w1yhnwdagptbskypyg1hw8g"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 102
-      }
+      },
+      "id": "dir_013secfqjn677y7wemdkgz50yxjvvbknv9gmvfxn2nqed7vcp5dwe0"
     },
     {
       "kind": "file",
+      "contents": "lef_01c4g555ar5aqxvr870y0zgpd04mg1k4wq8m0z4x3m7ev79pxp0jw0",
       "dependencies": {
         "./bzip2_dylib_detect_os.patch": {
           "item": 101,
@@ -2158,13 +2379,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01187kc9838zeatxsjqt4kfbtqsgx07aes8bjcbke948ke3ezwjq0g"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 104
-      }
+      },
+      "id": "dir_01rmnnfa2xr1hm4wfwtkbymbnhpy9nnmtefvpjv0efh9cbct8cgem0"
     },
     {
       "kind": "file",
@@ -2194,13 +2417,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_016vgh71gv0qs6zjmw5rae72pa92vt5m7q18fs7wx4k08zmsxg1nt0"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 106
-      }
+      },
+      "id": "dir_01k6at4mkp0m447crm7tcvj31b1883erwrercs1ta2gwft0vyagy3g"
     },
     {
       "kind": "file",
@@ -2250,34 +2475,34 @@
           "path": "../packages/packages/xz",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_012xcrhewagvr4nby9cea26vqg2a5f66sj1pbaq0fpwxqpq80b2bb0"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 108
-      }
+      },
+      "id": "dir_01b4w0svxad30by09f6hp0xf2hahf4seyj0xc7ka7yqm7rebhgmyeg"
     },
     {
       "kind": "file",
       "dependencies": {
         "attr?path=..%2Fattr": {
-          "item": 109,
-          "path": "../packages/packages/attr",
-          "subpath": "tangram.ts"
+          "item": 109
         },
         "std?path=..%2Fstd": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "tangram.ts"
+          "item": 4
         }
-      }
+      },
+      "id": "fil_01q6zr5e0ta49k3d7qdvf34ak671pv1367gyp9p87rqmtsk2gwmpjg"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 110
-      }
+      },
+      "id": "dir_01tmjag773yw09649dwd8p8bc4pvxpasvp3mc7x7a1vt3ghaqsyr50"
     },
     {
       "kind": "file",
@@ -2287,13 +2512,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_014km6d1xjng4h06erm39xa3zax7dvse93fpbzvqg2v8s7wnfxkv9g"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 112
-      }
+      },
+      "id": "dir_018b2rwvynqghycgnf68cwgt6e4339qck4mht88ze03zr3y307ghw0"
     },
     {
       "kind": "file",
@@ -2303,13 +2530,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01xwmr1znxczyk8re38py95s122h0zvwbj1n3bwf372bf043nfwpr0"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 114
-      }
+      },
+      "id": "dir_013zj4hc1dmky4ah45sm8kv9805dwcsggvn152pk21zgjrtv3afjyg"
     },
     {
       "kind": "file",
@@ -2319,13 +2548,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01494pjtnpwt8g0cf7t1c6sc1rm5bwmnpyk5313g6z55637xwtx5tg"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 116
-      }
+      },
+      "id": "dir_01y2s3fejt2dwr49kh7z61mb41qv2yw9tvp9kpcv127wdjjevyje10"
     },
     {
       "kind": "file",
@@ -2355,13 +2586,15 @@
           "path": "../packages/packages/zlib",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01wvk5esb0qwx037vsw6j9casxhs33vwgxht2xme687srnas6rsm70"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 118
-      }
+      },
+      "id": "dir_01h5pcbawdxchfe9badfd0hsa03fjp0b70xzhnzd0frfrpm6xjt9hg"
     },
     {
       "kind": "file",
@@ -2371,13 +2604,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01q9q952js6wveb0vwxjw9br445rffky0ytpr2ptsz47akkwayj78g"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 120
-      }
+      },
+      "id": "dir_013hjgh29whdwzxd9jszmv18t5j956x7wc469ta3wwc78pnvs3n41g"
     },
     {
       "kind": "file",
@@ -2387,13 +2622,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01pqg4570atwbqv8j3brha4039rc803ev8w05ggywrcvnyefavwnx0"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 122
-      }
+      },
+      "id": "dir_01qmmap3wfg2dvhzxnqw03kee0j0fyc5hwax0yrtkyfxjvsx0xbbr0"
     },
     {
       "kind": "file",
@@ -2418,13 +2655,15 @@
           "path": "../packages/packages/zlib",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01hmqmz9cv806m5c8fjbbhyqjqp1a1brv6zc05qngfhfjnvqfm3a70"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 124
-      }
+      },
+      "id": "dir_01at1mk5we5r4mxjdwcqkxxg6df7ey5fthcvzy3gkkwvcwnc2z6qf0"
     },
     {
       "kind": "file",
@@ -2434,29 +2673,31 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_017y2ss887qeqd5kq85qwk8hh7czmxze3en3hthxqmvqsqcyt9h180"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 126
-      }
+      },
+      "id": "dir_01ndcdk9rqrct1brcx69d0jfrxbm53dgd5reg47zx38tza93zhf0tg"
     },
     {
       "kind": "file",
       "dependencies": {
         "std?path=..%2Fstd": {
-          "item": 4,
-          "path": "../packages/packages/std",
-          "subpath": "tangram.ts"
+          "item": 4
         }
-      }
+      },
+      "id": "fil_01hq79rnnfgz4cebtas7kqxg6xjd8wxpty0bfzkdddmw16pt31w5hg"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 128
-      }
+      },
+      "id": "dir_015pnnkcbe7jvrznavvk4ebte2f8a2q418mwq78kjweb83x4axt70g"
     },
     {
       "kind": "file",
@@ -2471,13 +2712,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01ahrya18ac4y62pphndksn0nhy6qg0k1dvc1km0qcny6ndw820260"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 130
-      }
+      },
+      "id": "dir_01h6811gaqvdxffv74x0tvv223k2kjwa58jrnfyefeas3bbc3zabng"
     },
     {
       "kind": "file",
@@ -2492,13 +2735,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01qw5335bag05hn016jkbnfdjjz8npn57qfb2p6n9yrb2xmvs8gdag"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 132
-      }
+      },
+      "id": "dir_01t0qpn5f3eq6wcvk1z7sthmnc9ka66jsnt52zf1d8jqvtc1khzv3g"
     },
     {
       "kind": "file",
@@ -2518,13 +2763,15 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_018gafgzg67hmbaxrfbjfs55xr6ag8y1t3kgds0j09xvmwtamstbvg"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 134
-      }
+      },
+      "id": "dir_01v0ewwrwtnppf7bwt1bnfzh1ajgm7f2rxxd9nsxtkzvt9cfther9g"
     },
     {
       "kind": "file",
@@ -2554,13 +2801,15 @@
           "path": "../packages/packages/zlib",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_011x1v9vgxt6wa9kyjpng40r5v3q69wbn14h92m9z5289kwgns8psg"
     },
     {
       "kind": "directory",
       "entries": {
         "tangram.ts": 136
-      }
+      },
+      "id": "dir_01sj4chksgz1rzkfd55xgqvq81ke8danp43ckdyyhawmnvvr32cnsg"
     },
     {
       "kind": "file",
@@ -2570,102 +2819,109 @@
           "path": "../packages/packages/std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_0136e1pdaj9cdcbek7jj7c7m11txq23qcppx9mgw1y2gxqc17fe8qg"
     },
     {
       "kind": "file",
+      "contents": "lef_01ncdatq297e3edg47dnnh3mj00jggrqnwj3ze2j2mas3rabfbbgpg",
       "dependencies": {
         "./proxy.tg.ts": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "proxy.tg.ts"
         },
         "./tangram.ts": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "openssl?path=..%2Fopenssl": {
           "item": 129,
-          "path": "../packages/packages/openssl",
+          "path": "../openssl",
           "subpath": "tangram.ts"
         },
         "pkg-config?path=..%2Fpkg-config": {
           "item": 121,
-          "path": "../packages/packages/pkg-config",
+          "path": "../pkg-config",
           "subpath": "tangram.ts"
         },
         "std?path=..%2Fstd": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "../std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_014eyan9mywdn3mfbw461tgdjj910s2nsy91ry2f3vc0ymbcsx503g"
     },
     {
       "kind": "file",
+      "contents": "lef_010yesn7126de9s3cqkh74qeg56ckahmfr6cz2j4009pzs0ckhp8t0",
       "dependencies": {
         "./proxy/Cargo.lock": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "proxy/Cargo.lock"
         },
         "./proxy/Cargo.toml": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "proxy/Cargo.toml"
         },
         "./tangram.ts": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "tangram.ts"
         },
         "openssl?path=..%2Fopenssl": {
           "item": 129,
-          "path": "../packages/packages/openssl",
+          "path": "../openssl",
           "subpath": "tangram.ts"
         },
         "pkg-config?path=..%2Fpkg-config": {
           "item": 121,
-          "path": "../packages/packages/pkg-config",
+          "path": "../pkg-config",
           "subpath": "tangram.ts"
         },
         "std?path=..%2Fstd": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "../std",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01w7cr6kdza77z0vbnff1jff7rxaej5t8kaq2r3h3wxj5rhwxs9zeg"
     },
     {
       "kind": "file",
+      "contents": "lef_010m34t7t5g31cch3ctnqbg8d741medpc9rc9c04mkmrcmd012081g",
       "dependencies": {
         "./build.tg.ts": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "build.tg.ts"
         },
         "./cargo.tg.ts": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "cargo.tg.ts"
         },
         "./proxy.tg.ts": {
           "item": 88,
-          "path": "../packages/packages/rust",
+          "path": "",
           "subpath": "proxy.tg.ts"
         },
         "std?path=..%2Fstd": {
           "item": 4,
-          "path": "../packages/packages/std",
+          "path": "../std",
           "subpath": "tangram.ts"
         },
         "zlib?path=..%2Fzlib": {
           "item": 119,
-          "path": "../packages/packages/zlib",
+          "path": "../zlib",
           "subpath": "tangram.ts"
         }
-      }
+      },
+      "id": "fil_01mhb9a55c2yvmsvb8s5et3fdz0m3s5jknm85pak9bf8296wgkmcr0"
     }
   ]
 }

@@ -312,6 +312,13 @@ impl tg::Handle for Proxy {
 		self.server.put_object(id, arg)
 	}
 
+	fn post_object(
+		&self,
+		arg: tg::object::post::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::post::Output>> {
+		self.server.post_object(arg)
+	}
+
 	async fn push_object(
 		&self,
 		_id: &tg::object::Id,

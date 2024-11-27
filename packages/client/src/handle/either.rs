@@ -336,6 +336,16 @@ where
 		}
 	}
 
+	fn post_object(
+		&self,
+		arg: tg::object::post::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::post::Output>> {
+		match self {
+			Either::Left(s) => s.post_object(arg).left_future(),
+			Either::Right(s) => s.post_object(arg).right_future(),
+		}
+	}
+
 	fn push_object(
 		&self,
 		id: &tg::object::Id,

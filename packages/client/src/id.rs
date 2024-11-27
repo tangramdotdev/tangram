@@ -21,7 +21,7 @@ pub struct V0 {
 	pub body: Body,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize)]
 #[non_exhaustive]
 pub enum Kind {
 	Leaf,

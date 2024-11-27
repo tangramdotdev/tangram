@@ -3,6 +3,9 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
+#[cfg(test)]
+mod tests;
+
 impl Server {
 	pub async fn document_package(
 		&self,
@@ -28,9 +31,13 @@ impl Server {
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 
 		// Create the module.
-		let module = self
-			.root_module_for_package(Either::Left(arg.package))
-			.await?;
+		let module = if let Some(subpath) = arg.subpath {
+			self.module_for_package_and_subpath(Either::Left(arg.package), subpath)
+				.await?
+		} else {
+			self.root_module_for_package(Either::Left(arg.package))
+				.await?
+		};
 
 		// Document the module.
 		let output = compiler.document(&module).await?;

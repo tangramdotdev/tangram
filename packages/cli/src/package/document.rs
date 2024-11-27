@@ -37,6 +37,7 @@ impl Cli {
 			let output = serde_json::to_string_pretty(&doc)
 				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
 			println!("{output}");
+			return Ok(());
 		}
 
 		// Get the reference.
@@ -44,22 +45,26 @@ impl Cli {
 		let Either::Right(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
 		};
-		let object = if let Some(subpath) = &referent.subpath {
-			let directory = object
-				.try_unwrap_directory()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a directory"))?;
-			directory.get(&handle, subpath).await?.into()
-		} else {
-			object
-		};
+		// let object = if let Some(subpath) = &referent.subpath {
+		// 	let directory = object
+		// 		.try_unwrap_directory()
+		// 		.ok()
+		// 		.ok_or_else(|| tg::error!("expected a directory"))?;
+		// 	directory.get(&handle, subpath).await?.into()
+		// } else {
+		// 	object
+		// };
 		let Ok(package) = tg::Directory::try_from(object) else {
 			return Err(tg::error!("expected a directory"));
 		};
 		let package = package.id(&handle).await?;
 
 		// Document the module.
-		let arg = tg::package::document::Arg { package, remote };
+		let arg = tg::package::document::Arg {
+			package,
+			subpath: referent.subpath,
+			remote,
+		};
 		let output = handle.document_package(arg).await?;
 
 		// Serialize the output.
