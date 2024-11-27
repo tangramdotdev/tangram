@@ -114,7 +114,6 @@ async fn path_dependency() -> tg::Result<()> {
 	.await
 }
 
-
 #[tokio::test]
 async fn cyclic_path_dependency() -> tg::Result<()> {
 	test(
@@ -161,7 +160,7 @@ where
 
 		// Realize the artifact.
 		checkin.to_path(temp.path()).await.unwrap();
-		
+
 		// Check in the artifact to the first server.
 		let arg = tg::artifact::checkin::Arg {
 			path: temp.path().join(path),

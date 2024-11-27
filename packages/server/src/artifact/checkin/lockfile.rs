@@ -402,17 +402,16 @@ fn strip_nodes_inner(
 	is_tagged: &[Option<bool>],
 	in_graph: &[bool],
 ) -> Option<usize> {
-	if
-		matches!(should_retain[node], Some(false))
-	||  matches!(is_tagged[node], Some(true))
-	|| !in_graph[node] {
+	if matches!(should_retain[node], Some(false))
+		|| matches!(is_tagged[node], Some(true))
+		|| !in_graph[node]
+	{
 		return None;
 	}
-	
+
 	if let Some(visited) = visited[node] {
 		return Some(visited);
 	}
-
 
 	let new_node = new_nodes.len();
 	visited[node].replace(new_node);
@@ -506,10 +505,16 @@ fn strip_nodes_inner(
 		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
-				Either::Left(node) => {
-					strip_nodes_inner(old_nodes, node, visited, new_nodes, should_retain, is_tagged, in_graph)
-						.map(Either::Left)
-				},
+				Either::Left(node) => strip_nodes_inner(
+					old_nodes,
+					node,
+					visited,
+					new_nodes,
+					should_retain,
+					is_tagged,
+					in_graph,
+				)
+				.map(Either::Left),
 				Either::Right(id) => Some(Either::Right(id)),
 			};
 
@@ -601,18 +606,14 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a LockfileGraphImpl<'a> {
 					.filter_map(|referent| referent.item.as_ref().left().copied());
 				Box::new(it)
 			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
-				let it = artifact
-					.as_ref()
-					.left()
-					.copied()
-					.into_iter();
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, .. }) => {
+				let it = artifact.as_ref().left().copied().into_iter();
 				Box::new(it)
 			},
 			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { .. }) => {
 				let it = None.into_iter();
 				Box::new(it)
-			}
+			},
 		}
 	}
 }
