@@ -82,12 +82,11 @@ impl tg::Blob {
 		Reader::new(handle, self.clone()).await
 	}
 
-	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
+	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Bytes>
 	where
 		H: tg::Handle,
 	{
-		let bytes = self.read(handle, Arg::default()).await?;
-		Ok(bytes.into())
+		Ok(self.read(handle, Arg::default()).await?)
 	}
 
 	pub async fn text<H>(&self, handle: &H) -> tg::Result<String>
@@ -95,7 +94,7 @@ impl tg::Blob {
 		H: tg::Handle,
 	{
 		let bytes = self.bytes(handle).await?;
-		let string = String::from_utf8(bytes)
+		let string = String::from_utf8(bytes.to_vec())
 			.map_err(|source| tg::error!(!source, "failed to decode the blob's bytes as UTF-8"))?;
 		Ok(string)
 	}

@@ -22,6 +22,8 @@ insta = { workspace = true }
 tangram_temp = { workspace = true }
 
 [dependencies]
+ansi-to-tui = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
 copypasta = { workspace = true }
@@ -29,12 +31,14 @@ crossterm = { workspace = true }
 deno_core_icudata = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
+hexyl = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
 ratatui = { workspace = true }
+regex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
