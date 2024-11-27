@@ -113,11 +113,29 @@ where
 	}
 
 	pub fn top(&self) {
-		self.info.top();
+		let focus = self.state.read().unwrap().focus;
+		match focus {
+			Focus::Tree => (),
+			Focus::DetailOne => self.info.top(),
+			Focus::DetailTwo => {
+				if let Some(Either::Right(data)) = self.data.as_ref() {
+					data.top();
+				}
+			},
+		};
 	}
 
 	pub fn bottom(&self) {
-		self.info.bottom();
+		let focus = self.state.read().unwrap().focus;
+		match focus {
+			Focus::Tree => (),
+			Focus::DetailOne => self.info.bottom(),
+			Focus::DetailTwo => {
+				if let Some(Either::Right(data)) = self.data.as_ref() {
+					data.bottom();
+				}
+			},
+		};
 	}
 
 	pub fn down(&self) {
