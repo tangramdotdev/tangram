@@ -15,6 +15,7 @@ pub struct ParsedLockfile {
 	pub graphs: BTreeMap<tg::graph::Id, Arc<tg::graph::Data>>,
 	pub nodes: Vec<tg::lockfile::Node>,
 	pub objects: BTreeMap<tg::object::Id, tg::object::Data>,
+	pub paths: Vec<Option<PathBuf>>,
 	pub path: PathBuf,
 }
 
@@ -24,7 +25,7 @@ struct FindInLockfileArg<'a> {
 	current_node: usize,
 	current_package_node: usize,
 	current_package_path: PathBuf,
-	lockfile: &'a tg::Lockfile,
+	nodes: &'a [tg::lockfile::Node],
 	search: Either<usize, &'a Path>,
 }
 
@@ -41,19 +42,29 @@ impl Server {
 		lockfile_path: &Path,
 		lockfile: &tg::Lockfile,
 	) -> tg::Result<LockfileNode> {
+		self.find_node_in_lockfile_nodes(search, lockfile_path, &lockfile.nodes)
+			.await
+	}
+
+	pub(crate) async fn find_node_in_lockfile_nodes(
+		&self,
+		search: Either<usize, &Path>,
+		lockfile_path: &Path,
+		nodes: &[tg::lockfile::Node],
+	) -> tg::Result<LockfileNode> {
 		let current_package_path = lockfile_path.parent().unwrap().to_owned();
 		let current_package_node = 0;
-		if lockfile.nodes.is_empty() {
+		if nodes.is_empty() {
 			return Err(tg::error!("invalid lockfile"));
 		}
-		let mut visited = vec![false; lockfile.nodes.len()];
+		let mut visited = vec![false; nodes.len()];
 
 		let arg = FindInLockfileArg {
 			current_node_path: current_package_path.clone(),
 			current_node: current_package_node,
 			current_package_path,
 			current_package_node,
-			lockfile,
+			nodes,
 			search,
 		};
 
@@ -120,7 +131,7 @@ impl Server {
 		}
 		visited[arg.current_node] = true;
 
-		match &arg.lockfile.nodes[arg.current_node] {
+		match &arg.nodes[arg.current_node] {
 			tg::lockfile::Node::Directory { entries } => {
 				// If this is a directory with a root module, update the current package path/node.
 				if entries
@@ -379,6 +390,7 @@ impl Server {
 			graphs,
 			nodes: lockfile.nodes,
 			objects,
+			paths: todo!(),
 			path: path.to_owned(),
 		};
 
@@ -560,7 +572,7 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 		}
 	}
 
-	// Internal. Convert a lockifle index into either an index or object ID.
+	// Internal. Convert a lockfile index into either an index or object ID.
 	fn get_lockfile_item(
 		lockfile_index: usize,
 		graph_indices: &BTreeMap<usize, usize>,
@@ -579,16 +591,16 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 	}
 
 	let mut graphs = Vec::new();
-	let mut objects = Vec::new();
+	let mut objects = vec![None; lockfile.nodes.len()];
 
 	'outer: for mut scc in petgraph::algo::tarjan_scc(&LockfileGraphImpl(lockfile)) {
-		scc.reverse();
+		scc.sort();
 
 		// Skip SCCs that are missing file contents.
 		if scc.len() == 1 {
 			let data = create_normal_data(scc[0], &lockfile.nodes[scc[0]])
 				.map_err(|source| tg::error!(!source, "invalid lockfile"))?;
-			objects.push(data);
+			objects[scc[0]] = data;
 			continue;
 		}
 

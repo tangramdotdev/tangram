@@ -377,6 +377,7 @@ impl Server {
 
 		// Update the parents of any children.
 		let mut state = state.write().await;
+
 		for edge in &vec {
 			let Some(node) = edge.node else {
 				continue;
@@ -398,7 +399,17 @@ impl Server {
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
-		// If the file has data set, skip scanning its edges. They will be collected later.
+		// If there is a lockfile, try and find this node within it.
+		if let Some(lockfile) = state.read().await.graph.nodes[referrer].lockfile.clone() {
+			if let Some(edges) = self
+				.try_get_lockfile_edges(lockfile, referrer, path, arg, state, progress)
+				.await?
+			{
+				return Ok(edges);
+			}
+		}
+
+		// If the file has data set, try and get its edges.
 		if let Some(data) = state.read().await.graph.nodes[referrer].data.clone() {
 			return self
 				.get_data_edges(data, referrer, path, arg, state, progress)
@@ -415,6 +426,57 @@ impl Server {
 		Ok(Vec::new())
 	}
 
+	async fn try_get_lockfile_edges(
+		&self,
+		lockfile: Arc<ParsedLockfile>,
+		referrer: usize,
+		path: &Path,
+		arg: &tg::artifact::checkin::Arg,
+		state: &RwLock<State>,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+	) -> tg::Result<Option<Vec<Edge>>> {
+		if let Some(id) = lockfile
+			.artifacts
+			.iter()
+			.find_map(|(id, path_)| (path_ == path).then_some(id))
+			.cloned()
+		{
+			// Get the dependencies of the file as artifact IDs.
+			let dependencies: Vec<(tg::Reference, tg::Referent<tg::artifact::Id>)> = todo!();
+			let edges = dependencies
+				.into_iter()
+				.map(|(reference, referent)| async {
+					let path = lockfile
+						.artifacts
+						.get(&referent.item)
+						.ok_or_else(|| tg::error!("missing artifact"))?;
+					let node = Box::pin(self.create_input_graph_inner(
+						Some(referrer),
+						path,
+						arg,
+						state,
+						progress,
+					))
+					.await?;
+					let edge = Edge {
+						node: Some(node),
+						reference,
+						subpath: referent.subpath,
+						object: Some(referent.item.into()),
+						path: None,
+						tag: referent.tag,
+					};
+					Ok::<_, tg::Error>(edge)
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?;
+			return Ok(Some(edges));
+		}
+
+		Ok(None)
+	}
+
 	async fn get_data_edges(
 		&self,
 		data: tg::artifact::Data,
@@ -429,7 +491,12 @@ impl Server {
 			return Err(tg::error!("expected a file"));
 		};
 		// Get the lockfile.
-		let lockfile = state.read().await.graph.nodes[referrer].lockfile.clone();
+		let lockfile = {
+			let state = state.read().await;
+			let lockfile = state.graph.nodes[referrer].lockfile.clone();
+			drop(state);
+			lockfile
+		};
 
 		// Get the artifacts path.
 		let artifacts_path = self.get_artifacts_path_for_path(path).await?;

@@ -3,6 +3,7 @@ use futures::FutureExt;
 use insta::assert_snapshot;
 use std::{future::Future, panic::AssertUnwindSafe, path::Path};
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_temp::{self as temp, Temp};
 
 #[allow(dead_code)]
@@ -73,7 +74,7 @@ async fn symlink() -> tg::Result<()> {
 			"link" => temp::symlink!("hello.txt"),
 			"hello.txt" => "hello, world!",
 		},
-		"".as_ref(),
+		"link".as_ref(),
 		|a, b| async move {
 			assert_eq!(a.id().await, b.id().await);
 			let output_a = a.output().await;
@@ -81,7 +82,7 @@ async fn symlink() -> tg::Result<()> {
 			assert_eq!(&output_a, &output_b);
 			assert_snapshot!(&output_a, @r#"
             tg.symlink({
-            	"subpath": "hello.txt",
+            	"target": "hello.txt",
             })
             "#);
 			Ok(())
@@ -112,6 +113,81 @@ async fn path_dependency() -> tg::Result<()> {
 		},
 	)
 	.await
+}
+
+#[tokio::test]
+async fn lockfile_roundtrip() -> tg::Result<()> {
+	let temp = Temp::new();
+	let config = Config::with_path(temp.path().to_owned());
+	let server = Server::start(config).await?;
+
+	let graph = tg::Graph::with_object(tg::graph::Object {
+		nodes: vec![
+			tg::graph::object::Node::Directory(tg::graph::object::Directory {
+				entries: [
+					("a".to_owned(), Either::Left(1)),
+					("b".to_owned(), Either::Left(2)),
+				]
+				.into_iter()
+				.collect(),
+			}),
+			tg::graph::object::Node::File(tg::graph::object::File {
+				contents: "a".into(),
+				dependencies: [(
+					tg::Reference::with_path("./b"),
+					tg::Referent {
+						item: Either::Left(0),
+						subpath: Some("b".into()),
+						path: None,
+						tag: None,
+					},
+				)]
+				.into_iter()
+				.collect(),
+				executable: false,
+			}),
+			tg::graph::object::Node::File(tg::graph::object::File {
+				contents: "b".into(),
+				dependencies: [(
+					tg::Reference::with_path("./a"),
+					tg::Referent {
+						item: Either::Left(0),
+						subpath: Some("a".into()),
+						path: None,
+						tag: None,
+					},
+				)]
+				.into_iter()
+				.collect(),
+				executable: false,
+			}),
+		],
+	});
+
+	let result = AssertUnwindSafe(async {
+		let artifact: tg::Artifact = tg::Directory::with_graph_and_node(graph.clone(), 0).into();
+		let temp = Temp::new();
+
+		let arg = tg::artifact::checkout::Arg {
+			path: Some(temp.path().to_owned()),
+			dependencies: true,
+			force: false,
+		};
+		let path = artifact.check_out(&server, arg).await?;
+
+		let lockfile = server
+			.parse_lockfile(&path.join(tg::package::LOCKFILE_FILE_NAME))
+			.await?;
+		let graph_id = graph.id(&server).await?;
+		assert!(lockfile.graphs.contains_key(&graph_id));
+
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+
+	cleanup(temp, server).await;
+	result.unwrap()
 }
 
 #[tokio::test]
@@ -170,7 +246,7 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server1, arg).await?;
-		eprintln!("initial checkin");
+		eprintln!("1");
 
 		// Check the artifact out from the first server.
 		let temp = Temp::new();
@@ -180,8 +256,9 @@ where
 			force: false,
 		};
 		let path = artifact.check_out(&server1, arg).await?;
+		eprintln!("2");
+
 		let checkout = temp::Artifact::with_path(&path).await?;
-		eprintln!("initial checkout");
 
 		// Create the test data for the first server.
 		let artifact1 = TestArtifact {
@@ -201,7 +278,7 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server2, arg).await?;
-		eprintln!("symmetric checkin");
+		eprintln!("3");
 
 		// Check it out.
 		let temp = Temp::new();
@@ -211,6 +288,8 @@ where
 			force: false,
 		};
 		let path = artifact.check_out(&server2, arg).await?;
+		eprintln!("4");
+
 		let checkout = temp::Artifact::with_path(&path).await?;
 		let artifact2 = TestArtifact {
 			server: server2.clone(),
@@ -218,7 +297,6 @@ where
 			checkin,
 			checkout,
 		};
-		eprintln!("symmetric checkout");
 
 		assertions(artifact1, artifact2).await
 	})

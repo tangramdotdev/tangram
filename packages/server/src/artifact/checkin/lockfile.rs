@@ -95,7 +95,7 @@ impl Server {
 				self.create_lockfile_file_node(graph, node, &data).await
 			},
 			tg::artifact::Data::Symlink(data) => {
-				self.create_lockfile_symlink_node2(graph, node, &data).await
+				self.create_lockfile_symlink_node(graph, node, &data).await
 			},
 		}
 	}
@@ -175,7 +175,7 @@ impl Server {
 		})
 	}
 
-	async fn create_lockfile_symlink_node2(
+	async fn create_lockfile_symlink_node(
 		&self,
 		graph: &object::Graph,
 		node: usize,
@@ -480,12 +480,9 @@ fn strip_nodes_inner(
 				})
 				.collect();
 
-			// Retain the contents if this is a tagged node.
-			let contents = if matches!(is_tagged[node], Some(true)) {
-				contents
-			} else {
-				None
-			};
+			// Retain the contents if necessary.
+			let retain_contents = matches!(is_tagged[node], Some(true)) || in_graph[node];
+			let contents = if retain_contents { contents } else { None };
 
 			// Create the node.
 			new_nodes[new_node].replace(tg::lockfile::Node::File {
