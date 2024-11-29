@@ -144,14 +144,14 @@ impl Client {
 	}
 
 	async fn sender(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
-		if let Some(sender) = self.sender.lock().await.as_ref().cloned() {
+		let mut guard = self.sender.lock().await;
+		if let Some(sender) = guard.as_ref() {
 			if sender.is_ready() {
-				return Ok(sender);
+				return Ok(sender.clone());
 			}
 		}
-		let mut sender_guard = self.sender.lock().await;
 		let sender = self.connect_h2().await?;
-		sender_guard.replace(sender.clone());
+		guard.replace(sender.clone());
 		Ok(sender)
 	}
 
@@ -540,13 +540,7 @@ impl Client {
 		let (head, body) = request.into_parts();
 		loop {
 			let request = http::Request::from_parts(head.clone(), body.try_clone().unwrap());
-			let result = self
-				.sender()
-				.boxed()
-				.await?
-				.send_request(request)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to send the request"));
+			let result = self.send_without_retry(request).await;
 			let is_error = result.is_err();
 			let is_server_error =
 				matches!(&result, Ok(response) if response.status().is_server_error());
