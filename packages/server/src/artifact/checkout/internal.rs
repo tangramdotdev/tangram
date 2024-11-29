@@ -243,9 +243,8 @@ impl Server {
 			.await?;
 
 		// Attempt to copy the file from the cache directory.
-		let cache_path = self.cache_path().join(file.id(self).await?.to_string());
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let result = tokio::fs::copy(&cache_path, &cache_path).await;
+		let result = tokio::fs::copy(&arg.cache_path, &arg.temp_path).await;
 		drop(permit);
 		if result.is_ok() {
 			return Ok(());
