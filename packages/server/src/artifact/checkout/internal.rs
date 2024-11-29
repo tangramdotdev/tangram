@@ -101,8 +101,9 @@ impl Server {
 			let path = cache_path.clone();
 			move || {
 				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-				filetime::set_symlink_file_times(path, epoch, epoch)
-					.map_err(|source| tg::error!(!source, "failed to set the modified time"))?;
+				filetime::set_symlink_file_times(&path, epoch, epoch).map_err(
+					|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+				)?;
 				Ok::<_, tg::Error>(())
 			}
 		})
