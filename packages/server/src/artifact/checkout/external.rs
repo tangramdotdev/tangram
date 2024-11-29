@@ -161,9 +161,9 @@ impl Server {
 		}
 
 		// Get the artifacts path.
-		let artifacts_path = state.artifacts_path.as_ref().ok_or_else(|| {
-			tg::error!("cannot check out a dependency if the artifact is not a directory")
-		})?;
+		let Some(artifacts_path) = state.artifacts_path.as_ref() else {
+			return Ok(());
+		};
 
 		// Create the artifacts directory.
 		tokio::fs::create_dir_all(&artifacts_path)
