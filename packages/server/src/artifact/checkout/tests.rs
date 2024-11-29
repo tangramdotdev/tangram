@@ -65,6 +65,29 @@ async fn executable_file() -> tg::Result<()> {
 	.await
 }
 
+/// Test checking out a a file with a dependency.
+#[tokio::test]
+async fn file_with_dependency() -> tg::Result<()> {
+	let artifact = tg::file!(
+		"foo",
+		dependencies = [(
+			"bar".parse().unwrap(),
+			tg::Referent::with_item(tg::file!("bar").into())
+		)]
+	);
+	test(artifact, |_, artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "file",
+    "contents": "foo",
+    "executable": false
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
 /// Test checking out a symlink.
 #[tokio::test]
 async fn symlink() -> tg::Result<()> {
