@@ -1,5 +1,6 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
+use bytes::Bytes;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, sync::Arc};
@@ -351,7 +352,7 @@ impl File {
 		self.contents(handle).await?.size(handle).await
 	}
 
-	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
+	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Bytes>
 	where
 		H: tg::Handle,
 	{
