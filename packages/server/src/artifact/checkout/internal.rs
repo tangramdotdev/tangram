@@ -159,6 +159,11 @@ impl Server {
 		// Create the directory handle.
 		let directory = tg::Directory::with_id(directory.clone());
 
+		// Create the directory.
+		tokio::fs::create_dir(&arg.temp_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+
 		// Recurse into the entries.
 		directory
 			.entries(self)
