@@ -31,6 +31,7 @@ version = "0.0.0"
 [workspace.lints.clippy]
 assigning_clones = "allow"
 items_after_statements = "allow"
+manual_async_fn = "allow"
 many_single_char_names = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"

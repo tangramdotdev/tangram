@@ -3,6 +3,9 @@ use futures::{stream::FuturesUnordered, Future, TryStreamExt as _};
 use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc};
 use tangram_client as tg;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug)]
 struct State {
 	artifact: tg::artifact::Id,
@@ -21,29 +24,27 @@ struct Arg {
 }
 
 impl Server {
-	pub(crate) async fn check_out_artifact_internal(
+	pub(crate) async fn cache_artifact(
 		&self,
 		artifact: tg::artifact::Id,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
-	) -> tg::Result<tg::artifact::checkout::Output> {
-		self.check_out_artifact_internal_dependency(artifact, progress)
-			.await
+	) -> tg::Result<()> {
+		self.cache_artifact_dependency(artifact, progress).await
 	}
 
-	#[allow(clippy::manual_async_fn)]
-	fn check_out_artifact_internal_dependency<'a>(
+	fn cache_artifact_dependency<'a>(
 		&'a self,
 		artifact: tg::artifact::Id,
 		progress: &'a crate::progress::Handle<tg::artifact::checkout::Output>,
-	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> + Send + 'a {
+	) -> impl Future<Output = tg::Result<()>> + Send + 'a {
 		async move {
-			self.checkout_task_map
+			self.artifact_cache_task_map
 				.get_or_spawn(artifact.clone(), {
 					let server = self.clone();
 					let progress = progress.clone();
 					move |_| async move {
 						server
-							.check_out_artifact_internal_dependency_task(artifact, &progress)
+							.cache_artifact_dependency_task(artifact, &progress)
 							.await
 					}
 				})
@@ -53,11 +54,11 @@ impl Server {
 		}
 	}
 
-	async fn check_out_artifact_internal_dependency_task(
+	async fn cache_artifact_dependency_task(
 		&self,
 		artifact: tg::artifact::Id,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
-	) -> tg::Result<tg::artifact::checkout::Output> {
+	) -> tg::Result<()> {
 		// Create the path.
 		let cache_path = self.cache_path().join(artifact.to_string());
 
@@ -80,8 +81,8 @@ impl Server {
 			temp_path: temp_path.clone(),
 		};
 
-		// Perform the checkout.
-		self.check_out_artifact_internal_inner(&state, arg).await?;
+		// Cache the artifact.
+		self.cache_artifact_inner(&state, arg).await?;
 
 		// Rename the temp to the path.
 		let src = &temp_path;
@@ -113,27 +114,22 @@ impl Server {
 		.await
 		.unwrap()?;
 
-		// Create the output.
-		let output = tg::artifact::checkout::Output { path: cache_path };
-
-		Ok(output)
+		Ok(())
 	}
 
-	async fn check_out_artifact_internal_inner(&self, state: &State, arg: Arg) -> tg::Result<()> {
+	async fn cache_artifact_inner(&self, state: &State, arg: Arg) -> tg::Result<()> {
 		let temp_path = arg.temp_path.clone();
 
 		// Check out the artifact.
 		match arg.artifact.clone() {
 			tg::artifact::Id::Directory(directory) => {
-				self.check_out_internal_directory(state, arg, &directory)
-					.await?;
+				self.cache_directory(state, arg, &directory).await?;
 			},
 			tg::artifact::Id::File(file) => {
-				self.check_out_internal_file(state, arg, &file).await?;
+				self.cache_file(state, arg, &file).await?;
 			},
 			tg::artifact::Id::Symlink(symlink) => {
-				self.check_out_internal_symlink(state, arg, &symlink)
-					.await?;
+				self.cache_symlink(state, arg, &symlink).await?;
 			},
 		};
 
@@ -153,7 +149,7 @@ impl Server {
 
 		Ok(())
 	}
-	async fn check_out_internal_directory(
+	async fn cache_directory(
 		&self,
 		state: &State,
 		arg: Arg,
@@ -185,9 +181,7 @@ impl Server {
 						cache_path,
 						temp_path,
 					};
-					server
-						.check_out_artifact_internal_inner(&state, arg)
-						.await?;
+					server.cache_artifact_inner(&state, arg).await?;
 					Ok::<_, tg::Error>(())
 				}
 			})
@@ -198,12 +192,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn check_out_internal_file(
-		&self,
-		state: &State,
-		arg: Arg,
-		file: &tg::file::Id,
-	) -> tg::Result<()> {
+	async fn cache_file(&self, state: &State, arg: Arg, file: &tg::file::Id) -> tg::Result<()> {
 		let file = tg::File::with_id(file.clone());
 
 		// Check out the file's dependencies.
@@ -218,7 +207,7 @@ impl Server {
 				async move {
 					let artifact = artifact.id(&server).await?;
 					server
-						.check_out_artifact_internal_dependency(artifact, &state.progress)
+						.cache_artifact_dependency(artifact, &state.progress)
 						.await?;
 					Ok::<_, tg::Error>(())
 				}
@@ -268,7 +257,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn check_out_internal_symlink(
+	async fn cache_symlink(
 		&self,
 		state: &State,
 		arg: Arg,
@@ -286,8 +275,7 @@ impl Server {
 			if artifact.id(self).await? != state.artifact {
 				let server = self.clone();
 				let artifact = artifact.id(self).await?;
-				Box::pin(server.check_out_artifact_internal_dependency(artifact, &state.progress))
-					.await?;
+				Box::pin(server.cache_artifact_dependency(artifact, &state.progress)).await?;
 			}
 		}
 

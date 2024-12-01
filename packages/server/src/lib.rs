@@ -58,12 +58,12 @@ pub mod config;
 pub struct Server(Arc<Inner>);
 
 pub struct Inner {
+	artifact_cache_task_map: ArtifactCacheTaskMap,
 	blob_store_task_map: BlobStoreTaskMap,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
 	compilers: RwLock<Vec<Compiler>>,
-	checkout_task_map: CheckoutTaskMap,
 	config: Config,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
@@ -89,8 +89,7 @@ struct BuildPermit(
 
 type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
-type CheckoutTaskMap =
-	TaskMap<tg::artifact::Id, tg::Result<tg::artifact::checkout::Output>, fnv::FnvBuildHasher>;
+type ArtifactCacheTaskMap = TaskMap<tg::artifact::Id, tg::Result<()>, fnv::FnvBuildHasher>;
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Server> {
@@ -146,6 +145,9 @@ impl Server {
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
+		// Create the artifact cache task map.
+		let artifact_cache_task_map = TaskMap::default();
+
 		// Create the blob store task map.
 		let blob_store_task_map = TaskMap::default();
 
@@ -165,9 +167,6 @@ impl Server {
 
 		// Create the compilers.
 		let compilers = RwLock::new(Vec::new());
-
-		// Create the checkout task map.
-		let checkout_task_map = TaskMap::default();
 
 		// Create the database.
 		let database = match &config.database {
@@ -248,12 +247,12 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
+			artifact_cache_task_map,
 			blob_store_task_map,
 			build_permits,
 			build_semaphore,
 			builds,
 			compilers,
-			checkout_task_map,
 			config,
 			database,
 			file_descriptor_semaphore,
@@ -556,13 +555,13 @@ impl Server {
 				// Remove the runtimes.
 				server.runtimes.write().unwrap().clear();
 
-				// Abort the checkout tasks.
-				server.checkout_task_map.abort_all();
-				let results = server.checkout_task_map.wait().await;
+				// Abort the artifact cache tasks.
+				server.artifact_cache_task_map.abort_all();
+				let results = server.artifact_cache_task_map.wait().await;
 				for result in results {
 					if let Err(error) = result {
 						if !error.is_cancelled() {
-							tracing::error!(?error, "a checkout task panicked");
+							tracing::error!(?error, "an artifact cache task panicked");
 						}
 					}
 				}
