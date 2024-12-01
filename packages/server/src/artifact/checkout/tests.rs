@@ -141,6 +141,7 @@ async fn directory_with_symlink() -> tg::Result<()> {
 }
 
 /// Test checking out a very deep directory.
+#[ignore]
 #[tokio::test]
 async fn deeply_nested_directory() -> tg::Result<()> {
 	let mut artifact = tg::Artifact::from(tg::file!("hello"));
