@@ -70,6 +70,26 @@ async fn nonexistent_function() -> tg::Result<()> {
 	.await
 }
 
+#[tokio::test]
+async fn no_return_value() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"tangram.ts" => indoc!(r"
+				export default tg.target(() => {});
+			"),
+		},
+		|_, output| async move {
+			assert_json_snapshot!(output, @r#"
+   {
+     "diagnostics": []
+   }
+   "#);
+			Ok(())
+		},
+	)
+	.await
+}
+
 async fn test<F, Fut>(artifact: temp::Artifact, assertions: F) -> tg::Result<()>
 where
 	F: FnOnce(Server, tg::package::check::Output) -> Fut,

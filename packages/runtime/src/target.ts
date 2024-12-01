@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import type { UnresolvedInner } from "./resolve.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
@@ -14,24 +15,26 @@ export let setCurrentTarget = (target: Target) => {
 
 type FunctionArg<
 	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
+	R extends void | tg.Value = void | tg.Value,
 > = {
-	function: (...args: A) => tg.Unresolved<R>;
+	function: (
+		...args: A
+	) => MaybePromise<R extends void ? void : UnresolvedInner<Exclude<R, void>>>;
 	module: tg.Module;
 	name: string;
 };
 
 export function target<
 	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
+	R extends void | tg.Value = void | tg.Value,
 >(arg: FunctionArg): Target<A, R>;
 export function target<
 	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
+	R extends void | tg.Value = void | tg.Value,
 >(...args: tg.Args<Target.Arg>): Promise<Target<A, R>>;
 export function target<
 	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
+	R extends void | tg.Value = void | tg.Value,
 >(
 	...args: [FunctionArg<A, R>] | tg.Args<Target.Arg>
 ): MaybePromise<Target<A, R>> {
@@ -70,7 +73,7 @@ export function target<
 
 export interface Target<
 	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
+	R extends void | tg.Value = void | tg.Value,
 > extends globalThis.Function {
 	(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): Promise<R>;
 }
@@ -78,7 +81,7 @@ export interface Target<
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make targets callable.
 export class Target<
 	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
+	R extends void | tg.Value = void | tg.Value,
 > extends globalThis.Function {
 	#state: Target.State;
 	#f: Function | undefined;
@@ -116,7 +119,7 @@ export class Target<
 
 	static async new<
 		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
+		R extends void | tg.Value = void | tg.Value,
 	>(...args: tg.Args<Target.Arg>): Promise<Target<A, R>> {
 		let arg = await Target.arg(...args);
 		let args_ = arg.args ?? [];
