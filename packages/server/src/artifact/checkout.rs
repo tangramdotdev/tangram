@@ -7,12 +7,11 @@ use std::{
 	future::Future,
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
-	pin::pin,
 	sync::Arc,
 };
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_futures::{stream::TryStreamExt as _, task::Task};
+use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 #[cfg(test)]
@@ -1078,15 +1077,6 @@ impl Server {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			None => {
-				pin!(stream)
-					.try_last()
-					.await?
-					.and_then(|event| event.try_unwrap_output().ok())
-					.ok_or_else(|| tg::error!("stream ended without output"))?;
-				(None, Outgoing::empty())
-			},
-
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let stream = stream.map(|result| match result {

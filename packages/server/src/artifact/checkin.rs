@@ -1,9 +1,8 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _};
 use indoc::indoc;
-use std::{path::PathBuf, pin::pin};
+use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tangram_ignore::Ignore;
 
@@ -209,15 +208,6 @@ impl Server {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			None => {
-				pin!(stream)
-					.try_last()
-					.await?
-					.and_then(|event| event.try_unwrap_output().ok())
-					.ok_or_else(|| tg::error!("stream ended without output"))?;
-				(None, Outgoing::empty())
-			},
-
 			Some((mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let stream = stream.map(|result| match result {
