@@ -38,6 +38,17 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
+		let content_type = response
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()?;
+		if !matches!(
+			content_type
+				.as_ref()
+				.map(|content_type| (content_type.type_(), content_type.subtype())),
+			Some((mime::TEXT, mime::EVENT_STREAM)),
+		) {
+			return Err(tg::error!(?content_type, "invalid content type"));
+		}
 		let stream = response
 			.sse()
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
