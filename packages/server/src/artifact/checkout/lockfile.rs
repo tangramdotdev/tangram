@@ -36,7 +36,9 @@ impl Server {
 		let nodes = self.strip_lockfile_nodes(&nodes, 0)?;
 
 		// Create the lockfile.
-		Ok(tg::Lockfile { nodes })
+		let lockfile = tg::Lockfile { nodes };
+
+		Ok(lockfile)
 	}
 
 	async fn get_or_create_lockfile_node_for_artifact(
@@ -308,32 +310,31 @@ impl Server {
 					}
 				},
 
-				tg::graph::Node::Symlink(tg::graph::object::Symlink::Target { target }) => {
-					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
-						target: target.clone(),
-					})
-				},
-
-				tg::graph::Node::Symlink(tg::graph::object::Symlink::Artifact {
-					artifact,
-					subpath,
-				}) => {
-					let artifact = match artifact {
-						Either::Left(index) => indices[*index],
-						Either::Right(artifact) => {
-							Box::pin(self.get_or_create_lockfile_node_for_artifact(
-								artifact, nodes, visited, graphs,
-							))
-							.await?
-						},
-					};
-					let artifact = Either::Left(artifact);
-					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-						artifact,
-						subpath: subpath.clone(),
-					})
+				tg::graph::Node::Symlink(symlink) => match symlink {
+					tg::graph::object::Symlink::Target { target } => {
+						tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
+							target: target.clone(),
+						})
+					},
+					tg::graph::object::Symlink::Artifact { artifact, subpath } => {
+						let artifact = match artifact {
+							Either::Left(index) => indices[*index],
+							Either::Right(artifact) => {
+								Box::pin(self.get_or_create_lockfile_node_for_artifact(
+									artifact, nodes, visited, graphs,
+								))
+								.await?
+							},
+						};
+						let artifact = Either::Left(artifact);
+						tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+							artifact,
+							subpath: subpath.clone(),
+						})
+					},
 				},
 			};
+
 			let index = indices[old_index];
 			nodes[index].replace(node);
 		}

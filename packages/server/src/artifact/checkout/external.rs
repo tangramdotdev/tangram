@@ -1,6 +1,6 @@
 use crate::Server;
 use dashmap::{DashMap, DashSet};
-use futures::{stream::FuturesUnordered, Future, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc};
 use tangram_client as tg;
 
@@ -263,17 +263,9 @@ impl Server {
 						root_artifact: arg.root_artifact,
 						root_path: arg.root_path,
 					};
-					#[allow(clippy::manual_async_fn)]
-					fn future(
-						server: Server,
-						state: State,
-						arg: Arg,
-					) -> impl Future<Output = tg::Result<()>> + Send + 'static {
-						async move { server.check_out_artifact_external_inner(&state, arg).await }
-					}
-					tokio::spawn(future(self.clone(), state.clone(), arg))
-						.await
-						.unwrap()?;
+					server
+						.check_out_artifact_external_inner(&state, arg)
+						.await?;
 					Ok::<_, tg::Error>(())
 				}
 			})
@@ -308,23 +300,9 @@ impl Server {
 				let state = state.clone();
 				async move {
 					let artifact = artifact.id(&server).await?;
-
-					#[allow(clippy::manual_async_fn)]
-					fn future(
-						server: Server,
-						state: State,
-						artifact: tg::artifact::Id,
-					) -> impl Future<Output = tg::Result<()>> + Send + 'static {
-						async move {
-							server
-								.check_out_artifact_external_dependency(&state, artifact)
-								.await
-						}
-					}
-					tokio::spawn(future(server, state, artifact))
-						.await
-						.unwrap()?;
-
+					server
+						.check_out_artifact_external_dependency(&state, artifact)
+						.await?;
 					Ok::<_, tg::Error>(())
 				}
 			})
@@ -418,21 +396,7 @@ impl Server {
 			if artifact.id(self).await? != arg.root_artifact {
 				let server = self.clone();
 				let artifact = artifact.id(self).await?;
-				#[allow(clippy::manual_async_fn)]
-				fn future(
-					server: Server,
-					state: State,
-					artifact: tg::artifact::Id,
-				) -> impl Future<Output = tg::Result<()>> + Send + 'static {
-					async move {
-						server
-							.check_out_artifact_external_dependency(&state, artifact)
-							.await
-					}
-				}
-				tokio::spawn(future(server, state.clone(), artifact))
-					.await
-					.unwrap()?;
+				Box::pin(server.check_out_artifact_external_dependency(state, artifact)).await?;
 			}
 		}
 

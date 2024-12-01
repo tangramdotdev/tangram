@@ -30,24 +30,27 @@ impl Server {
 			.await
 	}
 
-	async fn check_out_artifact_internal_dependency(
-		&self,
+	#[allow(clippy::manual_async_fn)]
+	fn check_out_artifact_internal_dependency<'a>(
+		&'a self,
 		artifact: tg::artifact::Id,
-		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
-	) -> tg::Result<tg::artifact::checkout::Output> {
-		self.checkout_task_map
-			.get_or_spawn(artifact.clone(), {
-				let server = self.clone();
-				let progress = progress.clone();
-				move |_| async move {
-					server
-						.check_out_artifact_internal_dependency_task(artifact, &progress)
-						.await
-				}
-			})
-			.wait()
-			.await
-			.unwrap()
+		progress: &'a crate::progress::Handle<tg::artifact::checkout::Output>,
+	) -> impl Future<Output = tg::Result<tg::artifact::checkout::Output>> + Send + 'a {
+		async move {
+			self.checkout_task_map
+				.get_or_spawn(artifact.clone(), {
+					let server = self.clone();
+					let progress = progress.clone();
+					move |_| async move {
+						server
+							.check_out_artifact_internal_dependency_task(artifact, &progress)
+							.await
+					}
+				})
+				.wait()
+				.await
+				.unwrap()
+		}
 	}
 
 	async fn check_out_artifact_internal_dependency_task(
@@ -182,17 +185,9 @@ impl Server {
 						cache_path,
 						temp_path,
 					};
-					#[allow(clippy::manual_async_fn)]
-					fn future(
-						server: Server,
-						state: State,
-						arg: Arg,
-					) -> impl Future<Output = tg::Result<()>> + Send + 'static {
-						async move { server.check_out_artifact_internal_inner(&state, arg).await }
-					}
-					tokio::spawn(future(self.clone(), state.clone(), arg))
-						.await
-						.unwrap()?;
+					server
+						.check_out_artifact_internal_inner(&state, arg)
+						.await?;
 					Ok::<_, tg::Error>(())
 				}
 			})
@@ -222,24 +217,9 @@ impl Server {
 				let state = state.clone();
 				async move {
 					let artifact = artifact.id(&server).await?;
-
-					#[allow(clippy::manual_async_fn)]
-					fn future(
-						server: Server,
-						artifact: tg::artifact::Id,
-						progress: crate::progress::Handle<tg::artifact::checkout::Output>,
-					) -> impl Future<Output = tg::Result<()>> + Send + 'static {
-						async move {
-							server
-								.check_out_artifact_internal_dependency(artifact, &progress)
-								.await
-								.map(|_| ())
-						}
-					}
-					tokio::spawn(future(server, artifact, state.progress.clone()))
-						.await
-						.unwrap()?;
-
+					server
+						.check_out_artifact_internal_dependency(artifact, &state.progress)
+						.await?;
 					Ok::<_, tg::Error>(())
 				}
 			})
@@ -306,22 +286,8 @@ impl Server {
 			if artifact.id(self).await? != state.artifact {
 				let server = self.clone();
 				let artifact = artifact.id(self).await?;
-				#[allow(clippy::manual_async_fn)]
-				fn future(
-					server: Server,
-					artifact: tg::artifact::Id,
-					progress: crate::progress::Handle<tg::artifact::checkout::Output>,
-				) -> impl Future<Output = tg::Result<()>> + Send + 'static {
-					async move {
-						server
-							.check_out_artifact_internal_dependency(artifact, &progress)
-							.await
-							.map(|_| ())
-					}
-				}
-				tokio::spawn(future(server, artifact, state.progress.clone()))
-					.await
-					.unwrap()?;
+				Box::pin(server.check_out_artifact_internal_dependency(artifact, &state.progress))
+					.await?;
 			}
 		}
 

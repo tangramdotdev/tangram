@@ -1,5 +1,5 @@
 use crate::{Config, Server};
-use futures::{Future, FutureExt as _};
+use futures::{future, Future, FutureExt as _};
 use insta::assert_json_snapshot;
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
@@ -140,21 +140,16 @@ async fn directory_with_symlink() -> tg::Result<()> {
 	.await
 }
 
-// /// Test checking out a very deep directory.
-// #[tokio::test]
-// async fn deeply_nested_directory() -> tg::Result<()> {
-// 	let mut left = tg::Artifact::from(tg::file!("hello"));
-// 	for _ in 0..256 {
-// 		let entries = [("a".into(), left.clone())].into_iter().collect();
-// 		left = tg::Directory::with_entries(entries).into();
-// 	}
-// 	let mut right = temp::Artifact::from(temp::file!("hello"));
-// 	for _ in 0..256 {
-// 		let entries = [("a".into(), right.clone())].into_iter().collect();
-// 		right = temp::Directory::with_entries(entries).into();
-// 	}
-// 	test(left, right).await
-// }
+/// Test checking out a very deep directory.
+#[tokio::test]
+async fn deeply_nested_directory() -> tg::Result<()> {
+	let mut artifact = tg::Artifact::from(tg::file!("hello"));
+	for _ in 0..256 {
+		let entries = [("a".into(), artifact.clone())].into_iter().collect();
+		artifact = tg::Directory::with_entries(entries).into();
+	}
+	test(artifact, |_, _| future::ok(())).await
+}
 
 /// Test checking out a directory with a file with a dependency.
 #[tokio::test]
