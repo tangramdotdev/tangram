@@ -142,7 +142,7 @@ impl Server {
 									(
 										size + output.size,
 										count + output.count,
-										std::cmp::max(depth, output.depth),
+										depth.max(output.depth),
 										weight + output.weight,
 									)
 								},
@@ -157,7 +157,6 @@ impl Server {
 							let data = tg::branch::Data { children };
 							let bytes = data.serialize()?;
 							let id = tg::branch::Id::new(&bytes);
-
 							let count = count + 1;
 							let depth = depth + 1;
 							let weight = weight + bytes.len().to_u64().unwrap();
@@ -181,6 +180,7 @@ impl Server {
 										tg::error!(!source, "failed to execute the statement")
 									})?;
 							}
+
 							// Create the child data.
 							let blob = id.into();
 							let output = InnerOutput {
@@ -190,6 +190,7 @@ impl Server {
 								size,
 								weight,
 							};
+
 							Ok::<_, tg::Error>(output)
 						})
 						.left_stream()
@@ -302,7 +303,6 @@ impl Server {
 
 	pub(crate) async fn try_store_blob(&self, blob: &tg::blob::Id) -> tg::error::Result<bool> {
 		// Open the blob file.
-		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let path = self.blobs_path().join(blob.to_string());
 		let file = match tokio::fs::File::open(&path).await {
 			Ok(file) => file,

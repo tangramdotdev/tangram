@@ -87,9 +87,8 @@ impl Server {
 				if !self.vfs.lock().unwrap().is_some() {
 					self.cache_artifact(artifact.clone(), progress).await?;
 				}
-				let output = tg::artifact::checkout::Output {
-					path: self.artifacts_path().join(artifact.to_string()),
-				};
+				let path = self.artifacts_path().join(artifact.to_string());
+				let output = tg::artifact::checkout::Output { path };
 				Ok(output)
 			},
 			Some(path) => {

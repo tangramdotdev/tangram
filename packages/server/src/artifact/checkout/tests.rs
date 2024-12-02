@@ -318,7 +318,7 @@ async fn graph_symlink() -> tg::Result<()> {
 
 /// Test checking out a directory with an artifact symlink that points to itself.
 #[tokio::test]
-async fn cyclic_symlink() -> tg::Result<()> {
+async fn directory_with_symlink_cycle() -> tg::Result<()> {
 	let graph = tg::Graph::with_object(tg::graph::Object {
 		nodes: vec![
 			tg::graph::object::Node::Directory(tg::graph::object::Directory {
