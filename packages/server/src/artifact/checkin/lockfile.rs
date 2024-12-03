@@ -61,16 +61,20 @@ impl Server {
 		graph: &object::Graph,
 		path: &Path,
 	) -> tg::Result<tg::Lockfile> {
+		// Create the lockfile nodes.
 		let mut nodes = Vec::with_capacity(graph.nodes.len());
 		for node in 0..graph.nodes.len() {
 			let node = self.create_lockfile_node(graph, node).await?;
 			nodes.push(node);
 		}
 
+		// Find the root index.
 		let root = *graph
 			.paths
 			.get(path)
 			.ok_or_else(|| tg::error!("failed to get root object"))?;
+
+		// Strip the lockfile nodes.
 		let nodes = self.strip_lockfile_nodes(&nodes, root)?;
 		Ok(tg::Lockfile { nodes })
 	}
@@ -392,7 +396,6 @@ fn check_if_in_graph(nodes: &[tg::lockfile::Node], visited: &mut [bool]) {
 	}
 }
 
-// Recursively create a new list of nodes that have their path dependencies removed, while preserving nodes that transitively reference any tag dependencies.
 fn strip_nodes_inner(
 	old_nodes: &[tg::lockfile::Node],
 	node: usize,
@@ -402,9 +405,10 @@ fn strip_nodes_inner(
 	is_tagged: &[Option<bool>],
 	in_graph: &[bool],
 ) -> Option<usize> {
-	if matches!(should_retain[node], Some(false))
+	// Strip nodes that don't reference modules, are untagged, and not contained within graphs.
+	if !(matches!(should_retain[node], Some(true))
 		|| matches!(is_tagged[node], Some(true))
-		|| !in_graph[node]
+		|| in_graph[node])
 	{
 		return None;
 	}
