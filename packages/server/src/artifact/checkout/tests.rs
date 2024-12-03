@@ -339,6 +339,11 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
       "link": {
         "kind": "symlink",
         "target": "link"
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      }\n    },\n    {\n      \"kind\": \"symlink\",\n      \"Artifact\": {\n        \"artifact\": 0,\n        \"subpath\": \"link\"\n      }\n    }\n  ]\n}",
+        "executable": false
       }
     }
   }
