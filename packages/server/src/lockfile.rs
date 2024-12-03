@@ -10,11 +10,12 @@ use tangram_either::Either;
 
 /// Represents a lockfile that's been parsed, containing all of its objects and paths to artifacts that it references.
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct ParsedLockfile {
 	pub artifacts: BTreeMap<tg::artifact::Id, PathBuf>,
 	pub graphs: BTreeMap<tg::graph::Id, Arc<tg::graph::Data>>,
 	pub nodes: Vec<tg::lockfile::Node>,
-	pub objects: BTreeMap<tg::object::Id, tg::object::Data>,
+	pub objects: Vec<Option<(tg::object::Id, tg::object::Data)>>,
 	pub paths: Vec<Option<PathBuf>>,
 	pub path: PathBuf,
 }
@@ -276,12 +277,217 @@ fn strip_subpath(base: &Path, subpath: &Path) -> tg::Result<PathBuf> {
 impl ParsedLockfile {
 	pub fn try_resolve_dependency(
 		&self,
-		_node_path: &Path,
-		_reference: &tg::Reference,
+		node_path: &Path,
+		reference: &tg::Reference,
 	) -> tg::Result<Option<tg::Referent<tg::object::Id>>> {
-		// Find node for node path.
-		// Resolve the reference.
-		todo!()
+		let node = self.get_node_for_path(node_path)?;
+
+		// Dependency resolution is only valid for files.
+		let tg::lockfile::Node::File { dependencies, .. } = &self.nodes[node] else {
+			return Err(tg::error!(%path = node_path.display(), "expected a file node"))?;
+		};
+
+		// Lookup the dependency.
+		let Some(referent) = dependencies.get(reference) else {
+			return Ok(None);
+		};
+
+		// Resolve the item.
+		let item = match &referent.item {
+			Either::Left(index) => self.objects[*index]
+				.as_ref()
+				.ok_or_else(|| tg::error!("invalid lockfile"))?
+				.0
+				.clone(),
+			Either::Right(object) => object.clone(),
+		};
+
+		// Construct the referent.
+		let referent = tg::Referent {
+			item,
+			tag: referent.tag.clone(),
+			path: referent.path.clone(),
+			subpath: referent.subpath.clone(),
+		};
+		Ok(Some(referent))
+	}
+
+	pub fn get_path_for_node(&self, node: usize) -> tg::Result<PathBuf> {
+		self.paths[node]
+			.clone()
+			.ok_or_else(|| tg::error!("expected a node path"))
+	}
+
+	pub fn get_node_for_path(&self, node_path: &Path) -> tg::Result<usize> {
+		// Linear search, which should be faster than looking in a btreemap. Replace with a btreemap if this is too slow.
+		self
+			.paths
+			.iter()
+			.position(|path| path.as_deref() == Some(node_path))
+			.ok_or_else(|| tg::error!(%path = node_path.display(), %lockfile = self.path.display(), "failed to find in lockfile"))
+	}
+
+	pub fn get_file_dependencies(
+		&self,
+		path: &Path,
+	) -> tg::Result<Vec<(tg::Reference, tg::Referent<PathBuf>)>> {
+		// If we can find this file by path in the lockfile, try and use its dependencies.
+		if let Ok(node) = self.get_node_for_path(path) {
+			let tg::lockfile::Node::File { dependencies, .. } = &self.nodes[node] else {
+				return Err(tg::error!(%path = path.display(), "expected a file"));
+			};
+			let mut dependencies_ = Vec::with_capacity(dependencies.len());
+			for (reference, dependency) in dependencies {
+				let path = match &dependency.item {
+					Either::Left(node) => self.get_path_for_node(*node)?,
+					Either::Right(tg::object::Id::Directory(id)) => self
+						.artifacts
+						.get(&id.clone().into())
+						.ok_or_else(|| tg::error!("missing artifact"))?
+						.clone(),
+					Either::Right(tg::object::Id::File(id)) => self
+						.artifacts
+						.get(&id.clone().into())
+						.ok_or_else(|| tg::error!("missing artifact"))?
+						.clone(),
+					Either::Right(tg::object::Id::Symlink(id)) => self
+						.artifacts
+						.get(&id.clone().into())
+						.ok_or_else(|| tg::error!("missing artifact"))?
+						.clone(),
+					Either::Right(_) => continue,
+				};
+				let dependency = tg::Referent {
+					item: path,
+					path: dependency.path.clone(),
+					subpath: dependency.subpath.clone(),
+					tag: dependency.tag.clone(),
+				};
+				dependencies_.push((reference.clone(), dependency));
+			}
+
+			return Ok(dependencies_);
+		}
+
+		if let Some(artifact) = self
+			.artifacts
+			.iter()
+			.find_map(|(id, path_)| (path_ == path).then_some(id))
+		{
+			// Get the file data from the lockfile.
+			let id: tg::object::Id = artifact.clone().into();
+			let tg::object::Data::File(file) = self
+				.objects
+				.iter()
+				.find_map(|object| {
+					let (id_, data) = object.as_ref()?;
+					(id_ == &id).then_some(data)
+				})
+				.ok_or_else(|| tg::error!("expected a file"))?
+			else {
+				return Err(tg::error!("could not find in lockfile"));
+			};
+
+			// Get the dependencies of this file as artifact IDs.
+			let dependencies: Vec<(tg::Reference, tg::Referent<tg::artifact::Id>)> = match file {
+				tg::file::Data::Graph { graph, node } => {
+					let graph_data = self
+						.graphs
+						.get(graph)
+						.ok_or_else(|| tg::error!("could not find graph in lockfile"))?;
+					let node = graph_data
+						.nodes
+						.get(*node)
+						.ok_or_else(|| tg::error!("could not find node in graph"))?;
+					let tg::graph::data::Node::File(tg::graph::data::File { dependencies, .. }) =
+						node
+					else {
+						return Err(tg::error!("expected a file"));
+					};
+					dependencies
+						.iter()
+						.filter_map(|(reference, referent)| {
+							let id = match &referent.item {
+								Either::Left(node) => match &graph_data.nodes[*node].kind() {
+									tg::artifact::Kind::Directory => {
+										let data = tg::directory::Data::Graph {
+											graph: graph.clone(),
+											node: *node,
+										};
+										let id = tg::directory::Id::new(&data.serialize().unwrap());
+										id.into()
+									},
+									tg::artifact::Kind::File => {
+										let data = tg::file::Data::Graph {
+											graph: graph.clone(),
+											node: *node,
+										};
+										let id = tg::file::Id::new(&data.serialize().unwrap());
+										id.into()
+									},
+									tg::artifact::Kind::Symlink => {
+										let data = tg::symlink::Data::Graph {
+											graph: graph.clone(),
+											node: *node,
+										};
+										let id = tg::symlink::Id::new(&data.serialize().unwrap());
+										id.into()
+									},
+								},
+								Either::Right(tg::object::Id::Directory(id)) => id.clone().into(),
+								Either::Right(tg::object::Id::File(id)) => id.clone().into(),
+								Either::Right(tg::object::Id::Symlink(id)) => id.clone().into(),
+								Either::Right(_) => return None,
+							};
+							let dependency = tg::Referent {
+								item: id,
+								path: referent.path.clone(),
+								subpath: referent.subpath.clone(),
+								tag: referent.tag.clone(),
+							};
+							Some((reference.clone(), dependency))
+						})
+						.collect()
+				},
+				tg::file::Data::Normal { dependencies, .. } => dependencies
+					.iter()
+					.filter_map(|(reference, referent)| {
+						let id = match &referent.item {
+							tg::object::Id::Directory(id) => id.clone().into(),
+							tg::object::Id::File(id) => id.clone().into(),
+							tg::object::Id::Symlink(id) => id.clone().into(),
+							_ => return None,
+						};
+						let dependency = tg::Referent {
+							item: id,
+							path: referent.path.clone(),
+							subpath: referent.subpath.clone(),
+							tag: referent.tag.clone(),
+						};
+						Some((reference.clone(), dependency))
+					})
+					.collect(),
+			};
+			return dependencies
+				.into_iter()
+				.map(|(reference, dependency)| {
+					let path = self
+						.artifacts
+						.get(&dependency.item)
+						.ok_or_else(|| tg::error!("missing artifact"))?
+						.clone();
+					let dependency = tg::Referent {
+						item: path,
+						path: dependency.path,
+						subpath: dependency.subpath,
+						tag: dependency.tag,
+					};
+					Ok::<_, tg::Error>((reference, dependency))
+				})
+				.try_collect();
+		}
+
+		Err(tg::error!("failed to get dependencies"))
 	}
 }
 
@@ -312,12 +518,12 @@ impl Server {
 				Ok::<_, tg::Error>((id, Arc::new(data)))
 			})
 			.try_collect()?;
-		let objects: BTreeMap<tg::object::Id, tg::object::Data> = objects
+		let objects: Vec<_> = objects
 			.into_iter()
-			.flatten()
 			.map(|data| {
+				let Some(data) = data else { return Ok(None) };
 				let id = tg::object::Id::new(data.kind(), &data.serialize()?);
-				Ok::<_, tg::Error>((id, data))
+				Ok::<_, tg::Error>(Some((id, data)))
 			})
 			.try_collect()?;
 
@@ -355,7 +561,8 @@ impl Server {
 
 		// Collect all the artifact IDs, implicit or explicit.
 		let artifact_ids = objects
-			.keys()
+			.iter()
+			.filter_map(|kv| Some(&kv.as_ref()?.0))
 			.cloned()
 			.chain(referenced_objects)
 			.filter_map(|id| id.try_into().ok())
@@ -384,18 +591,165 @@ impl Server {
 			}
 		}
 
+		// Get the paths for the lockfile nodes.
+		let paths = get_paths(&artifacts_path, path, &lockfile, &objects).await?;
+
 		// Create the parsed lockfile.
 		let lockfile = ParsedLockfile {
 			artifacts,
 			graphs,
 			nodes: lockfile.nodes,
 			objects,
-			paths: todo!(),
+			paths,
 			path: path.to_owned(),
 		};
 
 		Ok(lockfile)
 	}
+}
+
+// Given a lockfile, get the paths of all the nodes.
+async fn get_paths(
+	artifacts_path: &Path,
+	lockfile_path: &Path,
+	lockfile: &tg::Lockfile,
+	objects: &[Option<(tg::object::Id, tg::object::Data)>],
+) -> tg::Result<Vec<Option<PathBuf>>> {
+	async fn get_paths_inner(
+		artifacts_path: &Path,
+		lockfile: &tg::Lockfile,
+		node_path: &Path,
+		node: usize,
+		objects: &[Option<(tg::object::Id, tg::object::Data)>],
+		visited: &mut Vec<Option<PathBuf>>,
+	) -> tg::Result<()> {
+		// Check if the node has been visited.
+		if visited[node].is_some() {
+			return Ok(());
+		}
+
+		// Check if the file system object exists.
+		if !matches!(tokio::fs::try_exists(node_path).await, Ok(true)) {
+			return Err(
+				tg::error!(%path = node_path.display(), "expected a file system object at the path"),
+			)?;
+		};
+
+		// Update the visited set.
+		visited[node].replace(node_path.to_owned());
+
+		// Recurse.
+		match &lockfile.nodes[node] {
+			tg::lockfile::Node::Directory { entries } => {
+				for (name, entry) in entries {
+					let Either::Left(index) = entry else {
+						continue;
+					};
+					let node_path = node_path.join(name);
+					Box::pin(get_paths_inner(
+						artifacts_path,
+						lockfile,
+						&node_path,
+						*index,
+						objects,
+						visited,
+					))
+					.await?;
+				}
+			},
+			tg::lockfile::Node::File { dependencies, .. } => {
+				'outer: for (reference, referent) in dependencies {
+					let Either::Left(index) = &referent.item else {
+						continue;
+					};
+
+					// Try and follow a relative path.
+					'a: {
+						let Some(path) = reference
+							.item()
+							.try_unwrap_path_ref()
+							.ok()
+							.or_else(|| reference.options()?.path.as_ref())
+						else {
+							break 'a;
+						};
+						let path = node_path.parent().unwrap().join(path);
+						let Some(node_path) =
+							crate::util::fs::canonicalize_parent(&path).await.ok()
+						else {
+							break 'a;
+						};
+						if Box::pin(get_paths_inner(
+							artifacts_path,
+							lockfile,
+							&node_path,
+							*index,
+							objects,
+							visited,
+						))
+						.await
+						.is_ok()
+						{
+							continue 'outer;
+						}
+					};
+
+					// Try and get the path to the object.
+					let object = &objects[*index]
+						.as_ref()
+						.ok_or_else(|| tg::error!("expected an object ID"))?
+						.0;
+					let node_path = artifacts_path.join(object.to_string());
+					Box::pin(get_paths_inner(
+						artifacts_path,
+						lockfile,
+						&node_path,
+						*index,
+						objects,
+						visited,
+					))
+					.await?;
+				}
+			},
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+				artifact: Either::Left(index),
+				..
+			}) => {
+				// Try and get the path to the object.
+				let object = &objects[*index]
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected an object ID"))?
+					.0;
+				let node_path = artifacts_path.join(object.to_string());
+				Box::pin(get_paths_inner(
+					artifacts_path,
+					lockfile,
+					&node_path,
+					*index,
+					objects,
+					visited,
+				))
+				.await?;
+			},
+			tg::lockfile::Node::Symlink(_) => (),
+		};
+
+		Ok(())
+	}
+
+	let mut visited = vec![None; lockfile.nodes.len()];
+	let node_path = lockfile_path.parent().unwrap();
+	let node = 0;
+	Box::pin(get_paths_inner(
+		artifacts_path,
+		lockfile,
+		node_path,
+		node,
+		objects,
+		&mut visited,
+	))
+	.await?;
+	Ok(visited)
 }
 
 /// The objects referenced by a lockfile.
@@ -527,7 +881,7 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 						let item = match &referent.item {
 							Either::Left(index) => {
 								get_lockfile_item(*index, graph_indices, objects)?
-									.map_right(|id| id.into())
+									.map_right(tg::object::Id::from)
 							},
 							Either::Right(id) => Either::Right(id.clone()),
 						};
@@ -594,7 +948,7 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 	let mut objects = vec![None; lockfile.nodes.len()];
 
 	'outer: for mut scc in petgraph::algo::tarjan_scc(&LockfileGraphImpl(lockfile)) {
-		scc.sort();
+		scc.sort_unstable();
 
 		// Skip SCCs that are missing file contents.
 		if scc.len() == 1 {

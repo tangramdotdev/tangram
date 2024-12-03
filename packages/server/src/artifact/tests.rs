@@ -108,7 +108,24 @@ async fn path_dependency() -> tg::Result<()> {
 			let output_a = a.output().await;
 			let output_b = b.output().await;
 			assert_eq!(&output_a, &output_b);
-			assert_snapshot!(&output_a, @r#""#);
+			assert_snapshot!(&output_a, @r#"
+   tg.directory({
+   	"tangram.ts": tg.file({
+   		"contents": tg.leaf("import * as bar from "../bar""),
+   		"dependencies": {
+   			"../bar": {
+   				"item": tg.directory({
+   					"tangram.ts": tg.file({
+   						"contents": tg.leaf(""),
+   					}),
+   				}),
+   				"path": "../bar",
+   				"subpath": "tangram.ts",
+   			},
+   		},
+   	}),
+   })
+   "#);
 			Ok(())
 		},
 	)
@@ -207,7 +224,49 @@ async fn cyclic_path_dependency() -> tg::Result<()> {
 			let output_a = a.output().await;
 			let output_b = b.output().await;
 			assert_eq!(&output_a, &output_b);
-			assert_snapshot!(&output_a, @r#""#);
+			assert_snapshot!(&output_a, @r#"
+   tg.directory({
+   	"graph": tg.graph({
+   		"nodes": [
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"tangram.ts": 1,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import * as bar from "../bar""),
+   				"dependencies": {
+   					"../bar": {
+   						"item": 2,
+   						"path": "../bar",
+   						"subpath": "tangram.ts",
+   					},
+   				},
+   			},
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"tangram.ts": 3,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import * as foo from "../foo""),
+   				"dependencies": {
+   					"../foo": {
+   						"item": 0,
+   						"path": "",
+   						"subpath": "tangram.ts",
+   					},
+   				},
+   			},
+   		],
+   	}),
+   	"node": 0,
+   })
+   "#);
 			Ok(())
 		},
 	)
@@ -246,7 +305,6 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server1, arg).await?;
-		eprintln!("1");
 
 		// Check the artifact out from the first server.
 		let temp = Temp::new();
@@ -256,7 +314,6 @@ where
 			force: false,
 		};
 		let path = artifact.check_out(&server1, arg).await?;
-		eprintln!("2");
 
 		let checkout = temp::Artifact::with_path(&path).await?;
 
@@ -278,7 +335,6 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server2, arg).await?;
-		eprintln!("3");
 
 		// Check it out.
 		let temp = Temp::new();
@@ -288,7 +344,6 @@ where
 			force: false,
 		};
 		let path = artifact.check_out(&server2, arg).await?;
-		eprintln!("4");
 
 		let checkout = temp::Artifact::with_path(&path).await?;
 		let artifact2 = TestArtifact {
