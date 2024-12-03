@@ -8,24 +8,47 @@ use std::{
 use tangram_client as tg;
 use tokio::io::AsyncWriteExt as _;
 
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[derive(
+	Clone,
+	Debug,
+	PartialEq,
+	PartialOrd,
+	Eq,
+	Ord,
+	derive_more::From,
+	derive_more::IsVariant,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Artifact {
-	Directory {
-		entries: BTreeMap<Cow<'static, str>, Self>,
-	},
-	File {
-		contents: Cow<'static, str>,
-		executable: bool,
-	},
-	Symlink {
-		target: Cow<'static, str>,
-	},
+	Directory(Directory),
+	File(File),
+	Symlink(Symlink),
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, serde::Deserialize, serde::Serialize)]
+pub struct Directory {
+	pub entries: BTreeMap<Cow<'static, str>, Artifact>,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, serde::Deserialize, serde::Serialize)]
+pub struct File {
+	pub contents: Cow<'static, str>,
+	pub executable: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, serde::Deserialize, serde::Serialize)]
+pub struct Symlink {
+	pub target: Cow<'static, str>,
 }
 
 impl Artifact {
 	pub async fn with_path(path: &Path) -> tg::Result<Self> {
-		if path.is_dir() {
+		let metadata = tokio::fs::symlink_metadata(path)
+			.await
+			.map_err(|error| tg::error!(source = error, "failed to read the metadata"))?;
+		if metadata.is_dir() {
 			let mut entries = BTreeMap::new();
 			let mut read_dir = tokio::fs::read_dir(path)
 				.await
@@ -43,22 +66,18 @@ impl Artifact {
 				let artifact = Box::pin(Artifact::with_path(entry.path().as_path())).await?;
 				entries.insert(name, artifact);
 			}
-			Ok(Self::Directory { entries })
-		} else if path.is_file() {
+			Ok(Self::Directory(Directory { entries }))
+		} else if metadata.is_file() {
 			let contents =
 				Cow::Owned(tokio::fs::read_to_string(path).await.map_err(|error| {
 					tg::error!(source = error, "could not read file to string")
 				})?);
-			let permissions = tokio::fs::metadata(path)
-				.await
-				.map_err(|error| tg::error!(source = error, "could not read file metadata"))?
-				.permissions();
-			let executable = permissions.mode() & 0o111 != 0;
-			Ok(Self::File {
+			let executable = metadata.permissions().mode() & 0o111 != 0;
+			Ok(Self::File(File {
 				contents,
 				executable,
-			})
-		} else if path.is_symlink() {
+			}))
+		} else if metadata.is_symlink() {
 			let target = Cow::Owned(
 				tokio::fs::read_link(path)
 					.await
@@ -67,7 +86,7 @@ impl Artifact {
 					.unwrap()
 					.to_owned(),
 			);
-			Ok(Self::Symlink { target })
+			Ok(Self::Symlink(Symlink { target }))
 		} else {
 			Err(tg::error!(?path, "expected a file, directory, or symlink"))
 		}
@@ -75,7 +94,7 @@ impl Artifact {
 
 	pub async fn to_path(&self, path: &Path) -> std::io::Result<()> {
 		match self {
-			Self::Directory { entries } => {
+			Self::Directory(Directory { entries }) => {
 				tokio::fs::create_dir(&path).await?;
 				entries
 					.iter()
@@ -88,10 +107,10 @@ impl Artifact {
 					.try_collect::<()>()
 					.await?;
 			},
-			Self::File {
+			Self::File(File {
 				contents,
 				executable,
-			} => {
+			}) => {
 				let mut file = tokio::fs::OpenOptions::new()
 					.write(true)
 					.create(true)
@@ -104,7 +123,7 @@ impl Artifact {
 						.await?;
 				}
 			},
-			Self::Symlink { target } => {
+			Self::Symlink(Symlink { target }) => {
 				tokio::fs::symlink(target.as_ref(), path).await?;
 			},
 		}
@@ -123,7 +142,7 @@ impl Artifact {
 		};
 
 		match self {
-			Self::Directory { entries } => {
+			Self::Directory(Directory { entries }) => {
 				if !metadata.is_dir() {
 					return Ok(false);
 				}
@@ -147,10 +166,10 @@ impl Artifact {
 				}
 			},
 
-			Self::File {
+			Self::File(File {
 				contents,
 				executable,
-			} => {
+			}) => {
 				if !metadata.is_file() {
 					return Ok(false);
 				}
@@ -164,7 +183,7 @@ impl Artifact {
 				}
 			},
 
-			Self::Symlink { target } => {
+			Self::Symlink(Symlink { target }) => {
 				if !metadata.is_symlink() {
 					return Ok(false);
 				}
@@ -179,21 +198,28 @@ impl Artifact {
 	}
 }
 
+impl Directory {
+	#[must_use]
+	pub fn with_entries(entries: BTreeMap<Cow<'static, str>, Artifact>) -> Self {
+		Self { entries }
+	}
+}
+
 impl From<&'static str> for Artifact {
 	fn from(value: &'static str) -> Self {
-		Self::File {
+		Self::File(File {
 			contents: value.into(),
 			executable: false,
-		}
+		})
 	}
 }
 
 impl From<String> for Artifact {
 	fn from(value: String) -> Self {
-		Self::File {
+		Self::File(File {
 			contents: value.into(),
 			executable: false,
-		}
+		})
 	}
 }
 
@@ -204,7 +230,7 @@ macro_rules! directory {
 		$(
 			entries.insert($name.into(), $artifact.into());
 		)*
-		$crate::artifact::Artifact::Directory { entries }
+		$crate::artifact::Directory { entries }
 	}};
 }
 
@@ -219,14 +245,14 @@ macro_rules! file {
 		let contents = $contents.into();
 		let mut executable = false;
 		$crate::file!(@executable $($($arg)*)?);
-		$crate::artifact::Artifact::File { contents, executable }
+		$crate::artifact::File { contents, executable }
 	}};
 }
 
 #[macro_export]
 macro_rules! symlink {
 	($target:expr) => {{
-		$crate::artifact::Artifact::Symlink {
+		$crate::artifact::Symlink {
 			target: $target.into(),
 		}
 	}};

@@ -110,12 +110,13 @@ impl Server {
 					let semaphore = semaphore.clone();
 					let server = self.clone();
 					async move {
-						let _permit = semaphore.acquire().await.unwrap();
+						let permit = semaphore.acquire().await.unwrap();
 						server
 							.index_object(&id)
 							.await
 							.inspect_err(|error| tracing::error!(?error))
 							.ok();
+						drop(permit);
 					}
 				});
 			}

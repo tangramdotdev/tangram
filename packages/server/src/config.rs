@@ -166,7 +166,7 @@ impl Default for Advanced {
 				internal: true,
 				reverse: false,
 			},
-			file_descriptor_semaphore_size: 1024,
+			file_descriptor_semaphore_size: 1_000_000_000,
 			preserve_temp_directories: false,
 			write_build_logs_to_database: false,
 			write_build_logs_to_stderr: false,

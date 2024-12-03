@@ -36,6 +36,7 @@ pub enum Symlink {
 	Target {
 		target: PathBuf,
 	},
+
 	Artifact {
 		artifact: Entry,
 

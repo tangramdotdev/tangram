@@ -7,18 +7,28 @@ use tangram_either::Either;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
 
-/// Test checking out a directory.
+/// Test caching a directory.
 #[tokio::test]
 async fn directory() -> tg::Result<()> {
 	let artifact = tg::directory! {
 		"hello.txt" => "Hello, World!",
 	};
-	test(artifact, |_, artifact| async move {
-		assert_json_snapshot!(artifact, @r#"
+	test(artifact, |_, cache| async move {
+		assert_json_snapshot!(cache, @r#"
   {
     "kind": "directory",
     "entries": {
-      "hello.txt": {
+      "dir_01gn2yn2wk00wh3w1tcse628ghxj734a2c6qjd8e7g4553qzq2vs1g": {
+        "kind": "directory",
+        "entries": {
+          "hello.txt": {
+            "kind": "file",
+            "contents": "Hello, World!",
+            "executable": false
+          }
+        }
+      },
+      "fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g": {
         "kind": "file",
         "contents": "Hello, World!",
         "executable": false
@@ -38,9 +48,14 @@ async fn file() -> tg::Result<()> {
 	test(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
-    "kind": "file",
-    "contents": "Hello, World!",
-    "executable": false
+    "kind": "directory",
+    "entries": {
+      "fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g": {
+        "kind": "file",
+        "contents": "Hello, World!",
+        "executable": false
+      }
+    }
   }
   "#);
 		Ok::<_, tg::Error>(())
@@ -55,9 +70,54 @@ async fn executable_file() -> tg::Result<()> {
 	test(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
-    "kind": "file",
-    "contents": "Hello, World!",
-    "executable": true
+    "kind": "directory",
+    "entries": {
+      "fil_01yf0xwv92p30wwyp5vpt925tyw4nwkyzt4b3fv4g3hc8wr4nsk8j0": {
+        "kind": "file",
+        "contents": "Hello, World!",
+        "executable": true
+      }
+    }
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+/// Test caching a directory with two identical files.
+#[tokio::test]
+async fn directory_with_two_identical_files() -> tg::Result<()> {
+	let artifact = tg::directory! {
+		"hello.txt" => "Hello, World!",
+		"world.txt" => "Hello, World!",
+	};
+	test(artifact, |_, cache| async move {
+		assert_json_snapshot!(cache, @r#"
+  {
+    "kind": "directory",
+    "entries": {
+      "dir_0184z14k1w0vne39fsb6ytk6d8yk5wannz3r9g94hyh0hn5tx5x1gg": {
+        "kind": "directory",
+        "entries": {
+          "hello.txt": {
+            "kind": "file",
+            "contents": "Hello, World!",
+            "executable": false
+          },
+          "world.txt": {
+            "kind": "file",
+            "contents": "Hello, World!",
+            "executable": false
+          }
+        }
+      },
+      "fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g": {
+        "kind": "file",
+        "contents": "Hello, World!",
+        "executable": false
+      }
+    }
   }
   "#);
 		Ok::<_, tg::Error>(())
@@ -78,9 +138,19 @@ async fn file_with_dependency() -> tg::Result<()> {
 	test(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
-    "kind": "file",
-    "contents": "foo",
-    "executable": false
+    "kind": "directory",
+    "entries": {
+      "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+        "kind": "file",
+        "contents": "bar",
+        "executable": false
+      },
+      "fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0": {
+        "kind": "file",
+        "contents": "foo",
+        "executable": false
+      }
+    }
   }
   "#);
 		Ok::<_, tg::Error>(())
@@ -95,8 +165,13 @@ async fn symlink() -> tg::Result<()> {
 	test(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
-    "kind": "symlink",
-    "target": "/bin/sh"
+    "kind": "directory",
+    "entries": {
+      "sym_01xpnr55xrsjcwcc9ppryzqry6r2m15k17kzjxjakyfs4g5fvksqqg": {
+        "kind": "symlink",
+        "target": "/bin/sh"
+      }
+    }
   }
   "#);
 		Ok::<_, tg::Error>(())
@@ -118,19 +193,29 @@ async fn directory_with_symlink() -> tg::Result<()> {
   {
     "kind": "directory",
     "entries": {
-      "directory": {
+      "dir_01zbk5rvcgyfg20ktzxkfbxsa848dc2ayyvtz0ca32x35nyfw7vc80": {
         "kind": "directory",
         "entries": {
-          "hello.txt": {
-            "kind": "file",
-            "contents": "Hello, World!",
-            "executable": false
-          },
-          "link": {
-            "kind": "symlink",
-            "target": "hello.txt"
+          "directory": {
+            "kind": "directory",
+            "entries": {
+              "hello.txt": {
+                "kind": "file",
+                "contents": "Hello, World!",
+                "executable": false
+              },
+              "link": {
+                "kind": "symlink",
+                "target": "hello.txt"
+              }
+            }
           }
         }
+      },
+      "fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g": {
+        "kind": "file",
+        "contents": "Hello, World!",
+        "executable": false
       }
     }
   }
@@ -165,29 +250,24 @@ async fn directory_with_file_with_dependency() -> tg::Result<()> {
   {
     "kind": "directory",
     "entries": {
-      ".tangram": {
+      "dir_019at517ytj7gfg92358f53w7c2ht4gewvtg45fegwr6teffnnvxa0": {
         "kind": "directory",
         "entries": {
-          "artifacts": {
-            "kind": "directory",
-            "entries": {
-              "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
-                "kind": "file",
-                "contents": "bar",
-                "executable": false
-              }
-            }
+          "foo": {
+            "kind": "file",
+            "contents": "foo",
+            "executable": false
           }
         }
       },
-      "foo": {
+      "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
         "kind": "file",
-        "contents": "foo",
+        "contents": "bar",
         "executable": false
       },
-      "tangram.lock": {
+      "fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"file\"}]}",
+        "contents": "foo",
         "executable": false
       }
     }
@@ -209,24 +289,19 @@ async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
   {
     "kind": "directory",
     "entries": {
-      ".tangram": {
+      "dir_01tazznbadf4db8hadnz5h145x288ne3dsg3zkttcp6xnj82vy6wm0": {
         "kind": "directory",
         "entries": {
-          "artifacts": {
-            "kind": "directory",
-            "entries": {
-              "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
-                "kind": "file",
-                "contents": "bar",
-                "executable": false
-              }
-            }
+          "foo": {
+            "kind": "symlink",
+            "target": "../fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
           }
         }
       },
-      "foo": {
-        "kind": "symlink",
-        "target": ".tangram/artifacts/fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
+      "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+        "kind": "file",
+        "contents": "bar",
+        "executable": false
       }
     }
   }
@@ -256,7 +331,17 @@ async fn graph_directory() -> tg::Result<()> {
   {
     "kind": "directory",
     "entries": {
-      "hello.txt": {
+      "dir_01s6gw40j6yme9cc6qq7sgdfck53e1ww64mx0cw9r401t3tg60yw60": {
+        "kind": "directory",
+        "entries": {
+          "hello.txt": {
+            "kind": "file",
+            "contents": "Hello, World!",
+            "executable": false
+          }
+        }
+      },
+      "fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g": {
         "kind": "file",
         "contents": "Hello, World!",
         "executable": false
@@ -283,9 +368,14 @@ async fn graph_file() -> tg::Result<()> {
 	test(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
-    "kind": "file",
-    "contents": "Hello, World!",
-    "executable": false
+    "kind": "directory",
+    "entries": {
+      "fil_011d4n8a29e5pb8x8nmzkq16aawpn2ygeygv37t4ns2gpykgpd5kkg": {
+        "kind": "file",
+        "contents": "Hello, World!",
+        "executable": false
+      }
+    }
   }
   "#);
 		Ok::<_, tg::Error>(())
@@ -307,8 +397,13 @@ async fn graph_symlink() -> tg::Result<()> {
 	test(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
-    "kind": "symlink",
-    "target": "/bin/sh"
+    "kind": "directory",
+    "entries": {
+      "sym_01xp24xhgdns2d11j3nsmv9yfmmy3sm567tjqxtt5sy6k7f91vs5d0": {
+        "kind": "symlink",
+        "target": "/bin/sh"
+      }
+    }
   }
   "#);
 		Ok::<_, tg::Error>(())
@@ -336,9 +431,14 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
   {
     "kind": "directory",
     "entries": {
-      "link": {
-        "kind": "symlink",
-        "target": "link"
+      "dir_01jgpeycbs5s4yjr89jqf3kkvy1a0rmrk7j2fmedscvh495h5b3740": {
+        "kind": "directory",
+        "entries": {
+          "link": {
+            "kind": "symlink",
+            "target": "link"
+          }
+        }
       }
     }
   }
@@ -357,19 +457,18 @@ where
 	let config = Config::with_path(temp.path().to_owned());
 	let server = Server::start(config).await?;
 	let result = AssertUnwindSafe(async {
-		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
 			force: false,
-			path: Some(temp.path().to_owned()),
+			path: None,
 		};
-		let id = artifact.into().id(&server).await?;
-		let stream = server.check_out_artifact(&id, arg).await?;
+		let artifact = artifact.into().id(&server).await?;
+		let stream = server.check_out_artifact(&artifact, arg).await?;
 		let _ = pin!(stream)
 			.try_last()
 			.await?
 			.and_then(|event| event.try_unwrap_output().ok())
 			.ok_or_else(|| tg::error!("stream ended without output"))?;
-		let artifact = temp::Artifact::with_path(temp.path()).await?;
+		let artifact = temp::Artifact::with_path(&server.cache_path()).await?;
 		(assertions)(server.clone(), artifact).await?;
 		Ok::<_, tg::Error>(())
 	})

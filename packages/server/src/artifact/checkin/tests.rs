@@ -1,7 +1,7 @@
 use crate::{util::fs::cleanup, Config, Server};
 use futures::{Future, FutureExt as _};
 use insta::assert_snapshot;
-use std::{panic::AssertUnwindSafe, path::PathBuf, pin::pin};
+use std::{panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
@@ -45,7 +45,7 @@ async fn file_through_symlink() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn external_symlink() -> tg::Result<()> {
+async fn artifact_symlink() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"a" => temp::directory! {
@@ -634,49 +634,6 @@ async fn destructive_package() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn external_symlink_roundtrip() -> tg::Result<()> {
-	let temp = Temp::new();
-	let config = Config::with_path(temp.path().to_owned());
-	let server = Server::start(config).await?;
-	let result = AssertUnwindSafe(async {
-		let directory = tg::directory! {
-			"file" => "contents",
-		};
-		let symlink = tg::symlink!(artifact = directory, subpath = Some(PathBuf::from("file")));
-
-		// Check out the artifact.
-		let temp = Temp::new();
-		let arg = tg::artifact::checkout::Arg {
-			dependencies: true,
-			force: false,
-			path: Some(temp.path().to_owned()),
-		};
-		let path = tg::Artifact::from(symlink.clone())
-			.check_out(&server, arg)
-			.await?;
-
-		// Check the artifact back in.
-		let arg = tg::artifact::checkin::Arg {
-			deterministic: true,
-			destructive: false,
-			ignore: true,
-			locked: true,
-			path,
-		};
-		let artifact = tg::Artifact::check_in(&server, arg)
-			.await?
-			.try_unwrap_symlink()
-			.map_err(|_| tg::error!("expected a symlink"))?;
-		assert_eq!(artifact.id(&server).await?, symlink.id(&server).await?);
-		Ok::<_, tg::Error>(())
-	})
-	.catch_unwind()
-	.await;
-	cleanup(temp, server).await;
-	result.unwrap()
-}
-
-#[tokio::test]
 async fn ignore() -> tg::Result<()> {
 	test(
 		temp::directory! {
@@ -707,7 +664,7 @@ async fn ignore() -> tg::Result<()> {
 }
 
 async fn test<F, Fut>(
-	artifact: temp::Artifact,
+	artifact: impl Into<temp::Artifact>,
 	path: &str,
 	destructive: bool,
 	assertions: F,
@@ -716,6 +673,7 @@ where
 	F: FnOnce(Server, tg::Artifact, String) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
+	let artifact = artifact.into();
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;

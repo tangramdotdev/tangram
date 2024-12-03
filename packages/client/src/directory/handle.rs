@@ -1,6 +1,6 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
-use futures::{stream::FuturesUnordered, Future, FutureExt as _, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tangram_either::Either;
 
@@ -68,7 +68,7 @@ impl Directory {
 			return Ok(Some(object));
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(output) = handle.try_get_object(&id.into()).await? else {
+		let Some(output) = Box::pin(handle.try_get_object(&id.into())).await? else {
 			return Ok(None);
 		};
 		let data = Data::deserialize(&output.bytes)
@@ -122,22 +122,13 @@ impl Directory {
 				Ok(Data::Graph { graph, node })
 			},
 			Object::Normal { entries } => {
-				#[allow(clippy::manual_async_fn)]
-				fn future(
-					handle: impl tg::Handle,
-					artifact: tg::Artifact,
-				) -> impl Future<Output = tg::Result<tg::artifact::Id>> + Send {
-					async move { artifact.id(&handle).await }
-				}
 				let entries = entries
 					.iter()
 					.map(|(name, artifact)| {
 						let artifact = artifact.clone();
 						let handle = handle.clone();
 						async move {
-							let artifact = tokio::spawn(future(handle, artifact))
-								.map(|result| result.unwrap())
-								.await?;
+							let artifact = Box::pin(artifact.id(&handle)).await?;
 							Ok::<_, tg::Error>((name.clone(), artifact))
 						}
 					})

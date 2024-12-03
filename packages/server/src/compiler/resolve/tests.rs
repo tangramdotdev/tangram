@@ -134,7 +134,7 @@ async fn package_path_dependency_object() -> tg::Result<()> {
 
 async fn test_path<F, Fut>(
 	kind: tg::module::Kind,
-	artifact: temp::Artifact,
+	artifact: impl Into<temp::Artifact>,
 	path: &str,
 	subpath: &str,
 	import: tg::Import,
@@ -144,6 +144,7 @@ where
 	F: FnOnce(Server, PathBuf, tg::Module) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
+	let artifact = artifact.into();
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
@@ -188,7 +189,7 @@ where
 
 async fn test_object<F, Fut>(
 	kind: tg::module::Kind,
-	artifact: temp::Artifact,
+	artifact: impl Into<temp::Artifact>,
 	path: &str,
 	subpath: &str,
 	import: tg::Import,
@@ -198,6 +199,7 @@ where
 	F: FnOnce(Server, tg::Artifact, tg::Module) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
+	let artifact = artifact.into();
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;

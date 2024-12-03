@@ -16,3 +16,14 @@ pub struct Referent<T> {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Tag>,
 }
+
+impl<T> Referent<T> {
+	pub fn with_item(item: T) -> Self {
+		Self {
+			item,
+			path: None,
+			subpath: None,
+			tag: None,
+		}
+	}
+}

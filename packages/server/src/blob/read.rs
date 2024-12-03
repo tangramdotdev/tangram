@@ -47,12 +47,18 @@ impl Server {
 
 	async fn try_get_blob_file(&self, id: &tg::blob::Id) -> tg::Result<Option<tokio::fs::File>> {
 		let path = self.blobs_path().join(id.to_string());
-		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		match tokio::fs::File::open(&path).await {
-			Ok(file) => Ok(Some(file)),
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-			Err(source) => Err(tg::error!(!source, "failed to get blob file"))?,
-		}
+		let file = match tokio::fs::File::open(&path).await {
+			Ok(file) => file,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
+			Err(source) => {
+				return Err(
+					tg::error!(!source, %path = path.display(), "failed to open the blob file"),
+				)?;
+			},
+		};
+		Ok(Some(file))
 	}
 
 	async fn try_read_blob_task(
@@ -61,12 +67,10 @@ impl Server {
 		reader: impl AsyncRead + AsyncSeek + Send + 'static,
 		sender: async_channel::Sender<tg::Result<tg::blob::read::Event>>,
 	) -> tg::Result<()> {
-		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let position = arg.position.unwrap_or(std::io::SeekFrom::Start(0));
 		let size = arg.size.unwrap_or(4096).to_usize().unwrap();
 		let mut length = 0;
 		let mut buf = vec![0u8; size];
-
 		let mut reader = pin!(reader);
 		reader
 			.seek(position)
@@ -98,7 +102,6 @@ impl Server {
 			{
 				break;
 			}
-
 			length += data.bytes.len().to_u64().unwrap();
 			let result = sender.try_send(Ok(tg::blob::read::Event::Chunk(data)));
 			if result.is_err() {
