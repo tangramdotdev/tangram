@@ -737,6 +737,10 @@ async fn get_paths(
 		Ok(())
 	}
 
+	if lockfile.nodes.is_empty() {
+		return Ok(Vec::new());
+	}
+
 	let mut visited = vec![None; lockfile.nodes.len()];
 	let node_path = lockfile_path.parent().unwrap();
 	let node = 0;
