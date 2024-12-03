@@ -14,6 +14,7 @@ use std::{
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::{Arc, Mutex, RwLock},
+	time::Duration,
 };
 use tangram_client as tg;
 use tangram_database as db;
@@ -716,15 +717,20 @@ impl Server {
 			};
 
 			// Create the service.
+			let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
 			let service = hyper::service::service_fn({
 				let handle = handle.clone();
+				let idle = idle.clone();
 				let stop = stop.clone();
 				move |mut request| {
 					let handle = handle.clone();
+					let idle = idle.token();
 					let stop = stop.clone();
 					async move {
 						request.extensions_mut().insert(stop);
-						let response = Self::handle_request(&handle, request).await;
+						let response = Self::handle_request(&handle, request)
+							.await
+							.map(|body| tangram_http::idle::Body::new(idle, body));
 						Ok::<_, Infallible>(response)
 					}
 				}
@@ -732,14 +738,20 @@ impl Server {
 
 			// Spawn a task to serve the connection.
 			task_tracker.spawn({
+				let idle = idle.clone();
 				let stop = stop.clone();
 				async move {
 					let builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
 					let connection = builder.serve_connection_with_upgrades(stream, service);
-					let result = match future::select(pin!(connection), pin!(stop.wait())).await {
+					let result = match future::select(
+						pin!(connection),
+						future::select(pin!(idle.wait()), pin!(stop.wait())),
+					)
+					.await
+					{
 						future::Either::Left((result, _)) => result,
-						future::Either::Right(((), mut connection)) => {
+						future::Either::Right((_, mut connection)) => {
 							connection.as_mut().graceful_shutdown();
 							connection.await
 						},
