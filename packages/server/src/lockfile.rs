@@ -628,11 +628,9 @@ async fn get_paths(
 			return Ok(());
 		}
 
-		// Check if the file system object exists.
+		// Check if the file system object exists. If it doesn't, leave the node empty.
 		if !matches!(tokio::fs::try_exists(node_path).await, Ok(true)) {
-			return Err(
-				tg::error!(%path = node_path.display(), "expected a file system object at the path"),
-			)?;
+			return Ok(());
 		};
 
 		// Update the visited set.
@@ -852,7 +850,7 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 	) -> tg::Result<Option<tg::graph::data::Node>> {
 		match node {
 			tg::lockfile::Node::Directory { entries } => {
-				let entries = entries
+				let Ok(entries) = entries
 					.iter()
 					.map(|(name, entry)| {
 						let entry = match entry {
@@ -867,7 +865,10 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 					.try_collect()
 					.map_err(
 						|source| tg::error!(!source, %node = index, "invalid directory entries"),
-					)?;
+					)
+				else {
+					return Ok(None);
+				};
 				let data = tg::graph::data::Node::Directory(tg::graph::data::Directory { entries });
 				Ok(Some(data))
 			},

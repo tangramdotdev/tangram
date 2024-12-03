@@ -11,6 +11,90 @@ use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
 
+/*
+	// called by create_input_graph_inner
+	fn get_dependencies(...) -> BTreeMap<tg::Reference, tg::Referent<Either<PathBuf, tg::object::Id>> {
+		// get a list of un-resolved dependencies
+
+		// get a list of resolved-dependencies (lockfile | xattr)
+
+		// diff the two, if they match, use the resolved dependencies, else use unresolved dependencies
+
+		// first, try and find the file in the lockfile, if it exists.
+		// if it does, read read the dependencies
+		// if it is a module, parse it
+		// check if the dependencies are the same
+	}
+
+*/
+#[tokio::test]
+async fn lockfile_out_of_date() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"tangram.ts" => r#"import "./b.tg.ts"#,
+			"./b.tg.ts" => "",
+			"tangram.lock" => r#"{
+				"nodes": [
+					{
+						"kind": "directory",
+						"entries": {
+							"a.tg.ts": 1,
+							"tangram.ts": 2
+						}
+					},
+					{
+						"kind": "file"
+					},
+					{
+						"kind": "file",
+						"dependencies": {
+							"./a.tg.ts": {
+								"item": 0,
+								"subpath": "./a.tg.ts"
+							}
+						}
+					}
+				]
+			}"#,
+		},
+		"",
+		false,
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "b.tg.ts": 1,
+           "tangram.ts": 2
+         }
+       },
+       {
+         "kind": "file"
+       },
+       {
+         "kind": "file",
+         "contents": "lef_01kvv10qev9ymf87zx83rb03jef2x5y2m919j20bs4wqpp09r0tm8g",
+         "dependencies": {
+           "./b.tg.ts": {
+             "item": 0,
+             "path": "",
+             "subpath": "b.tg.ts"
+           }
+         }
+       }
+     ]
+   }
+   "#);
+			assert_snapshot!(output, @r#""#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
 #[tokio::test]
 async fn file_through_symlink() -> tg::Result<()> {
 	test(

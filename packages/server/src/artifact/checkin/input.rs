@@ -166,23 +166,6 @@ impl Server {
 			.try_get_lockfile_for_path(&absolute_path, &mut state_)
 			.await?;
 
-		// If this is a file, attempt to get its data from the xattr.
-		let data = if metadata.is_file() && lockfile.is_none() {
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let xattr_data =
-				xattr::get(&absolute_path, tg::file::XATTR_DATA_NAME).map_err(|source| {
-					tg::error!(!source, %path = absolute_path.display(),
-				"failed to get data from xattr")
-				})?;
-			xattr_data
-				.map(|data| tg::file::Data::deserialize(&data.into()))
-				.transpose()
-				.map_err(|source| tg::error!(!source, "failed to deserialize file data"))?
-				.map(tg::artifact::Data::from)
-		} else {
-			None
-		};
-
 		// Create a new node.
 		let arg_ = tg::artifact::checkin::Arg {
 			path: absolute_path.clone(),
@@ -190,7 +173,7 @@ impl Server {
 		};
 		let node = Node {
 			arg: arg_,
-			data,
+			data: None,
 			edges: Vec::new(),
 			lockfile,
 			metadata: metadata.clone(),
@@ -257,8 +240,11 @@ impl Server {
 			return Ok(Some(lockfile));
 		}
 
-		// Parse the lockfile.
-		let lockfile = Arc::new(self.parse_lockfile(&lockfile_path).await?);
+		// Try to parse the lockfile.
+		let Ok(lockfile) = self.parse_lockfile(&lockfile_path).await else {
+			return Ok(None);
+		};
+		let lockfile = Arc::new(lockfile);
 
 		// Update state.
 		state
@@ -397,393 +383,350 @@ impl Server {
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
-		// If there is a lockfile, try and find this node within it.
+		// Get the lockfile if it exists.
 		let lockfile = state.read().await.graph.nodes[referrer].lockfile.clone();
-		if let Some(lockfile) = lockfile {
-			if let Some(edges) = self
-				.try_get_lockfile_edges(lockfile, referrer, path, arg, state, progress)
-				.await?
-			{
-				return Ok(edges);
+
+		// Get the set of unresolved references.
+		let imports = 'a: {
+			// If this is a module path, attempt to parse it.
+			if !tg::package::is_module_path(path) {
+				break 'a None;
+			};
+
+			// Read the file, returning an error if we couldn't.
+			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+			let text = tokio::fs::read_to_string(path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to read file contents"),
+			)?;
+			drop(permit);
+
+			// Analyze the module, forwarding errors as diagnostics.
+			let analysis = match crate::compiler::Compiler::analyze_module(text) {
+				Ok(analysis) => analysis,
+				Err(error) => {
+					// If analyzing the module fails, report a diagnostic and continue.
+					if let Some(progress) = progress {
+						let diagnostic = tg::Diagnostic {
+							location: None, // todo: compute a meaningful location.
+							severity: tg::diagnostic::Severity::Error,
+							message: format!("failed to analyze the module: {error}"),
+						};
+						progress.diagnostic(diagnostic);
+					}
+					break 'a None;
+				},
+			};
+
+			Some(analysis.imports)
+		};
+
+		// Try and get the references of this file in the lockfile, if it exists.
+		let resolved_references = 'a: {
+			// Break if no lockfile is present.
+			let Some(lockfile) = lockfile else {
+				break 'a None;
+			};
+
+			// Break if we can't find the dependencies of this file.
+			let Ok(references) = lockfile.get_file_dependencies(path) else {
+				break 'a None;
+			};
+
+			// Collect the references from the lockfile.
+			let references = references
+				.into_iter()
+				.map(|(reference, referent)| {
+					let referent = tg::Referent {
+						item: Either::Left(referent.item),
+						path: referent.path,
+						subpath: referent.subpath,
+						tag: referent.tag,
+					};
+					(reference, referent)
+				})
+				.collect::<BTreeMap<_, _>>();
+			break 'a Some(references);
+		};
+
+		// Try and get the references of this file from xattrs, if they exist.
+		let resolved_references = 'a: {
+			// Prefer the resolved references read from the lockfile.
+			if let Some(references) = resolved_references {
+				break 'a Some(references);
+			};
+
+			// Try and read the xattr if it exists.
+			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+			let Ok(Some(xattr)) = xattr::get(path, tg::file::XATTR_DATA_NAME) else {
+				break 'a None;
+			};
+			drop(permit);
+
+			// Try and deserialize the xattr, skipping if it can't be read.
+			let Ok(data) = tg::file::Data::deserialize(&xattr.into()) else {
+				break 'a None;
+			};
+
+			// Try to get the dependencies from the xattr data.
+			match data {
+				tg::file::Data::Graph { graph, node } => {
+					// Skip trying to get dependencies if the graph object doesn't exist.
+					let Ok(dependencies) =
+						tg::File::with_graph_and_node(tg::Graph::with_id(graph), node)
+							.dependencies(self)
+							.await
+					else {
+						break 'a None;
+					};
+
+					// Collect the references by getting their IDs.
+					let mut dependencies_ = BTreeMap::new();
+					for (reference, referent) in dependencies {
+						let id = referent.item.id(self).await?;
+						let referent = tg::Referent {
+							item: Either::Right(id),
+							path: referent.path,
+							subpath: referent.subpath,
+							tag: referent.tag,
+						};
+						dependencies_.insert(reference, referent);
+					}
+					Some(dependencies_)
+				},
+				tg::file::Data::Normal { dependencies, .. } => {
+					let dependencies = dependencies
+						.into_iter()
+						.map(|(reference, referent)| {
+							let referent = tg::Referent {
+								item: Either::Right(referent.item),
+								path: referent.path,
+								subpath: referent.subpath,
+								tag: referent.tag,
+							};
+							(reference, referent)
+						})
+						.collect();
+					Some(dependencies)
+				},
 			}
-		}
+		};
 
-		// If the file has data set, try and get its edges.
-		let data = state.read().await.graph.nodes[referrer].data.clone();
-		if let Some(data) = data {
-			return self
-				.get_data_edges(data, referrer, path, arg, state, progress)
-				.await;
-		}
+		// Try and reconcile the resolved/unresolved references.
+		match (imports, resolved_references) {
+			// If both resolved references and imports are present, reconcile the two.
+			(Some(imports), Some(resolved_references)) => {
+				if arg.locked {
+					let matches = resolved_references.len() == imports.len()
+						&& imports
+							.iter()
+							.all(|import| resolved_references.contains_key(&import.reference));
+					if !matches {
+						return Err(tg::error!("lockfile is out of date"));
+					}
+				}
 
-		// If this is a module path, attempt to parse and get its edges.
-		if tg::package::is_module_path(path) {
-			return self
-				.get_module_edges(referrer, path, arg, state, progress)
-				.await;
-		}
+				let mut edges = Vec::with_capacity(imports.len());
+				for import in imports {
+					let edge = if let Some(referent) = resolved_references.get(&import.reference) {
+						self.get_edge_from_path_or_id(
+							import.reference.clone(),
+							referent.clone(),
+							referrer,
+							path,
+							arg,
+							state,
+							progress,
+						)
+						.await?
+					} else {
+						self.get_edge_from_import(import, referrer, path, arg, state, progress)
+							.await?
+					};
+					edges.push(edge)
+				}
 
-		Ok(Vec::new())
+				// Return the merged references
+				Ok(edges)
+			},
+
+			// If only unresolved references exist, return them.
+			(Some(imports), None) => {
+				let mut edges = Vec::with_capacity(imports.len());
+				for import in imports {
+					let edge = self
+						.get_edge_from_import(import, referrer, path, arg, state, progress)
+						.await?;
+					edges.push(edge);
+				}
+				Ok(edges)
+			},
+
+			// If only resolved references exist, return them.
+			(None, Some(resolved_references)) => {
+				let mut edges = Vec::with_capacity(resolved_references.len());
+				for (reference, referent) in resolved_references {
+					let edge = self
+						.get_edge_from_path_or_id(
+							reference, referent, referrer, path, arg, state, progress,
+						)
+						.await?;
+					edges.push(edge);
+				}
+				Ok(edges)
+			},
+
+			// Otherwise return no references.
+			(None, None) => Ok(Vec::new()),
+		}
 	}
 
-	async fn try_get_lockfile_edges(
+	async fn get_edge_from_import(
 		&self,
-		lockfile: Arc<ParsedLockfile>,
+		import: tg::Import,
 		referrer: usize,
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<Option<Vec<Edge>>> {
-		if let Ok(dependencies) = lockfile.get_file_dependencies(path) {
-			// TODO: FuturesUnordered
-			let mut edges = Vec::new();
-			for (reference, dependency) in dependencies {
-				let node = Box::pin(self.create_input_graph_inner(
-					Some(referrer),
-					&dependency.item,
-					arg,
+	) -> tg::Result<Edge> {
+		// Follow path dependencies.
+		let import_path = import
+			.reference
+			.item()
+			.try_unwrap_path_ref()
+			.ok()
+			.or_else(|| import.reference.options()?.path.as_ref());
+		if let Some(import_path) = import_path {
+			// Create the reference.
+			let reference = import.reference.clone();
+
+			// Check if the import points outside the package.
+			let root_node = get_root_node(&state.read().await.graph, referrer).await;
+			let root_path = state.read().await.graph.nodes[root_node].arg.path.clone();
+
+			let absolute_path = crate::util::fs::canonicalize_parent(path.parent().unwrap().join(import_path)).await.map_err(|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the path's parent"))?;
+			let is_external = absolute_path.strip_prefix(&root_path).is_err();
+
+			// If the import is of a module and points outside the root, return an error.
+			if (import_path.is_absolute() || is_external)
+				&& tg::package::is_module_path(import_path.as_ref())
+			{
+				return Err(
+					tg::error!(%root = root_path.display(), %path = import_path.display(), "cannot import module outside of the package"),
+				);
+			}
+
+			// Get the input of the referent.
+			let child = if is_external {
+				// If this is an external import, treat it as a root using the absolute path.
+				self.create_input_graph_inner(Some(referrer), &absolute_path, &arg, state, progress)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to collect child input"))?
+			} else {
+				// Otherwise, treat it as a relative path.
+
+				// Get the parent of the referrer.
+				let parent = state.read().await.graph.nodes[referrer]
+					.parent
+					.ok_or_else(|| tg::error!("expected a parent"))?;
+
+				// Recurse.
+				self.create_input_graph_inner(
+					Some(parent),
+					import_path.as_ref(),
+					&arg,
 					state,
 					progress,
-				))
-				.await?;
-				let edge = Edge {
-					reference,
-					subpath: dependency.subpath,
-					node: Some(node),
-					object: None, // TODO
-					path: dependency.path,
-					tag: dependency.tag,
-				};
-				edges.push(edge);
-			}
-			return Ok(Some(edges));
+				)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to collect child input"))?
+			};
+
+			// If the child is a package and the import kind is not directory, get the subpath.
+			let (child_path, is_directory) = {
+				let state = state.read().await;
+				(
+					state.graph.nodes[child].arg.path.clone(),
+					state.graph.nodes[child].metadata.is_dir(),
+				)
+			};
+			let (node, subpath) = if is_directory {
+				if matches!(&import.kind, Some(tg::module::Kind::Directory)) {
+					(child, None)
+				} else {
+					let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+					let subpath = tg::package::try_get_root_module_file_name(self,Either::Right(&child_path)).await.map_err(|source| tg::error!(!source, %path = child_path.display(), "failed to get root module file name"))?
+						.map(PathBuf::from);
+					(child, subpath)
+				}
+			} else {
+				let (node, subpath) =
+					root_node_with_subpath(&state.read().await.graph, child).await;
+
+				// Sanity check.
+				if tg::package::is_module_path(&child_path) && subpath.is_none() {
+					return Err(tg::error!(%path = child_path.display(), "expected a subpath"));
+				}
+
+				(node, subpath)
+			};
+
+			// Create the edge.
+			let package_path = state.read().await.graph.nodes[node].arg.path.clone();
+			let path = crate::util::path::diff(&arg.path, &package_path)?;
+			let edge = Edge {
+				reference,
+				node: Some(node),
+				object: None,
+				path: Some(path),
+				subpath,
+				tag: None,
+			};
+			return Ok(edge);
 		}
-		Ok(None)
+
+		Ok(Edge {
+			reference: import.reference.clone(),
+			subpath: None,
+			node: None,
+			object: None,
+			path: None,
+			tag: None,
+		})
 	}
 
-	async fn get_data_edges(
+	async fn get_edge_from_path_or_id(
 		&self,
-		data: tg::artifact::Data,
+		reference: tg::Reference,
+		referent: tg::Referent<Either<PathBuf, tg::object::Id>>,
 		referrer: usize,
-		path: &Path,
+		_path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<Vec<Edge>> {
-		// Get the file data.
-		let tg::artifact::Data::File(data) = data else {
-			return Err(tg::error!("expected a file"));
+	) -> tg::Result<Edge> {
+		let node = if let Either::Left(path) = &referent.item {
+			let node =
+				Box::pin(self.create_input_graph_inner(Some(referrer), path, arg, state, progress))
+					.await?;
+			Some(node)
+		} else {
+			None
 		};
-		// Get the lockfile.
-		let lockfile = {
-			let state = state.read().await;
-			let lockfile = state.graph.nodes[referrer].lockfile.clone();
-			drop(state);
-			lockfile
+		let object = if let Either::Right(object) = &referent.item {
+			Some(object.clone())
+		} else {
+			None
 		};
-
-		// Get the artifacts path.
-		let artifacts_path = self.get_artifacts_path_for_path(path).await?;
-
-		match data {
-			tg::file::Data::Graph { graph, node } => {
-				// Get the graph.
-				let graph_data = 'a: {
-					if let Some(output) = self
-						.try_get_object_local_database(&graph.clone().into())
-						.await
-						.map_err(
-							|source| tg::error!(!source, %id = graph, "failed to get graph data"),
-						)? {
-						let data = tg::graph::Data::deserialize(&output.bytes)?;
-						break 'a data;
-					}
-					lockfile
-						.as_ref()
-						.ok_or_else(|| tg::error!("expected a lockfile"))?
-						.graphs
-						.get(&graph)
-						.ok_or_else(|| tg::error!("incomplete lockfile"))?
-						.as_ref()
-						.clone()
-				};
-
-				// Get the node for the graph
-				let node = graph_data
-					.nodes
-					.get(node)
-					.ok_or_else(|| tg::error!("invalid graph"))?;
-
-				// Get the file's dependencies.
-				let tg::graph::data::Node::File(tg::graph::data::File { dependencies, .. }) = node
-				else {
-					return Err(tg::error!("expected a file"));
-				};
-
-				// Resolve the dependencies to paths.
-				let mut edges = Vec::new();
-
-				// TODO: futures unordered
-				for (reference, referent) in dependencies {
-					let path = referent.path.clone();
-					let reference = reference.clone();
-					let subpath = referent.subpath.clone();
-					let tag = referent.tag.clone();
-
-					// Get the object ID.
-					let object = match referent.item.clone() {
-						Either::Left(item) => match graph_data.nodes[item].kind() {
-							tg::artifact::Kind::Directory => {
-								let data = tg::directory::Data::Graph {
-									graph: graph.clone(),
-									node: item,
-								};
-								tg::directory::Id::new(&data.serialize()?).into()
-							},
-							tg::artifact::Kind::File => {
-								let data = tg::file::Data::Graph {
-									graph: graph.clone(),
-									node: item,
-								};
-								tg::file::Id::new(&data.serialize()?).into()
-							},
-							tg::artifact::Kind::Symlink => {
-								let data = tg::symlink::Data::Graph {
-									graph: graph.clone(),
-									node: item,
-								};
-								tg::symlink::Id::new(&data.serialize()?).into()
-							},
-						},
-						Either::Right(item) => item,
-					};
-
-					// Recurse if necessary.
-					let node = if let Ok(artifact) = object.clone().try_into() {
-						// If the referent is an artifact, try to check it in.
-						let path = if let Some(path) = lockfile
-							.as_ref()
-							.and_then(|lockfile| lockfile.artifacts.get(&artifact))
-						{
-							path.clone()
-						} else {
-							artifacts_path.join(artifact.to_string())
-						};
-						let node = Box::pin(self.create_input_graph_inner(
-							Some(referrer),
-							&path,
-							arg,
-							state,
-							progress,
-						))
-						.await?;
-						Some(node)
-					} else {
-						None
-					};
-
-					// Create the edge.
-					let edge = Edge {
-						reference,
-						subpath,
-						node,
-						object: Some(object),
-						tag,
-						path,
-					};
-
-					// Add to the edges list.
-					edges.push(edge);
-				}
-
-				Ok(edges)
-			},
-			tg::file::Data::Normal { dependencies, .. } => {
-				let mut edges = Vec::new();
-				for (reference, referent) in dependencies {
-					let object = referent.item.clone();
-					let path = referent.path.clone();
-					let reference = reference.clone();
-					let subpath = referent.subpath.clone();
-					let tag = referent.tag.clone();
-
-					// Recurse if necessary.
-					let node = if let Ok(artifact) = object.clone().try_into() {
-						// If the referent is an artifact, try to check it in.
-						let path = if let Some(path) = lockfile
-							.as_ref()
-							.and_then(|lockfile| lockfile.artifacts.get(&artifact))
-						{
-							path.clone()
-						} else {
-							artifacts_path.join(artifact.to_string())
-						};
-						let node = Box::pin(self.create_input_graph_inner(
-							Some(referrer),
-							&path,
-							arg,
-							state,
-							progress,
-						))
-						.await?;
-						Some(node)
-					} else {
-						None
-					};
-
-					// Create the edge.
-					let edge = Edge {
-						reference,
-						subpath,
-						node,
-						object: Some(object),
-						tag,
-						path,
-					};
-
-					// Add to the edges list.
-					edges.push(edge);
-				}
-				Ok(edges)
-			},
-		}
-	}
-
-	async fn get_module_edges(
-		&self,
-		referrer: usize,
-		path: &Path,
-		arg: &tg::artifact::checkin::Arg,
-		state: &RwLock<State>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<Vec<Edge>> {
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let text = tokio::fs::read_to_string(path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to read file contents"),
-		)?;
-		drop(permit);
-		let analysis = match crate::compiler::Compiler::analyze_module(text) {
-			Ok(analysis) => analysis,
-			Err(error) => {
-				// If analyzing the module fails, report a diagnostic and continue.
-				if let Some(progress) = progress {
-					let diagnostic = tg::Diagnostic {
-						location: None, // todo: compute a meaningful location.
-						severity: tg::diagnostic::Severity::Error,
-						message: format!("failed to analyze the module: {error}"),
-					};
-					progress.diagnostic(diagnostic);
-				}
-				return Ok(Vec::new());
-			},
+		let edge = Edge {
+			reference,
+			subpath: referent.subpath,
+			node,
+			object,
+			path: referent.path,
+			tag: referent.tag,
 		};
-
-		let edges = analysis
-			.imports
-			.into_iter()
-			.map(|import| {
-				let arg = arg.clone();
-				async move {
-					// Follow path dependencies.
-					let import_path = import
-						.reference
-						.item()
-						.try_unwrap_path_ref()
-						.ok()
-						.or_else(|| import.reference.options()?.path.as_ref());
-					if let Some(import_path) = import_path {
-						// Create the reference.
-						let reference = import.reference.clone();
-
-						// Check if the import points outside the package.
-						let root_node = get_root_node(&state.read().await.graph, referrer)
-							.await;
-						let root_path = state.read().await.graph.nodes[root_node]
-							.arg
-							.path
-							.clone();
-
-						let absolute_path = crate::util::fs::canonicalize_parent(path.parent().unwrap().join(import_path)).await.map_err(|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the path's parent"))?;
-						let is_external = absolute_path.strip_prefix(&root_path).is_err();
-
-						// If the import is of a module and points outside the root, return an error.
-						if (import_path.is_absolute() ||
-							is_external) && tg::package::is_module_path(import_path.as_ref()) {
-							return Err(
-								tg::error!(%root = root_path.display(), %path = import_path.display(), "cannot import module outside of the package"),
-							);
-						}
-
-						// Get the input of the referent.
-						let child = if is_external {
-							// If this is an external import, treat it as a root using the absolute path.
-							self.create_input_graph_inner(Some(referrer), &absolute_path, &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
-						} else {
-							// Otherwise, treat it as a relative path.
-
-							// Get the parent of the referrer.
-							let parent = state.read().await.graph.nodes[referrer].parent.ok_or_else(|| tg::error!("expected a parent"))?;
-
-							// Recurse.
-							self.create_input_graph_inner(Some(parent), import_path.as_ref(), &arg, state, progress).await.map_err(|source| tg::error!(!source, "failed to collect child input"))?
-						};
-
-						// If the child is a package and the import kind is not directory, get the subpath.
-						let (child_path, is_directory) = {
-							let state = state.read().await;
-							(state.graph.nodes[child].arg.path.clone(), state.graph.nodes[child].metadata.is_dir())
-						};
-						let (node, subpath) = if is_directory {
-							if matches!(&import.kind, Some(tg::module::Kind::Directory)) {
-								(child, None)
-							} else {
-								let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-								let subpath = tg::package::try_get_root_module_file_name(self,Either::Right(&child_path)).await.map_err(|source| tg::error!(!source, %path = child_path.display(), "failed to get root module file name"))?
-									.map(PathBuf::from);
-								(child, subpath)
-							}
-						} else {
-							let (node, subpath) = root_node_with_subpath(&state.read().await.graph, child).await;
-
-							// Sanity check.
-							if tg::package::is_module_path(&child_path) && subpath.is_none() {
-								return Err(tg::error!(%path = child_path.display(), "expected a subpath"));
-							}
-
-							(node, subpath)
-						};
-
-						// Create the edge.
-						let package_path = state.read().await.graph.nodes[node].arg.path.clone();
-						let path = crate::util::path::diff(&arg.path, &package_path)?;
-						let edge = Edge {
-							reference,
-							node: Some(node),
-							object: None,
-							path: Some(path),
-							subpath,
-							tag: None,
-						};
-
-						return Ok(edge);
-					}
-
-					Ok(Edge {
-						reference: import.reference,
-						node: None,
-						object: None,
-						path: None,
-						subpath: None,
-						tag: None,
-					})
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-
-		Ok(edges)
+		Ok(edge)
 	}
 
 	async fn get_symlink_edges(
