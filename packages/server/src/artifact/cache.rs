@@ -220,12 +220,23 @@ impl Server {
 			let artifact = arg.artifact.clone();
 			let ancestors = state.ancestors.clone();
 			let progress = &state.progress;
-			self.cache_artifact_dependency(artifact, ancestors, progress)
+			self.cache_artifact_dependency(artifact.clone(), ancestors, progress)
 				.await?;
-			let result = tokio::fs::hard_link(&arg.cache_path, &arg.temp_path).await;
-			if result.is_ok() {
-				return Ok(());
+			let cache_path = self.cache_path().join(artifact.to_string());
+			let hard_link_prohibited = arg
+				.temp_path
+				.to_str()
+				.is_some_and(|path| path.contains(".app/Contents"));
+			if hard_link_prohibited {
+				tokio::fs::copy(&cache_path, &arg.temp_path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+			} else {
+				tokio::fs::hard_link(&cache_path, &arg.temp_path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the hard link"))?;
 			}
+			return Ok(());
 		}
 
 		// Check out the file's dependencies.
@@ -236,12 +247,11 @@ impl Server {
 			.filter_map(|referent| tg::Artifact::try_from(referent.item).ok())
 			.map(|artifact| {
 				let server = self.clone();
-				let parent = arg.artifact.clone();
 				let mut ancestors = state.ancestors.clone();
 				async move {
 					let artifact = artifact.id(&server).await?;
 					if artifact != state.artifact && !ancestors.contains(&artifact) {
-						ancestors.insert(parent);
+						ancestors.insert(state.artifact.clone());
 						server
 							.cache_artifact_dependency(artifact, ancestors, &state.progress)
 							.await?;
@@ -305,7 +315,7 @@ impl Server {
 			if artifact != state.artifact && !state.ancestors.contains(&artifact) {
 				let server = self.clone();
 				let mut ancestors = state.ancestors.clone();
-				ancestors.insert(arg.artifact.clone());
+				ancestors.insert(state.artifact.clone());
 				let progress = &state.progress;
 				Box::pin(server.cache_artifact_dependency(artifact, ancestors, progress)).await?;
 			}

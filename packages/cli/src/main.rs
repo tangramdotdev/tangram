@@ -220,7 +220,7 @@ fn main() -> std::process::ExitCode {
 		Cli::initialize_v8();
 
 		// Set the file descriptor limit.
-		Cli::set_file_descriptor_limit(config.as_ref())
+		Cli::set_file_descriptor_limit()
 			.inspect_err(|_| {
 				eprintln!(
 					"{} failed to set the file descriptor limit",
@@ -1081,53 +1081,26 @@ impl Cli {
 			.init();
 	}
 
-	fn set_file_descriptor_limit(config: Option<&Config>) -> tg::Result<()> {
-		let file_descriptor_limit = config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.file_descriptor_limit);
-		let file_descriptor_semaphore_size = config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.file_descriptor_semaphore_size);
-
-		let file_descriptor_limit = match (file_descriptor_semaphore_size, file_descriptor_limit) {
-			// If neither is provided, use double the default size.
-			(None, None) => 1024 * 2,
-
-			// If just the size is set, use double the size.
-			(Some(size), None) => size * 2,
-
-			// If the limit is set, use it.
-			(None, Some(limit)) => {
-				let size = 1024;
-				if limit < size * 2 {
-					tracing::warn!(?size, limit, "the file descriptor limit is less than double the default file descriptor semaphore size");
-				}
-				limit
-			},
-
-			// If both are set, use the limit.
-			(Some(size), Some(limit)) => {
-				if size > limit / 2 {
-					tracing::warn!(?size, limit, "the file descriptor semaphore size is greater than half of the file descriptor limit");
-				}
-				limit
-			},
+	fn set_file_descriptor_limit() -> tg::Result<()> {
+		let mut rlimit_nofile = libc::rlimit {
+			rlim_cur: 0,
+			rlim_max: 0,
 		};
-
-		let new_fd_rlimit = libc::rlimit {
-			rlim_cur: file_descriptor_limit.to_u64().unwrap(),
-			rlim_max: file_descriptor_limit.to_u64().unwrap(),
-		};
-		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new_fd_rlimit) };
+		let ret = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlimit_nofile) };
+		if ret != 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to get the file descriptor limit"
+			));
+		}
+		rlimit_nofile.rlim_cur = rlimit_nofile.rlim_max;
+		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &rlimit_nofile) };
 		if ret != 0 {
 			return Err(tg::error!(
 				source = std::io::Error::last_os_error(),
 				"failed to set the file descriptor limit"
 			));
 		}
-
 		Ok(())
 	}
 }

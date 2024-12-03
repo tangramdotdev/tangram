@@ -85,6 +85,46 @@ async fn executable_file() -> tg::Result<()> {
 	.await
 }
 
+/// Test caching a directory with two identical files.
+#[tokio::test]
+async fn directory_with_two_identical_files() -> tg::Result<()> {
+	let artifact = tg::directory! {
+		"hello.txt" => "Hello, World!",
+		"world.txt" => "Hello, World!",
+	};
+	test(artifact, |_, cache| async move {
+		assert_json_snapshot!(cache, @r#"
+  {
+    "kind": "directory",
+    "entries": {
+      "dir_0184z14k1w0vne39fsb6ytk6d8yk5wannz3r9g94hyh0hn5tx5x1gg": {
+        "kind": "directory",
+        "entries": {
+          "hello.txt": {
+            "kind": "file",
+            "contents": "Hello, World!",
+            "executable": false
+          },
+          "world.txt": {
+            "kind": "file",
+            "contents": "Hello, World!",
+            "executable": false
+          }
+        }
+      },
+      "fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g": {
+        "kind": "file",
+        "contents": "Hello, World!",
+        "executable": false
+      }
+    }
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
 /// Test checking out a a file with a dependency.
 #[tokio::test]
 async fn file_with_dependency() -> tg::Result<()> {
