@@ -8,7 +8,7 @@ use std::{
 	time::Duration,
 };
 use tangram_futures::task::Task;
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::{incoming::response::ResponseWrapper, Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
@@ -204,7 +204,7 @@ impl Client {
 		Ok(())
 	}
 
-	pub async fn set_trigger(&self, body: Either<&mut Incoming, &mut Outgoing>) {
+	pub async fn set_trigger(&self, body: Either<&mut ResponseWrapper, &mut Outgoing>) {
 		println!("Client::set_trigger");
 		let mut trigger = self.timeout_trigger.lock().await.upgrade();
 		let trigger = if let Some(trigger) = trigger {
@@ -214,9 +214,9 @@ impl Client {
 			trigger.replace(new_trigger.clone());
 			new_trigger
 		};
-		//TODO: use a trait instead of Either
+		//TODO: maybe use a trait instead of Either
 		match body {
-			Either::Left(_incoming) => (),
+			Either::Left(incoming) => incoming.add_ref(trigger),
 			Either::Right(outgoing) => outgoing.add_ref(trigger),
 		}
 	}
@@ -660,18 +660,20 @@ impl Client {
 		Ok(stream)
 	}
 
-	async fn send(&self, request: http::Request<Outgoing>) -> tg::Result<http::Response<Incoming>> {
+	async fn send(&self, request: http::Request<Outgoing>) -> tg::Result<ResponseWrapper> {
 		if request.body().try_clone().is_some() {
 			self.send_with_retry(request).await
 		} else {
-			self.send_without_retry(request).await
+			self.send_without_retry(request)
+				.await
+				.map(ResponseWrapper::new)
 		}
 	}
 
 	async fn send_with_retry(
 		&self,
 		request: http::Request<Outgoing>,
-	) -> tg::Result<http::Response<Incoming>> {
+	) -> tg::Result<ResponseWrapper> {
 		let mut retries = VecDeque::from([100, 1000]);
 		let (head, body) = request.into_parts();
 		loop {
@@ -689,9 +691,12 @@ impl Client {
 					continue;
 				}
 			}
-			// self.set_trigger(Either::Left(result.unwrap().into_body()))
-			// 	.await;
-			return result;
+			if let Ok(response) = result {
+				let mut wrapper = ResponseWrapper::new(response);
+				self.set_trigger(Either::Left(&mut wrapper)).await;
+				return Ok(wrapper);
+			}
+			return Err(tg::error!(""));
 		}
 	}
 
