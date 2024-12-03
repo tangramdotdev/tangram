@@ -32,7 +32,7 @@ pub mod touch;
 #[serde(into = "crate::Id", try_from = "crate::Id")]
 pub struct Id(crate::Id);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::Display)]
 pub struct Build {
 	id: Id,
 }
