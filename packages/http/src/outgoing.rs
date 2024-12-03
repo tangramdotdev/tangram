@@ -15,7 +15,18 @@ use tokio_util::io::ReaderStream;
 pub mod request;
 pub mod response;
 
-pub enum Outgoing {
+pub struct Outgoing {
+	arc: Option<Arc<dyn std::any::Any + Send + Sync>>,
+	inner: Inner,
+}
+
+impl Drop for Outgoing {
+	fn drop(&mut self) {
+		println!("Outgoing::drop: dropping body");
+	}
+}
+
+pub enum Inner {
 	Empty,
 	Bytes(Option<Bytes>),
 	Json(Option<Arc<dyn erased_serde::Serialize + Send + Sync + 'static>>),
@@ -24,48 +35,77 @@ pub enum Outgoing {
 }
 
 impl Outgoing {
+	pub fn add_ref(&mut self, arc: Arc<dyn std::any::Any + Send + Sync>) {
+		self.arc.replace(arc);
+	}
+
 	pub fn try_clone(&self) -> Option<Self> {
-		match self {
-			Self::Empty => Some(Self::Empty),
-			Self::Bytes(bytes) => Some(Self::Bytes(bytes.clone())),
-			Self::Json(json) => Some(Self::Json(json.clone())),
-			Self::Stream(_) | Self::Body(_) => None,
+		match &self.inner {
+			Inner::Empty => Some(Self {
+				arc: self.arc.clone(),
+				inner: Inner::Empty,
+			}),
+			Inner::Bytes(bytes) => Some(Self {
+				arc: self.arc.clone(),
+				inner: Inner::Bytes(bytes.clone()),
+			}),
+			Inner::Json(json) => Some(Self {
+				arc: self.arc.clone(),
+				inner: Inner::Json(json.clone()),
+			}),
+			Inner::Stream(_) | Inner::Body(_) => None,
 		}
 	}
 
 	#[must_use]
 	pub fn empty() -> Self {
-		Self::Empty
+		Self {
+			arc: None,
+			inner: Inner::Empty,
+		}
 	}
+	//TODO: revert template arg changes
 
-	pub fn bytes<T>(bytes: T) -> Self
+	pub fn bytes<B>(bytes: B) -> Self
 	where
-		T: Into<Bytes>,
+		B: Into<Bytes>,
 	{
-		Self::Bytes(Some(bytes.into()))
+		Self {
+			arc: None,
+			inner: Inner::Bytes(Some(bytes.into())),
+		}
 	}
 
-	pub fn json<T>(json: T) -> Self
+	pub fn json<J>(json: J) -> Self
 	where
-		T: erased_serde::Serialize + Send + Sync + 'static,
+		J: erased_serde::Serialize + Send + Sync + 'static,
 	{
-		Self::Json(Some(Arc::new(json)))
+		Self {
+			arc: None,
+			inner: Inner::Json(Some(Arc::new(json))),
+		}
 	}
 
-	pub fn stream<S, T, E>(stream: S) -> Self
+	pub fn stream<S, B, E>(stream: S) -> Self
 	where
-		S: Stream<Item = Result<T, E>> + Send + 'static,
-		T: Into<Bytes> + 'static,
+		S: Stream<Item = Result<B, E>> + Send + 'static,
+		B: Into<Bytes> + 'static,
 		E: Into<Error> + 'static,
 	{
-		Self::Stream(Box::pin(stream.map_ok(Into::into).map_err(Into::into)))
+		Self {
+			arc: None,
+			inner: Inner::Stream(Box::pin(stream.map_ok(Into::into).map_err(Into::into))),
+		}
 	}
 
 	pub fn body<B>(body: B) -> Self
 	where
 		B: Body<Data = Bytes, Error = Error> + Send + 'static,
 	{
-		Self::Body(Box::pin(body))
+		Self {
+			arc: None,
+			inner: Inner::Body(Box::pin(body)),
+		}
 	}
 
 	pub fn reader<R>(reader: R) -> Self
@@ -75,19 +115,19 @@ impl Outgoing {
 		Self::stream(ReaderStream::new(reader))
 	}
 
-	pub fn future_bytes<F, T, E>(value: F) -> Self
+	pub fn future_bytes<F, B, E>(value: F) -> Self
 	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: Into<Bytes> + 'static,
+		F: Future<Output = Result<B, E>> + Send + 'static,
+		B: Into<Bytes> + 'static,
 		E: Into<Error> + 'static,
 	{
 		Self::stream(stream::once(value.map_into().err_into()))
 	}
 
-	pub fn future_json<F, T, E>(value: F) -> Self
+	pub fn future_json<F, S, E>(value: F) -> Self
 	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: serde::Serialize,
+		F: Future<Output = Result<S, E>> + Send + 'static,
+		S: serde::Serialize,
 		E: Into<Error> + 'static,
 	{
 		Self::future_bytes(value.err_into().and_then(|output| {
@@ -99,10 +139,10 @@ impl Outgoing {
 		}))
 	}
 
-	pub fn future_optional_json<F, T, E>(value: F) -> Self
+	pub fn future_optional_json<F, S, E>(value: F) -> Self
 	where
-		F: Future<Output = Result<Option<T>, E>> + Send + 'static,
-		T: serde::Serialize,
+		F: Future<Output = Result<Option<S>, E>> + Send + 'static,
+		S: serde::Serialize,
 		E: Into<Error> + 'static,
 	{
 		Self::future_bytes(value.err_into().and_then(|option| {
@@ -135,21 +175,21 @@ impl hyper::body::Body for Outgoing {
 		self: std::pin::Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
-		match self.get_mut() {
-			Outgoing::Empty => std::task::Poll::Ready(None),
-			Outgoing::Bytes(option) => {
+		match &mut self.get_mut().inner {
+			Inner::Empty => std::task::Poll::Ready(None),
+			Inner::Bytes(option) => {
 				std::task::Poll::Ready(option.take().map(hyper::body::Frame::data).map(Ok))
 			},
-			Outgoing::Json(option) => std::task::Poll::Ready(
+			Inner::Json(option) => std::task::Poll::Ready(
 				option
 					.take()
 					.map(|value| serde_json::to_string(&value).map_err(Into::into))
 					.map(|result| result.map(Bytes::from).map(hyper::body::Frame::data)),
 			),
-			Outgoing::Stream(stream) => stream
+			Inner::Stream(stream) => stream
 				.poll_next_unpin(cx)
 				.map(|option| option.map(|result| result.map(hyper::body::Frame::data))),
-			Outgoing::Body(body) => pin!(body).poll_frame(cx),
+			Inner::Body(body) => pin!(body).poll_frame(cx),
 		}
 	}
 }

@@ -158,7 +158,7 @@ where
 	}
 
 	pub fn parent(&self) -> Option<Arc<RwLock<Self>>> {
-		self.parent.as_ref().map(|p| p.upgrade().unwrap())
+		self.parent.as_ref().and_then(Weak::upgrade)
 	}
 
 	pub fn render(self_: &Arc<RwLock<Self>>, area: Rect, buf: &mut Buffer) {

@@ -1,11 +1,13 @@
 use crate as tg;
-use futures::{Future, FutureExt as _, Stream};
+use futures::{future, Future, FutureExt, Stream};
 use std::{
 	collections::VecDeque,
 	path::{Path, PathBuf},
-	sync::Arc,
+	pin::pin,
+	sync::{Arc, Mutex, Weak},
 	time::Duration,
 };
+use tangram_futures::task::Task;
 use tangram_http::{Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
@@ -86,20 +88,78 @@ pub mod user;
 pub mod util;
 pub mod value;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Client(Arc<Inner>);
 
-#[derive(Debug)]
 pub struct Inner {
 	url: Url,
 	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
+	task: Mutex<Option<Task<()>>>,
+	timeout_task: Mutex<Option<Task<()>>>,
+	timeout_trigger: tokio::sync::Mutex<Weak<TimeoutTrigger>>,
+	timeout_tx: tokio::sync::watch::Sender<Option<Duration>>,
+}
+
+pub struct TimeoutTrigger {
+	client: Client,
+}
+
+impl TimeoutTrigger {
+	fn new(client: Client) -> Self {
+		println!("TimeoutTrigger::new");
+		let _ = client.timeout_tx.send(None);
+		TimeoutTrigger { client }
+	}
+}
+
+impl Drop for TimeoutTrigger {
+	fn drop(&mut self) {
+		println!("TimeoutTrigger::drop, spawning task");
+		// if let Some(tx) = self.client.timeout_tx.as_ref() {
+		// 	tx.send(Duration::from_secs(10));
+		// }
+		//TODO: set this to 60s
+		let _ = self.client.timeout_tx.send(Some(Duration::from_secs(10)));
+	}
 }
 
 impl Client {
 	#[must_use]
 	pub fn new(url: Url) -> Self {
 		let sender = tokio::sync::Mutex::new(None);
-		Self(Arc::new(Inner { url, sender }))
+		let (timeout_tx, timeout_rx) = tokio::sync::watch::channel(None);
+		let client = Self(Arc::new(Inner {
+			url,
+			sender,
+			task: Mutex::new(None),
+			timeout_task: Mutex::new(None),
+			timeout_trigger: tokio::sync::Mutex::new(Weak::new()),
+			timeout_tx,
+		}));
+
+		// Spawn the timeout task.
+		client.spawn_timeout_task(timeout_rx);
+
+		// Spawn the shutdown task.
+		let shutdown = {
+			let client = client.clone();
+			async move {
+				println!("shutdown: Client shutdown");
+				// client.cancel_timeout_task().await;
+				let timeout_task = client.timeout_task.lock().unwrap().take();
+				if let Some(task) = timeout_task {
+					task.stop();
+					let _ = task.wait().await;
+				}
+			}
+		};
+
+		let task = Task::spawn(|stop| async move {
+			stop.wait().await;
+			shutdown.await;
+		});
+		client.task.lock().unwrap().replace(task);
+		client
 	}
 
 	pub fn with_env() -> tg::Result<Self> {
@@ -139,8 +199,26 @@ impl Client {
 	}
 
 	pub async fn disconnect(&self) -> tg::Result<()> {
+		println!("Client::disconnect");
 		self.sender.lock().await.take();
 		Ok(())
+	}
+
+	pub async fn set_trigger(&self, body: Either<&mut Incoming, &mut Outgoing>) {
+		println!("Client::set_trigger");
+		let mut trigger = self.timeout_trigger.lock().await.upgrade();
+		let trigger = if let Some(trigger) = trigger {
+			trigger
+		} else {
+			let new_trigger = Arc::new(TimeoutTrigger::new(self.clone()));
+			trigger.replace(new_trigger.clone());
+			new_trigger
+		};
+		//TODO: use a trait instead of Either
+		match body {
+			Either::Left(_incoming) => (),
+			Either::Right(outgoing) => outgoing.add_ref(trigger),
+		}
 	}
 
 	async fn sender(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
@@ -150,9 +228,67 @@ impl Client {
 				return Ok(sender.clone());
 			}
 		}
+		println!("Client::sender: connecting client");
 		let sender = self.connect_h2().await?;
 		guard.replace(sender.clone());
 		Ok(sender)
+	}
+
+	pub fn spawn_timeout_task(&self, mut rx: tokio::sync::watch::Receiver<Option<Duration>>) {
+		println!("Client::spawn_timeout_task");
+		let mut timeout_task = self.timeout_task.lock().unwrap();
+		let new_task = Task::spawn(|stop| {
+			let client = self.clone();
+			async move {
+				let mut duration = None;
+				loop {
+					let sleep = if let Some(duration) = duration {
+						tokio::time::sleep(duration).boxed()
+					} else {
+						println!("Client.timeout_task: sleeping forever");
+						future::pending().boxed()
+					};
+					match future::select(
+						pin!(stop.wait()),
+						future::select(sleep, pin!(rx.clone().changed())),
+					)
+					.await
+					{
+						future::Either::Left(_) => {
+							println!("Client.timeout_task: got stop");
+							break;
+						},
+						future::Either::Right((result, _)) => match result {
+							future::Either::Left(_) => {
+								println!("Client.timeout_task: timed out, disconnecting");
+								client.disconnect().await.unwrap();
+								duration = None;
+							},
+							future::Either::Right(_) => {
+								duration = *rx.borrow_and_update();
+								println!("Client.timeout_task: updated duration to {duration:?}");
+							},
+						},
+					}
+				}
+				println!("Client.timeout_task: exiting");
+			}
+		});
+		timeout_task.replace(new_task);
+		println!("Client::spawn_timeout_task: exiting");
+	}
+
+	pub fn stop(&self) {
+		println!("Client::stop");
+		self.task.lock().unwrap().as_ref().unwrap().stop();
+		println!("Client::stop: exiting");
+	}
+
+	pub async fn wait(&self) {
+		println!("Client::wait");
+		let task = self.task.lock().unwrap().clone().unwrap();
+		task.wait().await.unwrap();
+		println!("Client::wait: exiting");
 	}
 
 	async fn connect_h1(&self) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
@@ -539,7 +675,9 @@ impl Client {
 		let mut retries = VecDeque::from([100, 1000]);
 		let (head, body) = request.into_parts();
 		loop {
-			let request = http::Request::from_parts(head.clone(), body.try_clone().unwrap());
+			let mut body = body.try_clone().unwrap();
+			self.set_trigger(Either::Right(&mut body)).await;
+			let request = http::Request::from_parts(head.clone(), body);
 			let result = self.send_without_retry(request).await;
 			let is_error = result.is_err();
 			let is_server_error =
@@ -551,6 +689,8 @@ impl Client {
 					continue;
 				}
 			}
+			// self.set_trigger(Either::Left(result.unwrap().into_body()))
+			// 	.await;
 			return result;
 		}
 	}

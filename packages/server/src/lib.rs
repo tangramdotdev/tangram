@@ -574,6 +574,13 @@ impl Server {
 					vfs.wait().await;
 				}
 
+				// Stop remote connections.
+				for remote in &server.remotes {
+					let test = remote.value();
+					test.stop();
+					test.wait().await;
+				}
+
 				// Release the lock file.
 				let lock_file = server.lock_file.lock().unwrap().take();
 				if let Some(lock_file) = lock_file {
