@@ -14,7 +14,8 @@ impl Server {
 		// Create the lockfile.
 		let lockfile = self
 			.create_lockfile(object, &input.nodes[0].arg.path)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
 
 		// Skip empty lockfiles.
 		if lockfile.nodes.is_empty() {
@@ -64,7 +65,10 @@ impl Server {
 		// Create the lockfile nodes.
 		let mut nodes = Vec::with_capacity(graph.nodes.len());
 		for node in 0..graph.nodes.len() {
-			let node = self.create_lockfile_node(graph, node).await?;
+			let node = self
+				.create_lockfile_node(graph, node)
+				.await
+				.map_err(|source| tg::error!(!source, %node,"failed to create lockfile node"))?;
 			nodes.push(node);
 		}
 
@@ -75,7 +79,10 @@ impl Server {
 			.ok_or_else(|| tg::error!("failed to get root object"))?;
 
 		// Strip the lockfile nodes.
-		let nodes = self.strip_lockfile_nodes(&nodes, root)?;
+		let nodes = self
+			.strip_lockfile_nodes(&nodes, root)
+			.map_err(|source| tg::error!(!source, "failed to strip the lockfile"))?;
+
 		Ok(tg::Lockfile { nodes })
 	}
 
@@ -87,9 +94,17 @@ impl Server {
 		let data = if let Some(data) = graph.nodes[node].data.as_ref() {
 			data.clone()
 		} else {
-			let id = graph.nodes[node].id.clone().unwrap().try_into()?;
-			tg::Artifact::with_id(id).data(self).await?
+			let id: tg::artifact::Id = graph.nodes[node]
+				.id
+				.clone()
+				.unwrap()
+				.try_into()
+				.map_err(|_| tg::error!(%node, "expected an artifact"))?;
+			tg::Artifact::with_id(id.clone()).data(self).await.map_err(
+				|source| tg::error!(!source, %artifact = id, "missing artifact in object graph"),
+			)?
 		};
+
 		match data {
 			tg::artifact::Data::Directory(data) => {
 				self.create_lockfile_directory_node(graph, node, &data)

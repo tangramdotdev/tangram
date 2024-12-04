@@ -149,12 +149,11 @@ impl Server {
 					.as_ref()
 					.unwrap_right()
 					.clone();
-				let metadata = self.get_object_metadata(&id).await.map_err(
-					|source| tg::error!(!source, %object = id, "failed to get object metadata"),
-				)?;
 				graph.nodes[scc[0]].id.replace(id.clone());
-				graph.nodes[scc[0]].metadata.replace(metadata);
 				graph.objects.insert(id.clone(), scc[0]);
+				if let Ok(metadata) = self.get_object_metadata(&id).await {
+					graph.nodes[scc[0]].metadata.replace(metadata);
+				}
 				continue;
 			}
 
@@ -576,14 +575,22 @@ impl Server {
 			_ => {
 				for edge in &graph.nodes[index].edges {
 					let metadata = graph.nodes[edge.index].metadata.clone().unwrap_or_else(|| {
-						let data = graph.nodes[edge.index].data.as_ref().unwrap();
-						self.compute_object_metadata(
-							graph,
-							edge.index,
-							data,
-							file_metadata,
-							graph_metadata,
-						)
+						if let Some(data) = graph.nodes[edge.index].data.as_ref() {
+							self.compute_object_metadata(
+								graph,
+								edge.index,
+								data,
+								file_metadata,
+								graph_metadata,
+							)
+						} else {
+							tg::object::Metadata {
+								complete: false,
+								count: None,
+								depth: None,
+								weight: None,
+							}
+						}
 					});
 					complete &= metadata.complete;
 					if let Some(c) = metadata.count {

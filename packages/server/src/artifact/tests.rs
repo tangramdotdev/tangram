@@ -314,7 +314,6 @@ where
 			force: false,
 		};
 		let path = artifact.check_out(&server1, arg).await?;
-
 		let checkout = temp::Artifact::with_path(&path).await?;
 
 		// Create the test data for the first server.

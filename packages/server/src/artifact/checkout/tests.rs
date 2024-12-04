@@ -91,52 +91,94 @@ async fn file_with_dependency() -> tg::Result<()> {
 /// Test checking out a symlink.
 #[tokio::test]
 async fn symlink() -> tg::Result<()> {
-	let artifact = tg::symlink!("/bin/sh");
-	test(artifact, |_, artifact| async move {
-		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "symlink",
-    "target": "/bin/sh"
-  }
-  "#);
-		Ok::<_, tg::Error>(())
-	})
+	test(
+		tg::directory! {
+			"directory" => tg::directory! {
+				"hello.txt" => "Hello, World!",
+				"link" => tg::symlink!(PathBuf::from("hello.txt")),
+			}
+		},
+		|_, artifact| async move {
+			assert_json_snapshot!(artifact, @r#"
+   {
+     "kind": "directory",
+     "entries": {
+       "directory": {
+         "kind": "directory",
+         "entries": {
+           "hello.txt": {
+             "kind": "file",
+             "contents": "Hello, World!",
+             "executable": false
+           },
+           "link": {
+             "kind": "file",
+             "contents": "Hello, World!",
+             "executable": false
+           }
+         }
+       },
+       "tangram.lock": {
+         "kind": "file",
+         "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"directory\": 1\n      }\n    },\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"hello.txt\": 2,\n        \"link\": 3\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"Target\": {\n        \"target\": \"hello.txt\"\n      }\n    }\n  ]\n}",
+         "executable": false
+       }
+     }
+   }
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
 	.await
 }
 
 /// Test checking out a directory with a symlink.
 #[tokio::test]
-async fn directory_with_symlink() -> tg::Result<()> {
-	let artifact = tg::directory! {
-		"directory" => tg::directory! {
-			"hello.txt" => "Hello, World!",
-			"link" => tg::symlink!("hello.txt"),
-		}
-	};
-	test(artifact, |_, artifact| async move {
-		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "directory": {
-        "kind": "directory",
-        "entries": {
-          "hello.txt": {
-            "kind": "file",
-            "contents": "Hello, World!",
-            "executable": false
-          },
-          "link": {
-            "kind": "symlink",
-            "target": "hello.txt"
-          }
-        }
-      }
-    }
-  }
-  "#);
-		Ok::<_, tg::Error>(())
-	})
+async fn symlink_shared_target() -> tg::Result<()> {
+	test(
+		tg::directory! {
+			"directory" => tg::directory! {
+				"hello.txt" => "Hello, World!",
+				"link1" => tg::symlink!(PathBuf::from("hello.txt")),
+				"link2" => tg::symlink!(PathBuf::from("hello.txt")),
+			}
+		},
+		|_, artifact| async move {
+			assert_json_snapshot!(artifact, @r#"
+   {
+     "kind": "directory",
+     "entries": {
+       "directory": {
+         "kind": "directory",
+         "entries": {
+           "hello.txt": {
+             "kind": "file",
+             "contents": "Hello, World!",
+             "executable": false
+           },
+           "link1": {
+             "kind": "file",
+             "contents": "Hello, World!",
+             "executable": false
+           },
+           "link2": {
+             "kind": "file",
+             "contents": "Hello, World!",
+             "executable": false
+           }
+         }
+       },
+       "tangram.lock": {
+         "kind": "file",
+         "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"directory\": 1\n      }\n    },\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"hello.txt\": 2,\n        \"link1\": 3,\n        \"link2\": 3\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"Target\": {\n        \"target\": \"hello.txt\"\n      }\n    }\n  ]\n}",
+         "executable": false
+       }
+     }
+   }
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
 	.await
 }
 

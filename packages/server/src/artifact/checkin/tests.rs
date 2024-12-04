@@ -11,22 +11,6 @@ use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
 
-/*
-	// called by create_input_graph_inner
-	fn get_dependencies(...) -> BTreeMap<tg::Reference, tg::Referent<Either<PathBuf, tg::object::Id>> {
-		// get a list of un-resolved dependencies
-
-		// get a list of resolved-dependencies (lockfile | xattr)
-
-		// diff the two, if they match, use the resolved dependencies, else use unresolved dependencies
-
-		// first, try and find the file in the lockfile, if it exists.
-		// if it does, read read the dependencies
-		// if it is a module, parse it
-		// check if the dependencies are the same
-	}
-
-*/
 #[tokio::test]
 async fn lockfile_out_of_date() -> tg::Result<()> {
 	test(
@@ -88,7 +72,35 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
      ]
    }
    "#);
-			assert_snapshot!(output, @r#""#);
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"graph": tg.graph({
+   		"nodes": [
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"b.tg.ts": tg.file({
+   						"contents": tg.leaf(""),
+   					}),
+   					"tangram.ts": 1,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import "./b.tg.ts"),
+   				"dependencies": {
+   					"./b.tg.ts": {
+   						"item": 0,
+   						"path": "",
+   						"subpath": "b.tg.ts",
+   					},
+   				},
+   			},
+   		],
+   	}),
+   	"node": 0,
+   })
+   "#);
 			Ok::<_, tg::Error>(())
 		},
 	)

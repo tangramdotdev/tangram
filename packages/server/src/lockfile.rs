@@ -677,6 +677,9 @@ async fn get_paths(
 						else {
 							break 'a;
 						};
+						if !matches!(tokio::fs::try_exists(&node_path).await, Ok(true)) {
+							break 'a;
+						};
 						if Box::pin(get_paths_inner(
 							artifacts_path,
 							lockfile,
@@ -769,17 +772,23 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 	fn create_normal_data(
 		index: usize,
 		node: &tg::lockfile::Node,
+		objects: &[Option<tg::object::Data>],
 	) -> tg::Result<Option<tg::object::Data>> {
 		match node {
 			tg::lockfile::Node::Directory { entries } => {
 				let entries = entries
 					.iter()
 					.map(|(name, entry)| {
-						let entry = entry
-							.as_ref()
-							.right()
-							.ok_or_else(|| tg::error!(%node = index, "expected an artifact ID"))?;
-						let entry: tg::artifact::Id = entry.clone().try_into().map_err(
+						let entry = match entry {
+							Either::Left(index) => {
+								let object = objects[*index]
+									.as_ref()
+									.ok_or_else(|| tg::error!(%index, "expected a node"))?;
+								tg::object::Id::new(object.kind(), &object.serialize()?)
+							},
+							Either::Right(id) => id.clone(),
+						};
+						let entry: tg::artifact::Id = entry.try_into().map_err(
 							|_| tg::error!(%node = index, %name, "expected an artifact ID"),
 						)?;
 						Ok::<_, tg::Error>((name.clone(), entry))
@@ -801,10 +810,15 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 				let dependencies = dependencies
 					.iter()
 					.map(|(reference, referent)| {
-						let item =
-							referent.item.as_ref().right().ok_or_else(
-								|| tg::error!(%node = index, "expected an object ID"),
-							)?;
+						let item = match &referent.item {
+							Either::Left(index) => {
+								let object = objects[*index]
+									.as_ref()
+									.ok_or_else(|| tg::error!(%index, "expected a node"))?;
+								tg::object::Id::new(object.kind(), &object.serialize()?)
+							},
+							Either::Right(id) => id.clone(),
+						};
 						let reference = reference.clone();
 						let referent = tg::Referent {
 							item: item.clone(),
@@ -823,11 +837,16 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 				Ok(Some(tg::object::Data::File(data)))
 			},
 			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
-				let artifact = artifact
-					.clone()
-					.right()
-					.ok_or_else(|| tg::error!("expected an artifact ID"))?
-					.try_into()?;
+				let artifact = match artifact {
+					Either::Left(index) => {
+						let object = objects[*index]
+							.as_ref()
+							.ok_or_else(|| tg::error!(%index, "expected a node"))?;
+						tg::object::Id::new(object.kind(), &object.serialize()?)
+					},
+					Either::Right(id) => id.clone(),
+				};
+				let artifact = artifact.try_into()?;
 				let subpath = subpath.clone();
 				let data = tg::symlink::Data::Artifact { artifact, subpath };
 				Ok(Some(tg::object::Data::Symlink(data)))
@@ -957,7 +976,7 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 
 		// Skip SCCs that are missing file contents.
 		if scc.len() == 1 {
-			let data = create_normal_data(scc[0], &lockfile.nodes[scc[0]])
+			let data = create_normal_data(scc[0], &lockfile.nodes[scc[0]], &objects)
 				.map_err(|source| tg::error!(!source, "invalid lockfile"))?;
 			objects[scc[0]] = data;
 			continue;

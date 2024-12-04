@@ -542,7 +542,7 @@ impl Server {
 						self.get_edge_from_import(import, referrer, path, arg, state, progress)
 							.await?
 					};
-					edges.push(edge)
+					edges.push(edge);
 				}
 
 				// Return the merged references
@@ -619,7 +619,7 @@ impl Server {
 			// Get the input of the referent.
 			let child = if is_external {
 				// If this is an external import, treat it as a root using the absolute path.
-				self.create_input_graph_inner(Some(referrer), &absolute_path, &arg, state, progress)
+				self.create_input_graph_inner(Some(referrer), &absolute_path, arg, state, progress)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to collect child input"))?
 			} else {
@@ -634,7 +634,7 @@ impl Server {
 				self.create_input_graph_inner(
 					Some(parent),
 					import_path.as_ref(),
-					&arg,
+					arg,
 					state,
 					progress,
 				)
@@ -695,6 +695,7 @@ impl Server {
 		})
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	async fn get_edge_from_path_or_id(
 		&self,
 		reference: tg::Reference,
