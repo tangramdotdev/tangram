@@ -1,10 +1,106 @@
 use crate::{util::fs::cleanup, Config, Server};
 use futures::{Future, FutureExt as _};
-use insta::assert_snapshot;
+use insta::{assert_json_snapshot, assert_snapshot};
 use std::{panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
+
+#[tokio::test]
+async fn lockfile_out_of_date() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"tangram.ts" => r#"import "./b.tg.ts"#,
+			"./b.tg.ts" => "",
+			"tangram.lock" => r#"{
+				"nodes": [
+					{
+						"kind": "directory",
+						"entries": {
+							"a.tg.ts": 1,
+							"tangram.ts": 2
+						}
+					},
+					{
+						"kind": "file"
+					},
+					{
+						"kind": "file",
+						"dependencies": {
+							"./a.tg.ts": {
+								"item": 0,
+								"subpath": "./a.tg.ts"
+							}
+						}
+					}
+				]
+			}"#,
+		},
+		"",
+		false,
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "b.tg.ts": 1,
+           "tangram.ts": 2
+         }
+       },
+       {
+         "kind": "file"
+       },
+       {
+         "kind": "file",
+         "contents": "lef_01kvv10qev9ymf87zx83rb03jef2x5y2m919j20bs4wqpp09r0tm8g",
+         "dependencies": {
+           "./b.tg.ts": {
+             "item": 0,
+             "path": "",
+             "subpath": "b.tg.ts"
+           }
+         }
+       }
+     ]
+   }
+   "#);
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"graph": tg.graph({
+   		"nodes": [
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"b.tg.ts": tg.file({
+   						"contents": tg.leaf(""),
+   					}),
+   					"tangram.ts": 1,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import "./b.tg.ts"),
+   				"dependencies": {
+   					"./b.tg.ts": {
+   						"item": 0,
+   						"path": "",
+   						"subpath": "b.tg.ts",
+   					},
+   				},
+   			},
+   		],
+   	}),
+   	"node": 0,
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
 
 #[tokio::test]
 async fn file_through_symlink() -> tg::Result<()> {
@@ -22,7 +118,24 @@ async fn file_through_symlink() -> tg::Result<()> {
 		},
 		"a",
 		false,
-		|_, _, output| async move {
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 1
+         }
+       },
+       {
+         "kind": "file"
+       }
+     ]
+   }
+   "#);
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
@@ -60,7 +173,23 @@ async fn artifact_symlink() -> tg::Result<()> {
 		},
 		"a",
 		false,
-		|_, _, output| async move {
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 1
+         }
+       },
+       {
+         "kind": "file"
+       }
+     ]
+   }
+   "#);
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
@@ -95,7 +224,39 @@ async fn simple_path_dependency() -> tg::Result<()> {
 		},
 		"foo",
 		false,
-		|_, _, output| async move {
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 1
+         }
+       },
+       {
+         "kind": "file",
+         "dependencies": {
+           "../bar": {
+             "item": 2,
+             "path": "../bar",
+             "subpath": "tangram.ts"
+           }
+         }
+       },
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 3
+         }
+       },
+       {
+         "kind": "file"
+       }
+     ]
+   }
+   "#);
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
@@ -121,7 +282,7 @@ async fn simple_path_dependency() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn package_with_ndested_dependencies() -> tg::Result<()> {
+async fn package_with_nested_dependencies() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"foo" => temp::directory! {
@@ -141,7 +302,62 @@ async fn package_with_ndested_dependencies() -> tg::Result<()> {
 		},
 		"foo",
 		false,
-		|_, _, output| async move {
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "bar": 1,
+           "baz": 3,
+           "tangram.ts": 5
+         }
+       },
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 2
+         }
+       },
+       {
+         "kind": "file",
+         "dependencies": {
+           "../baz": {
+             "item": 3,
+             "path": "baz",
+             "subpath": "tangram.ts"
+           }
+         }
+       },
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 4
+         }
+       },
+       {
+         "kind": "file"
+       },
+       {
+         "kind": "file",
+         "dependencies": {
+           "./bar": {
+             "item": 1,
+             "path": "bar",
+             "subpath": "tangram.ts"
+           },
+           "./baz": {
+             "item": 3,
+             "path": "baz",
+             "subpath": "tangram.ts"
+           }
+         }
+       }
+     ]
+   }
+   "#);
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"bar": tg.directory({
@@ -225,7 +441,43 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
 		},
 		"package",
 		false,
-		|_, _, output| async move {
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "foo.tg.ts": 1,
+           "tangram.ts": 2
+         }
+       },
+       {
+         "kind": "file",
+         "contents": "lef_01wz1kgzch869nmx5q4pq7ka0vjszxqa4nj39bgjgm2hpxwem2jdxg",
+         "dependencies": {
+           "./tangram.ts": {
+             "item": 0,
+             "path": "",
+             "subpath": "tangram.ts"
+           }
+         }
+       },
+       {
+         "kind": "file",
+         "contents": "lef_01a2nf5j3bh75f7g1nntakjjtv6h3k0h7aykjstpyzamks4sebyz2g",
+         "dependencies": {
+           "./foo.tg.ts": {
+             "item": 0,
+             "path": "",
+             "subpath": "foo.tg.ts"
+           }
+         }
+       }
+     ]
+   }
+   "#);
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"graph": tg.graph({
@@ -283,7 +535,38 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
 		},
 		"",
 		false,
-		|_, _, output| async move {
+		|_, lockfile, _, output| async move {
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "bar": 1,
+           "foo": 3
+         }
+       },
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 2
+         }
+       },
+       {
+         "kind": "file"
+       },
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 4
+         }
+       },
+       {
+         "kind": "file"
+       }
+     ]
+   }
+   "#);
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"bar": tg.directory({
@@ -314,7 +597,7 @@ async fn symlink() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, _, output| async move {
+		|_, _, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"link": tg.symlink({
@@ -343,7 +626,48 @@ async fn cyclic_dependencies() -> tg::Result<()> {
 		},
 		"directory/foo",
 		false,
-		|_, _, output| async move {
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 1
+         }
+       },
+       {
+         "kind": "file",
+         "contents": "lef_01pqttaksgrf3n76tqrrhb6c96tyafzhrex2jgy54ht8419s6wpg2g",
+         "dependencies": {
+           "../bar": {
+             "item": 2,
+             "path": "../bar",
+             "subpath": "tangram.ts"
+           }
+         }
+       },
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 3
+         }
+       },
+       {
+         "kind": "file",
+         "contents": "lef_01fnhktwqxcgtzkra7arsx7d50rgmaycmnqxhrt58s0yb9xkg5ydjg",
+         "dependencies": {
+           "../foo": {
+             "item": 0,
+             "path": "",
+             "subpath": "tangram.ts"
+           }
+         }
+       }
+     ]
+   }
+   "#);
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"graph": tg.graph({
@@ -407,7 +731,7 @@ async fn directory() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, _, output| async move {
+		|_, _, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"hello.txt": tg.file({
@@ -439,7 +763,7 @@ async fn file() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, _, output| async move {
+		|_, _, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"README.md": tg.file({
@@ -463,7 +787,23 @@ async fn package() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, _, output| async move {
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 1
+         }
+       },
+       {
+         "kind": "file"
+       }
+     ]
+   }
+   "#);
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
@@ -491,7 +831,41 @@ async fn import_from_parent() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, _, output| async move {
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "baz": 1,
+           "tangram.ts": 3
+         }
+       },
+       {
+         "kind": "directory",
+         "entries": {
+           "mod.tg.ts": 2
+         }
+       },
+       {
+         "kind": "file",
+         "contents": "lef_01z7p470yk3nybnm1f00y9m49p13rd52fqs1v9rwmmh9nd3s4stztg",
+         "dependencies": {
+           "..": {
+             "item": 0,
+             "path": "",
+             "subpath": "tangram.ts"
+           }
+         }
+       },
+       {
+         "kind": "file"
+       }
+     ]
+   }
+   "#);
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"graph": tg.graph({
@@ -560,7 +934,7 @@ async fn directory_destructive() -> tg::Result<()> {
 		},
 		"directory",
 		true,
-		|_, _, output| async move {
+		|_, _lockfile, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"a": tg.directory({
@@ -597,7 +971,7 @@ async fn destructive_package() -> tg::Result<()> {
 		},
 		"",
 		true,
-		|_server, _artifact, output| async move {
+		|_server, _lockfile, _artifact, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"graph": tg.graph({
@@ -649,7 +1023,7 @@ async fn ignore() -> tg::Result<()> {
 		},
 		"",
 		false,
-		|_, _, output| async move {
+		|_, _, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
@@ -670,7 +1044,7 @@ async fn test<F, Fut>(
 	assertions: F,
 ) -> tg::Result<()>
 where
-	F: FnOnce(Server, tg::Artifact, String) -> Fut,
+	F: FnOnce(Server, Option<tg::Lockfile>, tg::Artifact, String) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let artifact = artifact.into();
@@ -682,12 +1056,14 @@ where
 		artifact.to_path(directory.as_ref()).await.map_err(
 			|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
 		)?;
+
+		let path = directory.as_ref().join(path);
 		let arg = tg::artifact::checkin::Arg {
 			destructive,
 			deterministic: false,
 			ignore: true,
 			locked: false,
-			path: directory.as_ref().join(path),
+			path: path.clone(),
 		};
 		let stream = server.check_in_artifact(arg).await?;
 		let output = pin!(stream)
@@ -695,7 +1071,19 @@ where
 			.await?
 			.and_then(|event| event.try_unwrap_output().ok())
 			.ok_or_else(|| tg::error!("stream ended without output"))?;
+
+		// Get the lockfile if it exists.
+		let lockfile = tokio::fs::read(path.join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.map(|bytes| serde_json::from_slice(&bytes))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))?;
+
+		// Get the artifact.
 		let artifact = tg::Artifact::with_id(output.artifact);
+
+		// Print the output.
 		let object = tg::Object::from(artifact.clone());
 		object.load_recursive(&server).await?;
 		let value = tg::Value::from(artifact.clone());
@@ -704,7 +1092,7 @@ where
 			style: tg::value::print::Style::Pretty { indentation: "\t" },
 		};
 		let output = value.print(options);
-		(assertions)(server.clone(), artifact, output).await?;
+		(assertions)(server.clone(), lockfile, artifact, output).await?;
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()

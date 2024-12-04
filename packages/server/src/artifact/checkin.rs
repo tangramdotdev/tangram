@@ -115,15 +115,22 @@ impl Server {
 
 		// Copy or move to the cache directory.
 		self.copy_or_move_to_cache_directory(&input_graph, &output_graph, 0, progress)
-			.await?;
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to copy or move to the cache directory")
+			})?;
+
+		// Write the output to the database.
+		self.write_output_to_database(&output_graph)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write to the database"))?;
 
 		// If this is a non-destructive checkin, then attempt to write a lockfile.
 		if !arg.destructive {
-			self.try_write_lockfile(&input_graph, &object_graph).await?;
+			self.try_write_lockfile(&input_graph, &object_graph)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
 		}
-
-		// Write the output to the database.
-		self.write_output_to_database(&output_graph).await?;
 
 		// Get the artifact.
 		let artifact = self

@@ -1,7 +1,7 @@
 use crate::{Config, Server};
 use futures::{future, Future, FutureExt as _};
 use insta::assert_json_snapshot;
-use std::{collections::BTreeMap, panic::AssertUnwindSafe, pin::pin};
+use std::{collections::BTreeMap, panic::AssertUnwindSafe, path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::TryStreamExt as _;
@@ -21,6 +21,11 @@ async fn directory() -> tg::Result<()> {
       "hello.txt": {
         "kind": "file",
         "contents": "Hello, World!",
+        "executable": false
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"}]}",
         "executable": false
       }
     }
@@ -91,52 +96,91 @@ async fn file_with_dependency() -> tg::Result<()> {
 /// Test checking out a symlink.
 #[tokio::test]
 async fn symlink() -> tg::Result<()> {
-	let artifact = tg::symlink!("/bin/sh");
-	test(artifact, |_, artifact| async move {
-		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "symlink",
-    "target": "/bin/sh"
-  }
-  "#);
-		Ok::<_, tg::Error>(())
-	})
+	test(
+		tg::directory! {
+			"directory" => tg::directory! {
+				"hello.txt" => "Hello, World!",
+				"link" => tg::symlink!(PathBuf::from("hello.txt")),
+			}
+		},
+		|_, artifact| async move {
+			assert_json_snapshot!(artifact, @r#"
+   {
+     "kind": "directory",
+     "entries": {
+       "directory": {
+         "kind": "directory",
+         "entries": {
+           "hello.txt": {
+             "kind": "file",
+             "contents": "Hello, World!",
+             "executable": false
+           },
+           "link": {
+             "kind": "symlink",
+             "target": "hello.txt"
+           }
+         }
+       },
+       "tangram.lock": {
+         "kind": "file",
+         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1}},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link\":3}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"},{\"kind\":\"symlink\",\"Target\":{\"target\":\"hello.txt\"}}]}",
+         "executable": false
+       }
+     }
+   }
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
 	.await
 }
 
 /// Test checking out a directory with a symlink.
 #[tokio::test]
-async fn directory_with_symlink() -> tg::Result<()> {
-	let artifact = tg::directory! {
-		"directory" => tg::directory! {
-			"hello.txt" => "Hello, World!",
-			"link" => tg::symlink!("hello.txt"),
-		}
-	};
-	test(artifact, |_, artifact| async move {
-		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "directory": {
-        "kind": "directory",
-        "entries": {
-          "hello.txt": {
-            "kind": "file",
-            "contents": "Hello, World!",
-            "executable": false
-          },
-          "link": {
-            "kind": "symlink",
-            "target": "hello.txt"
-          }
-        }
-      }
-    }
-  }
-  "#);
-		Ok::<_, tg::Error>(())
-	})
+async fn symlink_shared_target() -> tg::Result<()> {
+	test(
+		tg::directory! {
+			"directory" => tg::directory! {
+				"hello.txt" => "Hello, World!",
+				"link1" => tg::symlink!(PathBuf::from("hello.txt")),
+				"link2" => tg::symlink!(PathBuf::from("hello.txt")),
+			}
+		},
+		|_, artifact| async move {
+			assert_json_snapshot!(artifact, @r#"
+   {
+     "kind": "directory",
+     "entries": {
+       "directory": {
+         "kind": "directory",
+         "entries": {
+           "hello.txt": {
+             "kind": "file",
+             "contents": "Hello, World!",
+             "executable": false
+           },
+           "link1": {
+             "kind": "symlink",
+             "target": "hello.txt"
+           },
+           "link2": {
+             "kind": "symlink",
+             "target": "hello.txt"
+           }
+         }
+       },
+       "tangram.lock": {
+         "kind": "file",
+         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1}},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link1\":3,\"link2\":3}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"},{\"kind\":\"symlink\",\"Target\":{\"target\":\"hello.txt\"}}]}",
+         "executable": false
+       }
+     }
+   }
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
 	.await
 }
 
@@ -187,7 +231,7 @@ async fn directory_with_file_with_dependency() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"file\"}]}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"file\",\"contents\":\"lef_010kgbpefk1cd3ztw9ymvcjez1a1amgbfq91kmp06jdsd7axvq0bmg\",\"dependencies\":{\"bar\":{\"item\":2}}},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\"}]}",
         "executable": false
       }
     }
@@ -227,6 +271,11 @@ async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
       "foo": {
         "kind": "symlink",
         "target": ".tangram/artifacts/fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"symlink\",\"Artifact\":{\"artifact\":2}},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\"}]}",
+        "executable": false
       }
     }
   }
@@ -259,6 +308,11 @@ async fn graph_directory() -> tg::Result<()> {
       "hello.txt": {
         "kind": "file",
         "contents": "Hello, World!",
+        "executable": false
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"}]}",
         "executable": false
       }
     }
@@ -339,6 +393,11 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
       "link": {
         "kind": "symlink",
         "target": "link"
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"link\":1}},{\"kind\":\"symlink\",\"Artifact\":{\"artifact\":0,\"subpath\":\"link\"}}]}",
+        "executable": false
       }
     }
   }

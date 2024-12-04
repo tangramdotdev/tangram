@@ -302,7 +302,10 @@ impl Server {
 			let contents = match file {
 				// If the file is a pointer into a graph, we need to fetch the graph and convert its data.
 				tg::file::Data::Graph { graph, node } => {
-					let graph = tg::Graph::with_id(graph.clone()).data(self).await?;
+					let graph = tg::Graph::with_id(graph.clone())
+						.data(self)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the graph data"))?;
 					let tg::graph::data::Node::File(file) = &graph.nodes[*node] else {
 						return Err(tg::error!("expected a file"));
 					};
@@ -373,64 +376,6 @@ impl Server {
 		}
 
 		Ok(())
-	}
-}
-
-#[derive(Copy, Clone)]
-struct GraphImpl<'a>(&'a tg::Lockfile);
-
-impl<'a> petgraph::visit::GraphBase for GraphImpl<'a> {
-	type EdgeId = (usize, usize);
-	type NodeId = usize;
-}
-
-impl<'a> petgraph::visit::GraphRef for GraphImpl<'a> {}
-
-#[allow(clippy::needless_arbitrary_self_type)]
-impl<'a> petgraph::visit::NodeIndexable for GraphImpl<'a> {
-	fn from_index(self: &Self, i: usize) -> Self::NodeId {
-		i
-	}
-
-	fn node_bound(self: &Self) -> usize {
-		self.0.nodes.len()
-	}
-
-	fn to_index(self: &Self, a: Self::NodeId) -> usize {
-		a
-	}
-}
-
-impl<'a> petgraph::visit::IntoNeighbors for GraphImpl<'a> {
-	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
-	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
-		match &self.0.nodes[a] {
-			tg::lockfile::Node::Directory { entries } => Box::new(
-				entries
-					.values()
-					.filter_map(|entry| entry.as_ref().left().copied()),
-			),
-			tg::lockfile::Node::File { dependencies, .. } => Box::new(
-				dependencies
-					.values()
-					.filter_map(|referent| referent.item.as_ref().left().copied()),
-			),
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target: _ }) => {
-				Box::new(std::iter::empty())
-			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, .. }) => {
-				Box::new(
-					std::iter::once(artifact).filter_map(|entry| entry.as_ref().left().copied()),
-				)
-			},
-		}
-	}
-}
-
-impl<'a> petgraph::visit::IntoNodeIdentifiers for GraphImpl<'a> {
-	type NodeIdentifiers = std::ops::Range<usize>;
-	fn node_identifiers(self) -> Self::NodeIdentifiers {
-		0..self.0.nodes.len()
 	}
 }
 

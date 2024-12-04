@@ -167,33 +167,28 @@ impl Server {
 			// Check if there is a solution in the lock file.
 			let lockfile = input_node.lockfile.clone();
 			'a: {
-				let Some((lockfile, node)) = lockfile else {
+				let Some(lockfile) = lockfile else {
 					break 'a;
 				};
-				let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[node] else {
-					break 'a;
-				};
-				let Some(referrent) = dependencies.get(&input_edge.reference) else {
+				let Some(referent) =
+					lockfile.try_resolve_dependency(&input_node.arg.path, &input_edge.reference)?
+				else {
 					if input_node.arg.locked {
-						return Err(tg::error!("lockfile is out of date"))?;
+						return Err(tg::error!("lockfile is out of date"));
 					};
 					break 'a;
 				};
-				let Either::Right(object) = &referrent.item else {
-					break 'a;
-				};
-
-				let id = if let Some(tag) = &referrent.tag {
+				let id = if let Some(tag) = &referent.tag {
 					let unify = true;
 					self.create_unification_node_from_tagged_object(
 						graph,
-						&tg::Object::with_id(object.clone()),
+						&tg::Object::with_id(referent.item.clone()),
 						tag.clone(),
 						unify,
 					)
 					.await?
 				} else {
-					self.create_unification_node_from_object(graph, object.clone())
+					self.create_unification_node_from_object(graph, referent.item.clone())
 						.await?
 				};
 				let reference = input_edge.reference.clone();

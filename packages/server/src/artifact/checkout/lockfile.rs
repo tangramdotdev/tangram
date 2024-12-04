@@ -22,8 +22,6 @@ impl Server {
 			&mut graphs,
 		)
 		.await?;
-
-		// Strip nodes.
 		let nodes: Vec<_> = nodes
 			.into_iter()
 			.enumerate()
@@ -33,7 +31,6 @@ impl Server {
 				)
 			})
 			.try_collect()?;
-		let nodes = self.strip_lockfile_nodes(&nodes, 0)?;
 
 		// Create the lockfile.
 		let lockfile = tg::Lockfile { nodes };

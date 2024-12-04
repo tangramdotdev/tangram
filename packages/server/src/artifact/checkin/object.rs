@@ -149,12 +149,11 @@ impl Server {
 					.as_ref()
 					.unwrap_right()
 					.clone();
-				let metadata = self.get_object_metadata(&id).await.map_err(
-					|source| tg::error!(!source, %object = id, "failed to get object metadata"),
-				)?;
 				graph.nodes[scc[0]].id.replace(id.clone());
-				graph.nodes[scc[0]].metadata.replace(metadata);
 				graph.objects.insert(id.clone(), scc[0]);
+				if let Ok(metadata) = self.get_object_metadata(&id).await {
+					graph.nodes[scc[0]].metadata.replace(metadata);
+				}
 				continue;
 			}
 
@@ -380,53 +379,6 @@ impl Server {
 			})
 			.collect();
 
-		// Check if there is an xattr.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let data = xattr::get(path, tg::file::XATTR_DATA_NAME)
-			.map_err(|source| tg::error!(!source, "failed to read xattr"))?;
-		if let Some(data) = data {
-			// Deserialize the data.
-			let data = tg::file::Data::deserialize(&data.into())?;
-
-			// Deserialize the metadata and update the state, if necessary.
-			if let Some(metadata) = xattr::get(path, tg::file::XATTR_METADATA_NAME)
-				.map_err(|source| tg::error!(!source, "failed to read xattr"))?
-			{
-				let mut metadata: tg::object::Metadata = serde_json::from_slice(&metadata)
-					.map_err(|source| tg::error!(!source, "failed to deserialize metadata"))?;
-				metadata.count = metadata.count.map(|count| count - 1);
-				metadata.depth = metadata.depth.map(|depth| depth - 1);
-				metadata.weight = metadata
-					.weight
-					.map(|weight| weight - data.serialize().unwrap().len().to_u64().unwrap());
-				file_metadata.insert(index, metadata);
-			}
-
-			// Get the file's contents/executable bit.
-			let (contents, executable) = match data {
-				tg::file::Data::Graph { graph, node } => {
-					let node = tg::Graph::with_id(graph).data(self).await?.nodes[node].clone();
-					let tg::graph::data::Node::File(file) = node else {
-						return Err(tg::error!("expected a file node"));
-					};
-					(file.contents, file.executable)
-				},
-				tg::file::Data::Normal {
-					contents,
-					executable,
-					..
-				} => (contents, executable),
-			};
-
-			// Create the file.
-			let file = tg::graph::data::File {
-				contents,
-				dependencies,
-				executable,
-			};
-			return Ok(file);
-		}
-
 		// Read the file contents.
 		let file = tokio::fs::File::open(&path)
 			.await
@@ -434,7 +386,6 @@ impl Server {
 		let output = self.create_blob_inner(file, None).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to create blob"),
 		)?;
-		drop(permit);
 
 		// For files only, we need to keep track of the count, depth, and weight when reading the file.
 		let file_metadata_ = tg::object::Metadata {
@@ -624,14 +575,22 @@ impl Server {
 			_ => {
 				for edge in &graph.nodes[index].edges {
 					let metadata = graph.nodes[edge.index].metadata.clone().unwrap_or_else(|| {
-						let data = graph.nodes[edge.index].data.as_ref().unwrap();
-						self.compute_object_metadata(
-							graph,
-							edge.index,
-							data,
-							file_metadata,
-							graph_metadata,
-						)
+						if let Some(data) = graph.nodes[edge.index].data.as_ref() {
+							self.compute_object_metadata(
+								graph,
+								edge.index,
+								data,
+								file_metadata,
+								graph_metadata,
+							)
+						} else {
+							tg::object::Metadata {
+								complete: false,
+								count: None,
+								depth: None,
+								weight: None,
+							}
+						}
 					});
 					complete &= metadata.complete;
 					if let Some(c) = metadata.count {
