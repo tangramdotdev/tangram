@@ -672,12 +672,12 @@ async fn get_paths(
 							break 'a;
 						};
 						let path = node_path.parent().unwrap().join(path);
-						let Some(node_path) =
-							crate::util::fs::canonicalize_parent(&path).await.ok()
-						else {
+						if !matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
 							break 'a;
 						};
-						if !matches!(tokio::fs::try_exists(&node_path).await, Ok(true)) {
+						let Ok(node_path) =
+							crate::util::fs::canonicalize_parent(&path).await
+						else {
 							break 'a;
 						};
 						if Box::pin(get_paths_inner(

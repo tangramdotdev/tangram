@@ -22,6 +22,11 @@ async fn directory() -> tg::Result<()> {
         "kind": "file",
         "contents": "Hello, World!",
         "executable": false
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"}]}",
+        "executable": false
       }
     }
   }
@@ -112,15 +117,14 @@ async fn symlink() -> tg::Result<()> {
              "executable": false
            },
            "link": {
-             "kind": "file",
-             "contents": "Hello, World!",
-             "executable": false
+             "kind": "symlink",
+             "target": "hello.txt"
            }
          }
        },
        "tangram.lock": {
          "kind": "file",
-         "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"directory\": 1\n      }\n    },\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"hello.txt\": 2,\n        \"link\": 3\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"Target\": {\n        \"target\": \"hello.txt\"\n      }\n    }\n  ]\n}",
+         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1}},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link\":3}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"},{\"kind\":\"symlink\",\"Target\":{\"target\":\"hello.txt\"}}]}",
          "executable": false
        }
      }
@@ -157,20 +161,18 @@ async fn symlink_shared_target() -> tg::Result<()> {
              "executable": false
            },
            "link1": {
-             "kind": "file",
-             "contents": "Hello, World!",
-             "executable": false
+             "kind": "symlink",
+             "target": "hello.txt"
            },
            "link2": {
-             "kind": "file",
-             "contents": "Hello, World!",
-             "executable": false
+             "kind": "symlink",
+             "target": "hello.txt"
            }
          }
        },
        "tangram.lock": {
          "kind": "file",
-         "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"directory\": 1\n      }\n    },\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"hello.txt\": 2,\n        \"link1\": 3,\n        \"link2\": 3\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"Target\": {\n        \"target\": \"hello.txt\"\n      }\n    }\n  ]\n}",
+         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1}},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link1\":3,\"link2\":3}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"},{\"kind\":\"symlink\",\"Target\":{\"target\":\"hello.txt\"}}]}",
          "executable": false
        }
      }
@@ -229,7 +231,7 @@ async fn directory_with_file_with_dependency() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"file\"}]}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"file\",\"contents\":\"lef_010kgbpefk1cd3ztw9ymvcjez1a1amgbfq91kmp06jdsd7axvq0bmg\",\"dependencies\":{\"bar\":{\"item\":2}}},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\"}]}",
         "executable": false
       }
     }
@@ -269,6 +271,11 @@ async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
       "foo": {
         "kind": "symlink",
         "target": ".tangram/artifacts/fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"symlink\",\"Artifact\":{\"artifact\":2}},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\"}]}",
+        "executable": false
       }
     }
   }
@@ -301,6 +308,11 @@ async fn graph_directory() -> tg::Result<()> {
       "hello.txt": {
         "kind": "file",
         "contents": "Hello, World!",
+        "executable": false
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"}]}",
         "executable": false
       }
     }
@@ -384,7 +396,7 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      }\n    },\n    {\n      \"kind\": \"symlink\",\n      \"Artifact\": {\n        \"artifact\": 0,\n        \"subpath\": \"link\"\n      }\n    }\n  ]\n}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"link\":1}},{\"kind\":\"symlink\",\"Artifact\":{\"artifact\":0,\"subpath\":\"link\"}}]}",
         "executable": false
       }
     }

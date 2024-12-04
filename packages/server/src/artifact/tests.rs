@@ -287,7 +287,7 @@ where
 	let temp1 = Temp::new();
 	let config = Config::with_path(temp1.path().to_owned());
 	let server1 = Server::start(config.clone()).await?;
-
+	
 	// Create the second server.
 	let temp2 = Temp::new();
 	let config = Config::with_path(temp2.path().to_owned());
@@ -310,7 +310,7 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server1, arg).await?;
-
+		
 		// Check the artifact out from the first server.
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
@@ -319,7 +319,7 @@ where
 		};
 		let path = artifact.check_out(&server1, arg).await?;
 		let checkout = temp::Artifact::with_path(&path).await?;
-
+		
 		// Create the test data for the first server.
 		let artifact1 = TestArtifact {
 			server: server1.clone(),
@@ -338,7 +338,7 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server2, arg).await?;
-
+		
 		// Check it out.
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
@@ -346,7 +346,7 @@ where
 			force: false,
 		};
 		let path = artifact.check_out(&server2, arg).await?;
-
+		
 		let checkout = temp::Artifact::with_path(&path).await?;
 		let artifact2 = TestArtifact {
 			server: server2.clone(),
