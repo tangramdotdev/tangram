@@ -55,7 +55,7 @@ async fn executable_file_with_dependency() -> tg::Result<()> {
 	let result = AssertUnwindSafe(async {
 		let dependency = tg::file!("dependency");
 		let file = tg::File::with_object(tg::file::Object::Normal {
-			contents: tg::Blob::with_reader(&server, b"f".as_slice()).await?,
+			contents: tg::Blob::from("f"),
 			dependencies: [(
 				tg::Reference::with_object(&dependency.id(&server).await?.into()),
 				tg::Referent {
@@ -112,7 +112,7 @@ async fn directory_containing_file_with_file_dependency() -> tg::Result<()> {
 	let result = AssertUnwindSafe(async {
 		let dependency = tg::file!("dependency");
 		let file = tg::File::with_object(tg::file::Object::Normal {
-			contents: tg::Blob::with_reader(&server, b"f".as_slice()).await?,
+			contents: tg::Blob::from("f"),
 			dependencies: [(
 				tg::Reference::with_object(&dependency.id(&server).await?.into()),
 				tg::Referent {
@@ -174,7 +174,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() ->
 			"link" => tg::symlink!("dep")
 		};
 		let file = tg::File::with_object(tg::file::Object::Normal {
-			contents: tg::Blob::with_reader(&server, b"f".as_slice()).await?,
+			contents: tg::Blob::from("f"),
 			dependencies: [(
 				tg::Reference::with_object(&dependency.id(&server).await?.into()),
 				tg::Referent {
@@ -249,7 +249,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 			"link" => tg::Symlink::with_artifact_and_subpath(inner_dir.clone().into(), Some("a".into()))
 		};
 		let file = tg::File::with_object(tg::file::Object::Normal {
-			contents: tg::Blob::with_reader(&server, b"f".as_slice()).await?,
+			contents: tg::Blob::from("f"),
 			dependencies: [(
 				tg::Reference::with_object(&dependency.id(&server).await?.into()),
 				tg::Referent {
