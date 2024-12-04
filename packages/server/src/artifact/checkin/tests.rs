@@ -1,12 +1,7 @@
 use crate::{util::fs::cleanup, Config, Server};
 use futures::{Future, FutureExt as _};
-<<<<<<< HEAD
-use insta::assert_snapshot;
-use std::{panic::AssertUnwindSafe, pin::pin};
-=======
 use insta::{assert_json_snapshot, assert_snapshot};
-use std::{panic::AssertUnwindSafe, path::PathBuf, pin::pin};
->>>>>>> 2bcebc93 (chore: add lockfiles to checkin snapshots)
+use std::{panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};

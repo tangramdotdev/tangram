@@ -187,7 +187,6 @@ async fn lockfile_roundtrip() -> tg::Result<()> {
 
 		let arg = tg::artifact::checkout::Arg {
 			path: Some(temp.path().to_owned()),
-			dependencies: true,
 			force: false,
 		};
 		let path = artifact.check_out(&server, arg).await?;
@@ -273,11 +272,17 @@ async fn cyclic_path_dependency() -> tg::Result<()> {
 	.await
 }
 
-async fn test<F, Fut>(checkin: temp::Artifact, path: &Path, assertions: F) -> tg::Result<()>
+async fn test<F, Fut>(
+	checkin: impl Into<temp::Artifact>,
+	path: &Path,
+	assertions: F,
+) -> tg::Result<()>
 where
 	F: FnOnce(TestArtifact, TestArtifact) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
+	let checkin = checkin.into();
+
 	// Create the first server.
 	let temp1 = Temp::new();
 	let config = Config::with_path(temp1.path().to_owned());
@@ -310,7 +315,6 @@ where
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
 			path: Some(temp.path().to_owned()),
-			dependencies: true,
 			force: false,
 		};
 		let path = artifact.check_out(&server1, arg).await?;
@@ -339,7 +343,6 @@ where
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
 			path: Some(temp.path().to_owned()),
-			dependencies: true,
 			force: false,
 		};
 		let path = artifact.check_out(&server2, arg).await?;

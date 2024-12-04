@@ -175,12 +175,9 @@ impl Server {
 			.create_lockfile_for_artifact(&artifact)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
-		if !lockfile.nodes.is_empty() {
-			let lockfile_path = if matches!(artifact, tg::Artifact::Directory(_)) {
-				path.join(tg::package::LOCKFILE_FILE_NAME)
-			} else {
-				path.parent().unwrap().join(tg::package::LOCKFILE_FILE_NAME)
-			};
+		if !lockfile.nodes.is_empty() && matches!(artifact, tg::Artifact::Directory(_)) {
+			let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
+
 			let contents = serde_json::to_vec(&lockfile)
 				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
 			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
