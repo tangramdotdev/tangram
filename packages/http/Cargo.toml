@@ -26,5 +26,6 @@ pin-project = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
+tangram_futures = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

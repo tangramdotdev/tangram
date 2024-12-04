@@ -5618,6 +5618,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
+ "tangram_futures",
  "tokio",
  "tokio-util",
 ]
