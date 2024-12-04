@@ -146,21 +146,23 @@ impl Runtime {
 				// Render the target.
 				let target = if let Some(target_path) = symlink.target(server).await? {
 					target_path
-				} else {
+				} else if let Some(artifact) = symlink.artifact(server).await? {
 					let mut target = PathBuf::new();
-					let artifact = symlink.artifact(server).await?;
 					let path = symlink.subpath(server).await?;
-					if let Some(artifact) = artifact.as_ref() {
-						for _ in 0..depth - 1 {
-							target.push("..");
-						}
-						target.push(TANGRAM_ARTIFACTS_PATH);
-						target.push(artifact.id(server).await?.to_string());
+					for _ in 0..depth - 1 {
+						target.push("..");
 					}
+					target.push(TANGRAM_ARTIFACTS_PATH);
+					target.push(artifact.id(server).await?.to_string());
 					if let Some(path) = path.as_ref() {
 						target.push(path);
 					}
 					target
+				} else {
+					let symlink_id = symlink.id(server).await?;
+					return Err(
+						tg::error!(%symlink_id, "could not determine target or artifact for symlink"),
+					);
 				};
 
 				let symlink = tg::Symlink::with_target(target);
