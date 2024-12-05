@@ -133,6 +133,136 @@ async fn path_dependency() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn cyclic_path_dependency() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"import * as bar from "../bar""#,
+			},
+			"bar" => temp::directory! {
+				"tangram.ts" => r#"import * as foo from "../foo""#,
+			},
+		},
+		"foo".as_ref(),
+		|a, b| async move {
+			assert_eq!(a.id().await, b.id().await);
+			let output_a = a.output().await;
+			let output_b = b.output().await;
+			assert_eq!(&output_a, &output_b);
+			assert_snapshot!(&output_a, @r#"
+   tg.directory({
+   	"graph": tg.graph({
+   		"nodes": [
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"tangram.ts": 1,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import * as bar from "../bar""),
+   				"dependencies": {
+   					"../bar": {
+   						"item": 2,
+   						"path": "../bar",
+   						"subpath": "tangram.ts",
+   					},
+   				},
+   			},
+   			{
+   				"kind": "directory",
+   				"entries": {
+   					"tangram.ts": 3,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import * as foo from "../foo""),
+   				"dependencies": {
+   					"../foo": {
+   						"item": 0,
+   						"path": "",
+   						"subpath": "tangram.ts",
+   					},
+   				},
+   			},
+   		],
+   	}),
+   	"node": 0,
+   })
+   "#);
+			Ok(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn symlink_roundtrip() -> tg::Result<()> {
+	let temp = Temp::new();
+	let config = Config::with_path(temp.path().to_owned());
+	let server = Server::start(config).await?;
+
+	let result = AssertUnwindSafe(async {
+		let dependency_file = tg::file!("contents");
+		let dependency_dir = tg::directory! {
+			"dependency" => dependency_file
+		};
+		let dependency_symlink =
+			tg::Symlink::with_artifact_and_subpath(dependency_dir.into(), None);
+
+		let file = tg::File::with_object(tg::file::Object::Normal {
+			contents: tg::Blob::with_reader(&server, b"c".as_slice()).await?,
+			dependencies: [(
+				tg::Reference::with_object(&dependency_symlink.id(&server).await?.into()),
+				tg::Referent {
+					item: dependency_symlink.clone().into(),
+					path: None,
+					subpath: None,
+					tag: None,
+				},
+			)]
+			.into_iter()
+			.collect(),
+			executable: false,
+		});
+
+		// Check out the artifact.
+		let temp = Temp::new();
+		tokio::fs::create_dir_all(temp.path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create temp path"))?;
+		let arg = tg::artifact::checkout::Arg {
+			force: false,
+			path: Some(temp.path().join("file")),
+		};
+		let path = tg::Artifact::from(file.clone())
+			.check_out(&server, arg)
+			.await?;
+
+		// Check the artifact back in.
+		let arg = tg::artifact::checkin::Arg {
+			deterministic: true,
+			destructive: false,
+			ignore: true,
+			locked: true,
+			path,
+		};
+		let artifact = tg::Artifact::check_in(&server, arg)
+			.await?
+			.try_unwrap_file()
+			.map_err(|_| tg::error!("expected a file"))?;
+		assert_eq!(artifact.id(&server).await?, file.id(&server).await?);
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(temp, server).await;
+	result.unwrap()
+}
+
+#[tokio::test]
 async fn lockfile_roundtrip() -> tg::Result<()> {
 	let temp = Temp::new();
 	let config = Config::with_path(temp.path().to_owned());
@@ -206,72 +336,6 @@ async fn lockfile_roundtrip() -> tg::Result<()> {
 	result.unwrap()
 }
 
-#[tokio::test]
-async fn cyclic_path_dependency() -> tg::Result<()> {
-	test(
-		temp::directory! {
-			"foo" => temp::directory! {
-				"tangram.ts" => r#"import * as bar from "../bar""#,
-			},
-			"bar" => temp::directory! {
-				"tangram.ts" => r#"import * as foo from "../foo""#,
-			},
-		},
-		"foo".as_ref(),
-		|a, b| async move {
-			assert_eq!(a.id().await, b.id().await);
-			let output_a = a.output().await;
-			let output_b = b.output().await;
-			assert_eq!(&output_a, &output_b);
-			assert_snapshot!(&output_a, @r#"
-   tg.directory({
-   	"graph": tg.graph({
-   		"nodes": [
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"tangram.ts": 1,
-   				},
-   			},
-   			{
-   				"kind": "file",
-   				"contents": tg.leaf("import * as bar from "../bar""),
-   				"dependencies": {
-   					"../bar": {
-   						"item": 2,
-   						"path": "../bar",
-   						"subpath": "tangram.ts",
-   					},
-   				},
-   			},
-   			{
-   				"kind": "directory",
-   				"entries": {
-   					"tangram.ts": 3,
-   				},
-   			},
-   			{
-   				"kind": "file",
-   				"contents": tg.leaf("import * as foo from "../foo""),
-   				"dependencies": {
-   					"../foo": {
-   						"item": 0,
-   						"path": "",
-   						"subpath": "tangram.ts",
-   					},
-   				},
-   			},
-   		],
-   	}),
-   	"node": 0,
-   })
-   "#);
-			Ok(())
-		},
-	)
-	.await
-}
-
 async fn test<F, Fut>(
 	checkin: impl Into<temp::Artifact>,
 	path: &Path,
@@ -287,7 +351,7 @@ where
 	let temp1 = Temp::new();
 	let config = Config::with_path(temp1.path().to_owned());
 	let server1 = Server::start(config.clone()).await?;
-	
+
 	// Create the second server.
 	let temp2 = Temp::new();
 	let config = Config::with_path(temp2.path().to_owned());
@@ -310,7 +374,7 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server1, arg).await?;
-		
+
 		// Check the artifact out from the first server.
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
@@ -319,7 +383,7 @@ where
 		};
 		let path = artifact.check_out(&server1, arg).await?;
 		let checkout = temp::Artifact::with_path(&path).await?;
-		
+
 		// Create the test data for the first server.
 		let artifact1 = TestArtifact {
 			server: server1.clone(),
@@ -338,7 +402,7 @@ where
 			locked: false,
 		};
 		let artifact = tg::Artifact::check_in(&server2, arg).await?;
-		
+
 		// Check it out.
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
@@ -346,7 +410,7 @@ where
 			force: false,
 		};
 		let path = artifact.check_out(&server2, arg).await?;
-		
+
 		let checkout = temp::Artifact::with_path(&path).await?;
 		let artifact2 = TestArtifact {
 			server: server2.clone(),

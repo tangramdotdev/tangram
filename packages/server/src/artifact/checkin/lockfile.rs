@@ -220,10 +220,20 @@ impl Server {
 				subpath,
 			} => subpath.clone().map(PathBuf::from),
 		};
+
+		// The artifact is either another point in the graph, or referred to explicitly by data.
 		let artifact = graph.nodes[node]
 			.edges
 			.first()
-			.map(|edge| self.get_lockfile_entry(graph, edge.index));
+			.map(|edge| self.get_lockfile_entry(graph, edge.index))
+			.or_else(|| match data {
+				tg::symlink::Data::Artifact { artifact, .. } => {
+					Some(Either::Right(artifact.clone().into()))
+				},
+				_ => None,
+			});
+
+		// Create the lockfile node.
 		match artifact {
 			Some(artifact) => Ok(tg::lockfile::Node::Symlink(
 				tg::lockfile::Symlink::Artifact { artifact, subpath },
@@ -234,7 +244,10 @@ impl Server {
 						target: subpath,
 					}))
 				} else {
-					Err(tg::error!("unable to determine subpath for lockfile"))
+					Err(tg::error!(
+						?data,
+						"unable to determine subpath for lockfile"
+					))
 				}
 			},
 		}
