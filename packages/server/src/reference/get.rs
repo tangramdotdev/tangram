@@ -40,6 +40,7 @@ impl Server {
 					deterministic: false,
 					ignore: true,
 					locked: false,
+					lockfile: true,
 					path: path.clone(),
 				};
 				let mut stream = self.check_in_artifact(arg).await?;

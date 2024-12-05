@@ -22,11 +22,6 @@ async fn directory() -> tg::Result<()> {
         "kind": "file",
         "contents": "Hello, World!",
         "executable": false
-      },
-      "tangram.lock": {
-        "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"}]}",
-        "executable": false
       }
     }
   }
@@ -121,11 +116,6 @@ async fn symlink() -> tg::Result<()> {
              "target": "hello.txt"
            }
          }
-       },
-       "tangram.lock": {
-         "kind": "file",
-         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1}},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link\":3}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"},{\"kind\":\"symlink\",\"Target\":{\"target\":\"hello.txt\"}}]}",
-         "executable": false
        }
      }
    }
@@ -169,11 +159,6 @@ async fn symlink_shared_target() -> tg::Result<()> {
              "target": "hello.txt"
            }
          }
-       },
-       "tangram.lock": {
-         "kind": "file",
-         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1}},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link1\":3,\"link2\":3}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"},{\"kind\":\"symlink\",\"Target\":{\"target\":\"hello.txt\"}}]}",
-         "executable": false
        }
      }
    }
@@ -231,7 +216,7 @@ async fn directory_with_file_with_dependency() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"file\",\"contents\":\"lef_010kgbpefk1cd3ztw9ymvcjez1a1amgbfq91kmp06jdsd7axvq0bmg\",\"dependencies\":{\"bar\":{\"item\":2}}},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\"}]}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1},\"id\":\"dir_019at517ytj7gfg92358f53w7c2ht4gewvtg45fegwr6teffnnvxa0\"},{\"kind\":\"file\",\"id\":\"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"}]}",
         "executable": false
       }
     }
@@ -271,11 +256,6 @@ async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
       "foo": {
         "kind": "symlink",
         "target": ".tangram/artifacts/fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
-      },
-      "tangram.lock": {
-        "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"symlink\",\"Artifact\":{\"artifact\":2}},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\"}]}",
-        "executable": false
       }
     }
   }
@@ -308,11 +288,6 @@ async fn graph_directory() -> tg::Result<()> {
       "hello.txt": {
         "kind": "file",
         "contents": "Hello, World!",
-        "executable": false
-      },
-      "tangram.lock": {
-        "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"}]}",
         "executable": false
       }
     }
@@ -396,7 +371,7 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"link\":1}},{\"kind\":\"symlink\",\"Artifact\":{\"artifact\":0,\"subpath\":\"link\"}}]}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"link\":1},\"id\":\"dir_01jgpeycbs5s4yjr89jqf3kkvy1a0rmrk7j2fmedscvh495h5b3740\"},{\"kind\":\"symlink\",\"Artifact\":{\"id\":\"sym_01qzd2gdre0bz3ck3q00yw16g36eg6sq9jrvzv5w3m5191ynjm3nq0\",\"artifact\":0,\"subpath\":\"link\"}}]}",
         "executable": false
       }
     }
@@ -419,6 +394,7 @@ where
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
 			force: false,
+			lockfile: true,
 			path: Some(temp.path().to_owned()),
 		};
 		let id = artifact.into().id(&server).await?;

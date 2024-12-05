@@ -133,6 +133,7 @@ impl Server {
 				deterministic: true,
 				ignore: true,
 				locked: true,
+				lockfile: false,
 				path: path.clone(),
 			};
 			let option = tg::Artifact::check_in(self, arg).await.ok();
@@ -158,7 +159,7 @@ impl Server {
 		});
 
 		// Create the arg.
-		let arg = Arg {
+		let arg_ = Arg {
 			artifact: artifact.clone(),
 			existing_artifact,
 			path: path.clone(),
@@ -167,7 +168,7 @@ impl Server {
 		};
 
 		// Perform the checkout.
-		self.check_out_artifact_inner(&state, arg).await?;
+		self.check_out_artifact_inner(&state, arg_).await?;
 
 		// Create a lockfile and write it if it is not empty.
 		let artifact = tg::Artifact::with_id(artifact.clone());
@@ -175,7 +176,7 @@ impl Server {
 			.create_lockfile_for_artifact(&artifact)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
-		if !lockfile.nodes.is_empty() && matches!(artifact, tg::Artifact::Directory(_)) {
+		if arg.lockfile && !lockfile.nodes.is_empty() && artifact.is_directory() {
 			let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
 
 			let contents = serde_json::to_vec(&lockfile)

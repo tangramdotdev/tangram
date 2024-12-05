@@ -144,7 +144,8 @@ where
 	}
 
 	pub fn string(&mut self, value: &str) -> Result {
-		write!(self.writer, "\"{value}\"")
+		let value = serde_json::to_string(value).unwrap();
+		write!(self.writer, "{value}")
 	}
 
 	pub fn array(&mut self, value: &tg::value::Array) -> Result {

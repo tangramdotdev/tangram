@@ -474,6 +474,7 @@ impl Runtime {
 				ignore: false,
 				path: output_path.clone(),
 				locked: true,
+				lockfile: false,
 			};
 			tg::Artifact::check_in(server, arg)
 				.await

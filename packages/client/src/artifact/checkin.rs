@@ -22,6 +22,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub locked: bool,
 
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub lockfile: bool,
+
 	pub path: PathBuf,
 }
 

@@ -89,6 +89,7 @@ where
 			deterministic: false,
 			ignore: true,
 			locked: false,
+			lockfile: true,
 			path: directory.to_owned(),
 		};
 		let package = tg::Artifact::check_in(&server, checkin_arg)

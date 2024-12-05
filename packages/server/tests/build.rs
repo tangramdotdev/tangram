@@ -669,6 +669,7 @@ where
 			deterministic: false,
 			ignore: true,
 			locked: false,
+			lockfile: true,
 			path: artifact_temp.as_ref().join(path),
 		};
 		let artifact = tg::Artifact::check_in(&server, arg)

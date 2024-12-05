@@ -777,6 +777,7 @@ impl Runtime {
 				ignore: false,
 				path: output_host_path.clone(),
 				locked: true,
+				lockfile: false,
 			};
 			tg::Artifact::check_in(server, arg)
 				.await

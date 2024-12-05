@@ -1,4 +1,7 @@
-use crate::{self as tg, util::serde::is_false};
+use crate::{
+	self as tg,
+	util::serde::{is_false, is_true, return_true},
+};
 use futures::{future, Stream, TryStreamExt as _};
 use std::{path::PathBuf, pin::pin};
 use tangram_futures::stream::TryStreamExt as _;
@@ -8,6 +11,9 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
+
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub lockfile: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,

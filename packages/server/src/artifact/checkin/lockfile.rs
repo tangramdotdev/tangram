@@ -123,8 +123,9 @@ impl Server {
 		&self,
 		graph: &object::Graph,
 		node: usize,
-		_data: &tg::directory::Data,
+		data: &tg::directory::Data,
 	) -> tg::Result<tg::lockfile::Node> {
+		let id = tg::directory::Id::new(&data.serialize()?);
 		let entries = graph.nodes[node]
 			.edges
 			.iter()
@@ -144,7 +145,11 @@ impl Server {
 				(name, entry)
 			})
 			.collect();
-		Ok(tg::lockfile::Node::Directory { entries })
+		let directory = tg::lockfile::Directory {
+			entries,
+			id: Some(id),
+		};
+		Ok(tg::lockfile::Node::Directory(directory))
 	}
 
 	async fn create_lockfile_file_node(
@@ -153,6 +158,7 @@ impl Server {
 		node: usize,
 		data: &tg::file::Data,
 	) -> tg::Result<tg::lockfile::Node> {
+		let id = tg::file::Id::new(&data.serialize()?);
 		let (contents, executable) = match data {
 			tg::file::Data::Graph { graph, node } => {
 				let file = tg::Graph::with_id(graph.clone()).object(self).await?.nodes[*node]
@@ -187,11 +193,13 @@ impl Server {
 				(reference, referent)
 			})
 			.collect();
-		Ok(tg::lockfile::Node::File {
+		let file = tg::lockfile::File {
 			contents: Some(contents),
 			dependencies,
 			executable,
-		})
+			id: Some(id),
+		};
+		Ok(tg::lockfile::Node::File(file))
 	}
 
 	async fn create_lockfile_symlink_node(
@@ -200,6 +208,7 @@ impl Server {
 		node: usize,
 		data: &tg::symlink::Data,
 	) -> tg::Result<tg::lockfile::Node> {
+		let id = tg::symlink::Id::new(&data.serialize()?);
 		let subpath = match data {
 			tg::symlink::Data::Graph { graph, node } => {
 				let symlink = tg::Graph::with_id(graph.clone()).object(self).await?.nodes[*node]
@@ -236,11 +245,16 @@ impl Server {
 		// Create the lockfile node.
 		match artifact {
 			Some(artifact) => Ok(tg::lockfile::Node::Symlink(
-				tg::lockfile::Symlink::Artifact { artifact, subpath },
+				tg::lockfile::Symlink::Artifact {
+					artifact,
+					id: Some(id),
+					subpath,
+				},
 			)),
 			None => {
 				if let Some(subpath) = subpath {
 					Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
+						id: Some(id),
 						target: subpath,
 					}))
 				} else {
@@ -309,12 +323,13 @@ fn check_if_references_module(
 	match visited[node] {
 		None => {
 			match &nodes[node] {
-				tg::lockfile::Node::Directory { entries } => {
-					let retain = entries
+				tg::lockfile::Node::Directory(directory) => {
+					let retain = directory
+						.entries
 						.keys()
 						.any(|name| tg::package::is_module_path(name.as_ref()));
 					visited[node].replace(retain);
-					for (name, entry) in entries {
+					for (name, entry) in &directory.entries {
 						let child_node = entry.as_ref().left().copied().unwrap();
 						*visited[node].as_mut().unwrap() |= check_if_references_module(
 							nodes,
@@ -324,11 +339,11 @@ fn check_if_references_module(
 						)?;
 					}
 				},
-				tg::lockfile::Node::File { dependencies, .. } => {
-					let retain =
-						!dependencies.is_empty() || path.map_or(false, tg::package::is_module_path);
+				tg::lockfile::Node::File(file) => {
+					let retain = !file.dependencies.is_empty()
+						|| path.map_or(false, tg::package::is_module_path);
 					visited[node].replace(retain);
-					for (reference, referent) in dependencies {
+					for (reference, referent) in &file.dependencies {
 						let path = reference
 							.item()
 							.try_unwrap_path_ref()
@@ -345,6 +360,7 @@ fn check_if_references_module(
 				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
 					artifact,
 					subpath,
+					..
 				}) => {
 					let retain = subpath
 						.as_ref()
@@ -378,16 +394,16 @@ fn check_if_transitively_tagged(
 ) -> tg::Result<()> {
 	match visited[node] {
 		None => match &nodes[node] {
-			tg::lockfile::Node::Directory { entries } => {
+			tg::lockfile::Node::Directory(directory) => {
 				visited[node].replace(referrer_tagged);
-				for entry in entries.values() {
+				for entry in directory.entries.values() {
 					let child_node = entry.as_ref().left().copied().unwrap();
 					check_if_transitively_tagged(nodes, referrer_tagged, child_node, visited)?;
 				}
 			},
-			tg::lockfile::Node::File { dependencies, .. } => {
+			tg::lockfile::Node::File(file) => {
 				visited[node].replace(referrer_tagged);
-				for referent in dependencies.values() {
+				for referent in file.dependencies.values() {
 					let Either::Left(child_node) = &referent.item else {
 						continue;
 					};
@@ -395,7 +411,11 @@ fn check_if_transitively_tagged(
 					check_if_transitively_tagged(nodes, referrer_tagged, *child_node, visited)?;
 				}
 			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+				artifact,
+				subpath,
+				..
+			}) => {
 				visited[node].replace(referrer_tagged);
 				if let Some(child_node) =
 					try_find_in_lockfile_nodes(nodes, artifact, subpath.as_deref())?
@@ -450,8 +470,9 @@ fn strip_nodes_inner(
 	new_nodes.push(None);
 
 	match old_nodes[node].clone() {
-		tg::lockfile::Node::Directory { entries } => {
-			let entries = entries
+		tg::lockfile::Node::Directory(directory) => {
+			let entries = directory
+				.entries
 				.into_iter()
 				.filter_map(|(name, entry)| {
 					let entry = match entry {
@@ -472,14 +493,15 @@ fn strip_nodes_inner(
 				.collect();
 
 			// Create a new node.
-			new_nodes[new_node].replace(tg::lockfile::Node::Directory { entries });
+			let directory = tg::lockfile::Directory {
+				entries,
+				id: directory.id.clone(),
+			};
+			new_nodes[new_node].replace(tg::lockfile::Node::Directory(directory));
 		},
-		tg::lockfile::Node::File {
-			dependencies,
-			executable,
-			contents,
-		} => {
-			let dependencies = dependencies
+		tg::lockfile::Node::File(file) => {
+			let dependencies = file
+				.dependencies
 				.into_iter()
 				.filter_map(|(reference, referent)| {
 					let tg::Referent {
@@ -514,24 +536,31 @@ fn strip_nodes_inner(
 
 			// Retain the contents if necessary.
 			let retain_contents = matches!(is_tagged[node], Some(true)) || in_graph[node];
-			let contents = if retain_contents { contents } else { None };
+			let contents = if retain_contents { file.contents } else { None };
 
 			// Create the node.
-			new_nodes[new_node].replace(tg::lockfile::Node::File {
+			let file = tg::lockfile::File {
 				contents,
 				dependencies,
-				executable,
-			});
+				executable: file.executable,
+				id: file.id,
+			};
+			new_nodes[new_node].replace(tg::lockfile::Node::File(file));
 		},
 
-		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target }) => {
+		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target, .. }) => {
 			new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
 				tg::lockfile::Symlink::Target {
 					target: target.clone(),
+					id: None,
 				},
 			));
 		},
-		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
+		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+			artifact,
+			id,
+			subpath,
+		}) => {
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
 				Either::Left(node) => strip_nodes_inner(
@@ -550,12 +579,19 @@ fn strip_nodes_inner(
 			// Create the node.
 			if let Some(artifact) = artifact {
 				new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
-					tg::lockfile::Symlink::Artifact { artifact, subpath },
+					tg::lockfile::Symlink::Artifact {
+						artifact,
+						subpath,
+						id,
+					},
 				));
 			} else {
 				new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
 					if let Some(subpath) = subpath {
-						tg::lockfile::Symlink::Target { target: subpath }
+						tg::lockfile::Symlink::Target {
+							target: subpath,
+							id,
+						}
 					} else {
 						return None;
 					},
@@ -583,10 +619,10 @@ fn try_find_in_lockfile_nodes(
 			std::path::Component::CurDir => continue,
 			std::path::Component::Normal(normal) => {
 				let name = normal.to_str().unwrap();
-				let tg::lockfile::Node::Directory { entries } = &nodes[node] else {
+				let tg::lockfile::Node::Directory(directory) = &nodes[node] else {
 					return Err(tg::error!("invalid graph"));
 				};
-				let Some(entry) = entries.get(name) else {
+				let Some(entry) = directory.entries.get(name) else {
 					return Ok(None);
 				};
 				node = entry.as_ref().left().copied().unwrap();
@@ -623,14 +659,16 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a LockfileGraphImpl<'a> {
 	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
 	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
 		match &self.0[a] {
-			tg::lockfile::Node::Directory { entries } => {
-				let it = entries
+			tg::lockfile::Node::Directory(directory) => {
+				let it = directory
+					.entries
 					.values()
 					.filter_map(|entry| entry.as_ref().left().copied());
 				Box::new(it)
 			},
-			tg::lockfile::Node::File { dependencies, .. } => {
-				let it = dependencies
+			tg::lockfile::Node::File(file) => {
+				let it = file
+					.dependencies
 					.values()
 					.filter_map(|referent| referent.item.as_ref().left().copied());
 				Box::new(it)
