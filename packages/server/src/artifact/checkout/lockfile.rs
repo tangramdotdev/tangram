@@ -15,7 +15,7 @@ impl Server {
 		let mut graphs = BTreeMap::new();
 
 		// Create nodes in the lockfile for the graph.
-		self.get_or_create_lockfile_node_for_artifact(
+		let root = self.get_or_create_lockfile_node_for_artifact(
 			artifact,
 			&mut nodes,
 			&mut visited,
@@ -31,6 +31,9 @@ impl Server {
 				)
 			})
 			.try_collect()?;
+
+		// Strip nodes.
+		let nodes = self.strip_lockfile_nodes(&nodes, root)?;
 
 		// Create the lockfile.
 		let lockfile = tg::Lockfile { nodes };

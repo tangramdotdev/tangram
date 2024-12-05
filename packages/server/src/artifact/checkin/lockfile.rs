@@ -537,14 +537,13 @@ fn strip_nodes_inner(
 			// Retain the contents if necessary.
 			let retain_contents = matches!(is_tagged[node], Some(true)) || in_graph[node];
 			let contents = if retain_contents { file.contents } else { None };
-			let id = if retain_contents { file.id } else { None };
-
+			
 			// Create the node.
 			let file = tg::lockfile::File {
 				contents,
 				dependencies,
 				executable: file.executable,
-				id,
+				id: file.id,
 			};
 			new_nodes[new_node].replace(tg::lockfile::Node::File(file));
 		},

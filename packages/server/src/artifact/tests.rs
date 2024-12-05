@@ -149,7 +149,8 @@ async fn path_dependency() -> tg::Result<()> {
              "path": "../bar",
              "subpath": "tangram.ts"
            }
-         }
+         },
+         "id": "fil_01tnqb2gzw6j7sdeqeptfyfgcgp812b5wkvk91ke02b29gercr0hag"
        },
        {
          "kind": "directory",
@@ -159,7 +160,8 @@ async fn path_dependency() -> tg::Result<()> {
          "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
        }
      ]
    }
@@ -176,7 +178,6 @@ async fn path_dependency() -> tg::Result<()> {
        },
        {
          "kind": "file",
-         "contents": "lef_01pqttaksgrf3n76tqrrhb6c96tyafzhrex2jgy54ht8419s6wpg2g",
          "dependencies": {
            "../bar": {
              "item": 2,
@@ -195,7 +196,6 @@ async fn path_dependency() -> tg::Result<()> {
        },
        {
          "kind": "file",
-         "contents": "lef_01nw9mkefnz6gtd8209qn3dq6996dwp9e9nq0h5dycka9wns0z69h0",
          "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
        }
      ]

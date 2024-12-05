@@ -52,7 +52,8 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
          "id": "dir_0160h2b0874ht1tghsj4kx52azk05h57athnmrrfrmt0d44mvp33dg"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
        },
        {
          "kind": "file",
@@ -134,7 +135,8 @@ async fn file_through_symlink() -> tg::Result<()> {
          "id": "dir_01herzzj4fs0kkcx2gexc8g19z65ye1nf8bcf7seb79x7xwp0twb10"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_015kyznxcqzkjhghra06294bdqgbsc6s5jxhm9kkf7fzyabxmdhyp0"
        }
      ]
    }
@@ -189,7 +191,8 @@ async fn artifact_symlink() -> tg::Result<()> {
          "id": "dir_01xbgdpny7b5ps7cnrmdnjb5hs5wdxg27kbdvpp0qmgcrv0r8n0st0"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_01t5dgeercxdbxwggkw0hzpzxmvqe8tqsmvbxbrtqz56zyh7sm1nc0"
        }
      ]
    }
@@ -248,7 +251,8 @@ async fn simple_path_dependency() -> tg::Result<()> {
              "path": "../bar",
              "subpath": "tangram.ts"
            }
-         }
+         },
+         "id": "fil_01pwga7r12479ej6c632wks0n1rs3wke5r7pswxmtcxebv0c2k7d0g"
        },
        {
          "kind": "directory",
@@ -258,7 +262,8 @@ async fn simple_path_dependency() -> tg::Result<()> {
          "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
        }
      ]
    }
@@ -337,7 +342,8 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
              "path": "baz",
              "subpath": "tangram.ts"
            }
-         }
+         },
+         "id": "fil_01w3vaptn2y3evejngg9r59ct6zf5mk723sh6dhsdd4sn4220ffw0g"
        },
        {
          "kind": "directory",
@@ -347,7 +353,8 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
          "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
        },
        {
          "kind": "file",
@@ -362,7 +369,8 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
              "path": "baz",
              "subpath": "tangram.ts"
            }
-         }
+         },
+         "id": "fil_015ya4qczcz84x720tkc0fx7kmm474kqv87ykptenwcf7qj573tv8g"
        }
      ]
    }
@@ -567,7 +575,8 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
          "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
        },
        {
          "kind": "directory",
@@ -577,7 +586,8 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
          "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
        }
      ]
    }
@@ -819,7 +829,8 @@ async fn package() -> tg::Result<()> {
          "id": "dir_01hw68xvst4xee12q5hcjm1v1n2payedrka0ehvhy1zc6msmga5pv0"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_017nhpghzswya07fxkrvjeqrehffdp11em51yag7msbzzt65gteqrg"
        }
      ]
    }
@@ -884,7 +895,8 @@ async fn import_from_parent() -> tg::Result<()> {
          "id": "fil_010vre9ea0zrmdj1fmve4dj1bhw0xpq8af7wk1jq1ejt1gmxn0nwa0"
        },
        {
-         "kind": "file"
+         "kind": "file",
+         "id": "fil_01rr7hzyjv7nws35wxdnh2txgscff7nqwtfqrwa5g4ghkaktc7hhs0"
        }
      ]
    }
