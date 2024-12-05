@@ -4,6 +4,9 @@ use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use std::path::PathBuf;
 use tangram_client as tg;
 
+#[cfg(test)]
+mod tests;
+
 static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 
 static TANGRAM_RUN_PATH: &str = ".tangram/run";
@@ -138,22 +141,30 @@ impl Runtime {
 				Ok(file.into())
 			},
 
-			// If the artifact is a symlink, then replace it with a symlink pointing to `.tangram/artifacts/<id>`.
+			// If the artifact is an artifact/path symlink, then replace it with a symlink pointing to `.tangram/artifacts/<id>`. If it's a target symlink, keep the existing path.
 			tg::Artifact::Symlink(symlink) => {
 				// Render the target.
-				let mut target = PathBuf::new();
-				let artifact = symlink.artifact(server).await?;
-				let path = symlink.subpath(server).await?;
-				if let Some(artifact) = artifact.as_ref() {
+				let target = if let Some(target_path) = symlink.target(server).await? {
+					target_path
+				} else if let Some(artifact) = symlink.artifact(server).await? {
+					let mut target = PathBuf::new();
+					let path = symlink.subpath(server).await?;
 					for _ in 0..depth - 1 {
 						target.push("..");
 					}
 					target.push(TANGRAM_ARTIFACTS_PATH);
 					target.push(artifact.id(server).await?.to_string());
-				}
-				if let Some(path) = path.as_ref() {
-					target.push(path);
-				}
+					if let Some(path) = path.as_ref() {
+						target.push(path);
+					}
+					target
+				} else {
+					let symlink_id = symlink.id(server).await?;
+					return Err(
+						tg::error!(%symlink_id, "could not determine target or artifact for symlink"),
+					);
+				};
+
 				let symlink = tg::Symlink::with_target(target);
 				Ok(symlink.into())
 			},
