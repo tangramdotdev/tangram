@@ -258,7 +258,9 @@ impl Compiler {
 			.await?;
 
 		// The module within the lockfile must be a file for it to have imports.
-		let tg::lockfile::Node::File { dependencies, .. } = &lockfile.nodes[module_index] else {
+		let tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) =
+			&lockfile.nodes[module_index]
+		else {
 			return Err(
 				tg::error!(%lockfile = lockfile_path.display(), %node = module_index, "expected a file node"),
 			);

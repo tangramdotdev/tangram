@@ -133,7 +133,7 @@ impl Server {
 		visited[arg.current_node] = true;
 
 		match &arg.nodes[arg.current_node] {
-			tg::lockfile::Node::Directory { entries } => {
+			tg::lockfile::Node::Directory(tg::lockfile::Directory { entries, .. }) => {
 				// If this is a directory with a root module, update the current package path/node.
 				if entries
 					.keys()
@@ -160,7 +160,7 @@ impl Server {
 				}
 			},
 
-			tg::lockfile::Node::File { dependencies, .. } => {
+			tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) => {
 				for (reference, dependency) in dependencies {
 					// Skip dependencies that are not contained in the lockfile.
 					let Some(dependency_package_node) = dependency.item.as_ref().left().copied()
@@ -212,7 +212,11 @@ impl Server {
 				return Ok(None);
 			},
 
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+				artifact,
+				subpath,
+				..
+			}) => {
 				// Get the referent artifact.
 				let Either::Left(artifact) = artifact else {
 					return Ok(None);
@@ -283,7 +287,8 @@ impl ParsedLockfile {
 		let node = self.get_node_for_path(node_path)?;
 
 		// Dependency resolution is only valid for files.
-		let tg::lockfile::Node::File { dependencies, .. } = &self.nodes[node] else {
+		let tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) = &self.nodes[node]
+		else {
 			return Err(tg::error!(%path = node_path.display(), "expected a file node"))?;
 		};
 
@@ -333,7 +338,9 @@ impl ParsedLockfile {
 	) -> tg::Result<Vec<(tg::Reference, tg::Referent<PathBuf>)>> {
 		// If we can find this file by path in the lockfile, try and use its dependencies.
 		if let Ok(node) = self.get_node_for_path(path) {
-			let tg::lockfile::Node::File { dependencies, .. } = &self.nodes[node] else {
+			let tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) =
+				&self.nodes[node]
+			else {
 				return Err(tg::error!(%path = path.display(), "expected a file"));
 			};
 			let mut dependencies_ = Vec::with_capacity(dependencies.len());
@@ -531,13 +538,13 @@ impl Server {
 		let mut referenced_objects = Vec::new();
 		for node in &lockfile.nodes {
 			match node {
-				tg::lockfile::Node::Directory { entries } => {
+				tg::lockfile::Node::Directory(tg::lockfile::Directory { entries, .. }) => {
 					let it = entries
 						.values()
 						.filter_map(|value| value.as_ref().right().cloned());
 					referenced_objects.extend(it);
 				},
-				tg::lockfile::Node::File { dependencies, .. } => {
+				tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) => {
 					let it =
 						dependencies
 							.values()
@@ -638,7 +645,7 @@ async fn get_paths(
 
 		// Recurse.
 		match &lockfile.nodes[node] {
-			tg::lockfile::Node::Directory { entries } => {
+			tg::lockfile::Node::Directory(tg::lockfile::Directory { entries, .. }) => {
 				for (name, entry) in entries {
 					let Either::Left(index) = entry else {
 						continue;
@@ -655,7 +662,7 @@ async fn get_paths(
 					.await?;
 				}
 			},
-			tg::lockfile::Node::File { dependencies, .. } => {
+			tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) => {
 				'outer: for (reference, referent) in dependencies {
 					let Either::Left(index) = &referent.item else {
 						continue;
@@ -774,7 +781,7 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 		objects: &[Option<tg::object::Data>],
 	) -> tg::Result<Option<tg::object::Data>> {
 		match node {
-			tg::lockfile::Node::Directory { entries } => {
+			tg::lockfile::Node::Directory(tg::lockfile::Directory { entries, .. }) => {
 				let entries = entries
 					.iter()
 					.map(|(name, entry)| {
@@ -796,11 +803,12 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 				let data = tg::directory::Data::Normal { entries };
 				Ok(Some(tg::object::Data::Directory(data)))
 			},
-			tg::lockfile::Node::File {
+			tg::lockfile::Node::File(tg::lockfile::File {
 				contents,
 				dependencies,
 				executable,
-			} => {
+				..
+			}) => {
 				// Ignore files missing their contents.
 				let Some(contents) = contents.clone() else {
 					return Ok(None);
@@ -835,7 +843,11 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 				};
 				Ok(Some(tg::object::Data::File(data)))
 			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+				artifact,
+				subpath,
+				..
+			}) => {
 				let artifact = match artifact {
 					Either::Left(index) => {
 						let object = objects[*index]
@@ -850,7 +862,7 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 				let data = tg::symlink::Data::Artifact { artifact, subpath };
 				Ok(Some(tg::object::Data::Symlink(data)))
 			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target }) => {
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target, .. }) => {
 				let data = tg::symlink::Data::Target {
 					target: target.clone(),
 				};
@@ -867,7 +879,7 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 		objects: &[Option<tg::object::Data>],
 	) -> tg::Result<Option<tg::graph::data::Node>> {
 		match node {
-			tg::lockfile::Node::Directory { entries } => {
+			tg::lockfile::Node::Directory(tg::lockfile::Directory { entries, .. }) => {
 				let Ok(entries) = entries
 					.iter()
 					.map(|(name, entry)| {
@@ -890,11 +902,12 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 				let data = tg::graph::data::Node::Directory(tg::graph::data::Directory { entries });
 				Ok(Some(data))
 			},
-			tg::lockfile::Node::File {
+			tg::lockfile::Node::File(tg::lockfile::File {
 				contents,
 				dependencies,
 				executable,
-			} => {
+				..
+			}) => {
 				let Some(contents) = contents.clone() else {
 					return Ok(None);
 				};
@@ -928,7 +941,11 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 				});
 				Ok(Some(data))
 			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+				artifact,
+				subpath,
+				..
+			}) => {
 				let artifact = match artifact {
 					Either::Left(index) => get_lockfile_item(*index, graph_indices, objects)?,
 					Either::Right(id) => Either::Right(id.clone().try_into()?),
@@ -940,7 +957,7 @@ fn get_objects(lockfile: &tg::Lockfile) -> tg::Result<Objects> {
 				});
 				Ok(Some(data))
 			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target }) => {
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target, .. }) => {
 				let data = tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target {
 					target: target.clone(),
 				});
@@ -1066,13 +1083,13 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a LockfileGraphImpl<'a> {
 	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
 	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
 		match &self.0.nodes[a] {
-			tg::lockfile::Node::Directory { entries } => {
+			tg::lockfile::Node::Directory(tg::lockfile::Directory { entries, .. }) => {
 				let it = entries
 					.values()
 					.filter_map(|entry| entry.as_ref().left().copied());
 				Box::new(it)
 			},
-			tg::lockfile::Node::File { dependencies, .. } => {
+			tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) => {
 				let it = dependencies
 					.values()
 					.filter_map(|referent| referent.item.as_ref().left().copied());

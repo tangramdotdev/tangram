@@ -13,31 +13,47 @@ pub struct Lockfile {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Node {
-	Directory {
-		entries: BTreeMap<String, Entry>,
-	},
-
-	File {
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		contents: Option<tg::blob::Id>,
-
-		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-		dependencies: BTreeMap<tg::Reference, tg::Referent<Entry>>,
-
-		#[serde(default, skip_serializing_if = "is_false")]
-		executable: bool,
-	},
-
+	Directory(Directory),
+	File(File),
 	Symlink(Symlink),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Directory {
+	pub entries: BTreeMap<String, Entry>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::directory::Id>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct File {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub contents: Option<tg::blob::Id>,
+
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub dependencies: BTreeMap<tg::Reference, tg::Referent<Entry>>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub executable: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::file::Id>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Symlink {
 	Target {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		id: Option<tg::symlink::Id>,
+
 		target: PathBuf,
 	},
 
 	Artifact {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		id: Option<tg::symlink::Id>,
+
 		artifact: Entry,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
