@@ -78,3 +78,16 @@ impl Lockfile {
 		Ok(Some(lockfile))
 	}
 }
+
+impl Node {
+	pub fn id(&self) -> Option<tg::artifact::Id> {
+		match self {
+			Node::Directory(directory) => directory.id.clone().map(tg::artifact::Id::from),
+			Node::File(file) => file.id.clone().map(tg::artifact::Id::from),
+			Node::Symlink(symlink) => match symlink {
+				Symlink::Artifact { id, .. } => id.clone().map(tg::artifact::Id::from),
+				Symlink::Target { id, .. } => id.clone().map(tg::artifact::Id::from),
+			},
+		}
+	}
+}

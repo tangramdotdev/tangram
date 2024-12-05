@@ -25,7 +25,7 @@ async fn directory() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"}]}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1},\"id\":\"dir_01gn2yn2wk00wh3w1tcse628ghxj734a2c6qjd8e7g4553qzq2vs1g\"},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\",\"id\":\"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g\"}]}",
         "executable": false
       }
     }
@@ -124,7 +124,7 @@ async fn symlink() -> tg::Result<()> {
        },
        "tangram.lock": {
          "kind": "file",
-         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1}},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link\":3}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"},{\"kind\":\"symlink\",\"Target\":{\"target\":\"hello.txt\"}}]}",
+         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1},\"id\":\"dir_01zbk5rvcgyfg20ktzxkfbxsa848dc2ayyvtz0ca32x35nyfw7vc80\"},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link\":3},\"id\":\"dir_01fb8rymb57e8zykybnm0zz6nt1tv6a6a8y6crrdsg39ysh2aqv2e0\"},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\",\"id\":\"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g\"},{\"kind\":\"symlink\",\"Target\":{\"id\":\"sym_015h4cmsdes4jq4chjkfs8xmzt7rh5c0sye3m612m8n94x3xbzzkyg\",\"target\":\"hello.txt\"}}]}",
          "executable": false
        }
      }
@@ -172,7 +172,7 @@ async fn symlink_shared_target() -> tg::Result<()> {
        },
        "tangram.lock": {
          "kind": "file",
-         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1}},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link1\":3,\"link2\":3}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"},{\"kind\":\"symlink\",\"Target\":{\"target\":\"hello.txt\"}}]}",
+         "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"directory\":1},\"id\":\"dir_01452ea1268pmbv3vf5htq5b9cycxn793enbjhttr80n4yaqcg7x00\"},{\"kind\":\"directory\",\"entries\":{\"hello.txt\":2,\"link1\":3,\"link2\":3},\"id\":\"dir_01t03ej4jq28dxv7h72vhe5agtw49m1p0hks87pjkra7dx53f4vhs0\"},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\",\"id\":\"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g\"},{\"kind\":\"symlink\",\"Target\":{\"id\":\"sym_015h4cmsdes4jq4chjkfs8xmzt7rh5c0sye3m612m8n94x3xbzzkyg\",\"target\":\"hello.txt\"}}]}",
          "executable": false
        }
      }
@@ -231,7 +231,7 @@ async fn directory_with_file_with_dependency() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"file\",\"contents\":\"lef_010kgbpefk1cd3ztw9ymvcjez1a1amgbfq91kmp06jdsd7axvq0bmg\",\"dependencies\":{\"bar\":{\"item\":2}}},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\"}]}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1},\"id\":\"dir_019at517ytj7gfg92358f53w7c2ht4gewvtg45fegwr6teffnnvxa0\"},{\"kind\":\"file\",\"contents\":\"lef_010kgbpefk1cd3ztw9ymvcjez1a1amgbfq91kmp06jdsd7axvq0bmg\",\"dependencies\":{\"bar\":{\"item\":2}},\"id\":\"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\",\"id\":\"fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80\"}]}",
         "executable": false
       }
     }
@@ -274,7 +274,7 @@ async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1}},{\"kind\":\"symlink\",\"Artifact\":{\"artifact\":2}},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\"}]}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1},\"id\":\"dir_01tazznbadf4db8hadnz5h145x288ne3dsg3zkttcp6xnj82vy6wm0\"},{\"kind\":\"symlink\",\"Artifact\":{\"id\":\"sym_01zpz1qs2qb4h63j5948xr2x457e9d3nbzgwkh7kjcj8mhaddmrrxg\",\"artifact\":2}},{\"kind\":\"file\",\"contents\":\"lef_01ybm9fvpqt83cv1ax8gashyjj3ay7bampjmz9fg1gs5gjrc6154yg\",\"id\":\"fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80\"}]}",
         "executable": false
       }
     }
@@ -312,7 +312,7 @@ async fn graph_directory() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1}},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\"}]}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"hello.txt\":1},\"id\":\"dir_01s6gw40j6yme9cc6qq7sgdfck53e1ww64mx0cw9r401t3tg60yw60\"},{\"kind\":\"file\",\"contents\":\"lef_015258d9wz42hxdq6ds9vh7fnet5w7k0mpqqx7j4zt59hdjwkvz3w0\",\"id\":\"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g\"}]}",
         "executable": false
       }
     }
@@ -396,7 +396,7 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"link\":1}},{\"kind\":\"symlink\",\"Artifact\":{\"artifact\":0,\"subpath\":\"link\"}}]}",
+        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"link\":1},\"id\":\"dir_01jgpeycbs5s4yjr89jqf3kkvy1a0rmrk7j2fmedscvh495h5b3740\"},{\"kind\":\"symlink\",\"Artifact\":{\"id\":\"sym_01qzd2gdre0bz3ck3q00yw16g36eg6sq9jrvzv5w3m5191ynjm3nq0\",\"artifact\":0,\"subpath\":\"link\"}}]}",
         "executable": false
       }
     }

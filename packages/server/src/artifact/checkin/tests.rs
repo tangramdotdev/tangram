@@ -48,7 +48,8 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
          "entries": {
            "b.tg.ts": 1,
            "tangram.ts": 2
-         }
+         },
+         "id": "dir_0160h2b0874ht1tghsj4kx52azk05h57athnmrrfrmt0d44mvp33dg"
        },
        {
          "kind": "file"
@@ -62,7 +63,8 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
              "path": "",
              "subpath": "b.tg.ts"
            }
-         }
+         },
+         "id": "fil_01vp5107n1fnx1sey6n000g3343kjhm6fzhmqvanvd5wfqhk2bn69g"
        }
      ]
    }
@@ -128,7 +130,8 @@ async fn file_through_symlink() -> tg::Result<()> {
          "kind": "directory",
          "entries": {
            "tangram.ts": 1
-         }
+         },
+         "id": "dir_01herzzj4fs0kkcx2gexc8g19z65ye1nf8bcf7seb79x7xwp0twb10"
        },
        {
          "kind": "file"
@@ -182,7 +185,8 @@ async fn artifact_symlink() -> tg::Result<()> {
          "kind": "directory",
          "entries": {
            "tangram.ts": 1
-         }
+         },
+         "id": "dir_01xbgdpny7b5ps7cnrmdnjb5hs5wdxg27kbdvpp0qmgcrv0r8n0st0"
        },
        {
          "kind": "file"
@@ -233,7 +237,8 @@ async fn simple_path_dependency() -> tg::Result<()> {
          "kind": "directory",
          "entries": {
            "tangram.ts": 1
-         }
+         },
+         "id": "dir_01za2dxxhecas2y3r5rgas60mh7bjx2bwnyxc80xkcg9n4q91vj7n0"
        },
        {
          "kind": "file",
@@ -249,7 +254,8 @@ async fn simple_path_dependency() -> tg::Result<()> {
          "kind": "directory",
          "entries": {
            "tangram.ts": 3
-         }
+         },
+         "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
        },
        {
          "kind": "file"
@@ -313,13 +319,15 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
            "bar": 1,
            "baz": 3,
            "tangram.ts": 5
-         }
+         },
+         "id": "dir_01dzr73p15nepynspxv401bjk1k6qntf09whpr3bfhyp4anfmcgmmg"
        },
        {
          "kind": "directory",
          "entries": {
            "tangram.ts": 2
-         }
+         },
+         "id": "dir_0178dk0vn8m0ajqv0j37wjt24vmnqs21d7pn95hvncxnzqqbm922bg"
        },
        {
          "kind": "file",
@@ -335,7 +343,8 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
          "kind": "directory",
          "entries": {
            "tangram.ts": 4
-         }
+         },
+         "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
        },
        {
          "kind": "file"
@@ -451,7 +460,8 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
          "entries": {
            "foo.tg.ts": 1,
            "tangram.ts": 2
-         }
+         },
+         "id": "dir_010prey26p516r3ms8z1sft1s4n3xpm5jbpt5h3qqmemm61kg97gh0"
        },
        {
          "kind": "file",
@@ -462,7 +472,8 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
              "path": "",
              "subpath": "tangram.ts"
            }
-         }
+         },
+         "id": "fil_01ktrenvk1711bckv8hdpe0ze6ty00yxexptrts9b26vh994frtbwg"
        },
        {
          "kind": "file",
@@ -473,7 +484,8 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
              "path": "",
              "subpath": "foo.tg.ts"
            }
-         }
+         },
+         "id": "fil_01brq5a8r3prynqs1say65vbcv47z0e4qtk5gadg2q11hazjfnqyqg"
        }
      ]
    }
@@ -544,13 +556,15 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
          "entries": {
            "bar": 1,
            "foo": 3
-         }
+         },
+         "id": "dir_018v5bakd2wjnpf2r4t0q81cz193k4m43jt5kpgret344p0txda2ng"
        },
        {
          "kind": "directory",
          "entries": {
            "tangram.ts": 2
-         }
+         },
+         "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
        },
        {
          "kind": "file"
@@ -559,7 +573,8 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
          "kind": "directory",
          "entries": {
            "tangram.ts": 4
-         }
+         },
+         "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
        },
        {
          "kind": "file"
@@ -635,7 +650,8 @@ async fn cyclic_dependencies() -> tg::Result<()> {
          "kind": "directory",
          "entries": {
            "tangram.ts": 1
-         }
+         },
+         "id": "dir_014q009v7jzv5686j2f0y4j17m53rsev0gy814qkchmrrnsycf32xg"
        },
        {
          "kind": "file",
@@ -646,13 +662,15 @@ async fn cyclic_dependencies() -> tg::Result<()> {
              "path": "../bar",
              "subpath": "tangram.ts"
            }
-         }
+         },
+         "id": "fil_019ah53qck1p9xxe0jxvb0vxwdnt4680bfj0xtj9etawagthsrh1e0"
        },
        {
          "kind": "directory",
          "entries": {
            "tangram.ts": 3
-         }
+         },
+         "id": "dir_01w261pda787rg6f89jxqzevkbt30bbbe1zwnsnjav6mxdx7gcs27g"
        },
        {
          "kind": "file",
@@ -663,7 +681,8 @@ async fn cyclic_dependencies() -> tg::Result<()> {
              "path": "",
              "subpath": "tangram.ts"
            }
-         }
+         },
+         "id": "fil_0157mddgf6en44fc11ercy1b022135je68p0h3x3hka1syke5abvz0"
        }
      ]
    }
@@ -796,7 +815,8 @@ async fn package() -> tg::Result<()> {
          "kind": "directory",
          "entries": {
            "tangram.ts": 1
-         }
+         },
+         "id": "dir_01hw68xvst4xee12q5hcjm1v1n2payedrka0ehvhy1zc6msmga5pv0"
        },
        {
          "kind": "file"
@@ -841,13 +861,15 @@ async fn import_from_parent() -> tg::Result<()> {
          "entries": {
            "baz": 1,
            "tangram.ts": 3
-         }
+         },
+         "id": "dir_01f9q70fj1f9fj75n94bcdwsrgjbtxetqv9dmjnhw3m1grrztzphr0"
        },
        {
          "kind": "directory",
          "entries": {
            "mod.tg.ts": 2
-         }
+         },
+         "id": "dir_01dzvxenaqf25mpnt681c2p51hensma2g1echwwbn621jrg62bwvb0"
        },
        {
          "kind": "file",
@@ -858,7 +880,8 @@ async fn import_from_parent() -> tg::Result<()> {
              "path": "",
              "subpath": "tangram.ts"
            }
-         }
+         },
+         "id": "fil_010vre9ea0zrmdj1fmve4dj1bhw0xpq8af7wk1jq1ejt1gmxn0nwa0"
        },
        {
          "kind": "file"
