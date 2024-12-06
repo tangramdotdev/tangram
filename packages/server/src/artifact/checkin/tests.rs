@@ -3,6 +3,7 @@ use futures::{Future, FutureExt as _};
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::{panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
 
@@ -85,7 +86,7 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import "./b.tg.ts"),
+   				"contents": tg.leaf("import \"./b.tg.ts"),
    				"dependencies": {
    					"./b.tg.ts": {
    						"item": 0,
@@ -144,7 +145,7 @@ async fn file_through_symlink() -> tg::Result<()> {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
-   		"contents": tg.leaf("import "../b/c/d"),
+   		"contents": tg.leaf("import \"../b/c/d"),
    		"dependencies": {
    			"../b/c/d": {
    				"item": tg.file({
@@ -200,7 +201,7 @@ async fn artifact_symlink() -> tg::Result<()> {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
-   		"contents": tg.leaf("import "../b/c"),
+   		"contents": tg.leaf("import \"../b/c"),
    		"dependencies": {
    			"../b/c": {
    				"item": tg.symlink({
@@ -271,7 +272,7 @@ async fn simple_path_dependency() -> tg::Result<()> {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
-   		"contents": tg.leaf("import * as bar from "../bar";"),
+   		"contents": tg.leaf("import * as bar from \"../bar\";"),
    		"dependencies": {
    			"../bar": {
    				"item": tg.directory({
@@ -379,9 +380,7 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
    tg.directory({
    	"bar": tg.directory({
    		"tangram.ts": tg.file({
-   			"contents": tg.leaf("
-   						import * as baz from "../baz";
-   					"),
+   			"contents": tg.leaf("\n\t\t\t\t\t\timport * as baz from \"../baz\";\n\t\t\t\t\t"),
    			"dependencies": {
    				"../baz": {
    					"item": tg.directory({
@@ -401,17 +400,12 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
    		}),
    	}),
    	"tangram.ts": tg.file({
-   		"contents": tg.leaf("
-   					import * as bar from "./bar";
-   					import * as baz from "./baz";
-   				"),
+   		"contents": tg.leaf("\n\t\t\t\t\timport * as bar from \"./bar\";\n\t\t\t\t\timport * as baz from \"./baz\";\n\t\t\t\t"),
    		"dependencies": {
    			"./bar": {
    				"item": tg.directory({
    					"tangram.ts": tg.file({
-   						"contents": tg.leaf("
-   						import * as baz from "../baz";
-   					"),
+   						"contents": tg.leaf("\n\t\t\t\t\t\timport * as baz from \"../baz\";\n\t\t\t\t\t"),
    						"dependencies": {
    							"../baz": {
    								"item": tg.directory({
@@ -511,7 +505,7 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import * as foo from "./foo.tg.ts";"),
+   				"contents": tg.leaf("import * as foo from \"./foo.tg.ts\";"),
    				"dependencies": {
    					"./foo.tg.ts": {
    						"item": 0,
@@ -522,7 +516,7 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import * as root from "./tangram.ts";"),
+   				"contents": tg.leaf("import * as root from \"./tangram.ts\";"),
    				"dependencies": {
    					"./tangram.ts": {
    						"item": 0,
@@ -709,7 +703,7 @@ async fn cyclic_dependencies() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import * as bar from "../bar""),
+   				"contents": tg.leaf("import * as bar from \"../bar\""),
    				"dependencies": {
    					"../bar": {
    						"item": 2,
@@ -726,7 +720,7 @@ async fn cyclic_dependencies() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import * as foo from "../foo""),
+   				"contents": tg.leaf("import * as foo from \"../foo\""),
    				"dependencies": {
    					"../foo": {
    						"item": 0,
@@ -911,7 +905,7 @@ async fn import_from_parent() -> tg::Result<()> {
    					"baz": 1,
    					"foo": tg.directory({}),
    					"tangram.ts": tg.file({
-   						"contents": tg.leaf("import patches from "./foo" with { type: "directory" };"),
+   						"contents": tg.leaf("import patches from \"./foo\" with { type: \"directory\" };"),
    						"dependencies": {
    							"./foo": {
    								"item": tg.directory({}),
@@ -929,7 +923,7 @@ async fn import_from_parent() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import * as baz from "..";"),
+   				"contents": tg.leaf("import * as baz from \"..\";"),
    				"dependencies": {
    					"..": {
    						"item": 0,
@@ -1022,7 +1016,7 @@ async fn destructive_package() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import * as a from "./a.tg.ts"),
+   				"contents": tg.leaf("import * as a from \"./a.tg.ts"),
    				"dependencies": {
    					"./a.tg.ts": {
    						"item": 0,
@@ -1070,6 +1064,199 @@ async fn ignore() -> tg::Result<()> {
 		},
 	)
 	.await
+}
+
+#[tokio::test]
+async fn tagged_object() -> tg::Result<()> {
+	let file = tg::file!("Hello, world!");
+	let tag = "hello-world".parse::<tg::Tag>().unwrap();
+	let artifact = temp::directory! {
+		"tangram.ts" => r#"import hello from "hello-world""#,
+	};
+	test_with_tags(
+		artifact,
+		[(tag, file)],
+		|_, lockfile, _, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(&lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01nnp9jbwak11sksnwv2jtcdjyv252wg1ksm3zv4pbrc8dvdbkkrw0"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "hello-world": {
+            "item": "fil_01yxtf8s9sxc1dcv6vs0zjxhra1xp11j97h485cjhmtwa4mrrzbrag",
+            "tag": "hello-world"
+          }
+        },
+        "id": "fil_01713frgeanw8fswtkpa36t55p90zhgmsm8hht2nsfxhzxs21dq5p0"
+      }
+    ]
+  }
+  "#);
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"tangram.ts": tg.file({
+   		"contents": tg.leaf("import hello from \"hello-world\""),
+   		"dependencies": {
+   			"hello-world": {
+   				"item": tg.file({
+   					"contents": tg.leaf("Hello, world!"),
+   				}),
+   				"tag": "hello-world",
+   			},
+   		},
+   	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn diamond_dependency() -> tg::Result<()> {
+	let temp = Temp::new();
+	let options = Config::with_path(temp.path().to_owned());
+	let server = Server::start(options).await?;
+	let result = AssertUnwindSafe(async {
+		publish(
+			&server,
+			"a",
+			temp::directory! {
+				"tangram.ts" => indoc::indoc!(r#"
+				// a/tangram.ts
+				export default tg.target(() => "a");
+			"#),
+			},
+		)
+		.await?;
+		publish(
+			&server,
+			"b",
+			temp::directory! {
+				"tangram.ts" => indoc::indoc!(r#"
+				// b/tangram.ts
+				import a from "a";
+				export default tg.target(() => "b");
+			"#),
+			},
+		)
+		.await?;
+		publish(
+			&server,
+			"c",
+			temp::directory! {
+				"tangram.ts" => indoc::indoc!(r#"
+				// c/tangram.ts
+				import a from "a";
+				export default tg.target(() => "c");
+			"#),
+			},
+		)
+		.await?;
+		let (_artifact, lockfile, output) = checkin(
+			&server,
+			temp::directory! {
+				"tangram.ts" => indoc::indoc!(r#"
+				import b from "b";
+				import c from "c";
+			"#),
+			},
+		)
+		.await
+		.inspect_err(|error| {
+			let trace = error.trace(&server.config.advanced.error_trace_options);
+			eprintln!("{trace}");
+		})?;
+
+		assert_json_snapshot!(&lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_010vq2b63f3nxz2t2qrnxw3xcjr3jxw96ksdbbfd1zzkcd8hcxn3v0"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "b": {
+            "item": "dir_01jcdjty4yw8y3w5byw1je3pte08nmfs83vjzp8yejp1hvw3pw1330",
+            "tag": "b"
+          },
+          "c": {
+            "item": "dir_01kn3zfgp44ct6x7bbtnyevzjp0b8dtd7ab5hsfsvzr6s6g5wf7e5g",
+            "tag": "c"
+          }
+        },
+        "id": "fil_01pjrt97k924rxatr9n4qgjj6d5dd4v58h46njv8cnm9j8gk0nnd70"
+      }
+    ]
+  }
+  "#);
+		assert_snapshot!(output, @r#"
+  tg.directory({
+  	"tangram.ts": tg.file({
+  		"contents": tg.leaf("import b from \"b\";\nimport c from \"c\";\n"),
+  		"dependencies": {
+  			"b": {
+  				"item": tg.directory({
+  					"tangram.ts": tg.file({
+  						"contents": tg.leaf("// b/tangram.ts\nimport a from \"a\";\nexport default tg.target(() => \"b\");\n"),
+  						"dependencies": {
+  							"a": {
+  								"item": tg.directory({
+  									"tangram.ts": tg.file({
+  										"contents": tg.leaf("// a/tangram.ts\nexport default tg.target(() => \"a\");\n"),
+  									}),
+  								}),
+  								"tag": "a",
+  							},
+  						},
+  					}),
+  				}),
+  				"tag": "b",
+  			},
+  			"c": {
+  				"item": tg.directory({
+  					"tangram.ts": tg.file({
+  						"contents": tg.leaf("// c/tangram.ts\nimport a from \"a\";\nexport default tg.target(() => \"c\");\n"),
+  						"dependencies": {
+  							"a": {
+  								"item": tg.directory({
+  									"tangram.ts": tg.file({
+  										"contents": tg.leaf("// a/tangram.ts\nexport default tg.target(() => \"a\");\n"),
+  									}),
+  								}),
+  								"tag": "a",
+  							},
+  						},
+  					}),
+  				}),
+  				"tag": "c",
+  			},
+  		},
+  	}),
+  })
+  "#);
+
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(temp, server).await;
+	result.unwrap()
 }
 
 async fn test<F, Fut>(
@@ -1134,4 +1321,119 @@ where
 	.await;
 	cleanup(temp, server).await;
 	result.unwrap()
+}
+
+async fn test_with_tags<F, Fut>(
+	artifact: impl Into<temp::Artifact>,
+	tags: impl IntoIterator<Item = (impl Into<tg::Tag>, impl Into<tg::Object>)>,
+	assertions: F,
+) -> tg::Result<()>
+where
+	F: FnOnce(Server, Option<tg::Lockfile>, tg::Artifact, String) -> Fut,
+	Fut: Future<Output = tg::Result<()>>,
+{
+	let artifact: temp::Artifact = artifact.into();
+	let temp = Temp::new();
+	let options = Config::with_path(temp.path().to_owned());
+	let server = Server::start(options).await?;
+
+	let result = AssertUnwindSafe(async {
+		// Put tags.
+		for (tag, object) in tags {
+			let id = object.into().id(&server).await?;
+			server
+				.put_tag(
+					&tag.into(),
+					tg::tag::put::Arg {
+						force: false,
+						item: Either::Right(id),
+						remote: None,
+					},
+				)
+				.await?;
+		}
+		let temp = Temp::new();
+		artifact.to_path(temp.path()).await.unwrap();
+
+		// Checkin the artifact.
+		let arg = tg::artifact::checkin::Arg {
+			path: temp.path().to_owned(),
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+		};
+		let artifact = tg::Artifact::check_in(&server, arg).await?;
+		let lockfile = tg::Lockfile::try_read(&temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.flatten();
+
+		// Print the output.
+		let object = tg::Object::from(artifact.clone());
+		object.load_recursive(&server).await?;
+		let value = tg::Value::from(artifact.clone());
+		let options = tg::value::print::Options {
+			recursive: true,
+			style: tg::value::print::Style::Pretty { indentation: "\t" },
+		};
+		let output = value.print(options);
+
+		// Test the assertinos.
+		(assertions)(server.clone(), lockfile, artifact, output).await?;
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(temp, server).await;
+	result.unwrap()
+}
+
+async fn publish(
+	server: &Server,
+	tag: &str,
+	artifact: impl Into<temp::Artifact>,
+) -> tg::Result<()> {
+	let (artifact, _, _) = checkin(server, artifact).await?;
+	let tag = tag.parse().map_err(|_| tg::error!("failed to parse tag"))?;
+	let arg = tg::tag::put::Arg {
+		item: Either::Right(artifact.id(server).await?.into()),
+		force: false,
+		remote: None,
+	};
+	server.put_tag(&tag, arg).await?;
+	Ok(())
+}
+
+async fn checkin(
+	server: &Server,
+	artifact: impl Into<temp::Artifact>,
+) -> tg::Result<(tg::Artifact, Option<tg::Lockfile>, String)> {
+	let temp = Temp::new();
+	let artifact: temp::Artifact = artifact.into();
+	artifact
+		.to_path(temp.path())
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create artifact"))?;
+	let arg = tg::artifact::checkin::Arg {
+		path: temp.path().to_owned(),
+		destructive: false,
+		deterministic: false,
+		ignore: true,
+		locked: false,
+	};
+	let artifact = tg::Artifact::check_in(server, arg).await?;
+	let lockfile = tg::Lockfile::try_read(&temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.flatten();
+	let object = tg::Object::from(artifact.clone());
+	object.load_recursive(server).await?;
+	let value = tg::Value::from(artifact.clone());
+	let options = tg::value::print::Options {
+		recursive: true,
+		style: tg::value::print::Style::Pretty { indentation: "\t" },
+	};
+	let output = value.print(options);
+	Ok((artifact, lockfile, output))
 }

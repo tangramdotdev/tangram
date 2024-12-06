@@ -116,7 +116,7 @@ async fn path_dependency() -> tg::Result<()> {
 			assert_snapshot!(&output_a, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
-   		"contents": tg.leaf("import * as bar from "../bar""),
+   		"contents": tg.leaf("import * as bar from \"../bar\""),
    		"dependencies": {
    			"../bar": {
    				"item": tg.directory({
@@ -236,7 +236,7 @@ async fn cyclic_path_dependency() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import * as bar from "../bar""),
+   				"contents": tg.leaf("import * as bar from \"../bar\""),
    				"dependencies": {
    					"../bar": {
    						"item": 2,
@@ -253,7 +253,7 @@ async fn cyclic_path_dependency() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import * as foo from "../foo""),
+   				"contents": tg.leaf("import * as foo from \"../foo\""),
    				"dependencies": {
    					"../foo": {
    						"item": 0,
@@ -425,6 +425,19 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 	cleanup(temp, server).await;
 	result.unwrap()
 }
+
+// #[tokio::test]
+// async fn checkout_mutation() -> tg::Result<()> {
+// 	let temp = Temp::new();
+// 	let config = Config::with_path(temp.path().to_owned());
+// 	let server = Server::start(config).await?;
+
+// 	let result = AssertUnwindSafe(
+// 		Ok::<_, tg::Error>(())
+// 	).catch_unwind().await;
+// 	cleanup(temp, server).await;
+// 	result.unwrap()
+// }
 
 async fn test<F, Fut>(
 	checkin: impl Into<temp::Artifact>,

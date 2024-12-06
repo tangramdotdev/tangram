@@ -15,13 +15,14 @@ impl Server {
 		let mut graphs = BTreeMap::new();
 
 		// Create nodes in the lockfile for the graph.
-		let root = self.get_or_create_lockfile_node_for_artifact(
-			artifact,
-			&mut nodes,
-			&mut visited,
-			&mut graphs,
-		)
-		.await?;
+		let root = self
+			.get_or_create_lockfile_node_for_artifact(
+				artifact,
+				&mut nodes,
+				&mut visited,
+				&mut graphs,
+			)
+			.await?;
 		let nodes: Vec<_> = nodes
 			.into_iter()
 			.enumerate()
