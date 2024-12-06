@@ -426,19 +426,6 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 	result.unwrap()
 }
 
-// #[tokio::test]
-// async fn checkout_mutation() -> tg::Result<()> {
-// 	let temp = Temp::new();
-// 	let config = Config::with_path(temp.path().to_owned());
-// 	let server = Server::start(config).await?;
-
-// 	let result = AssertUnwindSafe(
-// 		Ok::<_, tg::Error>(())
-// 	).catch_unwind().await;
-// 	cleanup(temp, server).await;
-// 	result.unwrap()
-// }
-
 async fn test<F, Fut>(
 	checkin: impl Into<temp::Artifact>,
 	path: &Path,

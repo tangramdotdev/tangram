@@ -6,6 +6,7 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_temp::{self as temp, Temp};
+use tg::handle::Ext;
 
 #[tokio::test]
 async fn lockfile_out_of_date() -> tg::Result<()> {
@@ -39,7 +40,9 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
 		},
 		"",
 		false,
-		|_, lockfile, _, output| async move {
+		|_, _, metadata, lockfile, output| async move {
+			assert_json_snapshot!(&metadata, @r#""#);
+
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
    {
@@ -122,9 +125,10 @@ async fn file_through_symlink() -> tg::Result<()> {
 		},
 		"a",
 		false,
-		|_, lockfile, _, output| async move {
-			let lockfile = lockfile.expect("expected a lockfile");
+		|_, _, metadata, lockfile, output| async move {
+			assert_json_snapshot!(metadata, @r#""#);
 
+			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
    {
      "nodes": [
@@ -179,7 +183,7 @@ async fn artifact_symlink() -> tg::Result<()> {
 		},
 		"a",
 		false,
-		|_, lockfile, _, output| async move {
+		|_, _, _, lockfile, output| async move {
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
    {
@@ -232,7 +236,7 @@ async fn simple_path_dependency() -> tg::Result<()> {
 		},
 		"foo",
 		false,
-		|_, lockfile, _, output| async move {
+		|_, _, _, lockfile, output| async move {
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
    {
@@ -314,7 +318,7 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
 		},
 		"foo",
 		false,
-		|_, lockfile, _, output| async move {
+		|_, _, _, lockfile, output| async move {
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
    {
@@ -452,7 +456,7 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
 		},
 		"package",
 		false,
-		|_, lockfile, _, output| async move {
+		|_, _, _, lockfile, output| async move {
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
    {
@@ -549,7 +553,7 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
 		},
 		"",
 		false,
-		|_, lockfile, _, output| async move {
+		|_, _, _, lockfile, output| async move {
 			assert_json_snapshot!(lockfile, @r#"
    {
      "nodes": [
@@ -616,7 +620,7 @@ async fn symlink() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, _, _, output| async move {
+		|_, _, _, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"link": tg.symlink({
@@ -645,7 +649,7 @@ async fn cyclic_dependencies() -> tg::Result<()> {
 		},
 		"directory/foo",
 		false,
-		|_, lockfile, _, output| async move {
+		|_, _, _, lockfile, output| async move {
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
    {
@@ -754,7 +758,7 @@ async fn directory() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, _, _, output| async move {
+		|_, _, _, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"hello.txt": tg.file({
@@ -786,7 +790,7 @@ async fn file() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, _, _, output| async move {
+		|_, _, _, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"README.md": tg.file({
@@ -810,7 +814,7 @@ async fn package() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, lockfile, _, output| async move {
+		|_, _, _, lockfile, output| async move {
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
    {
@@ -856,7 +860,7 @@ async fn import_from_parent() -> tg::Result<()> {
 		},
 		"directory",
 		false,
-		|_, lockfile, _, output| async move {
+		|_, _, _, lockfile, output| async move {
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
    {
@@ -963,7 +967,7 @@ async fn directory_destructive() -> tg::Result<()> {
 		},
 		"directory",
 		true,
-		|_, _lockfile, _, output| async move {
+		|_, _, _, _lockfile, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"a": tg.directory({
@@ -1000,7 +1004,7 @@ async fn destructive_package() -> tg::Result<()> {
 		},
 		"",
 		true,
-		|_server, _lockfile, _artifact, output| async move {
+		|_server, _artifact, _metadata, _lockfile, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"graph": tg.graph({
@@ -1052,7 +1056,7 @@ async fn ignore() -> tg::Result<()> {
 		},
 		"",
 		false,
-		|_, _, _, output| async move {
+		|_, _, _, _, output| async move {
 			assert_snapshot!(output, @r#"
    tg.directory({
    	"tangram.ts": tg.file({
@@ -1163,7 +1167,7 @@ async fn diamond_dependency() -> tg::Result<()> {
 			},
 		)
 		.await?;
-		let (_artifact, lockfile, output) = checkin(
+		let (_artifact, _metadata, lockfile, output) = checkin(
 			&server,
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
@@ -1266,7 +1270,7 @@ async fn test<F, Fut>(
 	assertions: F,
 ) -> tg::Result<()>
 where
-	F: FnOnce(Server, Option<tg::Lockfile>, tg::Artifact, String) -> Fut,
+	F: FnOnce(Server, tg::Artifact, tg::object::Metadata, Option<tg::Lockfile>, String) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let artifact = artifact.into();
@@ -1302,11 +1306,18 @@ where
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))?;
 
+		// Get the metadata.
+		let metadata = server
+			.get_object_metadata(&output.artifact.clone().into())
+			.await?;
+
 		// Get the artifact.
 		let artifact = tg::Artifact::with_id(output.artifact);
 
-		// Print the output.
+		// Get the object.
 		let object = tg::Object::from(artifact.clone());
+
+		// Print the output.
 		object.load_recursive(&server).await?;
 		let value = tg::Value::from(artifact.clone());
 		let options = tg::value::print::Options {
@@ -1314,7 +1325,7 @@ where
 			style: tg::value::print::Style::Pretty { indentation: "\t" },
 		};
 		let output = value.print(options);
-		(assertions)(server.clone(), lockfile, artifact, output).await?;
+		(assertions)(server.clone(), artifact, metadata, lockfile, output).await?;
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()
@@ -1394,7 +1405,7 @@ async fn publish(
 	tag: &str,
 	artifact: impl Into<temp::Artifact>,
 ) -> tg::Result<()> {
-	let (artifact, _, _) = checkin(server, artifact).await?;
+	let (artifact, _, _, _) = checkin(server, artifact).await?;
 	let tag = tag.parse().map_err(|_| tg::error!("failed to parse tag"))?;
 	let arg = tg::tag::put::Arg {
 		item: Either::Right(artifact.id(server).await?.into()),
@@ -1408,7 +1419,12 @@ async fn publish(
 async fn checkin(
 	server: &Server,
 	artifact: impl Into<temp::Artifact>,
-) -> tg::Result<(tg::Artifact, Option<tg::Lockfile>, String)> {
+) -> tg::Result<(
+	tg::Artifact,
+	tg::object::Metadata,
+	Option<tg::Lockfile>,
+	String,
+)> {
 	let temp = Temp::new();
 	let artifact: temp::Artifact = artifact.into();
 	artifact
@@ -1428,6 +1444,9 @@ async fn checkin(
 		.ok()
 		.flatten();
 	let object = tg::Object::from(artifact.clone());
+	let metadata = server
+		.get_object_metadata(&object.id(server).await?)
+		.await?;
 	object.load_recursive(server).await?;
 	let value = tg::Value::from(artifact.clone());
 	let options = tg::value::print::Options {
@@ -1435,5 +1454,5 @@ async fn checkin(
 		style: tg::value::print::Style::Pretty { indentation: "\t" },
 	};
 	let output = value.print(options);
-	Ok((artifact, lockfile, output))
+	Ok((artifact, metadata, lockfile, output))
 }
