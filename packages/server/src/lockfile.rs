@@ -425,7 +425,7 @@ impl Server {
 		}
 		let artifact_ids: Vec<tg::artifact::Id> = object_ids
 			.into_iter()
-			.map(|id| id.try_into())
+			.map(tg::artifact::Id::try_from)
 			.try_collect()?;
 
 		// Get the artifacts path.

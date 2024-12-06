@@ -9,6 +9,114 @@ use tangram_temp::{self as temp, Temp};
 use tg::handle::Ext;
 
 #[tokio::test]
+async fn directory() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"directory" => temp::directory! {
+				"hello.txt" => "Hello, world!",
+				"link" => temp::symlink!("hello.txt"),
+				"subdirectory" => temp::directory! {
+					"sublink" => temp::symlink!("../link"),
+				}
+			}
+		},
+		"directory",
+		false,
+		|_, _, metadata, _, output| async move {
+			assert_json_snapshot!(metadata, @r#"
+   {
+     "complete": true,
+     "count": 6,
+     "depth": 3,
+     "weight": 442
+   }
+   "#);
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"hello.txt": tg.file({
+   		"contents": tg.leaf("Hello, world!"),
+   	}),
+   	"link": tg.symlink({
+   		"target": "hello.txt",
+   	}),
+   	"subdirectory": tg.directory({
+   		"sublink": tg.symlink({
+   			"target": "../link",
+   		}),
+   	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn file() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"directory" => temp::directory! {
+				"README.md" => "Hello, World!",
+			}
+		},
+		"directory",
+		false,
+		|_, _, metadata, _, output| async move {
+			assert_json_snapshot!(metadata, @r#"
+   {
+     "complete": true,
+     "count": 3,
+     "depth": 3,
+     "weight": 172
+   }
+   "#);
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"README.md": tg.file({
+   		"contents": tg.leaf("Hello, World!"),
+   	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn symlink() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"directory" => temp::directory! {
+				"link" => temp::symlink!("."),
+			}
+		},
+		"directory",
+		false,
+		|_, _, metadata, _, output| async move {
+			assert_json_snapshot!(metadata, @r#"
+   {
+     "complete": true,
+     "count": 2,
+     "depth": 2,
+     "weight": 95
+   }
+   "#);
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"link": tg.symlink({
+   		"target": ".",
+   	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn lockfile_out_of_date() -> tg::Result<()> {
 	test(
 		temp::directory! {
@@ -41,7 +149,14 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
 		"",
 		false,
 		|_, _, metadata, lockfile, output| async move {
-			assert_json_snapshot!(&metadata, @r#""#);
+			assert_json_snapshot!(&metadata, @r#"
+   {
+     "complete": true,
+     "count": 4,
+     "depth": 4,
+     "weight": 440
+   }
+   "#);
 
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
@@ -126,7 +241,14 @@ async fn file_through_symlink() -> tg::Result<()> {
 		"a",
 		false,
 		|_, _, metadata, lockfile, output| async move {
-			assert_json_snapshot!(metadata, @r#""#);
+			assert_json_snapshot!(metadata, @r#"
+   {
+     "complete": true,
+     "count": 5,
+     "depth": 4,
+     "weight": 378
+   }
+   "#);
 
 			let lockfile = lockfile.expect("expected a lockfile");
 			assert_json_snapshot!(lockfile, @r#"
@@ -611,30 +733,6 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn symlink() -> tg::Result<()> {
-	test(
-		temp::directory! {
-			"directory" => temp::directory! {
-				"link" => temp::symlink!("."),
-			}
-		},
-		"directory",
-		false,
-		|_, _, _, _, output| async move {
-			assert_snapshot!(output, @r#"
-   tg.directory({
-   	"link": tg.symlink({
-   		"target": ".",
-   	}),
-   })
-   "#);
-			Ok::<_, tg::Error>(())
-		},
-	)
-	.await
-}
-
-#[tokio::test]
 async fn cyclic_dependencies() -> tg::Result<()> {
 	test(
 		temp::directory! {
@@ -736,66 +834,6 @@ async fn cyclic_dependencies() -> tg::Result<()> {
    		],
    	}),
    	"node": 0,
-   })
-   "#);
-			Ok::<_, tg::Error>(())
-		},
-	)
-	.await
-}
-
-#[tokio::test]
-async fn directory() -> tg::Result<()> {
-	test(
-		temp::directory! {
-			"directory" => temp::directory! {
-				"hello.txt" => "Hello, world!",
-				"link" => temp::symlink!("hello.txt"),
-				"subdirectory" => temp::directory! {
-					"sublink" => temp::symlink!("../link"),
-				}
-			}
-		},
-		"directory",
-		false,
-		|_, _, _, _, output| async move {
-			assert_snapshot!(output, @r#"
-   tg.directory({
-   	"hello.txt": tg.file({
-   		"contents": tg.leaf("Hello, world!"),
-   	}),
-   	"link": tg.symlink({
-   		"target": "hello.txt",
-   	}),
-   	"subdirectory": tg.directory({
-   		"sublink": tg.symlink({
-   			"target": "../link",
-   		}),
-   	}),
-   })
-   "#);
-			Ok::<_, tg::Error>(())
-		},
-	)
-	.await
-}
-
-#[tokio::test]
-async fn file() -> tg::Result<()> {
-	test(
-		temp::directory! {
-			"directory" => temp::directory! {
-				"README.md" => "Hello, World!",
-			}
-		},
-		"directory",
-		false,
-		|_, _, _, _, output| async move {
-			assert_snapshot!(output, @r#"
-   tg.directory({
-   	"README.md": tg.file({
-   		"contents": tg.leaf("Hello, World!"),
-   	}),
    })
    "#);
 			Ok::<_, tg::Error>(())
