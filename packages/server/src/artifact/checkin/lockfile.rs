@@ -329,7 +329,7 @@ fn check_if_references_module(
 						.keys()
 						.any(|name| tg::package::is_module_path(name.as_ref()));
 					visited[node].replace(retain);
-					for (name, entry) in &directory.entries{
+					for (name, entry) in &directory.entries {
 						let child_node = entry.as_ref().left().copied().unwrap();
 						*visited[node].as_mut().unwrap() |= check_if_references_module(
 							nodes,

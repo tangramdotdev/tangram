@@ -85,8 +85,9 @@ impl Node {
 			Node::Directory(directory) => directory.id.clone().map(tg::artifact::Id::from),
 			Node::File(file) => file.id.clone().map(tg::artifact::Id::from),
 			Node::Symlink(symlink) => match symlink {
-				Symlink::Artifact { id, .. } => id.clone().map(tg::artifact::Id::from),
-				Symlink::Target { id, .. } => id.clone().map(tg::artifact::Id::from),
+				Symlink::Artifact { id, .. } | Symlink::Target { id, .. } => {
+					id.clone().map(tg::artifact::Id::from)
+				},
 			},
 		}
 	}
