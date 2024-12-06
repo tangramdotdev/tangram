@@ -316,6 +316,7 @@ async fn lockfile_roundtrip() -> tg::Result<()> {
 		let temp = Temp::new();
 
 		let arg = tg::artifact::checkout::Arg {
+			dependencies: true,
 			path: Some(temp.path().to_owned()),
 			force: false,
 		};
@@ -378,6 +379,7 @@ where
 		// Check the artifact out from the first server.
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
+			dependencies: true,
 			path: Some(temp.path().to_owned()),
 			force: false,
 		};
@@ -406,6 +408,7 @@ where
 		// Check it out.
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
+			dependencies: true,
 			path: Some(temp.path().to_owned()),
 			force: false,
 		};

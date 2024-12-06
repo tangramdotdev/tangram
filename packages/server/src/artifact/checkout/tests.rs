@@ -418,6 +418,7 @@ where
 	let result = AssertUnwindSafe(async {
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
+			dependencies: true,
 			force: false,
 			path: Some(temp.path().to_owned()),
 		};

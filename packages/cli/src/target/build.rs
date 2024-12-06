@@ -389,7 +389,12 @@ impl Cli {
 			};
 
 			// Check out the artifact.
-			let arg = tg::artifact::checkout::Arg { force: false, path };
+			let dependencies = path.is_some();
+			let arg = tg::artifact::checkout::Arg {
+				force: false,
+				path,
+				dependencies,
+			};
 			let output = artifact
 				.check_out(&handle, arg)
 				.await

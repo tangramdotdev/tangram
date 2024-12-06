@@ -458,6 +458,7 @@ where
 	let server = Server::start(config).await?;
 	let result = AssertUnwindSafe(async {
 		let arg = tg::artifact::checkout::Arg {
+			dependencies: false,
 			force: false,
 			path: None,
 		};
