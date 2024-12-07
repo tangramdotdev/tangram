@@ -1,4 +1,4 @@
-mod cache;
+pub mod cache;
 mod checkin;
 mod checkout;
 #[cfg(test)]
