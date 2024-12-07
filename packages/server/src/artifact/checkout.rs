@@ -2,7 +2,7 @@ use crate::Server;
 use dashmap::{DashMap, DashSet};
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc};
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext};
 use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
@@ -36,6 +36,7 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>,
 	> {
+		let metadata = self.get_object_metadata(&artifact.clone().into()).await?;
 		// Create the progress handle.
 		let progress = crate::progress::Handle::new();
 
@@ -46,9 +47,24 @@ impl Server {
 			let arg = arg.clone();
 			let progress = progress.clone();
 			async move {
-				server
+				progress.start(
+					"objects".to_owned(),
+					"objects".to_owned(),
+					Some(0),
+					metadata.count.map(Into::into),
+				);
+				progress.start(
+					"bytes".to_owned(),
+					"bytes".to_owned(),
+					Some(0),
+					metadata.weight.map(Into::into),
+				);
+				let result = server
 					.check_out_artifact_task(artifact, arg, &progress)
-					.await
+					.await;
+				progress.finish("objects");
+				progress.finish("bytes");
+				result
 			}
 		});
 
