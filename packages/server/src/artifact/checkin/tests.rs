@@ -1204,18 +1204,20 @@ async fn diamond_dependency() -> tg::Result<()> {
 			},
 		)
 		.await?;
+
 		publish(
 			&server,
 			"c",
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
 				// c/tangram.ts
-				import a from "a^1.0";
+				import a from "a/^1.0";
 				export default tg.target(() => "c");
 			"#),
 			},
 		)
 		.await?;
+
 		let (_artifact, _metadata, lockfile, output) = checkin(
 			&server,
 			temp::directory! {
@@ -1230,7 +1232,6 @@ async fn diamond_dependency() -> tg::Result<()> {
 			let trace = error.trace(&server.config.advanced.error_trace_options);
 			eprintln!("{trace}");
 		})?;
-
 		assert_json_snapshot!(&lockfile, @r#"
   {
     "nodes": [
@@ -1239,7 +1240,7 @@ async fn diamond_dependency() -> tg::Result<()> {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_01h8qq59a6xpn9chea3nkv0jnraspyq5khthsczzrqc8n2zcde4wg0"
+        "id": "dir_015wfjs971sxg7qkfbpgcgsqrqwmrvpcx99azxhadszp2ckekxaqp0"
       },
       {
         "kind": "file",
@@ -1249,11 +1250,11 @@ async fn diamond_dependency() -> tg::Result<()> {
             "tag": "b"
           },
           "c": {
-            "item": "dir_0146bk6v3szf75s5yjv0canqcn6f6paqq3phcene475jgfkqwdty6g",
+            "item": "dir_01t0vjk6y1g852p3djr1hy6zdk9x1zeqercd0pv0vr7efnskyy8sm0",
             "tag": "c"
           }
         },
-        "id": "fil_01pe736efywyyczf8sr0ppe3ntes5q5m3g35cr9wzgaj8gyrzkgh3g"
+        "id": "fil_01wnge4hxh7battmf7yzef98dcwknk68w9rgddyht0g9tqnkqhq850"
       }
     ]
   }
