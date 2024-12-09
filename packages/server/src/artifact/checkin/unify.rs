@@ -178,17 +178,20 @@ impl Server {
 					};
 					break 'a;
 				};
+				let Some(object) = referent.item.as_ref().right() else {
+					break 'a;
+				};
 				let id = if let Some(tag) = &referent.tag {
 					let unify = true;
 					self.create_unification_node_from_tagged_object(
 						graph,
-						&tg::Object::with_id(referent.item.clone()),
+						&tg::Object::with_id(object.clone()),
 						tag.clone(),
 						unify,
 					)
 					.await?
 				} else {
-					self.create_unification_node_from_object(graph, referent.item.clone())
+					self.create_unification_node_from_object(graph, object.clone())
 						.await?
 				};
 				let reference = input_edge.reference.clone();

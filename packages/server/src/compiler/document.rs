@@ -168,6 +168,7 @@ impl Compiler {
 			deterministic: false,
 			ignore: true,
 			locked: false,
+			lockfile: true,
 		};
 		tg::Artifact::check_in(&self.server, arg).await.map_err(
 			|source| tg::error!(!source, %package = package_path.display(), "failed to check in package"),
@@ -191,6 +192,7 @@ impl Compiler {
 			deterministic: false,
 			ignore: true,
 			locked: false,
+			lockfile: true,
 		};
 		tg::Artifact::check_in(&self.server, arg)
 			.await

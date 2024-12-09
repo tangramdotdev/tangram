@@ -7,9 +7,17 @@ use tangram_either::Either;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Whether to check out the artifact's dependencies.
+	#[arg(long)]
+	pub dependencies: Option<bool>,
+
 	/// Whether to overwrite an existing file system object at the path.
 	#[arg(short, long, requires = "path")]
 	pub force: bool,
+
+	/// If false, don't write lockfiles.
+	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
+	pub lockfile: bool,
 
 	/// The path to check out the artifact to.
 	#[arg(index = 2)]
@@ -52,7 +60,9 @@ impl Cli {
 
 		// Check out the artifact.
 		let arg = tg::artifact::checkout::Arg {
+			dependencies: args.dependencies.unwrap_or(true),
 			force: args.force,
+			lockfile: args.lockfile,
 			path,
 		};
 		let stream = handle

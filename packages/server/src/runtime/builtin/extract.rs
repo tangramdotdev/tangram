@@ -130,6 +130,7 @@ impl Runtime {
 			deterministic: true,
 			ignore: false,
 			locked: true,
+			lockfile: false,
 			path,
 		};
 		let artifact = tg::Artifact::check_in(server, arg)

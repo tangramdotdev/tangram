@@ -161,6 +161,7 @@ where
 				deterministic: false,
 				ignore: true,
 				locked: false,
+				lockfile: true,
 				path: temp.path().to_owned(),
 			},
 		)
@@ -216,6 +217,7 @@ where
 				deterministic: false,
 				ignore: true,
 				locked: false,
+				lockfile: true,
 				path: directory.path().to_owned(),
 			},
 		)

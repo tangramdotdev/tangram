@@ -125,18 +125,18 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write to the database"))?;
 
-		// If this is a non-destructive checkin, then attempt to write a lockfile.
-		if !arg.destructive {
-			self.try_write_lockfile(&input_graph, &object_graph)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
-		}
-
 		// Get the artifact.
 		let artifact = self
 			.find_output_from_input(&arg.path, &input_graph, &output_graph)
 			.await?
 			.ok_or_else(|| tg::error!(%path = arg.path.display(), "missing path in output"))?;
+
+		// If this is a non-destructive checkin, then attempt to write a lockfile.
+		if arg.lockfile && !arg.destructive && artifact.is_directory() {
+			self.try_write_lockfile(&input_graph, &object_graph)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
+		}
 
 		// Create the output.
 		let output = tg::artifact::checkin::Output { artifact };

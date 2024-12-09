@@ -30,6 +30,7 @@ impl Cli {
 			deterministic: false,
 			ignore: true,
 			locked: false,
+			lockfile: true,
 			path,
 		};
 		let stream = handle.check_in_artifact(arg).await?;

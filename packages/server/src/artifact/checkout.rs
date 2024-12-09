@@ -22,6 +22,7 @@ struct State {
 #[derive(Clone, Debug)]
 struct Arg {
 	artifact: tg::artifact::Id,
+	dependencies: bool,
 	existing_artifact: Option<tg::Artifact>,
 	path: PathBuf,
 	root_artifact: tg::artifact::Id,
@@ -133,6 +134,7 @@ impl Server {
 				deterministic: true,
 				ignore: true,
 				locked: true,
+				lockfile: false,
 				path: path.clone(),
 			};
 			let option = tg::Artifact::check_in(self, arg).await.ok();
@@ -158,8 +160,9 @@ impl Server {
 		});
 
 		// Create the arg.
-		let arg = Arg {
+		let arg_ = Arg {
 			artifact: artifact.clone(),
+			dependencies: arg.dependencies,
 			existing_artifact,
 			path: path.clone(),
 			root_artifact: artifact.clone(),
@@ -167,7 +170,7 @@ impl Server {
 		};
 
 		// Perform the checkout.
-		self.check_out_artifact_inner(&state, arg).await?;
+		self.check_out_artifact_inner(&state, arg_).await?;
 
 		// Create a lockfile and write it if it is not empty.
 		let artifact = tg::Artifact::with_id(artifact.clone());
@@ -175,7 +178,7 @@ impl Server {
 			.create_lockfile_for_artifact(&artifact)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
-		if !lockfile.nodes.is_empty() && matches!(artifact, tg::Artifact::Directory(_)) {
+		if arg.lockfile && !lockfile.nodes.is_empty() && artifact.is_directory() {
 			let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
 
 			let contents = serde_json::to_vec(&lockfile)
@@ -217,6 +220,7 @@ impl Server {
 		let path = artifacts_path.join(artifact.to_string());
 		let arg = Arg {
 			artifact: artifact.clone(),
+			dependencies: true,
 			existing_artifact: None,
 			path: path.clone(),
 			root_artifact: artifact.clone(),
@@ -328,6 +332,7 @@ impl Server {
 					let path = arg.path.join(&name);
 					let arg = Arg {
 						artifact,
+						dependencies: arg.dependencies,
 						existing_artifact,
 						path,
 						root_artifact: arg.root_artifact,
@@ -353,25 +358,27 @@ impl Server {
 		};
 
 		// Check out the file's dependencies.
-		file.dependencies(self)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?
-			.into_values()
-			.filter_map(|referent| tg::Artifact::try_from(referent.item).ok())
-			.map(|artifact| {
-				let server = self.clone();
-				let state = state.clone();
-				async move {
-					let artifact = artifact.id(&server).await?;
-					server
-						.check_out_artifact_dependency(&state, artifact)
-						.await?;
-					Ok::<_, tg::Error>(())
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<()>()
-			.await?;
+		if arg.dependencies {
+			file.dependencies(self)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?
+				.into_values()
+				.filter_map(|referent| tg::Artifact::try_from(referent.item).ok())
+				.map(|artifact| {
+					let server = self.clone();
+					let state = state.clone();
+					async move {
+						let artifact = artifact.id(&server).await?;
+						server
+							.check_out_artifact_dependency(&state, artifact)
+							.await?;
+						Ok::<_, tg::Error>(())
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<()>()
+				.await?;
+		}
 
 		// Attempt to copy the file from another file in the checkout.
 		let path = state
@@ -456,6 +463,11 @@ impl Server {
 
 		// If the symlink has an artifact and it is not the current root, then check it out as a dependency.
 		if let Some(artifact) = &artifact {
+			if !arg.dependencies {
+				return Err(
+					tg::error!(?arg, %symlink, "cannot check out artifact symlink if dependencies is set to false"),
+				);
+			}
 			if artifact.id(self).await? != arg.root_artifact {
 				let server = self.clone();
 				let artifact = artifact.id(self).await?;
