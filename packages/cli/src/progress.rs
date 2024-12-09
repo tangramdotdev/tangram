@@ -1,4 +1,5 @@
 use crate::Cli;
+use byte_unit::Byte;
 use crossterm::{self as ct, style::Stylize as _};
 use futures::{stream::TryStreamExt as _, Stream};
 use indexmap::IndexMap;
@@ -71,13 +72,32 @@ impl Cli {
 			ct::execute!(tty, action).unwrap();
 
 			// Render the indicators.
+			let bar_length = 20;
 			for indicator in indicators.values() {
 				eprint!("{}", indicator.title);
-				if let Some(current) = indicator.current {
-					eprint!(" {current}");
-				}
-				if let Some(total) = indicator.total {
-					eprint!(" / {total}");
+				if let (Some(current), Some(total)) = (indicator.current, indicator.total) {
+					eprint!(" [");
+					let last = current * bar_length / total;
+					for _ in 0..last {
+						eprint!("=");
+					}
+					if current < total {
+						eprint!(">");
+					} else {
+						eprint!("=");
+					}
+
+					for _ in last..bar_length {
+						eprint!(" ");
+					}
+					eprint!("]");
+					if indicator.title == "bytes_off" {
+						let current = Byte::from_u64(current);
+						let total = Byte::from_u64(total);
+						eprint!(" {current:#} of {total:#}");
+					} else {
+						eprint!(" {current} of {total}");
+					}
 				}
 				eprintln!();
 			}
