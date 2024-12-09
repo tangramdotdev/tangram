@@ -1,7 +1,7 @@
 use super::Runtime;
 use byte_unit::Byte;
 use num::ToPrimitive as _;
-use std::{pin::Pin, time::Duration};
+use std::{fmt::Write, pin::Pin, time::Duration};
 use tangram_client as tg;
 use tangram_futures::read::SharedPositionReader;
 use tokio::io::AsyncRead;
@@ -53,13 +53,39 @@ impl Runtime {
 			let build = build.clone();
 			let remote = remote.clone();
 			async move {
+				let bar_length = 20;
+				let first_message = "decompressing\n".to_string();
+				let arg = tg::build::log::post::Arg {
+					bytes: first_message.into(),
+					remote: remote.clone(),
+				};
+				let result = build.add_log(&server, arg).await;
+				if result.is_err() {
+					return;
+				}
 				loop {
 					let position = position.load(std::sync::atomic::Ordering::Relaxed);
+					let last = position * bar_length / size;
+					let mut bar = String::new();
+					write!(bar, " [").unwrap();
+					for _ in 0..last {
+						write!(bar, "=").unwrap();
+					}
+					if position < size {
+						write!(bar, ">").unwrap();
+					} else {
+						write!(bar, "=").unwrap();
+					}
+
+					for _ in last..bar_length {
+						write!(bar, " ").unwrap();
+					}
+					write!(bar, "]").unwrap();
+
 					let percent = 100.0 * position.to_f64().unwrap() / size.to_f64().unwrap();
 					let position = Byte::from_u64(position);
 					let size = Byte::from_u64(size);
-					let message =
-						format!("decompressing: {position:#} of {size:#} {percent:.2}%\n");
+					let message = format!("{bar} {position:#} of {size:#} {percent:.2}%\n");
 					let arg = tg::build::log::post::Arg {
 						bytes: message.into(),
 						remote: remote.clone(),
