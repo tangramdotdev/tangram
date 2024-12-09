@@ -1,8 +1,9 @@
+use super::Progress;
 use crate::Server;
 use dashmap::{DashMap, DashSet};
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc};
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext, object::Metadata};
 use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
@@ -14,7 +15,6 @@ mod tests;
 struct State {
 	artifacts_path: Option<PathBuf>,
 	files: DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>,
-	#[allow(unused)]
 	progress: crate::progress::Handle<tg::artifact::checkout::Output>,
 	visited_dependencies: DashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
 }
@@ -37,6 +37,7 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>,
 	> {
+		let metadata = self.get_object_metadata(&artifact.clone().into()).await?;
 		// Create the progress handle.
 		let progress = crate::progress::Handle::new();
 
@@ -47,9 +48,24 @@ impl Server {
 			let arg = arg.clone();
 			let progress = progress.clone();
 			async move {
-				server
+				progress.start(
+					"objects".to_owned(),
+					"objects".to_owned(),
+					Some(0),
+					metadata.count.map(Into::into),
+				);
+				progress.start(
+					"bytes".to_owned(),
+					"bytes".to_owned(),
+					Some(0),
+					metadata.weight.map(Into::into),
+				);
+				let result = server
 					.check_out_artifact_task(artifact, arg, &progress)
-					.await
+					.await;
+				progress.finish("objects");
+				progress.finish("bytes");
+				result
 			}
 		});
 
@@ -200,15 +216,16 @@ impl Server {
 		&self,
 		state: &State,
 		artifact: tg::artifact::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<Progress> {
+		let mut progress = Progress::new();
 		// Mark the dependency as visited and exit early if it has already been visited.
 		if !state.visited_dependencies.insert(artifact.clone()) {
-			return Ok(());
+			return Ok(progress);
 		}
 
 		// Get the artifacts path.
 		let Some(artifacts_path) = state.artifacts_path.as_ref() else {
-			return Ok(());
+			return Ok(progress);
 		};
 
 		// Create the artifacts directory.
@@ -228,36 +245,50 @@ impl Server {
 		};
 
 		// Perform the checkout.
-		self.check_out_artifact_inner(state, arg).await?;
+		progress.combine(&self.check_out_artifact_inner(state, arg).await?);
 
-		Ok(())
+		Ok(progress)
 	}
 
-	async fn check_out_artifact_inner(&self, state: &State, arg: Arg) -> tg::Result<()> {
+	async fn check_out_artifact_inner(&self, state: &State, arg: Arg) -> tg::Result<Progress> {
+		let mut progress = Progress::new();
+		let artifact_id = arg.artifact.clone().into();
 		// If the artifact is the same as the existing artifact, then return.
 		match &arg.existing_artifact {
 			None => (),
 			Some(existing_artifact) => {
 				if arg.artifact == existing_artifact.id(self).await? {
-					return Ok(());
+					return Ok(progress);
 				}
 			},
 		}
 
 		// Check out the artifact.
-		match arg.artifact.clone() {
+		progress.combine(&match arg.artifact.clone() {
 			tg::artifact::Id::Directory(directory) => {
-				self.check_out_directory(state, arg, &directory).await?;
+				self.check_out_directory(state, arg, &directory).await?
 			},
-			tg::artifact::Id::File(file) => {
-				self.check_out_file(state, arg, &file).await?;
-			},
+			tg::artifact::Id::File(file) => self.check_out_file(state, arg, &file).await?,
 			tg::artifact::Id::Symlink(symlink) => {
-				self.check_out_symlink(state, arg, &symlink).await?;
+				self.check_out_symlink(state, arg, &symlink).await?
 			},
-		};
+		});
 
-		Ok(())
+		let metadata = self.get_object_metadata(&artifact_id).await;
+		if let Ok(Metadata {
+			complete: _,
+			count: Some(count),
+			depth: _,
+			weight: Some(weight),
+		}) = metadata
+		{
+			let bytes_increment = weight.saturating_sub(progress.bytes);
+			let objects_increment = count.saturating_sub(progress.objects);
+			state.progress.increment("objects", objects_increment);
+			state.progress.increment("bytes", bytes_increment);
+			progress.increment(objects_increment, bytes_increment);
+		}
+		Ok(progress)
 	}
 
 	async fn check_out_directory(
@@ -265,7 +296,8 @@ impl Server {
 		state: &State,
 		arg: Arg,
 		directory: &tg::directory::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<Progress> {
+		let mut progress = Progress::new();
 		// Create the directory handle.
 		let directory = tg::Directory::with_id(directory.clone());
 
@@ -310,7 +342,7 @@ impl Server {
 		}
 
 		// Recurse into the entries.
-		directory
+		let entries_progress = directory
 			.entries(self)
 			.await?
 			.into_iter()
@@ -338,18 +370,32 @@ impl Server {
 						root_artifact: arg.root_artifact,
 						root_path: arg.root_path,
 					};
-					server.check_out_artifact_inner(&state, arg).await?;
-					Ok::<_, tg::Error>(())
+					let progress = server.check_out_artifact_inner(&state, arg).await?;
+					Ok::<_, tg::Error>(progress)
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_collect::<()>()
+			.try_collect::<Vec<Progress>>()
 			.await?;
 
-		Ok(())
+		progress = std::iter::once(&progress).chain(&entries_progress).fold(
+			Progress::new(),
+			|mut acc, progress| {
+				acc.combine(progress);
+				acc
+			},
+		);
+
+		Ok(progress)
 	}
 
-	async fn check_out_file(&self, state: &State, arg: Arg, file: &tg::file::Id) -> tg::Result<()> {
+	async fn check_out_file(
+		&self,
+		state: &State,
+		arg: Arg,
+		file: &tg::file::Id,
+	) -> tg::Result<Progress> {
+		let mut progress = Progress::new();
 		let file = tg::File::with_id(file.clone());
 
 		// Handle an existing artifact at the path.
@@ -358,7 +404,7 @@ impl Server {
 		};
 
 		// Check out the file's dependencies.
-		if arg.dependencies {
+		let dep_progress = if arg.dependencies {
 			file.dependencies(self)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?
@@ -369,16 +415,26 @@ impl Server {
 					let state = state.clone();
 					async move {
 						let artifact = artifact.id(&server).await?;
-						server
+						let progress = server
 							.check_out_artifact_dependency(&state, artifact)
 							.await?;
-						Ok::<_, tg::Error>(())
+						Ok::<_, tg::Error>(progress)
 					}
 				})
 				.collect::<FuturesUnordered<_>>()
-				.try_collect::<()>()
-				.await?;
-		}
+				.try_collect::<Vec<Progress>>()
+				.await?
+		} else {
+			Vec::new()
+		};
+
+		progress = std::iter::once(&progress).chain(&dep_progress).fold(
+			Progress::new(),
+			|mut acc, progress| {
+				acc.combine(progress);
+				acc
+			},
+		);
 
 		// Attempt to copy the file from another file in the checkout.
 		let path = state
@@ -391,7 +447,7 @@ impl Server {
 				|source| tg::error!(!source, %src = path.display(), %dst = &arg.path.display(), %file, "failed to copy the file"),
 			)?;
 			drop(permit);
-			return Ok(());
+			return Ok(progress);
 		}
 
 		// Attempt to copy the file from the cache directory.
@@ -400,7 +456,7 @@ impl Server {
 		let result = tokio::fs::copy(&cache_path, &arg.path).await;
 		drop(permit);
 		if result.is_ok() {
-			return Ok(());
+			return Ok(progress);
 		}
 
 		// Otherwise, create the file.
@@ -440,7 +496,7 @@ impl Server {
 			}
 		}
 
-		Ok(())
+		Ok(progress)
 	}
 
 	async fn check_out_symlink(
@@ -448,7 +504,8 @@ impl Server {
 		state: &State,
 		arg: Arg,
 		symlink: &tg::symlink::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<Progress> {
+		let mut progress = Progress::new();
 		let symlink = tg::Symlink::with_id(symlink.clone());
 
 		// Handle an existing artifact at the path.
@@ -471,7 +528,9 @@ impl Server {
 			if artifact.id(self).await? != arg.root_artifact {
 				let server = self.clone();
 				let artifact = artifact.id(self).await?;
-				Box::pin(server.check_out_artifact_dependency(state, artifact)).await?;
+				progress.combine(
+					&Box::pin(server.check_out_artifact_dependency(state, artifact)).await?,
+				);
 			}
 		}
 
@@ -508,7 +567,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 
-		Ok(())
+		Ok(progress)
 	}
 }
 
