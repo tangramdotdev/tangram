@@ -394,6 +394,7 @@ where
 		let temp = Temp::new();
 		let arg = tg::artifact::checkout::Arg {
 			force: false,
+			lockfile: true,
 			path: Some(temp.path().to_owned()),
 		};
 		let id = artifact.into().id(&server).await?;

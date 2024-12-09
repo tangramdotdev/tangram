@@ -24,6 +24,10 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
+	/// If false, don't write lockfiles.
+	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
+	pub lockfile: bool,
+
 	/// The path to check in.
 	#[arg(index = 1)]
 	pub path: Option<PathBuf>,
@@ -43,6 +47,7 @@ impl Cli {
 			deterministic: false,
 			ignore: args.ignore,
 			locked: args.locked,
+			lockfile: args.lockfile,
 			path,
 		};
 		let stream = handle

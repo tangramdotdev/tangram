@@ -399,6 +399,7 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 			.map_err(|source| tg::error!(!source, "failed to create temp path"))?;
 		let arg = tg::artifact::checkout::Arg {
 			force: false,
+			lockfile: true,
 			path: Some(temp.path().join("file")),
 		};
 		let path = tg::Artifact::from(file.clone())
@@ -411,6 +412,7 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 			destructive: false,
 			ignore: true,
 			locked: true,
+			lockfile: true,
 			path,
 		};
 		let artifact = tg::Artifact::check_in(&server, arg)
@@ -463,6 +465,7 @@ where
 			deterministic: false,
 			ignore: true,
 			locked: false,
+			lockfile: true,
 		};
 		let artifact = tg::Artifact::check_in(&server1, arg).await?;
 		let checkin_lockfile = tg::Lockfile::try_read(&path.join(tg::package::LOCKFILE_FILE_NAME))
@@ -475,6 +478,7 @@ where
 		let arg = tg::artifact::checkout::Arg {
 			path: Some(temp.path().to_owned()),
 			force: false,
+			lockfile: true,
 		};
 		let path = artifact.check_out(&server1, arg).await?;
 		let checkout = temp::Artifact::with_path(&path).await?;
@@ -501,6 +505,7 @@ where
 			deterministic: false,
 			ignore: true,
 			locked: false,
+			lockfile: true,
 		};
 		let artifact = tg::Artifact::check_in(&server2, arg).await?;
 		let checkin_lockfile = tg::Lockfile::try_read(&path.join(tg::package::LOCKFILE_FILE_NAME))
@@ -513,6 +518,7 @@ where
 		let arg = tg::artifact::checkout::Arg {
 			path: Some(temp.path().to_owned()),
 			force: false,
+			lockfile: true,
 		};
 		let path = artifact.check_out(&server2, arg).await?;
 

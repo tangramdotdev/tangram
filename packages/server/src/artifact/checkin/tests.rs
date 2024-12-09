@@ -1338,6 +1338,7 @@ where
 			deterministic: false,
 			ignore: true,
 			locked: false,
+			lockfile: true,
 			path: path.clone(),
 		};
 		let stream = server.check_in_artifact(arg).await?;
@@ -1422,6 +1423,7 @@ where
 			deterministic: false,
 			ignore: true,
 			locked: false,
+			lockfile: true,
 		};
 		let artifact = tg::Artifact::check_in(&server, arg).await?;
 		let lockfile = tg::Lockfile::try_read(&temp.path().join(tg::package::LOCKFILE_FILE_NAME))
@@ -1486,6 +1488,7 @@ async fn checkin(
 		deterministic: false,
 		ignore: true,
 		locked: false,
+		lockfile: true,
 	};
 	let artifact = tg::Artifact::check_in(server, arg).await?;
 	let lockfile = tg::Lockfile::try_read(&temp.path().join(tg::package::LOCKFILE_FILE_NAME))
