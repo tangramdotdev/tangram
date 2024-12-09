@@ -390,6 +390,7 @@ impl Cli {
 
 			// Check out the artifact.
 			let arg = tg::artifact::checkout::Arg {
+				dependencies: path.is_some(),
 				force: false,
 				lockfile: false,
 				path,
