@@ -9,7 +9,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	/// Whether to check out the artifact's dependencies.	#[arg(long)]
+	/// Whether to check out the artifact's dependencies.
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub dependencies: bool,
 
