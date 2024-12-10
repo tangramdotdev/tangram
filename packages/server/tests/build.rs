@@ -1,10 +1,11 @@
-use futures::{Future, FutureExt as _};
+use futures::{Future, FutureExt as _, TryStreamExt as _};
 use indoc::indoc;
 use insta::assert_snapshot;
 use std::panic::AssertUnwindSafe;
 use tangram_client::{self as tg, handle::Ext};
 use tangram_server::{Config, Server};
 use tangram_temp::{self as temp, Temp};
+use tokio::io::AsyncWriteExt as _;
 
 #[tokio::test]
 async fn hello_world() -> tg::Result<()> {
@@ -73,7 +74,7 @@ async fn host_target_hello_world() -> tg::Result<()> {
 			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
 					export default tg.target(async () => {
-						let target = await tg.target("echo 'Hello, World!' > $OUTPUT");
+						let target = await tg.target("set -x && echo 'Hello, World!' > $OUTPUT");
 						let output = await target.output();
 						return output;
 					});
@@ -707,6 +708,26 @@ where
 		let output = server.build_target(&target, arg).await?;
 		let build = tg::Build::with_id(output.build);
 		let outcome = build.outcome(&server).await?;
+		if !matches!(outcome, tg::build::Outcome::Succeeded(_)) {
+			let arg = tg::build::log::get::Arg {
+				length: None,
+				position: Some(std::io::SeekFrom::Start(0)),
+				remote: None,
+				size: None,
+			};
+			let mut log_stream = build.log(&server, arg).await?;
+			let mut stderr = tokio::io::stderr();
+			while let Some(chunk) = log_stream.try_next().await? {
+				stderr
+					.write_all(&chunk.bytes)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write to stderr"))?;
+				stderr
+					.flush()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+			}
+		}
 		(assertions)(server.clone(), outcome).await?;
 		Ok::<_, tg::Error>(())
 	})
