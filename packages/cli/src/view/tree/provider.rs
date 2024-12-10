@@ -142,9 +142,9 @@ impl Provider {
 					}
 					let outcome = build.outcome(&handle).await;
 					let indicator = match outcome {
-						Ok(tg::build::Outcome::Canceled) => Indicator::Canceled,
-						Ok(tg::build::Outcome::Failed(_)) | Err(_) => Indicator::Failed,
-						Ok(tg::build::Outcome::Succeeded(_)) => Indicator::Succeeded,
+						Ok(tg::build::Outcome::Cancelation(_)) => Indicator::Canceled,
+						Ok(tg::build::Outcome::Failure(_)) | Err(_) => Indicator::Failed,
+						Ok(tg::build::Outcome::Success(_)) => Indicator::Succeeded,
 					};
 					watch.send(indicator).ok();
 				};

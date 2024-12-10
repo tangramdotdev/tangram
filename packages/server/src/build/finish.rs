@@ -77,7 +77,11 @@ impl Server {
 			.iter()
 			.map(|child| async move {
 				let arg = tg::build::finish::Arg {
-					outcome: tg::build::outcome::Data::Canceled,
+					outcome: tg::build::outcome::Data::Cancelation(
+						tg::build::outcome::data::Cancelation {
+							reason: Some("the build's parent was canceled".to_owned()),
+						},
+					),
 					remote: None,
 				};
 				self.finish_build(child, arg).await?;
@@ -117,15 +121,21 @@ impl Server {
 		if outcomes
 			.iter()
 			.filter_map(Option::as_ref)
-			.any(|outcome| outcome.try_unwrap_canceled_ref().is_ok())
+			.any(|outcome| outcome.try_unwrap_cancelation_ref().is_ok())
 		{
-			outcome = tg::build::outcome::Data::Canceled;
+			outcome =
+				tg::build::outcome::Data::Cancelation(tg::build::outcome::data::Cancelation {
+					reason: Some("one of the build's children was canceled".to_owned()),
+				});
 		}
 
 		// Verify the checksum if one was provided.
 		let target = tg::Target::with_id(output.target);
 		if let Some(expected) = target.checksum(self).await?.clone() {
-			if let Ok(tg::value::Data::Object(object)) = outcome.try_unwrap_succeeded_ref().cloned()
+			if let Ok(tg::build::outcome::data::Success {
+				value: tg::value::Data::Object(object),
+				..
+			}) = outcome.try_unwrap_success_ref().cloned()
 			{
 				if tg::artifact::Id::try_from(object.clone()).is_ok() {
 					let algorithm = expected.algorithm();
@@ -136,11 +146,15 @@ impl Server {
 						},
 					};
 					if expected != tg::Checksum::Unsafe && expected != actual {
-						outcome = tg::build::outcome::Data::Failed(tg::error!(
+						let error = tg::error!(
 							%expected,
 							%actual,
 							"the checksum did not match"
-						));
+						);
+						outcome =
+							tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
+								error,
+							});
 					}
 				} else if let Ok(blob) = tg::blob::Id::try_from(object.clone()) {
 					let blob = tg::Blob::with_id(blob);
@@ -154,16 +168,22 @@ impl Server {
 						})?;
 					let actual = writer.finalize();
 					if expected != tg::Checksum::Unsafe && expected != actual {
-						outcome = tg::build::outcome::Data::Failed(tg::error!(
+						let error = tg::error!(
 							%expected,
 							%actual,
 							"the checksum did not match"
-						));
+						);
+						outcome =
+							tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
+								error,
+							});
 					}
 				} else {
-					outcome = tg::build::outcome::Data::Failed(tg::error!(
-						"a target with a checksum must have an output that is either an artifact or a blob"
-					));
+					let error = tg::error!("a target with a checksum must have an output that is either an artifact or a blob");
+					outcome =
+						tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
+							error,
+						});
 				}
 			}
 		}
@@ -215,8 +235,8 @@ impl Server {
 
 		// Add the outcome's children to the build objects.
 		let objects = outcome
-			.try_unwrap_succeeded_ref()
-			.map(tg::value::Data::children)
+			.try_unwrap_success_ref()
+			.map(|success| success.value.children())
 			.into_iter()
 			.flatten();
 		for object in objects {
@@ -251,7 +271,7 @@ impl Server {
 		);
 		let status = tg::build::Status::Finished;
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![log, outcome, status, finished_at, id];
+		let params = db::params![log, db::value::Json(outcome), status, finished_at, id];
 		connection
 			.execute(statement, params)
 			.await

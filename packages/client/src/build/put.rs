@@ -69,9 +69,9 @@ impl Arg {
 			.as_ref()
 			.map(|outcome| {
 				outcome
-					.try_unwrap_succeeded_ref()
+					.try_unwrap_success_ref()
 					.ok()
-					.map(tg::value::Data::children)
+					.map(|success| success.value.children())
 					.unwrap_or_default()
 			})
 			.into_iter()

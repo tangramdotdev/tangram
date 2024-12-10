@@ -339,8 +339,9 @@ impl Server {
 				(Some(0), Some(0), Some(0))
 			};
 			let (outcome_count, outcome_depth, outcome_weight) = if arg.outcomes {
-				if let Some(tg::build::outcome::Data::Succeeded(output)) = output.outcome.as_ref() {
-					let metadata = output
+				if let Some(tg::build::outcome::Data::Success(success)) = output.outcome.as_ref() {
+					let metadata = success
+						.value
 						.children()
 						.iter()
 						.map(|child| src.try_get_object_metadata(child))

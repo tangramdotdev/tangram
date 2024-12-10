@@ -77,8 +77,8 @@ impl Output {
 			.outcome
 			.as_ref()
 			.map(|outcome| {
-				if let tg::build::outcome::Data::Succeeded(value) = outcome {
-					value.children()
+				if let tg::build::outcome::Data::Success(success) = outcome {
+					success.value.children()
 				} else {
 					[].into()
 				}

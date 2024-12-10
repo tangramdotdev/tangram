@@ -114,15 +114,15 @@ impl Server {
 		let result = self.build_task_inner(build.clone(), remote.clone()).await;
 		let outcome = match result {
 			Ok(outcome) => outcome,
-			Err(error) => tg::build::Outcome::Failed(error),
+			Err(error) => tg::build::Outcome::Failure(tg::build::outcome::Failure { error }),
 		};
 		let outcome = outcome.data(self).await?;
 
 		// Push the output if the build is remote.
 		if let Some(remote) = remote.clone() {
-			if let tg::build::outcome::Data::Succeeded(value) = &outcome {
+			if let tg::build::outcome::Data::Success(success) = &outcome {
 				let arg = tg::object::push::Arg { remote };
-				tg::Value::try_from(value.clone())?
+				tg::Value::try_from(success.value.clone())?
 					.objects()
 					.iter()
 					.map(|object| object.push(self, arg.clone()))
@@ -180,8 +180,8 @@ impl Server {
 
 		// Create the outcome.
 		let outcome = match result {
-			Ok(value) => tg::build::Outcome::Succeeded(value),
-			Err(error) => tg::build::Outcome::Failed(error),
+			Ok(value) => tg::build::Outcome::Success(tg::build::outcome::Success { value }),
+			Err(error) => tg::build::Outcome::Failure(tg::build::outcome::Failure { error }),
 		};
 
 		Ok(outcome)

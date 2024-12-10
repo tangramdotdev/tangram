@@ -273,7 +273,10 @@ where
 		};
 		let handle = self.handle.clone();
 		tokio::spawn(async move {
-			let outcome = tg::build::outcome::Data::Canceled;
+			let outcome =
+				tg::build::outcome::Data::Cancelation(tg::build::outcome::data::Cancelation {
+					reason: Some("the build was explicitly canceled".to_owned()),
+				});
 			let arg = tg::build::finish::Arg {
 				outcome,
 				remote: None,

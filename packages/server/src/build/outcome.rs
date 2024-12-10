@@ -87,10 +87,11 @@ impl Server {
 		);
 		let params = db::params![id];
 		let outcome = connection
-			.query_optional_value_into(statement, params)
+			.query_optional_value_into::<db::value::Json<_>>(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.ok_or_else(|| tg::error!("expected the outcome to be set"))?;
+			.ok_or_else(|| tg::error!("expected the outcome to be set"))?
+			.0;
 
 		Ok(Some(outcome))
 	}
