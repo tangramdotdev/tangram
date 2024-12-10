@@ -1,9 +1,8 @@
-use super::Progress;
 use crate::{temp::Temp, Server};
 use futures::{stream::FuturesUnordered, Future, FutureExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc};
-use tangram_client::{self as tg, handle::Ext, object::Metadata};
+use tangram_client::{self as tg, handle::Ext as _};
 use tokio_util::io::InspectReader;
 
 #[cfg(test)]
@@ -24,6 +23,17 @@ struct Arg {
 	temp_path: PathBuf,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct Output {
+	progress: Progress,
+}
+
+#[derive(Clone, Debug, Default)]
+struct Progress {
+	objects: u64,
+	bytes: u64,
+}
+
 impl Server {
 	pub(crate) async fn cache_artifact(
 		&self,
@@ -41,7 +51,7 @@ impl Server {
 		artifact: tg::artifact::Id,
 		ancestors: im::HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
 		progress: &'a crate::progress::Handle<tg::artifact::checkout::Output>,
-	) -> impl Future<Output = tg::Result<Progress>> + Send + 'a {
+	) -> impl Future<Output = tg::Result<Output>> + Send + 'a {
 		async move {
 			self.artifact_cache_task_map
 				.get_or_spawn(artifact.clone(), {
@@ -71,7 +81,7 @@ impl Server {
 		artifact: tg::artifact::Id,
 		ancestors: im::HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
-	) -> tg::Result<Progress> {
+	) -> tg::Result<Output> {
 		// Create the path.
 		let cache_path = self.cache_path().join(artifact.to_string());
 
@@ -80,7 +90,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check if the path exists"))?
 		{
-			return Ok(Progress::new());
+			let output = Output {
+				progress: Progress::default(),
+			};
+			return Ok(output);
 		}
 
 		// Create the temp.
@@ -103,7 +116,7 @@ impl Server {
 		};
 
 		// Cache the artifact.
-		let progress = self.cache_artifact_inner(&state, arg).await?;
+		let output = self.cache_artifact_inner(&state, arg).await?;
 
 		// Rename the temp to the path.
 		let src = &temp_path;
@@ -135,15 +148,15 @@ impl Server {
 		.await
 		.unwrap()?;
 
-		Ok(progress)
+		Ok(output)
 	}
 
-	async fn cache_artifact_inner(&self, state: &State, arg: Arg) -> tg::Result<Progress> {
+	async fn cache_artifact_inner(&self, state: &State, arg: Arg) -> tg::Result<Output> {
 		let temp_path = arg.temp_path.clone();
 		let artifact_id = arg.artifact.clone().into();
 
 		// Check out the artifact.
-		let mut progress = match arg.artifact.clone() {
+		let mut output = match arg.artifact.clone() {
 			tg::artifact::Id::Directory(directory) => {
 				self.cache_directory(state, arg, &directory).await?
 			},
@@ -165,31 +178,33 @@ impl Server {
 		.await
 		.unwrap()?;
 
+		// Increment the progress.
 		let metadata = self.get_object_metadata(&artifact_id).await;
-		if let Ok(Metadata {
-			complete: _,
-			count: Some(count),
-			depth: _,
-			weight: Some(weight),
-		}) = metadata
-		{
-			let bytes_increment = weight.saturating_sub(progress.bytes);
-			let objects_increment = count.saturating_sub(progress.objects);
-			state.progress.increment("objects", objects_increment);
-			state.progress.increment("bytes", bytes_increment);
-			progress.increment(objects_increment, bytes_increment);
+		if let Ok(metadata) = metadata {
+			if let Some(count) = metadata.count {
+				let objects = count.saturating_sub(output.progress.objects);
+				output.progress.objects += objects;
+				state.progress.increment("objects", objects);
+			}
+			if let Some(weight) = metadata.weight {
+				let bytes = weight.saturating_sub(output.progress.bytes);
+				output.progress.bytes += bytes;
+				state.progress.increment("bytes", bytes);
+			}
 		}
-		Ok(progress)
+
+		Ok(output)
 	}
 	async fn cache_directory(
 		&self,
 		state: &State,
 		arg: Arg,
 		directory: &tg::directory::Id,
-	) -> tg::Result<Progress> {
-		// Create the directory handle.
+	) -> tg::Result<Output> {
+		let mut output = Output {
+			progress: Progress::default(),
+		};
 		let directory = tg::Directory::with_id(directory.clone());
-		let mut progress = Progress::new();
 
 		// Create the directory.
 		tokio::fs::create_dir(&arg.temp_path)
@@ -197,7 +212,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 
 		// Recurse into the entries.
-		let entries_progress = directory
+		let outputs = directory
 			.entries(self)
 			.await?
 			.into_iter()
@@ -221,39 +236,28 @@ impl Server {
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<Progress>>()
+			.try_collect::<Vec<Output>>()
 			.await?;
+		output.progress += outputs.into_iter().map(|output| output.progress).sum();
 
-		progress = std::iter::once(&progress).chain(&entries_progress).fold(
-			Progress::new(),
-			|mut acc, progress| {
-				acc.combine(progress);
-				acc
-			},
-		);
-
-		Ok(progress)
+		Ok(output)
 	}
 
-	async fn cache_file(
-		&self,
-		state: &State,
-		arg: Arg,
-		file: &tg::file::Id,
-	) -> tg::Result<Progress> {
+	async fn cache_file(&self, state: &State, arg: Arg, file: &tg::file::Id) -> tg::Result<Output> {
+		let mut output = Output {
+			progress: Progress::default(),
+		};
 		let file = tg::File::with_id(file.clone());
-		let mut progress_out = Progress::new();
 
 		// If the file is being cached at a depth in the cache directory greater than zero, then cache the file at depth zero and create a hard link.
 		if arg.depth > 0 {
 			let artifact = arg.artifact.clone();
 			let ancestors = state.ancestors.clone();
 			let progress = &state.progress;
-			progress_out.combine(
-				&self
-					.cache_artifact_dependency(artifact.clone(), ancestors, progress)
-					.await?,
-			);
+			let dependency_output = self
+				.cache_artifact_dependency(artifact.clone(), ancestors, progress)
+				.await?;
+			output.progress += dependency_output.progress;
 			let cache_path = self.cache_path().join(artifact.to_string());
 			let hard_link_prohibited = arg
 				.temp_path
@@ -268,11 +272,11 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the hard link"))?;
 			}
-			return Ok(progress_out);
+			return Ok(output);
 		}
 
 		// Check out the file's dependencies.
-		let dep_progress = file
+		let dependency_outputs = file
 			.dependencies(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?
@@ -282,35 +286,33 @@ impl Server {
 				let server = self.clone();
 				let mut ancestors = state.ancestors.clone();
 				async move {
-					let artifact = artifact.id(&server).await?;
-					let progress = if artifact != state.artifact && !ancestors.contains(&artifact) {
-						ancestors.insert(state.artifact.clone());
-						server
-							.cache_artifact_dependency(artifact, ancestors, &state.progress)
-							.await?
-					} else {
-						Progress::new()
+					let mut output = Output {
+						progress: Progress::default(),
 					};
-					Ok::<_, tg::Error>(progress)
+					let artifact = artifact.id(&server).await?;
+					if artifact != state.artifact && !ancestors.contains(&artifact) {
+						ancestors.insert(state.artifact.clone());
+						let dependency_output = server
+							.cache_artifact_dependency(artifact, ancestors, &state.progress)
+							.await?;
+						output.progress += dependency_output.progress;
+					};
+					Ok::<_, tg::Error>(output)
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<Progress>>()
+			.try_collect::<Vec<Output>>()
 			.await?;
-
-		progress_out = std::iter::once(&progress_out).chain(&dep_progress).fold(
-			Progress::new(),
-			|mut acc, progress| {
-				acc.combine(progress);
-				acc
-			},
-		);
+		output.progress += dependency_outputs
+			.into_iter()
+			.map(|output| output.progress)
+			.sum();
 
 		// Create the file.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let mut reader = InspectReader::new(file.reader(self).await?, |slice| {
+			output.progress.bytes += slice.len().to_u64().unwrap();
 			state.progress.increment("bytes", slice.len() as u64);
-			progress_out.increment(0, slice.len().to_u64().unwrap());
 		});
 		let mut file_ = tokio::fs::File::create(&arg.temp_path)
 			.await
@@ -339,7 +341,7 @@ impl Server {
 			tg::error!(!source, "failed to set the extended attribute for the file")
 		})?;
 
-		Ok(progress_out)
+		Ok(output)
 	}
 
 	async fn cache_symlink(
@@ -347,9 +349,11 @@ impl Server {
 		state: &State,
 		arg: Arg,
 		symlink: &tg::symlink::Id,
-	) -> tg::Result<Progress> {
+	) -> tg::Result<Output> {
+		let mut output = Output {
+			progress: Progress::default(),
+		};
 		let symlink = tg::Symlink::with_id(symlink.clone());
-		let mut progress_out = Progress::new();
 
 		// Get the symlink's target, artifact, and subpath.
 		let target = symlink.target(self).await?;
@@ -364,10 +368,10 @@ impl Server {
 				let mut ancestors = state.ancestors.clone();
 				ancestors.insert(state.artifact.clone());
 				let progress = &state.progress;
-				progress_out.combine(
-					&Box::pin(server.cache_artifact_dependency(artifact, ancestors, progress))
-						.await?,
-				);
+				let dependency_output =
+					Box::pin(server.cache_artifact_dependency(artifact, ancestors, progress))
+						.await?;
+				output.progress += dependency_output.progress;
 			}
 		}
 
@@ -395,33 +399,30 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 
-		Ok(progress_out)
+		Ok(output)
 	}
 }
 
-impl Progress {
-	pub fn new() -> Self {
-		Self {
-			objects: 0,
-			bytes: 0,
+impl std::ops::Add for Progress {
+	type Output = Self;
+
+	fn add(self, rhs: Self) -> Self::Output {
+		Self::Output {
+			objects: self.objects + rhs.objects,
+			bytes: self.bytes + rhs.bytes,
 		}
-	}
-
-	pub fn increment(&mut self, objects: u64, bytes: u64) {
-		self.objects += objects;
-		self.bytes += bytes;
-	}
-
-	pub fn combine(&mut self, other: &Progress) {
-		self.increment(other.objects, other.bytes);
 	}
 }
 
-impl Clone for Progress {
-	fn clone(&self) -> Self {
-		Self {
-			objects: self.objects,
-			bytes: self.objects,
-		}
+impl std::ops::AddAssign for Progress {
+	fn add_assign(&mut self, rhs: Self) {
+		self.objects += rhs.objects;
+		self.bytes += rhs.bytes;
+	}
+}
+
+impl std::iter::Sum for Progress {
+	fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+		iter.fold(Self::default(), |a, b| a + b)
 	}
 }

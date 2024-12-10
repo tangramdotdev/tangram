@@ -1,9 +1,7 @@
 use super::Runtime;
-use byte_unit::Byte;
 use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use std::{
-	fmt::Write,
 	sync::{atomic::AtomicU64, Arc},
 	time::Duration,
 };
@@ -54,48 +52,18 @@ impl Runtime {
 			let server = server.clone();
 			let build = build.clone();
 			let remote = remote.clone();
-			let url = url.clone();
 			let downloaded = downloaded.clone();
 			async move {
-				let bar_length = 20;
-				let first_message = format!("downloading from \"{url}\"\n");
-				let arg = tg::build::log::post::Arg {
-					bytes: first_message.into(),
-					remote: remote.clone(),
-				};
-				let result = build.add_log(&server, arg).await;
-				if result.is_err() {
-					return;
-				}
 				loop {
 					let downloaded = downloaded.load(std::sync::atomic::Ordering::Relaxed);
-					let message = if let Some(content_length) = content_length {
-						let last = downloaded * bar_length / content_length;
-						let mut bar = String::new();
-						write!(bar, " [").unwrap();
-						for _ in 0..last {
-							write!(bar, "=").unwrap();
-						}
-						if downloaded < content_length {
-							write!(bar, ">").unwrap();
-						} else {
-							write!(bar, "=").unwrap();
-						}
-
-						for _ in last..bar_length {
-							write!(bar, " ").unwrap();
-						}
-						write!(bar, "]").unwrap();
-
-						let percent =
-							100.0 * downloaded.to_f64().unwrap() / content_length.to_f64().unwrap();
-						let downloaded = Byte::from_u64(downloaded);
-						let content_length = Byte::from_u64(content_length);
-						format!("{bar} {downloaded:#} of {content_length:#} {percent:.2}%\n")
-					} else {
-						let downloaded = Byte::from_u64(downloaded);
-						format!("{downloaded:#}\n")
+					let indicator = tg::progress::Indicator {
+						current: Some(downloaded),
+						format: tg::progress::IndicatorFormat::Bytes,
+						name: String::new(),
+						title: "downloading".to_owned(),
+						total: content_length,
 					};
+					let message = indicator.to_string();
 					let arg = tg::build::log::post::Arg {
 						bytes: message.into(),
 						remote: remote.clone(),

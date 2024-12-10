@@ -22,7 +22,6 @@ insta = { workspace = true }
 tangram_temp = { workspace = true }
 
 [dependencies]
-byte-unit = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
 copypasta = { workspace = true }
