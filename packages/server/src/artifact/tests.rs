@@ -104,7 +104,7 @@ async fn path_dependency() -> tg::Result<()> {
 				"tangram.ts" => r#"import * as bar from "../bar""#,
 			},
 			"bar" => temp::directory! {
-				"tangram.ts" => r#""#,
+				"tangram.ts" => "",
 			},
 		},
 		"foo".as_ref(),
