@@ -74,7 +74,14 @@ async fn host_target_hello_world() -> tg::Result<()> {
 			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
 					export default tg.target(async () => {
-						let target = await tg.target("set -x && echo 'Hello, World!' > $OUTPUT");
+
+						console.log("here!");
+						let target = await tg.target("set -x && echo 'hi' > $OUTPUT");
+
+						console.log("target id", await target.id());
+						console.log("target args", await target.args());
+						console.log("target env", await target.env());
+						console.log("target executable", await target.executable());
 						let output = await target.output();
 						return output;
 					});
@@ -709,6 +716,7 @@ where
 		let build = tg::Build::with_id(output.build);
 		let outcome = build.outcome(&server).await?;
 		if !matches!(outcome, tg::build::Outcome::Succeeded(_)) {
+			// TODO - how to only do this if the assertions fail?
 			let arg = tg::build::log::get::Arg {
 				length: None,
 				position: Some(std::io::SeekFrom::Start(0)),

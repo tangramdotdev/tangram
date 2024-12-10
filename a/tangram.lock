@@ -1,0 +1,15 @@
+{
+  "nodes": [
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 1
+      },
+      "id": "dir_017382nzagedfrkf42f7c9yy5v4n9snefatvncwbhvv32bncssnra0"
+    },
+    {
+      "kind": "file",
+      "id": "fil_01p3yt6j169f6gcrhxd19wszqsp53tfebghk5wz5gzygm1sg6jz7kg"
+    }
+  ]
+}
