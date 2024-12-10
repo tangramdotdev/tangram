@@ -52,8 +52,18 @@ impl Runtime {
 			let server = server.clone();
 			let build = build.clone();
 			let remote = remote.clone();
+			let url = url.clone();
 			let downloaded = downloaded.clone();
 			async move {
+				let first_message = format!("downloading from \"{url}\"\n");
+				let arg = tg::build::log::post::Arg {
+					bytes: first_message.into(),
+					remote: remote.clone(),
+				};
+				let result = build.add_log(&server, arg).await;
+				if result.is_err() {
+					return;
+				}
 				loop {
 					let downloaded = downloaded.load(std::sync::atomic::Ordering::Relaxed);
 					let indicator = tg::progress::Indicator {
