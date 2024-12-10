@@ -95,6 +95,7 @@ type ArtifactCacheTaskMap =
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Server> {
+		dbg!(&config);
 		// Ensure the path exists.
 		let path = config.path.clone();
 		tokio::fs::create_dir_all(&path)
