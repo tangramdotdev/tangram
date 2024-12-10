@@ -1272,10 +1272,10 @@ async fn diamond_dependency() -> tg::Result<()> {
   							"a/^1": {
   								"item": tg.directory({
   									"tangram.ts": tg.file({
-  										"contents": tg.leaf("// a/tangram.ts\nexport default tg.target(() => \"a/1.0.0\");\n"),
+  										"contents": tg.leaf("// a/tangram.ts\nexport default tg.target(() => \"a/1.1.0\");\n"),
   									}),
   								}),
-  								"tag": "a/1.0.0",
+  								"tag": "a/1.1.0",
   							},
   						},
   					}),
@@ -1285,15 +1285,15 @@ async fn diamond_dependency() -> tg::Result<()> {
   			"c": {
   				"item": tg.directory({
   					"tangram.ts": tg.file({
-  						"contents": tg.leaf("// c/tangram.ts\nimport a from \"a^1.0\";\nexport default tg.target(() => \"c\");\n"),
-						"dependencies": {
+  						"contents": tg.leaf("// c/tangram.ts\nimport a from \"a/^1.0\";\nexport default tg.target(() => \"c\");\n"),
+  						"dependencies": {
   							"a/^1.0": {
   								"item": tg.directory({
   									"tangram.ts": tg.file({
-  										"contents": tg.leaf("// a/tangram.ts\nexport default tg.target(() => \"a/1.0.0\");\n"),
+  										"contents": tg.leaf("// a/tangram.ts\nexport default tg.target(() => \"a/1.1.0\");\n"),
   									}),
   								}),
-  								"tag": "a/1.0.0",
+  								"tag": "a/1.1.0",
   							},
   						},
   					}),
