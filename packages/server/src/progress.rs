@@ -17,9 +17,10 @@ pub struct Handle<T> {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Indicator {
+	current: Option<AtomicU64>,
+	format: tg::progress::IndicatorFormat,
 	name: String,
 	title: Mutex<String>,
-	current: Option<AtomicU64>,
 	total: Option<AtomicU64>,
 }
 
@@ -49,11 +50,19 @@ impl<T> Handle<T> {
 		self.sender.try_send(Ok(event)).ok();
 	}
 
-	pub fn start(&self, name: String, title: String, current: Option<u64>, total: Option<u64>) {
+	pub fn start(
+		&self,
+		name: String,
+		title: String,
+		format: tg::progress::IndicatorFormat,
+		current: Option<u64>,
+		total: Option<u64>,
+	) {
 		let indicator = Indicator {
+			current: current.map(AtomicU64::new),
+			format,
 			name: name.clone(),
 			title: Mutex::new(title),
-			current: current.map(AtomicU64::new),
 			total: total.map(AtomicU64::new),
 		};
 		self.indicators.write().unwrap().insert(name, indicator);
@@ -99,6 +108,7 @@ impl<T> Handle<T> {
 				.values()
 				.map(move |indicator| {
 					let name = indicator.name.clone();
+					let format = indicator.format.clone();
 					let title = indicator.title.lock().unwrap().clone();
 					let current = indicator
 						.current
@@ -109,9 +119,10 @@ impl<T> Handle<T> {
 						.as_ref()
 						.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
 					let indicator = tg::progress::Indicator {
+						current,
+						format,
 						name,
 						title,
-						current,
 						total,
 					};
 					Ok(tg::progress::Event::Update(indicator))

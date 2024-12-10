@@ -5520,6 +5520,7 @@ name = "tangram_client"
 version = "0.0.0"
 dependencies = [
  "blake3",
+ "byte-unit",
  "bytes",
  "data-encoding",
  "data-encoding-macro",

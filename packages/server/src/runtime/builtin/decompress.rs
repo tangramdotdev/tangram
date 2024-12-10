@@ -1,6 +1,4 @@
 use super::Runtime;
-use byte_unit::Byte;
-use num::ToPrimitive as _;
 use std::{pin::Pin, time::Duration};
 use tangram_client as tg;
 use tangram_futures::read::SharedPositionReader;
@@ -55,11 +53,14 @@ impl Runtime {
 			async move {
 				loop {
 					let position = position.load(std::sync::atomic::Ordering::Relaxed);
-					let percent = 100.0 * position.to_f64().unwrap() / size.to_f64().unwrap();
-					let position = Byte::from_u64(position);
-					let size = Byte::from_u64(size);
-					let message =
-						format!("decompressing: {position:#} of {size:#} {percent:.2}%\n");
+					let indicator = tg::progress::Indicator {
+						current: Some(position),
+						format: tg::progress::IndicatorFormat::Bytes,
+						name: String::new(),
+						title: "decompressing".to_owned(),
+						total: Some(size),
+					};
+					let message = indicator.to_string();
 					let arg = tg::build::log::post::Arg {
 						bytes: message.into(),
 						remote: remote.clone(),

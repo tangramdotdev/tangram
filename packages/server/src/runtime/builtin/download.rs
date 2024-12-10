@@ -1,5 +1,4 @@
 use super::Runtime;
-use byte_unit::Byte;
 use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use std::{
@@ -56,18 +55,25 @@ impl Runtime {
 			let url = url.clone();
 			let downloaded = downloaded.clone();
 			async move {
+				let first_message = format!("downloading from \"{url}\"\n");
+				let arg = tg::build::log::post::Arg {
+					bytes: first_message.into(),
+					remote: remote.clone(),
+				};
+				let result = build.add_log(&server, arg).await;
+				if result.is_err() {
+					return;
+				}
 				loop {
 					let downloaded = downloaded.load(std::sync::atomic::Ordering::Relaxed);
-					let message = if let Some(content_length) = content_length {
-						let percent =
-							100.0 * downloaded.to_f64().unwrap() / content_length.to_f64().unwrap();
-						let downloaded = Byte::from_u64(downloaded);
-						let content_length = Byte::from_u64(content_length);
-						format!("downloading from \"{url}\": {downloaded:#} of {content_length:#} {percent:.2}%\n")
-					} else {
-						let downloaded = Byte::from_u64(downloaded);
-						format!("downloading from \"{url}\": {downloaded:#}\n")
+					let indicator = tg::progress::Indicator {
+						current: Some(downloaded),
+						format: tg::progress::IndicatorFormat::Bytes,
+						name: String::new(),
+						title: "downloading".to_owned(),
+						total: content_length,
 					};
+					let message = indicator.to_string();
 					let arg = tg::build::log::post::Arg {
 						bytes: message.into(),
 						remote: remote.clone(),

@@ -72,14 +72,7 @@ impl Cli {
 
 			// Render the indicators.
 			for indicator in indicators.values() {
-				eprint!("{}", indicator.title);
-				if let Some(current) = indicator.current {
-					eprint!(" {current}");
-				}
-				if let Some(total) = indicator.total {
-					eprint!(" / {total}");
-				}
-				eprintln!();
+				eprintln!("{indicator}");
 			}
 
 			// Restore the cursor position.

@@ -90,7 +90,8 @@ struct BuildPermit(
 
 type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
 
-type ArtifactCacheTaskMap = TaskMap<tg::artifact::Id, tg::Result<()>, fnv::FnvBuildHasher>;
+type ArtifactCacheTaskMap =
+	TaskMap<tg::artifact::Id, tg::Result<crate::artifact::cache::Output>, fnv::FnvBuildHasher>;
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Server> {

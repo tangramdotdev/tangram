@@ -1,3 +1,5 @@
+use num::ToPrimitive as _;
+
 use crate as tg;
 
 #[derive(Debug, Clone, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -28,10 +30,67 @@ pub enum Level {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Indicator {
+	pub current: Option<u64>,
+	pub format: IndicatorFormat,
 	pub name: String,
 	pub title: String,
-	pub current: Option<u64>,
 	pub total: Option<u64>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndicatorFormat {
+	Normal,
+	Bytes,
+}
+
+impl std::fmt::Display for Indicator {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		const LENGTH: u64 = 20;
+		write!(f, "{}", self.title)?;
+		if let (Some(current), Some(total)) = (self.current, self.total) {
+			write!(f, " [")?;
+			let last = current * LENGTH / total;
+			for _ in 0..last {
+				write!(f, "=")?;
+			}
+			if current < total {
+				write!(f, ">")?;
+			} else {
+				write!(f, "=")?;
+			}
+			for _ in last..LENGTH {
+				write!(f, " ")?;
+			}
+			write!(f, "]")?;
+		}
+		if let Some(current) = self.current {
+			match self.format {
+				tg::progress::IndicatorFormat::Normal => {
+					write!(f, " {current}")?;
+				},
+				tg::progress::IndicatorFormat::Bytes => {
+					let current = byte_unit::Byte::from_u64(current);
+					write!(f, " {current:#}")?;
+				},
+			}
+			if let Some(total) = self.total {
+				match self.format {
+					tg::progress::IndicatorFormat::Normal => {
+						write!(f, " of {total}")?;
+					},
+					tg::progress::IndicatorFormat::Bytes => {
+						let total = byte_unit::Byte::from_u64(total);
+						write!(f, " of {total:#}")?;
+					},
+				}
+				let percent = 100.0 * current.to_f64().unwrap() / total.to_f64().unwrap();
+				write!(f, " {percent:.2}%")?;
+			}
+			writeln!(f)?;
+		}
+		Ok(())
+	}
 }
 
 impl<T> TryFrom<Event<T>> for tangram_http::sse::Event

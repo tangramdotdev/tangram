@@ -43,12 +43,14 @@ impl Server {
 				progress.start(
 					"objects".to_owned(),
 					"objects".to_owned(),
+					tg::progress::IndicatorFormat::Normal,
 					Some(0),
 					metadata.count.map(Into::into),
 				);
 				progress.start(
 					"bytes".to_owned(),
 					"bytes".to_owned(),
+					tg::progress::IndicatorFormat::Bytes,
 					Some(0),
 					metadata.weight.map(Into::into),
 				);
