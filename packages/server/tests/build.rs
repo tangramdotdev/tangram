@@ -712,10 +712,8 @@ where
 			retry: tg::build::Retry::Canceled,
 		};
 		let target = target.id(&server).await?;
-		tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 		let output = server.build_target(&target, arg).await?;
 		let build = tg::Build::with_id(output.build);
-		tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 		let outcome = build.outcome(&server).await?;
 		if !matches!(outcome, tg::build::Outcome::Succeeded(_)) {
 			// TODO - how to only do this if the assertions fail?

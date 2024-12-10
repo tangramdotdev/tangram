@@ -27,7 +27,7 @@ impl Temp {
 
 	fn with_persistent(remove: bool) -> Self {
 		let temp_path = if cfg!(target_os = "linux") {
-			Path::new("/tmp")
+			Path::new("/home/deciduously/tangram_tmp")
 		} else if cfg!(target_os = "macos") {
 			Path::new("/private/tmp")
 		} else {
