@@ -249,6 +249,15 @@ fn main() -> std::process::ExitCode {
 	// Run the command.
 	let result = runtime.block_on(cli.command(cli.args.command.clone()));
 
+	// Drop the handle.
+	runtime.block_on(async {
+		let handle = cli.handle.lock().unwrap().take();
+		if let Some(Either::Right(server)) = handle {
+			server.stop();
+			server.wait().await;
+		}
+	});
+
 	// Handle the result.
 	let code = match result {
 		Ok(()) => 0.into(),
@@ -258,9 +267,6 @@ fn main() -> std::process::ExitCode {
 			1.into()
 		},
 	};
-
-	// Drop the handle.
-	cli.handle.lock().unwrap().take();
 
 	code
 }
