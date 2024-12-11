@@ -271,8 +271,35 @@ impl Server {
 				let input = &input.nodes[input_index];
 				(input_index, input.arg.path.clone(), input.metadata.clone())
 			},
-			Either::Right(_) => {
-				return Err(tg::error!("expected a node"));
+			Either::Right(id) => {
+				// Note: this code path should only be taken if the node in the unification graph was resolved by tag or ID and it was not present in the input graph, implying that this is not a symmetric checkin, and the object was valid to begin with. In this case the graph that would be constructed must be identical to the graph pulled from the remote or in the database, so we can reuse the same graph data here instead of recomputing edges and returning an error if the ID of the new object did not match.
+				let object = tg::Object::with_id(id.clone())
+					.object(self)
+					.await
+					.map_err(|source| tg::error!(!source, %object = id, "failed to get object"))?;
+				let (graph, node) = match object {
+					tg::object::Object::Directory(directory) => match directory.as_ref() {
+						tg::directory::Object::Graph { graph, node } => (graph.clone(), *node),
+						tg::directory::Object::Normal { .. } => return Err(tg::error!(%id, "expected a graph object")),
+					},
+
+					tg::object::Object::File(directory) => match directory.as_ref() {
+						tg::file::Object::Graph { graph, node } => (graph.clone(), *node),
+						tg::file::Object::Normal { .. } => return Err(tg::error!(%id, "expected a graph object")),
+					},
+
+					tg::object::Object::Symlink(directory) => match directory.as_ref() {
+						tg::symlink::Object::Graph { graph, node } => (graph.clone(), *node),
+						_ => return Err(tg::error!(%id, "expected a graph object")),
+					},
+
+					_ => return Err(tg::error!(%id, "expected a graph object")),
+				};
+				let data = graph
+					.data(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get graph object"))?;
+				return Ok(data.nodes[node].clone());
 			},
 		};
 
