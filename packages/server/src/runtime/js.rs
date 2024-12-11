@@ -334,9 +334,9 @@ impl Runtime {
 										// If the promise is rejected, then return the error.
 										v8::PromiseState::Rejected => {
 											let exception = promise.result(scope);
-											let error = self::error::from_exception(
+											let error = dbg!(self::error::from_exception(
 												&state, scope, exception,
-											);
+											));
 											Err(error)
 										},
 
@@ -376,8 +376,9 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to join the log task"))?;
 
-		// Stop the compiler.
-		state.compiler.stop().await;
+		// Stop and await the compiler.
+		state.compiler.stop();
+		state.compiler.wait().await;
 
 		result
 	}
@@ -403,10 +404,8 @@ fn host_import_module_dynamically_callback<'s>(
 	} else {
 		// Get the referrer's ID.
 		let id = resource_name
-			.to_integer(scope)
-			.unwrap()
-			.value()
-			.to_usize()
+			.to_rust_string_lossy(scope)
+			.parse::<usize>()
 			.unwrap();
 
 		// Get the referrer.
@@ -639,7 +638,9 @@ fn compile_module<'s>(
 	};
 
 	// Define the module's origin.
-	let resource_name = v8::Integer::new(scope, id.to_i32().unwrap()).into();
+	let resource_name = v8::String::new(scope, &id.to_i32().unwrap().to_string())
+		.unwrap()
+		.into();
 	let resource_line_offset = 0;
 	let resource_column_offset = 0;
 	let resource_is_shared_cross_origin = false;
@@ -717,7 +718,7 @@ extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 	match message.get_event() {
 		v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
 			let exception = message.get_promise().result(scope);
-			let error = error::from_exception(&state, scope, exception);
+			let error = dbg!(error::from_exception(&state, scope, exception));
 			state.rejection.send_replace(Some(error));
 		},
 		v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject

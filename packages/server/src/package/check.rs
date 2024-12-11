@@ -41,8 +41,9 @@ impl Server {
 		// Create the output.
 		let output = tg::package::check::Output { diagnostics };
 
-		// Stop the compiler.
-		compiler.stop().await;
+		// Stop and await the compiler.
+		compiler.stop();
+		compiler.wait().await;
 
 		Ok(output)
 	}

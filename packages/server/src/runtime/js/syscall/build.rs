@@ -17,13 +17,9 @@ pub async fn output(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::Val
 				remote,
 				retry,
 			};
-			target
-				.output(&server, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the target output"))
+			target.output(&server, arg).await
 		})
 		.await
-		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to build the target"))?;
+		.unwrap()?;
 	Ok(output)
 }

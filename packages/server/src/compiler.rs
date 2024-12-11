@@ -717,7 +717,7 @@ impl Compiler {
 		}
 	}
 
-	pub async fn stop(&self) {
+	pub fn stop(&self) {
 		self.task.lock().unwrap().as_ref().unwrap().stop();
 	}
 
@@ -900,7 +900,8 @@ impl crate::Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		let text = compiler.format(text).await?;
-		compiler.stop().await;
+		compiler.stop();
+		compiler.wait().await;
 		Ok(text)
 	}
 
@@ -911,7 +912,8 @@ impl crate::Server {
 	) -> tg::Result<()> {
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		compiler.serve(input, output).await?;
-		compiler.stop().await;
+		compiler.stop();
+		compiler.wait().await;
 		Ok(())
 	}
 }

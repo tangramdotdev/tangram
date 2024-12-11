@@ -224,7 +224,9 @@ fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
 		// Compile the script.
 		let script = std::fs::read_to_string(path).unwrap();
 		let script = v8::String::new(scope, &script).unwrap();
-		let resource_name = v8::Integer::new(scope, 0).into();
+		let resource_name = v8::String::new_external_onebyte_static(scope, b"0")
+			.unwrap()
+			.into();
 		let resource_line_offset = 0;
 		let resource_column_offset = 0;
 		let resource_is_shared_cross_origin = false;

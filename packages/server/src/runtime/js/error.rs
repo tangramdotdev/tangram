@@ -64,8 +64,8 @@ pub(super) fn from_exception<'s>(
 	// Get the location.
 	let id = message_
 		.get_script_resource_name(scope)
-		.and_then(|resource_name| <v8::Local<v8::Integer>>::try_from(resource_name).ok())
-		.map(|resource_name| resource_name.value().to_usize().unwrap());
+		.and_then(|resource_name| v8::Local::<v8::String>::try_from(resource_name).ok())
+		.map(|resource_name| resource_name.to_rust_string_lossy(scope).parse().unwrap());
 	let line = if id.is_some() {
 		Some(message_.get_line_number(scope).unwrap().to_u32().unwrap() - 1)
 	} else {
@@ -149,7 +149,20 @@ pub fn capture_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::er
 		.rev()
 		.filter_map(|index| {
 			let frame = stack.get_frame(scope, index)?;
-			let id = frame.get_script_id();
+			dbg!(
+				frame.get_script_id(),
+				frame.get_script_name(scope),
+				frame.get_line_number(),
+				frame.get_column(),
+				frame.get_function_name(scope)
+			);
+			let id = frame
+				.get_script_name(scope)?
+				.to_integer(scope)
+				.unwrap()
+				.value()
+				.to_usize()
+				.unwrap();
 			let line = frame.get_line_number().to_u32().unwrap() - 1;
 			let column = frame.get_column().to_u32().unwrap() - 1;
 			let symbol = frame

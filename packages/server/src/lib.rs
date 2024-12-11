@@ -484,7 +484,7 @@ impl Server {
 				// Stop the compilers.
 				let compilers = server.compilers.read().unwrap().clone();
 				for compiler in compilers {
-					compiler.stop().await;
+					compiler.stop();
 					compiler.wait().await;
 				}
 
