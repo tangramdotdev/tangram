@@ -52,6 +52,7 @@ pub struct Unresolved {
 #[derive(Clone, Debug)]
 pub struct Edge {
 	pub referent: Id,
+	pub kind: Option<tg::module::Kind>,
 	pub path: Option<PathBuf>,
 	pub subpath: Option<PathBuf>,
 }
@@ -93,6 +94,11 @@ impl Server {
 				.unify_dependencies(graph.clone(), &root)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to unify the object graph"))?;
+
+			graph = self
+				.fix_unification_subpaths(input, graph.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get unification subpaths"))?;
 		}
 
 		// Validate.
@@ -132,6 +138,7 @@ impl Server {
 				.await?;
 				let reference = input_edge.reference.clone();
 				let unify_edge = Edge {
+					kind: input_edge.kind,
 					referent: id,
 					path: input_edge.path.clone(),
 					subpath: input_edge.subpath.clone(),
@@ -156,6 +163,7 @@ impl Server {
 				};
 				let reference = input_edge.reference.clone();
 				let edge = Edge {
+					kind: input_edge.kind,
 					referent: id,
 					path: input_edge.path.clone(),
 					subpath: input_edge.subpath.clone(),
@@ -196,6 +204,7 @@ impl Server {
 				};
 				let reference = input_edge.reference.clone();
 				let edge = Edge {
+					kind: input_edge.kind,
 					referent: id,
 					path: input_edge.path.clone(),
 					subpath: input_edge.subpath.clone(),
@@ -215,6 +224,7 @@ impl Server {
 						.await?;
 					let reference = input_edge.reference.clone();
 					let edge = Edge {
+						kind: input_edge.kind,
 						referent: id,
 						path: input_edge.path.clone(),
 						subpath: input_edge.subpath.clone(),
@@ -225,6 +235,7 @@ impl Server {
 					let id = Either::Left(get_reference_from_pattern(pattern));
 					let reference = input_edge.reference.clone();
 					let edge = Edge {
+						kind: input_edge.kind,
 						referent: id,
 						path: input_edge.path.clone(),
 						subpath: input_edge.subpath.clone(),
@@ -632,6 +643,7 @@ impl Server {
 			))
 			.await?;
 			let edge = Edge {
+				kind: None,
 				referent: id,
 				path: None,
 				subpath: None,
@@ -652,6 +664,7 @@ impl Server {
 			if let Ok(pat) = reference.item().try_unwrap_tag_ref() {
 				let id = Either::Left(get_reference_from_pattern(pat));
 				let edge = Edge {
+					kind: None,
 					referent: id,
 					path: None,
 					subpath: referent.subpath.clone(),
@@ -674,6 +687,7 @@ impl Server {
 				))
 				.await?;
 				let edge = Edge {
+					kind: None,
 					referent: id,
 					path: None,
 					subpath: referent.subpath,
@@ -702,6 +716,7 @@ impl Server {
 			))
 			.await?;
 			let edge = Edge {
+				kind: None,
 				referent: id,
 				path: None,
 				subpath: None,
@@ -709,6 +724,109 @@ impl Server {
 			edges.insert(reference, edge);
 		}
 		Ok(edges)
+	}
+}
+
+impl Server {
+	async fn fix_unification_subpaths(
+		&self,
+		input: &input::Graph,
+		mut graph: Graph,
+	) -> tg::Result<Graph> {
+		for node in graph.nodes.keys().cloned().collect::<Vec<_>>() {
+			// Skip nodes that don't refer to local modules.
+			let src_is_local_module = node.as_ref().right().map_or(false, |index| {
+				input
+					.nodes
+					.get(*index)
+					.map_or(false, |input| tg::package::is_module_path(&input.arg.path))
+			});
+			if !src_is_local_module {
+				continue;
+			}
+
+			// Collect the list of tag dependencies of this node that are missing subpaths.
+			let references_missing_subpaths = graph
+				.nodes
+				.get(&node)
+				.unwrap()
+				.edges
+				.iter()
+				.filter_map(|(reference, edge)| {
+					let is_missing_subpath = graph.nodes.get(&edge.referent).unwrap().tag.is_some()
+						&& graph
+							.nodes
+							.get(&edge.referent)
+							.unwrap()
+							.object
+							.as_ref()
+							.right()
+							.map_or(false, tg::object::Id::is_directory)
+						&& edge.subpath.is_none()
+						&& matches!(
+							edge.kind,
+							None | Some(tg::module::Kind::Ts | tg::module::Kind::Js)
+						);
+					is_missing_subpath.then(|| (reference.clone(), edge.clone()))
+				})
+				.collect::<Vec<_>>();
+
+			for (reference, edge) in references_missing_subpaths {
+				let subpath = self
+					.try_get_root_module_name_for_node(input, &graph, &edge.referent)
+					.await;
+				graph
+					.nodes
+					.get_mut(&node)
+					.unwrap()
+					.edges
+					.get_mut(&reference)
+					.unwrap()
+					.subpath = subpath;
+			}
+		}
+		Ok(graph)
+	}
+
+	async fn try_get_root_module_name_for_node(
+		&self,
+		input: &input::Graph,
+		graph: &Graph,
+		node: &Id,
+	) -> Option<PathBuf> {
+		let node = graph.nodes.get(node)?;
+		match &node.object {
+			Either::Left(index) => input
+				.nodes
+				.get(*index)?
+				.metadata
+				.is_dir()
+				.then(|| {
+					node.edges.keys().find_map(|reference| {
+						let path = reference.item().try_unwrap_path_ref().ok()?;
+						tg::package::is_root_module_path(path)
+							.then(|| path.file_name().unwrap().into())
+					})
+				})
+				.flatten(),
+			Either::Right(object) => {
+				if !object.is_directory() {
+					return None;
+				}
+
+				let object = tg::Object::with_id(object.clone());
+				if let Ok(path) =
+					tg::package::try_get_root_module_file_name(self, Either::Left(&object)).await
+				{
+					return path.map(PathBuf::from);
+				}
+
+				node.edges.keys().find_map(|reference| {
+					let path = reference.item().try_unwrap_path_ref().ok()?;
+					tg::package::is_root_module_path(path).then(|| path.file_name().unwrap().into())
+				})
+			},
+		}
 	}
 }
 

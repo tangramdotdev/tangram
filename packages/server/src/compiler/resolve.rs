@@ -46,86 +46,6 @@ impl Compiler {
 			},
 		};
 
-		// If the kind is not known and the referent is a directory with a root module, then use its kind.
-		let kind =
-			if kind.is_some() {
-				kind
-			} else {
-				match &referent.item {
-					tg::module::Item::Path(path) => {
-						let path = if let Some(subpath) = &referent.subpath {
-							path.join(subpath)
-						} else {
-							path.clone()
-						};
-						let metadata = tokio::fs::metadata(&path)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-						if metadata.is_dir() {
-							let package = Either::Right(path.as_ref());
-							if let Some(name) =
-								tg::package::try_get_root_module_file_name(&self.server, package)
-									.await?
-							{
-								let name = Path::new(name);
-								let extension = name.extension();
-								if extension.is_some_and(|extension| extension == "js") {
-									Some(tg::module::Kind::Js)
-								} else if extension.is_some_and(|extension| extension == "ts") {
-									Some(tg::module::Kind::Ts)
-								} else {
-									None
-								}
-							} else {
-								None
-							}
-						} else {
-							None
-						}
-					},
-
-					tg::module::Item::Object(object) => {
-						let object =
-							if let Some(subpath) = &referent.subpath {
-								let object = tg::Object::with_id(object.clone());
-								let directory = object
-									.try_unwrap_directory_ref()
-									.ok()
-									.ok_or_else(|| tg::error!("expected a directory"))?;
-								let artifact = directory.get(&self.server, subpath).await.map_err(
-									|source| tg::error!(!source, "failed to get directory entry"),
-								)?;
-								let artifact = artifact.id(&self.server).await?.clone();
-								artifact.into()
-							} else {
-								object.clone()
-							};
-						if object.try_unwrap_directory_ref().is_ok() {
-							let object = tg::Object::with_id(object);
-							let package = Either::Left(&object);
-							if let Some(name) =
-								tg::package::try_get_root_module_file_name(&self.server, package)
-									.await?
-							{
-								let name = Path::new(name);
-								let extension = name.extension();
-								if extension.is_some_and(|extension| extension == "js") {
-									Some(tg::module::Kind::Js)
-								} else if extension.is_some_and(|extension| extension == "ts") {
-									Some(tg::module::Kind::Ts)
-								} else {
-									None
-								}
-							} else {
-								None
-							}
-						} else {
-							None
-						}
-					},
-				}
-			};
-
 		// If the kind is not known, then try to infer it from the path extension.
 		let kind = if let Some(kind) = kind {
 			Some(kind)
@@ -341,7 +261,7 @@ impl Compiler {
 		subpath: Option<&Path>,
 		import: &tangram_client::Import,
 	) -> Result<tangram_client::Referent<tangram_client::module::Item>, tangram_client::Error> {
-		let object = if let Some(subpath) = subpath {
+		let referrer = if let Some(subpath) = subpath {
 			let tg::object::Id::Directory(directory) = object else {
 				return Err(tg::error!("object with subpath must be a directory"));
 			};
@@ -350,19 +270,7 @@ impl Compiler {
 		} else {
 			tg::Object::with_id(object.clone())
 		};
-		let object = if let tg::Object::Directory(directory) = &object {
-			let root_module_file_name =
-				tg::package::try_get_root_module_file_name(&self.server, Either::Left(&object))
-					.await?
-					.ok_or_else(|| tg::error!("invalid referrer"))?;
-			directory
-				.get(&self.server, root_module_file_name)
-				.await?
-				.into()
-		} else {
-			object
-		};
-		let file = object
+		let file = referrer
 			.clone()
 			.try_unwrap_file()
 			.ok()

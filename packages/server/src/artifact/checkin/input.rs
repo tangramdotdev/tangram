@@ -27,6 +27,7 @@ pub struct Node {
 
 #[derive(Clone, Debug)]
 pub struct Edge {
+	pub kind: Option<tg::module::Kind>,
 	pub reference: tg::Reference,
 	pub subpath: Option<PathBuf>,
 	pub node: Option<usize>,
@@ -345,6 +346,7 @@ impl Server {
 					// Create the edge.
 					let reference = tg::Reference::with_path(&name);
 					let edge = Edge {
+						kind: None,
 						reference,
 						subpath: None,
 						node: Some(node),
@@ -675,6 +677,7 @@ impl Server {
 			let package_path = state.read().await.graph.nodes[node].arg.path.clone();
 			let path = crate::util::path::diff(&arg.path, &package_path)?;
 			let edge = Edge {
+				kind: import.kind,
 				reference,
 				node: Some(node),
 				object: None,
@@ -686,6 +689,7 @@ impl Server {
 		}
 
 		Ok(Edge {
+			kind: import.kind,
 			reference: import.reference.clone(),
 			subpath: None,
 			node: None,
@@ -720,6 +724,7 @@ impl Server {
 			None
 		};
 		let edge = Edge {
+			kind: None,
 			reference,
 			subpath: referent.subpath,
 			node,
@@ -788,6 +793,7 @@ impl Server {
 				.map_err(|_| tg::error!(%subpath = subpath.display(), "expected an object id"))?;
 			let subpath = components.collect();
 			Edge {
+				kind: None,
 				reference: tg::Reference::with_path(target),
 				subpath: Some(subpath),
 				node: None,
@@ -797,6 +803,7 @@ impl Server {
 			}
 		} else {
 			Edge {
+				kind: None,
 				reference: tg::Reference::with_path(target),
 				subpath: None,
 				node: None,

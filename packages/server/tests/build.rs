@@ -1,7 +1,7 @@
 use futures::{Future, FutureExt as _};
 use indoc::indoc;
 use insta::assert_snapshot;
-use std::panic::AssertUnwindSafe;
+use std::{panic::AssertUnwindSafe, str::FromStr};
 use tangram_client::{self as tg, handle::Ext};
 use tangram_server::{Config, Server};
 use tangram_temp::{self as temp, Temp};
@@ -615,6 +615,110 @@ async fn builtin_artifact_archive_extract_roundtrip() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn import_from_tag() -> tg::Result<()> {
+	let remote_temp = Temp::new();
+	let remote_config = Config::with_path(remote_temp.path().to_owned());
+	let remote = Server::start(remote_config).await?;
+
+	let server_temp = Temp::new();
+	let mut server_config = Config::with_path(server_temp.path().to_owned());
+	server_config.build = Some(tangram_server::config::Build::default());
+	server_config.build_heartbeat_monitor =
+		Some(tangram_server::config::BuildHeartbeatMonitor::default());
+	server_config.remotes = [(
+		"default".to_owned(),
+		tangram_server::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
+	.into();
+	let server = Server::start(server_config).await?;
+
+	let result = AssertUnwindSafe(async {
+		// create package
+		let foo = tg::directory! {
+			"tangram.ts" => tg::file!(r#"export default tg.target(() => "foo");"#)
+		};
+		let foo_id = foo.id(&server).await?;
+
+		// create tag.
+		let foo_tag = tg::Tag::from_str("foo").unwrap();
+		let put_foo_arg = tg::tag::put::Arg {
+			force: false,
+			item: tangram_either::Either::Right(foo_id.into()),
+			remote: Some("default".into()),
+		};
+		server.put_tag(&foo_tag, put_foo_arg).await?;
+
+		// create consumer temp
+		let bar_temp = Temp::new_persistent();
+		let bar = temp::directory! {
+			"bar" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import foo from "foo";
+					export default tg.target(() => foo());
+			"#)
+			}
+		};
+		let bar: temp::Artifact = bar.into();
+		bar.to_path(bar_temp.as_ref()).await.map_err(
+			|source| tg::error!(!source, %path = bar_temp.path().display(), "failed to write the artifact"),
+		)?;
+
+		// check in
+		let arg = tg::artifact::checkin::Arg {
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			lockfile: true,
+			path: bar_temp.as_ref().join("bar"),
+		};
+		let bar_artifact = tg::Artifact::check_in(&server, arg)
+			.await?
+			.try_unwrap_directory()
+			.unwrap();
+
+		let subpath = Some("tangram.ts".parse().unwrap());
+		let env = [("TANGRAM_HOST".to_owned(), tg::host().into())].into();
+		let args = vec!["default".into()];
+		let executable = Some(tg::target::Executable::Module(tg::target::Module {
+			kind: tg::module::Kind::Js,
+			referent: tg::Referent {
+				item: bar_artifact.into(),
+				path: None,
+				subpath,
+				tag: None,
+			},
+		}));
+		let host = "js";
+		let target = tg::target::Builder::new(host)
+			.args(args)
+			.env(env)
+			.executable(executable)
+			.build();
+		let arg = tg::target::build::Arg {
+			create: true,
+			parent: None,
+			remote: None,
+			retry: tg::build::Retry::Canceled,
+		};
+		let target = target.id(&server).await?;
+		let output = server.build_target(&target, arg).await?;
+		let build = tg::Build::with_id(output.build);
+		let outcome = build.outcome(&server).await?;
+		let outcome = outcome.into_result()?;
+		assert_snapshot!(outcome, @r#""foo""#);
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(server_temp, server).await;
+	cleanup(remote_temp, remote).await;
+	result.unwrap()
+}
+
+#[tokio::test]
 async fn builtin_blob_compress_decompress_gz_roundtrip() -> tg::Result<()> {
 	test(
 		temp::directory! {
@@ -737,4 +841,10 @@ fn ctor() {
 	let platform = v8::new_default_platform(0, true);
 	v8::V8::initialize_platform(platform.make_shared());
 	v8::V8::initialize();
+}
+
+async fn cleanup(temp: tangram_temp::Temp, server: tangram_server::Server) {
+	server.stop();
+	server.wait().await;
+	temp.remove().await.ok();
 }
