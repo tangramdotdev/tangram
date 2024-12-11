@@ -271,8 +271,8 @@ impl Server {
 				let input = &input.nodes[input_index];
 				(input_index, input.arg.path.clone(), input.metadata.clone())
 			},
-			Either::Right(_) => {
-				return Err(tg::error!("expected a node"));
+			Either::Right(id) => {
+				return Err(tg::error!(%id, "expected a node"));
 			},
 		};
 

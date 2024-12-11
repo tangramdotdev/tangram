@@ -1241,6 +1241,162 @@ async fn tagged_package() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn tagged_larger_package() -> tg::Result<()> {
+	let temp = Temp::new();
+	let options = Config::with_path(temp.path().to_owned());
+	let server = Server::start(options).await?;
+	let result = AssertUnwindSafe(async {
+		publish(
+			&server,
+			"a",
+			temp::directory! {
+				"tangram.ts" => indoc::indoc!(r#"
+					export * as bar from "./bar/bar.tg.ts";
+					import foo from "./foo/foo.tg.ts";
+					export default tg.target(() => foo());
+				"#),
+				"foo" => temp::directory! {
+					"foo.tg.ts" => indoc::indoc!(r#"
+							import * as a from "../tangram.ts";
+							export default tg.target(() => a.bar.bar());
+						"#)
+				},
+				"bar" => temp::directory! {
+					"bar.tg.ts" => indoc::indoc!(r#"
+							export const bar = tg.target(async () => "bar");
+						"#),
+				},
+			},
+		)
+		.await?;
+		let artifact = temp::directory! {
+			"tangram.ts" => indoc::indoc!(r#"
+				import a from "a";
+				export default tg.target(async () => {
+					return await a();
+				});
+			"#)
+		};
+		let (_artifact, _metadata, lockfile, output) = checkin(&server, artifact).await?;
+		let lockfile = lockfile.expect("expected a lockfile");
+		assert_json_snapshot!(lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01yxkcc059zc07hnf4etmsgjewzd3wgtqe4g00gz4jgrebbhh4fp50"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "a": {
+            "item": "dir_0189v70v9r00txzyqrcjbrz7qj4x4qcfezjyssh616hm2460nz7n00",
+            "subpath": "tangram.ts",
+            "tag": "a"
+          }
+        },
+        "id": "fil_01316ba1nytx131ftyk7wz0qnpae3wam182e3znn2btbr5er06b7s0"
+      }
+    ]
+  }
+  "#);
+		assert_snapshot!(output, @r#"
+  tg.directory({
+  	"tangram.ts": tg.file({
+  		"contents": tg.leaf("import a from \"a\";\nexport default tg.target(async () => {\n\treturn await a();\n});\n"),
+  		"dependencies": {
+  			"a": {
+  				"item": tg.directory({
+  					"graph": tg.graph({
+  						"nodes": [
+  							{
+  								"kind": "directory",
+  								"entries": {
+  									"bar": 2,
+  									"baz": tg.file({
+  										"contents": tg.leaf("plain file"),
+  									}),
+  									"foo": tg.directory({
+  										"foo.tg.ts": tg.file({
+  											"contents": tg.leaf("export default tg.target(() => \"foo\")\n"),
+  										}),
+  									}),
+  									"tangram.ts": 1,
+  								},
+  							},
+  							{
+  								"kind": "file",
+  								"contents": tg.leaf("import foo from \"./foo/foo.tg.ts\";\nimport bar from \"./bar/bar.tg.ts\";\nimport quux from \"./bar/quux.tg.ts\";\nexport default tg.target(() => foo() + bar() + quux());\n"),
+  								"dependencies": {
+  									"./bar/bar.tg.ts": {
+  										"item": 0,
+  										"path": "",
+  										"subpath": "bar/bar.tg.ts",
+  									},
+  									"./bar/quux.tg.ts": {
+  										"item": 0,
+  										"path": "",
+  										"subpath": "bar/quux.tg.ts",
+  									},
+  									"./foo/foo.tg.ts": {
+  										"item": 0,
+  										"path": "",
+  										"subpath": "foo/foo.tg.ts",
+  									},
+  								},
+  							},
+  							{
+  								"kind": "directory",
+  								"entries": {
+  									"bar.tg.ts": 4,
+  									"quux.tg.ts": 3,
+  								},
+  							},
+  							{
+  								"kind": "file",
+  								"contents": tg.leaf("import foo from \"../foo/foo.tg.ts\";\nexport default tg.target(() => foo());\n"),
+  								"dependencies": {
+  									"../foo/foo.tg.ts": {
+  										"item": 0,
+  										"path": "",
+  										"subpath": "foo/foo.tg.ts",
+  									},
+  								},
+  							},
+  							{
+  								"kind": "file",
+  								"contents": tg.leaf("import baz from \"../baz\" with { type: \"file\" };\nexport default tg.target(async () => await baz.text())\n"),
+  								"dependencies": {
+  									"../baz": {
+  										"item": 0,
+  										"path": "",
+  										"subpath": "baz",
+  									},
+  								},
+  							},
+  						],
+  					}),
+  					"node": 0,
+  				}),
+  				"subpath": "tangram.ts",
+  				"tag": "a",
+  			},
+  		},
+  	}),
+  })
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(temp, server).await;
+	result.unwrap()
+}
+
+#[tokio::test]
 async fn diamond_dependency() -> tg::Result<()> {
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
