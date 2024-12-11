@@ -1,5 +1,5 @@
 use crate::Server;
-use std::pin::pin;
+use std::{path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::TryStreamExt as _;
@@ -53,10 +53,11 @@ impl Server {
 				let subpath = reference
 					.options()
 					.and_then(|options| options.subpath.clone());
+				let path = Some(PathBuf::from("."));
 				let output = tg::Referent {
 					item,
 					subpath,
-					path: None,
+					path,
 					tag: None,
 				};
 				Ok(Some(output))
