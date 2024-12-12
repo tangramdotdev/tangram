@@ -1885,6 +1885,61 @@ async fn diamond_dependency() -> tg::Result<()> {
 	result.unwrap()
 }
 
+#[tokio::test]
+async fn repro_panic() -> tg::Result<()> {
+	// Create the first server.
+	let temp1 = Temp::new();
+	let config = Config::with_path(temp1.path().to_owned());
+	let server1 = Server::start(config).await?;
+
+	// Create the second server.
+	let temp2 = Temp::new();
+	// todo: configure the second server to use the first server as a remote.
+	let mut config = Config::with_path(temp2.path().to_owned());
+	config.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: server1.url().clone(),
+		},
+	)]
+	.into();
+	let server2 = Server::start(config).await?;
+
+	let referent = temp::directory! {
+			"tangram.ts" => indoc::indoc!(r#"
+					export default tg.target(() => "foo")
+			"#)
+	};
+	let referrer = temp::directory! {
+			"tangram.ts" => indoc::indoc!(r#"
+					import foo from "foo";
+					export default tg.target(() => foo())
+			"#)
+	};
+
+	publish(&server1, "foo", referent).await?;
+	checkin(&server2, referrer.clone()).await?;
+	cleanup(temp2, server2).await;
+	// Create the second server again.
+	let temp2 = Temp::new();
+	let mut config = Config::with_path(temp2.path().to_owned());
+	config.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: server1.url().clone(),
+		},
+	)]
+	.into();
+	let server2 = Server::start(config).await?;
+
+	// checkin the referrer again, knowing that its lockfile has been written already
+	checkin(&server2, referrer).await?;
+
+	cleanup(temp2, server2).await;
+	cleanup(temp1, server1).await;
+	Ok(())
+}
+
 async fn test<F, Fut>(
 	artifact: impl Into<temp::Artifact>,
 	path: &str,
