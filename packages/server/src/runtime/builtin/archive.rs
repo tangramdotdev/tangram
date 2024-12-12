@@ -2,11 +2,12 @@ use super::Runtime;
 use crate::Server;
 use futures::FutureExt as _;
 use std::{
+	future::Future,
 	path::{Path, PathBuf},
 	str::FromStr,
 };
 use tangram_client as tg;
-use tg::{artifact::archive::Format, Artifact};
+use tokio::io::DuplexStream;
 use tokio_util::compat::{
 	FuturesAsyncWriteCompatExt, TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt,
 };
@@ -49,59 +50,8 @@ impl Runtime {
 
 		// Create the archive task.
 		let archive_task = match format {
-			Format::Tar => {
-				{
-					let artifact = artifact.clone();
-					let server = server.clone();
-					async move {
-						// Create the tar builder.
-						let mut tar = async_tar::Builder::new(writer.compat_write());
-
-						// Create the path from the artifact id.
-						let path = artifact.id(&server).await?.to_string();
-						let path = PathBuf::from_str(path.as_str())
-							.map_err(|source| {
-								tg::error!(!source, "failed to create the artifact path")
-							})
-							.unwrap();
-
-						// Archive the artifact.
-						tar_inner(&server, &artifact, &mut tar, &path).await?;
-
-						// Finish writing the archive.
-						tar.finish()
-							.await
-							.map_err(|source| tg::error!(!source, "failed to write the archive"))
-					}
-					.boxed()
-				}
-			},
-			Format::Zip => {
-				{
-					let artifact = artifact.clone();
-					let server = server.clone();
-					async move {
-						// Create the zip writer.
-						let mut zip = async_zip::base::write::ZipFileWriter::with_tokio(writer);
-
-						// Create the path from the artifact id.
-						let path = artifact.id(&server).await?.to_string();
-						let path = PathBuf::from_str(path.as_str())
-							.map_err(|source| {
-								tg::error!(!source, "failed to create the artifact path")
-							})
-							.unwrap();
-						zip_inner(&server, &artifact, &mut zip, &path).await?;
-
-						// Finish writing the archive.
-						zip.close()
-							.await
-							.map(|_| ())
-							.map_err(|source| tg::error!(!source, "failed to write the archive"))
-					}
-				}
-				.boxed()
-			},
+			tg::artifact::archive::Format::Tar => tar(server, &artifact, writer).left_future(),
+			tg::artifact::archive::Format::Zip => zip(server, &artifact, writer).right_future(),
 		};
 
 		match futures::future::join(archive_task, tg::Blob::with_reader(server, reader)).await {
@@ -115,9 +65,36 @@ impl Runtime {
 	}
 }
 
+fn tar(
+	server: &Server,
+	artifact: &tg::Artifact,
+	writer: DuplexStream,
+) -> impl Future<Output = tg::Result<()>> {
+	let artifact = artifact.clone();
+	let server = server.clone();
+	async move {
+		// Create the tar builder.
+		let mut tar = async_tar::Builder::new(writer.compat_write());
+
+		// Create the path from the artifact id.
+		let path = artifact.id(&server).await?.to_string();
+		let path = PathBuf::from_str(path.as_str())
+			.map_err(|source| tg::error!(!source, "failed to create the artifact path"))
+			.unwrap();
+
+		// Archive the artifact.
+		tar_inner(&server, &artifact, &mut tar, &path).await?;
+
+		// Finish writing the archive.
+		tar.finish()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the archive"))
+	}
+}
+
 async fn tar_inner<W>(
 	server: &Server,
-	artifact: &Artifact,
+	artifact: &tg::Artifact,
 	tar: &mut async_tar::Builder<W>,
 	path: &PathBuf,
 ) -> tg::Result<()>
@@ -125,11 +102,11 @@ where
 	W: futures::AsyncWrite + Unpin + Send + Sync,
 {
 	match artifact {
-		Artifact::Directory(directory) => {
+		tg::Artifact::Directory(directory) => {
 			let mut header = async_tar::Header::new_gnu();
 			header.set_size(0);
 			header.set_entry_type(async_tar::EntryType::Directory);
-			header.set_mode(0o744);
+			header.set_mode(0o755);
 			tar.append_data(&mut header, path, &[][..])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to append directory"))?;
@@ -138,7 +115,7 @@ where
 			}
 			Ok(())
 		},
-		Artifact::File(file) => {
+		tg::Artifact::File(file) => {
 			let reader = file.reader(server).await?;
 			let size = reader.size();
 			let executable = file.executable(server).await?;
@@ -152,7 +129,7 @@ where
 				.await
 				.map_err(|source| tg::error!(!source, "failed to append file"))
 		},
-		Artifact::Symlink(symlink) => {
+		tg::Artifact::Symlink(symlink) => {
 			let target = symlink
 				.target(server)
 				.await?
@@ -171,9 +148,37 @@ where
 	}
 }
 
+fn zip(
+	server: &Server,
+	artifact: &tg::Artifact,
+	writer: DuplexStream,
+) -> impl Future<Output = tg::Result<()>> {
+	let artifact = artifact.clone();
+	let server = server.clone();
+	async move {
+		// Create the zip writer.
+		let mut zip = async_zip::base::write::ZipFileWriter::with_tokio(writer);
+
+		// Create the path from the artifact id.
+		let path = artifact.id(&server).await?.to_string();
+		let path = PathBuf::from_str(path.as_str())
+			.map_err(|source| tg::error!(!source, "failed to create the artifact path"))
+			.unwrap();
+
+		// Archive the artifact.
+		zip_inner(&server, &artifact, &mut zip, &path).await?;
+
+		// Finish writing the archive.
+		zip.close()
+			.await
+			.map(|_| ())
+			.map_err(|source| tg::error!(!source, "failed to write the archive"))
+	}
+}
+
 async fn zip_inner<W>(
 	server: &Server,
-	artifact: &Artifact,
+	artifact: &tg::Artifact,
 	zip: &mut async_zip::tokio::write::ZipFileWriter<W>,
 	path: &Path,
 ) -> tg::Result<()>
@@ -181,13 +186,13 @@ where
 	W: tokio::io::AsyncWrite + Unpin + Send + Sync,
 {
 	match artifact {
-		Artifact::Directory(directory) => {
+		tg::Artifact::Directory(directory) => {
 			let entry_filename = format!("{}/", path.to_string_lossy());
 			let builder = async_zip::ZipEntryBuilder::new(
 				entry_filename.into(),
 				async_zip::Compression::Deflate,
 			)
-			.unix_permissions(0o744);
+			.unix_permissions(0o755);
 			zip.write_entry_whole(builder.build(), &[][..])
 				.await
 				.map_err(|source| tg::error!(!source, "could not write the directory entry",))?;
@@ -197,7 +202,7 @@ where
 			}
 			Ok(())
 		},
-		Artifact::File(file) => {
+		tg::Artifact::File(file) => {
 			let executable = file.executable(server).await?;
 			let permissions = if executable { 0o0755 } else { 0o0644 };
 			let builder = async_zip::ZipEntryBuilder::new(
@@ -217,7 +222,7 @@ where
 			entry_writer.into_inner().close().await.unwrap();
 			Ok(())
 		},
-		Artifact::Symlink(symlink) => {
+		tg::Artifact::Symlink(symlink) => {
 			let target = symlink
 				.target(server)
 				.await?
