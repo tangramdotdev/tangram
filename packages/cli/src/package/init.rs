@@ -53,9 +53,11 @@ impl Cli {
 			path.join("tangram.ts"),
 			formatdoc!(
 				r#"
-					import autobuild from "{autobuild_reference}";
+					import * as autobuild from "{autobuild_reference}";
+					import * as std from "std";
 					import source from "." with {{ type: "directory" }};
-					export default tg.target(() => autobuild({{ source }}));
+					export default tg.target(() => autobuild.build({{ env: env(), source }}));
+					export const env = tg.target(() => std.env(autobuild.env({{ source }})));
 				"#,
 			),
 		));
