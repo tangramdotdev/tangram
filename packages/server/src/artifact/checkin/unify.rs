@@ -85,7 +85,7 @@ impl Server {
 		let mut visited_graph_nodes = BTreeMap::new();
 
 		let root = self
-			.create_unification_graph_from_input(input, 0, &mut graph, &mut visited_graph_nodes)
+			.create_unification_node_from_input(input, 0, &mut graph, &mut visited_graph_nodes)
 			.await?;
 
 		// Unify.
@@ -107,7 +107,7 @@ impl Server {
 		Ok((graph, root))
 	}
 
-	async fn create_unification_graph_from_input(
+	async fn create_unification_node_from_input(
 		&self,
 		input: &input::Graph,
 		node: usize,
@@ -129,7 +129,7 @@ impl Server {
 		let input_edges = input_node.edges.clone();
 		'outer: for input_edge in input_edges {
 			if let Some(node) = input_edge.node {
-				let id = Box::pin(self.create_unification_graph_from_input(
+				let id = Box::pin(self.create_unification_node_from_input(
 					input,
 					node,
 					graph,
@@ -148,19 +148,14 @@ impl Server {
 			}
 
 			if let Some(id) = &input_edge.object {
-				let id = if let Some(tag) = &input_edge.tag {
-					let unify = false;
-					self.create_unification_node_from_tagged_object(
+				let id = self
+					.create_unification_node_from_tagged_object(
 						graph,
 						&tg::Object::with_id(id.clone()),
-						tag.clone(),
-						unify,
+						input_edge.tag.clone(),
+						true,
 					)
-					.await?
-				} else {
-					self.create_unification_node_from_object(graph, id.clone())
-						.await?
-				};
+					.await?;
 				let reference = input_edge.reference.clone();
 				let edge = Edge {
 					kind: input_edge.kind,
@@ -189,19 +184,14 @@ impl Server {
 				let Some(object) = referent.item.as_ref().right() else {
 					break 'a;
 				};
-				let id = if let Some(tag) = &referent.tag {
-					let unify = true;
-					self.create_unification_node_from_tagged_object(
+				let id = self
+					.create_unification_node_from_tagged_object(
 						graph,
 						&tg::Object::with_id(object.clone()),
-						tag.clone(),
-						unify,
+						referent.tag.clone(),
+						true,
 					)
-					.await?
-				} else {
-					self.create_unification_node_from_object(graph, object.clone())
-						.await?
-				};
+					.await?;
 				let reference = input_edge.reference.clone();
 				let edge = Edge {
 					kind: input_edge.kind,
@@ -220,7 +210,12 @@ impl Server {
 				},
 				tg::reference::Item::Object(object) => {
 					let id = self
-						.create_unification_node_from_object(graph, object.clone())
+						.create_unification_node_from_tagged_object(
+							graph,
+							&tg::Object::with_id(object.clone()),
+							None,
+							true,
+						)
 						.await?;
 					let reference = input_edge.reference.clone();
 					let edge = Edge {
@@ -260,27 +255,6 @@ impl Server {
 
 		graph.nodes.insert(id.clone(), node);
 
-		Ok(id)
-	}
-
-	#[allow(clippy::unused_async)]
-	async fn create_unification_node_from_object(
-		&self,
-		graph: &mut Graph,
-		object: tg::object::Id,
-	) -> tg::Result<Id> {
-		// Get an ID.
-		let id = Either::Right(graph.counter);
-		graph.counter += 1;
-
-		// Create a node.
-		let node = Node {
-			edges: BTreeMap::new(),
-			errors: Vec::new(),
-			object: Either::Right(object),
-			tag: None,
-		};
-		graph.nodes.insert(id.clone(), node);
 		Ok(id)
 	}
 }
@@ -554,7 +528,7 @@ impl Server {
 			.ok_or_else(|| tg::error!(%reference, "no solution exists"))?;
 
 		let unify = true;
-		self.create_unification_node_from_tagged_object(graph, &object, tag, unify)
+		self.create_unification_node_from_tagged_object(graph, &object, Some(tag), unify)
 			.await
 	}
 
@@ -562,14 +536,14 @@ impl Server {
 		&self,
 		graph: &mut Graph,
 		object: &tg::Object,
-		tag: tg::Tag,
+		tag: Option<tg::Tag>,
 		unify: bool,
 	) -> tg::Result<Id> {
 		let mut visited = BTreeMap::new();
 		self.create_unification_node_from_tagged_object_inner(
 			graph,
 			object,
-			Some(tag),
+			tag,
 			unify,
 			&mut visited,
 		)
@@ -671,16 +645,9 @@ impl Server {
 				};
 				edges.insert(reference, edge);
 			} else {
-				let object = match (&referent.item, &referent.subpath) {
-					(tg::Object::Directory(directory), Some(subpath)) => {
-						directory.get(self, subpath).await?.into()
-					},
-					(_, Some(_)) => return Err(tg::error!("unexpected subpath")),
-					(object, None) => object.clone(),
-				};
 				let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
 					graph,
-					&object,
+					&referent.item,
 					referent.tag,
 					true,
 					visited,
@@ -705,6 +672,7 @@ impl Server {
 		visited: &mut BTreeMap<tg::object::Id, Id>,
 	) -> tg::Result<BTreeMap<tg::Reference, Edge>> {
 		let mut edges = BTreeMap::new();
+		let subpath = symlink.subpath(self).await?;
 		if let Some(artifact) = symlink.artifact(self).await? {
 			let reference = tg::Reference::with_object(&artifact.id(self).await?.into());
 			let id = Box::pin(self.create_unification_node_from_tagged_object_inner(
@@ -719,7 +687,7 @@ impl Server {
 				kind: None,
 				referent: id,
 				path: None,
-				subpath: None,
+				subpath,
 			};
 			edges.insert(reference, edge);
 		}

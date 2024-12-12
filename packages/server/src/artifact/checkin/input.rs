@@ -791,7 +791,7 @@ impl Server {
 				.ok_or_else(|| tg::error!(%subpath = subpath.display(), "invalid subpath"))?
 				.parse()
 				.map_err(|_| tg::error!(%subpath = subpath.display(), "expected an object id"))?;
-			let subpath = components.collect();
+			let subpath: PathBuf = components.collect();
 			Edge {
 				kind: None,
 				reference: tg::Reference::with_path(target),

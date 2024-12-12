@@ -141,8 +141,17 @@ impl Server {
 			// Iterate the scc in reverse order.
 			scc.reverse();
 
-			// Special case: the node is a bare object.
-			if scc.len() == 1 && graph.nodes[scc[0]].unify.object.is_right() {
+			// Special case: the node is not an artifact.
+			if scc.len() == 1
+				&& matches!(
+					graph.nodes[scc[0]].unify.object,
+					Either::Right(
+						tg::object::Id::Branch(_)
+							| tg::object::Id::Graph(_)
+							| tg::object::Id::Leaf(_)
+							| tg::object::Id::Target(_)
+					)
+				) {
 				let id = graph.nodes[scc[0]]
 					.unify
 					.object
@@ -261,47 +270,33 @@ impl Server {
 		&self,
 		input: &input::Graph,
 		graph: &mut Graph,
+		node: usize,
+		indices: &BTreeMap<usize, usize>,
+		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
+	) -> tg::Result<tg::graph::data::Node> {
+		if graph.nodes[node].unify.object.is_left() {
+			self.create_graph_node_data_from_input(input, graph, node, indices, file_metadata)
+				.await
+		} else {
+			self.create_graph_node_data_from_object(graph, node, indices)
+				.await
+		}
+	}
+
+	async fn create_graph_node_data_from_input(
+		&self,
+		input: &input::Graph,
+		graph: &mut Graph,
 		index: usize,
 		indices: &BTreeMap<usize, usize>,
 		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Get the input metadata, or skip if the node is an object.
-		let (input_index, path, metadata) = match graph.nodes[index].unify.object.clone() {
-			Either::Left(input_index) => {
-				let input = &input.nodes[input_index];
-				(input_index, input.arg.path.clone(), input.metadata.clone())
-			},
-			Either::Right(id) => {
-				// Note: this code path should only be taken if the node in the unification graph was resolved by tag or ID and it was not present in the input graph, implying that this is not a symmetric checkin, and the object was valid to begin with. In this case the graph that would be constructed must be identical to the graph pulled from the remote or in the database, so we can reuse the same graph data here instead of recomputing edges and returning an error if the ID of the new object did not match.
-				let object = tg::Object::with_id(id.clone())
-					.object(self)
-					.await
-					.map_err(|source| tg::error!(!source, %object = id, "failed to get object"))?;
-				let (graph, node) = match object {
-					tg::object::Object::Directory(directory) => match directory.as_ref() {
-						tg::directory::Object::Graph { graph, node } => (graph.clone(), *node),
-						tg::directory::Object::Normal { .. } => return Err(tg::error!(%id, "expected a graph object")),
-					},
-
-					tg::object::Object::File(directory) => match directory.as_ref() {
-						tg::file::Object::Graph { graph, node } => (graph.clone(), *node),
-						tg::file::Object::Normal { .. } => return Err(tg::error!(%id, "expected a graph object")),
-					},
-
-					tg::object::Object::Symlink(directory) => match directory.as_ref() {
-						tg::symlink::Object::Graph { graph, node } => (graph.clone(), *node),
-						_ => return Err(tg::error!(%id, "expected a graph object")),
-					},
-
-					_ => return Err(tg::error!(%id, "expected a graph object")),
-				};
-				let data = graph
-					.data(self)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get graph object"))?;
-				return Ok(data.nodes[node].clone());
-			},
-		};
+		let input_index = graph.nodes[index].unify.object.clone().unwrap_left();
+		let (path, metadata) = (
+			input.nodes[input_index].arg.path.clone(),
+			input.nodes[input_index].metadata.clone(),
+		);
 
 		let edges = graph.nodes[index]
 			.edges
@@ -381,6 +376,147 @@ impl Server {
 			return Err(tg::error!("invalid file type"));
 		};
 
+		Ok(node)
+	}
+
+	async fn create_graph_node_data_from_object(
+		&self,
+		graph: &mut Graph,
+		node: usize,
+		indices: &BTreeMap<usize, usize>,
+	) -> tg::Result<tg::graph::data::Node> {
+		let original_id = graph.nodes[node].unify.object.clone().unwrap_right();
+
+		let edges = graph.nodes[node]
+			.edges
+			.iter()
+			.map(|edge| {
+				let id = if let Some(new_index) = indices.get(&edge.index) {
+					Either::Left(*new_index)
+				} else {
+					let id = graph.nodes[edge.index].id.clone().unwrap();
+					Either::Right(id)
+				};
+				RemappedEdge {
+					id,
+					path: edge.path.clone(),
+					reference: edge.reference.clone(),
+					subpath: edge.subpath.clone(),
+					tag: edge.tag.clone(),
+				}
+			})
+			.collect::<Vec<_>>();
+
+		let node = match original_id {
+			tg::object::Id::Directory(_) => {
+				let entries = edges
+					.into_iter()
+					.map(|edge| {
+						let name = edge
+							.reference
+							.item()
+							.unwrap_path_ref()
+							.components()
+							.last()
+							.unwrap()
+							.as_os_str()
+							.to_str()
+							.unwrap()
+							.to_owned();
+						let id = edge.id.map_right(|id| id.try_into().unwrap());
+						(name, id)
+					})
+					.collect();
+				let directory = tg::graph::data::Directory { entries };
+				tg::graph::data::Node::Directory(directory)
+			},
+			tg::object::Id::File(file) => {
+				let data = tg::File::with_id(file.clone())
+					.data(self)
+					.await
+					.map_err(|source| tg::error!(!source, %file, "missing file"))?;
+				let (contents, executable) = match data {
+					tg::file::Data::Graph { graph, node } => {
+						let data = tg::Graph::with_id(graph.clone())
+							.data(self)
+							.await
+							.map_err(|source| tg::error!(!source, %graph, "missing graph"))?
+							.nodes[node]
+							.clone();
+						let tg::graph::data::Node::File(file) = data else {
+							return Err(tg::error!(%graph, %node, "expected a file node"));
+						};
+						(file.contents, file.executable)
+					},
+					tg::file::Data::Normal {
+						contents,
+						executable,
+						..
+					} => (contents, executable),
+				};
+				// Compute the dependencies, which will be shared in all cases.
+				let dependencies = edges
+					.into_iter()
+					.map(|edge| {
+						let dependency = tg::Referent {
+							item: edge.id,
+							path: edge.path,
+							tag: edge.tag,
+							subpath: edge.subpath,
+						};
+						(edge.reference, dependency)
+					})
+					.collect();
+				tg::graph::data::Node::File(tg::graph::data::File {
+					contents,
+					dependencies,
+					executable,
+				})
+			},
+			tg::object::Id::Symlink(symlink) => {
+				if let Some(edge) = edges.first().cloned() {
+					let artifact = edge.id.map_right(|object| match object {
+						tg::object::Id::Directory(a) => a.into(),
+						tg::object::Id::File(a) => a.into(),
+						tg::object::Id::Symlink(a) => a.into(),
+						_ => unreachable!(),
+					});
+					let subpath = edge
+						.subpath
+						.map(|path| path.strip_prefix("./").unwrap_or(&path).to_owned());
+					let symlink = tg::graph::data::Symlink::Artifact { artifact, subpath };
+					tg::graph::data::Node::Symlink(symlink)
+				} else {
+					let data = tg::Symlink::with_id(symlink.clone())
+						.data(self)
+						.await
+						.map_err(|source| tg::error!(!source, %symlink, "missing symlink"))?;
+					let target = match data {
+						tg::symlink::Data::Artifact { .. } => {
+							return Err(tg::error!(%symlink, "expected a target symlink"))
+						},
+						tg::symlink::Data::Graph { graph, node } => {
+							let data = tg::Graph::with_id(graph.clone())
+								.data(self)
+								.await
+								.map_err(|source| tg::error!(!source, %graph, "missing graph"))?
+								.nodes[node]
+								.clone();
+							let tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target {
+								target,
+							}) = data
+							else {
+								return Err(tg::error!(%graph, %node, "expected a target symlink"));
+							};
+							target
+						},
+						tg::symlink::Data::Target { target } => target,
+					};
+					tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target { target })
+				}
+			},
+			_ => return Err(tg::error!(%id = original_id, "unexpected object in graph")),
+		};
 		Ok(node)
 	}
 

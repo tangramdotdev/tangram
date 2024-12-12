@@ -20,7 +20,7 @@ pub struct Graph {
 
 #[derive(Clone, Debug)]
 pub struct Node {
-	pub input: usize,
+	pub input: Option<usize>,
 	pub id: tg::artifact::Id,
 	pub data: tg::artifact::Data,
 	pub metadata: tg::object::Metadata,
@@ -76,11 +76,12 @@ impl Server {
 		}
 
 		// Get the corresponding input node.
-		let input_index = *object.nodes[object_index]
+		let input_index = object.nodes[object_index]
 			.unify
 			.object
 			.as_ref()
-			.unwrap_left();
+			.left()
+			.copied();
 
 		// Create the output node.
 		let output_index = {
@@ -107,21 +108,16 @@ impl Server {
 		let edges = object.nodes[object_index]
 			.edges
 			.iter()
-			.filter_map(|edge| {
-				if object.nodes[edge.index].unify.object.is_right() {
-					return None;
-				}
-				let future = Box::pin(
-					self.create_output_graph_inner(input, object, edge.index, state),
+			.map(|edge| {
+				Box::pin(self.create_output_graph_inner(input, object, edge.index, state)).map(
+					|node| {
+						node.map(|node| Edge {
+							reference: edge.reference.clone(),
+							subpath: edge.subpath.clone(),
+							node,
+						})
+					},
 				)
-				.map(|node| {
-					node.map(|node| Edge {
-						reference: edge.reference.clone(),
-						subpath: edge.subpath.clone(),
-						node,
-					})
-				});
-				Some(future)
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
@@ -171,6 +167,7 @@ impl Server {
 				"
 			);
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+
 			let params: Vec<tangram_database::Value> = db::params![
 				output.id,
 				output.data.serialize()?,
@@ -350,7 +347,9 @@ impl Server {
 		// Recurse.
 		for edge in &output.nodes[node].edges {
 			// Skip any children that are roots.
-			let input_index = output.nodes[edge.node].input;
+			let Some(input_index) = output.nodes[edge.node].input else {
+				continue;
+			};
 			if input.nodes[input_index].parent.is_none() {
 				continue;
 			}
@@ -397,7 +396,9 @@ impl Server {
 			visited[output_index] = true;
 
 			// Get the input index.
-			let input_index = output.nodes[output_index].input;
+			let Some(input_index) = output.nodes[output_index].input else {
+				continue;
+			};
 			if input.nodes[input_index].parent.is_none() {
 				// Create a temp.
 				let temp = Temp::new(self);
@@ -455,7 +456,9 @@ impl Server {
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<()> {
 		// Check if we've visited this node.
-		let input_index = output.nodes[node].input;
+		let Some(input_index) = output.nodes[node].input else {
+			return Ok(());
+		};
 		let input_node = input.nodes[input_index].clone();
 		if visited.contains(&input_node.arg.path) {
 			return Ok(());
@@ -480,7 +483,9 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to create directory"))?;
 			let dependencies = output.nodes[node].edges.clone();
 			for edge in dependencies {
-				let input_index = output.nodes[edge.node].input;
+				let Some(input_index) = output.nodes[edge.node].input else {
+					continue;
+				};
 				let input_node_ = &input.nodes[input_index];
 				let diff = input_node_
 					.arg
@@ -679,7 +684,7 @@ impl Server {
 			});
 		if let Some((artifact, subpath)) = artifact_and_subpath {
 			// Find how deep this node is in the output tree.
-			let mut input_index = output.nodes[symlink].input;
+			let mut input_index = output.nodes[symlink].input.unwrap();
 			let mut depth = 0;
 			loop {
 				let Some(parent) = input.nodes[input_index].parent else {
