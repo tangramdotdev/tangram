@@ -39,6 +39,12 @@ impl Proxy {
 	}
 
 	fn host_path_for_guest_path(&self, path: PathBuf) -> PathBuf {
+		// If the path is a tempdir, don't remap.
+		#[cfg(target_os = "linux")]
+		if path.starts_with("/tmp") {
+			return path;
+		}
+
 		// Get the path map. If there is no path map, then the guest path is the host path.
 		let Some(path_map) = &self.path_map else {
 			return path;
