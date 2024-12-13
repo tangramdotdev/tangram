@@ -34,6 +34,8 @@ async-broadcast = { workspace = true }
 async-channel = { workspace = true }
 async-compression = { workspace = true }
 async-nats = { workspace = true }
+async-tar = { workspace = true }
+async_zip = { workspace = true }
 biome_js_formatter = { workspace = true }
 biome_js_parser = { workspace = true }
 biome_js_syntax = { workspace = true }
