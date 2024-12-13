@@ -1258,6 +1258,164 @@ async fn tagged_package() -> tg::Result<()> {
 	result.unwrap()
 }
 
+#[tokio::test]
+async fn tagged_package_survives_clean() -> tg::Result<()> {
+	// Create a remote server.
+	let temp1 = Temp::new();
+	let options = Config::with_path(temp1.path().to_owned());
+	let remote = Server::start(options.clone()).await?;
+
+	// Create one local server.
+	let temp2 = Temp::new();
+	let mut options = Config::with_path(temp2.path().to_owned());
+	options.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
+	.into();
+	let local1 = Server::start(options.clone()).await?;
+
+	// Create a second local server.
+	let temp3 = Temp::new();
+	let mut options = Config::with_path(temp3.path().to_owned());
+	options.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
+	.into();
+	let local2 = Server::start(options.clone()).await?;
+
+	// Run the test.
+	let result = AssertUnwindSafe(async {
+		// Publish some tag to the remote.
+		publish(&remote, "foo", temp::file!("foo")).await?;
+
+		// Create the artifact.
+		let artifact: temp::Artifact = temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				import * as foo from "foo";
+			"#),
+		}
+		.into();
+		let temp = Temp::new();
+		artifact.to_path(temp.path()).await.unwrap();
+
+		// Checkin the artifact to the first local server.
+		let arg = tg::artifact::checkin::Arg {
+			path: temp.path().to_owned(),
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			lockfile: true,
+		};
+		let artifact1 = tg::Artifact::check_in(&local1, arg).await?;
+		let lockfile1 = tg::Lockfile::try_read(&temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await?
+			.ok_or_else(|| tg::error!("expected a lockfile"))?;
+		let object: tg::Object = artifact1.clone().into();
+		object.load_recursive(&local1).await?;
+		let value = tg::Value::from(artifact1.clone());
+		let options = tg::value::print::Options {
+			recursive: true,
+			style: tg::value::print::Style::Pretty { indentation: "\t" },
+		};
+		let output1 = value.print(options);
+		assert_json_snapshot!(lockfile1, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_014bw58eaehve3bapw98ddghp7f10r42fxcgqpgh5bvban9cezdcsg"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "foo": {
+            "item": 2,
+            "tag": "foo"
+          }
+        },
+        "id": "fil_01wsncpvawtp5wmx8aarkr8j2nsgwywm1xjzcp5nrjby5g4cjs4bg0"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_010kgbpefk1cd3ztw9ymvcjez1a1amgbfq91kmp06jdsd7axvq0bmg",
+        "id": "fil_01mav0wfrn654f51gn5dbk8t8akh830xd1a97yjd1j85w5y8evmc1g"
+      }
+    ]
+  }
+  "#);
+
+		// Checkin the artifact to the second local server.
+		let arg = tg::artifact::checkin::Arg {
+			path: temp.path().to_owned(),
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			lockfile: true,
+		};
+		let artifact2 = tg::Artifact::check_in(&local2, arg).await?;
+		let lockfile2 = tg::Lockfile::try_read(&temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await?
+			.ok_or_else(|| tg::error!("expected a lockfile"))?;
+
+		let object: tg::Object = artifact2.clone().into();
+		object.load_recursive(&local2).await?;
+		let value = tg::Value::from(artifact2.clone());
+		let options = tg::value::print::Options {
+			recursive: true,
+			style: tg::value::print::Style::Pretty { indentation: "\t" },
+		};
+		let output2 = value.print(options);
+
+		assert_eq!(output1, output2);
+		assert_json_snapshot!(lockfile2, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_014bw58eaehve3bapw98ddghp7f10r42fxcgqpgh5bvban9cezdcsg"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "foo": {
+            "item": 2,
+            "tag": "foo"
+          }
+        },
+        "id": "fil_01wsncpvawtp5wmx8aarkr8j2nsgwywm1xjzcp5nrjby5g4cjs4bg0"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_010kgbpefk1cd3ztw9ymvcjez1a1amgbfq91kmp06jdsd7axvq0bmg",
+        "id": "fil_01mav0wfrn654f51gn5dbk8t8akh830xd1a97yjd1j85w5y8evmc1g"
+      }
+    ]
+  }
+  "#);
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+
+	cleanup(temp1, remote).await;
+	cleanup(temp2, local1).await;
+	cleanup(temp3, local2).await;
+	result.unwrap()
+}
 // This tests the following use case:
 //
 // A user tags a package, `a/1.0.0`. Another user tags a package `b` that depends on `a/*` and internally contains a cycle. Some time later, a user tags a package `a/1.1.0` that depends on `b/*`. Finally, a downstream user imports `b/*`.

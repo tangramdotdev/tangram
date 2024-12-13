@@ -128,6 +128,7 @@ impl Server {
 		// Add dependencies.
 		let input_edges = input_node.edges.clone();
 		'outer: for input_edge in input_edges {
+			// If there is an input node at the edge, convert it to a unification node and continue.
 			if let Some(node) = input_edge.node {
 				let id = Box::pin(self.create_unification_node_from_input(
 					input,
@@ -148,6 +149,7 @@ impl Server {
 			}
 
 			if let Some(id) = &input_edge.object {
+				// If the item at the edge is an object, create a unification node for the object and continue.
 				let id = self
 					.create_unification_node_from_tagged_object(
 						graph,
@@ -170,20 +172,62 @@ impl Server {
 			// Check if there is a solution in the lock file.
 			let lockfile = input_node.lockfile.clone();
 			'a: {
+				// If there is no lockfile, break.
 				let Some(lockfile) = lockfile else {
 					break 'a;
 				};
+
+				// If there is no resolution in the lockfile, break.
 				let Some(referent) =
 					lockfile.try_resolve_dependency(&input_node.arg.path, &input_edge.reference)?
 				else {
+					// If we didn't find a resolution and the --locked arg was passed, it means the lockfile was out of date and we need to error.
 					if input_node.arg.locked {
 						return Err(tg::error!("lockfile is out of date"));
 					};
 					break 'a;
 				};
-				let Some(object) = referent.item.as_ref().right() else {
-					break 'a;
+
+				// Get the object ID from the lockfile.
+				let object = match referent.item.as_ref() {
+					// If the item in the lockfile is accessible at a file system path, we assume its presence in the input graph and can break.
+					Some(Either::Left(_path)) => break 'a,
+
+					// If the item in the lockfile is accessible by ID, we get its ID and break.
+					Some(Either::Right(object)) => object.clone(),
+
+					// If the item in the lockfile is not on disk, and we don't know its ID, we attempt to resolve it by tag. Note: this happens _pre_ unification, to ensure that the tag dependencies from the lockfile are re-used.
+					None => {
+						// If the referent has no tag, break.
+						let Some(tag) = &referent.tag else {
+							break 'a;
+						};
+
+						// Parse the tag pattern from the tag in the lockfile.
+						let pattern = tag
+							.as_str()
+							.parse()
+							.map_err(|_| tg::error!("invalid tag"))?;
+
+						// Get the item referred to by tag.
+						let Some(output) = self.try_get_tag(&pattern).await? else {
+							if input_node.arg.locked {
+								// Fail early.
+								return Err(
+									tg::error!(%tag, "the lockfile is up to date, but the tag could not be resolved"),
+								);
+							}
+							break 'a;
+						};
+						output
+							.item
+							.ok_or_else(|| tg::error!(%tag, "expected an item"))?
+							.right()
+							.ok_or_else(|| tg::error!(%tag, "expected an object"))?
+					},
 				};
+
+				// Given the ID of the item, and its tag, attempt to create a unification node.
 				let id = self
 					.create_unification_node_from_tagged_object(
 						graph,
@@ -192,6 +236,8 @@ impl Server {
 						true,
 					)
 					.await?;
+
+				// Update the edges and continue the loop.
 				let reference = input_edge.reference.clone();
 				let edge = Edge {
 					kind: input_edge.kind,

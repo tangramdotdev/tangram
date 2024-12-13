@@ -275,12 +275,13 @@ fn strip_subpath(base: &Path, subpath: &Path) -> tg::Result<PathBuf> {
 	Ok(path)
 }
 
+pub type ResolvedDependency = Option<Either<PathBuf, tg::object::Id>>;
 impl ParsedLockfile {
 	pub fn try_resolve_dependency(
 		&self,
 		node_path: &Path,
 		reference: &tg::Reference,
-	) -> tg::Result<Option<tg::Referent<Either<PathBuf, tg::object::Id>>>> {
+	) -> tg::Result<Option<tg::Referent<ResolvedDependency>>> {
 		let node = self.get_node_for_path(node_path)?;
 
 		// Dependency resolution is only valid for files.
@@ -297,12 +298,15 @@ impl ParsedLockfile {
 		// Resolve the item.
 		let item = match &referent.item {
 			Either::Left(index) => {
-				let path = self.paths[*index].clone().ok_or_else(
-					|| tg::error!(%reference, "could not resolve dependency with lockfile, missing artifact"),
-				)?;
-				Either::Left(path)
+				if let Some(path) = self.paths[*index].clone() {
+					Some(Either::Left(path))
+				} else if referent.tag.is_some() {
+					None
+				} else {
+					return Ok(None);
+				}
 			},
-			Either::Right(object) => Either::Right(object.clone()),
+			Either::Right(object) => Some(Either::Right(object.clone())),
 		};
 
 		// Construct the referent.
@@ -312,6 +316,7 @@ impl ParsedLockfile {
 			path: referent.path.clone(),
 			subpath: referent.subpath.clone(),
 		};
+
 		Ok(Some(referent))
 	}
 
