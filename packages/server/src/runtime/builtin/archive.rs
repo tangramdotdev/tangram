@@ -116,6 +116,9 @@ where
 			Ok(())
 		},
 		tg::Artifact::File(file) => {
+			if !file.dependencies(server).await?.is_empty() {
+				return Err(tg::error!("cannot archive a file with dependencies"));
+			}
 			let reader = file.reader(server).await?;
 			let size = reader.size();
 			let executable = file.executable(server).await?;
@@ -133,7 +136,7 @@ where
 			let target = symlink
 				.target(server)
 				.await?
-				.ok_or_else(|| tg::error!("failed to get symlink target"))?;
+				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
 			let mut header = async_tar::Header::new_gnu();
 			header.set_size(0);
 			header.set_entry_type(async_tar::EntryType::Symlink);
@@ -203,6 +206,9 @@ where
 			Ok(())
 		},
 		tg::Artifact::File(file) => {
+			if !file.dependencies(server).await?.is_empty() {
+				return Err(tg::error!("cannot archive a file with dependencies"));
+			}
 			let executable = file.executable(server).await?;
 			let permissions = if executable { 0o0755 } else { 0o0644 };
 			let builder = async_zip::ZipEntryBuilder::new(
@@ -226,7 +232,7 @@ where
 			let target = symlink
 				.target(server)
 				.await?
-				.ok_or_else(|| tg::error!("failed to get symlink target"))?;
+				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
 			let builder = async_zip::ZipEntryBuilder::new(
 				path.to_string_lossy().as_ref().into(),
 				async_zip::Compression::Deflate,
