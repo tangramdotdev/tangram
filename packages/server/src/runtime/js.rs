@@ -370,7 +370,7 @@ impl Runtime {
 			)),
 		};
 
-		// Join the log task.
+		// Stop and await the log task.
 		state.log_sender.borrow_mut().take().unwrap();
 		log_task
 			.await

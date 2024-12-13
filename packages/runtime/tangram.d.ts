@@ -247,7 +247,7 @@ declare namespace tg {
 		/** An artifact ID. */
 		export type Id = tg.Directory.Id | tg.File.Id | tg.Symlink.Id;
 
-		export type ArchiveFormat = "tar" | "zip";
+		export type ArchiveFormat = "tar" | "tgar" | "zip";
 
 		/** Get an artifact with an ID. */
 		export let withId: (id: tg.Artifact.Id) => tg.Artifact;
@@ -408,7 +408,9 @@ declare namespace tg {
 	}
 
 	/** Create a symlink. */
-	export let symlink: (arg: tg.Unresolved<tg.Symlink.Arg>) => Promise<tg.Symlink>;
+	export let symlink: (
+		arg: tg.Unresolved<tg.Symlink.Arg>,
+	) => Promise<tg.Symlink>;
 
 	/** A symlink. */
 	export class Symlink {

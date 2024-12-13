@@ -1,15 +1,9 @@
 use super::Runtime;
 use crate::Server;
-use futures::FutureExt as _;
-use std::{
-	future::Future,
-	path::{Path, PathBuf},
-	str::FromStr,
-};
+use std::path::Path;
 use tangram_client as tg;
-use tokio::io::DuplexStream;
 use tokio_util::compat::{
-	FuturesAsyncWriteCompatExt, TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt,
+	FuturesAsyncWriteCompatExt as _, TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _,
 };
 
 impl Runtime {
@@ -45,61 +39,71 @@ impl Runtime {
 			.parse::<tg::artifact::archive::Format>()
 			.map_err(|source| tg::error!(!source, "invalid format"))?;
 
-		// Create the output file. Duplex due to tokio #6914.
-		let (reader, writer) = tokio::io::duplex(8192);
-
 		// Create the archive task.
-		let archive_task = match format {
-			tg::artifact::archive::Format::Tar => tar(server, &artifact, writer).left_future(),
-			tg::artifact::archive::Format::Zip => zip(server, &artifact, writer).right_future(),
+		let blob = match format {
+			tg::artifact::archive::Format::Tar => tar(server, &artifact).await?,
+			tg::artifact::archive::Format::Tgar => {
+				tangram_archive::archive(server, &artifact).await?
+			},
+			tg::artifact::archive::Format::Zip => zip(server, &artifact).await?,
 		};
 
-		match futures::future::join(archive_task, tg::Blob::with_reader(server, reader)).await {
-			(Ok(()), Ok(blob)) => Ok(blob.into()),
-			(Ok(()), Err(source)) => Err(tg::error!(!source, "unable to generate the blob")),
-			(Err(source), Ok(_)) => Err(tg::error!(!source, "unable to generate the archive")),
-			(Err(archive_err), Err(blob_err)) => Err(tg::error!(
-				"unable to generate the archive: {archive_err}, and unable to generate the blob: {blob_err}"
-			)),
-		}
+		Ok(blob.into())
 	}
 }
 
-fn tar(
-	server: &Server,
-	artifact: &tg::Artifact,
-	writer: DuplexStream,
-) -> impl Future<Output = tg::Result<()>> {
-	let artifact = artifact.clone();
-	let server = server.clone();
-	async move {
-		// Create the tar builder.
-		let mut tar = async_tar::Builder::new(writer.compat_write());
+async fn tar(server: &Server, artifact: &tg::Artifact) -> tg::Result<tg::Blob> {
+	// Create a duplex stream.
+	let (reader, writer) = tokio::io::duplex(8192);
 
-		// Create the path from the artifact id.
-		let path = artifact.id(&server).await?.to_string();
-		let path = PathBuf::from_str(path.as_str())
-			.map_err(|source| tg::error!(!source, "failed to create the artifact path"))
-			.unwrap();
+	// Create the archive future.
+	let archive_future = async move {
+		// Create the tar builder.
+		let mut builder = async_tar::Builder::new(writer.compat_write());
 
 		// Archive the artifact.
-		tar_inner(&server, &artifact, &mut tar, &path).await?;
+		let directory = artifact
+			.try_unwrap_directory_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("can only tar a directory"))?;
+		for (name, artifact) in directory.entries(server).await? {
+			tar_inner(server, &mut builder, Path::new(&name), &artifact).await?;
+		}
 
 		// Finish writing the archive.
-		tar.finish()
+		builder
+			.finish()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the archive"))
-	}
+			.map_err(|source| tg::error!(!source, "failed to finish the archive"))?;
+
+		Ok::<_, tg::Error>(())
+	};
+
+	// Create the blob future.
+	let blob_future = tg::Blob::with_reader(server, reader);
+
+	// Join the futures.
+	let blob = match futures::future::join(archive_future, blob_future).await {
+		(_, Ok(blob)) => blob,
+		(Err(source), _) | (_, Err(source)) => {
+			return Err(tg::error!(
+				!source,
+				"failed to join the archive and blob futures"
+			));
+		},
+	};
+
+	Ok(blob)
 }
 
 async fn tar_inner<W>(
 	server: &Server,
+	builder: &mut async_tar::Builder<W>,
+	path: &Path,
 	artifact: &tg::Artifact,
-	tar: &mut async_tar::Builder<W>,
-	path: &PathBuf,
 ) -> tg::Result<()>
 where
-	W: futures::AsyncWrite + Unpin + Send + Sync,
+	W: futures::io::AsyncWrite + Unpin + Send + Sync,
 {
 	match artifact {
 		tg::Artifact::Directory(directory) => {
@@ -107,15 +111,19 @@ where
 			header.set_size(0);
 			header.set_entry_type(async_tar::EntryType::Directory);
 			header.set_mode(0o755);
-			tar.append_data(&mut header, path, &[][..])
+			builder
+				.append_data(&mut header, path, &[][..])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to append directory"))?;
-			for (entry, artifact) in directory.entries(server).await? {
-				Box::pin(tar_inner(server, &artifact.clone(), tar, &path.join(entry))).await?;
+			for (name, artifact) in directory.entries(server).await? {
+				Box::pin(tar_inner(server, builder, &path.join(name), &artifact)).await?;
 			}
 			Ok(())
 		},
 		tg::Artifact::File(file) => {
+			if !file.dependencies(server).await?.is_empty() {
+				return Err(tg::error!("cannot archive a file with dependencies"));
+			}
 			let reader = file.reader(server).await?;
 			let size = reader.size();
 			let executable = file.executable(server).await?;
@@ -125,7 +133,8 @@ where
 			header.set_entry_type(async_tar::EntryType::Regular);
 			let permissions = if executable { 0o0755 } else { 0o0644 };
 			header.set_mode(permissions);
-			tar.append_data(&mut header, path, reader)
+			builder
+				.append_data(&mut header, path, reader)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to append file"))
 		},
@@ -133,7 +142,7 @@ where
 			let target = symlink
 				.target(server)
 				.await?
-				.ok_or_else(|| tg::error!("failed to get symlink target"))?;
+				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
 			let mut header = async_tar::Header::new_gnu();
 			header.set_size(0);
 			header.set_entry_type(async_tar::EntryType::Symlink);
@@ -141,77 +150,102 @@ where
 			header
 				.set_link_name(target.to_string_lossy().as_ref())
 				.map_err(|source| tg::error!(!source, "failed to set symlink target"))?;
-			tar.append_data(&mut header, path, &[][..])
+			builder
+				.append_data(&mut header, path, &[][..])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to append symlink"))
 		},
 	}
 }
 
-fn zip(
-	server: &Server,
-	artifact: &tg::Artifact,
-	writer: DuplexStream,
-) -> impl Future<Output = tg::Result<()>> {
-	let artifact = artifact.clone();
-	let server = server.clone();
-	async move {
-		// Create the zip writer.
-		let mut zip = async_zip::base::write::ZipFileWriter::with_tokio(writer);
+async fn zip(server: &Server, artifact: &tg::Artifact) -> tg::Result<tg::Blob> {
+	// Create a duplex stream.
+	let (reader, writer) = tokio::io::duplex(8192);
 
-		// Create the path from the artifact id.
-		let path = artifact.id(&server).await?.to_string();
-		let path = PathBuf::from_str(path.as_str())
-			.map_err(|source| tg::error!(!source, "failed to create the artifact path"))
-			.unwrap();
+	// Create the archive future.
+	let archive_future = async move {
+		// Create the tar builder.
+		let mut builder = async_zip::base::write::ZipFileWriter::new(writer.compat_write());
 
 		// Archive the artifact.
-		zip_inner(&server, &artifact, &mut zip, &path).await?;
+		let directory = artifact
+			.try_unwrap_directory_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("can only zip a directory"))?;
+		for (name, artifact) in directory.entries(server).await? {
+			zip_inner(server, &mut builder, Path::new(&name), &artifact).await?;
+		}
 
 		// Finish writing the archive.
-		zip.close()
+		builder
+			.close()
 			.await
 			.map(|_| ())
-			.map_err(|source| tg::error!(!source, "failed to write the archive"))
-	}
+			.map_err(|source| tg::error!(!source, "failed to write the archive"))?;
+
+		Ok::<_, tg::Error>(())
+	};
+
+	// Create the blob future.
+	let blob_future = tg::Blob::with_reader(server, reader);
+
+	// Join the futures.
+	let blob = match futures::future::join(archive_future, blob_future).await {
+		(_, Ok(blob)) => blob,
+		(Err(source), _) | (_, Err(source)) => {
+			return Err(tg::error!(
+				!source,
+				"failed to join the archive and blob futures"
+			));
+		},
+	};
+
+	Ok(blob)
 }
 
 async fn zip_inner<W>(
 	server: &Server,
-	artifact: &tg::Artifact,
-	zip: &mut async_zip::tokio::write::ZipFileWriter<W>,
+	builder: &mut async_zip::base::write::ZipFileWriter<W>,
 	path: &Path,
+	artifact: &tg::Artifact,
 ) -> tg::Result<()>
 where
-	W: tokio::io::AsyncWrite + Unpin + Send + Sync,
+	W: futures::io::AsyncWrite + Unpin + Send + Sync,
 {
 	match artifact {
 		tg::Artifact::Directory(directory) => {
-			let entry_filename = format!("{}/", path.to_string_lossy());
-			let builder = async_zip::ZipEntryBuilder::new(
-				entry_filename.into(),
-				async_zip::Compression::Deflate,
-			)
-			.unix_permissions(0o755);
-			zip.write_entry_whole(builder.build(), &[][..])
+			let filename = format!("{}/", path.to_string_lossy());
+			let entry =
+				async_zip::ZipEntryBuilder::new(filename.into(), async_zip::Compression::Deflate)
+					.unix_permissions(0o755);
+			builder
+				.write_entry_whole(entry.build(), &[][..])
 				.await
-				.map_err(|source| tg::error!(!source, "could not write the directory entry",))?;
-
-			for (entry, artifact) in directory.entries(server).await? {
-				Box::pin(zip_inner(server, &artifact.clone(), zip, &path.join(entry))).await?;
+				.map_err(|source| tg::error!(!source, "could not write the directory entry"))?;
+			for (name, artifact) in directory.entries(server).await? {
+				Box::pin(zip_inner(
+					server,
+					builder,
+					&path.join(name),
+					&artifact.clone(),
+				))
+				.await?;
 			}
 			Ok(())
 		},
 		tg::Artifact::File(file) => {
+			if !file.dependencies(server).await?.is_empty() {
+				return Err(tg::error!("cannot archive a file with dependencies"));
+			}
 			let executable = file.executable(server).await?;
 			let permissions = if executable { 0o0755 } else { 0o0644 };
-			let builder = async_zip::ZipEntryBuilder::new(
+			let entry = async_zip::ZipEntryBuilder::new(
 				path.to_string_lossy().as_ref().into(),
 				async_zip::Compression::Deflate,
 			)
 			.unix_permissions(permissions);
-			let mut entry_writer = zip
-				.write_entry_stream(builder)
+			let mut entry_writer = builder
+				.write_entry_stream(entry)
 				.await
 				.unwrap()
 				.compat_write();
@@ -226,15 +260,16 @@ where
 			let target = symlink
 				.target(server)
 				.await?
-				.ok_or_else(|| tg::error!("failed to get symlink target"))?;
-			let builder = async_zip::ZipEntryBuilder::new(
+				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
+			let entry = async_zip::ZipEntryBuilder::new(
 				path.to_string_lossy().as_ref().into(),
 				async_zip::Compression::Deflate,
 			)
 			.unix_permissions(0o120_777);
-			zip.write_entry_whole(builder.build(), target.to_string_lossy().as_bytes())
+			builder
+				.write_entry_whole(entry.build(), target.to_string_lossy().as_bytes())
 				.await
-				.map_err(|source| tg::error!(!source, "could not write the symlink entry",))
+				.map_err(|source| tg::error!(!source, "could not write the symlink entry"))
 		},
 	}
 }

@@ -1,9 +1,11 @@
 use super::Runtime;
-use crate::temp::Temp;
-use std::time::Duration;
+use crate::Server;
+use futures::{AsyncReadExt as _, StreamExt as _, TryStreamExt as _};
+use std::{path::PathBuf, time::Duration};
 use tangram_client as tg;
 use tangram_futures::read::SharedPositionReader;
-use tokio_util::io::SyncIoBridge;
+use tokio::io::{AsyncBufRead, AsyncSeek};
+use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
 
 impl Runtime {
 	pub async fn extract(
@@ -47,6 +49,7 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "io error"))?;
 
+		// Create the log task.
 		let position = reader.shared_position();
 		let size = blob.size(server).await?;
 		let log_task = tokio::spawn({
@@ -81,42 +84,24 @@ impl Runtime {
 			log_task_abort_handle.abort();
 		};
 
-		// Create a temporary path.
-		let temp = Temp::new(server);
-		let path = temp.as_ref().join("archive");
+		let format =
+			format.ok_or_else(|| tg::error!("archive format detection is unimplemented"))?;
 
-		// Extract in a blocking task.
-		tokio::task::spawn_blocking({
-			let reader = SyncIoBridge::new(reader);
-			let path = path.clone();
-			move || {
-				let format = format
-					.ok_or_else(|| tg::error!("archive format detection is unimplemented"))?;
-				match format {
-					tg::artifact::archive::Format::Tar => {
-						let mut archive = tar::Archive::new(reader);
-						archive.set_preserve_permissions(false);
-						archive.set_unpack_xattrs(false);
-						archive.unpack(path).map_err(|source| {
-							tg::error!(!source, "failed to extract the archive")
-						})?;
-					},
-					tg::artifact::archive::Format::Zip => {
-						let mut archive = zip::ZipArchive::new(reader).map_err(|source| {
-							tg::error!(!source, "failed to extract the archive")
-						})?;
-						archive.extract(&path).map_err(|source| {
-							tg::error!(!source, "failed to extract the archive")
-						})?;
-					},
-				}
-				Ok::<_, tg::Error>(())
-			}
-		})
-		.await
-		.unwrap()?;
+		// Extract the artifact.
+		let artifact = match format {
+			tg::artifact::archive::Format::Tar => tar(server, reader).await?,
+			tg::artifact::archive::Format::Tgar => tangram_archive::extract(server, reader).await?,
+			tg::artifact::archive::Format::Zip => zip(server, reader).await?,
+		};
 
+		// Abort and await the log task.
 		log_task.abort();
+		match log_task.await {
+			Ok(()) => Ok(()),
+			Err(error) if error.is_cancelled() => Ok(()),
+			Err(error) => Err(error),
+		}
+		.unwrap();
 
 		// Log that the extraction finished.
 		let message = "finished extracting\n";
@@ -126,20 +111,140 @@ impl Runtime {
 		};
 		build.add_log(server, arg).await.ok();
 
-		// Check in the extracted artifact.
-		let arg = tg::artifact::checkin::Arg {
-			cache: true,
-			destructive: true,
-			deterministic: true,
-			ignore: false,
-			locked: true,
-			lockfile: false,
-			path,
-		};
-		let artifact = tg::Artifact::check_in(server, arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to check in the extracted archive"))?;
-
 		Ok(artifact.into())
 	}
+}
+
+async fn tar<R>(server: &Server, reader: R) -> tg::Result<tg::Artifact>
+where
+	R: tokio::io::AsyncRead + Unpin + Send + Sync + 'static,
+{
+	// Create the reader.
+	let reader = async_tar::Archive::new(reader.compat());
+
+	// Get the entries.
+	let entries: Vec<(PathBuf, tg::Artifact)> = reader
+		.entries()
+		.map_err(|source| tg::error!(!source, "failed to get the entries from the archive"))?
+		.then(|result| async move {
+			let entry = result.map_err(|source| {
+				tg::error!(!source, "failed to get the entry from the archive")
+			})?;
+			let header = entry.header();
+			let path = PathBuf::from(
+				entry
+					.path()
+					.map_err(|source| tg::error!(!source, "failed to get the entry path"))?
+					.as_ref(),
+			);
+			match header.entry_type() {
+				async_tar::EntryType::Regular => {
+					let blob = tg::Blob::with_reader(server, entry.compat()).await?;
+					let file = tg::File::with_contents(blob);
+					let artifact = tg::Artifact::File(file);
+					Ok((path, artifact))
+				},
+				async_tar::EntryType::Symlink => {
+					let target = header
+						.link_name()
+						.map_err(|source| tg::error!(!source, "failed to read the symlink target"))?
+						.ok_or_else(|| tg::error!("no symlink target stored in the archive"))?;
+					let symlink = tg::Symlink::with_target(target.as_ref().into());
+					let artifact = tg::Artifact::Symlink(symlink);
+					Ok((path, artifact))
+				},
+				async_tar::EntryType::Directory => {
+					let directory = tg::Directory::with_entries([].into());
+					let artifact = tg::Artifact::Directory(directory);
+					Ok((path, artifact))
+				},
+				_ => Err(tg::error!("unsupported entry type")),
+			}
+		})
+		.try_collect()
+		.await?;
+
+	// Build the directory.
+	let mut builder = tg::directory::Builder::default();
+	for (path, artifact) in entries {
+		builder = builder.add(server, &path, artifact).await?;
+	}
+	let directory = builder.build();
+
+	Ok(directory.into())
+}
+
+async fn zip<R>(server: &Server, reader: R) -> tg::Result<tg::Artifact>
+where
+	R: AsyncBufRead + AsyncSeek + Unpin + Send + Sync + 'static,
+{
+	// Create the reader.
+	let mut reader = async_zip::base::read::seek::ZipFileReader::new(reader.compat())
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create the zip reader"))?;
+
+	let mut entries: Vec<(PathBuf, tg::Artifact)> = Vec::new();
+	for index in 0..reader.file().entries().len() {
+		// Get the entry.
+		let entry = reader.file().entries().get(index).unwrap();
+
+		// Get the path.
+		let path = PathBuf::from(
+			entry
+				.filename()
+				.as_str()
+				.map_err(|source| tg::error!(!source, "failed to get the entry filename"))?,
+		);
+
+		//Check if the entry is a directory.
+		let is_dir = entry
+			.dir()
+			.map_err(|source| tg::error!(!source, "failed to get type of entry"))?;
+
+		// Check if the entry is a symlink.
+		let is_symlink = match entry.unix_permissions() {
+			Some(permissions) => matches!(permissions & 0o120_000, 0o120_000),
+			None => false,
+		};
+
+		// Create the artifacts.
+		if is_dir {
+			let directory = tg::Directory::with_entries([].into());
+			let artifact = tg::Artifact::Directory(directory);
+			entries.push((path, artifact));
+		} else if is_symlink {
+			let mut entry = reader
+				.reader_without_entry(index)
+				.await
+				.map_err(|source| tg::error!(!source, "unable to get the entry reader"))?;
+			let mut buffer = Vec::new();
+			entry
+				.read_to_end(&mut buffer)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read symlink target"))?;
+			let target = core::str::from_utf8(&buffer)
+				.map_err(|source| tg::error!(!source, "symlink target not valid UTF-8"))?;
+			let symlink = tg::Symlink::with_target(target.into());
+			let artifact = tg::Artifact::Symlink(symlink);
+			entries.push((path, artifact));
+		} else {
+			let entry = reader
+				.reader_without_entry(index)
+				.await
+				.map_err(|source| tg::error!(!source, "unable to get the entry reader"))?;
+			let output = server.create_blob(entry.compat()).await?;
+			let blob = tg::Blob::with_id(output.blob);
+			let artifact = tg::Artifact::File(tg::File::with_contents(blob));
+			entries.push((path, artifact));
+		}
+	}
+
+	// Build the directory.
+	let mut builder = tg::directory::Builder::default();
+	for (path, artifact) in entries {
+		builder = builder.add(server, &path, artifact).await?;
+	}
+	let directory = builder.build();
+
+	Ok(directory.into())
 }

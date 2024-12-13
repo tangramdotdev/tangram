@@ -112,8 +112,14 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
 
-		// Abort the log task.
+		// Abort and await the log task.
 		log_task.abort();
+		match log_task.await {
+			Ok(()) => Ok(()),
+			Err(error) if error.is_cancelled() => Ok(()),
+			Err(error) => Err(error),
+		}
+		.unwrap();
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");

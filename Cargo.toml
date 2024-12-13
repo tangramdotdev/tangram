@@ -1,6 +1,7 @@
 [workspace]
 default-members = ["packages/cli"]
 members = [
+  "packages/archive",
   "packages/cli",
   "packages/client",
   "packages/database",
@@ -129,6 +130,7 @@ swc_core = { version = "9", features = [
   "ecma_visit",
 ] }
 sync_wrapper = "1"
+tangram_archive = { path = "packages/archive" }
 tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
@@ -175,6 +177,9 @@ zip = { version = "2", default-features = false, features = [
   "time",
 ] }
 zstd = "0.13"
+
+[patch.crates-io]
+async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip", rev = "90e365c" }
 
 [profile.dev.package.blake3]
 opt-level = 3
