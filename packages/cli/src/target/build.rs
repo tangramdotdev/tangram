@@ -23,6 +23,10 @@ pub struct Args {
 	#[arg(short, long)]
 	pub checkout: Option<Option<PathBuf>>,
 
+	/// If false, don't create a new build.
+	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
+	pub create: bool,
+
 	/// If this flag is set, then the command will exit immediately instead of waiting for the build to finish.
 	#[arg(short, long, conflicts_with = "checkout")]
 	pub detach: bool,
@@ -275,7 +279,7 @@ impl Cli {
 		// Build the target.
 		let id = target.id(&handle).await?;
 		let arg = tg::target::build::Arg {
-			create: true,
+			create: args.create,
 			parent: None,
 			remote: remote.clone(),
 			retry,

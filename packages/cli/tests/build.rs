@@ -22,8 +22,8 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 			"default": {
 				"url": remote.url()
 			},
-			"vfs": null
-		}
+		},
+		"vfs": null
 	});
 	let mut local = Server::start(local_config.clone()).await?;
 
@@ -92,32 +92,23 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 		.output()
 		.await?;
 	let remote_get_build_output_stdout = String::from_utf8(remote_get_build_output.stdout).unwrap();
+	eprintln!("{remote_get_build_output_stdout}");
 	assert!(!remote_get_build_output_stdout.is_empty());
 
 	// Create a fresh server with the same config.
 	let mut fresh = Server::start(local_config).await?;
 
-	// Build bar.
+	// Build again but expect a cache hit.
 	let fresh_build_bar_output = fresh
 		.tg()
-		.args(["build", bar_temp.path().to_str().unwrap(), "--detach"])
+		.args(["build", bar_temp.path().to_str().unwrap(), "--create=false"])
 		.output()
 		.await?;
+	let err = String::from_utf8(fresh_build_bar_output.stderr).unwrap();
+	eprintln!("err: {err}");
 	let fresh_build_bar_id = String::from_utf8(fresh_build_bar_output.stdout).unwrap();
 	let fresh_build_bar_id = fresh_build_bar_id.trim().to_string();
-	assert!(!fresh_build_bar_id.is_empty());
-
-	let fresh_build_bar_outcome = fresh
-		.tg()
-		.args(["build", "output", &fresh_build_bar_id])
-		.output()
-		.await?;
-	let fresh_build_bar_output_stdout = String::from_utf8(fresh_build_bar_outcome.stdout).unwrap();
-	let fresh_build_bar_output_stdout = fresh_build_bar_output_stdout.trim().to_string();
-	assert_eq!(fresh_build_bar_output_stdout, r#""foo""#.to_string());
-
-	// Assert the build ID is the same.
-	assert_eq!(first_build_bar_id, fresh_build_bar_id);
+	assert_eq!(fresh_build_bar_id, first_build_bar_id);
 
 	local.cleanup().await?;
 	fresh.cleanup().await?;

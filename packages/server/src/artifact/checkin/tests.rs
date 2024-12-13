@@ -1886,7 +1886,7 @@ async fn diamond_dependency() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn repro_panic() -> tg::Result<()> {
+async fn tag_dependencies_after_clean() -> tg::Result<()> {
 	// Create the first server.
 	let temp1 = Temp::new();
 	let config = Config::with_path(temp1.path().to_owned());
@@ -1918,7 +1918,7 @@ async fn repro_panic() -> tg::Result<()> {
 	};
 
 	publish(&server1, "foo", referent).await?;
-	checkin(&server2, referrer.clone()).await?;
+	let (_, _, _, output1) = checkin(&server2, referrer.clone()).await?;
 	cleanup(temp2, server2).await;
 	// Create the second server again.
 	let temp2 = Temp::new();
@@ -1933,10 +1933,12 @@ async fn repro_panic() -> tg::Result<()> {
 	let server2 = Server::start(config).await?;
 
 	// checkin the referrer again, knowing that its lockfile has been written already
-	checkin(&server2, referrer).await?;
+	let (_, _, _, output2) = checkin(&server2, referrer).await?;
 
 	cleanup(temp2, server2).await;
 	cleanup(temp1, server1).await;
+
+	assert_eq!(output1, output2);
 	Ok(())
 }
 
