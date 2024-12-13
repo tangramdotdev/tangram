@@ -109,6 +109,9 @@ impl Runtime {
 							tg::error!(!source, "failed to extract the archive")
 						})?;
 					},
+					tg::artifact::archive::Format::Tgar => {
+						unimplemented!("tgar extraction not yet implemented")
+					},
 				}
 				Ok::<_, tg::Error>(())
 			}

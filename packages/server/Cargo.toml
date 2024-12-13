@@ -91,6 +91,7 @@ tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
 tangram_messenger  = { workspace = true }
 tangram_temp = { workspace = true }
+tangram_tgar = { workspace = true }
 tangram_v8 = { workspace = true }
 tangram_version = { workspace = true }
 tangram_vfs = { workspace = true }

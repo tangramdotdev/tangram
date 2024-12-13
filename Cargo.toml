@@ -11,6 +11,7 @@ members = [
   "packages/messenger",
   "packages/server",
   "packages/temp",
+  "packages/tgar",
   "packages/uri",
   "packages/v8",
   "packages/version",
@@ -82,6 +83,7 @@ include_dir = "0.7"
 indexmap = "2"
 indoc = "2"
 insta = { version = "1", features = ["json", "redactions", "yaml"] }
+integer-encoding = { version = "4.0", features = ["tokio_async"] }
 itertools = "0.13"
 libc = "0.2"
 lsp-types = "0.97"
@@ -139,6 +141,7 @@ tangram_ignore = { path = "packages/ignore" }
 tangram_messenger = { path = "packages/messenger" }
 tangram_server = { path = "packages/server" }
 tangram_temp = { path = "packages/temp" }
+tangram_tgar = { path = "packages/tgar" }
 tangram_uri = { path = "packages/uri" }
 tangram_v8 = { path = "packages/v8" }
 tangram_version = { path = "packages/version" }

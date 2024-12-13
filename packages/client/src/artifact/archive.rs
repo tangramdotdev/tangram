@@ -4,6 +4,7 @@ use crate as tg;
 pub enum Format {
 	Tar,
 	Zip,
+	Tgar,
 }
 
 impl tg::Artifact {
@@ -36,6 +37,9 @@ impl std::fmt::Display for Format {
 			Self::Tar => {
 				write!(f, "tar")?;
 			},
+			Self::Tgar => {
+				write!(f, "tgar")?;
+			},
 			Self::Zip => {
 				write!(f, "zip")?;
 			},
@@ -51,6 +55,7 @@ impl std::str::FromStr for Format {
 		match s {
 			"tar" => Ok(Self::Tar),
 			"zip" => Ok(Self::Zip),
+			"tgar" => Ok(Self::Tgar),
 			extension => Err(tg::error!(%extension, "invalid format")),
 		}
 	}

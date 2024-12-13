@@ -1,12 +1,14 @@
 use super::Runtime;
 use crate::Server;
-use futures::FutureExt as _;
+use futures::{future::Either, FutureExt};
+use num::ToPrimitive as _;
 use std::{
 	future::Future,
 	path::{Path, PathBuf},
 	str::FromStr,
 };
 use tangram_client as tg;
+use tangram_tgar as tgar;
 use tokio::io::DuplexStream;
 use tokio_util::compat::{
 	FuturesAsyncWriteCompatExt, TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt,
@@ -49,9 +51,14 @@ impl Runtime {
 		let (reader, writer) = tokio::io::duplex(8192);
 
 		// Create the archive task.
-		let archive_task = match format {
+		let archive_task: Either<_, Either<_, _>> = match format {
 			tg::artifact::archive::Format::Tar => tar(server, &artifact, writer).left_future(),
-			tg::artifact::archive::Format::Zip => zip(server, &artifact, writer).right_future(),
+			tg::artifact::archive::Format::Zip => {
+				zip(server, &artifact, writer).left_future().right_future()
+			},
+			tg::artifact::archive::Format::Tgar => tgar(server, &artifact, writer)
+				.right_future()
+				.right_future(),
 		};
 
 		match futures::future::join(archive_task, tg::Blob::with_reader(server, reader)).await {
@@ -147,6 +154,65 @@ where
 			tar.append_data(&mut header, path, &[][..])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to append symlink"))
+		},
+	}
+}
+
+fn tgar(
+	server: &Server,
+	artifact: &tg::Artifact,
+	writer: DuplexStream,
+) -> impl Future<Output = tg::Result<()>> {
+	let artifact = artifact.clone();
+	let server = server.clone();
+	async move {
+		// Create the tgar builder.
+		let mut tgar = tgar::Builder::new(writer).await?;
+
+		// Write the archive header.
+		tgar.append_archive_header().await?;
+
+		// Archive the artifact.
+		tgar_inner(&server, &artifact, &mut tgar).await?;
+
+		tgar.finish().await
+	}
+}
+
+async fn tgar_inner<W>(
+	server: &Server,
+	artifact: &tg::Artifact,
+	tgar: &mut tgar::Builder<W>,
+) -> tg::Result<()>
+where
+	W: tokio::io::AsyncWrite + Unpin + Send + Sync,
+{
+	match artifact {
+		tg::Artifact::Directory(directory) => {
+			let entries = directory.entries(server).await?;
+			tgar.append_directory(entries.len().to_u64().unwrap())
+				.await?;
+			for (entry, artifact) in entries {
+				tgar.append_directory_entry(entry.as_str()).await?;
+				Box::pin(tgar_inner(server, &artifact.clone(), tgar)).await?;
+			}
+			Ok(())
+		},
+		tg::Artifact::File(file) => {
+			if !file.dependencies(server).await?.is_empty() {
+				return Err(tg::error!("cannot archive a file with dependencies"));
+			}
+			let executable = file.executable(server).await?;
+			let mut reader = file.reader(server).await?;
+			let length = reader.size();
+			tgar.append_file(executable, length, &mut reader).await
+		},
+		tg::Artifact::Symlink(symlink) => {
+			let target = symlink
+				.target(server)
+				.await?
+				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
+			tgar.append_symlink(target.to_string_lossy().as_ref()).await
 		},
 	}
 }

@@ -5,7 +5,7 @@ export type Artifact = tg.Directory | tg.File | tg.Symlink;
 export namespace Artifact {
 	export type Id = string;
 
-	export type ArchiveFormat = "tar" | "zip";
+	export type ArchiveFormat = "tar" | "zip" | "tgar";
 
 	export let withId = (id: Artifact.Id): Artifact => {
 		let prefix = id.substring(0, 3);
