@@ -745,7 +745,6 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() -> tg::Result<()> {
 	.await
 }
 
-
 #[tokio::test]
 async fn build_create_false() -> tg::Result<()> {
 	let artifact: temp::Artifact = temp::directory! {

@@ -201,21 +201,23 @@ impl Server {
 		self.check_out_artifact_inner(&state, arg_).await?;
 
 		// Create a lockfile and write it if it is not empty.
-		let artifact = tg::Artifact::with_id(artifact.clone());
-		let lockfile = self
-			.create_lockfile_for_artifact(&artifact)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
-		if arg.lockfile && !lockfile.nodes.is_empty() && artifact.is_directory() {
-			let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
+		if artifact.is_directory() {
+			let artifact = tg::Artifact::with_id(artifact.clone());
+			let lockfile = self
+				.create_lockfile_for_artifact(&artifact)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
+			if !lockfile.nodes.is_empty() {
+				let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
 
-			let contents = serde_json::to_vec(&lockfile)
-				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
-			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			tokio::fs::write(&lockfile_path, &contents).await.map_err(
-				|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
-			)?;
-			drop(permit);
+				let contents = serde_json::to_vec(&lockfile)
+					.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
+				let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+				tokio::fs::write(&lockfile_path, &contents).await.map_err(
+					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
+				)?;
+				drop(permit);
+			}
 		}
 
 		// Create the output.

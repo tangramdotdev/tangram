@@ -1,6 +1,6 @@
-use crate::{Config, Server};
+use crate::{config, util::fs::cleanup, Config, Server};
 use futures::{future, Future, FutureExt as _};
-use insta::assert_json_snapshot;
+use insta::{assert_json_snapshot, assert_snapshot};
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;

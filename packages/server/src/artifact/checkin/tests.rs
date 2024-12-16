@@ -1163,7 +1163,8 @@ async fn missing_in_lockfile() -> tg::Result<()> {
    "#);
 			Ok::<_, tg::Error>(())
 		},
-	).await
+	)
+	.await
 }
 
 #[tokio::test]
@@ -1214,7 +1215,8 @@ async fn invalid_lockfile() -> tg::Result<()> {
    "#);
 			Ok::<_, tg::Error>(())
 		},
-	).await
+	)
+	.await
 }
 
 #[tokio::test]

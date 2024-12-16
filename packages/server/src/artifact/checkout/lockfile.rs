@@ -57,7 +57,11 @@ impl Server {
 
 		// Flatten graphs into the lockfile.
 		'a: {
-			let (graph, node) = match artifact.object(self).await? {
+			let (graph, node) = match artifact
+				.object(self)
+				.await
+				.map_err(|_source| tg::error!(%id, "missing object"))?
+			{
 				tg::artifact::Object::Directory(directory) => {
 					let tg::directory::Object::Graph { graph, node } = directory.as_ref() else {
 						break 'a;
