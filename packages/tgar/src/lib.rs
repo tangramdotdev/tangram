@@ -79,6 +79,7 @@ where
 	}
 
 	async fn write_varint(&mut self, src: u64, description: &str) -> tg::Result<()> {
+		//TODO: verify that the biggest varint from a u64 is 10-bytes long
 		let mut bytes = [0u8; 10];
 		let len = src.encode_var(&mut bytes);
 		self.writer

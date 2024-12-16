@@ -476,8 +476,7 @@ dependencies = [
 [[package]]
 name = "async_zip"
 version = "0.0.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00b9f7252833d5ed4b00aa9604b563529dd5e11de9c23615de2dcdf91eb87b52"
+source = "git+https://github.com/tangramdotdev/rs-async-zip?rev=df9468ce#df9468ce1a7cdde2a46009005c36ef2bde5d7a5b"
 dependencies = [
  "async-compression",
  "chrono",
