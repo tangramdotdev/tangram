@@ -763,14 +763,12 @@ impl Runtime {
 		match exit_status {
 			ExitStatus::Code(0) => (),
 			ExitStatus::Code(code) => {
-				return Err(tg::error!(r#"the process exited with code "{code}""#));
+				return Err(tg::error!(%code, "the process did not exit successfully"));
 			},
 			ExitStatus::Signal(signal) => {
 				let signame =
 					unsafe { std::ffi::CStr::from_ptr(libc::strsignal(signal)).to_string_lossy() };
-				return Err(tg::error!(
-					r#"the process exited with signal: {signame} ({signal})"#
-				));
+				return Err(tg::error!(%signal, "the process did not exit successfully"));
 			},
 		};
 

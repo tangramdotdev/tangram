@@ -980,7 +980,7 @@ impl Server {
 		});
 
 		// Add the request ID to the response.
-		let key = http::HeaderName::from_static("x-tangram-request-id");
+		let key = http::HeaderName::from_static("x-tg-request-id");
 		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
 		response.headers_mut().insert(key, value);
 

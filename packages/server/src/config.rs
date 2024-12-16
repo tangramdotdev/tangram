@@ -154,7 +154,7 @@ impl Config {
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
-			build_dequeue_timeout: std::time::Duration::from_secs(3600),
+			build_dequeue_timeout: Duration::from_secs(3600),
 			error_trace_options: tg::error::TraceOptions {
 				internal: true,
 				reverse: false,

@@ -7,10 +7,11 @@ use num::ToPrimitive as _;
 use std::time::Duration;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
-use tangram_futures::task::Stop;
+use tangram_futures::{stream::StreamExt as _, task::Stop};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
+use tokio_util::task::AbortOnDropHandle;
 
 impl Server {
 	pub async fn try_get_build_children_stream(
@@ -47,7 +48,7 @@ impl Server {
 		// Spawn the task.
 		let server = self.clone();
 		let id = id.clone();
-		tokio::spawn(async move {
+		let task = tokio::spawn(async move {
 			let result = server
 				.try_get_build_children_local_task(&id, arg, sender.clone())
 				.await;
@@ -55,8 +56,11 @@ impl Server {
 				sender.try_send(Err(error)).ok();
 			}
 		});
+		let abort_handle = AbortOnDropHandle::new(task);
 
-		Ok(Some(receiver))
+		let stream = receiver.attach(abort_handle);
+
+		Ok(Some(stream))
 	}
 
 	async fn try_get_build_children_local_task(

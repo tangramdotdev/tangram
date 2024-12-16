@@ -105,7 +105,7 @@ where
 		tokio::task::spawn_blocking({
 			let fd = fd.clone();
 			move || {
-				Self::request_reader_task(fd, request_sender)
+				Self::request_reader_task(fd.as_ref(), &request_sender)
 					.inspect_err(|error| tracing::error!(%error))
 			}
 		});
@@ -145,8 +145,7 @@ where
 		task.wait().await.unwrap();
 	}
 
-	#[allow(clippy::needless_pass_by_value)]
-	fn request_reader_task(fd: Arc<OwnedFd>, sender: async_channel::Sender<Request>) -> Result<()> {
+	fn request_reader_task(fd: &OwnedFd, sender: &async_channel::Sender<Request>) -> Result<()> {
 		// Create the request buffer.
 		let mut buffer = vec![0u8; 1024 * 1024 + 4096];
 

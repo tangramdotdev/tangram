@@ -11,7 +11,7 @@ use std::{
 	collections::BTreeMap,
 	ffi::{CStr, CString},
 	fmt::Write as _,
-	os::unix::ffi::OsStrExt as _,
+	os::unix::{ffi::OsStrExt as _, process::ExitStatusExt as _},
 	path::PathBuf,
 };
 use tangram_client as tg;
@@ -472,6 +472,11 @@ impl Runtime {
 
 		// Return an error if the process did not exit successfully.
 		if !exit_status.success() {
+			if let Some(code) = exit_status.code() {
+				return Err(tg::error!(%code, "the process did not exit successfully"));
+			} else if let Some(signal) = exit_status.signal() {
+				return Err(tg::error!(%signal, "the process did not exit successfully"));
+			}
 			return Err(tg::error!("the process did not exit successfully"));
 		}
 
