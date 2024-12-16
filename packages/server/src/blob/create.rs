@@ -28,7 +28,7 @@ pub struct InnerOutput {
 impl Server {
 	pub(crate) async fn create_blob(
 		&self,
-		reader: impl AsyncRead + Send + 'static,
+		reader: impl AsyncRead,
 	) -> tg::Result<tg::blob::create::Output> {
 		// Create a temporary file.
 		let temp = Temp::new(self);
@@ -56,7 +56,7 @@ impl Server {
 
 	pub(crate) async fn create_blob_inner(
 		&self,
-		src: impl AsyncRead + Send + 'static,
+		src: impl AsyncRead,
 		dst: Option<Either<tokio::fs::File, &Transaction<'_>>>,
 	) -> tg::Result<InnerOutput> {
 		// Wrap the destination.
