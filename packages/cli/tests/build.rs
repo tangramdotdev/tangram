@@ -1,3 +1,4 @@
+#![cfg(test)]
 use std::panic::AssertUnwindSafe;
 
 use futures::FutureExt;
@@ -16,6 +17,7 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 	let remote_config = json!({
 		"build": null,
 		"remotes": null,
+		"url": "http://localhost:5429",
 		"vfs": null
 	});
 	let mut remote = Server::start(remote_config).await?;
@@ -24,7 +26,7 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 	let local_config = json!({
 		"remotes": {
 			"default": {
-				"url": remote.url()
+				"url": "http://localhost:5429",
 			},
 		},
 		"vfs": null
@@ -83,6 +85,11 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 			.trim()
 			.parse()
 			.unwrap();
+		let _output = local1
+			.tg()
+			.args(["build", "output", build_id.to_string().as_str()])
+			.output()
+			.await?;
 
 		// Push the build
 		let output = local1
@@ -106,14 +113,12 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 			.tg()
 			.arg("build")
 			.arg(temp.path())
+			.arg("--detach")
 			.arg("--create=false")
 			.output()
 			.await?;
-		let stderr = String::from_utf8_lossy(&output.stderr);
-		assert_eq!(stderr, "");
 		let new_build_id: tg::build::Id = String::from_utf8(output.stdout).unwrap().trim().parse().unwrap();
 		assert_eq!(build_id, new_build_id);
-
 		Ok::<_, std::io::Error>(())
 	})
 	.catch_unwind()

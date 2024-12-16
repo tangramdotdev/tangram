@@ -1,3 +1,4 @@
+#![cfg(test)]
 use futures::{Future, FutureExt as _};
 use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_temp::Temp;
