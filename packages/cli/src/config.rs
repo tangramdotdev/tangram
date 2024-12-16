@@ -223,6 +223,7 @@ pub struct PostgresDatabase {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct SqliteDatabase {
 	/// The number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

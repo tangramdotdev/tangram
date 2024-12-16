@@ -1,6 +1,8 @@
+#![cfg(test)]
 use futures::{Future, FutureExt as _};
 use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_temp::Temp;
+use url::Url;
 
 pub async fn test<F, Fut>(
 	config: serde_json::Value,
@@ -67,6 +69,13 @@ impl Server {
 		let mut command = tokio::process::Command::new(TG);
 		command.args(["--config", config, "--path", path, "--mode", "client"]);
 		command
+	}
+
+	pub fn url(&self) -> Url {
+		let path = self.data_path.join("socket");
+		let path = path.to_str().unwrap();
+		let path = urlencoding::encode(path);
+		format!("http+unix://{path}").parse().unwrap()
 	}
 
 	pub fn stop(&mut self) -> std::io::Result<()> {

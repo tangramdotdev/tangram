@@ -745,6 +745,102 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() -> tg::Result<()> {
 	.await
 }
 
+#[tokio::test]
+async fn build_cache_hit() -> tg::Result<()> {
+	let artifact: temp::Artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default tg.target(() => "hello, world!");
+		"#),
+	}
+	.into();
+	let temp = Temp::new_persistent();
+	let mut options = Config::with_path(temp.path().to_owned());
+	options.build = Some(tangram_server::config::Build::default());
+	options.build_heartbeat_monitor =
+		Some(tangram_server::config::BuildHeartbeatMonitor::default());
+
+	// Start the server.
+	let server = Server::start(options.clone()).await?;
+	let result = AssertUnwindSafe(async {
+		// Create the temp.
+		let artifact_temp = Temp::new_persistent();
+		artifact.to_path(artifact_temp.path()).await.unwrap();
+
+		// Checkin the artifact.
+		let arg = tg::artifact::checkin::Arg {
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			lockfile: true,
+			path: artifact_temp.path().to_owned(),
+		};
+		let artifact = tg::Artifact::check_in(&server, arg)
+			.await?
+			.try_unwrap_directory()
+			.unwrap();
+		let artifact = artifact.clone().into();
+		let subpath = Some("tangram.ts".parse().unwrap());
+		let env = [("TANGRAM_HOST".to_owned(), tg::host().into())].into();
+
+		let args = vec![tg::Value::String("default".into())];
+		let executable = Some(tg::target::Executable::Module(tg::target::Module {
+			kind: tg::module::Kind::Js,
+			referent: tg::Referent {
+				item: artifact,
+				path: Some(".".into()),
+				subpath,
+				tag: None,
+			},
+		}));
+		let host = "js";
+		let target = tg::target::Builder::new(host)
+			.args(args)
+			.env(env)
+			.executable(executable)
+			.build();
+
+		// Build the target.
+		let arg = tg::target::build::Arg {
+			create: true,
+			parent: None,
+			remote: None,
+			retry: tg::build::Retry::Canceled,
+		};
+		let target = target.id(&server).await?;
+		let build1 = server.build_target(&target, arg.clone()).await?.build;
+		let _outcome1 = tg::Build::with_id(build1.clone()).outcome(&server).await?;
+
+		// Stop the server.
+		server.stop();
+		server.wait().await;
+
+		// Restart it with no build configuration.
+		options.build.take();
+		options.build_heartbeat_monitor.take();
+		options.build_indexer.take();
+		let server = Server::start(options).await?;
+
+		// Get a build.
+		let build2 = server.build_target(&target, arg.clone()).await?.build;
+		let _outcome2 = tg::Build::with_id(build2.clone()).outcome(&server).await?;
+
+		// Stop the server.
+		server.stop();
+		server.wait().await;
+
+		assert_eq!(build1, build2);
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+
+	server.stop();
+	server.wait().await;
+	temp.remove().await.ok();
+	result.unwrap()
+}
+
 async fn test<F, Fut>(
 	artifact: impl Into<temp::Artifact>,
 	path: &str,

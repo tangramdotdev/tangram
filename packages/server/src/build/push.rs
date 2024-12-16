@@ -110,6 +110,11 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the build"))?;
 
+		// Return an error if the build is not finished.
+		if !matches!(output.status, tg::build::Status::Finished) {
+			return Err(tg::error!(%build, "build is not finished"));
+		}
+
 		// Get the metadata.
 		let metadata = Self::get_build_metadata(src, &output, &arg).await?;
 
