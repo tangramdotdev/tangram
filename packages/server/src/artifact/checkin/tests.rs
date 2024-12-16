@@ -1110,6 +1110,114 @@ async fn ignore() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn missing_in_lockfile() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"tangram.ts" => r#"import * as a from "./a"#,
+			"tangram.lock" => temp::file!(indoc!(r#"
+				{
+					"nodes": [
+						{
+							"kind": "directory",
+							"entries": {
+								"tangram.ts": 1
+							}
+						},
+						{
+							"kind": "file"
+						}
+					]
+				}
+			"#)),
+			"a" => temp::directory! {
+				"tangram.ts" => r#""#,
+			},
+		},
+		"a",
+		false,
+		|_server, _artifact, _metadata, lockfile, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 1
+         },
+         "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
+       },
+       {
+         "kind": "file",
+         "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
+       }
+     ]
+   }
+   "#);
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"tangram.ts": tg.file({
+   		"contents": tg.leaf(""),
+   	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	).await
+}
+
+#[tokio::test]
+async fn invalid_lockfile() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"tangram.lock" => temp::file!(indoc!(r#"
+				{
+					"nodes": [
+
+						{
+							"kind": "file"
+						}
+					]
+				}
+			"#)),
+			"a" => temp::directory! {
+				"tangram.ts" => r#""#,
+			},
+		},
+		"a",
+		false,
+		|_server, _artifact, _metadata, lockfile, output| async move {
+			let lockfile = lockfile.expect("expected a lockfile");
+			assert_json_snapshot!(lockfile, @r#"
+   {
+     "nodes": [
+       {
+         "kind": "directory",
+         "entries": {
+           "tangram.ts": 1
+         },
+         "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
+       },
+       {
+         "kind": "file",
+         "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
+       }
+     ]
+   }
+   "#);
+			assert_snapshot!(output, @r#"
+   tg.directory({
+   	"tangram.ts": tg.file({
+   		"contents": tg.leaf(""),
+   	}),
+   })
+   "#);
+			Ok::<_, tg::Error>(())
+		},
+	).await
+}
+
+#[tokio::test]
 async fn tagged_object() -> tg::Result<()> {
 	let file = tg::file!("Hello, world!");
 	let tag = "hello-world".parse::<tg::Tag>().unwrap();
@@ -1416,6 +1524,7 @@ async fn tagged_package_survives_clean() -> tg::Result<()> {
 	cleanup(temp3, local2).await;
 	result.unwrap()
 }
+
 // This tests the following use case:
 //
 // A user tags a package, `a/1.0.0`. Another user tags a package `b` that depends on `a/*` and internally contains a cycle. Some time later, a user tags a package `a/1.1.0` that depends on `b/*`. Finally, a downstream user imports `b/*`.
