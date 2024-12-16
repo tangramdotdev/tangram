@@ -590,7 +590,7 @@ async fn builtin_artifact_archive_extract_roundtrip() -> tg::Result<()> {
 		temp::directory! {
 			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
-					import directory from "./directory" with { type: "directory" };
+					import directory from "./directory";
 					export default tg.target(async () => {
 						let archived_directory = await tg.archive(directory, "tar");
 						let extracted_archive = await tg.extract(archived_directory, "tar");
@@ -607,7 +607,7 @@ async fn builtin_artifact_archive_extract_roundtrip() -> tg::Result<()> {
 		"default",
 		vec![],
 		|_, outcome| async move {
-			outcome.into_result().unwrap_err();
+			outcome.into_result().unwrap();
 			Ok::<_, tg::Error>(())
 		},
 	)
