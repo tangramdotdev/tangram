@@ -69,15 +69,13 @@ impl<T> Handle<T> {
 	}
 
 	pub fn increment(&self, name: &str, amount: u64) {
-		self.indicators
-			.read()
-			.unwrap()
-			.get(name)
-			.unwrap()
-			.current
-			.as_ref()
-			.unwrap()
-			.fetch_add(amount, std::sync::atomic::Ordering::Relaxed);
+		if let Some(indicator) = self.indicators.read().unwrap().get(name) {
+			indicator
+				.current
+				.as_ref()
+				.unwrap()
+				.fetch_add(amount, std::sync::atomic::Ordering::Relaxed);
+		}
 	}
 
 	pub fn finish(&self, name: &str) {
