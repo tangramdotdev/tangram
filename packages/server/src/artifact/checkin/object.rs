@@ -787,17 +787,16 @@ impl petgraph::visit::GraphBase for Graph {
 	type NodeId = usize;
 }
 
-#[allow(clippy::needless_arbitrary_self_type)]
 impl petgraph::visit::NodeIndexable for &Graph {
-	fn from_index(self: &Self, i: usize) -> Self::NodeId {
+	fn from_index(&self, i: usize) -> Self::NodeId {
 		i
 	}
 
-	fn node_bound(self: &Self) -> usize {
+	fn node_bound(&self) -> usize {
 		self.nodes.len()
 	}
 
-	fn to_index(self: &Self, a: Self::NodeId) -> usize {
+	fn to_index(&self, a: Self::NodeId) -> usize {
 		a
 	}
 }

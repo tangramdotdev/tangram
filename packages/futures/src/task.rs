@@ -45,6 +45,40 @@ where
 		}
 	}
 
+	pub fn spawn_local<F, Fut>(f: F) -> Self
+	where
+		F: FnOnce(Stop) -> Fut,
+		Fut: Future<Output = T> + 'static,
+	{
+		let stop = Stop::new();
+		let task = tokio::task::spawn_local(f(stop.clone()));
+		let abort = Arc::new(task.abort_handle());
+		let future = task.map_err(Arc::new).boxed().shared();
+		Self {
+			abort,
+			stop,
+			future,
+		}
+	}
+
+	pub fn spawn_blocking<F>(f: F) -> Self
+	where
+		F: FnOnce(Stop) -> T + Send + 'static,
+	{
+		let stop = Stop::new();
+		let task = tokio::task::spawn_blocking({
+			let stop = stop.clone();
+			move || f(stop)
+		});
+		let abort = Arc::new(task.abort_handle());
+		let future = task.map_err(Arc::new).boxed().shared();
+		Self {
+			abort,
+			stop,
+			future,
+		}
+	}
+
 	pub fn abort(&self) {
 		self.abort.abort();
 	}
@@ -138,7 +172,7 @@ impl Stop {
 	}
 
 	#[must_use]
-	pub fn is_stopped(&self) -> bool {
+	pub fn stopped(&self) -> bool {
 		*self.0.subscribe().borrow()
 	}
 

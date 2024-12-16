@@ -28,7 +28,6 @@ async fn build_module_without_package() {
 		let output = server
 			.tg()
 			.arg("build")
-			.arg("--quiet")
 			.arg(temp.path().join("foo.tg.ts"))
 			.output()
 			.await

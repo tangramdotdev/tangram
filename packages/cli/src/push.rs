@@ -30,9 +30,6 @@ impl Cli {
 	pub async fn command_push(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the remote.
-		let remote = Some(args.remote.unwrap_or_else(|| "default".to_owned()));
-
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
@@ -62,7 +59,7 @@ impl Cli {
 					build,
 					logs: args.logs,
 					recursive: args.recursive,
-					remote: remote.clone(),
+					remote: args.remote.clone(),
 					targets: args.targets,
 				})
 				.await?;
@@ -70,7 +67,7 @@ impl Cli {
 			Either::Right(object) => {
 				self.command_object_push(crate::object::push::Args {
 					object,
-					remote: remote.clone(),
+					remote: args.remote.clone(),
 				})
 				.await?;
 			},
@@ -82,7 +79,7 @@ impl Cli {
 				let arg = tg::tag::put::Arg {
 					force: args.force,
 					item,
-					remote,
+					remote: args.remote.clone(),
 				};
 				handle.put_tag(&tag, arg).await?;
 			}

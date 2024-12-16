@@ -2,6 +2,7 @@ use crate::Cli;
 use crossterm::{self as ct, style::Stylize as _};
 use futures::{stream::TryStreamExt as _, Stream};
 use indexmap::IndexMap;
+use num::ToPrimitive as _;
 use std::{
 	io::{IsTerminal as _, Write as _},
 	pin::pin,
@@ -26,18 +27,16 @@ impl Cli {
 				.ok_or_else(|| tg::error!("stream ended without output"));
 		}
 
-		let mut indicators_count = None;
+		let mut lines = None;
 		while let Some(event) = stream.try_next().await? {
 			// Clear the indicators.
-			if let Some(indicators_count) = indicators_count {
-				for _ in 0..indicators_count {
-					ct::queue!(
-						tty,
-						ct::cursor::MoveToPreviousLine(1),
-						ct::terminal::Clear(ct::terminal::ClearType::CurrentLine),
-					)
-					.unwrap();
-				}
+			if let Some(lines) = lines {
+				ct::queue!(
+					tty,
+					ct::cursor::MoveToPreviousLine(lines),
+					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+				)
+				.unwrap();
 			}
 
 			match event {
@@ -82,7 +81,7 @@ impl Cli {
 			for indicator in indicators.values() {
 				writeln!(tty, "{indicator}").unwrap();
 			}
-			indicators_count = Some(indicators.len());
+			lines = Some(indicators.len().to_u16().unwrap());
 
 			// Flush the tty.
 			tty.flush().unwrap();

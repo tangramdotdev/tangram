@@ -54,3 +54,4 @@ url = { workspace = true }
 urlencoding = { workspace = true }
 v8 = { workspace = true }
 webbrowser = { workspace = true }
+atty = "0.2.14"

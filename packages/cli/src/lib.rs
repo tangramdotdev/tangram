@@ -33,6 +33,7 @@ mod tangram;
 mod target;
 mod tree;
 mod view;
+mod viewer;
 
 pub mod test;
 

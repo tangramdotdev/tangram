@@ -154,7 +154,6 @@ impl swc::ecma::visit::Visit for Visitor {
 					));
 					return;
 				};
-				// Get the attributes.
 				let with = n
 					.args
 					.get(1)

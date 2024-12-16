@@ -47,8 +47,8 @@ impl Server {
 				// Infer the kind.
 				let kind = infer_module_kind(&root_module_file_name)?;
 
-				// Create the module
-				Ok(tg::Module {
+				// Create the module.
+				let module = tg::Module {
 					kind,
 					referent: tg::Referent {
 						item: tg::module::Item::Path(path),
@@ -56,7 +56,9 @@ impl Server {
 						subpath: Some(root_module_file_name.into()),
 						tag: None,
 					},
-				})
+				};
+
+				Ok(module)
 			},
 		}
 	}
