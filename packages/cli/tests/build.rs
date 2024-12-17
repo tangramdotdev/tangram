@@ -1,15 +1,13 @@
-#![cfg(test)]
-use std::panic::AssertUnwindSafe;
-
+use self::common::Server;
 use futures::FutureExt;
 use indoc::indoc;
 use insta::assert_snapshot;
 use serde_json::json;
+use std::panic::AssertUnwindSafe;
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 mod common;
-use common::Server;
 
 #[tokio::test]
 async fn import_from_remote_tag() -> std::io::Result<()> {
@@ -26,7 +24,7 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 	let local_config = json!({
 		"remotes": {
 			"default": {
-				"url": "http://localhost:5429",
+				"url": remote.url(),
 			},
 		},
 		"vfs": null

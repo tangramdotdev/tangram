@@ -1,10 +1,12 @@
 use crate::Server;
 use dashmap::{DashMap, DashSet};
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
+use num::ToPrimitive as _;
 use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::task::Task;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tokio_util::io::InspectReader;
 
 mod lockfile;
 #[cfg(test)]
@@ -47,7 +49,11 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>,
 	> {
-		let metadata = self.get_object_metadata(&artifact.clone().into()).await?;
+		// Get the object metadata.
+		let metadata = self
+			.try_get_object_metadata(&artifact.clone().into())
+			.await?;
+
 		// Create the progress handle.
 		let progress = crate::progress::Handle::new();
 
@@ -58,19 +64,27 @@ impl Server {
 			let arg = arg.clone();
 			let progress = progress.clone();
 			async move {
+				let count = metadata
+					.as_ref()
+					.and_then(|metadata| metadata.count)
+					.map(Into::into);
+				let weight = metadata
+					.as_ref()
+					.and_then(|metadata| metadata.weight)
+					.map(Into::into);
 				progress.start(
 					"objects".to_owned(),
 					"objects".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
-					metadata.count.map(Into::into),
+					count,
 				);
 				progress.start(
 					"bytes".to_owned(),
 					"bytes".to_owned(),
 					tg::progress::IndicatorFormat::Bytes,
 					Some(0),
-					metadata.weight.map(Into::into),
+					weight,
 				);
 				let result = server
 					.check_out_artifact_task(artifact, arg, &progress)
@@ -114,7 +128,9 @@ impl Server {
 		match arg.path.clone() {
 			None => {
 				if !self.vfs.lock().unwrap().is_some() {
-					self.cache_artifact(artifact.clone(), progress).await?;
+					self.cache_artifact(artifact.clone(), progress)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
 				}
 				let path = self.artifacts_path().join(artifact.to_string());
 				let output = tg::artifact::checkout::Output { path };
@@ -241,10 +257,9 @@ impl Server {
 
 		// Get the artifacts path.
 		let Some(artifacts_path) = state.artifacts_path.as_ref() else {
-			let output = Output {
-				progress: Progress::default(),
-			};
-			return Ok(output);
+			return Err(tg::error!(
+				"cannot check out a dependency without an artifacts path"
+			));
 		};
 
 		// Create the artifacts directory.
@@ -415,7 +430,8 @@ impl Server {
 		let mut output = Output {
 			progress: Progress::default(),
 		};
-		let file = tg::File::with_id(file.clone());
+		let id = file.clone();
+		let file = tg::File::with_id(id.clone());
 
 		// Handle an existing artifact at the path.
 		if arg.existing_artifact.is_some() {
@@ -451,10 +467,7 @@ impl Server {
 		};
 
 		// Attempt to copy the file from another file in the checkout.
-		let path = state
-			.files
-			.get(&file.id(self).await?)
-			.map(|path| path.clone());
+		let path = state.files.get(&id).map(|path| path.clone());
 		if let Some(path) = path {
 			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			tokio::fs::copy(&path, &arg.path).await.map_err(
@@ -465,7 +478,7 @@ impl Server {
 		}
 
 		// Attempt to copy the file from the cache directory.
-		let cache_path = self.cache_path().join(file.id(self).await?.to_string());
+		let cache_path = self.cache_path().join(id.to_string());
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let result = tokio::fs::copy(&cache_path, &arg.path).await;
 		drop(permit);
@@ -475,13 +488,20 @@ impl Server {
 
 		// Otherwise, create the file.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let mut reader = file.reader(self).await?;
+		let reader = file
+			.reader(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+		let mut reader = InspectReader::new(reader, |slice| {
+			output.progress.bytes += slice.len().to_u64().unwrap();
+			state.progress.increment("bytes", slice.len() as u64);
+		});
 		let mut file_ = tokio::fs::File::create(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the file"))?;
-		tokio::io::copy(&mut reader, &mut file_)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
+		tokio::io::copy(&mut reader, &mut file_).await.map_err(
+			|source| tg::error!(!source, ?path = arg.path, "failed to write to the file"),
+		)?;
 		drop(reader);
 		drop(file_);
 		drop(permit);

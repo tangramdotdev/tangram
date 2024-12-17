@@ -1130,7 +1130,7 @@ async fn missing_in_lockfile() -> tg::Result<()> {
 				}
 			"#)),
 			"a" => temp::directory! {
-				"tangram.ts" => r#""#,
+				"tangram.ts" => "",
 			},
 		},
 		"a",
@@ -1182,7 +1182,7 @@ async fn invalid_lockfile() -> tg::Result<()> {
 				}
 			"#)),
 			"a" => temp::directory! {
-				"tangram.ts" => r#""#,
+				"tangram.ts" => "",
 			},
 		},
 		"a",

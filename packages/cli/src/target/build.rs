@@ -121,23 +121,36 @@ impl Cli {
 
 		// If the reference is a path to a directory and the path does not contain a root module, then init.
 		if let Ok(path) = reference.item().try_unwrap_path_ref() {
-			let mut exists = false;
-			for name in tg::package::ROOT_MODULE_FILE_NAMES {
-				let module_path = path.join(name);
-				exists = tokio::fs::try_exists(&module_path)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, ?path, "failed to check if the path exists")
-					})?;
-				if exists {
-					break;
+			let path = if let Some(subpath) = reference
+				.options()
+				.and_then(|options| options.subpath.as_ref())
+			{
+				path.join(subpath)
+			} else {
+				path.clone()
+			};
+			let metadata = tokio::fs::metadata(&path).await.map_err(
+				|source| tg::error!(!source, ?path = path.display(), "failed to get the metadata"),
+			)?;
+			if metadata.is_dir() {
+				let mut exists = false;
+				for name in tg::package::ROOT_MODULE_FILE_NAMES {
+					let module_path = path.join(name);
+					exists = tokio::fs::try_exists(&module_path)
+						.await
+						.map_err(|source| {
+							tg::error!(!source, ?path, "failed to check if the path exists")
+						})?;
+					if exists {
+						break;
+					}
 				}
-			}
-			if !exists {
-				self.command_package_init(crate::package::init::Args {
-					path: Some(path.clone()),
-				})
-				.await?;
+				if !exists {
+					self.command_package_init(crate::package::init::Args {
+						path: Some(path.clone()),
+					})
+					.await?;
+				}
 			}
 		}
 
@@ -197,7 +210,35 @@ impl Cli {
 					tg::target::Executable::Module(module)
 				},
 
-				tg::Object::File(file) => tg::target::Executable::Artifact(file.into()),
+				tg::Object::File(file) => {
+					let kind = if let Ok(path) = reference.item().try_unwrap_path_ref() {
+						let path = if let Some(subpath) = reference
+							.options()
+							.and_then(|options| options.subpath.as_ref())
+						{
+							path.join(subpath)
+						} else {
+							path.clone()
+						};
+						if path
+							.extension()
+							.map_or(false, |extension| extension == "js")
+						{
+							tg::module::Kind::Js
+						} else if path
+							.extension()
+							.map_or(false, |extension| extension == "ts")
+						{
+							tg::module::Kind::Ts
+						} else {
+							return Err(tg::error!("invalid file extension"));
+						}
+					} else {
+						return Err(tg::error!("cannot determine the file's kind"));
+					};
+					let referent = tg::Referent::with_item(file.into());
+					tg::target::Executable::Module(tg::target::Module { kind, referent })
+				},
 
 				_ => {
 					return Err(tg::error!("expected a directory or a file"));

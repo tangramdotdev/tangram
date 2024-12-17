@@ -1,4 +1,5 @@
-#![cfg(test)]
+#![allow(dead_code)]
+
 use futures::{Future, FutureExt as _};
 use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_temp::Temp;
@@ -71,6 +72,7 @@ impl Server {
 		command
 	}
 
+	#[must_use]
 	pub fn url(&self) -> Url {
 		let path = self.data_path.join("socket");
 		let path = path.to_str().unwrap();

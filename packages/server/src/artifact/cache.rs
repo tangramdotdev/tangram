@@ -310,7 +310,8 @@ impl Server {
 
 		// Create the file.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let mut reader = InspectReader::new(file.reader(self).await?, |slice| {
+		let reader = file.reader(self).await?;
+		let mut reader = InspectReader::new(reader, |slice| {
 			output.progress.bytes += slice.len().to_u64().unwrap();
 			state.progress.increment("bytes", slice.len() as u64);
 		});

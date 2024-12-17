@@ -59,10 +59,13 @@ impl Cli {
 		let artifact = artifact.id(&handle).await?;
 
 		// Check out the artifact.
+		let dependencies = args.dependencies.unwrap_or(true);
+		let force = args.force;
+		let lockfile = args.lockfile;
 		let arg = tg::artifact::checkout::Arg {
-			dependencies: args.dependencies.unwrap_or(true),
-			force: args.force,
-			lockfile: args.lockfile,
+			dependencies,
+			force,
+			lockfile,
 			path,
 		};
 		let stream = handle

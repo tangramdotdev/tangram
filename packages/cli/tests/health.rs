@@ -1,8 +1,8 @@
+use self::common::test;
 use insta::assert_snapshot;
 use serde_json::json;
 
 mod common;
-use common::test;
 
 #[tokio::test]
 async fn test_health() -> std::io::Result<()> {

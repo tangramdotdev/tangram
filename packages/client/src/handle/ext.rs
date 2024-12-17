@@ -427,8 +427,10 @@ pub trait Ext: tg::Handle {
 		&self,
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<tg::object::Metadata>> + Send {
-		self.try_get_object_metadata(id).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the object")))
+		self.try_get_object_metadata(id).map(move |result| {
+			result.and_then(|option| {
+				option.ok_or_else(|| tg::error!(?id, "failed to get the object metadata"))
+			})
 		})
 	}
 
