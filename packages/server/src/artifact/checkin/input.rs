@@ -1,7 +1,7 @@
 use crate::{lockfile::ParsedLockfile, Server};
 use futures::{stream::FuturesUnordered, Future, TryStreamExt as _};
 use std::{
-	collections::{BTreeMap, BTreeSet},
+	collections::BTreeMap,
 	path::{Path, PathBuf},
 	sync::Arc,
 };
@@ -10,8 +10,12 @@ use tangram_either::Either;
 use tangram_ignore::Ignore;
 use tokio::sync::RwLock;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 pub struct Graph {
+	pub root: PathBuf,
 	pub nodes: Vec<Node>,
 }
 
@@ -59,7 +63,10 @@ impl Server {
 			roots: Vec::new(),
 			lockfiles: BTreeMap::new(),
 			visited: BTreeMap::new(),
-			graph: Graph { nodes: Vec::new() },
+			graph: Graph {
+				root: arg.path.to_owned(),
+				nodes: Vec::new(),
+			},
 		});
 
 		// Create the graph.
@@ -803,29 +810,6 @@ impl Server {
 }
 
 impl Graph {
-	#[allow(dead_code)]
-	pub(super) async fn print(&self) {
-		let mut visited = BTreeSet::new();
-		let mut stack: Vec<(usize, usize, Option<PathBuf>)> = vec![(0, 0, None)];
-		while let Some((node, depth, subpath)) = stack.pop() {
-			for _ in 0..depth {
-				eprint!("  ");
-			}
-			let path = self.nodes[node].arg.path.clone();
-			let subpath = subpath.map_or(String::new(), |p| p.display().to_string());
-			eprintln!("* {} {}", path.display(), subpath);
-			if visited.contains(&node) {
-				continue;
-			}
-			visited.insert(node);
-			for edge in &self.nodes[node].edges {
-				if let Some(node) = edge.node {
-					stack.push((node, depth + 1, edge.subpath.clone()));
-				}
-			}
-		}
-	}
-
 	pub(super) async fn validate(&self) -> tg::Result<()> {
 		let mut paths = BTreeMap::new();
 		let mut stack = vec![0];
@@ -909,6 +893,20 @@ async fn get_root_node(graph: &Graph, mut node: usize) -> usize {
 			return node;
 		};
 		node = parent;
+	}
+}
+
+impl std::fmt::Display for Graph {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		for (index, node) in self.nodes.iter().enumerate() {
+			let path = self.nodes[index].arg.path.clone();
+			let path = crate::util::path::diff(&self.root, &path).unwrap();
+			writeln!(f, "{index} {}", path.display())?;
+			for edge in &node.edges {
+				writeln!(f, "\t{edge}")?;
+			}
+		}
+		Ok(())
 	}
 }
 
