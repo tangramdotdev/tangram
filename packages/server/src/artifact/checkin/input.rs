@@ -47,14 +47,9 @@ struct State {
 impl Server {
 	pub(super) async fn create_input_graph(
 		&self,
-		mut arg: tg::artifact::checkin::Arg,
+		arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Graph> {
-		// Find the root path.
-		arg.path = self.find_root(&arg.path).await.map_err(
-			|source| tg::error!(!source, %path = arg.path.display(), "failed to find root path for checkin"),
-		)?;
-
 		// Create the ignore tree.
 		let ignore = self.ignore_for_checkin().await?;
 
@@ -76,31 +71,6 @@ impl Server {
 		graph.validate().await?;
 
 		Ok(graph)
-	}
-
-	async fn find_root(&self, path: &Path) -> tg::Result<PathBuf> {
-		if !path.is_absolute() {
-			return Err(tg::error!(%path = path.display(), "expected an absolute path"));
-		}
-
-		if !tg::package::is_module_path(path) {
-			return Ok(path.to_owned());
-		}
-
-		// Look for a `tangram.ts`.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		for path in path.ancestors().skip(1) {
-			for root_module_name in tg::package::ROOT_MODULE_FILE_NAMES {
-				let root_module_path = path.join(root_module_name);
-				if tokio::fs::try_exists(&root_module_path).await.map_err(|source| tg::error!(!source, %root_module_path = root_module_path.display(), "failed to check if root module exists"))? {
-					return Ok(path.to_owned());
-				}
-			}
-		}
-		drop(permit);
-
-		// Otherwise return the path.
-		Ok(path.to_owned())
 	}
 
 	fn create_input_graph_inner<'a>(

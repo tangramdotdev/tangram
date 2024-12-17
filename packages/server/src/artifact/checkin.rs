@@ -57,7 +57,7 @@ impl Server {
 		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, %path = &arg.path.display(), "failed to canonicalize the path's parent"))?;
-		
+
 		// If this is a checkin of a path in the cache directory, then retrieve the corresponding artifact.
 		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
 			let id = path
@@ -126,10 +126,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to write to the database"))?;
 
 		// Get the artifact.
-		let artifact = self
-			.find_output_from_input(&arg.path, &input_graph, &output_graph)
-			.await?
-			.ok_or_else(|| tg::error!(%path = arg.path.display(), "missing path in output"))?;
+		let artifact = output_graph.nodes[0].id.clone();
 
 		// If this is a non-destructive checkin, then attempt to write a lockfile.
 		if arg.lockfile && !arg.destructive && artifact.is_directory() {
@@ -142,36 +139,6 @@ impl Server {
 		let output = tg::artifact::checkin::Output { artifact };
 
 		Ok(output)
-	}
-
-	async fn find_output_from_input(
-		&self,
-		path: &PathBuf,
-		input: &input::Graph,
-		output: &output::Graph,
-	) -> tg::Result<Option<tg::artifact::Id>> {
-		let mut stack = vec![0];
-		let mut visited = vec![false; output.nodes.len()];
-		while let Some(output_index) = stack.pop() {
-			if visited[output_index] {
-				continue;
-			}
-			visited[output_index] = true;
-			let Some(input_index) = output.nodes[output_index].input else {
-				continue;
-			};
-			let input_node = &input.nodes[input_index];
-			if &input_node.arg.path == path {
-				return Ok(Some(output.nodes[output_index].id.clone()));
-			}
-			stack.extend(
-				output.nodes[output_index]
-					.edges
-					.iter()
-					.map(|edge| edge.node),
-			);
-		}
-		Ok(None)
 	}
 
 	pub(crate) async fn ignore_for_checkin(&self) -> tg::Result<Ignore> {
