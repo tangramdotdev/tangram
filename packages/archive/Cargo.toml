@@ -1,5 +1,5 @@
 [package]
-name = "tangram_tgar"
+name = "tangram_archive"
 
 description = { workspace = true }
 edition = { workspace = true }

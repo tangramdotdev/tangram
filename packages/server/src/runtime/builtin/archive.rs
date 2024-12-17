@@ -7,8 +7,8 @@ use std::{
 	path::{Path, PathBuf},
 	str::FromStr,
 };
+use tangram_archive as tgar;
 use tangram_client as tg;
-use tangram_tgar as tgar;
 use tokio::io::DuplexStream;
 use tokio_util::compat::{
 	FuturesAsyncWriteCompatExt, TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt,
