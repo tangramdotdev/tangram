@@ -11,7 +11,7 @@ use tangram_either::Either;
 
 /// Build a target.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	/// Set the arguments.
@@ -449,5 +449,24 @@ impl Cli {
 		}
 
 		Ok(InnerOutput::Value(output))
+	}
+}
+
+impl Default for Args {
+	fn default() -> Self {
+		Self {
+			arg: vec![vec![]],
+			checkout: None,
+			create: true,
+			detach: false,
+			env: vec![vec![]],
+			host: None,
+			locked: false,
+			quiet: false,
+			reference: None,
+			remote: None,
+			retry: None,
+			tag: None,
+		}
 	}
 }
