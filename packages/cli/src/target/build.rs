@@ -455,11 +455,11 @@ impl Cli {
 impl Default for Args {
 	fn default() -> Self {
 		Self {
-			arg: vec![vec![]],
+			arg: vec![],
 			checkout: None,
 			create: true,
 			detach: false,
-			env: vec![vec![]],
+			env: vec![],
 			host: None,
 			locked: false,
 			quiet: false,
