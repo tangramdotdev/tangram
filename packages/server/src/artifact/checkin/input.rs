@@ -1,5 +1,5 @@
 use crate::{lockfile::ParsedLockfile, Server};
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, Future, TryStreamExt as _};
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	path::{Path, PathBuf},
@@ -68,7 +68,7 @@ impl Server {
 		});
 
 		// Create the graph.
-		self.create_input_graph_inner(None, arg.path.as_ref(), &arg, &state, progress)
+		Box::pin(self.create_input_graph_inner(None, arg.path.as_ref(), &arg, &state, progress))
 			.await?;
 
 		// Validate the input graph.
@@ -89,8 +89,7 @@ impl Server {
 
 		// Look for a `tangram.ts`.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let path = path.parent().unwrap();
-		for path in path.ancestors() {
+		for path in path.ancestors().skip(1) {
 			for root_module_name in tg::package::ROOT_MODULE_FILE_NAMES {
 				let root_module_path = path.join(root_module_name);
 				if tokio::fs::try_exists(&root_module_path).await.map_err(|source| tg::error!(!source, %root_module_path = root_module_path.display(), "failed to check if root module exists"))? {
@@ -100,122 +99,125 @@ impl Server {
 		}
 		drop(permit);
 
-		// Otherwise return the parent.
+		// Otherwise return the path.
 		Ok(path.to_owned())
 	}
 
-	async fn create_input_graph_inner(
-		&self,
+	fn create_input_graph_inner<'a>(
+		&'a self,
 		referrer: Option<usize>,
-		path: &Path,
-		arg: &tg::artifact::checkin::Arg,
-		state: &RwLock<State>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
-	) -> tg::Result<usize> {
-		// Get the full path.
-		let path = if path.is_absolute() {
-			// If the absolute path is provided, use it.
-			path.to_owned()
-		} else {
-			let referrer = referrer.ok_or_else(|| tg::error!("expected a referrer"))?;
-			let referrer_path = state.read().await.graph.nodes[referrer].arg.path.clone();
-			referrer_path.join(path)
-		};
+		path: &'a Path,
+		arg: &'a tg::artifact::checkin::Arg,
+		state: &'a RwLock<State>,
+		progress: Option<&'a crate::progress::Handle<tg::artifact::checkin::Output>>,
+	) -> impl Future<Output = tg::Result<usize>> + Send + 'a {
+		let future = async move {
+			// Get the full path.
+			let path = if path.is_absolute() {
+				// If the absolute path is provided, use it.
+				path.to_owned()
+			} else {
+				let referrer = referrer.ok_or_else(|| tg::error!("expected a referrer"))?;
+				let referrer_path = state.read().await.graph.nodes[referrer].arg.path.clone();
+				referrer_path.join(path)
+			};
 
-		// Canonicalize the path.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let absolute_path = crate::util::fs::canonicalize_parent(&path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the parent"),
-		)?;
+			// Canonicalize the path.
+			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+			let absolute_path = crate::util::fs::canonicalize_parent(&path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the parent"),
+			)?;
 
-		// Get the file system metadata.
-		let metadata = tokio::fs::symlink_metadata(&absolute_path).await.map_err(
+			// Get the file system metadata.
+			let metadata = tokio::fs::symlink_metadata(&absolute_path).await.map_err(
 			|source| tg::error!(!source, %path = absolute_path.display(), "failed to get file system metadata"),
 		)?;
-		drop(permit);
+			drop(permit);
 
-		// Validate.
-		if !(metadata.is_dir() || metadata.is_file() || metadata.is_symlink()) {
-			return Err(tg::error!(%path = absolute_path.display(), "invalid file type"));
-		}
+			// Validate.
+			if !(metadata.is_dir() || metadata.is_file() || metadata.is_symlink()) {
+				return Err(tg::error!(%path = absolute_path.display(), "invalid file type"));
+			}
 
-		// If this is a module file, ensure the parent is collected.
-		if metadata.is_file() && tg::package::is_module_path(&absolute_path) {
-			let parent = absolute_path.parent().unwrap().to_owned();
-			Box::pin(self.create_input_graph_inner(None, &parent, arg, state, progress))
+			// If this is a root module file, ensure the parent is collected.
+			if metadata.is_file() && tg::package::is_root_module_path(&absolute_path) {
+				let parent = absolute_path.parent().unwrap().to_owned();
+				Box::pin(self.create_input_graph_inner(None, &parent, arg, state, progress))
 				.await
 				.map_err(
 					|source| tg::error!(!source, %path = absolute_path.display(), "failed to collect input of parent"),
 				)?;
-		}
+			}
 
-		// Get a write lock on the state to avoid a race condition.
-		let mut state_ = state.write().await;
+			// Get a write lock on the state to avoid a race condition.
+			let mut state_ = state.write().await;
 
-		// Check if this path has already been visited and return it.
-		if let Some(node) = state_.visited.get(&absolute_path) {
-			return Ok(*node);
-		}
+			// Check if this path has already been visited and return it.
+			if let Some(node) = state_.visited.get(&absolute_path) {
+				return Ok(*node);
+			}
 
-		// Look up the parent if it exists.
-		let parent = absolute_path
-			.parent()
-			.and_then(|parent| state_.visited.get(parent).copied());
+			// Look up the parent if it exists.
+			let parent = absolute_path
+				.parent()
+				.and_then(|parent| state_.visited.get(parent).copied());
 
-		// Try to get the lockfile.
-		let lockfile = self
-			.try_get_lockfile_for_path(&absolute_path, &mut state_)
-			.await?;
+			// Try to get the lockfile.
+			let lockfile = self
+				.try_get_lockfile_for_path(&absolute_path, &mut state_)
+				.await?;
 
-		// Create a new node.
-		let arg_ = tg::artifact::checkin::Arg {
-			path: absolute_path.clone(),
-			..arg.clone()
-		};
-		let node = Node {
-			arg: arg_,
-			data: None,
-			edges: Vec::new(),
-			lockfile,
-			metadata: metadata.clone(),
-			parent,
-		};
-		state_.graph.nodes.push(node);
-		let node = state_.graph.nodes.len() - 1;
-		state_.visited.insert(absolute_path.clone(), node);
+			// Create a new node.
+			let arg_ = tg::artifact::checkin::Arg {
+				path: absolute_path.clone(),
+				..arg.clone()
+			};
+			let node = Node {
+				arg: arg_,
+				data: None,
+				edges: Vec::new(),
+				lockfile,
+				metadata: metadata.clone(),
+				parent,
+			};
+			state_.graph.nodes.push(node);
+			let node = state_.graph.nodes.len() - 1;
+			state_.visited.insert(absolute_path.clone(), node);
 
-		// Update the roots if necessary. This may result in dangling directories that also need to be collected.
-		let dangling = if parent.is_none() {
-			state_.add_root_and_return_dangling_directories(node).await
-		} else {
-			Vec::new()
-		};
+			// Update the roots if necessary. This may result in dangling directories that also need to be collected.
+			let dangling = if parent.is_none() {
+				state_.add_root_and_return_dangling_directories(node).await
+			} else {
+				Vec::new()
+			};
 
-		// Release the state.
-		drop(state_);
+			// Release the state.
+			drop(state_);
 
-		// Collect any dangling directories.
-		for dangling in dangling {
-			Box::pin(self.create_input_graph_inner(None, &dangling, arg, state, progress))
+			// Collect any dangling directories.
+			for dangling in dangling {
+				Box::pin(self.create_input_graph_inner(None, &dangling, arg, state, progress))
 				.await
 				.map_err(
 					|source| tg::error!(!source, %path = dangling.display(), "failed to collect dangling directory"),
 				)?;
-		}
+			}
 
-		// Get the edges.
-		let edges = self
-			.get_edges(node, &absolute_path, arg, state, progress)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %path = absolute_path.display(), "failed to get edges"),
-			)?;
+			// Get the edges.
+			let edges = self
+				.get_edges(node, &absolute_path, arg, state, metadata, progress)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %path = absolute_path.display(), "failed to get edges"),
+				)?;
 
-		// Update the node.
-		state.write().await.graph.nodes[node].edges = edges;
+			// Update the node.
+			state.write().await.graph.nodes[node].edges = edges;
 
-		// Return the created node.
-		Ok(node)
+			// Return the created node.
+			Ok(node)
+		};
+		Box::pin(future)
 	}
 
 	async fn try_get_lockfile_for_path(
@@ -262,9 +264,9 @@ impl Server {
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
+		metadata: std::fs::Metadata,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Vec<Edge>> {
-		let metadata = state.read().await.graph.nodes[referrer].metadata.clone();
 		if metadata.is_dir() {
 			Box::pin(self.get_directory_edges(referrer, path, arg, state, progress)).await
 		} else if metadata.is_file() {
