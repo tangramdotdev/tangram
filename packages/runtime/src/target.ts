@@ -49,6 +49,7 @@ export function target<
 			kind: arg.module.kind,
 			referent: {
 				item: tg.Object.withId(arg.module.referent.item),
+				path: arg.module.referent.path,
 				subpath: arg.module.referent.subpath,
 				tag: arg.module.referent.tag,
 			},
