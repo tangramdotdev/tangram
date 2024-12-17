@@ -2,6 +2,7 @@ use super::Runtime;
 use crate::Server;
 use futures::{io::BufReader, stream::FuturesOrdered, AsyncReadExt, StreamExt, TryStreamExt};
 use std::{cmp::Ordering, collections::BTreeMap, path::PathBuf, time::Duration};
+use tangram_archive as tgar;
 use tangram_client as tg;
 use tangram_futures::read::SharedPositionReader;
 use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
@@ -89,9 +90,7 @@ impl Runtime {
 		let artifact = match format {
 			tg::artifact::archive::Format::Tar => tar(server, reader).await?,
 			tg::artifact::archive::Format::Zip => zip(server, reader).await?,
-			tg::artifact::archive::Format::Tgar => {
-				unimplemented!("tgar extraction not yet implemented")
-			},
+			tg::artifact::archive::Format::Tgar => tgar(server, reader).await?,
 		};
 
 		log_task.abort();
@@ -232,6 +231,15 @@ where
 	}
 
 	finish_extract(server, artifacts).await
+}
+
+async fn tgar<R>(server: &Server, reader: R) -> tg::Result<tg::Artifact>
+where
+	R: tokio::io::AsyncBufRead + tokio::io::AsyncSeek + Unpin + Send + Sync + 'static,
+{
+	let tgar = tgar::read::Archive::new(reader);
+	tgar.read_header().await?;
+	tgar.read_artifact().await
 }
 
 async fn finish_extract(
