@@ -585,33 +585,92 @@ async fn builtin_download_rejects_malformed_checksum() -> tg::Result<()> {
 }
 
 #[tokio::test]
-async fn builtin_artifact_archive_extract_roundtrip() -> tg::Result<()> {
-	test(
-		temp::directory! {
-			"foo" => temp::directory! {
-				"tangram.ts" => indoc!(r#"
-					import directory from "./directory";
-					export default tg.target(async () => {
-						let archived_directory = await tg.archive(directory, "tar");
-						let extracted_archive = await tg.extract(archived_directory, "tar");
-						return extracted_archive;
-					});
-				"#),
-				"directory" => temp::directory! {
-					"file.txt" => "contents",
-					"link" => temp::symlink!("./file.txt")
-				}
-			}
-		},
-		"foo",
-		"default",
-		vec![],
-		|_, outcome| async move {
-			outcome.into_result().unwrap();
-			Ok::<_, tg::Error>(())
-		},
-	)
+async fn builtin_artifact_archive_extract_empty_dir_roundtrip() -> tg::Result<()> {
+	let tangram_ts = indoc!(
+		r#"
+			import directory from "./directory";
+			export default tg.target(async () => {
+				let archived_directory = await tg.archive(directory, "archive_format");
+				let extracted_archive = await tg.extract(archived_directory, "archive_format");
+				return extracted_archive;
+			});
+		"#
+	);
+	let artifact_entry = ("directory", temp::directory! {}.into());
+	archive_test(tangram_ts, artifact_entry, |_, outcome| async move {
+		outcome.into_result().unwrap();
+		Ok::<_, tg::Error>(())
+	})
 	.await
+}
+
+#[tokio::test]
+async fn builtin_artifact_archive_extract_empty_file_roundtrip() -> tg::Result<()> {
+	let tangram_ts = indoc!(
+		r#"
+			import file from "./file";
+			export default tg.target(async () => {
+				let archived_file = await tg.archive(file, "archive_format");
+				let extracted_archive = await tg.extract(archived_file, "archive_format");
+				return extracted_archive;
+			});
+		"#
+	);
+	let artifact_entry = ("file", temp::file!("").into());
+	archive_test(tangram_ts, artifact_entry, |_, outcome| async move {
+		outcome.into_result().unwrap();
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+#[tokio::test]
+async fn builtin_artifact_archive_extract_simple_dir_roundtrip() -> tg::Result<()> {
+	let tangram_ts = indoc!(
+		r#"
+			import directory from "./directory";
+			export default tg.target(async () => {
+				let archived_directory = await tg.archive(directory, "archive_format");
+				let extracted_archive = await tg.extract(archived_directory, "archive_format");
+				return extracted_archive;
+			});
+		"#
+	);
+	let artifact_entry = (
+		"directory",
+		temp::directory! {
+			"file.txt" => "contents",
+			"link" => temp::symlink!("./file.txt")
+		}
+		.into(),
+	);
+	archive_test(tangram_ts, artifact_entry, |_, outcome| async move {
+		outcome.into_result().unwrap();
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+async fn archive_test<F, Fut>(
+	tangram_ts: &str,
+	artifact_entry: (&'static str, temp::Artifact),
+	assertions: F,
+) -> tg::Result<()>
+where
+	F: FnOnce(Server, tg::build::Outcome) -> Fut + Clone,
+	Fut: Future<Output = tg::Result<()>>,
+{
+	for archive_format in &["tar", "zip", "tgar"] {
+		let tangram_ts = tangram_ts.replace("archive_format", archive_format);
+		let directory = temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => tangram_ts,
+				artifact_entry.0 => artifact_entry.1.clone(),
+			}
+		};
+		test(directory, "foo", "default", vec![], assertions.clone()).await?;
+	}
+	Ok(())
 }
 
 #[tokio::test]
@@ -994,7 +1053,7 @@ where
 	if result.as_ref().is_ok_and(Result::is_ok) {
 		server_temp.remove().await.ok();
 	}
-	artifact_temp.remove().await.ok();
+	// artifact_temp.remove().await.ok();
 	result.unwrap()
 }
 
