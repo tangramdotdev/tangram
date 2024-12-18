@@ -21,17 +21,17 @@ async fn create_from_file() -> tg::Result<()> {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the file"))?;
 
-        let blob = server.create_blob(reader).await?.blob;
-        let blob = tg::Blob::with_id(blob);
-        let object: tg::Object = blob.into();
-        object.load_recursive(&server).await?;
-        let value = tg::Value::from(object);
+		let blob = server.create_blob(reader).await?.blob;
+		let blob = tg::Blob::with_id(blob);
+		let object: tg::Object = blob.into();
+		object.load_recursive(&server).await?;
+		let value = tg::Value::from(object);
 		let options = tg::value::print::Options {
 			recursive: true,
 			style: tg::value::print::Style::Pretty { indentation: "\t" },
 		};
 		let output = value.print(options);
-        assert_snapshot!(output, @r#"tg.leaf("hello, world!\n")"#);
+		assert_snapshot!(output, @r#"tg.leaf("hello, world!\n")"#);
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()

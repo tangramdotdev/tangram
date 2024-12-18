@@ -44,12 +44,21 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get database transaction"))?;
 
 		// Create the blob.
-		let InnerOutput { blob, count, depth, weight, .. } = self
+		let InnerOutput {
+			blob,
+			count,
+			depth,
+			weight,
+			..
+		} = self
 			.create_blob_inner(reader, Some(Either::Right(&transaction)))
 			.await?;
 
 		// Commit the transaction.
-		transaction.commit().await.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Create the metadata.
 		let metadata = tg::object::Metadata {
