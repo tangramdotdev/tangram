@@ -49,7 +49,7 @@ async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.38"
 async-tar = "0.5"
-async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip", rev = "df9468ce", features = ["full"] }
+async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip", rev = "90e365c", features = ["full"] }
 biome_js_formatter = "0.5"
 biome_js_parser = "0.5"
 biome_js_syntax = "0.5"
