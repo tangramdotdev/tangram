@@ -112,8 +112,7 @@ where
 	R: tokio::io::AsyncRead + Unpin + Send + Sync + 'static,
 {
 	// Create the tar reader.
-	let reader = BufReader::new(reader.compat());
-	let tar = async_tar::Archive::new(reader);
+	let tar = async_tar::Archive::new(reader.compat());
 
 	let artifacts: BTreeMap<usize, (PathBuf, Option<tg::Artifact>)> = tar
 		.entries()
