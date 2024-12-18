@@ -310,6 +310,9 @@ async fn finish_extract(
 		},
 		Ordering::Equal => match artifacts.into_iter().last() {
 			Some((_, (_, Some(artifact)))) => Ok(artifact),
+			Some((_, (_, None))) => Ok(tg::Artifact::Directory(tg::Directory::with_entries(
+				BTreeMap::new(),
+			))),
 			_ => Err(tg::error!("could not find the root artifact")),
 		},
 	}
