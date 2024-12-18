@@ -3,9 +3,9 @@ use tangram_http::{incoming::response::Ext as _, Outgoing};
 use tokio::io::AsyncRead;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(transparent)]
 pub struct Output {
 	pub blob: tg::blob::Id,
+	pub metadata: tg::object::Metadata,
 }
 
 impl tg::Client {

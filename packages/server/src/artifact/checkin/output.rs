@@ -267,54 +267,9 @@ impl Server {
 		};
 
 		// If this is a file, we need to create a hardlink in the cache directory and create a symlink for its contents in the blobs directory that points to the corresponding entry in the cache directory.
-		if let tg::artifact::Data::File(file) = &&output.nodes[node].data {
+		if let tg::artifact::Data::File(_) = &&output.nodes[node].data {
 			// Create hard link to the file or copy as needed.
 			let dst = self.cache_path().join(output.nodes[node].id.to_string());
-			if hardlink_prohibited {
-				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-				let result = tokio::fs::copy(path, &dst).await.map(|_| ());
-				match result {
-					Ok(()) => (),
-					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
-					Err(source) => {
-						let src = path.display();
-						let dst = dst.display();
-						return Err(tg::error!(!source, %src, %dst, "failed to copy"));
-					},
-				}
-			} else {
-				let result = tokio::fs::hard_link(path, &dst).await;
-				match result {
-					Ok(()) => (),
-					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
-					Err(source) => {
-						let src = path.display();
-						let dst = dst.display();
-						return Err(tg::error!(!source, %src, %dst, "failed to hardlink"));
-					},
-				}
-			};
-
-			// Get the contents' ID.
-			let contents = match file {
-				// If the file is a pointer into a graph, we need to fetch the graph and convert its data.
-				tg::file::Data::Graph { graph, node } => {
-					let graph = tg::Graph::with_id(graph.clone())
-						.data(self)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the graph data"))?;
-					let tg::graph::data::Node::File(file) = &graph.nodes[*node] else {
-						return Err(tg::error!("expected a file"));
-					};
-					file.contents.clone()
-				},
-
-				// If this is a normal file we have no work to do.
-				tg::file::Data::Normal { contents, .. } => contents.clone(),
-			};
-
-			// Create a symlink to the file in the blobs directory.
-			let dst = self.blobs_path().join(contents.to_string());
 			if hardlink_prohibited {
 				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 				let result = tokio::fs::copy(path, &dst).await.map(|_| ());

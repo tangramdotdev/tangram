@@ -10,7 +10,7 @@ impl Cli {
 	pub async fn command_blob_create(&self, _args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let reader = tokio::io::stdin();
-		let tg::blob::create::Output { blob } = handle.create_blob(reader).await?;
+		let tg::blob::create::Output { blob, .. } = handle.create_blob(reader).await?;
 		println!("{blob}");
 		Ok(())
 	}

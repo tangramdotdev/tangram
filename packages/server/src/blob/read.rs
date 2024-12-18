@@ -8,6 +8,7 @@ use tangram_futures::task::Stop;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Outgoing};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
 
+#[allow(dead_code)]
 enum Reader {
 	File(tokio::fs::File),
 	Blob(tg::blob::Reader<Server>),
@@ -20,13 +21,9 @@ impl Server {
 		arg: tg::blob::read::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::blob::read::Event>>>> {
 		// Create the reader.
-		let reader = if let Some(file) = self.try_get_blob_file(id).await? {
-			Reader::File(file)
-		} else {
-			let blob = tg::Blob::with_id(id.clone());
-			let reader = blob.reader(self).await?;
-			Reader::Blob(reader)
-		};
+		let blob = tg::Blob::with_id(id.clone());
+		let reader = blob.reader(self).await?;
+		let reader = Reader::Blob(reader);
 
 		// Create the channel.
 		let (sender, receiver) = async_channel::unbounded();
@@ -43,22 +40,6 @@ impl Server {
 		});
 
 		Ok(Some(receiver))
-	}
-
-	async fn try_get_blob_file(&self, id: &tg::blob::Id) -> tg::Result<Option<tokio::fs::File>> {
-		let path = self.blobs_path().join(id.to_string());
-		let file = match tokio::fs::File::open(&path).await {
-			Ok(file) => file,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(None);
-			},
-			Err(source) => {
-				return Err(
-					tg::error!(!source, %path = path.display(), "failed to open the blob file"),
-				)?;
-			},
-		};
-		Ok(Some(file))
 	}
 
 	async fn try_read_blob_task(

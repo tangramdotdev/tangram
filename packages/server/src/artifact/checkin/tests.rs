@@ -2225,6 +2225,7 @@ where
 	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
+	eprintln!("test path: {}", temp.path().display());
 	let result = AssertUnwindSafe(async {
 		let directory = Temp::new();
 		artifact.to_path(directory.as_ref()).await.map_err(

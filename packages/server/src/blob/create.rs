@@ -1,4 +1,4 @@
-use crate::{database::Transaction, temp::Temp, Server};
+use crate::{database::Transaction, Server};
 use bytes::Bytes;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
@@ -30,28 +30,37 @@ impl Server {
 		&self,
 		reader: impl AsyncRead,
 	) -> tg::Result<tg::blob::create::Output> {
-		// Create a temporary file.
-		let temp = Temp::new(self);
-		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let file = tokio::fs::File::options()
-			.create_new(true)
-			.write(true)
-			.open(&temp.path)
+		// Get a database connection.
+		let mut connection = self
+			.database
+			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to open file for writing"))?;
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		// Create a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database transaction"))?;
 
 		// Create the blob.
-		let InnerOutput { blob, .. } = self
-			.create_blob_inner(reader, Some(Either::Left(file)))
+		let InnerOutput { blob, count, depth, weight, .. } = self
+			.create_blob_inner(reader, Some(Either::Right(&transaction)))
 			.await?;
 
-		// Move the file to the blobs directory.
-		tokio::fs::rename(&temp.path, self.blobs_path().join(blob.to_string()))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to rename file"))?;
+		// Commit the transaction.
+		transaction.commit().await.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Create the metadata.
+		let metadata = tg::object::Metadata {
+			complete: true,
+			count: Some(count),
+			weight: Some(weight),
+			depth: Some(depth),
+		};
 
 		// Create the output.
-		Ok(tg::blob::create::Output { blob })
+		Ok(tg::blob::create::Output { blob, metadata })
 	}
 
 	pub(crate) async fn create_blob_inner(
@@ -299,54 +308,6 @@ impl Server {
 		};
 
 		Ok(output)
-	}
-
-	pub(crate) async fn try_store_blob(&self, blob: &tg::blob::Id) -> tg::error::Result<bool> {
-		// Open the blob file.
-		let path = self.blobs_path().join(blob.to_string());
-		let file = match tokio::fs::File::open(&path).await {
-			Ok(file) => file,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(false);
-			},
-			Err(error) => return Err(tg::error!(!error, "failed to open file")),
-		};
-
-		// Get a database connection.
-		let mut connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-
-		// Store the blob.
-		let output = self
-			.create_blob_inner(file, Some(Either::Right(&transaction)))
-			.await?;
-
-		// Verify the ID is the same.
-		if output.blob != *blob {
-			return Err(tg::error!("failed to store the blob"));
-		}
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-		// Remove the file.
-		tokio::fs::remove_file(&path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to remove the file"))?;
-
-		Ok(true)
 	}
 }
 

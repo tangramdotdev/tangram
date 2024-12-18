@@ -60,7 +60,6 @@ pub struct Server(Arc<Inner>);
 
 pub struct Inner {
 	artifact_cache_task_map: ArtifactCacheTaskMap,
-	blob_store_task_map: BlobStoreTaskMap,
 	build_permits: BuildPermits,
 	build_semaphore: Arc<tokio::sync::Semaphore>,
 	builds: BuildTaskMap,
@@ -77,8 +76,6 @@ pub struct Inner {
 	task: Mutex<Option<Task<()>>>,
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
-
-type BlobStoreTaskMap = TaskMap<tg::blob::Id, tg::Result<bool>, fnv::FnvBuildHasher>;
 
 type BuildPermits =
 	DashMap<tg::build::Id, Arc<tokio::sync::Mutex<Option<BuildPermit>>>, fnv::FnvBuildHasher>;
@@ -125,12 +122,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
 		let lock_file = Mutex::new(Some(lock_file));
 
-		// Ensure the blobs directory exists.
-		let blobs_path = path.join("blobs");
-		tokio::fs::create_dir_all(&blobs_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the blobs directory"))?;
-
 		// Ensure the logs directory exists.
 		let logs_path = path.join("logs");
 		tokio::fs::create_dir_all(&logs_path)
@@ -149,9 +140,6 @@ impl Server {
 
 		// Create the artifact cache task map.
 		let artifact_cache_task_map = TaskMap::default();
-
-		// Create the blob store task map.
-		let blob_store_task_map = TaskMap::default();
 
 		// Create the build permits.
 		let build_permits = DashMap::default();
@@ -250,7 +238,6 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			artifact_cache_task_map,
-			blob_store_task_map,
 			build_permits,
 			build_semaphore,
 			builds,
@@ -395,7 +382,9 @@ impl Server {
 		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 		{
 			let triple = "x86_64-linux".to_owned();
-			let runtime = self::runtime::linux::Runtime::new(&server).await?;
+			let runtime = self::runtime::linux::Runtime::new(&server)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the linux runtime"))?;
 			let runtime = self::runtime::Runtime::Linux(runtime);
 			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
@@ -617,11 +606,6 @@ impl Server {
 	#[must_use]
 	pub fn artifacts_path(&self) -> PathBuf {
 		self.path.join("artifacts")
-	}
-
-	#[must_use]
-	pub fn blobs_path(&self) -> PathBuf {
-		self.path.join("blobs")
 	}
 
 	#[must_use]

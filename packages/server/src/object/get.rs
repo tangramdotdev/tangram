@@ -21,39 +21,7 @@ impl Server {
 		}
 	}
 
-	async fn try_get_object_local(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::get::Output>> {
-		// Try to get the object from the database.
-		if let Some(output) = self.try_get_object_local_database(id).await? {
-			return Ok(Some(output));
-		};
-
-		// If the object is a blob, then try to store it.
-		if let Ok(blob) = tg::blob::Id::try_from(id.clone()) {
-			let server = self.clone();
-			let stored = self
-				.blob_store_task_map
-				.get_or_spawn(blob.clone(), |_| async move {
-					server.try_store_blob(&blob).await
-				})
-				.wait()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for the task"))??;
-			if stored {
-				let output = self
-					.try_get_object_local_database(id)
-					.await?
-					.ok_or_else(|| tg::error!("expected the object to exist"))?;
-				return Ok(Some(output));
-			}
-		}
-
-		Ok(None)
-	}
-
-	pub async fn try_get_object_local_database(
+	pub async fn try_get_object_local(
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {

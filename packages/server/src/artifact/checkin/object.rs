@@ -543,26 +543,25 @@ impl Server {
 			.collect();
 
 		// Read the file contents.
+		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let file = tokio::fs::File::open(&path)
 			.await
 			.map_err(|source| tg::error!(!source, %path = path.display(), "failed to read file"))?;
-		let output = self.create_blob_inner(file, None).await.map_err(
+		let tg::blob::create::Output { blob, metadata: blob_metadata }= self.create_blob(file).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to create blob"),
 		)?;
+		drop(permit);
 
 		// For files only, we need to keep track of the count, depth, and weight when reading the file.
 		let file_metadata_ = tg::object::Metadata {
 			complete: false,
-			count: Some(output.count),
-			depth: Some(output.depth),
-			weight: Some(output.weight),
+			..blob_metadata
 		};
 		file_metadata.insert(index, file_metadata_);
 
-		let contents = output.blob;
 		let executable = metadata.permissions().mode() & 0o111 != 0;
 		let file = tg::graph::data::File {
-			contents,
+			contents: blob,
 			dependencies,
 			executable,
 		};
