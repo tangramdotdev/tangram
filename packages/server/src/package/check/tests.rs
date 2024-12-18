@@ -85,6 +85,7 @@ where
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
 		let checkin_arg = tg::artifact::checkin::Arg {
+			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,

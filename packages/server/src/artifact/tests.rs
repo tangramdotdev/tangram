@@ -409,6 +409,7 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 
 		// Check the artifact back in.
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			deterministic: true,
 			destructive: false,
 			ignore: true,
@@ -461,6 +462,7 @@ where
 		// Check in the artifact to the first server.
 		let path = temp.path().join(path);
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			path: path.clone(),
 			destructive: false,
 			deterministic: false,
@@ -502,6 +504,7 @@ where
 		// Check the artifact into a second server.
 		let checkin = temp::Artifact::with_path(&path).await?;
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			path: path.clone(),
 			destructive: false,
 			deterministic: false,

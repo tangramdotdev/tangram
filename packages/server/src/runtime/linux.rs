@@ -772,6 +772,7 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to determine in the path exists"))?
 		{
 			let arg = tg::artifact::checkin::Arg {
+				cache: true,
 				destructive: true,
 				deterministic: true,
 				ignore: false,

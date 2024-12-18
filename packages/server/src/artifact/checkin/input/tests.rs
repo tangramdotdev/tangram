@@ -98,6 +98,7 @@ where
 		let temp = Temp::new();
 		artifact.into().to_path(temp.path()).await.unwrap();
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			path: temp.path().join(path),
 			destructive: false,
 			deterministic: false,

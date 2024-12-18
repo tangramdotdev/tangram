@@ -1416,6 +1416,7 @@ async fn tagged_package_survives_clean() -> tg::Result<()> {
 
 		// Checkin the artifact to the first local server.
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			path: temp.path().to_owned(),
 			destructive: false,
 			deterministic: false,
@@ -1466,6 +1467,7 @@ async fn tagged_package_survives_clean() -> tg::Result<()> {
 
 		// Checkin the artifact to the second local server.
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			path: temp.path().to_owned(),
 			destructive: false,
 			deterministic: false,
@@ -2234,6 +2236,7 @@ where
 
 		let path = directory.as_ref().join(path);
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			destructive,
 			deterministic: false,
 			ignore: true,
@@ -2319,6 +2322,7 @@ where
 		// Checkin the artifact.
 		let arg = tg::artifact::checkin::Arg {
 			path: temp.path().to_owned(),
+			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,
@@ -2383,12 +2387,13 @@ async fn checkin(
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create artifact"))?;
 	let arg = tg::artifact::checkin::Arg {
-		path: temp.path().to_owned(),
+		cache: false,
 		destructive: false,
 		deterministic: false,
 		ignore: true,
 		locked: false,
 		lockfile: true,
+		path: temp.path().to_owned(),
 	};
 	let artifact = tg::Artifact::check_in(server, arg).await?;
 	let lockfile = tg::Lockfile::try_read(&temp.path().join(tg::package::LOCKFILE_FILE_NAME))

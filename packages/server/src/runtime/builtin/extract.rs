@@ -128,6 +128,7 @@ impl Runtime {
 
 		// Check in the extracted artifact.
 		let arg = tg::artifact::checkin::Arg {
+			cache: true,
 			destructive: true,
 			deterministic: true,
 			ignore: false,

@@ -36,6 +36,7 @@ impl Server {
 			},
 			tg::reference::Item::Path(path) => {
 				let arg = tg::artifact::checkin::Arg {
+					cache: false,
 					destructive: false,
 					deterministic: false,
 					ignore: true,

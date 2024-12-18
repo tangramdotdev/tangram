@@ -174,6 +174,7 @@ impl Server {
 		let existing_artifact = if exists {
 			// Attempt to check in the existing artifact.
 			let arg = tg::artifact::checkin::Arg {
+				cache: false,
 				destructive: false,
 				deterministic: true,
 				ignore: true,

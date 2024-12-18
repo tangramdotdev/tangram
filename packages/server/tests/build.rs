@@ -667,6 +667,7 @@ async fn import_from_tag() -> tg::Result<()> {
 
 		// check in
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,
@@ -768,6 +769,7 @@ async fn build_create_false() -> tg::Result<()> {
 
 		// Checkin the artifact.
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,
@@ -841,6 +843,7 @@ async fn build_cache_hit() -> tg::Result<()> {
 
 		// Checkin the artifact.
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,
@@ -938,6 +941,7 @@ where
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
 		let arg = tg::artifact::checkin::Arg {
+			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,

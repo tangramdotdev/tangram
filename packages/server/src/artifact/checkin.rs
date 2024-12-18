@@ -113,17 +113,17 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output graph"))?;
 
-		// Copy or move to the cache directory.
-		self.copy_or_move_to_cache_directory(&input_graph, &output_graph, 0, progress)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to copy or move to the cache directory")
-			})?;
-
 		// Write the output to the database.
 		self.write_output_to_database(&output_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write to the database"))?;
+
+		// Copy or move to the cache directory.
+		if arg.cache || arg.destructive {
+			self.copy_or_move_to_cache_directory(&input_graph, &output_graph, 0, progress)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
+		}
 
 		// Get the artifact.
 		let artifact = output_graph.nodes[0].id.clone();

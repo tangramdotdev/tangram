@@ -157,6 +157,7 @@ where
 		tg::Artifact::check_in(
 			&server,
 			tg::artifact::checkin::Arg {
+				cache: false,
 				destructive: false,
 				deterministic: false,
 				ignore: true,
@@ -213,6 +214,7 @@ where
 		let artifact = tg::Artifact::check_in(
 			&server,
 			tg::artifact::checkin::Arg {
+				cache: false,
 				destructive: false,
 				deterministic: false,
 				ignore: true,
