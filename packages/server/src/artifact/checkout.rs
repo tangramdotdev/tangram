@@ -218,21 +218,44 @@ impl Server {
 		self.check_out_artifact_inner(&state, arg_).await?;
 
 		// Create a lockfile and write it if it is not empty.
-		if artifact.is_directory() {
+		'a: {
+			// Skip creation if this is a symlink or the user passed lockfile: false
+			if artifact.is_symlink() || !arg.lockfile {
+				break 'a;
+			}
+
+			// Create the lockfile.
 			let artifact = tg::Artifact::with_id(artifact.clone());
 			let lockfile = self
 				.create_lockfile_for_artifact(&artifact)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
-			if !lockfile.nodes.is_empty() {
-				let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
-				let contents = serde_json::to_vec(&lockfile)
+
+			// Skip creation if the lockfile is empty.
+			if lockfile.nodes.is_empty() {
+				break 'a;
+			}
+
+			// If this is a directory, write it as a child.
+			if artifact.is_directory() {
+				// Serialize the lockfile.
+				let contents = serde_json::to_vec_pretty(&lockfile)
 					.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
-				let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+
+				let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
+				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 				tokio::fs::write(&lockfile_path, &contents).await.map_err(
 					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
 				)?;
-				drop(permit);
+			} else {
+				// Serialize the lockfile.
+				let contents = serde_json::to_vec(&lockfile)
+					.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
+
+				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+				xattr::set(&path, tg::file::XATTR_LOCK_NAME, &contents).map_err(|source| {
+					tg::error!(!source, "failed to write the lockfile contents as an xattr")
+				})?;
 			}
 		}
 
@@ -513,15 +536,6 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
-
-		// Set the extended attributes.
-		let name = tg::file::XATTR_DATA_NAME;
-		let data = file.data(self).await?;
-		let json = serde_json::to_vec(&data)
-			.map_err(|error| tg::error!(source = error, "failed to serialize the file data"))?;
-		xattr::set(&arg.path, name, &json).map_err(|source| {
-			tg::error!(!source, "failed to set the extended attribute for the file")
-		})?;
 
 		// If the artifact is a file, then add its path to the files map.
 		if let Ok(file) = arg.artifact.try_unwrap_file_ref() {

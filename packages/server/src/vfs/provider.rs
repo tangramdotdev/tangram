@@ -325,57 +325,11 @@ impl vfs::Provider for Provider {
 		Ok(target)
 	}
 
-	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
-		let Node { artifact, .. } = self.get(id).await?;
-		let Some(tg::Artifact::File(_)) = artifact else {
-			return Ok(Vec::new());
-		};
-		Ok(vec![
-			tg::file::XATTR_DATA_NAME.to_owned(),
-			tg::file::XATTR_METADATA_NAME.to_owned(),
-		])
+	async fn listxattrs(&self, _id: u64) -> std::io::Result<Vec<String>> {
+		Ok(Vec::new())
 	}
 
-	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
-		// Get the node.
-		let Node { artifact, .. } = self.get(id).await?;
-
-		// Ensure it is a file.
-		let Some(tg::Artifact::File(file)) = artifact else {
-			return Ok(None);
-		};
-
-		// Ensure the xattr name is supported.
-		if name == tg::file::XATTR_DATA_NAME {
-			// Get the data.
-			let data = file.data(&self.server).await.map_err(|e| {
-				tracing::error!(?e, ?file, "failed to get the file data");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-
-			// Serialize the data.
-			let data = data.serialize().map_err(|e| {
-				tracing::error!(?e, ?file, "failed to serialize the file data");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-			return Ok(Some(data));
-		}
-		if name == tg::file::XATTR_METADATA_NAME {
-			let Ok(id) = file.id(&self.server).await else {
-				tracing::error!("failed to get file ID");
-				return Err(std::io::Error::from_raw_os_error(libc::EIO));
-			};
-			let Ok(metadata) = self.server.get_object_metadata(&id.into()).await else {
-				tracing::error!("failed to get object metadata");
-				return Err(std::io::Error::from_raw_os_error(libc::EIO));
-			};
-			let Ok(metadata) = serde_json::to_vec(&metadata) else {
-				tracing::error!("failed to serialize object metadata");
-				return Err(std::io::Error::from_raw_os_error(libc::EIO));
-			};
-			return Ok(Some(metadata.into()));
-		}
-
+	async fn getxattr(&self, _id: u64, _name: &str) -> std::io::Result<Option<Bytes>> {
 		Ok(None)
 	}
 

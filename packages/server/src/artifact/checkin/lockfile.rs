@@ -521,6 +521,18 @@ fn strip_nodes_inner(
 						subpath,
 						tag,
 					} = referent;
+
+					// Special case, the reference is by ID.
+					if let Ok(id) = reference.item().try_unwrap_object_ref() {
+						let referent = tg::Referent {
+							item: Either::Right(id.clone()),
+							path: path.clone(),
+							subpath: subpath.clone(),
+							tag: tag.clone(),
+						};
+						return Some((reference.clone(), referent));
+					}
+
 					let item = match item {
 						Either::Left(node) => Either::Left(strip_nodes_inner(
 							old_nodes,

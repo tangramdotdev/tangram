@@ -1,4 +1,5 @@
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use itertools::Itertools;
 use std::{
 	borrow::Cow,
 	collections::BTreeMap,
@@ -36,6 +37,8 @@ pub struct Directory {
 pub struct File {
 	pub contents: Cow<'static, str>,
 	pub executable: bool,
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub xattr: BTreeMap<Cow<'static, str>, Cow<'static, str>>,
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, serde::Deserialize, serde::Serialize)]
@@ -73,9 +76,25 @@ impl Artifact {
 					tg::error!(source = error, "could not read file to string")
 				})?);
 			let executable = metadata.permissions().mode() & 0o111 != 0;
+			let xattr = xattr::list(path)
+				.map_err(|source| tg::error!(!source, "could not list xattrs"))?
+				.map(|name| {
+					let name = name
+						.to_str()
+						.ok_or_else(|| tg::error!("non utf8 xattr name"))?
+						.to_owned();
+					let value = xattr::get(path, &name)
+						.map_err(|source| tg::error!(!source, %name, "failed to read xattr"))?
+						.ok_or_else(|| tg::error!(%name, "expected an xattr"))?;
+					let value =
+						String::from_utf8(value).map_err(|_| tg::error!("non utf8 xattr value"))?;
+					Ok::<_, tg::Error>((Cow::Owned(name), Cow::Owned(value)))
+				})
+				.try_collect()?;
 			Ok(Self::File(File {
 				contents,
 				executable,
+				xattr,
 			}))
 		} else if metadata.is_symlink() {
 			let target = Cow::Owned(
@@ -110,17 +129,21 @@ impl Artifact {
 			Self::File(File {
 				contents,
 				executable,
+				xattr,
 			}) => {
 				let mut file = tokio::fs::OpenOptions::new()
 					.write(true)
 					.create(true)
 					.truncate(true)
-					.open(&path)
+					.open(path)
 					.await?;
 				file.write_all(contents.as_bytes()).await?;
 				if *executable {
 					file.set_permissions(std::fs::Permissions::from_mode(0o755))
 						.await?;
+				}
+				for (name, value) in xattr {
+					xattr::set(path, name.as_ref(), value.as_bytes())?;
 				}
 			},
 			Self::Symlink(Symlink { target }) => {
@@ -169,6 +192,7 @@ impl Artifact {
 			Self::File(File {
 				contents,
 				executable,
+				xattr,
 			}) => {
 				if !metadata.is_file() {
 					return Ok(false);
@@ -180,6 +204,20 @@ impl Artifact {
 				let contents_ = tokio::fs::read_to_string(&path).await?;
 				if contents.as_ref() != contents_ {
 					return Ok(false);
+				}
+				for name in xattr::list(path)? {
+					let Some(name) = name.to_str() else {
+						return Ok(false);
+					};
+					let Some(value) = xattr::get(path, name)? else {
+						return Ok(false);
+					};
+					let Ok(value) = std::str::from_utf8(&value) else {
+						return Ok(false);
+					};
+					if xattr.get(name).map(AsRef::as_ref) != Some(value) {
+						return Ok(false);
+					}
 				}
 			},
 
@@ -205,11 +243,22 @@ impl Directory {
 	}
 }
 
+impl File {
+	#[must_use]
+	pub fn with_xattr(mut self, name: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+		let name = Cow::Owned(name.as_ref().to_owned());
+		let value = Cow::Owned(value.as_ref().to_owned());
+		self.xattr.insert(name, value);
+		self
+	}
+}
+
 impl From<&'static str> for Artifact {
 	fn from(value: &'static str) -> Self {
 		Self::File(File {
 			contents: value.into(),
 			executable: false,
+			xattr: BTreeMap::new(),
 		})
 	}
 }
@@ -219,6 +268,7 @@ impl From<String> for Artifact {
 		Self::File(File {
 			contents: value.into(),
 			executable: false,
+			xattr: BTreeMap::new(),
 		})
 	}
 }
@@ -244,8 +294,9 @@ macro_rules! file {
 	($contents:expr $(, $($arg:tt)*)?) => {{
 		let contents = $contents.into();
 		let mut executable = false;
+		let mut xattr = std::collections::BTreeMap::new();
 		$crate::file!(@executable $($($arg)*)?);
-		$crate::artifact::File { contents, executable }
+		$crate::artifact::File { contents, executable, xattr }
 	}};
 }
 

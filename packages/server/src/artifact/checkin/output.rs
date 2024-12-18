@@ -370,8 +370,8 @@ impl Server {
 				)
 				.await?;
 
-				// Update the xattrs and file permissions.
-				self.update_xattrs_and_permissions(input, output, output_index, temp.path.clone())
+				// Update the file permissions.
+				self.update_permissions(input, output, output_index, temp.path.clone())
 					.await?;
 
 				// Reset the file times to epoch.
@@ -388,7 +388,7 @@ impl Server {
 					Err(source) => return Err(tg::error!(!source, "failed to rename")),
 				}
 
-				// Update hardlinks and xattrs.
+				// Update hardlinks.
 				self.write_links(input, output, output_index).await?;
 
 				// Reset the top-level object times to epoch post-rename.
@@ -503,7 +503,7 @@ impl Server {
 		})?
 	}
 
-	async fn update_xattrs_and_permissions(
+	async fn update_permissions(
 		&self,
 		input: &input::Graph,
 		output: &Graph,
@@ -511,11 +511,11 @@ impl Server {
 		dest: PathBuf,
 	) -> tg::Result<()> {
 		let mut visited = vec![false; output.nodes.len()];
-		self.update_xattrs_and_permissions_inner(input, output, node, dest, &mut visited)
+		self.update_permissions_inner(input, output, node, dest, &mut visited)
 			.await
 	}
 
-	async fn update_xattrs_and_permissions_inner(
+	async fn update_permissions_inner(
 		&self,
 		input: &input::Graph,
 		output: &Graph,
@@ -529,7 +529,6 @@ impl Server {
 		}
 		visited[node] = true;
 
-		// If this is a file, write xattrs.
 		match &output.nodes[node].data {
 			tg::artifact::Data::File(file) => {
 				let executable = match &file {
@@ -548,24 +547,12 @@ impl Server {
 					.map_err(
 						|source| tg::error!(!source, %path = dest.display(), "failed to set file permissions"),
 					)?;
-
-				let json = serde_json::to_vec(&file)
-					.map_err(|source| tg::error!(!source, "failed to serialize file data"))?;
-
 				let metadata = tokio::fs::symlink_metadata(&dest).await.map_err(
 					|source| tg::error!(!source, %dest = dest.display(), "failed to get metadata"),
 				)?;
 				if !metadata.is_file() {
 					return Err(tg::error!(%path = dest.display(), "expected a file"));
 				}
-				xattr::set(&dest, tg::file::XATTR_DATA_NAME, &json).map_err(
-					|source| tg::error!(!source, %path = dest.display(), "failed to write file data as an xattr"),
-				)?;
-				let metadata = serde_json::to_vec(&output.nodes[node].metadata)
-					.map_err(|source| tg::error!(!source, "failed to serialize metadata"))?;
-				xattr::set(&dest, tg::file::XATTR_METADATA_NAME, &metadata).map_err(
-					|source| tg::error!(!source, %path = dest.display(), "failed to write file metadata as an xattr"),
-				)?;
 			},
 			tg::artifact::Data::Directory(_) => {
 				let permissions = tokio::fs::metadata(&dest)
@@ -609,10 +596,8 @@ impl Server {
 		for (subpath, next_node) in dependencies {
 			let subpath = subpath.strip_prefix("./").unwrap_or(subpath.as_ref());
 			let dest = dest.join(subpath);
-			Box::pin(
-				self.update_xattrs_and_permissions_inner(input, output, next_node, dest, visited),
-			)
-			.await?;
+			Box::pin(self.update_permissions_inner(input, output, next_node, dest, visited))
+				.await?;
 		}
 
 		Ok(())

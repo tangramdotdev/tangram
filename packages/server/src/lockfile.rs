@@ -11,7 +11,6 @@ use tangram_either::Either;
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct ParsedLockfile {
-	artifacts: BTreeMap<tg::artifact::Id, PathBuf>,
 	nodes: Vec<tg::lockfile::Node>,
 	paths: Vec<Option<PathBuf>>,
 	path: PathBuf,
@@ -338,7 +337,7 @@ impl ParsedLockfile {
 	pub fn get_file_dependencies(
 		&self,
 		path: &Path,
-	) -> tg::Result<Vec<(tg::Reference, tg::Referent<PathBuf>)>> {
+	) -> tg::Result<Vec<(tg::Reference, tg::Referent<ResolvedDependency>)>> {
 		// Find the node index of this path.
 		let node = self.get_node_for_path(path)?;
 
@@ -350,33 +349,19 @@ impl ParsedLockfile {
 
 		// Resolve the dependencies.
 		let mut dependencies_ = Vec::with_capacity(dependencies.len());
-		for (reference, dependency) in dependencies {
-			let path = match &dependency.item {
-				Either::Left(node) => self.get_path_for_node(*node)?,
-				Either::Right(tg::object::Id::Directory(id)) => self
-					.artifacts
-					.get(&id.clone().into())
-					.ok_or_else(|| tg::error!("missing artifact"))?
-					.clone(),
-				Either::Right(tg::object::Id::File(id)) => self
-					.artifacts
-					.get(&id.clone().into())
-					.ok_or_else(|| tg::error!("missing artifact"))?
-					.clone(),
-				Either::Right(tg::object::Id::Symlink(id)) => self
-					.artifacts
-					.get(&id.clone().into())
-					.ok_or_else(|| tg::error!("missing artifact"))?
-					.clone(),
-				Either::Right(_) => continue,
+		for (reference, referent) in dependencies {
+			// Resolve the item.
+			let item = match &referent.item {
+				Either::Left(index) => self.paths[*index].clone().map(Either::Left),
+				Either::Right(object) => Some(Either::Right(object.clone())),
 			};
-			let dependency = tg::Referent {
-				item: path,
-				path: dependency.path.clone(),
-				subpath: dependency.subpath.clone(),
-				tag: dependency.tag.clone(),
+			let referent = tg::Referent {
+				item,
+				path: referent.path.clone(),
+				subpath: referent.subpath.clone(),
+				tag: referent.tag.clone(),
 			};
-			dependencies_.push((reference.clone(), dependency));
+			dependencies_.push((reference.clone(), referent));
 		}
 
 		Ok(dependencies_)
@@ -384,13 +369,42 @@ impl ParsedLockfile {
 }
 
 impl Server {
-	pub async fn parse_lockfile(&self, path: &Path) -> tg::Result<ParsedLockfile> {
-		// Read the lockfile from disk.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let contents = tokio::fs::read(path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to read lockfile"),
-		)?;
-		drop(permit);
+	pub async fn try_parse_lockfile(&self, path: &Path) -> tg::Result<Option<ParsedLockfile>> {
+		// First try and read the lockfile from the file's xattrs.
+		let contents_and_root = 'a: {
+			// Read the lockfile's xattrs.
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+			let Ok(Some(contents)) = xattr::get(path, tg::file::XATTR_LOCK_NAME) else {
+				break 'a None;
+			};
+			Some((contents, path))
+		};
+
+		// If not available in the xattrs, try and read the file.
+		let contents_and_root = 'a: {
+			if let Some(contents) = contents_and_root {
+				break 'a Some(contents);
+			}
+
+			// If this is not a lockfile path, break.
+			if path.file_name().and_then(|name| name.to_str())
+				!= Some(tg::package::LOCKFILE_FILE_NAME)
+			{
+				break 'a None;
+			}
+
+			// Read the lockfile from disk.
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+			let contents = tokio::fs::read(path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to read lockfile"),
+			)?;
+
+			Some((contents, path.parent().unwrap()))
+		};
+
+		let Some((contents, root)) = contents_and_root else {
+			return Ok(None);
+		};
 
 		// Deserialize the lockfile.
 		let lockfile = serde_json::from_slice::<tg::Lockfile>(&contents).map_err(
@@ -457,24 +471,23 @@ impl Server {
 		}
 
 		// Get the paths for the lockfile nodes.
-		let paths = get_paths(&artifacts_path, path, &lockfile).await?;
+		let paths = get_paths(&artifacts_path, root, &lockfile).await?;
 
 		// Create the parsed lockfile.
 		let lockfile = ParsedLockfile {
-			artifacts,
 			nodes: lockfile.nodes,
 			paths,
 			path: path.to_owned(),
 		};
 
-		Ok(lockfile)
+		Ok(Some(lockfile))
 	}
 }
 
 // Given a lockfile, get the paths of all the nodes.
 async fn get_paths(
 	artifacts_path: &Path,
-	lockfile_path: &Path,
+	root_path: &Path,
 	lockfile: &tg::Lockfile,
 ) -> tg::Result<Vec<Option<PathBuf>>> {
 	async fn get_paths_inner(
@@ -597,12 +610,11 @@ async fn get_paths(
 	}
 
 	let mut visited = vec![None; lockfile.nodes.len()];
-	let node_path = lockfile_path.parent().unwrap();
 	let node = 0;
 	Box::pin(get_paths_inner(
 		artifacts_path,
 		lockfile,
-		node_path,
+		root_path,
 		node,
 		&mut visited,
 	))

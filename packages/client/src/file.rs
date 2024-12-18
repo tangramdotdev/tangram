@@ -8,6 +8,5 @@ pub mod handle;
 pub mod id;
 pub mod object;
 
-/// The extended attribute name used to store file data.
-pub const XATTR_DATA_NAME: &str = "user.tangram.data";
-pub const XATTR_METADATA_NAME: &str = "user.tangram.metadata";
+/// The extended attribute name used to store lockfile data.
+pub const XATTR_LOCK_NAME: &str = "user.tangram.lock";

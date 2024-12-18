@@ -88,7 +88,10 @@ async fn file_with_dependency() -> tg::Result<()> {
   {
     "kind": "file",
     "contents": "foo",
-    "executable": false
+    "executable": false,
+    "xattr": {
+      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"id\":\"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"}]}"
+    }
   }
   "#);
 		Ok::<_, tg::Error>(())
@@ -226,7 +229,7 @@ async fn directory_with_file_with_dependency() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"foo\":1},\"id\":\"dir_019at517ytj7gfg92358f53w7c2ht4gewvtg45fegwr6teffnnvxa0\"},{\"kind\":\"file\",\"id\":\"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"}]}",
+        "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      },\n      \"id\": \"dir_019at517ytj7gfg92358f53w7c2ht4gewvtg45fegwr6teffnnvxa0\"\n    },\n    {\n      \"kind\": \"file\",\n      \"id\": \"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"\n    }\n  ]\n}",
         "executable": false
       }
     }
@@ -381,7 +384,7 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
       },
       "tangram.lock": {
         "kind": "file",
-        "contents": "{\"nodes\":[{\"kind\":\"directory\",\"entries\":{\"link\":1},\"id\":\"dir_01jgpeycbs5s4yjr89jqf3kkvy1a0rmrk7j2fmedscvh495h5b3740\"},{\"kind\":\"symlink\",\"Artifact\":{\"id\":\"sym_01qzd2gdre0bz3ck3q00yw16g36eg6sq9jrvzv5w3m5191ynjm3nq0\",\"artifact\":0,\"subpath\":\"link\"}}]}",
+        "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      },\n      \"id\": \"dir_01jgpeycbs5s4yjr89jqf3kkvy1a0rmrk7j2fmedscvh495h5b3740\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"Artifact\": {\n        \"id\": \"sym_01qzd2gdre0bz3ck3q00yw16g36eg6sq9jrvzv5w3m5191ynjm3nq0\",\n        \"artifact\": 0,\n        \"subpath\": \"link\"\n      }\n    }\n  ]\n}",
         "executable": false
       }
     }

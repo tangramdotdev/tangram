@@ -392,6 +392,31 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 			executable: false,
 		});
 
+		let object: tg::Object = file.clone().into();
+		object.load_recursive(&server).await.unwrap();
+		let value = tg::Value::Object(object);
+		let options = tg::value::print::Options {
+			recursive: true,
+			style: tg::value::print::Style::Pretty { indentation: "\t" },
+		};
+		let output1 = value.print(options);
+		assert_snapshot!(output1, @r#"
+  tg.file({
+  	"contents": tg.leaf("c"),
+  	"dependencies": {
+  		"sym_01ky91btcmtmxv1973agar5b43tjvrq0qty6wcynkq3n0s4mynh880": {
+  			"item": tg.symlink({
+  				"artifact": tg.directory({
+  					"dependency": tg.file({
+  						"contents": tg.leaf("contents"),
+  					}),
+  				}),
+  			}),
+  		},
+  	},
+  })
+  "#);
+
 		// Check out the artifact.
 		let temp = Temp::new();
 		tokio::fs::create_dir_all(temp.path())
@@ -407,6 +432,19 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 			.check_out(&server, arg)
 			.await?;
 
+		let temp::Artifact::File(temp_file) = temp::Artifact::with_path(&path).await? else {
+			return Err(tg::error!("expected a file"));
+		};
+		assert_json_snapshot!(temp_file, @r#"
+  {
+    "contents": "c",
+    "executable": false,
+    "xattr": {
+      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"sym_01ky91btcmtmxv1973agar5b43tjvrq0qty6wcynkq3n0s4mynh880\":{\"item\":\"sym_01ky91btcmtmxv1973agar5b43tjvrq0qty6wcynkq3n0s4mynh880\"}},\"id\":\"fil_016eea5b1xt939meb567ckn2yhwhhvcgc0vg65h0zqssg6dw569pbg\"}]}"
+    }
+  }
+  "#);
+
 		// Check the artifact back in.
 		let arg = tg::artifact::checkin::Arg {
 			cache: false,
@@ -421,6 +459,33 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 			.await?
 			.try_unwrap_file()
 			.map_err(|_| tg::error!("expected a file"))?;
+
+		let object: tg::Object = artifact.clone().into();
+		object.load_recursive(&server).await.unwrap();
+		let value = tg::Value::Object(object);
+		let options = tg::value::print::Options {
+			recursive: true,
+			style: tg::value::print::Style::Pretty { indentation: "\t" },
+		};
+		let output2 = value.print(options);
+		assert_snapshot!(output2, @r#"
+  tg.file({
+  	"contents": tg.leaf("c"),
+  	"dependencies": {
+  		"sym_01ky91btcmtmxv1973agar5b43tjvrq0qty6wcynkq3n0s4mynh880": {
+  			"item": tg.symlink({
+  				"artifact": tg.directory({
+  					"dependency": tg.file({
+  						"contents": tg.leaf("contents"),
+  					}),
+  				}),
+  			}),
+  		},
+  	},
+  })
+  "#);
+
+		assert_eq!(output1, output2);
 		assert_eq!(artifact.id(&server).await?, file.id(&server).await?);
 		Ok::<_, tg::Error>(())
 	})

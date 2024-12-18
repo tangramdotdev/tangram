@@ -333,15 +333,6 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
 
-		// Set the extended attributes.
-		let name = tg::file::XATTR_DATA_NAME;
-		let data = file.data(self).await?;
-		let json = serde_json::to_vec(&data)
-			.map_err(|error| tg::error!(source = error, "failed to serialize the file data"))?;
-		xattr::set(&arg.temp_path, name, &json).map_err(|source| {
-			tg::error!(!source, "failed to set the extended attribute for the file")
-		})?;
-
 		Ok(output)
 	}
 

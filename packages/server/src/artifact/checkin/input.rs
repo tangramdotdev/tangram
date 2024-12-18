@@ -137,7 +137,7 @@ impl Server {
 
 			// Try to get the lockfile.
 			let lockfile = self
-				.try_get_lockfile_for_path(&absolute_path, &mut state_)
+				.try_get_lockfile(&absolute_path, &metadata, &mut state_)
 				.await?;
 
 			// Create a new node.
@@ -192,30 +192,50 @@ impl Server {
 		}
 	}
 
-	async fn try_get_lockfile_for_path(
+	async fn try_get_lockfile(
 		&self,
 		path: &Path,
+		metadata: &std::fs::Metadata,
 		state: &mut State,
 	) -> tg::Result<Option<Arc<ParsedLockfile>>> {
-		let mut lockfile_path = None;
-		for path in path.ancestors() {
-			let path = path.join(tg::package::LOCKFILE_FILE_NAME);
-			if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
-				lockfile_path.replace(path);
-				break;
+		// First check if the lockfile is set by this file.
+		let lockfile_path = 'a: {
+			if !metadata.is_file() {
+				break 'a None;
 			}
-		}
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+			let Ok(Some(_)) = xattr::get(path, tg::file::XATTR_LOCK_NAME) else {
+				break 'a None;
+			};
+			Some(path.to_owned())
+		};
+
+		// Otherwise look up in the path's ancestors.
+		let lockfile_path = 'a: {
+			if let Some(path) = lockfile_path {
+				break 'a Some(path);
+			};
+			for path in path.ancestors() {
+				let path = path.join(tg::package::LOCKFILE_FILE_NAME);
+				if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
+					break 'a Some(path);
+				}
+			}
+			None
+		};
+
+		// If none is found, break early.
 		let Some(lockfile_path) = lockfile_path else {
 			return Ok(None);
 		};
 
-		// Check if a lockfile exists.
+		// Check if a lockfile has already been read.
 		if let Some(lockfile) = state.lockfiles.get(&lockfile_path).cloned() {
 			return Ok(Some(lockfile));
 		}
 
 		// Try to parse the lockfile.
-		let Ok(lockfile) = self.parse_lockfile(&lockfile_path).await else {
+		let Ok(Some(lockfile)) = self.try_parse_lockfile(&lockfile_path).await else {
 			return Ok(None);
 		};
 		let lockfile = Arc::new(lockfile);
@@ -410,78 +430,18 @@ impl Server {
 			// Collect the references from the lockfile.
 			let references = references
 				.into_iter()
-				.map(|(reference, referent)| {
+				.filter_map(|(reference, referent)| {
+					// TODO: diagnostic for missing references.
 					let referent = tg::Referent {
-						item: Either::Left(referent.item),
+						item: referent.item?,
 						path: referent.path,
 						subpath: referent.subpath,
 						tag: referent.tag,
 					};
-					(reference, referent)
+					Some((reference, referent))
 				})
 				.collect::<BTreeMap<_, _>>();
 			break 'a Some(references);
-		};
-
-		// Try and get the references of this file from xattrs, if they exist.
-		let resolved_references = 'a: {
-			// Prefer the resolved references read from the lockfile.
-			if let Some(references) = resolved_references {
-				break 'a Some(references);
-			};
-
-			// Try and read the xattr if it exists.
-			let Ok(Some(xattr)) = xattr::get(path, tg::file::XATTR_DATA_NAME) else {
-				break 'a None;
-			};
-
-			// Try and deserialize the xattr, skipping if it can't be read.
-			let Ok(data) = tg::file::Data::deserialize(&xattr.into()) else {
-				break 'a None;
-			};
-
-			// Try to get the dependencies from the xattr data.
-			match data {
-				tg::file::Data::Graph { graph, node } => {
-					// Skip trying to get dependencies if the graph object doesn't exist.
-					let Ok(dependencies) =
-						tg::File::with_graph_and_node(tg::Graph::with_id(graph), node)
-							.dependencies(self)
-							.await
-					else {
-						break 'a None;
-					};
-
-					// Collect the references by getting their IDs.
-					let mut dependencies_ = BTreeMap::new();
-					for (reference, referent) in dependencies {
-						let id = referent.item.id(self).await?;
-						let referent = tg::Referent {
-							item: Either::Right(id),
-							path: referent.path,
-							subpath: referent.subpath,
-							tag: referent.tag,
-						};
-						dependencies_.insert(reference, referent);
-					}
-					Some(dependencies_)
-				},
-				tg::file::Data::Normal { dependencies, .. } => {
-					let dependencies = dependencies
-						.into_iter()
-						.map(|(reference, referent)| {
-							let referent = tg::Referent {
-								item: Either::Right(referent.item),
-								path: referent.path,
-								subpath: referent.subpath,
-								tag: referent.tag,
-							};
-							(reference, referent)
-						})
-						.collect();
-					Some(dependencies)
-				},
-			}
 		};
 
 		// Try and reconcile the resolved/unresolved references.
