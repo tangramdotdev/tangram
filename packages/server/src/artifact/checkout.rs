@@ -225,7 +225,6 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
 			if !lockfile.nodes.is_empty() {
 				let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
-
 				let contents = serde_json::to_vec(&lockfile)
 					.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
 				let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
@@ -555,18 +554,15 @@ impl Server {
 		let subpath = symlink.subpath(self).await?;
 
 		// If the symlink has an artifact and it is not the current root, then check it out as a dependency.
-		if let Some(artifact) = &artifact {
-			if !arg.dependencies {
-				return Err(
-					tg::error!(?arg, %symlink, "cannot check out artifact symlink if dependencies is set to false"),
-				);
-			}
-			if artifact.id(self).await? != arg.root_artifact {
-				let server = self.clone();
-				let artifact = artifact.id(self).await?;
-				let dependency_output =
-					Box::pin(server.check_out_artifact_dependency(state, artifact)).await?;
-				output.progress += dependency_output.progress;
+		if arg.dependencies {
+			if let Some(artifact) = &artifact {
+				if artifact.id(self).await? != arg.root_artifact {
+					let server = self.clone();
+					let artifact = artifact.id(self).await?;
+					let dependency_output =
+						Box::pin(server.check_out_artifact_dependency(state, artifact)).await?;
+					output.progress += dependency_output.progress;
+				}
 			}
 		}
 

@@ -54,17 +54,17 @@ impl Server {
 		arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Graph> {
-		// Create the ignore tree.
+		// Create the ignore.
 		let ignore = self.ignore_for_checkin().await?;
 
-		// Initialize state.
+		// Create the state.
 		let state = RwLock::new(State {
 			ignore,
 			roots: Vec::new(),
 			lockfiles: BTreeMap::new(),
 			visited: BTreeMap::new(),
 			graph: Graph {
-				root: arg.path.to_owned(),
+				root: arg.path.clone(),
 				nodes: Vec::new(),
 			},
 		});
@@ -88,7 +88,7 @@ impl Server {
 		state: &'a RwLock<State>,
 		progress: Option<&'a crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> impl Future<Output = tg::Result<usize>> + Send + 'a {
-		let future = async move {
+		async move {
 			// Get the full path.
 			let path = if path.is_absolute() {
 				// If the absolute path is provided, use it.
@@ -100,16 +100,12 @@ impl Server {
 			};
 
 			// Canonicalize the path.
-			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			let absolute_path = crate::util::fs::canonicalize_parent(&path).await.map_err(
 				|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the parent"),
 			)?;
 
 			// Get the file system metadata.
-			let metadata = tokio::fs::symlink_metadata(&absolute_path).await.map_err(
-			|source| tg::error!(!source, %path = absolute_path.display(), "failed to get file system metadata"),
-		)?;
-			drop(permit);
+			let metadata = tokio::fs::symlink_metadata(&absolute_path).await.map_err(|source| tg::error!(!source, %path = absolute_path.display(), "failed to get file system metadata"))?;
 
 			// Validate.
 			if !(metadata.is_dir() || metadata.is_file() || metadata.is_symlink()) {
@@ -168,7 +164,7 @@ impl Server {
 				Vec::new()
 			};
 
-			// Release the state.
+			// Drop the state.
 			drop(state_);
 
 			// Collect any dangling directories.
@@ -193,8 +189,7 @@ impl Server {
 
 			// Return the created node.
 			Ok(node)
-		};
-		Box::pin(future)
+		}
 	}
 
 	async fn try_get_lockfile_for_path(
@@ -204,7 +199,6 @@ impl Server {
 	) -> tg::Result<Option<Arc<ParsedLockfile>>> {
 		let mut lockfile_path = None;
 		for path in path.ancestors() {
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			let path = path.join(tg::package::LOCKFILE_FILE_NAME);
 			if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
 				lockfile_path.replace(path);
@@ -437,11 +431,9 @@ impl Server {
 			};
 
 			// Try and read the xattr if it exists.
-			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			let Ok(Some(xattr)) = xattr::get(path, tg::file::XATTR_DATA_NAME) else {
 				break 'a None;
 			};
-			drop(permit);
 
 			// Try and deserialize the xattr, skipping if it can't be read.
 			let Ok(data) = tg::file::Data::deserialize(&xattr.into()) else {
@@ -635,7 +627,6 @@ impl Server {
 				if matches!(&import.kind, Some(tg::module::Kind::Directory)) {
 					(child, None)
 				} else {
-					let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 					let subpath = tg::package::try_get_root_module_file_name(self,Either::Right(&child_path)).await.map_err(|source| tg::error!(!source, %path = child_path.display(), "failed to get root module file name"))?
 						.map(PathBuf::from);
 					(child, subpath)
@@ -729,11 +720,9 @@ impl Server {
 		}
 
 		// Read the symlink.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let target = tokio::fs::read_link(path).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to read symlink"),
 		)?;
-		drop(permit);
 
 		// Error if this is an absolute path or empty.
 		if target.is_absolute() {
@@ -796,8 +785,6 @@ impl Server {
 
 	async fn get_artifacts_path_for_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let mut artifacts_path = None;
-
-		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		for ancestor in path.ancestors().skip(1) {
 			let path = ancestor.join(".tangram/artifacts");
 			if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {

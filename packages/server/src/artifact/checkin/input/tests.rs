@@ -1,12 +1,11 @@
+use super::Graph;
+use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt;
 use indoc::indoc;
 use insta::assert_snapshot;
 use std::panic::AssertUnwindSafe;
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
-
-use super::Graph;
-use crate::{util::fs::cleanup, Config, Server};
 
 #[tokio::test]
 async fn directory() -> tg::Result<()> {
@@ -17,10 +16,10 @@ async fn directory() -> tg::Result<()> {
 		"",
 		|graph| {
 			assert_snapshot!(graph.to_string(), @r"
-        0 
-        	(reference: ./file.txt, node: 1)
-        1 file.txt
-        ");
+				0 
+					(reference: ./file.txt, node: 1)
+				1 file.txt
+			");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -52,9 +51,9 @@ async fn symlink() -> tg::Result<()> {
 		"link",
 		|graph| {
 			assert_snapshot!(graph.to_string(), @r"
-        0 
-        	(reference: ./file.txt, path: ../file.txt)
-        ");
+				0 
+					(reference: ./file.txt, path: ../file.txt)
+			");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -66,22 +65,22 @@ async fn package() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"tangram.ts" =>  indoc!(r#"
-                import * as a from "./a.tg.ts";
-                import * as b from "b";
-            "#),
-			"a.tg.ts" => r#""#,
+				import * as a from "./a.tg.ts";
+				import * as b from "b";
+			"#),
+			"a.tg.ts" => "",
 		},
 		"",
 		|graph| {
 			assert_snapshot!(graph.to_string(), @r"
-   0 
-   	(reference: ./a.tg.ts, node: 1)
-   	(reference: ./tangram.ts, node: 2)
-   1 a.tg.ts
-   2 tangram.ts
-   	(reference: ./a.tg.ts, node: 0, path: , subpath: a.tg.ts)
-   	(reference: b)
-   ");
+				0 
+					(reference: ./a.tg.ts, node: 1)
+					(reference: ./tangram.ts, node: 2)
+				1 a.tg.ts
+				2 tangram.ts
+					(reference: ./a.tg.ts, node: 0, path: , subpath: a.tg.ts)
+					(reference: b)
+			");
 			Ok::<_, tg::Error>(())
 		},
 	)

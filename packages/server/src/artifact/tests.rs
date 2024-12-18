@@ -398,7 +398,7 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create temp path"))?;
 		let arg = tg::artifact::checkout::Arg {
-			dependencies: true,
+			dependencies: false,
 			force: false,
 			lockfile: true,
 			path: Some(temp.path().join("file")),
