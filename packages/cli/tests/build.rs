@@ -20,9 +20,9 @@ async fn build_file() -> std::io::Result<()> {
 		// Create a package foo
 		let foo_temp = Temp::new();
 		let foo = temp::directory! {
-				"foo.tg.ts" => indoc!(r#"
-					export default tg.target(() => "foo");
-				"#),
+			"foo.tg.ts" => indoc!(r#"
+				export default tg.target(() => "foo");
+			"#),
 		};
 		let foo: temp::Artifact = foo.into();
 		foo.to_path(foo_temp.as_ref()).await?;
