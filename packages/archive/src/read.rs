@@ -24,12 +24,18 @@ where
 		if read != 4 || b"tgar" != &magic {
 			return Err(tg::error!("could not find archive magic"));
 		}
-		let version = self.read_varint("archive version").await?;
+		let version = self
+			.read_varint()
+			.await
+			.map_err(|source| tg::error!(!source, "could not read the archive version"))?;
 		Ok(version)
 	}
 
 	pub async fn read_artifact_type(&mut self) -> tg::Result<tg::artifact::Kind> {
-		let atype = self.read_varint("artifact type").await?;
+		let atype = self
+			.read_varint()
+			.await
+			.map_err(|source| tg::error!(!source, "could not read the artifact type"))?;
 		match atype {
 			0 => Ok(tg::artifact::Kind::Directory),
 			1 => Ok(tg::artifact::Kind::File),
@@ -39,13 +45,16 @@ where
 	}
 
 	pub async fn read_directory(&mut self) -> tg::Result<u64> {
-		self.read_varint("number of directory entries").await
+		self.read_varint()
+			.await
+			.map_err(|source| tg::error!(!source, "could not read the number of directory entries"))
 	}
 
 	pub async fn read_directory_entry_name(&mut self) -> tg::Result<String> {
 		let len = self
-			.read_varint("entry name length")
-			.await?
+			.read_varint()
+			.await
+			.map_err(|source| tg::error!(!source, "could not read the entry name length"))?
 			.to_usize()
 			.unwrap();
 		let mut buf = vec![0; len];
@@ -61,8 +70,15 @@ where
 	where
 		W: AsyncWrite + Unpin,
 	{
-		let _executable = self.read_varint("executable bit").await? != 0;
-		let length = self.read_varint("file size").await?;
+		let _executable = self
+			.read_varint()
+			.await
+			.map_err(|source| tg::error!(!source, "could not read the executable bit"))?
+			!= 0;
+		let length = self
+			.read_varint()
+			.await
+			.map_err(|source| tg::error!(!source, "could not read the file size"))?;
 		let mut reader = (&mut self.inner).take(length);
 		let read = tokio::io::copy(&mut reader, &mut writer)
 			.await
@@ -76,8 +92,9 @@ where
 
 	pub async fn read_symlink(&mut self) -> tg::Result<String> {
 		let len = self
-			.read_varint("target path length")
-			.await?
+			.read_varint()
+			.await
+			.map_err(|source| tg::error!(!source, "could not read the target path length"))?
 			.to_usize()
 			.unwrap();
 		let mut buf = vec![0; len];
@@ -89,7 +106,7 @@ where
 			.map_err(|source| tg::error!(!source, "target path is not valid UTF-8"))
 	}
 
-	pub async fn read_varint(&mut self, description: &str) -> tg::Result<u64> {
+	pub async fn read_varint(&mut self) -> tg::Result<u64> {
 		let mut result: u64 = 0;
 		let mut shift = 0;
 		loop {
@@ -98,9 +115,9 @@ where
 				.inner
 				.read_exact(&mut buf)
 				.await
-				.map_err(|source| tg::error!(!source, "unable to read {description}"))?;
+				.map_err(|source| tg::error!(!source, "could not read the value"))?;
 			if read == 0 && shift == 0 {
-				return Err(tg::error!("unable to read {description}"));
+				return Err(tg::error!("could not read the value"));
 			}
 			if read == 0 {
 				break;
