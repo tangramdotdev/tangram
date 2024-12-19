@@ -27,6 +27,26 @@ async fn hello_world() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn hello_world_remote() -> tg::Result<()> {
+	test_remote(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"export default tg.target(() => "Hello, World!")"#,
+			}
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r###""Hello, World!""###);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn accepts_target_with_no_return_value() -> tg::Result<()> {
 	test(
 		temp::directory! {
@@ -993,6 +1013,102 @@ where
 	server.wait().await;
 	if result.as_ref().is_ok_and(Result::is_ok) {
 		server_temp.remove().await.ok();
+	}
+	artifact_temp.remove().await.ok();
+	result.unwrap()
+}
+
+async fn test_remote<F, Fut>(
+	artifact: impl Into<temp::Artifact>,
+	path: &str,
+	target: &str,
+	args: Vec<tg::Value>,
+	assertions: F,
+) -> tg::Result<()>
+where
+	F: FnOnce(Server, tg::build::Outcome) -> Fut,
+	Fut: Future<Output = tg::Result<()>>,
+{
+	let artifact = artifact.into();
+	let artifact_temp = Temp::new_persistent();
+	artifact.to_path(artifact_temp.as_ref()).await.map_err(
+		|source| tg::error!(!source, %path = artifact_temp.path().display(), "failed to write the artifact"),
+	)?;
+	let remote_temp = Temp::new_persistent();
+	let mut remote_options = Config::with_path(remote_temp.path().to_owned());
+	remote_options.build = Some(tangram_server::config::Build::default());
+	remote_options.build_heartbeat_monitor =
+		Some(tangram_server::config::BuildHeartbeatMonitor::default());
+	let remote = Server::start(remote_options).await?;
+	let local_temp = Temp::new_persistent();
+	let mut local_options = Config::with_path(local_temp.path().to_owned());
+	local_options.remotes = [(
+		"default".to_owned(),
+		tangram_server::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
+	.into();
+	let local = Server::start(local_options).await?;
+	let result = AssertUnwindSafe(async {
+		let arg = tg::artifact::checkin::Arg {
+			cache: false,
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			lockfile: true,
+			path: artifact_temp.as_ref().join(path),
+		};
+		let artifact = tg::Artifact::check_in(&local, arg)
+			.await?
+			.try_unwrap_directory()
+			.unwrap();
+		let artifact = artifact.clone().into();
+		let subpath = Some("tangram.ts".parse().unwrap());
+		let env = [("TANGRAM_HOST".to_owned(), tg::host().into())].into();
+		let args = std::iter::once(target.into())
+			.chain(args.into_iter())
+			.collect();
+		let executable = Some(tg::target::Executable::Module(tg::target::Module {
+			kind: tg::module::Kind::Js,
+			referent: tg::Referent {
+				item: artifact,
+				path: Some(path.into()),
+				subpath,
+				tag: None,
+			},
+		}));
+		let host = "js";
+		let target = tg::target::Builder::new(host)
+			.args(args)
+			.env(env)
+			.executable(executable)
+			.build();
+		let arg = tg::target::build::Arg {
+			create: true,
+			parent: None,
+			remote: Some("default".to_string()),
+			retry: tg::build::Retry::Canceled,
+		};
+		let target = target.id(&local).await?;
+		let output = local.build_target(&target, arg).await?;
+		let build = tg::Build::with_id(output.build);
+		let outcome = build.outcome(&local).await?;
+		(assertions)(local.clone(), outcome).await?;
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	local.stop();
+	local.wait().await;
+	if result.as_ref().is_ok_and(Result::is_ok) {
+		local_temp.remove().await.ok();
+	}
+	remote.stop();
+	remote.wait().await;
+	if result.as_ref().is_ok_and(Result::is_ok) {
+		remote_temp.remove().await.ok();
 	}
 	artifact_temp.remove().await.ok();
 	result.unwrap()

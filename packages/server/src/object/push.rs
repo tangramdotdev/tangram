@@ -92,7 +92,7 @@ impl Server {
 		let tg::object::get::Output { bytes, metadata } = src
 			.get_object(object)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
+			.map_err(|source| tg::error!(!source, %object, "failed to get the object"))?;
 		let size = bytes.len().to_u64().unwrap();
 
 		// Put the object.
