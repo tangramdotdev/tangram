@@ -40,25 +40,26 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 		};
 		let foo: temp::Artifact = foo.into();
 		foo.to_path(foo_temp.as_ref()).await?;
+		let foo_path = foo_temp.path();
 
 		// Tag foo.
-		let status = local1
+		let output = local1
 			.tg()
-			.args(["tag", "foo", foo_temp.path().to_str().unwrap()])
-			.status()
+			.args(["tag", "foo", foo_path.to_str().unwrap()])
+			.output()
 			.await?;
-		assert!(status.success());
+		assert!(output.status.success(), "{output:?}");
 
 		// Push the tag.
-		let status = local1.tg().args(["push", "foo"]).status().await?;
-		assert!(status.success());
+		let output = local1.tg().args(["push", "foo"]).output().await?;
+		assert!(output.status.success(), "{output:?}");
 
-		// Check if the remote has a tag.
-		let status = remote.tg().args(["get", "foo"]).status().await?;
-		assert!(status.success());
+		// Check if the remote has the tag.
+		let output = remote.tg().args(["get", "foo"]).output().await?;
+		assert!(output.status.success(), "{output:?}");
 
 		// Create a package bar that imports foo.
-		let temp = Temp::new();
+		let bar_temp = Temp::new();
 		let bar = temp::directory! {
 			"tangram.ts" => indoc!(r#"
 				import foo from "foo";
@@ -66,12 +67,13 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 			"#),
 		};
 		let bar: temp::Artifact = bar.into();
-		bar.to_path(temp.as_ref()).await?;
+		bar.to_path(bar_temp.as_ref()).await?;
+		let bar_path = bar_temp.path();
 
 		// Build bar.
 		let output = local1
 			.tg()
-			.args(["build", temp.path().to_str().unwrap(), "--detach"])
+			.args(["build", bar_path.to_str().unwrap(), "--detach"])
 			.output()
 			.await?;
 		let build: tg::build::Id = String::from_utf8(output.stdout)
@@ -81,34 +83,34 @@ async fn import_from_remote_tag() -> std::io::Result<()> {
 			.unwrap();
 
 		// Wait for the build to complete.
-		let status = local1
+		let output = local1
 			.tg()
 			.args(["build", "output", build.to_string().as_str()])
-			.status()
+			.output()
 			.await?;
-		assert!(status.success());
+		assert!(output.status.success(), "{output:?}");
 
 		// Push the build.
-		let status = local1
+		let output = local1
 			.tg()
 			.args(["push", &build.to_string()])
-			.status()
+			.output()
 			.await?;
-		assert!(status.success());
+		assert!(output.status.success(), "{output:?}");
 
 		// The remote should have this build.
-		let status = remote
+		let output = remote
 			.tg()
 			.args(["get", &build.to_string()])
-			.status()
+			.output()
 			.await?;
-		assert!(status.success());
+		assert!(output.status.success(), "{output:?}");
 
 		// Build again but expect a cache hit.
 		let output = local2
 			.tg()
 			.arg("build")
-			.arg(temp.path())
+			.arg(bar_temp.path())
 			.arg("--detach")
 			.arg("--create=false")
 			.output()

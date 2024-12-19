@@ -11,6 +11,7 @@ impl Server {
 			length: Some(1),
 			pattern: pattern.clone(),
 			remote: None,
+			reverse: true,
 		};
 		let tg::tag::list::Output { data } = self.list_tags(arg).await?;
 		let Some(output) = data.into_iter().next() else {

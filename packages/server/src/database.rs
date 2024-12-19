@@ -182,13 +182,9 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index object_children_child_index on object_children (child);
 
 			create table tags (
-				id integer primary key autoincrement,
-				name text not null,
-				parent integer not null,
-				item text
+				tag text primary key,
+				item text not null
 			);
-
-			create unique index tags_parent_name_index on tags (parent, name);
 
 			create table users (
 				id text primary key,

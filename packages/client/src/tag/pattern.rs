@@ -7,9 +7,7 @@ use itertools::Itertools as _;
 	Default,
 	Eq,
 	Hash,
-	Ord,
 	PartialEq,
-	PartialOrd,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
@@ -23,10 +21,9 @@ pub struct Pattern {
 	Debug,
 	Eq,
 	Hash,
-	Ord,
 	PartialEq,
-	PartialOrd,
 	derive_more::From,
+	derive_more::IsVariant,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
@@ -34,9 +31,9 @@ pub struct Pattern {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Component {
-	Glob,
 	Normal(tg::tag::Component),
 	Version(tangram_version::Pattern),
+	Wildcard,
 }
 
 impl Pattern {
@@ -76,22 +73,22 @@ impl Pattern {
 		if tag.components().len() != self.components().len() {
 			return false;
 		}
-		for (tag, pattern) in std::iter::zip(tag.components(), self.components()) {
+		for (pattern, tag) in std::iter::zip(self.components(), tag.components()) {
 			match pattern {
 				Component::Normal(pattern) => {
-					if tag.as_str() != pattern.as_str() {
+					if tag != pattern {
 						return false;
 					}
 				},
 				Component::Version(pattern) => {
-					let Ok(tag) = tag.as_str().parse::<tangram_version::Version>() else {
+					let tg::tag::Component::Version(tag) = tag else {
 						return false;
 					};
-					if !pattern.matches(&tag) {
+					if !pattern.matches(tag) {
 						return false;
 					}
 				},
-				Component::Glob => (),
+				Component::Wildcard => (),
 			}
 		}
 		true
@@ -125,7 +122,7 @@ impl std::fmt::Display for Component {
 		match self {
 			Component::Normal(string) => write!(f, "{string}"),
 			Component::Version(version) => write!(f, "{version}"),
-			Component::Glob => write!(f, "*"),
+			Component::Wildcard => write!(f, "*"),
 		}
 	}
 }
@@ -135,7 +132,7 @@ impl std::str::FromStr for Component {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		if s == "*" {
-			return Ok(Self::Glob);
+			return Ok(Self::Wildcard);
 		}
 		if let Ok(component) = s.parse() {
 			return Ok(Self::Normal(component));
@@ -157,4 +154,10 @@ impl From<tg::Tag> for Pattern {
 			.collect();
 		Self { string, components }
 	}
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn matches() {}
 }

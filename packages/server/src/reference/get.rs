@@ -64,11 +64,7 @@ impl Server {
 				Ok(Some(output))
 			},
 			tg::reference::Item::Tag(tag) => {
-				let Some(tg::tag::get::Output {
-					item: Some(item),
-					tag,
-				}) = self.try_get_tag(tag).await?
-				else {
+				let Some(tg::tag::get::Output { item, tag }) = self.try_get_tag(tag).await? else {
 					return Ok(None);
 				};
 				let subpath = reference

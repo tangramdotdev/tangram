@@ -1,12 +1,10 @@
 use crate::Server;
 use indoc::formatdoc;
-use itertools::Itertools;
 use num::ToPrimitive;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tangram_version::Version;
 
 impl Server {
 	pub async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
@@ -55,108 +53,52 @@ impl Server {
 
 		#[derive(Clone, Debug, serde::Deserialize)]
 		struct Row {
-			id: u64,
-			name: String,
-			item: Option<Either<tg::build::Id, tg::object::Id>>,
+			tag: tg::Tag,
+			item: Either<tg::build::Id, tg::object::Id>,
 		}
-		let mut rows: Vec<Row> = Vec::new();
-		let mut prefix = Vec::new();
-		for (idx, component) in arg.pattern.components().iter().enumerate() {
-			match component {
-				tg::tag::pattern::Component::Normal(component) => {
-					let p = connection.p();
-					let statement = formatdoc!(
-						"
-							select id, name, item
-							from tags
-							where name = {p}1 and parent = {p}2
-						"
-					);
-					let parent = rows.first().map_or(0, |row| row.id);
-					let params = db::params![component, parent];
-					rows = connection
-						.query_all_into(statement, params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let p = connection.p();
+		let prefix = arg
+			.pattern
+			.as_str()
+			.char_indices()
+			.find(|(_, c)| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | '/')))
+			.map_or(arg.pattern.as_str().len(), |(i, _)| i);
+		let prefix = &arg.pattern.as_str()[..prefix];
+		let statement = formatdoc!(
+			"
+				select tag, item
+				from tags
+				where tag >= {p}1 and tag < {p}1 || x'ff';
+			"
+		);
+		let params = db::params![prefix];
+		let mut rows = connection
+			.query_all_into::<Row>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-					// Add the leading components to the tag prefix.
-					if idx != arg.pattern.components().len() - 1 {
-						prefix.push(component.clone());
-					}
-				},
+		// Filter the rows.
+		rows.retain(|row| arg.pattern.matches(&row.tag));
 
-				tg::tag::pattern::Component::Version(pattern) => {
-					let p = connection.p();
-					let statement = formatdoc!(
-						"
-							select id, name, item
-							from tags
-							where parent = {p}1
-						"
-					);
-					let parent = rows.first().map_or(0, |row| row.id);
-					let params = db::params![parent];
-					rows = connection
-						.query_all_into::<Row>(statement, params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-					rows.retain(|row| {
-						let Ok(version) = row.name.parse() else {
-							return false;
-						};
-						pattern.matches(&version)
-					});
-				},
+		// Sort the rows.
+		rows.sort_by(|a, b| a.tag.cmp(&b.tag));
 
-				tg::tag::pattern::Component::Glob => {
-					let p = connection.p();
-					let statement = formatdoc!(
-						"
-							select id, name, item
-							from tags
-							where parent = {p}1
-						"
-					);
-					let parent = rows.first().map_or(0, |row| row.id);
-					let params = db::params![parent];
-					rows = connection
-						.query_all_into::<Row>(statement, params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				},
-			}
+		// Reverse if requested.
+		if arg.reverse {
+			rows.reverse();
 		}
 
-		// Sort the result.
-		let non_semver = rows
-			.iter()
-			.filter(|row| row.name.parse::<Version>().is_err())
-			.sorted_by_key(|row| &row.name)
-			.cloned();
-		let semver = rows
-			.iter()
-			.filter(|row| row.name.parse::<Version>().is_ok())
-			.sorted_by(|l, r| {
-				let l = l.name.parse::<Version>().unwrap();
-				let r = r.name.parse::<Version>().unwrap();
-				l.cmp(&r)
-			})
-			.cloned();
-		let rows = non_semver.chain(semver);
+		// Limit.
+		if let Some(length) = arg.length {
+			rows.truncate(length.to_usize().unwrap());
+		}
 
 		// Create the output.
-		let length = arg
-			.length
-			.map_or(usize::MAX, |length| length.to_usize().unwrap());
-
 		let data = rows
-			.take(length)
-			.map(|row| {
-				let mut components = prefix.clone();
-				components.push(tg::tag::Component::new(row.name));
-				let tag = tg::Tag::with_components(components);
-				let item = row.item;
-				tg::tag::get::Output { tag, item }
+			.into_iter()
+			.map(|row| tg::tag::get::Output {
+				tag: row.tag,
+				item: row.item,
 			})
 			.collect();
 		let output = tg::tag::list::Output { data };

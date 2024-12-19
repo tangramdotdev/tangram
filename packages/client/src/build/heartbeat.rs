@@ -8,7 +8,6 @@ pub struct Arg {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(transparent)]
 pub struct Output {
 	pub stop: bool,
 }

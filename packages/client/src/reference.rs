@@ -1,4 +1,5 @@
 use crate::{self as tg, handle::Ext as _};
+use itertools::Itertools as _;
 use std::{
 	collections::BTreeMap,
 	os::unix::ffi::OsStrExt,
@@ -94,30 +95,22 @@ impl Reference {
 
 	#[must_use]
 	pub fn with_path(path: impl AsRef<Path>) -> Self {
-		let mut buf = PathBuf::new();
-		for (idx, component) in path.as_ref().components().enumerate() {
-			match component {
-				std::path::Component::Normal(string) => {
-					if idx == 0 {
-						buf.push(".");
-					}
-					let encoded = urlencoding::encode_binary(string.as_bytes());
-					buf.push(encoded.as_ref());
-				},
-				component => buf.push(component),
-			}
+		let mut string = path
+			.as_ref()
+			.components()
+			.map(|component| urlencoding::encode_binary(component.as_os_str().as_bytes()))
+			.join("/");
+		if !(string.starts_with('.') || string.starts_with('/')) {
+			string.insert_str(0, "./");
 		}
-		let string = buf.to_str().unwrap();
-		Self::with_uri(string.parse().unwrap()).unwrap()
+		let uri = string.parse().unwrap();
+		Self::with_uri(uri).unwrap()
 	}
 
-	pub fn with_tag(tag: &tg::tag::Pattern) -> tg::Result<Self> {
-		let uri = tag
-			.to_string()
-			.parse()
-			.map_err(|source| tg::error!(!source, "invalid tag"))?;
-		let reference = Self::with_uri(uri).unwrap();
-		Ok(reference)
+	#[must_use]
+	pub fn with_tag(tag: &tg::tag::Pattern) -> Self {
+		let uri = urlencoding::encode(tag.as_str()).parse().unwrap();
+		Self::with_uri(uri).unwrap()
 	}
 
 	#[must_use]

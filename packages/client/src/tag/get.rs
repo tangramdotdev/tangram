@@ -6,7 +6,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 pub struct Output {
 	pub tag: tg::Tag,
 
-	pub item: Option<Either<tg::build::Id, tg::object::Id>>,
+	pub item: Either<tg::build::Id, tg::object::Id>,
 }
 
 impl tg::Client {

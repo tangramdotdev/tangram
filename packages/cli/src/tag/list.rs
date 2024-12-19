@@ -11,6 +11,9 @@ pub struct Args {
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
 	pub remote: Option<Option<String>>,
+
+	#[arg(long, action = clap::ArgAction::Set)]
+	pub reverse: bool,
 }
 
 impl Cli {
@@ -27,6 +30,7 @@ impl Cli {
 			length: None,
 			pattern: args.pattern,
 			remote,
+			reverse: args.reverse,
 		};
 		let output = handle.list_tags(arg).await?;
 

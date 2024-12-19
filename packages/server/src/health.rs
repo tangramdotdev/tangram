@@ -95,7 +95,7 @@ impl Server {
 mod tests {
 	use crate::{util::fs::cleanup, Config, Server};
 	use futures::FutureExt as _;
-	use insta::assert_yaml_snapshot;
+	use insta::assert_json_snapshot;
 	use std::panic::AssertUnwindSafe;
 	use tangram_client as tg;
 	use tangram_temp::Temp;
@@ -107,22 +107,27 @@ mod tests {
 		let server = Server::start(options).await?;
 		let result = AssertUnwindSafe(async {
 			let health = server.health().await?;
-			assert_yaml_snapshot!(health,
+			assert_json_snapshot!(health,
 				{
 					".database.available_connections" => 1,
 					".file_descriptor_semaphore.available_permits" => 1
 				},
-				@r###"
-   builds:
-     created: 0
-     dequeued: 0
-     started: 0
-   database:
-     available_connections: 1
-   file_descriptor_semaphore:
-     available_permits: 1
-   version: ~
-   "###);
+				@r#"
+   {
+     "builds": {
+       "created": 0,
+       "dequeued": 0,
+       "started": 0
+     },
+     "database": {
+       "available_connections": 1
+     },
+     "file_descriptor_semaphore": {
+       "available_permits": 1
+     },
+     "version": null
+   }
+   "#);
 			Ok::<_, tg::Error>(())
 		})
 		.catch_unwind()

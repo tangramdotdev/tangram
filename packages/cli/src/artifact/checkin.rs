@@ -8,7 +8,7 @@ use tangram_client::{self as tg, Handle as _};
 #[group(skip)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Args {
-	/// Check in the artifact faster by allowing it to be destroyed.
+	/// Cache the artifact after checking it in.
 	#[arg(long)]
 	pub cache: bool,
 

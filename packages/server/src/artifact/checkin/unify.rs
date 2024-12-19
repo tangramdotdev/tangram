@@ -1,5 +1,6 @@
 use super::input;
 use crate::Server;
+use itertools::Itertools as _;
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
@@ -221,7 +222,6 @@ impl Server {
 						};
 						output
 							.item
-							.ok_or_else(|| tg::error!(%tag, "expected an item"))?
 							.right()
 							.ok_or_else(|| tg::error!(%tag, "expected an object"))?
 					},
@@ -309,42 +309,29 @@ fn get_reference_from_tag(tag: &tg::Tag) -> tg::Reference {
 	let mut components = tag
 		.components()
 		.iter()
-		.map(|component| {
-			component
-				.as_str()
-				.parse::<tg::tag::pattern::Component>()
-				.unwrap()
-		})
-		.collect::<Vec<_>>();
-
-	let is_semver = components.last().map_or(false, |component| {
-		component
-			.to_string()
-			.parse::<tangram_version::Version>()
-			.is_ok()
-	});
-
-	if is_semver {
-		*components.last_mut().unwrap() = tg::tag::pattern::Component::Glob;
+		.cloned()
+		.map_into::<tg::tag::pattern::Component>()
+		.collect_vec();
+	if components.last().map_or(false, |component| {
+		matches!(
+			component,
+			tg::tag::pattern::Component::Normal(tg::tag::Component::Version(_))
+		)
+	}) {
+		*components.last_mut().unwrap() = tg::tag::pattern::Component::Wildcard;
 	}
-
 	let pattern = tg::tag::Pattern::with_components(components);
-	tg::Reference::with_tag(&pattern).unwrap()
+	tg::Reference::with_tag(&pattern)
 }
 
 fn get_reference_from_pattern(pattern: &tg::tag::Pattern) -> tg::Reference {
-	let components = pattern.components();
-	if matches!(
-		components.last(),
-		Some(tg::tag::pattern::Component::Version(_))
-	) {
-		let mut components = components.clone();
-		let last = components.last_mut().unwrap();
-		*last = tg::tag::pattern::Component::Glob;
+	if pattern.components().last().unwrap().is_version() {
+		let mut components = pattern.components().clone();
+		*components.last_mut().unwrap() = tg::tag::pattern::Component::Wildcard;
 		let pattern = tg::tag::Pattern::with_components(components);
-		tg::Reference::with_tag(&pattern).unwrap()
+		tg::Reference::with_tag(&pattern)
 	} else {
-		tg::Reference::with_tag(pattern).unwrap()
+		tg::Reference::with_tag(pattern)
 	}
 }
 
@@ -547,13 +534,14 @@ impl Server {
 					length: None,
 					pattern: pattern.clone(),
 					remote,
+					reverse: false,
 				})
 				.await
 				.map_err(|source| tg::error!(!source, %pattern, "failed to get tags"))?
 				.data
 				.into_iter()
 				.filter_map(|output| {
-					let object = output.item?.right()?;
+					let object = output.item.right()?;
 					Some((output.tag, tg::Object::with_id(object)))
 				})
 				.collect();
