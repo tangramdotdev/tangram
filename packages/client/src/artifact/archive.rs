@@ -3,8 +3,8 @@ use crate as tg;
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum Format {
 	Tar,
-	Zip,
 	Tgar,
+	Zip,
 }
 
 impl tg::Artifact {
@@ -54,8 +54,8 @@ impl std::str::FromStr for Format {
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			"tar" => Ok(Self::Tar),
-			"zip" => Ok(Self::Zip),
 			"tgar" => Ok(Self::Tgar),
+			"zip" => Ok(Self::Zip),
 			extension => Err(tg::error!(%extension, "invalid format")),
 		}
 	}

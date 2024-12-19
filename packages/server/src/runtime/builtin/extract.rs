@@ -89,8 +89,8 @@ impl Runtime {
 		// Create the extract task.
 		let artifact = match format {
 			tg::artifact::archive::Format::Tar => tar(server, reader).await?,
-			tg::artifact::archive::Format::Zip => zip(server, reader).await?,
 			tg::artifact::archive::Format::Tgar => tgar(server, reader).await?,
+			tg::artifact::archive::Format::Zip => zip(server, reader).await?,
 		};
 
 		log_task.abort();

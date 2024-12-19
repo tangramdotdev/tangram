@@ -660,7 +660,7 @@ where
 	F: FnOnce(Server, tg::build::Outcome) -> Fut + Clone,
 	Fut: Future<Output = tg::Result<()>>,
 {
-	for archive_format in &["tar", "zip", "tgar"] {
+	for archive_format in &["tar", "tgar", "zip"] {
 		let tangram_ts = tangram_ts.replace("archive_format", archive_format);
 		let directory = temp::directory! {
 			"foo" => temp::directory! {

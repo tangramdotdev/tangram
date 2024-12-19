@@ -53,12 +53,12 @@ impl Runtime {
 		// Create the archive task.
 		let archive_task: Either<_, Either<_, _>> = match format {
 			tg::artifact::archive::Format::Tar => tar(server, &artifact, writer).left_future(),
-			tg::artifact::archive::Format::Zip => {
-				zip(server, &artifact, writer).left_future().right_future()
-			},
 			tg::artifact::archive::Format::Tgar => tgar(server, &artifact, writer)
 				.right_future()
 				.right_future(),
+			tg::artifact::archive::Format::Zip => {
+				zip(server, &artifact, writer).left_future().right_future()
+			},
 		};
 
 		match futures::future::join(archive_task, tg::Blob::with_reader(server, reader)).await {

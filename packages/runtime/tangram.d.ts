@@ -247,7 +247,7 @@ declare namespace tg {
 		/** An artifact ID. */
 		export type Id = tg.Directory.Id | tg.File.Id | tg.Symlink.Id;
 
-		export type ArchiveFormat = "tar" | "zip" | "tgar";
+		export type ArchiveFormat = "tar" | "tgar" | "zip";
 
 		/** Get an artifact with an ID. */
 		export let withId: (id: tg.Artifact.Id) => tg.Artifact;
