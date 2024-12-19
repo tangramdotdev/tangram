@@ -321,8 +321,17 @@ async fn finish_extract(
 		Ordering::Greater => {
 			if let Some(root_index) = root_index {
 				if artifacts.contains_key(&root_index) {
+					// Build the output directory.
 					let mut builder = tg::directory::Builder::default();
+
+					// Loop through the directory contents.
 					for (index, (path, artifact)) in &artifacts {
+						// Ignore the root itself.
+						if *index == root_index {
+							continue;
+						}
+
+						// Strip the root prefix from the path.
 						let path = if let Some(root_path) = root_path {
 							path.strip_prefix(root_path).map_err(|source| {
 								tg::error!(!source, "found archive path not under the root path")
@@ -330,20 +339,20 @@ async fn finish_extract(
 						} else {
 							path.as_path()
 						};
-						if *index != root_index {
-							if let Some(artifact) = artifact {
-								builder = builder.add(server, path, artifact.clone()).await?;
-							} else {
-								builder = builder
-									.add(
-										server,
-										path,
-										tg::Artifact::Directory(tg::Directory::with_entries(
-											BTreeMap::new(),
-										)),
-									)
-									.await?;
-							}
+
+						// If there is no artifact, it is an empty directory.
+						if let Some(artifact) = artifact {
+							builder = builder.add(server, path, artifact.clone()).await?;
+						} else {
+							builder = builder
+								.add(
+									server,
+									path,
+									tg::Artifact::Directory(tg::Directory::with_entries(
+										BTreeMap::new(),
+									)),
+								)
+								.await?;
 						}
 					}
 					Ok(tg::Artifact::Directory(builder.build()))
