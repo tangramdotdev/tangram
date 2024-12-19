@@ -1,11 +1,13 @@
 use super::Runtime;
 use crate::Server;
 use futures::FutureExt as _;
+use num::ToPrimitive as _;
 use std::{
 	future::Future,
 	path::{Path, PathBuf},
 	str::FromStr,
 };
+use tangram_archive as tgar;
 use tangram_client as tg;
 use tokio::io::DuplexStream;
 use tokio_util::compat::{
@@ -50,8 +52,9 @@ impl Runtime {
 
 		// Create the archive task.
 		let archive_task = match format {
-			tg::artifact::archive::Format::Tar => tar(server, &artifact, writer).left_future(),
-			tg::artifact::archive::Format::Zip => zip(server, &artifact, writer).right_future(),
+			tg::artifact::archive::Format::Tar => tar(server, &artifact, writer).boxed(),
+			tg::artifact::archive::Format::Tgar => tgar(server, &artifact, writer).boxed(),
+			tg::artifact::archive::Format::Zip => zip(server, &artifact, writer).boxed(),
 		};
 
 		match futures::future::join(archive_task, tg::Blob::with_reader(server, reader)).await {
@@ -116,6 +119,9 @@ where
 			Ok(())
 		},
 		tg::Artifact::File(file) => {
+			if !file.dependencies(server).await?.is_empty() {
+				return Err(tg::error!("cannot archive a file with dependencies"));
+			}
 			let reader = file.reader(server).await?;
 			let size = reader.size();
 			let executable = file.executable(server).await?;
@@ -133,7 +139,7 @@ where
 			let target = symlink
 				.target(server)
 				.await?
-				.ok_or_else(|| tg::error!("failed to get symlink target"))?;
+				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
 			let mut header = async_tar::Header::new_gnu();
 			header.set_size(0);
 			header.set_entry_type(async_tar::EntryType::Symlink);
@@ -144,6 +150,66 @@ where
 			tar.append_data(&mut header, path, &[][..])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to append symlink"))
+		},
+	}
+}
+
+fn tgar(
+	server: &Server,
+	artifact: &tg::Artifact,
+	writer: DuplexStream,
+) -> impl Future<Output = tg::Result<()>> {
+	let artifact = artifact.clone();
+	let server = server.clone();
+	async move {
+		// Create the tgar builder.
+		let mut tgar = tgar::write::Writer::new(writer);
+
+		// Write the archive header.
+		tgar.append_archive_header().await?;
+
+		// Archive the artifact.
+		tgar_inner(&server, &artifact, &mut tgar).await?;
+
+		// Close the archive.
+		tgar.finish().await
+	}
+}
+
+async fn tgar_inner<W>(
+	server: &Server,
+	artifact: &tg::Artifact,
+	tgar: &mut tgar::write::Writer<W>,
+) -> tg::Result<()>
+where
+	W: tokio::io::AsyncWrite + Unpin + Send + Sync,
+{
+	match artifact {
+		tg::Artifact::Directory(directory) => {
+			let entries = directory.entries(server).await?;
+			tgar.append_directory(entries.len().to_u64().unwrap())
+				.await?;
+			for (entry, artifact) in entries {
+				tgar.append_directory_entry(entry.as_str()).await?;
+				Box::pin(tgar_inner(server, &artifact.clone(), tgar)).await?;
+			}
+			Ok(())
+		},
+		tg::Artifact::File(file) => {
+			if !file.dependencies(server).await?.is_empty() {
+				return Err(tg::error!("cannot archive a file with dependencies"));
+			}
+			let executable = file.executable(server).await?;
+			let mut reader = file.reader(server).await?;
+			let length = reader.size();
+			tgar.append_file(executable, length, &mut reader).await
+		},
+		tg::Artifact::Symlink(symlink) => {
+			let target = symlink
+				.target(server)
+				.await?
+				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
+			tgar.append_symlink(target.to_string_lossy().as_ref()).await
 		},
 	}
 }
@@ -203,6 +269,9 @@ where
 			Ok(())
 		},
 		tg::Artifact::File(file) => {
+			if !file.dependencies(server).await?.is_empty() {
+				return Err(tg::error!("cannot archive a file with dependencies"));
+			}
 			let executable = file.executable(server).await?;
 			let permissions = if executable { 0o0755 } else { 0o0644 };
 			let builder = async_zip::ZipEntryBuilder::new(
@@ -226,7 +295,7 @@ where
 			let target = symlink
 				.target(server)
 				.await?
-				.ok_or_else(|| tg::error!("failed to get symlink target"))?;
+				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
 			let builder = async_zip::ZipEntryBuilder::new(
 				path.to_string_lossy().as_ref().into(),
 				async_zip::Compression::Deflate,
