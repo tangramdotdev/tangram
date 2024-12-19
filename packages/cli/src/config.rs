@@ -97,7 +97,7 @@ pub struct Config {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Advanced {
+pub struct Advanced {	
 	/// The duration after which a build that is dequeued but not started may be dequeued again.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -134,6 +134,10 @@ pub struct Advanced {
 	/// Whether to write build logs to the server's stderr.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_build_logs_to_stderr: Option<bool>,
+
+	/// Whether to write build logs to the server's stderr.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_blobs_to_cache_directory: Option<bool>,
 }
 
 #[serde_as]

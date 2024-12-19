@@ -10,8 +10,14 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
 
 #[allow(dead_code)]
 enum Reader {
-	File(tokio::fs::File),
+	File(File),
 	Blob(tg::blob::Reader<Server>),
+}
+
+struct File {
+	file: tokio::fs::File,
+	position: u64,
+	length: u64,
 }
 
 impl Server {
@@ -184,5 +190,44 @@ impl Server {
 			.unwrap();
 
 		Ok(response)
+	}
+}
+
+impl AsyncRead for File {
+	fn poll_read(
+		self: std::pin::Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+		buf: &mut tokio::io::ReadBuf<'_>,
+	) -> std::task::Poll<std::io::Result<()>> {
+		std::pin::Pin::new(&mut self.get_mut().file).poll_read(cx, buf)
+	}
+}
+
+impl AsyncSeek for File {
+	fn start_seek(
+		self: std::pin::Pin<&mut Self>,
+		position: std::io::SeekFrom,
+	) -> std::io::Result<()> {
+		let position = match position {
+			std::io::SeekFrom::Start(start) => std::io::SeekFrom::Start(start + self.position),
+			std::io::SeekFrom::Current(current) => std::io::SeekFrom::Current(current),
+			std::io::SeekFrom::End(end) => {
+				let position = self.position + self.length;
+				let position = if end > 0 {
+					position + end.abs().to_u64().unwrap()
+				} else {
+					position - end.abs().to_u64().unwrap().min(position)
+				};
+				std::io::SeekFrom::Start(position)
+			},
+		};
+		std::pin::Pin::new(&mut self.get_mut().file).start_seek(position)
+	}
+
+	fn poll_complete(
+		self: std::pin::Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+	) -> std::task::Poll<std::io::Result<u64>> {
+		std::pin::Pin::new(&mut self.get_mut().file).poll_complete(cx)
 	}
 }

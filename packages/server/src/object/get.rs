@@ -3,9 +3,11 @@ use bytes::Bytes;
 use futures::{future, FutureExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
+use num::ToPrimitive;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 impl Server {
 	pub async fn try_get_object(
@@ -57,12 +59,22 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let Some(bytes) = row.bytes else {
-			return Ok(None);
-		};
 
 		// Drop the database connection.
 		drop(connection);
+
+		let bytes = 'a: {
+			if let Some(bytes) = row.bytes {
+				break 'a bytes;
+			};
+			let Ok(id) = id.try_unwrap_leaf_ref() else {
+				return Ok(None);
+			};
+			let Some(bytes) = self.try_read_leaf_from_cache(id).await? else {
+				return Ok(None);
+			};
+			bytes
+		};
 
 		// Create the output.
 		let output = tg::object::get::Output {
@@ -110,6 +122,53 @@ impl Server {
 		});
 
 		Ok(Some(output))
+	}
+
+	async fn try_read_leaf_from_cache(&self, id: &tg::leaf::Id) -> tg::Result<Option<Bytes>> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		#[derive(Debug, serde::Deserialize)]
+		struct Row {
+			root: tg::blob::Id,
+			offset: u64,
+			length: u64,
+		}
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select root, offset, length 
+				from blobs 
+				where id = {p}1
+			"
+		);
+		let params = db::params![id];
+		let Some(row) = connection
+			.query_optional_into::<Row>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
+		drop(connection);
+
+		// Read the blob.
+		let mut file = tokio::fs::File::open(self.cache_path().join(row.root.to_string()))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to find the root in the cache"))?;
+		file.seek(std::io::SeekFrom::Start(row.offset))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to seek in blob file"))?;
+		let mut buf = vec![0; row.length.to_usize().unwrap()];
+		file.read_exact(&mut buf)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read blob"))?;
+
+		Ok(Some(buf.into()))
 	}
 }
 

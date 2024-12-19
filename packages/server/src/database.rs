@@ -195,6 +195,13 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				id text primary key,
 				"user" text not null
 			);
+
+			create table blobs (
+				id text primary key,
+				root text not null,
+				offset integer not null,
+				length integer not null
+			);
 		"#
 	);
 	let database = database.as_ref().unwrap_left();
