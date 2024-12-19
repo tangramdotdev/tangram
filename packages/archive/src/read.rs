@@ -66,11 +66,11 @@ where
 			.map_err(|source| tg::error!(!source, "directory entry name is not valid UTF-8"))
 	}
 
-	pub async fn read_file<W>(&mut self, mut writer: W) -> tg::Result<()>
+	pub async fn read_file<W>(&mut self, mut writer: W) -> tg::Result<bool>
 	where
 		W: AsyncWrite + Unpin,
 	{
-		let _executable = self
+		let executable = self
 			.read_varint()
 			.await
 			.map_err(|source| tg::error!(!source, "could not read the executable bit"))?
@@ -84,7 +84,7 @@ where
 			.await
 			.map_err(|source| tg::error!(!source, "could not write file contents"))?;
 		if read == length {
-			Ok(())
+			Ok(executable)
 		} else {
 			Err(tg::error!("file length mismatch"))
 		}

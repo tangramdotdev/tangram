@@ -271,9 +271,12 @@ where
 			)
 			.await
 			{
-				(Ok(blob), Ok(())) => Ok(tg::Artifact::File(tg::File::with_contents(blob))),
+				(Ok(blob), Ok(executable)) => {
+					let file = tg::File::builder(blob).executable(executable).build();
+					Ok(tg::Artifact::File(file))
+				},
 				(Ok(_), Err(source)) => Err(tg::error!(!source, "unable to read the file")),
-				(Err(source), Ok(())) => Err(tg::error!(!source, "unable to generate the blob")),
+				(Err(source), Ok(_)) => Err(tg::error!(!source, "unable to generate the blob")),
 				(Err(blob_err), Err(file_err)) => Err(tg::error!(
 				"unable to read the file: {file_err}, and unable to generate the blob: {blob_err}"
 			)),
