@@ -625,6 +625,65 @@ async fn builtin_artifact_archive_extract_empty_file_roundtrip() -> tg::Result<(
 }
 
 #[tokio::test]
+async fn builtin_artifact_archive_extract_single_file_roundtrip() -> tg::Result<()> {
+	let tangram_ts = indoc!(
+		r#"
+			import file from "./file";
+			export default tg.target(async () => {
+				let archived_file = await tg.archive(file, "archive_format");
+				let extracted_archive = await tg.extract(archived_file, "archive_format");
+				return extracted_archive;
+			});
+		"#
+	);
+	let artifact_entry = ("file", temp::file!("hello world").into());
+	archive_test(tangram_ts, artifact_entry, |_, outcome| async move {
+		outcome.into_result().unwrap();
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+#[tokio::test]
+async fn builtin_artifact_archive_extract_single_symlink_roundtrip() -> tg::Result<()> {
+	let tangram_ts = indoc!(
+		r#"
+			export default tg.target(async () => {
+				let archived_file = await tg.archive(tg.symlink("."), "archive_format");
+				let extracted_archive = await tg.extract(archived_file, "archive_format");
+				return extracted_archive;
+			});
+		"#
+	);
+	let artifact_entry = ("file", temp::file!("hello world").into());
+	archive_test(tangram_ts, artifact_entry, |_, outcome| async move {
+		outcome.into_result().unwrap();
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+#[tokio::test]
+async fn builtin_artifact_archive_extract_dependencies_rejected() -> tg::Result<()> {
+	let tangram_ts = indoc!(
+		r#"
+			import file from "./link";
+			export default tg.target(async () => {
+				let archived_file = await tg.archive(file, "archive_format");
+				let extracted_archive = await tg.extract(archived_file, "archive_format");
+				return extracted_archive;
+			});
+		"#
+	);
+	let artifact_entry = ("link", temp::symlink!(".").into());
+	archive_test(tangram_ts, artifact_entry, |_, outcome| async move {
+		outcome.into_result().unwrap_err();
+		Ok::<_, tg::Error>(())
+	})
+	.await
+}
+
+#[tokio::test]
 async fn builtin_artifact_archive_extract_simple_dir_roundtrip() -> tg::Result<()> {
 	let tangram_ts = indoc!(
 		r#"
