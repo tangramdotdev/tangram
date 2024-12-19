@@ -175,6 +175,7 @@ fn tgar(
 		// Archive the artifact.
 		tgar_inner(&server, &artifact, &mut tgar).await?;
 
+		// Close the archive.
 		tgar.finish().await
 	}
 }

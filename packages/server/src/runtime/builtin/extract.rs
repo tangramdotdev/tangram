@@ -1,6 +1,6 @@
 use super::Runtime;
 use crate::Server;
-use futures::{io::BufReader, stream::FuturesOrdered, AsyncReadExt, StreamExt, TryStreamExt};
+use futures::{stream::FuturesOrdered, AsyncReadExt, StreamExt, TryStreamExt};
 use std::{cmp::Ordering, collections::BTreeMap, path::PathBuf, time::Duration};
 use tangram_archive as tgar;
 use tangram_client as tg;
@@ -234,11 +234,55 @@ where
 
 async fn tgar<R>(server: &Server, reader: R) -> tg::Result<tg::Artifact>
 where
-	R: tokio::io::AsyncBufRead + tokio::io::AsyncSeek + Unpin + Send + Sync + 'static,
+	R: tokio::io::AsyncBufRead + tokio::io::AsyncSeek + Unpin + Send + Sync,
 {
-	let tgar = tgar::read::Archive::new(reader);
-	tgar.read_header().await?;
-	tgar.read_artifact().await
+	let mut tgar = tgar::read::Archive::new(reader);
+	let version = tgar.read_header().await?;
+	if version != 1 {
+		return Err(tg::error!("unsupported tgar version"));
+	}
+	tgar_get_artifact(server, &mut tgar).await
+}
+
+async fn tgar_get_artifact<R>(
+	server: &Server,
+	tgar: &mut tgar::read::Archive<R>,
+) -> tg::Result<tg::Artifact>
+where
+	R: tokio::io::AsyncBufRead + tokio::io::AsyncSeek + Unpin + Send + Sync,
+{
+	match tgar.read_artifact_type().await? {
+		tg::artifact::Kind::Directory => {
+			let mut entries = BTreeMap::new();
+			for _ in 0..tgar.read_directory().await? {
+				let entry_name = tgar.read_directory_entry_name().await?;
+				let entry = Box::pin(tgar_get_artifact(server, tgar)).await?;
+				entries.insert(entry_name, entry);
+			}
+			Ok(tg::Artifact::Directory(tg::Directory::with_entries(
+				entries,
+			)))
+		},
+		tg::artifact::Kind::File => {
+			let (reader, writer) = tokio::io::duplex(8192);
+			match futures::future::join(
+				tg::Blob::with_reader(server, reader),
+				tgar.read_file(writer),
+			)
+			.await
+			{
+				(Ok(blob), Ok(())) => Ok(tg::Artifact::File(tg::File::with_contents(blob))),
+				(Ok(_), Err(source)) => Err(tg::error!(!source, "unable to read the file")),
+				(Err(source), Ok(())) => Err(tg::error!(!source, "unable to generate the blob")),
+				(Err(blob_err), Err(file_err)) => Err(tg::error!(
+				"unable to read the file: {file_err}, and unable to generate the blob: {blob_err}"
+			)),
+			}
+		},
+		tg::artifact::Kind::Symlink => Ok(tg::Artifact::Symlink(tg::Symlink::with_target(
+			PathBuf::from(tgar.read_symlink().await?),
+		))),
+	}
 }
 
 async fn finish_extract(
