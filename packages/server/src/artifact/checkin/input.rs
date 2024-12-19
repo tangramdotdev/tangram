@@ -7,7 +7,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_ignore::Ignore;
+use tangram_ignore::Matcher;
 use tokio::sync::RwLock;
 
 #[cfg(test)]
@@ -41,7 +41,7 @@ pub struct Edge {
 }
 
 struct State {
-	ignore: Ignore,
+	ignore_matcher: Matcher,
 	roots: Vec<usize>,
 	graph: Graph,
 	lockfiles: BTreeMap<PathBuf, Arc<ParsedLockfile>>,
@@ -54,12 +54,12 @@ impl Server {
 		arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Graph> {
-		// Create the ignore.
-		let ignore = self.ignore_for_checkin().await?;
+		// Create the ignore matcher.
+		let ignore_matcher = self.ignore_matcher_for_checkin().await?;
 
 		// Create the state.
 		let state = RwLock::new(State {
-			ignore,
+			ignore_matcher,
 			roots: Vec::new(),
 			lockfiles: BTreeMap::new(),
 			visited: BTreeMap::new(),
@@ -282,7 +282,7 @@ impl Server {
 				let ignored = state
 					.write()
 					.await
-					.ignore
+					.ignore_matcher
 					.matches(&path.join(&name), Some(is_directory))
 					.await
 					.map_err(|source| {

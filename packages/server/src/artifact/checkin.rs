@@ -4,7 +4,7 @@ use indoc::indoc;
 use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-use tangram_ignore::Ignore;
+use tangram_ignore::Matcher;
 
 mod input;
 mod lockfile;
@@ -141,7 +141,7 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn ignore_for_checkin(&self) -> tg::Result<Ignore> {
+	pub(crate) async fn ignore_matcher_for_checkin(&self) -> tg::Result<Matcher> {
 		let file_names = vec![
 			".tangramignore".into(),
 			".tgignore".into(),
@@ -155,7 +155,7 @@ impl Server {
 				tangram.lock
 			"
 		);
-		Ignore::new(file_names, Some(global))
+		Matcher::new(file_names, Some(global))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the ignore"))
 	}

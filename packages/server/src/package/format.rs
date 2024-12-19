@@ -3,7 +3,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::path::Path;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tangram_ignore::Ignore;
+use tangram_ignore::Matcher;
 
 #[cfg(test)]
 mod tests;
@@ -15,16 +15,17 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
-		// Create the ignore.
-		let ignore = self.ignore_for_checkin().await?;
+		// Create the ignore matcher.
+		let ignore_matcher = self.ignore_matcher_for_checkin().await?;
 
 		// Format.
-		self.format_package_inner(&arg.path, &ignore).await?;
+		self.format_package_inner(&arg.path, &ignore_matcher)
+			.await?;
 
 		Ok(())
 	}
 
-	async fn format_package_inner(&self, path: &Path, ignore: &Ignore) -> tg::Result<()> {
+	async fn format_package_inner(&self, path: &Path, ignore: &Matcher) -> tg::Result<()> {
 		let metadata = tokio::fs::metadata(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the metadata"))?;
@@ -36,7 +37,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn format_directory(&self, path: &Path, ignore: &Ignore) -> tg::Result<()> {
+	async fn format_directory(&self, path: &Path, ignore: &Matcher) -> tg::Result<()> {
 		// Read the directory entries.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let mut entries = Vec::new();

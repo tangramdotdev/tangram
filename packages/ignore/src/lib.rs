@@ -17,7 +17,7 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct Ignore {
+pub struct Matcher {
 	file_names: Vec<OsString>,
 	global: Option<File>,
 	root: Arc<RwLock<Node>>,
@@ -43,7 +43,7 @@ struct Pattern {
 	trailing_slash: bool,
 }
 
-impl Ignore {
+impl Matcher {
 	pub async fn new(file_names: Vec<OsString>, global: Option<&str>) -> Result<Self, Error> {
 		let root = Self::node_with_path_and_file_names(Path::new("/"), &file_names).await?;
 		let global = if let Some(global) = global {
