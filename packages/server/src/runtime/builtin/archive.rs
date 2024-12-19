@@ -1,6 +1,6 @@
 use super::Runtime;
 use crate::Server;
-use futures::{future::Either, FutureExt};
+use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{
 	future::Future,
@@ -51,14 +51,10 @@ impl Runtime {
 		let (reader, writer) = tokio::io::duplex(8192);
 
 		// Create the archive task.
-		let archive_task: Either<_, Either<_, _>> = match format {
-			tg::artifact::archive::Format::Tar => tar(server, &artifact, writer).left_future(),
-			tg::artifact::archive::Format::Tgar => tgar(server, &artifact, writer)
-				.right_future()
-				.right_future(),
-			tg::artifact::archive::Format::Zip => {
-				zip(server, &artifact, writer).left_future().right_future()
-			},
+		let archive_task = match format {
+			tg::artifact::archive::Format::Tar => tar(server, &artifact, writer).boxed(),
+			tg::artifact::archive::Format::Tgar => tgar(server, &artifact, writer).boxed(),
+			tg::artifact::archive::Format::Zip => zip(server, &artifact, writer).boxed(),
 		};
 
 		match futures::future::join(archive_task, tg::Blob::with_reader(server, reader)).await {
