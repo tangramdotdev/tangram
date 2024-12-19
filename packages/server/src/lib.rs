@@ -175,7 +175,7 @@ impl Server {
 				let options = db::sqlite::DatabaseOptions {
 					connections: options.connections,
 					initialize,
-					path: path.join("database"),
+					path: options.path.clone(),
 				};
 				let database = db::sqlite::Database::new(options)
 					.await

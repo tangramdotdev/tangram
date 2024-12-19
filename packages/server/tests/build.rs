@@ -38,7 +38,27 @@ async fn hello_world_remote() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
+		|_, _, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r###""Hello, World!""###);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn hello_world_remote_separate_builder() -> tg::Result<()> {
+	test_remote_separate_builder(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"export default tg.target(() => "Hello, World!")"#,
+			}
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, _, _, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r###""Hello, World!""###);
 			Ok::<_, tg::Error>(())
@@ -130,7 +150,7 @@ async fn host_target_hello_world_remote() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
+		|_, _, outcome| async move {
 			let output = outcome.into_result()?;
 			assert_snapshot!(output, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
 			Ok::<_, tg::Error>(())
@@ -138,6 +158,32 @@ async fn host_target_hello_world_remote() -> tg::Result<()> {
 	)
 	.await
 }
+
+// #[tokio::test]
+// async fn host_target_hello_world_remote_separate_builder() -> tg::Result<()> {
+// 	test_remote_separate_builder(
+// 		temp::directory! {
+// 			"foo" => temp::directory! {
+// 				"tangram.ts" => indoc!(r#"
+// 					export default tg.target(async () => {
+// 						let target = await tg.target("echo 'Hello, World!' > $OUTPUT");
+// 						let output = await target.output();
+// 						return output;
+// 					});
+// 				"#),
+// 			}
+// 		},
+// 		"foo",
+// 		"default",
+// 		vec![],
+// 		|_, _, _, outcome| async move {
+// 			let output = outcome.into_result()?;
+// 			assert_snapshot!(output, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
+// 			Ok::<_, tg::Error>(())
+// 		},
+// 	)
+// 	.await
+// }
 
 #[tokio::test]
 async fn two_modules() -> tg::Result<()> {
@@ -1062,7 +1108,7 @@ async fn test_remote<F, Fut>(
 	assertions: F,
 ) -> tg::Result<()>
 where
-	F: FnOnce(Server, tg::build::Outcome) -> Fut,
+	F: FnOnce(Server, Server, tg::build::Outcome) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let artifact = artifact.into();
@@ -1144,7 +1190,7 @@ where
 		let output = local.build_target(&target, arg).await?;
 		let build = tg::Build::with_id(output.build);
 		let outcome = build.outcome(&local).await?;
-		(assertions)(local.clone(), outcome).await?;
+		(assertions)(local.clone(), remote.clone(), outcome).await?;
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()
@@ -1158,6 +1204,138 @@ where
 	remote.wait().await;
 	if result.as_ref().is_ok_and(Result::is_ok) {
 		remote_temp.remove().await.ok();
+	}
+	artifact_temp.remove().await.ok();
+	result.unwrap()
+}
+
+async fn test_remote_separate_builder<F, Fut>(
+	artifact: impl Into<temp::Artifact>,
+	path: &str,
+	target: &str,
+	args: Vec<tg::Value>,
+	assertions: F,
+) -> tg::Result<()>
+where
+	F: FnOnce(Server, Server, Server, tg::build::Outcome) -> Fut,
+	Fut: Future<Output = tg::Result<()>>,
+{
+	let artifact = artifact.into();
+	let artifact_temp = Temp::new_persistent();
+	artifact.to_path(artifact_temp.as_ref()).await.map_err(
+		|source| tg::error!(!source, %path = artifact_temp.path().display(), "failed to write the artifact"),
+	)?;
+	let db_temp = Temp::new_persistent();
+	tokio::fs::create_dir_all(&db_temp.path()).await.unwrap();
+	let remote_temp = Temp::new_persistent();
+	let mut remote_options = Config::with_path(remote_temp.path().to_owned());
+	remote_options.database = tangram_server::config::Database::Sqlite(
+		tangram_server::config::SqliteDatabase::with_path(&db_temp.path()),
+	);
+	let remote = Server::start(remote_options).await?;
+	let remote_builder_temp = Temp::new_persistent();
+	let mut remote_builder_options = Config::with_path(remote_builder_temp.path().to_owned());
+	remote_builder_options.database = tangram_server::config::Database::Sqlite(
+		tangram_server::config::SqliteDatabase::with_path(&db_temp.path()),
+	);
+	remote_builder_options.build = Some(tangram_server::config::Build::default());
+	remote_builder_options.build_heartbeat_monitor =
+		Some(tangram_server::config::BuildHeartbeatMonitor::default());
+	let remote_builder = Server::start(remote_builder_options).await?;
+	let local_temp = Temp::new_persistent();
+	let mut local_options = Config::with_path(local_temp.path().to_owned());
+	local_options.remotes = [(
+		"default".to_owned(),
+		tangram_server::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
+	.into();
+	let local = Server::start(local_options).await?;
+	let result = AssertUnwindSafe(async {
+		let arg = tg::artifact::checkin::Arg {
+			cache: false,
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			lockfile: true,
+			path: artifact_temp.as_ref().join(path),
+		};
+		let artifact = tg::Artifact::check_in(&local, arg)
+			.await?
+			.try_unwrap_directory()
+			.unwrap();
+		let artifact = artifact.clone().into();
+		let subpath = Some("tangram.ts".parse().unwrap());
+		let env = [("TANGRAM_HOST".to_owned(), tg::host().into())].into();
+		let args = std::iter::once(target.into())
+			.chain(args.into_iter())
+			.collect();
+		let executable = Some(tg::target::Executable::Module(tg::target::Module {
+			kind: tg::module::Kind::Js,
+			referent: tg::Referent {
+				item: artifact,
+				path: Some(path.into()),
+				subpath,
+				tag: None,
+			},
+		}));
+		let host = "js";
+		let target = tg::target::Builder::new(host)
+			.args(args)
+			.env(env)
+			.executable(executable)
+			.build();
+		let arg = tg::target::build::Arg {
+			create: true,
+			parent: None,
+			remote: Some("default".to_string()),
+			retry: tg::build::Retry::Canceled,
+		};
+		let target = target.id(&local).await?;
+		let push_stream = local
+			.push_object(
+				&target.clone().into(),
+				tg::object::push::Arg {
+					remote: "default".to_string(),
+				},
+			)
+			.await?;
+		pin!(push_stream)
+			.try_last()
+			.await?
+			.and_then(|event| event.try_unwrap_output().ok())
+			.ok_or_else(|| tg::error!("stream ended without output"))?;
+		let output = local.build_target(&target, arg).await?;
+		let build = tg::Build::with_id(output.build);
+		let outcome = build.outcome(&local).await?;
+		(assertions)(
+			local.clone(),
+			remote.clone(),
+			remote_builder.clone(),
+			outcome,
+		)
+		.await?;
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	local.stop();
+	local.wait().await;
+	if result.as_ref().is_ok_and(Result::is_ok) {
+		local_temp.remove().await.ok();
+	}
+	remote_builder.stop();
+	remote_builder.wait().await;
+	if result.as_ref().is_ok_and(Result::is_ok) {
+		remote_builder_temp.remove().await.ok();
+	}
+	remote.stop();
+	remote.wait().await;
+	if result.as_ref().is_ok_and(Result::is_ok) {
+		remote_temp.remove().await.ok();
+		db_temp.remove().await.ok();
 	}
 	artifact_temp.remove().await.ok();
 	result.unwrap()
