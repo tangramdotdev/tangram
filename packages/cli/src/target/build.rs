@@ -6,7 +6,7 @@ use std::{
 	io::IsTerminal as _,
 	path::{Path, PathBuf},
 };
-use tangram_client::{self as tg, handle::Ext as _, Handle as _};
+use tangram_client::{self as tg, handle::Ext as _, Handle};
 use tangram_either::Either;
 
 /// Build a target.
@@ -316,6 +316,14 @@ impl Cli {
 			"info".blue().bold(),
 			target.id(&handle).await?
 		);
+
+		// If the remote is set, then push the target.
+		if let Some(remote) = remote.clone() {
+			let id = target.id(&handle).await?;
+			let arg = tg::object::push::Arg { remote };
+			let stream = handle.push_object(&id.into(), arg).await?;
+			self.render_progress_stream(stream).await?;
+		}
 
 		// Build the target.
 		let id = target.id(&handle).await?;
