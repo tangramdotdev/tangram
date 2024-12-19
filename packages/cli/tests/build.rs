@@ -8,16 +8,17 @@ use tangram_temp::{self as temp, Temp};
 
 mod common;
 
+/// Test building a Tangram module without a containing root package.
 #[tokio::test]
 async fn build_file() -> std::io::Result<()> {
-	// Create a local servers.
-	let local_config = json!({
+	// Create a server.
+	let config = json!({
 		"vfs": null
 	});
-	let mut server = Server::start(local_config.clone()).await?;
+	let mut server = Server::start(config.clone()).await?;
 
 	let result = AssertUnwindSafe(async {
-		// Create a package foo
+		// Create a module in a single file.
 		let foo_temp = Temp::new();
 		let foo = temp::directory! {
 			"foo.tg.ts" => indoc!(r#"
@@ -27,7 +28,7 @@ async fn build_file() -> std::io::Result<()> {
 		let foo: temp::Artifact = foo.into();
 		foo.to_path(foo_temp.as_ref()).await?;
 
-		// Tag foo
+		// Build the module file.
 		let output = server
 			.tg()
 			.args([
