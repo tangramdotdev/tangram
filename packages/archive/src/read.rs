@@ -2,22 +2,22 @@ use num::ToPrimitive;
 use tangram_client as tg;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite};
 
-pub struct Archive<R> {
-	reader: R,
+pub struct Reader<R> {
+	inner: R,
 }
 
-impl<R> Archive<R>
+impl<R> Reader<R>
 where
 	R: AsyncRead + Unpin + Send + Sync,
 {
 	pub fn new(reader: R) -> Self {
-		Self { reader }
+		Self { inner: reader }
 	}
 
 	pub async fn read_header(&mut self) -> tg::Result<u64> {
 		let mut magic = [0u8; 4];
 		let read = self
-			.reader
+			.inner
 			.read_exact(&mut magic)
 			.await
 			.map_err(|source| tg::error!(!source, "could not read archive magic"))?;
@@ -49,7 +49,7 @@ where
 			.to_usize()
 			.unwrap();
 		let mut buf = vec![0; len];
-		self.reader
+		self.inner
 			.read_exact(&mut buf)
 			.await
 			.map_err(|source| tg::error!(!source, "could not read directory entry"))?;
@@ -63,7 +63,7 @@ where
 	{
 		let _executable = self.read_varint("executable bit").await? != 0;
 		let length = self.read_varint("file size").await?;
-		let mut reader = (&mut self.reader).take(length);
+		let mut reader = (&mut self.inner).take(length);
 		let read = tokio::io::copy(&mut reader, &mut writer)
 			.await
 			.map_err(|source| tg::error!(!source, "could not write file contents"))?;
@@ -81,7 +81,7 @@ where
 			.to_usize()
 			.unwrap();
 		let mut buf = vec![0; len];
-		self.reader
+		self.inner
 			.read_exact(&mut buf)
 			.await
 			.map_err(|source| tg::error!(!source, "could not read the target path"))?;
@@ -95,7 +95,7 @@ where
 		loop {
 			let mut buf = [0_u8; 1];
 			let read = self
-				.reader
+				.inner
 				.read_exact(&mut buf)
 				.await
 				.map_err(|source| tg::error!(!source, "unable to read {description}"))?;

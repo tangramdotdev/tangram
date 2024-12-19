@@ -167,7 +167,7 @@ fn tgar(
 	let server = server.clone();
 	async move {
 		// Create the tgar builder.
-		let mut tgar = tgar::write::Builder::new(writer);
+		let mut tgar = tgar::write::Writer::new(writer);
 
 		// Write the archive header.
 		tgar.append_archive_header().await?;
@@ -183,7 +183,7 @@ fn tgar(
 async fn tgar_inner<W>(
 	server: &Server,
 	artifact: &tg::Artifact,
-	tgar: &mut tgar::write::Builder<W>,
+	tgar: &mut tgar::write::Writer<W>,
 ) -> tg::Result<()>
 where
 	W: tokio::io::AsyncWrite + Unpin + Send + Sync,

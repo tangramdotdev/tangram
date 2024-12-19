@@ -236,7 +236,7 @@ async fn tgar<R>(server: &Server, reader: R) -> tg::Result<tg::Artifact>
 where
 	R: tokio::io::AsyncBufRead + tokio::io::AsyncSeek + Unpin + Send + Sync,
 {
-	let mut tgar = tgar::read::Archive::new(reader);
+	let mut tgar = tgar::read::Reader::new(reader);
 	let version = tgar.read_header().await?;
 	if version != 1 {
 		return Err(tg::error!("unsupported tgar version"));
@@ -246,7 +246,7 @@ where
 
 async fn tgar_get_artifact<R>(
 	server: &Server,
-	tgar: &mut tgar::read::Archive<R>,
+	tgar: &mut tgar::read::Reader<R>,
 ) -> tg::Result<tg::Artifact>
 where
 	R: tokio::io::AsyncBufRead + tokio::io::AsyncSeek + Unpin + Send + Sync,
