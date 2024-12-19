@@ -2,7 +2,10 @@ use crate::Cli;
 use crossterm::{self as ct, style::Stylize as _};
 use futures::{stream::TryStreamExt as _, Stream};
 use indexmap::IndexMap;
-use std::{io::IsTerminal as _, pin::pin};
+use std::{
+	io::{IsTerminal as _, Write as _},
+	pin::pin,
+};
 use tangram_client as tg;
 use tangram_futures::stream::TryStreamExt as _;
 
@@ -23,30 +26,39 @@ impl Cli {
 				.ok_or_else(|| tg::error!("stream ended without output"));
 		}
 
+		let mut indicators_count = None;
 		while let Some(event) = stream.try_next().await? {
-			// Clear.
-			let action = ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown);
-			ct::execute!(tty, action).unwrap();
+			// Clear the indicators.
+			if let Some(indicators_count) = indicators_count {
+				for _ in 0..indicators_count {
+					ct::queue!(
+						tty,
+						ct::cursor::MoveToPreviousLine(1),
+						ct::terminal::Clear(ct::terminal::ClearType::CurrentLine),
+					)
+					.unwrap();
+				}
+			}
 
 			match event {
 				tg::progress::Event::Log(log) => {
 					if let Some(level) = log.level {
 						match level {
 							tg::progress::Level::Success => {
-								eprint!("{} ", "success".green().bold());
+								write!(tty, "{} ", "success".green().bold()).unwrap();
 							},
 							tg::progress::Level::Info => {
-								eprint!("{} ", "info".blue().bold());
+								write!(tty, "{} ", "info".blue().bold()).unwrap();
 							},
 							tg::progress::Level::Warning => {
-								eprint!("{} ", "warning".yellow().bold());
+								write!(tty, "{} ", "warning".yellow().bold()).unwrap();
 							},
 							tg::progress::Level::Error => {
-								eprint!("{} ", "error".red().bold());
+								write!(tty, "{} ", "error".red().bold()).unwrap();
 							},
 						}
 					}
-					eprintln!("{}", log.message);
+					writeln!(tty, "{}", log.message).unwrap();
 				},
 
 				tg::progress::Event::Diagnostic(diagnostic) => {
@@ -66,18 +78,14 @@ impl Cli {
 				},
 			}
 
-			// Save the cursor position.
-			let action = ct::cursor::SavePosition;
-			ct::execute!(tty, action).unwrap();
-
 			// Render the indicators.
 			for indicator in indicators.values() {
-				eprintln!("{indicator}");
+				writeln!(tty, "{indicator}").unwrap();
 			}
+			indicators_count = Some(indicators.len());
 
-			// Restore the cursor position.
-			let action = ct::cursor::RestorePosition;
-			ct::execute!(tty, action).unwrap();
+			// Flush the tty.
+			tty.flush().unwrap();
 		}
 
 		Err(tg::error!("stream ended without output"))

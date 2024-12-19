@@ -87,7 +87,6 @@ impl std::fmt::Display for Indicator {
 				let percent = 100.0 * current.to_f64().unwrap() / total.to_f64().unwrap();
 				write!(f, " {percent:.2}%")?;
 			}
-			writeln!(f)?;
 		}
 		Ok(())
 	}
