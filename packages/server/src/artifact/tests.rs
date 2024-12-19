@@ -525,7 +525,7 @@ async fn file_with_object_dependencies() -> tg::Result<()> {
 		}
 		.into();
 		package
-			.to_path(&temp.path())
+			.to_path(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp"))?;
 

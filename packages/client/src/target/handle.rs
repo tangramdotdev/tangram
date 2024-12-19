@@ -63,7 +63,7 @@ impl Target {
 	{
 		self.try_load(handle)
 			.await?
-			.ok_or_else(|| tg::error!("failed to load the object"))
+			.ok_or_else(|| tg::error!(?self, "failed to load the object"))
 	}
 
 	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
