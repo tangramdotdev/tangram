@@ -2902,16 +2902,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "integer-encoding"
-version = "4.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d762194228a2f1c11063e46e32e5acb96e66e906382b9eb5441f2e0504bbd5a"
-dependencies = [
- "async-trait",
- "tokio",
-]
-
-[[package]]
 name = "ipnet"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5727,7 +5717,6 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 name = "tangram_archive"
 version = "0.0.0"
 dependencies = [
- "integer-encoding",
  "num",
  "tangram_client",
  "tokio",

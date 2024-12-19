@@ -1,4 +1,3 @@
-use integer_encoding::VarInt;
 use num::ToPrimitive as _;
 use tangram_client as tg;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _};
@@ -92,12 +91,21 @@ where
 			.map_err(|source| tg::error!(!source, "could not flush the writer"))
 	}
 
-	async fn write_varint(&mut self, src: u64) -> tg::Result<()> {
-		let mut buf = [0_u8; 9];
-		let len = src.encode_var(&mut buf);
-		self.inner
-			.write_all(&buf[..len])
-			.await
-			.map_err(|source| tg::error!(!source, "could not write the value"))
+	async fn write_varint(&mut self, mut src: u64) -> tg::Result<()> {
+		loop {
+			let mut byte = (src & 0x7F) as u8;
+			src >>= 7;
+			if src != 0 {
+				byte |= 0x80;
+			}
+			self.inner
+				.write_all(&[byte])
+				.await
+				.map_err(|source| tg::error!(!source, "could not write the value"))?;
+			if src == 0 {
+				break;
+			}
+		}
+		Ok(())
 	}
 }

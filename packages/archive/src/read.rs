@@ -110,10 +110,10 @@ where
 		let mut result: u64 = 0;
 		let mut shift = 0;
 		loop {
-			let mut buf = [0_u8; 1];
+			let mut byte: u8 = 0;
 			let read = self
 				.inner
-				.read_exact(&mut buf)
+				.read_exact(std::slice::from_mut(&mut byte))
 				.await
 				.map_err(|source| tg::error!(!source, "could not read the value"))?;
 			if read == 0 && shift == 0 {
@@ -122,8 +122,8 @@ where
 			if read == 0 {
 				break;
 			}
-			result += u64::from(buf[0] & 0x7F) << shift;
-			if buf[0] & 0x80 == 0 {
+			result |= u64::from(byte & 0x7F) << shift;
+			if byte & 0x80 == 0 {
 				break;
 			}
 			shift += 7;
