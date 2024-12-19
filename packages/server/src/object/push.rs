@@ -22,7 +22,7 @@ impl Server {
 		let remote = self
 			.remotes
 			.get(&arg.remote)
-			.ok_or_else(|| tg::error!("failed to find the remote"))?
+			.ok_or_else(|| tg::error!(%remote = arg.remote, "failed to find the remote"))?
 			.clone();
 		Self::push_or_pull_object(self, &remote, object).await
 	}
