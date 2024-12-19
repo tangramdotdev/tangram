@@ -36,7 +36,8 @@ pub struct Edge {
 
 struct State {
 	nodes: Vec<Node>,
-	visited: Vec<Option<usize>>,
+	#[allow(clippy::option_option)]
+	visited: Vec<Option<Option<usize>>>,
 }
 
 impl Server {
@@ -52,7 +53,7 @@ impl Server {
 		});
 
 		// Recurse over the graph.
-		self.create_output_graph_inner(input, object, 0, &state)
+		self.try_create_output_graph_inner(input, object, 0, &state)
 			.await?;
 
 		// Create the output.
@@ -63,13 +64,13 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn create_output_graph_inner(
+	async fn try_create_output_graph_inner(
 		&self,
 		input: &input::Graph,
 		object: &object::Graph,
 		object_index: usize,
 		state: &RwLock<State>,
-	) -> tg::Result<usize> {
+	) -> tg::Result<Option<usize>> {
 		// Check if this output node has been visited.
 		if let Some(output_index) = state.read().unwrap().visited[object_index] {
 			return Ok(output_index);
@@ -87,34 +88,36 @@ impl Server {
 		let output_index = {
 			let mut state = state.write().unwrap();
 			let output_index = state.nodes.len();
+			let Ok(id) = object.nodes[object_index].id.clone().unwrap().try_into() else {
+				state.visited[object_index].replace(None);
+				return Ok(None);
+			};
+
 			let node = Node {
 				input: input_index,
-				id: object.nodes[object_index]
-					.id
-					.clone()
-					.unwrap()
-					.try_into()
-					.unwrap(),
+				id,
 				data: object.nodes[object_index].data.clone().unwrap(),
 				metadata: object.nodes[object_index].metadata.clone().unwrap(),
 				edges: Vec::new(),
 			};
 			state.nodes.push(node);
-			state.visited[object_index].replace(output_index);
+			state.visited[object_index].replace(Some(output_index));
 			output_index
 		};
 
 		// Create the output edges.
-		let edges = object.nodes[object_index]
+		let edges: Vec<_> = object.nodes[object_index]
 			.edges
 			.iter()
 			.map(|edge| {
-				Box::pin(self.create_output_graph_inner(input, object, edge.index, state)).map(
+				Box::pin(self.try_create_output_graph_inner(input, object, edge.index, state)).map(
 					|node| {
-						node.map(|node| Edge {
-							reference: edge.reference.clone(),
-							subpath: edge.subpath.clone(),
-							node,
+						node.map(|index| {
+							index.map(|index| Edge {
+								reference: edge.reference.clone(),
+								subpath: edge.subpath.clone(),
+								node: index,
+							})
 						})
 					},
 				)
@@ -122,12 +125,13 @@ impl Server {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
+		let edges = edges.into_iter().flatten().collect();
 
 		// Update the output edges.
 		state.write().unwrap().nodes[output_index].edges = edges;
 
 		// Return the created node.
-		Ok(output_index)
+		Ok(Some(output_index))
 	}
 
 	pub async fn write_output_to_database(&self, output: &Graph) -> tg::Result<()> {

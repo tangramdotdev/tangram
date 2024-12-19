@@ -495,6 +495,117 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 	result.unwrap()
 }
 
+#[tokio::test]
+async fn file_with_object_dependencies() -> tg::Result<()> {
+	// Create the first server.
+	let temp1 = Temp::new();
+	let config = Config::with_path(temp1.path().to_owned());
+	let server1 = Server::start(config.clone()).await?;
+
+	// Create the second server.
+	// let temp2 = Temp::new();
+	// let config = Config::with_path(temp1.path().to_owned());
+	// let server2 = Server::start(config.clone()).await?;
+
+	// Run the test.
+	let result = AssertUnwindSafe(async {
+		// Create the dependency artifact and obejct.
+		let artifact = tg::file!("hello, world!");
+		let file = artifact.id(&server1).await?;
+		let blob = artifact.contents(&server1).await?.id(&server1).await?;
+		eprintln!("{file}, {blob}");
+
+		// Create a file that depends on the artifact and object by ID.
+		let temp = Temp::new();
+		let package: temp::Artifact = temp::directory! {
+			"tangram.ts" => format!("
+				import file from \"{file}\";
+				import blob from \"{blob}\";
+			"),
+		}
+		.into();
+		package
+			.to_path(&temp.path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the temp"))?;
+
+		// Check in the file.
+		let arg = tg::artifact::checkin::Arg {
+			cache: false,
+			destructive: false,
+			deterministic: false,
+			ignore: false,
+			locked: false,
+			lockfile: true,
+			path: temp.path().to_owned(),
+		};
+		let directory = tg::Artifact::check_in(&server1, arg).await?;
+
+		// Validate the lockfile.
+		let lockfile = tg::Lockfile::try_read(&temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await?
+			.ok_or_else(|| tg::error!("expected a lockfile"))?;
+		assert_json_snapshot!(lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01mwk7bw8b1fft3k8zywea75cqvwfrpsrcbhejv7yr9w3y6s1tmms0"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "fil_01my5jh8zn8r1jmpm8j6286w0v65pqe95wmn116pvf6k18rkbbacf0": {
+            "item": "fil_01my5jh8zn8r1jmpm8j6286w0v65pqe95wmn116pvf6k18rkbbacf0"
+          },
+          "lef_01be9a1a2fqh8ab33myhrqqg6nyg1jgaq4snyqme2327pkrgca2qc0": {
+            "item": "lef_01be9a1a2fqh8ab33myhrqqg6nyg1jgaq4snyqme2327pkrgca2qc0"
+          }
+        },
+        "id": "fil_01av35e5gkymwwx5dk6wn04tm1ydrq5wrancyagfg0dhfnt3jzbbjg"
+      }
+    ]
+  }
+  "#);
+
+  		// Check out the file within the artifact.
+		let temp = Temp::new();
+  		let file = directory.unwrap_directory_ref().get(&server1, "tangram.ts").await?;
+		let arg = tg::artifact::checkout::Arg {
+			dependencies: false,
+			force: false,
+			lockfile: true,
+			path: Some(temp.path().to_owned()),
+		};
+		let path = file.check_out(&server1, arg).await?;
+
+		// Get the result.
+		let artifact = temp::Artifact::with_path(&path).await.map_err(|source| tg::error!(!source, "failed to get the artifact"))?;
+
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "file",
+    "contents": "\n\t\t\t\timport file from \"fil_01my5jh8zn8r1jmpm8j6286w0v65pqe95wmn116pvf6k18rkbbacf0\";\n\t\t\t\timport blob from \"lef_01be9a1a2fqh8ab33myhrqqg6nyg1jgaq4snyqme2327pkrgca2qc0\";\n\t\t\t",
+    "executable": false,
+    "xattr": {
+      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"fil_01my5jh8zn8r1jmpm8j6286w0v65pqe95wmn116pvf6k18rkbbacf0\":{\"item\":\"fil_01my5jh8zn8r1jmpm8j6286w0v65pqe95wmn116pvf6k18rkbbacf0\"},\"lef_01be9a1a2fqh8ab33myhrqqg6nyg1jgaq4snyqme2327pkrgca2qc0\":{\"item\":\"lef_01be9a1a2fqh8ab33myhrqqg6nyg1jgaq4snyqme2327pkrgca2qc0\"}},\"id\":\"fil_01av35e5gkymwwx5dk6wn04tm1ydrq5wrancyagfg0dhfnt3jzbbjg\"}]}"
+    }
+  }
+  "#);
+
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+
+	cleanup(temp1, server1).await;
+	// cleanup(temp2, server2).await;
+	result.unwrap()
+}
+
 async fn test<F, Fut>(
 	checkin: impl Into<temp::Artifact>,
 	path: &Path,
