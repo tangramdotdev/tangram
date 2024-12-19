@@ -1053,7 +1053,7 @@ where
 	if result.as_ref().is_ok_and(Result::is_ok) {
 		server_temp.remove().await.ok();
 	}
-	// artifact_temp.remove().await.ok();
+	artifact_temp.remove().await.ok();
 	result.unwrap()
 }
 
