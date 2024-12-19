@@ -113,6 +113,32 @@ async fn host_target_hello_world() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn host_target_hello_world_remote() -> tg::Result<()> {
+	test_remote(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let target = await tg.target("echo 'Hello, World!' > $OUTPUT");
+						let output = await target.output();
+						return output;
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn two_modules() -> tg::Result<()> {
 	test(
 		temp::directory! {
