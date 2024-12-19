@@ -1,8 +1,9 @@
 use futures::{Future, FutureExt as _};
 use indoc::indoc;
 use insta::assert_snapshot;
-use std::{panic::AssertUnwindSafe, str::FromStr};
+use std::{panic::AssertUnwindSafe, pin::pin, str::FromStr};
 use tangram_client::{self as tg, handle::Ext};
+use tangram_futures::stream::TryStreamExt as _;
 use tangram_server::{Config, Server};
 use tangram_temp::{self as temp, Temp};
 
@@ -1118,6 +1119,19 @@ where
 			retry: tg::build::Retry::Canceled,
 		};
 		let target = target.id(&local).await?;
+		let push_stream = local
+			.push_object(
+				&target.clone().into(),
+				tg::object::push::Arg {
+					remote: "default".to_string(),
+				},
+			)
+			.await?;
+		pin!(push_stream)
+			.try_last()
+			.await?
+			.and_then(|event| event.try_unwrap_output().ok())
+			.ok_or_else(|| tg::error!("stream ended without output"))?;
 		let output = local.build_target(&target, arg).await?;
 		let build = tg::Build::with_id(output.build);
 		let outcome = build.outcome(&local).await?;
