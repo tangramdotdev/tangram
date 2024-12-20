@@ -339,6 +339,61 @@ async fn import_directory() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn template() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import file from "./file.txt" with { type: "file" };
+					export default tg.target(() => tg.template`prefix${file}suffix`);
+				"#),
+				"file.txt" => "I'm a plain text file!",
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r###"tg.template(["prefix"fil_01km0khmet3xdmyrdrf49xa9qvbn656q9fwrckyf0xf9fv9467ec9g"suffix"])"###);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn template_multiline() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"
+					import file from "./file.txt" with { type: "file" };
+					export default tg.target(() => tg.template`
+					
+					        
+					                        prefix
+					        ${file}
+
+					        
+					               suffix`);
+				"#,
+				"file.txt" => "I'm a plain text file!",
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r#"tg.template(["                prefix\n"fil_01km0khmet3xdmyrdrf49xa9qvbn656q9fwrckyf0xf9fv9467ec9g"\n\n\n       suffix"])"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn directory_get_follows_intermediate_component_symlinks() -> tg::Result<()> {
 	test(
 		temp::directory! {
