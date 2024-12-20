@@ -9,8 +9,20 @@ export async function template(
 	...placeholders: tg.Args<Template.Arg>
 ): Promise<Template>;
 export async function template(...args: any): Promise<Template> {
+	return await template_inner(true, ...args);
+}
+export namespace template {
+	export async function raw(...args: any): Promise<Template> {
+		return await template_inner(false, ...args);
+	}
+}
+
+async function template_inner(
+	shouldTrim: boolean,
+	...args: any
+): Promise<Template> {
 	if (Array.isArray(args[0]) && "raw" in args[0]) {
-		let strings = trimTemplateStrings(args[0]);
+		let strings = shouldTrim ? trimTemplateStrings(args[0]) : args[0];
 		let placeholders = args.slice(1) as tg.Args<Template>;
 		let components = [];
 		for (let i = 0; i < strings.length - 1; i++) {
