@@ -182,8 +182,12 @@ where
 				processed_entries.push((path, artifact));
 			},
 			_ => {
+				let mode = header
+					.mode()
+					.map_err(|source| tg::error!(!source, "could not determine mode"))?;
+				let executable = mode & 0o111 != 0;
 				let blob = tg::Blob::with_reader(server, entry.compat()).await?;
-				let file = tg::File::with_contents(blob);
+				let file = tg::File::builder(blob).executable(executable).build();
 				let artifact = tg::Artifact::File(file);
 				processed_entries.push((path, artifact));
 			},
