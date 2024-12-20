@@ -42,39 +42,6 @@ export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 		? MaybeMutationMap<T>
 		: never;
 
-export let trimMultilineString = (
-	strings: TemplateStringsArray,
-	...placeholders: Array<string>
-): string => {
-	// Concatenate the strings and placeholders.
-	let string = "";
-	let i = 0;
-	while (i < placeholders.length) {
-		string += strings[i];
-		string += placeholders[i];
-		i = i + 1;
-	}
-	string += strings[i];
-
-	// Split the lines.
-	let lines = string.split("\n");
-
-	// Remove the first and last lines.
-	if (lines.length > 2) {
-		lines = lines.slice(1, -1);
-	}
-
-	// Get the number of leading tabs to remove.
-	const leadingWhitespaceCount = Math.min(
-		...lines
-			.filter((line) => line.length > 0)
-			.map((line) => line.search(/[^\t ]|$/)),
-	);
-
-	// Remove the leading tabs from each line and combine them with newlines.
-	return lines.map((line) => line.slice(leadingWhitespaceCount)).join("\n");
-};
-
 function is_whitespace(char: string | undefined): boolean {
 	if (char === undefined) {
 		return false;
