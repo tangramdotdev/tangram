@@ -634,14 +634,17 @@ where
 		write!(self.writer, "tg.template(")?;
 		self.start_array()?;
 		for component in &value.components {
-			match component {
-				tg::template::Component::Artifact(artifact) => {
-					self.artifact(artifact)?;
-				},
-				tg::template::Component::String(string) => {
-					self.string(string)?;
-				},
-			}
+			self.array_value(|s| {
+				match component {
+					tg::template::Component::Artifact(artifact) => {
+						s.artifact(artifact)?;
+					},
+					tg::template::Component::String(string) => {
+						s.string(string)?;
+					},
+				}
+				Ok(())
+			})?;
 		}
 		self.finish_array()?;
 		write!(self.writer, ")")?;
