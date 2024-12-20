@@ -119,12 +119,6 @@ pub struct Vfs {
 	pub database_connections: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum BlobsLocation {
-	Database,
-	Disk,
-}
-
 impl Config {
 	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {

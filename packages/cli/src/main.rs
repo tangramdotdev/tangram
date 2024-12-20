@@ -493,6 +493,8 @@ impl Cli {
 			}
 			if let Some(write_blobs_to_cache_directory) = advanced.write_blobs_to_cache_directory {
 				config.advanced.write_blobs_to_cache_directory = write_blobs_to_cache_directory;
+			} else {
+				config.advanced.write_blobs_to_cache_directory = true;
 			}
 		}
 
