@@ -193,7 +193,16 @@ where
 	// Build the directory.
 	let mut builder = tg::directory::Builder::default();
 	for (path, artifact) in processed_entries {
-		builder = builder.add(server, &path, artifact).await?;
+		let path = if path.starts_with("./") {
+			path.strip_prefix("./")
+				.map_err(|source| tg::error!(!source, "could not strip the path prefix"))?
+		} else {
+			&path
+		};
+		if path.as_os_str().is_empty() {
+			continue;
+		}
+		builder = builder.add(server, path, artifact).await?;
 	}
 	let directory = builder.build();
 
