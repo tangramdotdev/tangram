@@ -890,11 +890,11 @@ async fn import_from_parent() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"directory" => temp::directory! {
-				"baz" => temp::directory! {
-					"mod.tg.ts" => r#"import * as baz from "..";"#
+				"a" => temp::directory! {
+					"mod.tg.ts" => r#"import * as a from ".";"#
 				},
-				"foo" => temp::directory!{},
-				"tangram.ts" => r#"import patches from "./foo" with { type: "directory" };"#,
+				"b" => temp::directory!{},
+				"tangram.ts" => r#"import patches from "./b" with { type: "directory" };"#,
 			}
 		},
 		"directory",
@@ -907,41 +907,41 @@ async fn import_from_parent() -> tg::Result<()> {
        {
          "kind": "directory",
          "entries": {
-           "baz": 1,
+           "a": 1,
            "tangram.ts": 3
          },
-         "id": "dir_01pf6yv0rmmz3z62wgkvmac70k7p0p8eetbss0y4rk1j0y4hn6fbtg"
+         "id": "dir_01epb0tremaxf0ax7yfpz0bwsm0kj8z3ahd36tyxj2jt6v3apxvhj0"
        },
        {
          "kind": "directory",
          "entries": {
            "mod.tg.ts": 2
          },
-         "id": "dir_01dzpv1qt3z26g3c31bybbkb5phhmy8v372exnx7dpg10qqj0bps40"
+         "id": "dir_01fymeetrk80wsqxfeamm9axy0z60rvr50pfsbsn9rx5w4czgzc7mg"
        },
        {
          "kind": "file",
-         "contents": "lef_01z7p470yk3nybnm1f00y9m49p13rd52fqs1v9rwmmh9nd3s4stztg",
+         "contents": "lef_01f5c3vv1z4ejbnxc9nza26gecndwkt8n7jpbm5hw1gx9yega1y150",
          "dependencies": {
-           "..": {
+           ".": {
              "item": 0,
              "path": "",
-             "subpath": "tangram.ts"
+             "subpath": "a"
            }
          },
-         "id": "fil_010k9574v6efmn5apcq6xfekearvkkffefzzbx16n591ad3ghaf1t0"
+         "id": "fil_01kqapdpdq5vakhv758z4vzk47g3sw9xd18tyy7twy0qjr2ws65ae0"
        },
        {
          "kind": "file",
-         "contents": "lef_01nd50kb91t99dm4vqj6z0t56v5c4q9sgzwjk21ttd1fw9zpr73hq0",
+         "contents": "lef_0151dv21sbp6sktcx062gc5qjxce453m79hcwq8s03e581519eraw0",
          "dependencies": {
-           "./foo": {
+           "./b": {
              "item": 0,
              "path": "",
-             "subpath": "foo"
+             "subpath": "b"
            }
          },
-         "id": "fil_014en47ghc8d8jkca9z94qy94qt8fyw0ckc9sqvq8r2538y7pgb7k0"
+         "id": "fil_01d89h6fxr3kfjeq9hha18dh7q287famf1vhq7y777a3pmzjaapar0"
        }
      ]
    }
