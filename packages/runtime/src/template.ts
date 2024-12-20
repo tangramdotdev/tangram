@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import { flatten } from "./util.ts";
+import { flatten, trimTemplateStrings } from "./util.ts";
 
 export async function template(
 	...args: tg.Args<Template.Arg>
@@ -9,8 +9,20 @@ export async function template(
 	...placeholders: tg.Args<Template.Arg>
 ): Promise<Template>;
 export async function template(...args: any): Promise<Template> {
+	return await template_inner(true, ...args);
+}
+export namespace template {
+	export async function raw(...args: any): Promise<Template> {
+		return await template_inner(false, ...args);
+	}
+}
+
+async function template_inner(
+	shouldTrim: boolean,
+	...args: any
+): Promise<Template> {
 	if (Array.isArray(args[0]) && "raw" in args[0]) {
-		let strings = args[0] as TemplateStringsArray;
+		let strings = shouldTrim ? trimTemplateStrings(args[0]) : args[0];
 		let placeholders = args.slice(1) as tg.Args<Template>;
 		let components = [];
 		for (let i = 0; i < strings.length - 1; i++) {

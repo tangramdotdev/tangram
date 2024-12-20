@@ -339,6 +339,135 @@ async fn import_directory() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn template() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"
+					import file from "./file.txt" with { type: "file" };
+					export default tg.target(() => tg`
+
+					
+  function foo() {
+    echo "Hello, World!"
+
+
+
+  }
+
+  
+`);
+				"#,
+				"file.txt" => "I'm a plain text file!",
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r#"tg.template(["function foo() {\n  echo \"Hello, World!\"\n\n\n\n}\n\n\n"])"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn template_simple_unaffected() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"
+					import file from "./file.txt" with { type: "file" };
+					export default tg.target(() => tg`cat ${file}`);
+				"#,
+				"file.txt" => "I'm a plain text file!",
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r#"tg.template(["cat ",fil_01km0khmet3xdmyrdrf49xa9qvbn656q9fwrckyf0xf9fv9467ec9g])"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn template_multiple_placeholders() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"
+					import file1 from "./file.txt" with { type: "file" };
+					import file2 from "./file.txt" with { type: "file" };
+					import file3 from "./file.txt" with { type: "file" };
+					export default tg.target(() => tg`
+					
+					
+					cat ${file1}
+					
+						cat ${file2}
+
+					cat ${file3}
+
+					`);
+				"#,
+				"file.txt" => "I'm a plain text file!",
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r#"tg.template(["cat ",fil_01km0khmet3xdmyrdrf49xa9qvbn656q9fwrckyf0xf9fv9467ec9g,"\n\n\tcat ",fil_01km0khmet3xdmyrdrf49xa9qvbn656q9fwrckyf0xf9fv9467ec9g,"\n\ncat ",fil_01km0khmet3xdmyrdrf49xa9qvbn656q9fwrckyf0xf9fv9467ec9g,"\n\n"])"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn template_raw_does_nothing() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"
+					import file1 from "./file.txt" with { type: "file" };
+					import file2 from "./file.txt" with { type: "file" };
+					import file3 from "./file.txt" with { type: "file" };
+					export default tg.target(() => tg.raw`
+					
+					
+					cat ${file1}
+					
+						cat ${file2}
+
+					cat ${file3}
+
+					`);
+				"#,
+				"file.txt" => "I'm a plain text file!",
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r#"tg.template(["\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\tcat ",fil_01km0khmet3xdmyrdrf49xa9qvbn656q9fwrckyf0xf9fv9467ec9g,"\n\t\t\t\t\t\n\t\t\t\t\t\tcat ",fil_01km0khmet3xdmyrdrf49xa9qvbn656q9fwrckyf0xf9fv9467ec9g,"\n\n\t\t\t\t\tcat ",fil_01km0khmet3xdmyrdrf49xa9qvbn656q9fwrckyf0xf9fv9467ec9g,"\n\n\t\t\t\t\t"])"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn directory_get_follows_intermediate_component_symlinks() -> tg::Result<()> {
 	test(
 		temp::directory! {
