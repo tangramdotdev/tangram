@@ -97,7 +97,7 @@ pub struct Config {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Advanced {	
+pub struct Advanced {
 	/// The duration after which a build that is dequeued but not started may be dequeued again.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
