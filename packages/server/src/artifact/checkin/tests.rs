@@ -890,11 +890,11 @@ async fn import_from_parent() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"directory" => temp::directory! {
-				"baz" => temp::directory! {
-					"mod.tg.ts" => r#"import * as baz from "..";"#
+				"a" => temp::directory! {
+					"mod.tg.ts" => r#"import * as a from ".";"#
 				},
-				"foo" => temp::directory!{},
-				"tangram.ts" => r#"import patches from "./foo" with { type: "directory" };"#,
+				"b" => temp::directory!{},
+				"tangram.ts" => r#"import patches from "./b" with { type: "directory" };"#,
 			}
 		},
 		"directory",
@@ -907,33 +907,41 @@ async fn import_from_parent() -> tg::Result<()> {
        {
          "kind": "directory",
          "entries": {
-           "baz": 1,
+           "a": 1,
            "tangram.ts": 3
          },
-         "id": "dir_01f9q70fj1f9fj75n94bcdwsrgjbtxetqv9dmjnhw3m1grrztzphr0"
+         "id": "dir_01epb0tremaxf0ax7yfpz0bwsm0kj8z3ahd36tyxj2jt6v3apxvhj0"
        },
        {
          "kind": "directory",
          "entries": {
            "mod.tg.ts": 2
          },
-         "id": "dir_01dzvxenaqf25mpnt681c2p51hensma2g1echwwbn621jrg62bwvb0"
+         "id": "dir_01fymeetrk80wsqxfeamm9axy0z60rvr50pfsbsn9rx5w4czgzc7mg"
        },
        {
          "kind": "file",
-         "contents": "lef_01z7p470yk3nybnm1f00y9m49p13rd52fqs1v9rwmmh9nd3s4stztg",
+         "contents": "lef_01f5c3vv1z4ejbnxc9nza26gecndwkt8n7jpbm5hw1gx9yega1y150",
          "dependencies": {
-           "..": {
+           ".": {
              "item": 0,
              "path": "",
-             "subpath": "tangram.ts"
+             "subpath": "a"
            }
          },
-         "id": "fil_010vre9ea0zrmdj1fmve4dj1bhw0xpq8af7wk1jq1ejt1gmxn0nwa0"
+         "id": "fil_01kqapdpdq5vakhv758z4vzk47g3sw9xd18tyy7twy0qjr2ws65ae0"
        },
        {
          "kind": "file",
-         "id": "fil_01rr7hzyjv7nws35wxdnh2txgscff7nqwtfqrwa5g4ghkaktc7hhs0"
+         "contents": "lef_0151dv21sbp6sktcx062gc5qjxce453m79hcwq8s03e581519eraw0",
+         "dependencies": {
+           "./b": {
+             "item": 0,
+             "path": "",
+             "subpath": "b"
+           }
+         },
+         "id": "fil_01d89h6fxr3kfjeq9hha18dh7q287famf1vhq7y777a3pmzjaapar0"
        }
      ]
    }
@@ -945,23 +953,26 @@ async fn import_from_parent() -> tg::Result<()> {
    			{
    				"kind": "directory",
    				"entries": {
-   					"baz": 1,
+   					"baz": 2,
    					"foo": tg.directory({}),
-   					"tangram.ts": tg.file({
-   						"contents": tg.leaf("import patches from \"./foo\" with { type: \"directory\" };"),
-   						"dependencies": {
-   							"./foo": {
-   								"item": tg.directory({}),
-   								"path": "foo",
-   							},
-   						},
-   					}),
+   					"tangram.ts": 1,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import patches from \"./foo\" with { type: \"directory\" };"),
+   				"dependencies": {
+   					"./foo": {
+   						"item": 0,
+   						"path": "",
+   						"subpath": "foo",
+   					},
    				},
    			},
    			{
    				"kind": "directory",
    				"entries": {
-   					"mod.tg.ts": 2,
+   					"mod.tg.ts": 3,
    				},
    			},
    			{
