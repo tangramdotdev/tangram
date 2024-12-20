@@ -159,32 +159,6 @@ async fn host_target_hello_world_remote() -> tg::Result<()> {
 	.await
 }
 
-// #[tokio::test]
-// async fn host_target_hello_world_remote_separate_builder() -> tg::Result<()> {
-// 	test_remote_separate_builder(
-// 		temp::directory! {
-// 			"foo" => temp::directory! {
-// 				"tangram.ts" => indoc!(r#"
-// 					export default tg.target(async () => {
-// 						let target = await tg.target("echo 'Hello, World!' > $OUTPUT");
-// 						let output = await target.output();
-// 						return output;
-// 					});
-// 				"#),
-// 			}
-// 		},
-// 		"foo",
-// 		"default",
-// 		vec![],
-// 		|_, _, _, outcome| async move {
-// 			let output = outcome.into_result()?;
-// 			assert_snapshot!(output, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
-// 			Ok::<_, tg::Error>(())
-// 		},
-// 	)
-// 	.await
-// }
-
 #[tokio::test]
 async fn two_modules() -> tg::Result<()> {
 	test(
@@ -1225,18 +1199,20 @@ where
 	artifact.to_path(artifact_temp.as_ref()).await.map_err(
 		|source| tg::error!(!source, %path = artifact_temp.path().display(), "failed to write the artifact"),
 	)?;
-	let db_temp = Temp::new_persistent();
-	tokio::fs::create_dir_all(&db_temp.path()).await.unwrap();
+	let database_temp = Temp::new_persistent();
+	tokio::fs::create_dir_all(&database_temp.path())
+		.await
+		.unwrap();
 	let remote_temp = Temp::new_persistent();
 	let mut remote_options = Config::with_path(remote_temp.path().to_owned());
 	remote_options.database = tangram_server::config::Database::Sqlite(
-		tangram_server::config::SqliteDatabase::with_path(&db_temp.path()),
+		tangram_server::config::SqliteDatabase::with_path(database_temp.path()),
 	);
 	let remote = Server::start(remote_options).await?;
 	let remote_builder_temp = Temp::new_persistent();
 	let mut remote_builder_options = Config::with_path(remote_builder_temp.path().to_owned());
 	remote_builder_options.database = tangram_server::config::Database::Sqlite(
-		tangram_server::config::SqliteDatabase::with_path(&db_temp.path()),
+		tangram_server::config::SqliteDatabase::with_path(database_temp.path()),
 	);
 	remote_builder_options.build = Some(tangram_server::config::Build::default());
 	remote_builder_options.build_heartbeat_monitor =
@@ -1335,7 +1311,7 @@ where
 	remote.wait().await;
 	if result.as_ref().is_ok_and(Result::is_ok) {
 		remote_temp.remove().await.ok();
-		db_temp.remove().await.ok();
+		database_temp.remove().await.ok();
 	}
 	artifact_temp.remove().await.ok();
 	result.unwrap()
