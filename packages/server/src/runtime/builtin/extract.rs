@@ -182,8 +182,12 @@ where
 				processed_entries.push((path, artifact));
 			},
 			_ => {
+				let mode = header
+					.mode()
+					.map_err(|source| tg::error!(!source, "failed to read the entry mode"))?;
+				let executable = mode & 0o111 != 0;
 				let blob = tg::Blob::with_reader(server, entry.compat()).await?;
-				let file = tg::File::with_contents(blob);
+				let file = tg::File::builder(blob).executable(executable).build();
 				let artifact = tg::Artifact::File(file);
 				processed_entries.push((path, artifact));
 			},
@@ -236,10 +240,13 @@ where
 			.dir()
 			.map_err(|source| tg::error!(!source, "failed to get type of entry"))?;
 
-		// Check if the entry is a symlink.
-		let is_symlink = match entry.unix_permissions() {
-			Some(permissions) => matches!(permissions & 0o120_000, 0o120_000),
-			None => false,
+		// Check if the entry is a symlink and/or executable.
+		let (is_symlink, is_executable) = match entry.unix_permissions() {
+			Some(permissions) => (
+				matches!(permissions & 0o120_000, 0o120_000),
+				permissions & 0o000_111 != 0,
+			),
+			None => (false, false),
 		};
 
 		// Create the artifacts.
@@ -269,7 +276,8 @@ where
 				.map_err(|source| tg::error!(!source, "unable to get the entry reader"))?;
 			let output = server.create_blob(entry.compat()).await?;
 			let blob = tg::Blob::with_id(output.blob);
-			let artifact = tg::Artifact::File(tg::File::with_contents(blob));
+			let artifact =
+				tg::Artifact::File(tg::File::builder(blob).executable(is_executable).build());
 			entries.push((path, artifact));
 		}
 	}
