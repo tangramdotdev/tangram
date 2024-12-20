@@ -22,7 +22,6 @@ pub struct Graph {
 #[derive(Clone, Debug)]
 pub struct Node {
 	pub arg: tg::artifact::checkin::Arg,
-	pub data: Option<tg::artifact::Data>,
 	pub edges: Vec<Edge>,
 	pub lockfile: Option<Arc<ParsedLockfile>>,
 	pub metadata: std::fs::Metadata,
@@ -42,7 +41,6 @@ pub struct Edge {
 
 struct State {
 	ignore_matcher: Matcher,
-	roots: Vec<usize>,
 	graph: Graph,
 	lockfiles: BTreeMap<PathBuf, Arc<ParsedLockfile>>,
 	visited: BTreeMap<PathBuf, usize>,
@@ -60,7 +58,6 @@ impl Server {
 		// Create the state.
 		let state = RwLock::new(State {
 			ignore_matcher,
-			roots: Vec::new(),
 			lockfiles: BTreeMap::new(),
 			visited: BTreeMap::new(),
 			graph: Graph {
@@ -73,9 +70,15 @@ impl Server {
 		Box::pin(self.create_input_graph_inner(None, arg.path.as_ref(), &arg, &state, progress))
 			.await?;
 
-		// Validate the input graph.
-		let State { graph, .. } = state.into_inner();
-		graph.validate().await?;
+		// Get the graph.
+		let State { mut graph, .. } = state.into_inner();
+
+		// Find roots and subpaths.
+		graph.find_roots();
+		graph.find_subpaths();
+
+		// Validate the graph.
+		graph.validate()?;
 
 		Ok(graph)
 	}
@@ -147,7 +150,6 @@ impl Server {
 			};
 			let node = Node {
 				arg: arg_,
-				data: None,
 				edges: Vec::new(),
 				lockfile,
 				metadata: metadata.clone(),
@@ -157,12 +159,8 @@ impl Server {
 			let node = state_.graph.nodes.len() - 1;
 			state_.visited.insert(absolute_path.clone(), node);
 
-			// Update the roots if necessary. This may result in dangling directories that also need to be collected.
-			let dangling = if parent.is_none() {
-				state_.add_root_and_return_dangling_directories(node).await
-			} else {
-				Vec::new()
-			};
+			// Get the list of dangling directories.
+			let dangling = state_.get_dangling_directories(node);
 
 			// Drop the state.
 			drop(state_);
@@ -354,19 +352,6 @@ impl Server {
 			.try_collect()
 			.await?;
 
-		// Update the parents of any children.
-		let mut state = state.write().await;
-		for edge in &vec {
-			let Some(node) = edge.node else {
-				continue;
-			};
-			state.graph.nodes[node].parent.replace(referrer);
-			if let Some(root_index) = state.roots.iter().position(|root| *root == node) {
-				state.roots.remove(root_index);
-			}
-		}
-		drop(state);
-
 		Ok(vec)
 	}
 
@@ -533,47 +518,14 @@ impl Server {
 			// Create the reference.
 			let reference = import.reference.clone();
 
-			// Check if the import points outside the package.
-			let root_node = get_root_node(&state.read().await.graph, referrer).await;
-			let root_path = state.read().await.graph.nodes[root_node].arg.path.clone();
-
+			// Get the absolute path of the referent.
 			let absolute_path = crate::util::fs::canonicalize_parent(path.parent().unwrap().join(import_path)).await.map_err(|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the path's parent"))?;
-			let is_external = absolute_path.strip_prefix(&root_path).is_err();
 
-			// If the import is of a module and points outside the root, return an error.
-			if (import_path.is_absolute() || is_external)
-				&& tg::package::is_module_path(import_path.as_ref())
-			{
-				return Err(
-					tg::error!(%root = root_path.display(), %path = import_path.display(), "cannot import module outside of the package"),
-				);
-			}
-
-			// Get the input of the referent.
-			let child = if is_external {
-				// If this is an external import, treat it as a root using the absolute path.
-				self.create_input_graph_inner(Some(referrer), &absolute_path, arg, state, progress)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to collect child input"))?
-			} else {
-				// Otherwise, treat it as a relative path.
-
-				// Get the parent of the referrer.
-				let parent = state.read().await.graph.nodes[referrer]
-					.parent
-					.ok_or_else(|| tg::error!("expected a parent"))?;
-
-				// Recurse.
-				self.create_input_graph_inner(
-					Some(parent),
-					import_path.as_ref(),
-					arg,
-					state,
-					progress,
-				)
+			// Get the referent.
+			let child = self
+				.create_input_graph_inner(Some(referrer), &absolute_path, arg, state, progress)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to collect child input"))?
-			};
+				.map_err(|source| tg::error!(!source, "failed to collect child input"))?;
 
 			// If the child is a package and the import kind is not directory, get the subpath.
 			let (child_path, is_directory) = {
@@ -583,24 +535,16 @@ impl Server {
 					state.graph.nodes[child].metadata.is_dir(),
 				)
 			};
-			let (node, subpath) = if is_directory {
-				if matches!(&import.kind, Some(tg::module::Kind::Directory)) {
-					(child, None)
-				} else {
-					let subpath = tg::package::try_get_root_module_file_name(self,Either::Right(&child_path)).await.map_err(|source| tg::error!(!source, %path = child_path.display(), "failed to get root module file name"))?
-						.map(PathBuf::from);
-					(child, subpath)
-				}
+
+			// Get the subpath if this is a package import.
+			let (node, subpath) = if matches!(&import.kind, Some(tg::module::Kind::Directory))
+				|| !is_directory
+			{
+				(child, None)
 			} else {
-				let (node, subpath) =
-					root_node_with_subpath(&state.read().await.graph, child).await;
-
-				// Sanity check.
-				if tg::package::is_module_path(&child_path) && subpath.is_none() {
-					return Err(tg::error!(%path = child_path.display(), "expected a subpath"));
-				}
-
-				(node, subpath)
+				let subpath = tg::package::try_get_root_module_file_name(self,Either::Right(&child_path)).await.map_err(|source| tg::error!(!source, %path = child_path.display(), "failed to get root module file name"))?
+						.map(PathBuf::from);
+				(child, subpath)
 			};
 
 			// Create the edge.
@@ -757,7 +701,96 @@ impl Server {
 }
 
 impl Graph {
-	pub(super) async fn validate(&self) -> tg::Result<()> {
+	// Find the roots of every node.
+	fn find_roots(&mut self) {
+		'outer: for node in 0..self.nodes.len() {
+			// Find an ancestor.
+			let ancestor = (0..self.nodes.len()).find(|ancestor| {
+				// Cannot be an ancestor of self.
+				if *ancestor == node {
+					return false;
+				}
+				// Skip non-directories.
+				if !self.nodes[*ancestor].metadata.is_dir() {
+					return false;
+				}
+				self.nodes[node]
+					.arg
+					.path
+					.strip_prefix(&self.nodes[*ancestor].arg.path)
+					.is_ok()
+			});
+
+			// If there are no ancestors of this node, strip its parent.
+			let Some(ancestor) = ancestor else {
+				self.nodes[node].parent.take();
+				continue 'outer;
+			};
+
+			// Otherwise, walk the ancestor's children to find the parent of the node.
+			let mut stack = vec![ancestor];
+			while let Some(parent) = stack.pop() {
+				for child in self.nodes[parent].edges.iter().filter_map(|edge| edge.node) {
+					if child == node {
+						self.nodes[node].parent.replace(parent);
+						continue 'outer;
+					}
+					if self.nodes[child].metadata.is_dir() {
+						stack.push(child);
+					}
+				}
+			}
+		}
+	}
+
+	// Convert dependencies into root + subpath.
+	fn find_subpaths(&mut self) {
+		for node in 0..self.nodes.len() {
+			// Only consider module imports.
+			if !(self.nodes[node].metadata.is_file()
+				&& tg::package::is_module_path(&self.nodes[node].arg.path))
+			{
+				continue;
+			}
+
+			// Remap edges.
+			for edge_index in 0..self.nodes[node].edges.len() {
+				// Skip edges that don't point to inputs.
+				let Some(referent) = self.nodes[node].edges[edge_index].node else {
+					continue;
+				};
+
+				// Skip edgs that have their subpath already set.
+				if self.nodes[node].edges[edge_index].subpath.is_some() {
+					continue;
+				}
+
+				// Get the root and subpath of the referent.
+				let (package, subpath) = root_node_with_subpath(self, referent);
+
+				// Get the path of the root.
+				let path = crate::util::path::diff(&self.root, &self.nodes[package].arg.path).ok();
+
+				// Create a new edge.
+				let edge = Edge {
+					kind: self.nodes[node].edges[edge_index].kind,
+					node: Some(package),
+					reference: self.nodes[node].edges[edge_index].reference.clone(),
+					subpath,
+					object: None,
+					path,
+					tag: None,
+				};
+
+				// Update the edge.
+				self.nodes[node].edges[edge_index] = edge;
+			}
+		}
+	}
+
+	// Validate the input graph:
+	fn validate(&self) -> tg::Result<()> {
+		// Get the paths of all the nodes via DFS walk of the graph.
 		let mut paths = BTreeMap::new();
 		let mut stack = vec![0];
 		while let Some(node) = stack.pop() {
@@ -772,6 +805,8 @@ impl Graph {
 				}
 			}
 		}
+
+		// Validate that all parents are reachable.
 		for (path, node) in &paths {
 			let Some(parent) = self.nodes[*node].parent else {
 				continue;
@@ -781,13 +816,42 @@ impl Graph {
 				|| tg::error!(%path = path.display(), %parent = parent.display(), "missing parent node"),
 			)?;
 		}
+
+		// Validate that no modules imported by other modules are outside of the same root.
+		for (index, node) in self.nodes.iter().enumerate() {
+			if !node.metadata.is_file() {
+				continue;
+			}
+
+			// Get the root of this node.
+			let root = get_root_node(self, index);
+			for edge in &node.edges {
+				let Some(child) = edge.node else {
+					continue;
+				};
+				if !self.nodes[child].metadata.is_file()
+					|| !tg::package::is_module_path(&self.nodes[child].arg.path)
+				{
+					continue;
+				};
+				let root_of_child = get_root_node(self, child);
+				if root_of_child != root {
+					return Err(tg::error!(
+						%path = node.arg.path.display(),
+						%reference = edge.reference,
+						"cannot import external modules"
+					));
+				}
+			}
+		}
+
 		Ok(())
 	}
 }
 
-async fn root_node_with_subpath(graph: &Graph, node: usize) -> (usize, Option<PathBuf>) {
+fn root_node_with_subpath(graph: &Graph, node: usize) -> (usize, Option<PathBuf>) {
 	// Find the root node.
-	let root = get_root_node(graph, node).await;
+	let root = get_root_node(graph, node);
 
 	// If this is a root node, return it.
 	if root == node {
@@ -804,37 +868,34 @@ async fn root_node_with_subpath(graph: &Graph, node: usize) -> (usize, Option<Pa
 }
 
 impl State {
-	// Add a new node as a root to the state, and then return the paths of any nodes
-	async fn add_root_and_return_dangling_directories(&mut self, node: usize) -> Vec<PathBuf> {
-		let new_path = self.graph.nodes[node].arg.path.clone();
+	fn get_dangling_directories(&mut self, node: usize) -> Vec<PathBuf> {
+		// Get the root.
+		let root = get_root_node(&self.graph, node);
 
-		// Update any nodes of the graph that are children.
-		let mut roots = Vec::with_capacity(self.roots.len() + 1);
+		// Get the paths of this node and the root.
+		let node_path = &self.graph.nodes[node].arg.path;
+		let root_path = &self.graph.nodes[root].arg.path;
+
+		// Check if this is a child of the root.
+		let Ok(diff) = root_path.strip_prefix(node_path) else {
+			return Vec::new();
+		};
+
+		// Collect any paths along the way that haven't been visited.
 		let mut dangling = Vec::new();
-		for root in &self.roots {
-			let old_path = self.graph.nodes[*root].arg.path.clone();
-			if let Ok(child) = new_path.strip_prefix(&old_path) {
-				let dangling_directory = new_path.join(child.ancestors().last().unwrap());
-				dangling.push(dangling_directory);
-			} else {
-				roots.push(*root);
+		let mut path = root_path.to_owned();
+		for component in diff.components() {
+			path = path.join(component);
+			if !self.visited.contains_key(&path) {
+				dangling.push(path.clone());
 			}
 		}
 
-		// Add the new node to the new list of roots.
-		if roots.is_empty() {
-			roots.push(node);
-		}
-
-		// Update the list of roots.
-		self.roots = roots;
-
-		// Return any dangling directories.
 		dangling
 	}
 }
 
-async fn get_root_node(graph: &Graph, mut node: usize) -> usize {
+fn get_root_node(graph: &Graph, mut node: usize) -> usize {
 	loop {
 		let Some(parent) = graph.nodes[node].parent else {
 			return node;

@@ -910,14 +910,14 @@ async fn import_from_parent() -> tg::Result<()> {
            "baz": 1,
            "tangram.ts": 3
          },
-         "id": "dir_01f9q70fj1f9fj75n94bcdwsrgjbtxetqv9dmjnhw3m1grrztzphr0"
+         "id": "dir_01pf6yv0rmmz3z62wgkvmac70k7p0p8eetbss0y4rk1j0y4hn6fbtg"
        },
        {
          "kind": "directory",
          "entries": {
            "mod.tg.ts": 2
          },
-         "id": "dir_01dzvxenaqf25mpnt681c2p51hensma2g1echwwbn621jrg62bwvb0"
+         "id": "dir_01dzpv1qt3z26g3c31bybbkb5phhmy8v372exnx7dpg10qqj0bps40"
        },
        {
          "kind": "file",
@@ -929,11 +929,19 @@ async fn import_from_parent() -> tg::Result<()> {
              "subpath": "tangram.ts"
            }
          },
-         "id": "fil_010vre9ea0zrmdj1fmve4dj1bhw0xpq8af7wk1jq1ejt1gmxn0nwa0"
+         "id": "fil_010k9574v6efmn5apcq6xfekearvkkffefzzbx16n591ad3ghaf1t0"
        },
        {
          "kind": "file",
-         "id": "fil_01rr7hzyjv7nws35wxdnh2txgscff7nqwtfqrwa5g4ghkaktc7hhs0"
+         "contents": "lef_01nd50kb91t99dm4vqj6z0t56v5c4q9sgzwjk21ttd1fw9zpr73hq0",
+         "dependencies": {
+           "./foo": {
+             "item": 0,
+             "path": "",
+             "subpath": "foo"
+           }
+         },
+         "id": "fil_014en47ghc8d8jkca9z94qy94qt8fyw0ckc9sqvq8r2538y7pgb7k0"
        }
      ]
    }
@@ -945,23 +953,26 @@ async fn import_from_parent() -> tg::Result<()> {
    			{
    				"kind": "directory",
    				"entries": {
-   					"baz": 1,
+   					"baz": 2,
    					"foo": tg.directory({}),
-   					"tangram.ts": tg.file({
-   						"contents": tg.leaf("import patches from \"./foo\" with { type: \"directory\" };"),
-   						"dependencies": {
-   							"./foo": {
-   								"item": tg.directory({}),
-   								"path": "foo",
-   							},
-   						},
-   					}),
+   					"tangram.ts": 1,
+   				},
+   			},
+   			{
+   				"kind": "file",
+   				"contents": tg.leaf("import patches from \"./foo\" with { type: \"directory\" };"),
+   				"dependencies": {
+   					"./foo": {
+   						"item": 0,
+   						"path": "",
+   						"subpath": "foo",
+   					},
    				},
    			},
    			{
    				"kind": "directory",
    				"entries": {
-   					"mod.tg.ts": 2,
+   					"mod.tg.ts": 3,
    				},
    			},
    			{
