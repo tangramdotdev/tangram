@@ -982,7 +982,7 @@ impl tg::Handle for Server {
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
-		self.create_blob(reader)
+		self.create_blob_with_reader(reader)
 	}
 
 	fn try_read_blob_stream(

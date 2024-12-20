@@ -1,15 +1,16 @@
-use crate::{database::Transaction, Server};
+use crate::{database::Transaction, temp::Temp, Server};
 use bytes::Bytes;
+use dashmap::DashMap;
+use fastcdc::v2020::ChunkData;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
-use std::{pin::pin, sync::Arc};
+use std::{path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
-use tokio::io::{AsyncRead, AsyncWriteExt as _};
+use tokio::io::AsyncRead;
 
 const MAX_BRANCH_CHILDREN: usize = 1_024;
 const MIN_LEAF_SIZE: u32 = 4_096;
@@ -25,8 +26,86 @@ pub struct InnerOutput {
 	pub weight: u64,
 }
 
+// Helper struct to keep track of the state used while writing blobs to the database table(s).
+struct Writer<'a> {
+	offsets: DashMap<tg::blob::Id, (u64, u64), fnv::FnvBuildHasher>,
+	transaction: Transaction<'a>,
+	write_offsets_to_blobs_table: bool,
+}
+
 impl Server {
-	pub(crate) async fn create_blob(
+	pub(crate) async fn create_blob_with_path(
+		&self,
+		path: &Path,
+	) -> tg::Result<tg::blob::create::Output> {
+		// If configured to store blobs in the database, don't attempt to write to the cache directory.
+		if !self.config.advanced.write_blobs_to_cache_directory {
+			let reader = tokio::fs::File::open(path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to open blob for reading"),
+			)?;
+			return self.create_blob_with_reader(reader).await;
+		}
+
+		// Copy the blob to a temp.
+		let temp = Temp::new(self);
+		tokio::fs::copy(path, temp.path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to copy the blob"))?;
+
+		// Create the reader.
+		let reader = tokio::fs::File::open(temp.path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to open temp"))?;
+
+		// Get a database connection.
+		let mut connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		// Create a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database transaction"))?;
+
+		// Create the writer.
+		let writer = Writer {
+			offsets: DashMap::default(),
+			transaction,
+			write_offsets_to_blobs_table: true,
+		};
+
+		// Create the blob.
+		let InnerOutput {
+			blob,
+			count,
+			depth,
+			weight,
+			..
+		} = self.create_blob_inner(reader, writer).await?;
+
+		// Move the temp to the output.
+		tokio::fs::rename(temp.path(), self.cache_path().join(blob.to_string()))
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to move the blob to the cache directory")
+			})?;
+
+		// Create the metadata.
+		let metadata = tg::object::Metadata {
+			complete: true,
+			count: Some(count),
+			weight: Some(weight),
+			depth: Some(depth),
+		};
+
+		// Create the output.
+		Ok(tg::blob::create::Output { blob, metadata })
+	}
+
+	pub(crate) async fn create_blob_with_reader(
 		&self,
 		reader: impl AsyncRead,
 	) -> tg::Result<tg::blob::create::Output> {
@@ -43,6 +122,13 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database transaction"))?;
 
+		// Create the writer.
+		let writer = Writer {
+			offsets: DashMap::default(),
+			transaction,
+			write_offsets_to_blobs_table: false,
+		};
+
 		// Create the blob.
 		let InnerOutput {
 			blob,
@@ -50,15 +136,7 @@ impl Server {
 			depth,
 			weight,
 			..
-		} = self
-			.create_blob_inner(reader, Some(Either::Right(&transaction)))
-			.await?;
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		} = self.create_blob_inner(reader, writer).await?;
 
 		// Create the metadata.
 		let metadata = tg::object::Metadata {
@@ -72,16 +150,13 @@ impl Server {
 		Ok(tg::blob::create::Output { blob, metadata })
 	}
 
-	pub(crate) async fn create_blob_inner(
+	async fn create_blob_inner(
 		&self,
-		src: impl AsyncRead,
-		dst: Option<Either<tokio::fs::File, &Transaction<'_>>>,
+		reader: impl AsyncRead,
+		writer: Writer<'_>,
 	) -> tg::Result<InnerOutput> {
-		// Wrap the destination.
-		let dst = dst.map(|dst| dst.map_left(|file| Arc::new(tokio::sync::Mutex::new(file))));
-
 		// Create the reader.
-		let reader = pin!(src);
+		let reader = pin!(reader);
 		let mut reader = fastcdc::v2020::AsyncStreamCDC::new(
 			reader,
 			MIN_LEAF_SIZE,
@@ -93,56 +168,7 @@ impl Server {
 		let mut output = reader
 			.as_stream()
 			.map_err(|source| tg::error!(!source, "failed to read from the reader"))
-			.and_then(|chunk| async {
-				// Create the leaf data.
-				let bytes = Bytes::from(chunk.data);
-				let size = bytes.len().to_u64().unwrap();
-				let data = tg::leaf::Data { bytes };
-				let id = tg::leaf::Id::new(&data.bytes);
-
-				// Write to the destination.
-				match &dst {
-					Some(Either::Left(file)) => {
-						let mut file = file.lock().await;
-						file.write_all(&data.bytes).await.map_err(|source| {
-							tg::error!(!source, "failed to write to blob file")
-						})?;
-					},
-					Some(Either::Right(transaction)) => {
-						let p = transaction.p();
-						let statement = formatdoc!(
-							"
-								insert into objects (id, bytes, complete, count, depth, weight, touched_at)
-								values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
-								on conflict (id) do update set touched_at = {p}7;
-							"
-						);
-						let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-						let params = db::params![&id, &data.bytes, 1, 1, 1, size, now];
-						transaction
-							.execute(statement, params)
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to execute the statement")
-							})?;
-					},
-					None => (),
-				}
-
-				// Create the child data.
-				let blob = id.into();
-
-				// Update the count and weight.
-				let output = InnerOutput {
-					blob,
-					count: 1,
-					depth: 1,
-					size,
-					weight: size,
-				};
-
-				Ok::<_, tg::Error>(output)
-			})
+			.and_then(|chunk| writer.write_leaf(chunk))
 			.try_collect::<Vec<_>>()
 			.await?;
 
@@ -152,66 +178,7 @@ impl Server {
 				.chunks(MAX_BRANCH_CHILDREN)
 				.flat_map(|chunk| {
 					if chunk.len() == MAX_BRANCH_CHILDREN {
-						stream::once(async {
-							// Create the branch data.
-							let (size, count, depth, weight) = chunk.iter().fold(
-								(0, 0, 0, 0),
-								|(size, count, depth, weight), output| {
-									(
-										size + output.size,
-										count + output.count,
-										depth.max(output.depth),
-										weight + output.weight,
-									)
-								},
-							);
-							let children = chunk
-								.into_iter()
-								.map(|output| tg::branch::data::Child {
-									blob: output.blob,
-									size: output.size,
-								})
-								.collect();
-							let data = tg::branch::Data { children };
-							let bytes = data.serialize()?;
-							let id = tg::branch::Id::new(&bytes);
-							let count = count + 1;
-							let depth = depth + 1;
-							let weight = weight + bytes.len().to_u64().unwrap();
-
-							// Write to the destination if necessary.
-							if let Some(Either::Right(transaction)) = &dst {
-								let p = transaction.p();
-								let statement = formatdoc!(
-									"
-										insert into objects (id, bytes, complete, count, depth, weight, touched_at)
-										values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
-										on conflict (id) do update set touched_at = {p}7;
-									"
-								);
-								let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-								let params = db::params![&id, &bytes, 1, count, depth, weight, now];
-								transaction
-									.execute(statement, params)
-									.await
-									.map_err(|source| {
-										tg::error!(!source, "failed to execute the statement")
-									})?;
-							}
-
-							// Create the child data.
-							let blob = id.into();
-							let output = InnerOutput {
-								blob,
-								count,
-								depth,
-								size,
-								weight,
-							};
-
-							Ok::<_, tg::Error>(output)
-						})
-						.left_stream()
+						stream::once(writer.write_branch(chunk)).left_stream()
 					} else {
 						stream::iter(chunk.into_iter().map(Ok)).right_stream()
 					}
@@ -220,8 +187,114 @@ impl Server {
 				.await?;
 		}
 
-		// Create the output.
-		let output = match output.len() {
+		// Get the output.
+		writer.finish(output).await
+	}
+}
+
+impl<'a> Writer<'a> {
+	async fn write_leaf(&self, chunk: ChunkData) -> tg::Result<InnerOutput> {
+		let ChunkData {
+			offset,
+			length,
+			data,
+			..
+		} = chunk;
+		let data = data.into();
+		let length = length.to_u64().unwrap();
+
+		// Compute the leaf ID.
+		let id = tg::leaf::Id::new(&data);
+
+		// Update the objects table.
+		let p = self.transaction.p();
+		let data = (!self.write_offsets_to_blobs_table).then_some(&data);
+		let statement = formatdoc!(
+			"
+				insert into objects (id, bytes, complete, count, depth, weight, touched_at)
+				values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
+				on conflict (id) do update set touched_at = {p}7;
+			"
+		);
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let params = db::params![&id, &data, 1, 1, 1, length, now];
+		self.transaction
+			.execute(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Update the offsets table.
+		self.offsets.insert(id.clone().into(), (offset, length));
+
+		// Return the output.
+		let output = InnerOutput {
+			blob: id.into(),
+			count: 1,
+			depth: 1,
+			weight: length,
+			size: length,
+		};
+		Ok(output)
+	}
+
+	async fn write_branch(&self, chunk: Vec<InnerOutput>) -> tg::Result<InnerOutput> {
+		// Create the branch data.
+		let (size, count, depth, weight) =
+			chunk
+				.iter()
+				.fold((0, 0, 0, 0), |(size, count, depth, weight), output| {
+					(
+						size + output.size,
+						count + output.count,
+						depth.max(output.depth),
+						weight + output.weight,
+					)
+				});
+		let children = chunk
+			.into_iter()
+			.map(|output| tg::branch::data::Child {
+				blob: output.blob.clone(),
+				size: output.size,
+			})
+			.collect();
+		let data = tg::branch::Data { children };
+		let bytes = data.serialize()?;
+		let id = tg::branch::Id::new(&bytes);
+		let count = count + 1;
+		let depth = depth + 1;
+		let weight = weight + bytes.len().to_u64().unwrap();
+
+		let p = self.transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into objects (id, bytes, complete, count, depth, weight, touched_at)
+				values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
+				on conflict (id) do update set touched_at = {p}7;
+			"
+		);
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let params = db::params![&id, &bytes, 1, count, depth, weight, now];
+		self.transaction
+			.execute(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Create the child data.
+		let blob = id.into();
+		let output = InnerOutput {
+			blob,
+			count,
+			depth,
+			size,
+			weight,
+		};
+		Ok(output)
+	}
+
+	async fn finish(self, chunk: Vec<InnerOutput>) -> tg::Result<InnerOutput> {
+		// Get the output.
+		let output = match chunk.len() {
+			// Special case: the empty chunk.
 			0 => {
 				// Create the blob data.
 				let bytes = Bytes::default();
@@ -230,23 +303,20 @@ impl Server {
 				let depth = 1;
 				let weight = 0;
 
-				// Write to the destination if necessary.
-				if let Some(Either::Right(transaction)) = &dst {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							insert into objects (id, bytes, complete, count, depth, weight, touched_at)
-							values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
-							on conflict (id) do update set touched_at = {p}7;
-						"
-					);
-					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-					let params = db::params![&blob, &bytes, 1, count, depth, weight, now];
-					transaction
-						.execute(statement, params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				}
+				let p = self.transaction.p();
+				let statement = formatdoc!(
+					"
+						insert into objects (id, bytes, complete, count, depth, weight, touched_at)
+						values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
+						on conflict (id) do update set touched_at = {p}7;
+					"
+				);
+				let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+				let params = db::params![&blob, &bytes, 1, count, depth, weight, now];
+				self.transaction
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 				InnerOutput {
 					blob,
@@ -256,65 +326,35 @@ impl Server {
 					weight: 0,
 				}
 			},
-
-			1 => output[0].clone(),
-
-			_ => {
-				// Get the size, count, depth, weight, and children.
-				let (size, count, depth, weight) =
-					output
-						.iter()
-						.fold((0, 0, 0, 0), |(size, count, depth, weight), output| {
-							(
-								size + output.size,
-								count + output.count,
-								std::cmp::max(depth, output.depth),
-								weight + output.weight,
-							)
-						});
-				let children = output
-					.into_iter()
-					.map(|output| tg::branch::data::Child {
-						blob: output.blob,
-						size: output.size,
-					})
-					.collect();
-
-				// Create the blob data.
-				let data = tg::branch::Data { children };
-				let bytes = data.serialize()?;
-				let blob = tg::branch::Id::new(&bytes).into();
-				let count = count + 1;
-				let depth = depth + 1;
-				let weight = weight + bytes.len().to_u64().unwrap();
-
-				// Write to the destination if necessary.
-				if let Some(Either::Right(transaction)) = &dst {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							insert into objects (id, bytes, complete, count, depth, weight, touched_at)
-							values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
-							on conflict (id) do update set touched_at = {p}7;
-						"
-					);
-					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-					let params = db::params![&blob, &bytes, 1, count, depth, weight, now];
-					transaction
-						.execute(statement, params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				}
-
-				InnerOutput {
-					blob,
-					count,
-					depth,
-					size,
-					weight,
-				}
-			},
+			1 => chunk[0].clone(),
+			_ => self.write_branch(chunk).await?,
 		};
+
+		// Write to the blobs table if necessary.
+		if self.write_offsets_to_blobs_table {
+			for entry in self.offsets.iter() {
+				let blob = entry.key();
+				let (position, length) = entry.value();
+				let p = self.transaction.p();
+				let statement = formatdoc!(
+					"
+						insert into blobs (id, root, offset, length)
+						values ({p}1, {p}2, {p}3, {p}4)
+					"
+				);
+				let params = db::params![blob, &output.blob, position, length];
+				self.transaction
+					.execute(statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+		}
+
+		// Commit the transaction.
+		self.transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		Ok(output)
 	}

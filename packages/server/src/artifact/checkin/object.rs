@@ -544,13 +544,10 @@ impl Server {
 
 		// Read the file contents.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let file = tokio::fs::File::open(&path)
-			.await
-			.map_err(|source| tg::error!(!source, %path = path.display(), "failed to read file"))?;
 		let tg::blob::create::Output {
 			blob,
 			metadata: blob_metadata,
-		} = self.create_blob(file).await.map_err(
+		} = self.create_blob_with_path(path).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to create blob"),
 		)?;
 		drop(permit);

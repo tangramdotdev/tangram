@@ -31,6 +31,7 @@ pub struct Advanced {
 	pub preserve_temp_directories: bool,
 	pub write_build_logs_to_database: bool,
 	pub write_build_logs_to_stderr: bool,
+	pub write_blobs_to_cache_directory: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -170,6 +171,7 @@ impl Default for Advanced {
 			preserve_temp_directories: false,
 			write_build_logs_to_database: false,
 			write_build_logs_to_stderr: false,
+			write_blobs_to_cache_directory: false,
 		}
 	}
 }
