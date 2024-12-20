@@ -8,6 +8,47 @@ use tangram_temp::{self as temp, Temp};
 
 mod common;
 
+/// Test building a Tangram module without a containing root package.
+#[tokio::test]
+async fn build_file() -> std::io::Result<()> {
+	// Create a server.
+	let config = json!({
+		"vfs": null
+	});
+	let mut server = Server::start(config.clone()).await?;
+
+	let result = AssertUnwindSafe(async {
+		// Create a module in a single file.
+		let foo_temp = Temp::new();
+		let foo = temp::directory! {
+			"foo.tg.ts" => indoc!(r#"
+				export default tg.target(() => "foo");
+			"#),
+		};
+		let foo: temp::Artifact = foo.into();
+		foo.to_path(foo_temp.as_ref()).await?;
+
+		// Build the module file.
+		let output = server
+			.tg()
+			.args([
+				"build",
+				foo_temp.path().join("foo.tg.ts").to_str().unwrap(),
+				"--quiet",
+			])
+			.output()
+			.await?;
+		assert!(output.status.success());
+
+		Ok::<_, std::io::Error>(())
+	})
+	.catch_unwind()
+	.await;
+
+	server.cleanup().await.ok();
+	result.unwrap()
+}
+
 #[tokio::test]
 async fn import_from_remote_tag() -> std::io::Result<()> {
 	// Create a remote.
