@@ -826,6 +826,12 @@ declare namespace tg {
 		export type Arg = undefined | Component | tg.Template;
 
 		export type Component = string | tg.Artifact;
+
+		/** A tagged template function that behaves identically to `tg.template` except that it does not trim leading whitespace. **/
+		export let raw: (
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<tg.Template.Arg>
+		) => Promise<tg.Template>;
 	}
 
 	type Args<T extends tg.Value = tg.Value> = Array<

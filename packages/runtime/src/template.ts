@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import { flatten, trimTemplateStrings } from "./util.ts";
+import { flatten } from "./util.ts";
 
 export async function template(
 	...args: tg.Args<Template.Arg>
@@ -9,20 +9,12 @@ export async function template(
 	...placeholders: tg.Args<Template.Arg>
 ): Promise<Template>;
 export async function template(...args: any): Promise<Template> {
-	return await template_inner(true, ...args);
-}
-export namespace template {
-	export async function raw(...args: any): Promise<Template> {
-		return await template_inner(false, ...args);
-	}
+	return await templateInner(false, ...args);
 }
 
-async function template_inner(
-	shouldTrim: boolean,
-	...args: any
-): Promise<Template> {
+async function templateInner(raw: boolean, ...args: any): Promise<Template> {
 	if (Array.isArray(args[0]) && "raw" in args[0]) {
-		let strings = shouldTrim ? trimTemplateStrings(args[0]) : args[0];
+		let strings = !raw ? unindent(args[0]) : args[0];
 		let placeholders = args.slice(1) as tg.Args<Template>;
 		let components = [];
 		for (let i = 0; i < strings.length - 1; i++) {
@@ -120,4 +112,77 @@ export namespace Template {
 	export type Arg = undefined | Component | Template;
 
 	export type Component = string | tg.Artifact;
+
+	export let raw = async (...args: any): Promise<Template> => {
+		return await templateInner(true, ...args);
+	};
 }
+
+let unindent = (strings: Array<string>): Array<string> => {
+	// Concatenate the strings and collect the placeholder indices.
+	let placeholderIndices: Array<number> = [];
+	let string = strings[0]!;
+	for (let i = 1; i < strings.length; i++) {
+		placeholderIndices.push(string.length);
+		string += strings[i];
+	}
+
+	// If the string starts with a newline, then remove it and update the placeholder indices.
+	if (string.startsWith("\n")) {
+		string = string.slice(1);
+		for (let i = 0; i < placeholderIndices.length; i++) {
+			placeholderIndices[i]! -= 1;
+		}
+	}
+
+	// Split the string into lines.
+	let lines = string.split("\n");
+
+	// Compute the indentation.
+	let indentation = Math.min(
+		...lines
+			.filter((line) => line.trim().length > 0)
+			.map(countLeadingWhitespace),
+	);
+	if (indentation === Number.POSITIVE_INFINITY) {
+		indentation = 0;
+	}
+
+	// Unindent each line and update the placeholder indices.
+	let position = 0;
+	for (let i = 0; i < lines.length; i++) {
+		let lineIndentation = Math.min(
+			indentation,
+			countLeadingWhitespace(lines[i]!) ?? 0,
+		);
+		lines[i] = lines[i]!.slice(lineIndentation);
+		for (let j = 0; j < placeholderIndices.length; j++) {
+			if (placeholderIndices[j]! > position) {
+				placeholderIndices[j]! -= lineIndentation;
+			}
+		}
+		position += lines[i]!.length + 1;
+	}
+	string = lines.join("\n");
+
+	// Split the string at the placeholder indices.
+	let output: Array<string> = [];
+	let index = 0;
+	for (let i = 0; i < placeholderIndices.length; i++) {
+		let nextIndex = placeholderIndices[i]!;
+		output.push(string.slice(index, nextIndex));
+		index = nextIndex;
+	}
+	output.push(string.slice(index));
+
+	return output;
+};
+
+let countLeadingWhitespace = (line: string): number => {
+	for (let i = 0; i < line.length; i++) {
+		if (!(line[i] === " " || line[i] === "\t")) {
+			return i;
+		}
+	}
+	return line.length;
+};
