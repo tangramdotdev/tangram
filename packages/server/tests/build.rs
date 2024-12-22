@@ -290,7 +290,7 @@ async fn import_file() -> tg::Result<()> {
 		temp::directory! {
 			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
-					import file from "./hello.txt" with { type: "file" };
+					import file from "./hello.txt";
 					export default tg.target(() => file.text());
 				"#),
 				"hello.txt" => "Hello, World!",
@@ -344,9 +344,7 @@ async fn template_raw() -> tg::Result<()> {
 		temp::directory! {
 			"foo" => temp::directory! {
 				"tangram.ts" => r"
-					export default tg.target(() => tg.Template.raw`
-						Hello, World!
-					`);
+					export default tg.target(() => tg.Template.raw`\n\tHello, World!\n`);
 				",
 			},
 		},
@@ -355,7 +353,7 @@ async fn template_raw() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r#"tg.template(["\n\t\t\t\t\t\tHello, World!\n\t\t\t\t\t"])"#);
+			assert_snapshot!(output, @r#"tg.template(["\n\tHello, World!\n"])"#);
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -368,7 +366,7 @@ async fn template_single_line() -> tg::Result<()> {
 		temp::directory! {
 			"foo" => temp::directory! {
 				"tangram.ts" => r#"
-					import file from "./hello.txt" with { type: "file" };
+					import file from "./hello.txt";
 					export default tg.target(() => tg`cat ${file}`);
 				"#,
 				"hello.txt" => "Hello, World!",
@@ -393,13 +391,13 @@ async fn template_empty_lines() -> tg::Result<()> {
 			"foo" => temp::directory! {
 				"tangram.ts" => r#"
 					export default tg.target(() => tg`
-	function foo() {
-		echo "Hello, World!"
+						function foo() {
+							echo "Hello, World!"
 
-	}
+						}
 
 
-`);
+					`);
 				"#,
 			},
 		},
@@ -416,14 +414,40 @@ async fn template_empty_lines() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn template_only_placeholders_on_a_line() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"
+					import file from "./hello.txt";
+					export default tg.target(() => tg`
+						${file}${file}
+					`);
+				"#,
+				"hello.txt" => "Hello, World!",
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r#"tg.template([fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"\n"])"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn template_multiple_placeholders() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"foo" => temp::directory! {
 				"tangram.ts" => r#"
-					import file1 from "./hello.txt" with { type: "file" };
-					import file2 from "./hello.txt" with { type: "file" };
-					import file3 from "./hello.txt" with { type: "file" };
+					import file1 from "./hello.txt";
+					import file2 from "./hello.txt";
+					import file3 from "./hello.txt";
 					export default tg.target(() => tg`
 						cat\t${file1}\t${file1}
 					`);

@@ -141,7 +141,18 @@ let unindent = (strings: Array<string>): Array<string> => {
 	// Compute the indentation.
 	let indentation = Math.min(
 		...lines
-			.filter((line) => line.trim().length > 0)
+			.filter((line, index) => {
+				if (line.trim().length > 0) {
+					return true;
+				}
+				let lineStart = lines
+					.slice(0, index)
+					.reduce((sum, l) => sum + l.length + 1, 0);
+				let lineEnd = lineStart + line.length;
+				return placeholderIndices.some(
+					(index) => index > lineStart && index <= lineEnd,
+				);
+			})
 			.map(countLeadingWhitespace),
 	);
 	if (indentation === Number.POSITIVE_INFINITY) {
