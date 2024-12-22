@@ -953,19 +953,19 @@ async fn import_from_parent() -> tg::Result<()> {
    			{
    				"kind": "directory",
    				"entries": {
-   					"baz": 2,
-   					"foo": tg.directory({}),
+   					"a": 2,
+   					"b": tg.directory({}),
    					"tangram.ts": 1,
    				},
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import patches from \"./foo\" with { type: \"directory\" };"),
+   				"contents": tg.leaf("import patches from \"./b\" with { type: \"directory\" };"),
    				"dependencies": {
-   					"./foo": {
+   					"./b": {
    						"item": 0,
    						"path": "",
-   						"subpath": "foo",
+   						"subpath": "b",
    					},
    				},
    			},
@@ -977,12 +977,12 @@ async fn import_from_parent() -> tg::Result<()> {
    			},
    			{
    				"kind": "file",
-   				"contents": tg.leaf("import * as baz from \"..\";"),
+   				"contents": tg.leaf("import * as a from \".\";"),
    				"dependencies": {
-   					"..": {
+   					".": {
    						"item": 0,
    						"path": "",
-   						"subpath": "tangram.ts",
+   						"subpath": "a",
    					},
    				},
    			},
