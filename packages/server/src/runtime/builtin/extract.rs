@@ -1,6 +1,6 @@
 use super::Runtime;
 use crate::Server;
-use futures::{AsyncReadExt as _, StreamExt as _, TryStreamExt as _};
+use futures::{AsyncReadExt as _, StreamExt as _};
 use std::{path::PathBuf, time::Duration};
 use tangram_client as tg;
 use tangram_futures::read::SharedPositionReader;
@@ -123,46 +123,56 @@ where
 	let reader = async_tar::Archive::new(reader.compat());
 
 	// Get the entries.
-	let entries: Vec<(PathBuf, tg::Artifact)> = reader
+	let mut entries: Vec<(PathBuf, tg::Artifact)> = Vec::new();
+	let mut iter = reader
 		.entries()
-		.map_err(|source| tg::error!(!source, "failed to get the entries from the archive"))?
-		.then(|result| async move {
-			let entry = result.map_err(|source| {
-				tg::error!(!source, "failed to get the entry from the archive")
-			})?;
-			let header = entry.header();
-			let path = PathBuf::from(
-				entry
-					.path()
-					.map_err(|source| tg::error!(!source, "failed to get the entry path"))?
-					.as_ref(),
-			);
-			match header.entry_type() {
-				async_tar::EntryType::Regular => {
-					let blob = tg::Blob::with_reader(server, entry.compat()).await?;
-					let file = tg::File::with_contents(blob);
-					let artifact = tg::Artifact::File(file);
-					Ok((path, artifact))
-				},
-				async_tar::EntryType::Symlink => {
-					let target = header
-						.link_name()
-						.map_err(|source| tg::error!(!source, "failed to read the symlink target"))?
-						.ok_or_else(|| tg::error!("no symlink target stored in the archive"))?;
-					let symlink = tg::Symlink::with_target(target.as_ref().into());
-					let artifact = tg::Artifact::Symlink(symlink);
-					Ok((path, artifact))
-				},
-				async_tar::EntryType::Directory => {
-					let directory = tg::Directory::with_entries([].into());
-					let artifact = tg::Artifact::Directory(directory);
-					Ok((path, artifact))
-				},
-				_ => Err(tg::error!("unsupported entry type")),
-			}
-		})
-		.try_collect()
-		.await?;
+		.map_err(|source| tg::error!(!source, "failed to get the entries from the archive"))?;
+	while let Some(entry) = iter.next().await {
+		let entry = entry
+			.map_err(|source| tg::error!(!source, "failed to get the entry from the archive"))?;
+		let header = entry.header();
+		let path = PathBuf::from(
+			entry
+				.path()
+				.map_err(|source| tg::error!(!source, "failed to get the entry path"))?
+				.as_ref(),
+		);
+		match header.entry_type() {
+			async_tar::EntryType::Directory => {
+				let directory = tg::Directory::with_entries([].into());
+				let artifact = tg::Artifact::Directory(directory);
+				entries.push((path, artifact));
+			},
+			async_tar::EntryType::Symlink => {
+				let target = header
+					.link_name()
+					.map_err(|source| tg::error!(!source, "failed to read the symlink target"))?
+					.ok_or_else(|| tg::error!("no symlink target stored in the archive"))?;
+				let symlink = tg::Symlink::with_target(target.as_ref().into());
+				let artifact = tg::Artifact::Symlink(symlink);
+				entries.push((path, artifact));
+			},
+			async_tar::EntryType::Link => {
+				return Err(tg::error!("links are not supported"));
+			},
+			async_tar::EntryType::XGlobalHeader
+			| async_tar::EntryType::XHeader
+			| async_tar::EntryType::GNULongName
+			| async_tar::EntryType::GNULongLink => {
+				continue;
+			},
+			_ => {
+				let mode = header
+					.mode()
+					.map_err(|source| tg::error!(!source, "failed to read the entry mode"))?;
+				let executable = mode & 0o111 != 0;
+				let blob = tg::Blob::with_reader(server, entry.compat()).await?;
+				let file = tg::File::builder(blob).executable(executable).build();
+				let artifact = tg::Artifact::File(file);
+				entries.push((path, artifact));
+			},
+		}
+	}
 
 	// Build the directory.
 	let mut builder = tg::directory::Builder::default();
@@ -196,16 +206,20 @@ where
 				.map_err(|source| tg::error!(!source, "failed to get the entry filename"))?,
 		);
 
-		//Check if the entry is a directory.
+		// Check if the entry is a directory.
 		let is_dir = entry
 			.dir()
 			.map_err(|source| tg::error!(!source, "failed to get type of entry"))?;
 
 		// Check if the entry is a symlink.
-		let is_symlink = match entry.unix_permissions() {
-			Some(permissions) => matches!(permissions & 0o120_000, 0o120_000),
-			None => false,
-		};
+		let is_symlink = entry
+			.unix_permissions()
+			.is_some_and(|permissions| permissions & 0o120_000 == 0o120_000);
+
+		// Check if the entry is executable.
+		let is_executable = entry
+			.unix_permissions()
+			.is_some_and(|permissions| permissions & 0o000_111 != 0);
 
 		// Create the artifacts.
 		if is_dir {
@@ -234,7 +248,8 @@ where
 				.map_err(|source| tg::error!(!source, "unable to get the entry reader"))?;
 			let output = server.create_blob(entry.compat()).await?;
 			let blob = tg::Blob::with_id(output.blob);
-			let artifact = tg::Artifact::File(tg::File::with_contents(blob));
+			let file = tg::File::builder(blob).executable(is_executable).build();
+			let artifact = tg::Artifact::File(file);
 			entries.push((path, artifact));
 		}
 	}
