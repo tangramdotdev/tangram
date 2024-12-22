@@ -426,7 +426,7 @@ impl Cli {
 
 		// Create the default config.
 		let database = tangram_server::config::Database::Sqlite(
-			tangram_server::config::SqliteDatabase::with_path(&path),
+			tangram_server::config::SqliteDatabase::with_path(path.join("database")),
 		);
 		let remotes = [(
 			"default".to_owned(),
@@ -595,7 +595,7 @@ impl Cli {
 			config.database = match database {
 				self::config::Database::Sqlite(database) => {
 					let mut database_ =
-						tangram_server::config::SqliteDatabase::with_path(&config.path);
+						tangram_server::config::SqliteDatabase::with_path(config.path.clone());
 					if let Some(connections) = database.connections {
 						database_.connections = connections;
 					}
