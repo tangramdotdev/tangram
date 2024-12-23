@@ -389,7 +389,7 @@ async fn template_with_quote() -> tg::Result<()> {
 	test(
 		temp::directory! {
 			"foo" => temp::directory! {
-				"tangram.ts" => r##"
+				"tangram.ts" => r#"
 					import file from "./hello.txt";
 					export default tg.target(() => tg`
 						other_command
@@ -400,7 +400,7 @@ async fn template_with_quote() -> tg::Result<()> {
 					
 						echo 'exec ${file} "$@"' >> script.sh
 					`);
-				"##,
+				"#,
 				"hello.txt" => "Hello, World!",
 			},
 		},
@@ -409,7 +409,7 @@ async fn template_with_quote() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let output = outcome.into_result()?;
-			assert_snapshot!(output, @r#"tg.template(["other_command\n\nother_command\n\nother_command\n\nech",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"o 'exec  \"$@\"' >> script.sh\n"])"#);
+			assert_snapshot!(output, @r#"tg.template(["other_command\n\nother_command\n\nother_command\n\necho 'exec ",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g," \"$@\"' >> script.sh\n"])"#);
 			Ok::<_, tg::Error>(())
 		},
 	)

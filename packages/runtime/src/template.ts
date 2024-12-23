@@ -199,24 +199,27 @@ let unindent = (strings: Array<string>): Array<string> => {
 			}
 		}
 		let firstPlaceholderIndex = placeholderIndices.find(
-			(index) => index >= position && index < position + line.length + 1,
+			(index) => index >= position && index < position + line.length,
 		);
 		if (firstPlaceholderIndex !== undefined) {
 			firstPlaceholderIndex -= position;
 		}
-		let count = Math.min(
+		let remove = Math.min(
+			indentation,
+			line.length,
 			firstNonWhitespaceIndex ?? Number.POSITIVE_INFINITY,
 			firstPlaceholderIndex ?? Number.POSITIVE_INFINITY,
 		);
-		let remove = Math.min(indentation, count);
 		lines[i] = lines[i]!.slice(remove);
-		for (let j = 0; j < placeholderIndices.length; j++) {
-			if (placeholderIndices[j]! > position) {
-				placeholderIndices[j]! -= remove;
+		for (let i = 0; i < placeholderIndices.length; i++) {
+			if (placeholderIndices[i]! >= position) {
+				placeholderIndices[i]! -= remove;
 			}
 		}
 		position += lines[i]!.length + 1;
 	}
+
+	// Join the lines.
 	string = lines.join("\n");
 
 	// Split the string at the placeholder indices.
