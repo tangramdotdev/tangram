@@ -177,7 +177,12 @@ where
 	// Build the directory.
 	let mut builder = tg::directory::Builder::default();
 	for (path, artifact) in entries {
-		builder = builder.add(server, &path, artifact).await?;
+		if !path
+			.components()
+			.all(|component| matches!(component, std::path::Component::CurDir))
+		{
+			builder = builder.add(server, &path, artifact).await?;
+		}
 	}
 	let directory = builder.build();
 
@@ -257,7 +262,12 @@ where
 	// Build the directory.
 	let mut builder = tg::directory::Builder::default();
 	for (path, artifact) in entries {
-		builder = builder.add(server, &path, artifact).await?;
+		if !path
+			.components()
+			.all(|component| matches!(component, std::path::Component::CurDir))
+		{
+			builder = builder.add(server, &path, artifact).await?;
+		}
 	}
 	let directory = builder.build();
 
