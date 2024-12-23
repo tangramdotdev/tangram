@@ -385,6 +385,38 @@ async fn template_single_line() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn template_with_quote() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"
+					import file from "./hello.txt";
+					export default tg.target(() => tg`
+						other_command
+
+						other_command
+					
+						other_command
+					
+						echo 'exec ${file} "$@"' >> script.sh
+					`);
+				"#,
+				"hello.txt" => "Hello, World!",
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r#"tg.template(["other_command\n\nother_command\n\nother_command\n\necho 'exec ",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g," \"$@\"' >> script.sh\n"])"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn template_single_line_two_artifacts() -> tg::Result<()> {
 	test(
 		temp::directory! {
