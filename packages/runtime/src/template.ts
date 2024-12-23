@@ -127,54 +127,92 @@ let unindent = (strings: Array<string>): Array<string> => {
 		string += strings[i];
 	}
 
-	// If the string starts with a newline, then remove it and update the placeholder indices.
+	// Split the string into lines.
+	let lines = string.split("\n");
+
+	// Compute the indentation.
+	let position = 0;
+	let indentation =
+		Math.min(
+			...lines
+				.map((line, index) => {
+					if (index === 0) {
+						position += line.length + 1;
+						return undefined;
+					}
+					let firstNonWhitespaceIndex: number | undefined;
+					for (let i = 0; i < line.length; i++) {
+						if (!(line[i] === " " || line[i] === "\t")) {
+							firstNonWhitespaceIndex = i;
+							break;
+						}
+					}
+					let firstPlaceholderIndex = placeholderIndices.find(
+						(index) => index >= position && index < position + line.length + 1,
+					);
+					if (firstPlaceholderIndex !== undefined) {
+						firstPlaceholderIndex -= position;
+					}
+					let count: number | undefined;
+					if (
+						firstNonWhitespaceIndex === undefined &&
+						firstPlaceholderIndex === undefined
+					) {
+						count = undefined;
+					} else if (
+						firstNonWhitespaceIndex !== undefined &&
+						firstPlaceholderIndex === undefined
+					) {
+						count = firstNonWhitespaceIndex;
+					} else if (
+						firstNonWhitespaceIndex === undefined &&
+						firstPlaceholderIndex !== undefined
+					) {
+						count = firstPlaceholderIndex;
+					} else {
+						count = Math.min(firstNonWhitespaceIndex!, firstPlaceholderIndex!);
+					}
+					position += line.length + 1;
+					return count;
+				})
+				.filter((count) => count !== undefined),
+		) ?? 0;
+
+	// If the first line is empty, then remove it and update the placeholder indices.
 	if (string[0] === "\n" && placeholderIndices[0] !== 0) {
 		string = string.slice(1);
+		lines = lines.slice(1);
 		for (let i = 0; i < placeholderIndices.length; i++) {
 			placeholderIndices[i]! -= 1;
 		}
 	}
 
-	// Split the string into lines.
-	let lines = string.split("\n");
-
-	// Compute the indentation.
-	let indentation = Math.min(
-		...lines
-			.filter((line, index) => {
-				let lineStart = lines
-					.slice(0, index)
-					.reduce((sum, l) => sum + l.length + 1, 0);
-				let lineEnd = lineStart + line.length;
-				return !(
-					line.trim().length === 0 &&
-					!placeholderIndices.some(
-						(position) => position >= lineStart && position <= lineEnd,
-					)
-				);
-			})
-			.map((line, index) => {
-				let lineStart = lines
-					.slice(0, index)
-					.reduce((sum, line) => sum + line.length + 1, 0);
-				return countLeadingWhitespace(line, lineStart, placeholderIndices);
-			}),
-	);
-	if (indentation === Number.POSITIVE_INFINITY) {
-		indentation = 0;
-	}
-
 	// Unindent each line and update the placeholder indices.
-	let position = 0;
+	position = 0;
 	for (let i = 0; i < lines.length; i++) {
-		let lineIndentation = Math.min(
-			indentation,
-			countLeadingWhitespace(lines[i]!, position, placeholderIndices) ?? 0,
+		let line = lines[i]!;
+		let firstNonWhitespaceIndex: number | undefined;
+		for (let i = 0; i < line.length; i++) {
+			if (!(line[i] === " " || line[i] === "\t")) {
+				firstNonWhitespaceIndex = i;
+				break;
+			}
+		}
+		let firstPlaceholderIndex = placeholderIndices.find(
+			(index) => index >= position && index < position + line.length + 1,
 		);
-		lines[i] = lines[i]!.slice(lineIndentation);
+		if (firstPlaceholderIndex !== undefined) {
+			firstPlaceholderIndex -= position;
+		}
+		let count = Math.min(
+			firstNonWhitespaceIndex ?? Number.POSITIVE_INFINITY,
+			firstPlaceholderIndex ?? Number.POSITIVE_INFINITY,
+		);
+		let remove = Math.min(indentation, count);
+		lines[i] = lines[i]!.slice(remove);
 		for (let j = 0; j < placeholderIndices.length; j++) {
 			if (placeholderIndices[j]! > position) {
-				placeholderIndices[j]! -= lineIndentation;
+				placeholderIndices[j]! -= remove;
 			}
 		}
 		position += lines[i]!.length + 1;
@@ -192,25 +230,4 @@ let unindent = (strings: Array<string>): Array<string> => {
 	output.push(string.slice(index));
 
 	return output;
-};
-
-let countLeadingWhitespace = (
-	line: string,
-	lineStart: number,
-	placeholderIndices: Array<number>,
-): number => {
-	let firstNonWhitespaceIndex = Number.POSITIVE_INFINITY;
-	for (let i = 0; i < line.length; i++) {
-		if (!(line[i] === " " || line[i] === "\t")) {
-			firstNonWhitespaceIndex = i;
-			break;
-		}
-	}
-	let firstPlaceholderIndex =
-		placeholderIndices.find(
-			(position) =>
-				position >= lineStart && position <= lineStart + line.length,
-		) ?? Number.POSITIVE_INFINITY;
-	firstPlaceholderIndex -= lineStart;
-	return Math.min(firstNonWhitespaceIndex, firstPlaceholderIndex);
 };
