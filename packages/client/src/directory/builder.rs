@@ -24,13 +24,20 @@ impl Builder {
 	where
 		H: tg::Handle,
 	{
-		// Get the first component.
+		// Get the first normal component, passing over current directory components.
 		let mut components = path.components();
-
-		let Some(std::path::Component::Normal(name)) = components.next() else {
-			return Err(tg::error!(
-				"expected the path to have at least one component"
-			));
+		let name = loop {
+			match components.next() {
+				Some(std::path::Component::Normal(name)) => {
+					break name;
+				},
+				Some(std::path::Component::CurDir) => {
+					continue;
+				},
+				_ => {
+					return Err(tg::error!("expected a normal path component"));
+				},
+			}
 		};
 
 		let name = name
@@ -38,9 +45,12 @@ impl Builder {
 			.ok_or_else(|| tg::error!("expected a utf-8 encoded path"))?
 			.to_owned();
 
-		// Collect the trailing path.
+		// Collect the trailing path, skipping current directory components.
 		let mut trailing_path = PathBuf::new();
 		for component in components {
+			if component == std::path::Component::CurDir {
+				continue;
+			}
 			trailing_path.push(component);
 		}
 
