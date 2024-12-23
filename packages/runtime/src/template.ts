@@ -128,7 +128,7 @@ let unindent = (strings: Array<string>): Array<string> => {
 	}
 
 	// If the string starts with a newline, then remove it and update the placeholder indices.
-	if (string.startsWith("\n")) {
+	if (string[0] === "\n" && placeholderIndices[0] !== 0) {
 		string = string.slice(1);
 		for (let i = 0; i < placeholderIndices.length; i++) {
 			placeholderIndices[i]! -= 1;

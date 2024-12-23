@@ -466,6 +466,32 @@ async fn template_only_placeholders_on_a_line() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn template_single_line_explicit_newline() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"
+					import foo from "./foo.txt";
+					import bar from "./bar.txt";
+					export default tg.target(() => tg`${foo}\n${bar}`);
+				"#,
+				"foo.txt" => "foo",
+				"bar.txt" => "bar",
+			},
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let output = outcome.into_result()?;
+			assert_snapshot!(output, @r#"tg.template([fil_01mav0wfrn654f51gn5dbk8t8akh830xd1a97yjd1j85w5y8evmc1g,"\n",fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80])"#);
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn template_multiple_placeholders() -> tg::Result<()> {
 	test(
 		temp::directory! {
