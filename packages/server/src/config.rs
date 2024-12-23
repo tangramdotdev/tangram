@@ -197,6 +197,7 @@ impl Default for BuildHeartbeatMonitor {
 }
 
 impl SqliteDatabase {
+	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {
 		let n = std::thread::available_parallelism().unwrap();
 		Self {
@@ -204,6 +205,8 @@ impl SqliteDatabase {
 			path,
 		}
 	}
+
+	#[must_use]
 	pub fn with_path_and_connections(path: PathBuf, connections: usize) -> Self {
 		Self { connections, path }
 	}

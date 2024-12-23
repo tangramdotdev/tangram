@@ -1,7 +1,10 @@
 use super::Runtime;
 use crate::Server;
 use futures::{AsyncReadExt as _, StreamExt as _};
-use std::{path::PathBuf, time::Duration};
+use std::{
+	path::{Path, PathBuf},
+	time::Duration,
+};
 use tangram_client as tg;
 use tangram_futures::read::SharedPositionReader;
 use tokio::io::{AsyncBufRead, AsyncSeek};
@@ -153,7 +156,20 @@ where
 				entries.push((path, artifact));
 			},
 			async_tar::EntryType::Link => {
-				return Err(tg::error!("links are not supported"));
+				let target = header
+					.link_name()
+					.map_err(|source| {
+						tg::error!(!source, "failed to read the hard link target path")
+					})?
+					.ok_or_else(|| tg::error!("no hard link target path stored in the archive"))?;
+				let target = Path::new(target.as_ref());
+				if let Some((_, artifact)) = entries.iter().find(|(path, _)| path == target) {
+					entries.push((path, artifact.clone()));
+				} else {
+					return Err(tg::error!(
+						"could not find the hard link target in the archive"
+					));
+				}
 			},
 			async_tar::EntryType::XGlobalHeader
 			| async_tar::EntryType::XHeader
