@@ -142,18 +142,23 @@ let unindent = (strings: Array<string>): Array<string> => {
 	let indentation = Math.min(
 		...lines
 			.filter((line, index) => {
-				if (line.trim().length > 0) {
-					return true;
-				}
 				let lineStart = lines
 					.slice(0, index)
 					.reduce((sum, l) => sum + l.length + 1, 0);
 				let lineEnd = lineStart + line.length;
-				return placeholderIndices.some(
-					(index) => index > lineStart && index <= lineEnd,
+				return !(
+					line.trim().length === 0 &&
+					!placeholderIndices.some(
+						(position) => position >= lineStart && position <= lineEnd,
+					)
 				);
 			})
-			.map(countLeadingWhitespace),
+			.map((line, index) => {
+				let lineStart = lines
+					.slice(0, index)
+					.reduce((sum, line) => sum + line.length + 1, 0);
+				return countLeadingWhitespace(line, lineStart, placeholderIndices);
+			}),
 	);
 	if (indentation === Number.POSITIVE_INFINITY) {
 		indentation = 0;
@@ -164,7 +169,7 @@ let unindent = (strings: Array<string>): Array<string> => {
 	for (let i = 0; i < lines.length; i++) {
 		let lineIndentation = Math.min(
 			indentation,
-			countLeadingWhitespace(lines[i]!) ?? 0,
+			countLeadingWhitespace(lines[i]!, position, placeholderIndices) ?? 0,
 		);
 		lines[i] = lines[i]!.slice(lineIndentation);
 		for (let j = 0; j < placeholderIndices.length; j++) {
@@ -189,11 +194,23 @@ let unindent = (strings: Array<string>): Array<string> => {
 	return output;
 };
 
-let countLeadingWhitespace = (line: string): number => {
+let countLeadingWhitespace = (
+	line: string,
+	lineStart: number,
+	placeholderIndices: Array<number>,
+): number => {
+	let firstNonWhitespaceIndex = Number.POSITIVE_INFINITY;
 	for (let i = 0; i < line.length; i++) {
 		if (!(line[i] === " " || line[i] === "\t")) {
-			return i;
+			firstNonWhitespaceIndex = i;
+			break;
 		}
 	}
-	return line.length;
+	let firstPlaceholderIndex =
+		placeholderIndices.find(
+			(position) =>
+				position >= lineStart && position <= lineStart + line.length,
+		) ?? Number.POSITIVE_INFINITY;
+	firstPlaceholderIndex -= lineStart;
+	return Math.min(firstNonWhitespaceIndex, firstPlaceholderIndex);
 };
