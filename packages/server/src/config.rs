@@ -126,7 +126,7 @@ impl Config {
 		let build = None;
 		let build_heartbeat_monitor = None;
 		let build_indexer = None;
-		let database = Database::Sqlite(SqliteDatabase::with_path(&path));
+		let database = Database::Sqlite(SqliteDatabase::with_path(path.join("database")));
 		let messenger = Messenger::default();
 		let object_indexer = None;
 		let remotes = BTreeMap::new();
@@ -197,16 +197,14 @@ impl Default for BuildHeartbeatMonitor {
 }
 
 impl SqliteDatabase {
-	pub fn with_path(path: impl AsRef<Path>) -> Self {
+	pub fn with_path(path: PathBuf) -> Self {
 		let n = std::thread::available_parallelism().unwrap();
-		let path = path.as_ref().join("database");
 		Self {
 			connections: n.into(),
 			path,
 		}
 	}
-	pub fn with_path_and_connections(path: impl AsRef<Path>, connections: usize) -> Self {
-		let path = path.as_ref().join("database");
+	pub fn with_path_and_connections(path: PathBuf, connections: usize) -> Self {
 		Self { connections, path }
 	}
 }
