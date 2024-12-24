@@ -179,6 +179,7 @@ zip = { version = "2", default-features = false, features = [
 zstd = "0.13"
 
 [patch.crates-io]
+async-tar = { git = "https://github.com/tangramdotdev/async-tar", rev = "3dfc3c8dd0" }
 async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip", rev = "90e365c" }
 
 [profile.dev.package.blake3]
