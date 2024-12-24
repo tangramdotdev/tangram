@@ -84,7 +84,7 @@ impl Server {
 				arg.depth,
 				arg.host,
 				arg.log,
-				arg.outcome,
+				arg.outcome.as_ref().map(db::value::Json),
 				arg.retry,
 				arg.status,
 				arg.target,
