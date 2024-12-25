@@ -1,6 +1,6 @@
 use super::Runtime;
 use crate::database::Transaction;
-use futures::{stream::FuturesOrdered, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream::FuturesOrdered};
 use std::path::PathBuf;
 use tangram_client as tg;
 
@@ -74,7 +74,7 @@ impl Runtime {
 				return Err(tg::error!(
 					?artifact,
 					"the artifact must be a directory or an executable file"
-				))
+				));
 			},
 		};
 

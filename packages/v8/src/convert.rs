@@ -45,7 +45,7 @@ impl ToV8 for () {
 	}
 }
 
-impl<'t, T> ToV8 for &'t T
+impl<T> ToV8 for &T
 where
 	T: ToV8,
 {

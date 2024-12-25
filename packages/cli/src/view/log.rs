@@ -1,11 +1,11 @@
-use futures::{future, StreamExt as _, TryStreamExt as _};
+use futures::{StreamExt as _, TryStreamExt as _, future};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
 	io::SeekFrom,
 	sync::{
-		atomic::{AtomicBool, AtomicU64, Ordering},
 		Arc, Mutex,
+		atomic::{AtomicBool, AtomicU64, Ordering},
 	},
 	time::Duration,
 };
@@ -314,18 +314,15 @@ where
 		// Create the stream.
 		let mut stream = self
 			.build
-			.log(
-				&self.handle,
-				tg::build::log::get::Arg {
-					length,
-					position,
-					..Default::default()
-				},
-			)
+			.log(&self.handle, tg::build::log::get::Arg {
+				length,
+				position,
+				..Default::default()
+			})
 			.await?;
 
 		// Spawn the log task if necessary.
-		if append && chunks.last().map_or(true, |chunk| !chunk.bytes.is_empty()) {
+		if append && chunks.last().is_none_or(|chunk| !chunk.bytes.is_empty()) {
 			drop(chunks);
 			let log = self.clone();
 			let (tx, rx) = tokio::sync::watch::channel(());

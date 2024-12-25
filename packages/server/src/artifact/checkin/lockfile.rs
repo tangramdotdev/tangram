@@ -352,7 +352,7 @@ fn check_if_references_module(
 				},
 				tg::lockfile::Node::File(file) => {
 					let retain = !file.dependencies.is_empty()
-						|| path.map_or(false, tg::package::is_module_path);
+						|| path.is_some_and(tg::package::is_module_path);
 					visited[node].replace(retain);
 					for (reference, referent) in &file.dependencies {
 						let path = reference
@@ -375,7 +375,7 @@ fn check_if_references_module(
 				}) => {
 					let retain = subpath
 						.as_ref()
-						.map_or(false, |subpath| tg::package::is_module_path(subpath));
+						.is_some_and(|subpath| tg::package::is_module_path(subpath));
 					visited[node].replace(retain);
 					if let Some(child_node) =
 						try_find_in_lockfile_nodes(nodes, artifact, subpath.as_deref())?
@@ -550,15 +550,12 @@ fn strip_nodes_inner(
 						},
 						Either::Right(id) => Either::Right(id),
 					};
-					Some((
-						reference,
-						tg::Referent {
-							item,
-							path,
-							subpath,
-							tag,
-						},
-					))
+					Some((reference, tg::Referent {
+						item,
+						path,
+						subpath,
+						tag,
+					}))
 				})
 				.collect();
 
@@ -663,7 +660,7 @@ fn try_find_in_lockfile_nodes(
 
 struct LockfileGraphImpl<'a>(&'a [tg::lockfile::Node]);
 
-impl<'a> petgraph::visit::GraphBase for LockfileGraphImpl<'a> {
+impl petgraph::visit::GraphBase for LockfileGraphImpl<'_> {
 	type EdgeId = (usize, usize);
 	type NodeId = usize;
 }

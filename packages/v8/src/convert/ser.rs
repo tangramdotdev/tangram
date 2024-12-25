@@ -270,7 +270,7 @@ impl<'a, 's> serde::Serializer for Serializer<'a, 's> {
 	}
 }
 
-impl<'a, 's> serde::ser::SerializeSeq for SerializeSeq<'a, 's> {
+impl<'s> serde::ser::SerializeSeq for SerializeSeq<'_, 's> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -289,7 +289,7 @@ impl<'a, 's> serde::ser::SerializeSeq for SerializeSeq<'a, 's> {
 	}
 }
 
-impl<'a, 's> serde::ser::SerializeTuple for SerializeTuple<'a, 's> {
+impl<'s> serde::ser::SerializeTuple for SerializeTuple<'_, 's> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -308,7 +308,7 @@ impl<'a, 's> serde::ser::SerializeTuple for SerializeTuple<'a, 's> {
 	}
 }
 
-impl<'a, 's> serde::ser::SerializeTupleStruct for SerializeTupleStruct<'a, 's> {
+impl<'s> serde::ser::SerializeTupleStruct for SerializeTupleStruct<'_, 's> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -327,7 +327,7 @@ impl<'a, 's> serde::ser::SerializeTupleStruct for SerializeTupleStruct<'a, 's> {
 	}
 }
 
-impl<'a, 's> serde::ser::SerializeTupleVariant for SerializeTupleVariant<'a, 's> {
+impl<'s> serde::ser::SerializeTupleVariant for SerializeTupleVariant<'_, 's> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -351,7 +351,7 @@ impl<'a, 's> serde::ser::SerializeTupleVariant for SerializeTupleVariant<'a, 's>
 	}
 }
 
-impl<'a, 's> serde::ser::SerializeMap for SerializeMap<'a, 's> {
+impl<'s> serde::ser::SerializeMap for SerializeMap<'_, 's> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -383,7 +383,7 @@ impl<'a, 's> serde::ser::SerializeMap for SerializeMap<'a, 's> {
 	}
 }
 
-impl<'a, 's> serde::ser::SerializeStruct for SerializeStruct<'a, 's> {
+impl<'s> serde::ser::SerializeStruct for SerializeStruct<'_, 's> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -403,7 +403,7 @@ impl<'a, 's> serde::ser::SerializeStruct for SerializeStruct<'a, 's> {
 	}
 }
 
-impl<'a, 's> serde::ser::SerializeStructVariant for SerializeStructVariant<'a, 's> {
+impl<'s> serde::ser::SerializeStructVariant for SerializeStructVariant<'_, 's> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;

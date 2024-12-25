@@ -1,6 +1,6 @@
 use super::Data;
 use crate as tg;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_either::Either;

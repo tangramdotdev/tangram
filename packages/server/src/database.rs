@@ -50,7 +50,7 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 	// If this path is from a newer version of Tangram, then return an error.
 	if version > migrations.len() {
 		return Err(tg::error!(
-			r#"The database has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."#
+			r"The database has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
 		));
 	}
 

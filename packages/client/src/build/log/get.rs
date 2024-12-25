@@ -4,7 +4,7 @@ use crate::{
 	util::serde::{BytesBase64, SeekFromString},
 };
 use bytes::Bytes;
-use futures::{future, Stream, TryStreamExt as _};
+use futures::{Stream, TryStreamExt as _, future};
 use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 

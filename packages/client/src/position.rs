@@ -165,26 +165,17 @@ mod tests {
 
 	#[test]
 	fn position_past_end() {
-		assert_eq!(
-			Position::past_end("foo"),
-			Position {
-				line: 1,
-				character: 0
-			}
-		);
-		assert_eq!(
-			Position::past_end("foo\nbar"),
-			Position {
-				line: 2,
-				character: 0
-			}
-		);
-		assert_eq!(
-			Position::past_end("foo\nbar\nbaz\n"),
-			Position {
-				line: 4,
-				character: 0
-			}
-		);
+		assert_eq!(Position::past_end("foo"), Position {
+			line: 1,
+			character: 0
+		});
+		assert_eq!(Position::past_end("foo\nbar"), Position {
+			line: 2,
+			character: 0
+		});
+		assert_eq!(Position::past_end("foo\nbar\nbaz\n"), Position {
+			line: 4,
+			character: 0
+		});
 	}
 }

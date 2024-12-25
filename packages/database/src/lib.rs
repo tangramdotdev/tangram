@@ -94,7 +94,7 @@ pub trait Query {
 		statement: String,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>>
-	       + Send;
+	+ Send;
 
 	fn query_value(
 		&self,
@@ -119,7 +119,7 @@ pub trait Query {
 		statement: String,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>> + Send, Self::Error>>
-	       + Send
+	+ Send
 	where
 		T: serde::de::DeserializeOwned,
 	{

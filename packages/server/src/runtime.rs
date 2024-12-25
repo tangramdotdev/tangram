@@ -1,6 +1,6 @@
-use crate::{compiler::Compiler, Server};
+use crate::{Server, compiler::Compiler};
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, outgoing::response::Ext as _};
 
 mod proxy;
 mod util;

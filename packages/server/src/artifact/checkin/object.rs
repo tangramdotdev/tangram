@@ -493,7 +493,7 @@ impl Server {
 						.map_err(|source| tg::error!(!source, %symlink, "missing symlink"))?;
 					let target = match data {
 						tg::symlink::Data::Artifact { .. } => {
-							return Err(tg::error!(%symlink, "expected a target symlink"))
+							return Err(tg::error!(%symlink, "expected a target symlink"));
 						},
 						tg::symlink::Data::Graph { graph, node } => {
 							let data = tg::Graph::with_id(graph.clone())
@@ -598,15 +598,12 @@ impl Server {
 							subpath,
 						} = referent;
 						let item = item.unwrap_right();
-						(
-							reference,
-							tg::Referent {
-								item,
-								path,
-								subpath,
-								tag,
-							},
-						)
+						(reference, tg::Referent {
+							item,
+							path,
+							subpath,
+							tag,
+						})
 					})
 					.collect();
 				tg::file::Data::Normal {
@@ -791,7 +788,7 @@ impl petgraph::visit::GraphBase for Graph {
 }
 
 #[allow(clippy::needless_arbitrary_self_type)]
-impl<'a> petgraph::visit::NodeIndexable for &'a Graph {
+impl petgraph::visit::NodeIndexable for &Graph {
 	fn from_index(self: &Self, i: usize) -> Self::NodeId {
 		i
 	}
@@ -813,7 +810,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 	}
 }
 
-impl<'a> petgraph::visit::IntoNodeIdentifiers for &'a Graph {
+impl petgraph::visit::IntoNodeIdentifiers for &Graph {
 	type NodeIdentifiers = std::ops::Range<usize>;
 	fn node_identifiers(self) -> Self::NodeIdentifiers {
 		0..self.nodes.len()

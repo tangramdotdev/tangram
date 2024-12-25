@@ -1,5 +1,5 @@
 use crate::{Config, Server};
-use futures::{future, Future, FutureExt as _};
+use futures::{Future, FutureExt as _, future};
 use insta::assert_json_snapshot;
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;

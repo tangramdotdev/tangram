@@ -1,4 +1,4 @@
-use crate::{temp::Temp, Server};
+use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::TryStreamExt as _;
@@ -9,8 +9,8 @@ use std::{
 	os::unix::ffi::OsStrExt,
 	path::PathBuf,
 	sync::{
-		atomic::{AtomicU64, Ordering},
 		Arc,
+		atomic::{AtomicU64, Ordering},
 	},
 };
 use tangram_client::{self as tg, handle::Ext as _};
@@ -245,14 +245,11 @@ impl vfs::Provider for Provider {
 		// Create the blob stream.
 		let stream = self
 			.server
-			.try_read_blob(
-				&file_handle.blob,
-				tg::blob::read::Arg {
-					position: Some(std::io::SeekFrom::Start(position)),
-					length: Some(length),
-					size: None,
-				},
-			)
+			.try_read_blob(&file_handle.blob, tg::blob::read::Arg {
+				position: Some(std::io::SeekFrom::Start(position)),
+				length: Some(length),
+				size: None,
+			})
 			.await
 			.map_err(|error| {
 				tracing::error!(%error, "failed to read blob");
@@ -422,7 +419,7 @@ impl Provider {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 		let statement = formatdoc!(
-			r#"
+			r"
 				create table nodes (
 					id integer primary key autoincrement,
 					parent integer not null,
@@ -432,7 +429,7 @@ impl Provider {
 				);
 
 				create index node_parent_name_index on nodes (id, parent);
-			"#
+			"
 		);
 		connection
 			.with(move |connection| {

@@ -1,4 +1,4 @@
-use super::{serde::Serde, FromV8, ToV8};
+use super::{FromV8, ToV8, serde::Serde};
 use tangram_client as tg;
 
 impl ToV8 for tg::Module {

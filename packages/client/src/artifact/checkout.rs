@@ -2,7 +2,7 @@ use crate::{
 	self as tg,
 	util::serde::{is_false, is_true, return_true},
 };
-use futures::{future, Stream, TryStreamExt as _};
+use futures::{Stream, TryStreamExt as _, future};
 use std::{path::PathBuf, pin::pin};
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
@@ -50,7 +50,9 @@ impl tg::Client {
 		id: &tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
+		+ Send
+		+ 'static,
 	> {
 		let method = http::Method::POST;
 		let uri = format!("/artifacts/{id}/checkout");

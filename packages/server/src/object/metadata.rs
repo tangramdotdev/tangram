@@ -1,10 +1,10 @@
 use crate::Server;
-use futures::{future, FutureExt as _};
+use futures::{FutureExt as _, future};
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, outgoing::response::Ext as _};
 
 impl Server {
 	pub async fn try_get_object_metadata(

@@ -34,10 +34,10 @@ impl Cli {
 					let artifact = symlink.try_resolve(&handle).await?;
 					match artifact {
 						None | Some(tg::Artifact::Symlink(_)) => {
-							return Err(tg::error!("failed to resolve the symlink"))
+							return Err(tg::error!("failed to resolve the symlink"));
 						},
 						Some(tg::Artifact::Directory(_)) => {
-							return Err(tg::error!("cannot cat a directory"))
+							return Err(tg::error!("cannot cat a directory"));
 						},
 						Some(tg::Artifact::File(file)) => file
 							.contents(&handle)

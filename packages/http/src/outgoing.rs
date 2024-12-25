@@ -1,12 +1,12 @@
 use crate::Error;
 use bytes::Bytes;
 use futures::{
-	future, stream, Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
-	TryStreamExt as _,
+	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+	stream,
 };
 use http_body::Body;
 use std::{
-	pin::{pin, Pin},
+	pin::{Pin, pin},
 	sync::Arc,
 };
 use tokio::io::AsyncRead;

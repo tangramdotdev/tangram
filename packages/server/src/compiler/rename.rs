@@ -49,16 +49,13 @@ impl Compiler {
 			let version = self.get_module_version(&location.module).await?;
 
 			if edit.get_mut(&uri).is_none() {
-				edit.insert(
-					uri.clone(),
-					lsp::TextDocumentEdit {
-						text_document: lsp::OptionalVersionedTextDocumentIdentifier {
-							uri: uri.clone(),
-							version: Some(version),
-						},
-						edits: Vec::<lsp::OneOf<lsp::TextEdit, lsp::AnnotatedTextEdit>>::new(),
+				edit.insert(uri.clone(), lsp::TextDocumentEdit {
+					text_document: lsp::OptionalVersionedTextDocumentIdentifier {
+						uri: uri.clone(),
+						version: Some(version),
 					},
-				);
+					edits: Vec::<lsp::OneOf<lsp::TextEdit, lsp::AnnotatedTextEdit>>::new(),
+				});
 			}
 
 			edit.get_mut(&uri)

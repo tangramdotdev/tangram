@@ -252,7 +252,7 @@ impl Server {
 			// Otherwise, create partial nodes.
 			match input_edge.reference.item() {
 				tg::reference::Item::Build(_) => {
-					return Err(tg::error!(%reference = input_edge.reference, "invalid reference"))
+					return Err(tg::error!(%reference = input_edge.reference, "invalid reference"));
 				},
 				tg::reference::Item::Object(object) => {
 					let id = self
@@ -312,7 +312,7 @@ fn get_reference_from_tag(tag: &tg::Tag) -> tg::Reference {
 		.cloned()
 		.map_into::<tg::tag::pattern::Component>()
 		.collect_vec();
-	if components.last().map_or(false, |component| {
+	if components.last().is_some_and(|component| {
 		matches!(
 			component,
 			tg::tag::pattern::Component::Normal(tg::tag::Component::Version(_))
@@ -737,11 +737,11 @@ impl Server {
 	) -> tg::Result<Graph> {
 		for node in graph.nodes.keys().cloned().collect::<Vec<_>>() {
 			// Skip nodes that don't refer to local modules.
-			let src_is_local_module = node.as_ref().right().map_or(false, |index| {
+			let src_is_local_module = node.as_ref().right().is_some_and(|index| {
 				input
 					.nodes
 					.get(*index)
-					.map_or(false, |input| tg::package::is_module_path(&input.arg.path))
+					.is_some_and(|input| tg::package::is_module_path(&input.arg.path))
 			});
 			if !src_is_local_module {
 				continue;
@@ -763,7 +763,7 @@ impl Server {
 							.object
 							.as_ref()
 							.right()
-							.map_or(false, tg::object::Id::is_directory)
+							.is_some_and(tg::object::Id::is_directory)
 						&& edge.subpath.is_none()
 						&& matches!(
 							edge.kind,

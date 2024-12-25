@@ -3,7 +3,7 @@ use indoc::formatdoc;
 use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _, outgoing::response::Ext as _};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {

@@ -1,4 +1,4 @@
-use crate::{util::fs::cleanup, Config, Server};
+use crate::{Config, Server, util::fs::cleanup};
 use futures::FutureExt as _;
 use std::{panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
@@ -13,23 +13,17 @@ async fn push_file() -> tg::Result<()> {
 
 	let server_temp = Temp::new();
 	let mut server_config = Config::with_path(server_temp.path().to_owned());
-	server_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
+	server_config.remotes = [("default".to_owned(), crate::config::Remote {
+		url: remote.url().clone(),
+	})]
 	.into();
 	let server = Server::start(server_config).await?;
 
 	let other_temp = Temp::new();
 	let mut other_config = Config::with_path(other_temp.path().to_owned());
-	other_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
+	other_config.remotes = [("default".to_owned(), crate::config::Remote {
+		url: remote.url().clone(),
+	})]
 	.into();
 	let other = Server::start(other_config).await?;
 
@@ -71,23 +65,17 @@ async fn push_simple_directory() -> tg::Result<()> {
 
 	let server_temp = Temp::new();
 	let mut server_config = Config::with_path(server_temp.path().to_owned());
-	server_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
+	server_config.remotes = [("default".to_owned(), crate::config::Remote {
+		url: remote.url().clone(),
+	})]
 	.into();
 	let server = Server::start(server_config).await?;
 
 	let other_temp = Temp::new();
 	let mut other_config = Config::with_path(other_temp.path().to_owned());
-	other_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
+	other_config.remotes = [("default".to_owned(), crate::config::Remote {
+		url: remote.url().clone(),
+	})]
 	.into();
 	let other = Server::start(other_config).await?;
 

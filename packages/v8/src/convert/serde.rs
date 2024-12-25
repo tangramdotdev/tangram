@@ -1,4 +1,4 @@
-use super::{de::Deserializer, ser::Serializer, FromV8, ToV8};
+use super::{FromV8, ToV8, de::Deserializer, ser::Serializer};
 use tangram_client as tg;
 
 pub struct Serde<T>(T);

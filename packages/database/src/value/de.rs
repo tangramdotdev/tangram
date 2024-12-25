@@ -7,7 +7,7 @@ pub enum Error {
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
-impl<'de> serde::de::IntoDeserializer<'de, Error> for Value {
+impl serde::de::IntoDeserializer<'_, Error> for Value {
 	type Deserializer = Self;
 
 	fn into_deserializer(self) -> Self::Deserializer {

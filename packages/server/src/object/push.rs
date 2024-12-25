@@ -1,8 +1,8 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, stream::FuturesUnordered};
 use num::ToPrimitive as _;
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _};
 
 #[cfg(test)]
 mod tests;
@@ -27,11 +27,17 @@ impl Server {
 		Self::push_or_pull_object(self, &remote, object).await
 	}
 
-	pub(crate) async fn push_or_pull_object(
-		src: &impl tg::Handle,
-		dst: &impl tg::Handle,
+	pub(crate) async fn push_or_pull_object<S, D>(
+		src: &S,
+		dst: &D,
 		object: &tg::object::Id,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static + use<S, D>,
+	>
+	where
+		S: tg::Handle,
+		D: tg::Handle,
+	{
 		let metadata = src.get_object_metadata(object).await?;
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({

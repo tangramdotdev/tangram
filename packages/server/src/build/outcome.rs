@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{
-	future, stream, Future, FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
+	Future, FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -8,7 +8,7 @@ use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _, outgoing::response::Ext as _};
 
 impl Server {
 	pub async fn try_get_build_outcome_future(

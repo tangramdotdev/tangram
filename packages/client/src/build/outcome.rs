@@ -1,5 +1,5 @@
 use crate::{self as tg, handle::Ext as _};
-use futures::{future, Future, StreamExt as _, TryStreamExt as _};
+use futures::{Future, StreamExt as _, TryStreamExt as _, future};
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
@@ -126,7 +126,9 @@ impl tg::Client {
 	pub async fn try_get_build_outcome_future(
 		&self,
 		id: &tg::build::Id,
-	) -> tg::Result<Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>>>> {
+	) -> tg::Result<
+		Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
+	> {
 		let method = http::Method::GET;
 		let uri = format!("/builds/{id}/outcome");
 		let request = http::request::Builder::default()

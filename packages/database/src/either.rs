@@ -63,7 +63,10 @@ where
 {
 	type Error = Error<L::Error, R::Error>;
 
-	type Transaction<'t> = Either<L::Transaction<'t>, R::Transaction<'t>> where Self: 't;
+	type Transaction<'t>
+		= Either<L::Transaction<'t>, R::Transaction<'t>>
+	where
+		Self: 't;
 
 	fn transaction(&mut self) -> impl Future<Output = Result<Self::Transaction<'_>, Self::Error>> {
 		match self {

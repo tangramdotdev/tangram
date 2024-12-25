@@ -2,11 +2,11 @@ use super::{
 	proxy::{self, Proxy},
 	util::render,
 };
-use crate::{temp::Temp, Server};
+use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
+	stream::{FuturesOrdered, FuturesUnordered},
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -971,7 +971,9 @@ fn guest(context: &Context) {
 			0,
 		);
 		if ret == -1 {
-			abort_errno!("the guest process failed to receive the notification from the host process to continue");
+			abort_errno!(
+				"the guest process failed to receive the notification from the host process to continue"
+			);
 		}
 		assert_eq!(notification, 1);
 

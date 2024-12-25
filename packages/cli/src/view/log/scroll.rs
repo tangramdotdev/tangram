@@ -275,7 +275,7 @@ fn next_grapheme<'a>(
 	}
 }
 
-impl<'a, 'b> GraphemeParserState<'a, 'b> {
+impl GraphemeParserState<'_, '_> {
 	// The grapheme parsing algorithm is as folows:
 	//
 	//	- Attempt to scan one codepoint forward or backward in the chunk stream.
@@ -476,7 +476,7 @@ impl<'a, 'b> GraphemeParserState<'a, 'b> {
 
 #[cfg(test)]
 mod tests {
-	use super::{next_grapheme, scroll_down_inner, scroll_up_inner, Error, Scroll};
+	use super::{Error, Scroll, next_grapheme, scroll_down_inner, scroll_up_inner};
 	use num::ToPrimitive as _;
 	use ratatui::layout::Rect;
 	use tangram_client as tg;
@@ -585,17 +585,14 @@ mod tests {
 		];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 20, 10), &chunks).unwrap();
 		let lines = scroll.read_lines(&chunks).unwrap();
-		assert_eq!(
-			&lines,
-			&[
-				"\"0——👍👌👉👈——\"",
-				"\"1——👍👌👉👈——\"",
-				"\"2——👍👌👉👈——\"",
-				"\"3——👍👌👉👈——\"",
-				"\"4——👍👌👉👈——\"",
-				"",
-			]
-		);
+		assert_eq!(&lines, &[
+			"\"0——👍👌👉👈——\"",
+			"\"1——👍👌👉👈——\"",
+			"\"2——👍👌👉👈——\"",
+			"\"3——👍👌👉👈——\"",
+			"\"4——👍👌👉👈——\"",
+			"",
+		]);
 	}
 
 	#[test]

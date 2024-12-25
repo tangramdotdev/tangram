@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
+use futures::{StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::{pin::pin, sync::Arc, time::Duration};
@@ -231,7 +231,7 @@ impl Server {
 					Ok(()) => break,
 					Err(error) if error.is_retry() => continue,
 					Err(source) => {
-						return Err(tg::error!(!source, "failed to commit the transaction"))
+						return Err(tg::error!(!source, "failed to commit the transaction"));
 					},
 				}
 			}

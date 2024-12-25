@@ -5,7 +5,7 @@ use num::ToPrimitive;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_futures::task::Stop;
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Outgoing};
+use tangram_http::{Outgoing, incoming::request::Ext as _, outgoing::response::Ext as _};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
 
 #[allow(dead_code)]
@@ -19,7 +19,8 @@ impl Server {
 		&self,
 		id: &tg::blob::Id,
 		arg: tg::blob::read::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::blob::read::Event>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>>
+	{
 		// Create the reader.
 		let blob = tg::Blob::with_id(id.clone());
 		let reader = blob.reader(self).await?;

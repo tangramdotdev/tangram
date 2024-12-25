@@ -3,7 +3,7 @@ use self::{
 	provider::Provider,
 };
 use super::commands::Commands;
-use futures::{future::BoxFuture, stream::FuturesUnordered, StreamExt as _};
+use futures::{StreamExt as _, future::BoxFuture, stream::FuturesUnordered};
 use num::ToPrimitive;
 use ratatui::prelude::*;
 use std::sync::{Arc, RwLock};
@@ -142,7 +142,7 @@ where
 			.read()
 			.unwrap()
 			.indicator;
-		indicator.map_or(true, |indicator| {
+		indicator.is_none_or(|indicator| {
 			matches!(
 				indicator,
 				Indicator::Canceled | Indicator::Failed | Indicator::Succeeded

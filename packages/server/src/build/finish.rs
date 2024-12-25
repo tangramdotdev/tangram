@@ -1,11 +1,11 @@
 use super::log;
 use crate::Server;
 use bytes::Bytes;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _, outgoing::response::Ext as _};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
@@ -161,7 +161,9 @@ impl Server {
 						));
 					}
 				} else {
-					outcome = tg::build::outcome::Data::Failed(tg::error!("a target with a checksum must have an output that is either an artifact or a blob"));
+					outcome = tg::build::outcome::Data::Failed(tg::error!(
+						"a target with a checksum must have an output that is either an artifact or a blob"
+					));
 				}
 			}
 		}

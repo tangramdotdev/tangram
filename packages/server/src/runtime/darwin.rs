@@ -1,9 +1,9 @@
 use super::{proxy::Proxy, util::render};
-use crate::{temp::Temp, Server};
+use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
+	stream::{FuturesOrdered, FuturesUnordered},
 };
 use indoc::writedoc;
 use num::ToPrimitive as _;
@@ -292,11 +292,11 @@ impl Runtime {
 		// Allow read access to the artifacts directory.
 		writedoc!(
 			profile,
-			r#"
+			r"
 				(allow process-exec* (subpath {0}))
 				(allow file-read* (path-ancestors {0}))
 				(allow file-read* (subpath {0}))
-			"#,
+			",
 			escape(artifacts_directory_path.as_os_str().as_bytes())
 		)
 		.unwrap();
@@ -304,12 +304,12 @@ impl Runtime {
 		// Allow write access to the home directory.
 		writedoc!(
 			profile,
-			r#"
+			r"
 				(allow process-exec* (subpath {0}))
 				(allow file-read* (path-ancestors {0}))
 				(allow file-read* (subpath {0}))
 				(allow file-write* (subpath {0}))
-			"#,
+			",
 			escape(home_directory_path.as_os_str().as_bytes())
 		)
 		.unwrap();
@@ -317,12 +317,12 @@ impl Runtime {
 		// Allow write access to the output parent directory.
 		writedoc!(
 			profile,
-			r#"
+			r"
 				(allow process-exec* (subpath {0}))
 				(allow file-read* (path-ancestors {0}))
 				(allow file-read* (subpath {0}))
 				(allow file-write* (subpath {0}))
-			"#,
+			",
 			escape(output_parent_directory_path.as_os_str().as_bytes())
 		)
 		.unwrap();
@@ -489,7 +489,7 @@ impl Runtime {
 	}
 }
 
-extern "C" {
+unsafe extern "C" {
 	fn sandbox_init(
 		profile: *const libc::c_char,
 		flags: u64,

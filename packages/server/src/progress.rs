@@ -1,7 +1,7 @@
-use futures::{future, stream, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, future, stream};
 use indexmap::IndexMap;
 use std::{
-	sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+	sync::{Arc, Mutex, RwLock, atomic::AtomicU64},
 	time::Duration,
 };
 use tangram_client as tg;
@@ -91,10 +91,7 @@ impl<T> Handle<T> {
 		self.sender.try_send(Err(error)).ok();
 	}
 
-	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + 'static
-	where
-		T: 'static,
-	{
+	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + use<T> {
 		let indicators = self.indicators.clone();
 		let receiver = self.receiver.clone();
 		let interval = Duration::from_millis(100);

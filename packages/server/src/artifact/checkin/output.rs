@@ -1,6 +1,6 @@
 use super::{input, object};
-use crate::{temp::Temp, Server};
-use futures::{stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt as _};
+use crate::{Server, temp::Temp};
+use futures::{FutureExt, StreamExt, TryStreamExt as _, stream::FuturesUnordered};
 use indoc::formatdoc;
 use std::{
 	collections::BTreeSet,
@@ -433,7 +433,7 @@ impl Server {
 					Err(source) => {
 						return Err(
 							tg::error!(!source, %src = input_node.arg.path.display(), %dst = dest.display(), "failed to rename directory"),
-						)
+						);
 					},
 				}
 			}
@@ -469,7 +469,7 @@ impl Server {
 					Err(source) => {
 						return Err(
 							tg::error!(!source, %path = input_node.arg.path.display(), "failed to rename file"),
-						)
+						);
 					},
 				}
 			}

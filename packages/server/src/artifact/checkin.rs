@@ -3,7 +3,7 @@ use futures::{Stream, StreamExt as _};
 use indoc::indoc;
 use std::path::PathBuf;
 use tangram_client as tg;
-use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _};
 use tangram_ignore::Matcher;
 
 mod input;
@@ -19,7 +19,9 @@ impl Server {
 		&self,
 		arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
+		+ Send
+		+ 'static,
 	> {
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({

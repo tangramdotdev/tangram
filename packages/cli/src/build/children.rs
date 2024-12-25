@@ -1,5 +1,6 @@
 use crate::Cli;
-use futures::{StreamExt as _, TryStreamExt as _};
+use futures::TryStreamExt as _;
+use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
 
 /// Get a build's children.
@@ -33,9 +34,10 @@ impl Cli {
 			remote: args.remote,
 			size: args.size,
 		};
-		let mut stream = handle.get_build_children(&args.build, arg).await?.boxed();
+		let stream = handle.get_build_children(&args.build, arg).await?;
 
 		// Print the children.
+		let mut stream = pin!(stream);
 		while let Some(chunk) = stream.try_next().await? {
 			for child in chunk.data {
 				println!("{child}");

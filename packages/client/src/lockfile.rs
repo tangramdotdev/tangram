@@ -69,7 +69,9 @@ impl Lockfile {
 			Ok(contents) => contents,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
 			Err(source) => {
-				return Err(tg::error!(!source, %path = path.display(), "failed to read lockfile"))?
+				return Err(
+					tg::error!(!source, %path = path.display(), "failed to read lockfile"),
+				)?;
 			},
 		};
 		let lockfile = serde_json::from_str(&contents).map_err(

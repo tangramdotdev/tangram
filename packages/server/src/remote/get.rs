@@ -1,6 +1,6 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, outgoing::response::Ext as _};
 
 impl Server {
 	pub async fn try_get_remote(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {

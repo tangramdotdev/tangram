@@ -19,9 +19,9 @@ impl Cli {
 		let handle = self.handle().await?;
 		let host = "js";
 		let executable = tg::File::with_contents(formatdoc!(
-			r#"
+			r"
 				export default tg.target((url, checksum) => tg.download(url, checksum));
-			"#
+			"
 		));
 		let args = vec![
 			"default".into(),

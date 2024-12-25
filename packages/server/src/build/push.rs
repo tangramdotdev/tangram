@@ -1,8 +1,8 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt};
+use futures::{Stream, StreamExt as _, TryStreamExt, stream::FuturesUnordered};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::StreamExt as _;
-use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _};
 
 struct InnerOutput {
 	build_count: u64,
@@ -32,12 +32,18 @@ impl Server {
 		Self::push_or_pull_build(self, &remote, build, arg).await
 	}
 
-	pub(crate) async fn push_or_pull_build(
-		src: &impl tg::Handle,
-		dst: &impl tg::Handle,
+	pub(crate) async fn push_or_pull_build<S, D>(
+		src: &S,
+		dst: &D,
 		build: &tg::build::Id,
 		arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static + use<S, D>,
+	>
+	where
+		S: tg::Handle,
+		D: tg::Handle,
+	{
 		let output = src.get_build(build).await?;
 		let metadata = Self::get_build_metadata(src, &output, &arg).await?;
 		let progress = crate::progress::Handle::new();

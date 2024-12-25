@@ -141,7 +141,7 @@ impl<'a> From<&'a std::panic::Location<'a>> for Location {
 	}
 }
 
-impl<'a> std::fmt::Display for Trace<'a> {
+impl std::fmt::Display for Trace<'_> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let mut errors = vec![self.error];
 		while let Some(next) = errors.last().unwrap().source.as_ref() {
@@ -254,7 +254,7 @@ impl TryFrom<tangram_http::sse::Event> for Error {
 	type Error = tg::Error;
 
 	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
-		if !value.event.as_ref().is_some_and(|event| event == "error") {
+		if value.event.as_ref().is_none_or(|event| event != "error") {
 			return Err(tg::error!("invalid event"));
 		}
 		let error = serde_json::from_str(&value.data)

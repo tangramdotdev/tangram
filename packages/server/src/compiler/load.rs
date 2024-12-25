@@ -113,7 +113,7 @@ impl Compiler {
 				};
 				match item {
 					tg::module::Item::Path(_) => Ok(format!(
-						r#"export default undefined as unknown as tg.{class};"#
+						r"export default undefined as unknown as tg.{class};"
 					)),
 					tg::module::Item::Object(object) => {
 						let object = tg::Object::with_id(object.clone());

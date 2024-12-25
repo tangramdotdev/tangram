@@ -1,8 +1,8 @@
 use super::{Data, Id, Object};
 use crate as tg;
 use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
+	stream::{FuturesOrdered, FuturesUnordered},
 };
 use std::{
 	collections::HashSet,

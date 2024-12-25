@@ -13,7 +13,7 @@ use tokio::{
 };
 use url::Url;
 
-pub use tangram_either::{for_both, Either};
+pub use tangram_either::{Either, for_both};
 
 pub use self::{
 	artifact::Handle as Artifact,
@@ -23,7 +23,7 @@ pub use self::{
 	checksum::Checksum,
 	diagnostic::Diagnostic,
 	directory::Handle as Directory,
-	error::{ok, Error, Result},
+	error::{Error, Result, ok},
 	file::Handle as File,
 	graph::Handle as Graph,
 	handle::Handle,
@@ -405,7 +405,7 @@ impl Client {
 			.get_ref()
 			.1
 			.alpn_protocol()
-			.map_or(false, |protocol| protocol == b"http/1.1");
+			.is_some_and(|protocol| protocol == b"http/1.1");
 		if !success {
 			return Err(tg::error!("failed to negotiate the protocol"));
 		}
@@ -452,7 +452,7 @@ impl Client {
 			.get_ref()
 			.1
 			.alpn_protocol()
-			.map_or(false, |protocol| protocol == b"h2");
+			.is_some_and(|protocol| protocol == b"h2");
 		if !success {
 			return Err(tg::error!("failed to negotiate the protocol"));
 		}
@@ -575,8 +575,8 @@ impl tg::Handle for Client {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-				+ Send
-				+ 'static,
+			+ Send
+			+ 'static,
 		>,
 	> {
 		self.check_in_artifact(arg)
@@ -589,8 +589,8 @@ impl tg::Handle for Client {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-				+ Send
-				+ 'static,
+			+ Send
+			+ 'static,
 		>,
 	> {
 		self.check_out_artifact(id, arg)
@@ -725,7 +725,7 @@ impl tg::Handle for Client {
 		id: &tg::build::Id,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + 'static>,
+			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 		>,
 	> {
 		self.try_get_build_outcome_future(id)
@@ -826,7 +826,7 @@ impl tg::Handle for Client {
 		&self,
 		reference: &tg::Reference,
 	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	       + Send {
+	+ Send {
 		self.try_get_reference(reference)
 	}
 

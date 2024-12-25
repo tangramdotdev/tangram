@@ -428,12 +428,9 @@ impl Cli {
 		let database = tangram_server::config::Database::Sqlite(
 			tangram_server::config::SqliteDatabase::with_path(path.join("database")),
 		);
-		let remotes = [(
-			"default".to_owned(),
-			tangram_server::config::Remote {
-				url: "https://api.tangram.dev".parse().unwrap(),
-			},
-		)]
+		let remotes = [("default".to_owned(), tangram_server::config::Remote {
+			url: "https://api.tangram.dev".parse().unwrap(),
+		})]
 		.into();
 		let url = tangram_server::Config::default_url_for_path(&path);
 		let vfs = if cfg!(target_os = "linux") {
@@ -875,7 +872,7 @@ impl Cli {
 			Err(source) => {
 				return Err(
 					tg::error!(!source, %path = path.display(), "failed to read the config file"),
-				)
+				);
 			},
 		};
 		let config = serde_json::from_str(&config).map_err(
@@ -1036,7 +1033,7 @@ impl Cli {
 		let console_layer = if config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
-			.map_or(false, |advanced| advanced.tokio_console)
+			.is_some_and(|advanced| advanced.tokio_console)
 		{
 			Some(console_subscriber::spawn())
 		} else {

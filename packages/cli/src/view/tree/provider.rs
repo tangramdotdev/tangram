@@ -1,10 +1,10 @@
-use super::{node::Indicator, Method};
+use super::{Method, node::Indicator};
 use futures::{
-	future::{self, BoxFuture},
 	FutureExt as _, StreamExt as _,
+	future::{self, BoxFuture},
 };
 use num::ToPrimitive as _;
-use std::{collections::BTreeMap, fmt::Write as _};
+use std::{collections::BTreeMap, fmt::Write as _, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -82,12 +82,13 @@ impl Provider {
 				let build = build.clone();
 				let sender = sender.clone();
 				let future = async move {
-					let Ok(mut children) = build
+					let Ok(children) = build
 						.children(&handle, tg::build::children::get::Arg::default())
 						.await
 					else {
 						return;
 					};
+					let mut children = pin!(children);
 					while let Some(child) = children.next().await {
 						let Ok(child) = child else {
 							continue;
@@ -160,13 +161,10 @@ impl Provider {
 				let future = async move {
 					let mut last_line = String::new();
 					let Ok(mut log) = build
-						.log(
-							&handle,
-							tg::build::log::get::Arg {
-								position: Some(std::io::SeekFrom::Start(0)),
-								..Default::default()
-							},
-						)
+						.log(&handle, tg::build::log::get::Arg {
+							position: Some(std::io::SeekFrom::Start(0)),
+							..Default::default()
+						})
 						.await
 					else {
 						return;

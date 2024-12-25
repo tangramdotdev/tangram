@@ -1,8 +1,8 @@
 use crate::{
-	pool::{self, Pool},
 	Error as _, Row, Value,
+	pool::{self, Pool},
 };
-use futures::{stream, Future, Stream};
+use futures::{Future, Stream, stream};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
@@ -200,7 +200,7 @@ impl Connection {
 	}
 }
 
-impl<'a> Transaction<'a> {
+impl Transaction<'_> {
 	fn run(
 		connection: &mut sqlite::Connection,
 		sender: tokio::sync::oneshot::Sender<
@@ -290,7 +290,10 @@ impl super::Database for Database {
 impl super::Connection for Connection {
 	type Error = Error;
 
-	type Transaction<'t> = Transaction<'t> where Self: 't;
+	type Transaction<'t>
+		= Transaction<'t>
+	where
+		Self: 't;
 
 	async fn transaction(&mut self) -> Result<Self::Transaction<'_>, Self::Error> {
 		let marker = std::marker::PhantomData;
@@ -305,14 +308,17 @@ impl super::Connection for Connection {
 impl super::Connection for pool::Guard<Connection> {
 	type Error = Error;
 
-	type Transaction<'t> = Transaction<'t> where Self: 't;
+	type Transaction<'t>
+		= Transaction<'t>
+	where
+		Self: 't;
 
 	async fn transaction(&mut self) -> Result<Self::Transaction<'_>, Self::Error> {
 		self.as_mut().transaction().await
 	}
 }
 
-impl<'a> super::Transaction for Transaction<'a> {
+impl super::Transaction for Transaction<'_> {
 	type Error = Error;
 
 	async fn rollback(self) -> Result<(), Self::Error> {
@@ -461,7 +467,7 @@ impl super::Query for pool::Guard<Connection> {
 	}
 }
 
-impl<'t> super::Query for Transaction<'t> {
+impl super::Query for Transaction<'_> {
 	type Error = Error;
 
 	fn p(&self) -> &'static str {

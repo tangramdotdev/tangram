@@ -3,7 +3,7 @@ use num::ToPrimitive;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, outgoing::response::Ext as _};
 
 impl Server {
 	pub async fn health(&self) -> tg::Result<tg::Health> {
@@ -93,7 +93,7 @@ impl Server {
 
 #[cfg(test)]
 mod tests {
-	use crate::{util::fs::cleanup, Config, Server};
+	use crate::{Config, Server, util::fs::cleanup};
 	use futures::FutureExt as _;
 	use insta::assert_json_snapshot;
 	use std::panic::AssertUnwindSafe;

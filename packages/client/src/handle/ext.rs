@@ -1,8 +1,7 @@
 use crate as tg;
 use futures::{
-	future,
+	Future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
 	stream::{self, BoxStream},
-	Future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use num::ToPrimitive as _;
 use std::{
@@ -337,7 +336,7 @@ pub trait Ext: tg::Handle {
 				let mut state = state.lock().unwrap();
 
 				// Compute the end condition.
-				let forward = state.arg.length.map_or(true, |l| l >= 0);
+				let forward = state.arg.length.is_none_or(|l| l >= 0);
 				state.end = chunk.bytes.is_empty()
 					|| (!forward && chunk.position == 0)
 					|| matches!(state.arg.length, Some(0));

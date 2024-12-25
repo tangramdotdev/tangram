@@ -432,7 +432,7 @@ where
 	}
 }
 
-impl<'a, T> Encode for &'a T
+impl<T> Encode for &T
 where
 	T: Encode,
 {

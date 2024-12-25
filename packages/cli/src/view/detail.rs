@@ -52,7 +52,7 @@ where
 
 	pub fn hit_test(&self, x: u16, y: u16) -> bool {
 		self.info.hit_test(x, y)
-			|| self.data.as_ref().map_or(false, |data| match data {
+			|| self.data.as_ref().is_some_and(|data| match data {
 				Either::Left(log) => log.hit_test(x, y),
 				Either::Right(data) => data.hit_test(x, y),
 			})

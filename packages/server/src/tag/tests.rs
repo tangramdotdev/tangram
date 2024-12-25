@@ -1,4 +1,4 @@
-use crate::{util::fs::cleanup, Config, Server};
+use crate::{Config, Server, util::fs::cleanup};
 use futures::FutureExt as _;
 use insta::assert_json_snapshot;
 use std::panic::AssertUnwindSafe;
@@ -227,12 +227,9 @@ async fn remote_put() -> tg::Result<()> {
 
 	let server_temp = Temp::new();
 	let mut server_config = Config::with_path(server_temp.path().to_owned());
-	server_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
+	server_config.remotes = [("default".to_owned(), crate::config::Remote {
+		url: remote.url().clone(),
+	})]
 	.into();
 	let server = Server::start(server_config).await?;
 

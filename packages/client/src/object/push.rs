@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

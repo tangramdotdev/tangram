@@ -1,4 +1,4 @@
-use crate::{util::fs::cleanup, Config, Server};
+use crate::{Config, Server, util::fs::cleanup};
 use futures::FutureExt;
 use insta::assert_snapshot;
 use std::panic::AssertUnwindSafe;

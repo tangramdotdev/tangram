@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 pub type Arg = super::push::Arg;
@@ -14,8 +14,8 @@ impl tg::Build {
 		H: tg::Handle,
 	{
 		let id = self.id();
-		let stream = handle.pull_build(id, arg).await?;
-		Ok(stream.boxed())
+		let stream = handle.pull_build(id, arg).await?.boxed();
+		Ok(stream)
 	}
 }
 

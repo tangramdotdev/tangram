@@ -1,5 +1,5 @@
 use super::Graph;
-use crate::{util::fs::cleanup, Config, Server};
+use crate::{Config, Server, util::fs::cleanup};
 use futures::FutureExt;
 use indoc::indoc;
 use insta::assert_snapshot;

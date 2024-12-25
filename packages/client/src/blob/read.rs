@@ -1,19 +1,18 @@
 use crate::{
-	self as tg,
+	self as tg, Client,
 	handle::Ext as _,
 	util::serde::{BytesBase64, SeekFromString},
-	Client,
 };
 use bytes::{Buf, Bytes};
 use futures::{
-	future::{self, BoxFuture},
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+	future::{self, BoxFuture},
 };
 use num::ToPrimitive as _;
 use serde_with::serde_as;
 use std::{
 	io::Cursor,
-	pin::{pin, Pin},
+	pin::{Pin, pin},
 };
 use sync_wrapper::SyncWrapper;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
@@ -381,7 +380,7 @@ impl Client {
 		&self,
 		id: &tg::blob::Id,
 		arg: Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<Event>>>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<Event>> + Send + 'static>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/blobs/{id}/read?{query}");

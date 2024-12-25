@@ -6,7 +6,7 @@ use std::{
 	io::IsTerminal as _,
 	path::{Path, PathBuf},
 };
-use tangram_client::{self as tg, handle::Ext as _, Handle};
+use tangram_client::{self as tg, Handle, handle::Ext as _};
 use tangram_either::Either;
 
 /// Build a target.
@@ -187,12 +187,12 @@ impl Cli {
 					let name = name.ok_or_else(|| tg::error!("no root module found"))?;
 					let kind = if Path::new(name)
 						.extension()
-						.map_or(false, |extension| extension == "js")
+						.is_some_and(|extension| extension == "js")
 					{
 						tg::module::Kind::Js
 					} else if Path::new(name)
 						.extension()
-						.map_or(false, |extension| extension == "ts")
+						.is_some_and(|extension| extension == "ts")
 					{
 						tg::module::Kind::Ts
 					} else {
@@ -220,15 +220,9 @@ impl Cli {
 						} else {
 							path.clone()
 						};
-						if path
-							.extension()
-							.map_or(false, |extension| extension == "js")
-						{
+						if path.extension().is_some_and(|extension| extension == "js") {
 							tg::module::Kind::Js
-						} else if path
-							.extension()
-							.map_or(false, |extension| extension == "ts")
-						{
+						} else if path.extension().is_some_and(|extension| extension == "ts") {
 							tg::module::Kind::Ts
 						} else {
 							return Err(tg::error!("invalid file extension"));

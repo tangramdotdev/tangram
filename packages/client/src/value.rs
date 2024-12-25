@@ -2,8 +2,8 @@ use self::{parse::parse, print::Printer};
 use crate as tg;
 use bytes::Bytes;
 use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
+	stream::{FuturesOrdered, FuturesUnordered},
 };
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
@@ -374,7 +374,7 @@ impl<'de> serde::Deserialize<'de> for Data {
 								"mutation" => Data::Mutation(map.next_value()?),
 								"template" => Data::Template(map.next_value()?),
 								_ => {
-									return Err(serde::de::Error::unknown_variant(kind, &["kind"]))
+									return Err(serde::de::Error::unknown_variant(kind, &["kind"]));
 								},
 							});
 						},

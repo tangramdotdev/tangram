@@ -1,8 +1,8 @@
 use super::{Builder, Data, Id, Object};
 use crate::{self as tg, util::arc::Ext as _};
 use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
+	stream::{FuturesOrdered, FuturesUnordered},
 };
 use std::{collections::BTreeMap, sync::Arc};
 

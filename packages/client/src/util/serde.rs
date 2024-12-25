@@ -20,7 +20,7 @@ impl<'de> serde_with::DeserializeAs<'de, Bytes> for BytesBase64 {
 	{
 		struct Visitor;
 
-		impl<'de> serde::de::Visitor<'de> for Visitor {
+		impl serde::de::Visitor<'_> for Visitor {
 			type Value = Bytes;
 
 			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -66,7 +66,7 @@ impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromString {
 	{
 		struct Visitor;
 
-		impl<'de> serde::de::Visitor<'de> for Visitor {
+		impl serde::de::Visitor<'_> for Visitor {
 			type Value = std::io::SeekFrom;
 
 			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

@@ -1,7 +1,7 @@
 use self::{document::Document, syscall::syscall};
-use crate::{temp::Temp, Server};
+use crate::{Server, temp::Temp};
 use dashmap::DashMap;
-use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt};
+use futures::{Future, FutureExt as _, TryFutureExt as _, TryStreamExt, future};
 use lsp_types::{self as lsp, notification::Notification as _, request::Request as _};
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
@@ -11,7 +11,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::{Stop, Task};
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{Incoming, Outgoing, outgoing::response::Ext as _};
 use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
@@ -925,10 +925,10 @@ impl crate::Server {
 		H: tg::Handle,
 	{
 		// Ensure the connection header is set correctly.
-		if !request
+		if request
 			.headers()
 			.get(http::header::CONNECTION)
-			.is_some_and(|value| value == "upgrade")
+			.is_none_or(|value| value != "upgrade")
 		{
 			return Err(tg::error!(
 				"expected the connection header to be set to upgrade"
@@ -936,10 +936,10 @@ impl crate::Server {
 		}
 
 		// Ensure the upgrade header is set correctly.
-		if !request
+		if request
 			.headers()
 			.get(http::header::UPGRADE)
-			.is_some_and(|value| value == "lsp")
+			.is_none_or(|value| value != "lsp")
 		{
 			return Err(tg::error!("expected the upgrade header to be set to lsp"));
 		}

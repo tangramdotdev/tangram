@@ -53,7 +53,9 @@ fn main() {
 				std::fs::read(&path).unwrap()
 			} else {
 				// Compute the URL.
-				let url = format!("https://github.com/tangramdotdev/bootstrap/releases/download/{version}/{name}.tar.zst");
+				let url = format!(
+					"https://github.com/tangramdotdev/bootstrap/releases/download/{version}/{name}.tar.zst"
+				);
 
 				// Download.
 				reqwest::blocking::get(url).unwrap().bytes().unwrap().into()
