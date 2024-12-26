@@ -894,9 +894,12 @@ async fn import_from_tag() -> tg::Result<()> {
 	server_config.build = Some(tangram_server::config::Build::default());
 	server_config.build_heartbeat_monitor =
 		Some(tangram_server::config::BuildHeartbeatMonitor::default());
-	server_config.remotes = [("default".to_owned(), tangram_server::config::Remote {
-		url: remote.url().clone(),
-	})]
+	server_config.remotes = [(
+		"default".to_owned(),
+		tangram_server::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
 	.into();
 	let server = Server::start(server_config).await?;
 
@@ -1288,9 +1291,12 @@ where
 	let remote = Server::start(remote_options).await?;
 	let local_temp = Temp::new_persistent();
 	let mut local_options = Config::with_path(local_temp.path().to_owned());
-	local_options.remotes = [("default".to_owned(), tangram_server::config::Remote {
-		url: remote.url().clone(),
-	})]
+	local_options.remotes = [(
+		"default".to_owned(),
+		tangram_server::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
 	.into();
 	let local = Server::start(local_options).await?;
 	let result = AssertUnwindSafe(async {
@@ -1336,9 +1342,12 @@ where
 		};
 		let target = target.id(&local).await?;
 		let push_stream = local
-			.push_object(&target.clone().into(), tg::object::push::Arg {
-				remote: "default".to_string(),
-			})
+			.push_object(
+				&target.clone().into(),
+				tg::object::push::Arg {
+					remote: "default".to_string(),
+				},
+			)
 			.await?;
 		pin!(push_stream)
 			.try_last()

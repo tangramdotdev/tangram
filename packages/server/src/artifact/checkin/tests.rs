@@ -1,4 +1,4 @@
-use crate::{Config, Server, util::fs::cleanup};
+use crate::{util::fs::cleanup, Config, Server};
 use futures::{Future, FutureExt as _};
 use indoc::indoc;
 use insta::{assert_json_snapshot, assert_snapshot};
@@ -1389,18 +1389,24 @@ async fn tagged_package_survives_clean() -> tg::Result<()> {
 	// Create one local server.
 	let temp2 = Temp::new();
 	let mut options = Config::with_path(temp2.path().to_owned());
-	options.remotes = [("default".to_owned(), crate::config::Remote {
-		url: remote.url().clone(),
-	})]
+	options.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
 	.into();
 	let local1 = Server::start(options.clone()).await?;
 
 	// Create a second local server.
 	let temp3 = Temp::new();
 	let mut options = Config::with_path(temp3.path().to_owned());
-	options.remotes = [("default".to_owned(), crate::config::Remote {
-		url: remote.url().clone(),
-	})]
+	options.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: remote.url().clone(),
+		},
+	)]
 	.into();
 	let local2 = Server::start(options.clone()).await?;
 
@@ -1823,14 +1829,18 @@ async fn tagged_package_with_cyclic_dependency() -> tg::Result<()> {
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
-		publish(&server, "a", temp::directory! {
-			"tangram.ts" => indoc::indoc!(r#"
+		publish(
+			&server,
+			"a",
+			temp::directory! {
+				"tangram.ts" => indoc::indoc!(r#"
 					import foo from "./foo.tg.ts";
 				"#),
-			"foo.tg.ts" => indoc::indoc!(r#"
+				"foo.tg.ts" => indoc::indoc!(r#"
 					import * as a from "./tangram.ts";
 				"#),
-		})
+			},
+		)
 		.await?;
 		let artifact = temp::directory! {
 			"tangram.ts" => indoc::indoc!(r#"
@@ -2168,9 +2178,12 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 	let temp2 = Temp::new();
 	// todo: configure the second server to use the first server as a remote.
 	let mut config = Config::with_path(temp2.path().to_owned());
-	config.remotes = [("default".to_owned(), crate::config::Remote {
-		url: server1.url().clone(),
-	})]
+	config.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: server1.url().clone(),
+		},
+	)]
 	.into();
 	let server2 = Server::start(config).await?;
 
@@ -2192,9 +2205,12 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 	// Create the second server again.
 	let temp2 = Temp::new();
 	let mut config = Config::with_path(temp2.path().to_owned());
-	config.remotes = [("default".to_owned(), crate::config::Remote {
-		url: server1.url().clone(),
-	})]
+	config.remotes = [(
+		"default".to_owned(),
+		crate::config::Remote {
+			url: server1.url().clone(),
+		},
+	)]
 	.into();
 	let server2 = Server::start(config).await?;
 
@@ -2301,11 +2317,14 @@ where
 		for (tag, object) in tags {
 			let id = object.into().id(&server).await?;
 			server
-				.put_tag(&tag.into(), tg::tag::put::Arg {
-					force: false,
-					item: Either::Right(id),
-					remote: None,
-				})
+				.put_tag(
+					&tag.into(),
+					tg::tag::put::Arg {
+						force: false,
+						item: Either::Right(id),
+						remote: None,
+					},
+				)
 				.await?;
 		}
 		let temp = Temp::new();

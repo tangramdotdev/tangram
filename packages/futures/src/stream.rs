@@ -132,7 +132,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::StreamExt as _;
-	use futures::{StreamExt as _, future, stream};
+	use futures::{future, stream, StreamExt as _};
 
 	#[tokio::test]
 	async fn take_while_inclusive() {

@@ -1,6 +1,6 @@
 use crate::{Config, Server};
 use bytes::Bytes;
-use futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered};
+use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use std::{fmt::Debug, panic::AssertUnwindSafe};
 use tangram_client as tg;
 use tangram_either::Either;
@@ -135,16 +135,19 @@ async fn test_objects() -> tg::Result<()> {
 		server.clean().await?;
 
 		// Assert.
-		assert_object_presence(&server, vec![
-			(a.clone().into(), false),
-			(b, false),
-			(c, true),
-			(d, false),
-			(e, false),
-			(f, false),
-			(g, true),
-			(h, true),
-		])
+		assert_object_presence(
+			&server,
+			vec![
+				(a.clone().into(), false),
+				(b, false),
+				(c, true),
+				(d, false),
+				(e, false),
+				(f, false),
+				(g, true),
+				(h, true),
+			],
+		)
 		.await?;
 
 		Ok::<_, tg::Error>(())

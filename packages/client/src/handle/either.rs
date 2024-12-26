@@ -14,8 +14,8 @@ where
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-			+ Send
-			+ 'static,
+				+ Send
+				+ 'static,
 		>,
 	> {
 		match self {
@@ -37,8 +37,8 @@ where
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-			+ Send
-			+ 'static,
+				+ Send
+				+ 'static,
 		>,
 	> {
 		match self {
@@ -412,7 +412,7 @@ where
 		&self,
 		reference: &tg::Reference,
 	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	+ Send {
+	       + Send {
 		match self {
 			Either::Left(s) => s.try_get_reference(reference).left_future(),
 			Either::Right(s) => s.try_get_reference(reference).right_future(),

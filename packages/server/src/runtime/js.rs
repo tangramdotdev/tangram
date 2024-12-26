@@ -1,9 +1,9 @@
 use self::syscall::syscall;
-use crate::{Server, compiler::Compiler};
+use crate::{compiler::Compiler, Server};
 use futures::{
-	FutureExt as _, StreamExt as _, TryFutureExt as _,
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
+	FutureExt as _, StreamExt as _, TryFutureExt as _,
 };
 use num::ToPrimitive;
 use sourcemap::SourceMap;

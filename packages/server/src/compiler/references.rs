@@ -1,5 +1,5 @@
 use super::Compiler;
-use futures::{TryStreamExt as _, stream::FuturesOrdered};
+use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use lsp_types as lsp;
 use tangram_client as tg;
 

@@ -1,10 +1,10 @@
 use crate::Server;
-use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
+use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{Incoming, Outgoing, outgoing::response::Ext as _};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_build(

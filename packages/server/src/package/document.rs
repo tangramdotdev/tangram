@@ -1,7 +1,7 @@
-use crate::{Server, compiler::Compiler};
+use crate::{compiler::Compiler, Server};
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _, outgoing::response::Ext as _};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn document_package(

@@ -1,5 +1,5 @@
-use super::{Options, provider::Provider};
-use futures::{StreamExt as _, future, stream::FuturesUnordered};
+use super::{provider::Provider, Options};
+use futures::{future, stream::FuturesUnordered, StreamExt as _};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{

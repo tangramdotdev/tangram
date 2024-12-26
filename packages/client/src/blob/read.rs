@@ -1,18 +1,19 @@
 use crate::{
-	self as tg, Client,
+	self as tg,
 	handle::Ext as _,
 	util::serde::{BytesBase64, SeekFromString},
+	Client,
 };
 use bytes::{Buf, Bytes};
 use futures::{
-	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 	future::{self, BoxFuture},
+	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use num::ToPrimitive as _;
 use serde_with::serde_as;
 use std::{
 	io::Cursor,
-	pin::{Pin, pin},
+	pin::{pin, Pin},
 };
 use sync_wrapper::SyncWrapper;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};

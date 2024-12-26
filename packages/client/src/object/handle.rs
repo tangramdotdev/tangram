@@ -1,6 +1,6 @@
 use super::{Data, Id, Object as Object_};
 use crate as tg;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 
 #[derive(
 	Clone,

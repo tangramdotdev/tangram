@@ -5,7 +5,7 @@ use num::ToPrimitive;
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_futures::task::Stop;
-use tangram_http::{Outgoing, incoming::request::Ext as _, outgoing::response::Ext as _};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Outgoing};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
 
 #[allow(dead_code)]

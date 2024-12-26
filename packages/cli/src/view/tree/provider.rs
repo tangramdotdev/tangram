@@ -1,7 +1,7 @@
-use super::{Method, node::Indicator};
+use super::{node::Indicator, Method};
 use futures::{
-	FutureExt as _, StreamExt as _,
 	future::{self, BoxFuture},
+	FutureExt as _, StreamExt as _,
 };
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, fmt::Write as _, pin::pin};
@@ -161,10 +161,13 @@ impl Provider {
 				let future = async move {
 					let mut last_line = String::new();
 					let Ok(mut log) = build
-						.log(&handle, tg::build::log::get::Arg {
-							position: Some(std::io::SeekFrom::Start(0)),
-							..Default::default()
-						})
+						.log(
+							&handle,
+							tg::build::log::get::Arg {
+								position: Some(std::io::SeekFrom::Start(0)),
+								..Default::default()
+							},
+						)
 						.await
 					else {
 						return;

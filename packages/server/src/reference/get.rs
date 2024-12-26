@@ -3,7 +3,7 @@ use std::{path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::TryStreamExt as _;
-use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _, outgoing::response::Ext as _};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn try_get_reference(

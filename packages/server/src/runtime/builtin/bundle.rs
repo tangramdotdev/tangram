@@ -1,6 +1,6 @@
 use super::Runtime;
 use crate::database::Transaction;
-use futures::{TryStreamExt as _, stream::FuturesOrdered};
+use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use std::path::PathBuf;
 use tangram_client as tg;
 

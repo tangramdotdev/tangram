@@ -1,11 +1,11 @@
-use futures::{StreamExt as _, TryStreamExt as _, future};
+use futures::{future, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
 	io::SeekFrom,
 	sync::{
-		Arc, Mutex,
 		atomic::{AtomicBool, AtomicU64, Ordering},
+		Arc, Mutex,
 	},
 	time::Duration,
 };
@@ -314,11 +314,14 @@ where
 		// Create the stream.
 		let mut stream = self
 			.build
-			.log(&self.handle, tg::build::log::get::Arg {
-				length,
-				position,
-				..Default::default()
-			})
+			.log(
+				&self.handle,
+				tg::build::log::get::Arg {
+					length,
+					position,
+					..Default::default()
+				},
+			)
 			.await?;
 
 		// Spawn the log task if necessary.

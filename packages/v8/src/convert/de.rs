@@ -1,5 +1,5 @@
 use num::ToPrimitive as _;
-use serde::{Deserialize as _, Deserializer as _, de::Error as _};
+use serde::{de::Error as _, Deserialize as _, Deserializer as _};
 
 pub struct Deserializer<'a, 's> {
 	scope: &'a mut v8::HandleScope<'s>,

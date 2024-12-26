@@ -1,11 +1,11 @@
 use crate::Server;
 use dashmap::{DashMap, DashSet};
-use futures::{Stream, StreamExt as _, TryStreamExt as _, stream::FuturesUnordered};
+use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::task::Task;
-use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _};
+use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tokio_util::io::InspectReader;
 
 mod lockfile;
@@ -48,8 +48,8 @@ impl Server {
 		arg: tg::artifact::checkout::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-		+ Send
-		+ 'static,
+			+ Send
+			+ 'static,
 	> {
 		// Get the object metadata.
 		let metadata = self

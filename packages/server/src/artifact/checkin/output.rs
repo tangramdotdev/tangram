@@ -1,6 +1,6 @@
 use super::{input, object};
-use crate::{Server, temp::Temp};
-use futures::{FutureExt, StreamExt, TryStreamExt as _, stream::FuturesUnordered};
+use crate::{temp::Temp, Server};
+use futures::{stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
 use std::{
 	collections::BTreeSet,

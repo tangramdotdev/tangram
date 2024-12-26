@@ -428,9 +428,12 @@ impl Cli {
 		let database = tangram_server::config::Database::Sqlite(
 			tangram_server::config::SqliteDatabase::with_path(path.join("database")),
 		);
-		let remotes = [("default".to_owned(), tangram_server::config::Remote {
-			url: "https://api.tangram.dev".parse().unwrap(),
-		})]
+		let remotes = [(
+			"default".to_owned(),
+			tangram_server::config::Remote {
+				url: "https://api.tangram.dev".parse().unwrap(),
+			},
+		)]
 		.into();
 		let url = tangram_server::Config::default_url_for_path(&path);
 		let vfs = if cfg!(target_os = "linux") {

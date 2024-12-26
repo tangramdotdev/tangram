@@ -1,4 +1,4 @@
-use super::{Compiler, document::Document};
+use super::{document::Document, Compiler};
 use tangram_client as tg;
 
 impl Compiler {

@@ -598,12 +598,15 @@ impl Server {
 							subpath,
 						} = referent;
 						let item = item.unwrap_right();
-						(reference, tg::Referent {
-							item,
-							path,
-							subpath,
-							tag,
-						})
+						(
+							reference,
+							tg::Referent {
+								item,
+								path,
+								subpath,
+								tag,
+							},
+						)
 					})
 					.collect();
 				tg::file::Data::Normal {

@@ -2,7 +2,7 @@ use self::{database::Database, messenger::Messenger, runtime::Runtime};
 use async_nats as nats;
 use compiler::Compiler;
 use dashmap::DashMap;
-use futures::{Future, FutureExt as _, Stream, future};
+use futures::{future, Future, FutureExt as _, Stream};
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools as _;
@@ -20,7 +20,7 @@ use tangram_client as tg;
 use tangram_database as db;
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
-use tangram_http::{Incoming, Outgoing, outgoing::response::Ext as _};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
 	net::{TcpListener, UnixListener},
@@ -957,8 +957,8 @@ impl tg::Handle for Server {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-			+ Send
-			+ 'static,
+				+ Send
+				+ 'static,
 		>,
 	> {
 		self.check_in_artifact(arg)
@@ -971,8 +971,8 @@ impl tg::Handle for Server {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-			+ Send
-			+ 'static,
+				+ Send
+				+ 'static,
 		>,
 	> {
 		self.check_out_artifact(id, arg)

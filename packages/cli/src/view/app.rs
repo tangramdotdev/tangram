@@ -4,8 +4,8 @@ use crossterm::event::{Event, KeyEvent, MouseEvent, MouseEventKind};
 use derive_more::Debug;
 use ratatui::{self as tui, prelude::*};
 use std::sync::{
-	Arc, RwLock,
 	atomic::{AtomicBool, Ordering},
+	Arc, RwLock,
 };
 use tangram_client as tg;
 use tangram_either::Either;

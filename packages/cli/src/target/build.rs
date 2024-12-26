@@ -6,7 +6,7 @@ use std::{
 	io::IsTerminal as _,
 	path::{Path, PathBuf},
 };
-use tangram_client::{self as tg, Handle, handle::Ext as _};
+use tangram_client::{self as tg, handle::Ext as _, Handle};
 use tangram_either::Either;
 
 /// Build a target.

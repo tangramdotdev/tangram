@@ -1,6 +1,6 @@
-use crate::{Error, Incoming, sse};
+use crate::{sse, Error, Incoming};
 use bytes::Bytes;
-use futures::{Future, Stream, TryStreamExt as _, future};
+use futures::{future, Future, Stream, TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use tokio::io::AsyncBufRead;
 use tokio_util::io::StreamReader;

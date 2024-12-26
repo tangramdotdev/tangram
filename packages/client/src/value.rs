@@ -2,8 +2,8 @@ use self::{parse::parse, print::Printer};
 use crate as tg;
 use bytes::Bytes;
 use futures::{
-	TryStreamExt as _,
 	stream::{FuturesOrdered, FuturesUnordered},
+	TryStreamExt as _,
 };
 use itertools::Itertools as _;
 use num::ToPrimitive as _;

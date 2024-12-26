@@ -1,6 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use super::{FutureOutput, State, error::capture_stack_trace};
+use super::{error::capture_stack_trace, FutureOutput, State};
 use futures::{Future, FutureExt as _};
 use itertools::Itertools as _;
 use std::rc::Rc;

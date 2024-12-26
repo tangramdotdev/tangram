@@ -1,4 +1,4 @@
-use crate::{Config, Server, util::fs::cleanup};
+use crate::{util::fs::cleanup, Config, Server};
 use futures::{Future, FutureExt as _};
 use insta::assert_snapshot;
 use std::panic::AssertUnwindSafe;
@@ -233,8 +233,8 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() ->
 
 /// Test bundling dependencies that contain artifact/path symlinks.
 #[tokio::test]
-async fn directory_containing_file_with_directory_dependency_artifact_path_symlink()
--> tg::Result<()> {
+async fn directory_containing_file_with_directory_dependency_artifact_path_symlink(
+) -> tg::Result<()> {
 	let temp = Temp::new();
 	let mut options = Config::with_path(temp.path().to_owned());
 	options.build = Some(crate::config::Build::default());

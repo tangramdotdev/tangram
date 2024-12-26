@@ -1,11 +1,11 @@
 use crate::Server;
-use futures::{StreamExt as _, stream::FuturesUnordered};
+use futures::{stream::FuturesUnordered, StreamExt as _};
 use hyper::body::Incoming;
 use num::ToPrimitive;
 use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{Outgoing, incoming::request::Ext as _, outgoing::response::Ext as _};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Outgoing};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {

@@ -233,11 +233,9 @@ mod tests {
 		assert!("hello/".parse::<tg::Tag>().is_err());
 		assert!("hello//world".parse::<tg::Tag>().is_err());
 
-		assert!(
-			"fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
-				.parse::<tg::Tag>()
-				.is_err()
-		);
+		assert!("fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
+			.parse::<tg::Tag>()
+			.is_err());
 		assert!(
 			"hello/fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260/world"
 				.parse::<tg::Tag>()

@@ -1,6 +1,6 @@
 use super::{
-	Tree,
 	node::{Indicator, Node},
+	Tree,
 };
 use num::ToPrimitive as _;
 use std::fmt::Write as _;

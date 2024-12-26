@@ -1,4 +1,4 @@
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use itertools::Itertools;
 use std::{
 	borrow::Cow,

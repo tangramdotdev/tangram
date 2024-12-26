@@ -1,8 +1,8 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, stream::FuturesUnordered};
+use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _};
+use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 #[cfg(test)]
 mod tests;

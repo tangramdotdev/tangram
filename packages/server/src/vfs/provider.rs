@@ -1,4 +1,4 @@
-use crate::{Server, temp::Temp};
+use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::TryStreamExt as _;
@@ -9,8 +9,8 @@ use std::{
 	os::unix::ffi::OsStrExt,
 	path::PathBuf,
 	sync::{
-		Arc,
 		atomic::{AtomicU64, Ordering},
+		Arc,
 	},
 };
 use tangram_client::{self as tg, handle::Ext as _};
@@ -245,11 +245,14 @@ impl vfs::Provider for Provider {
 		// Create the blob stream.
 		let stream = self
 			.server
-			.try_read_blob(&file_handle.blob, tg::blob::read::Arg {
-				position: Some(std::io::SeekFrom::Start(position)),
-				length: Some(length),
-				size: None,
-			})
+			.try_read_blob(
+				&file_handle.blob,
+				tg::blob::read::Arg {
+					position: Some(std::io::SeekFrom::Start(position)),
+					length: Some(length),
+					size: None,
+				},
+			)
 			.await
 			.map_err(|error| {
 				tracing::error!(%error, "failed to read blob");

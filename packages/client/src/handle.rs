@@ -15,8 +15,8 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-			+ Send
-			+ 'static,
+				+ Send
+				+ 'static,
 		>,
 	> + Send;
 
@@ -27,8 +27,8 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-			+ Send
-			+ 'static,
+				+ Send
+				+ 'static,
 		>,
 	> + Send;
 
@@ -214,7 +214,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		reference: &tg::Reference,
 	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	+ Send;
+	       + Send;
 
 	fn list_remotes(
 		&self,

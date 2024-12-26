@@ -1,6 +1,6 @@
 use crate::Cli;
 use crossterm::{self as ct, style::Stylize as _};
-use futures::{Stream, stream::TryStreamExt as _};
+use futures::{stream::TryStreamExt as _, Stream};
 use indexmap::IndexMap;
 use std::{
 	io::{IsTerminal as _, Write as _},

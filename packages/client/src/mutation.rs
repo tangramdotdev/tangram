@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{TryStreamExt as _, stream::FuturesOrdered};
+use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::collections::BTreeSet;
 

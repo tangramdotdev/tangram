@@ -1,4 +1,4 @@
-use crate::{Config, Server, util::fs::cleanup};
+use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt as _;
 use indoc::indoc;
 use insta::assert_json_snapshot;

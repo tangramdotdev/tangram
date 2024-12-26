@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{Outgoing, incoming::response::Ext as _};
+use tangram_http::{incoming::response::Ext as _, Outgoing};
 use tokio::io::AsyncRead;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

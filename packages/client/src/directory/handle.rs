@@ -1,6 +1,6 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tangram_either::Either;
 

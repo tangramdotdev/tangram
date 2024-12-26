@@ -13,7 +13,7 @@ use tokio::{
 };
 use url::Url;
 
-pub use tangram_either::{Either, for_both};
+pub use tangram_either::{for_both, Either};
 
 pub use self::{
 	artifact::Handle as Artifact,
@@ -23,7 +23,7 @@ pub use self::{
 	checksum::Checksum,
 	diagnostic::Diagnostic,
 	directory::Handle as Directory,
-	error::{Error, Result, ok},
+	error::{ok, Error, Result},
 	file::Handle as File,
 	graph::Handle as Graph,
 	handle::Handle,
@@ -575,8 +575,8 @@ impl tg::Handle for Client {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-			+ Send
-			+ 'static,
+				+ Send
+				+ 'static,
 		>,
 	> {
 		self.check_in_artifact(arg)
@@ -589,8 +589,8 @@ impl tg::Handle for Client {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-			+ Send
-			+ 'static,
+				+ Send
+				+ 'static,
 		>,
 	> {
 		self.check_out_artifact(id, arg)
@@ -826,7 +826,7 @@ impl tg::Handle for Client {
 		&self,
 		reference: &tg::Reference,
 	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	+ Send {
+	       + Send {
 		self.try_get_reference(reference)
 	}
 

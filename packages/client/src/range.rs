@@ -197,15 +197,18 @@ mod tests {
 
 		// Dealing with ranges for an empty string is a bit fuzzy, and is currently "lossy".
 		assert_eq!(full_range.to_byte_range_in_string(string), 0..0);
-		assert_eq!(Range::from_byte_range_in_string(string, 0..0), Range {
-			start: tg::Position {
-				line: 1,
-				character: 0
-			},
-			end: tg::Position {
-				line: 1,
-				character: 0
-			},
-		});
+		assert_eq!(
+			Range::from_byte_range_in_string(string, 0..0),
+			Range {
+				start: tg::Position {
+					line: 1,
+					character: 0
+				},
+				end: tg::Position {
+					line: 1,
+					character: 0
+				},
+			}
+		);
 	}
 }

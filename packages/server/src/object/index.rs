@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered};
+use futures::{future, stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::{pin::pin, sync::Arc, time::Duration};

@@ -1,8 +1,8 @@
 use crate::Server;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use std::path::Path;
 use tangram_client as tg;
-use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _, outgoing::response::Ext as _};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_ignore::Matcher;
 
 #[cfg(test)]

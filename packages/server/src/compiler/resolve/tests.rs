@@ -1,4 +1,4 @@
-use crate::{Config, Server, compiler::Compiler};
+use crate::{compiler::Compiler, Config, Server};
 use futures::{Future, FutureExt};
 use pretty_assertions::assert_eq;
 use std::{panic::AssertUnwindSafe, path::PathBuf};
@@ -154,15 +154,18 @@ where
 		artifact.to_path(temp.as_ref()).await.map_err(
 			|source| tg::error!(!source, %path = temp.path().display(), "failed to write the artifact"),
 		)?;
-		tg::Artifact::check_in(&server, tg::artifact::checkin::Arg {
-			cache: false,
-			destructive: false,
-			deterministic: false,
-			ignore: true,
-			locked: false,
-			lockfile: true,
-			path: temp.path().to_owned(),
-		})
+		tg::Artifact::check_in(
+			&server,
+			tg::artifact::checkin::Arg {
+				cache: false,
+				destructive: false,
+				deterministic: false,
+				ignore: true,
+				locked: false,
+				lockfile: true,
+				path: temp.path().to_owned(),
+			},
+		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
 
@@ -208,15 +211,18 @@ where
 		artifact.to_path(directory.as_ref()).await.map_err(
 			|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
 		)?;
-		let artifact = tg::Artifact::check_in(&server, tg::artifact::checkin::Arg {
-			cache: false,
-			destructive: false,
-			deterministic: false,
-			ignore: true,
-			locked: false,
-			lockfile: true,
-			path: directory.path().to_owned(),
-		})
+		let artifact = tg::Artifact::check_in(
+			&server,
+			tg::artifact::checkin::Arg {
+				cache: false,
+				destructive: false,
+				deterministic: false,
+				ignore: true,
+				locked: false,
+				lockfile: true,
+				path: directory.path().to_owned(),
+			},
+		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
 

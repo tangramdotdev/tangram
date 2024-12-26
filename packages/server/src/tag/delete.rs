@@ -2,7 +2,7 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{Incoming, Outgoing, outgoing::response::Ext as _};
+use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn delete_tag(&self, tag: &tg::Tag) -> tg::Result<()> {

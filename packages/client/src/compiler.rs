@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{TryFutureExt as _, future};
+use futures::{future, TryFutureExt as _};
 use http_body_util::BodyExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 use tokio::io::{AsyncBufRead, AsyncWrite};

@@ -550,12 +550,15 @@ fn strip_nodes_inner(
 						},
 						Either::Right(id) => Either::Right(id),
 					};
-					Some((reference, tg::Referent {
-						item,
-						path,
-						subpath,
-						tag,
-					}))
+					Some((
+						reference,
+						tg::Referent {
+							item,
+							path,
+							subpath,
+							tag,
+						},
+					))
 				})
 				.collect();
 

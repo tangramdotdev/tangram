@@ -1,6 +1,6 @@
 use crate::{BuildPermit, Server};
 use futures::{
-	FutureExt as _, TryFutureExt as _, TryStreamExt as _, future, stream::FuturesUnordered,
+	future, stream::FuturesUnordered, FutureExt as _, TryFutureExt as _, TryStreamExt as _,
 };
 use std::{sync::Arc, time::Duration};
 use tangram_client::{self as tg, handle::Ext as _};

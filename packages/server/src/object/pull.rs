@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _};
 use tangram_client as tg;
-use tangram_http::{Incoming, Outgoing, incoming::request::Ext as _};
+use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn pull_object(
