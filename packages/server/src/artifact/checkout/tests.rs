@@ -89,7 +89,7 @@ async fn file_with_dependency() -> tg::Result<()> {
     "kind": "file",
     "contents": "foo",
     "executable": false,
-    "xattr": {
+    "xattrs": {
       "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":\"fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80\"}},\"id\":\"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"}]}"
     }
   }

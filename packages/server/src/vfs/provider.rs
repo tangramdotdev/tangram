@@ -396,7 +396,7 @@ impl Provider {
 		tokio::fs::create_dir_all(&temp)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the database directory"))?;
-		let path = temp.path.join("vfs");
+		let path = temp.path().join("vfs");
 		let initialize = Arc::new(|connection: &sqlite::Connection| {
 			connection.pragma_update(None, "auto_vaccum", "incremental")?;
 			connection.pragma_update(None, "busy_timeout", "5000")?;

@@ -1,8 +1,8 @@
-use self::{database::Database, messenger::Messenger, runtime::Runtime};
+use self::{database::Database, messenger::Messenger, runtime::Runtime, util::fs::remove};
 use async_nats as nats;
 use compiler::Compiler;
-use dashmap::DashMap;
-use futures::{future, Future, FutureExt as _, Stream};
+use dashmap::{DashMap, DashSet};
+use futures::{future, stream::FuturesUnordered, Future, FutureExt as _, Stream, StreamExt as _};
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use itertools::Itertools as _;
@@ -71,9 +71,10 @@ pub struct Inner {
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
-	remotes: DashMap<String, tg::Client>,
+	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	task: Mutex<Option<Task<()>>>,
+	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
 
@@ -266,6 +267,9 @@ impl Server {
 		// Create the task.
 		let task = Mutex::new(None);
 
+		// Create the temp paths.
+		let temp_paths = DashSet::default();
+
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
@@ -286,6 +290,7 @@ impl Server {
 			remotes,
 			runtimes,
 			task,
+			temp_paths,
 			vfs,
 		}));
 
@@ -597,6 +602,15 @@ impl Server {
 					vfs.stop();
 					vfs.wait().await;
 				}
+
+				// Remove the temp paths.
+				server
+					.temp_paths
+					.iter()
+					.map(|entry| remove(entry.key().clone()).map(|_| ()))
+					.collect::<FuturesUnordered<_>>()
+					.collect::<()>()
+					.await;
 
 				// Release the lock file.
 				let lock_file = server.lock_file.lock().unwrap().take();

@@ -76,11 +76,11 @@ where
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let artifact = artifact.into();
-	let directory = Temp::new_persistent();
+	let directory = Temp::new();
 	artifact.to_path(directory.as_ref()).await.map_err(
 		|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
 	)?;
-	let temp = Temp::new_persistent();
+	let temp = Temp::new();
 	let options = Config::with_path(temp.path().to_owned());
 	let server = Server::start(options).await?;
 	let result = AssertUnwindSafe(async {
