@@ -7,6 +7,7 @@ pub mod data;
 pub mod get;
 pub mod handle;
 pub mod id;
+pub mod import;
 pub mod kind;
 pub mod metadata;
 #[allow(clippy::module_inception)]

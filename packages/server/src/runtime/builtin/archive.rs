@@ -42,9 +42,7 @@ impl Runtime {
 		// Create the archive task.
 		let blob = match format {
 			tg::artifact::archive::Format::Tar => tar(server, &artifact).await?,
-			tg::artifact::archive::Format::Tgar => {
-				tangram_archive::archive(server, &artifact).await?
-			},
+			tg::artifact::archive::Format::Tgar => tgar(server, &artifact).await?,
 			tg::artifact::archive::Format::Zip => zip(server, &artifact).await?,
 		};
 
@@ -156,6 +154,30 @@ where
 				.map_err(|source| tg::error!(!source, "failed to append symlink"))
 		},
 	}
+}
+
+async fn tgar(server: &Server, artifact: &tg::Artifact) -> tg::Result<tg::Blob> {
+	// Create a duplex stream.
+	let (reader, writer) = tokio::io::duplex(8192);
+
+	// Create the archive future.
+	let archive_future = server.export_archive(artifact.clone().into(), writer);
+
+	// Create the blob future.
+	let blob_future = tg::Blob::with_reader(server, reader);
+
+	// Join the futures.
+	let blob = match futures::future::join(archive_future, blob_future).await {
+		(_, Ok(blob)) => blob,
+		(Err(source), _) | (_, Err(source)) => {
+			return Err(tg::error!(
+				!source,
+				"failed to join the archive and blob futures"
+			))
+		},
+	};
+
+	Ok(blob)
 }
 
 async fn zip(server: &Server, artifact: &tg::Artifact) -> tg::Result<tg::Blob> {

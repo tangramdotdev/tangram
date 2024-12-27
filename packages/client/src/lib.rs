@@ -769,6 +769,20 @@ impl tg::Handle for Client {
 		self.try_get_object(id)
 	}
 
+	fn import_object(
+		&self,
+		arg: tg::object::import::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>>
+				+ Send
+				+ 'static,
+		>,
+	> + Send {
+		self.import_object(arg, reader)
+	}
+
 	fn put_object(
 		&self,
 		id: &tg::object::Id,

@@ -20,7 +20,7 @@ impl Server {
 			let remote = self
 				.remotes
 				.get(remote)
-				.ok_or_else(|| tg::error!("the remote does not exist"))?
+				.ok_or_else(|| tg::error!(%remote, "the remote does not exist"))?
 				.clone();
 			let arg = tg::target::build::Arg {
 				remote: None,

@@ -179,8 +179,8 @@ impl Server {
 				};
 
 				// If there is no resolution in the lockfile, break.
-				let Some(referent) =
-					lockfile.try_resolve_dependency(&input_node.arg.path, &input_edge.reference)?
+				let Ok(Some(referent)) =
+					lockfile.try_resolve_dependency(&input_node.arg.path, &input_edge.reference)
 				else {
 					// If we didn't find a resolution and the --locked arg was passed, it means the lockfile was out of date and we need to error.
 					if input_node.arg.locked {

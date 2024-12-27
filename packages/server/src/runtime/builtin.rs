@@ -2,13 +2,13 @@ use crate::Server;
 use futures::FutureExt as _;
 use tangram_client as tg;
 
-mod archive;
-mod bundle;
-mod checksum;
-mod compress;
-mod decompress;
-mod download;
-mod extract;
+pub(crate) mod archive;
+pub(crate) mod bundle;
+pub(crate) mod checksum;
+pub(crate) mod compress;
+pub(crate) mod decompress;
+pub(crate) mod download;
+pub(crate) mod extract;
 
 #[derive(Clone)]
 pub struct Runtime {

@@ -890,6 +890,9 @@ impl Server {
 			(http::Method::GET, ["objects", object]) => {
 				Self::handle_get_object_request(handle, request, object).boxed()
 			},
+			(http::Method::POST, ["objects", "import"]) => {
+				Self::handle_object_import_request(handle, request).boxed()
+			},
 			(http::Method::PUT, ["objects", object]) => {
 				Self::handle_put_object_request(handle, request, object).boxed()
 			},
@@ -1204,6 +1207,20 @@ impl tg::Handle for Server {
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
 		self.try_get_object(id)
+	}
+
+	fn import_object(
+		&self,
+		arg: tg::object::import::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>>
+				+ Send
+				+ 'static,
+		>,
+	> + Send {
+		self.import_object(arg, reader)
 	}
 
 	fn put_object(
