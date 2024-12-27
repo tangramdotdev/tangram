@@ -1,6 +1,6 @@
 use crate::{BuildPermit, Server};
 use futures::{
-	future, stream::FuturesUnordered, FutureExt as _, TryFutureExt as _, TryStreamExt as _,
+	future, stream::FuturesUnordered, Future, FutureExt as _, TryFutureExt as _, TryStreamExt as _,
 };
 use std::{sync::Arc, time::Duration};
 use tangram_client::{self as tg, handle::Ext as _};
@@ -52,49 +52,52 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn spawn_build(
+	pub(crate) fn spawn_build(
 		&self,
 		build: tg::Build,
 		permit: BuildPermit,
 		remote: Option<String>,
-	) -> tg::Result<()> {
-		// Attempt to start the build.
-		let arg = tg::build::start::Arg {
-			remote: remote.clone(),
-		};
-		let started = self.try_start_build(build.id(), arg).await?;
-		if !started {
-			return Ok(());
-		}
+	) -> impl Future<Output = tg::Result<()>> + Send + 'static {
+		let server = self.clone();
+		async move {
+			// Attempt to start the build.
+			let arg = tg::build::start::Arg {
+				remote: remote.clone(),
+			};
+			let started = server.try_start_build(build.id(), arg).await?;
+			if !started {
+				return Ok(());
+			}
 
-		// Spawn the build task.
-		self.builds.spawn(
-			build.id().clone(),
-			Task::spawn(|_| {
-				let server = self.clone();
+			// Spawn the build task.
+			server.builds.spawn(
+				build.id().clone(),
+				Task::spawn(|_| {
+					let server = server.clone();
+					let build = build.clone();
+					let remote = remote.clone();
+					async move { server.build_task(build, permit, remote).await }
+						.inspect_err(|error| {
+							tracing::error!(?error, "the build task failed");
+						})
+						.map(|_| ())
+				}),
+			);
+
+			// Spawn the heartbeat task.
+			tokio::spawn({
+				let server = server.clone();
 				let build = build.clone();
 				let remote = remote.clone();
-				async move { server.build_task(build, permit, remote).await }
+				async move { server.heartbeat_task(build, remote).await }
 					.inspect_err(|error| {
-						tracing::error!(?error, "the build task failed");
+						tracing::error!(?error, "the heartbeat task failed");
 					})
 					.map(|_| ())
-			}),
-		);
+			});
 
-		// Spawn the heartbeat task.
-		tokio::spawn({
-			let server = self.clone();
-			let build = build.clone();
-			let remote = remote.clone();
-			async move { server.heartbeat_task(build, remote).await }
-				.inspect_err(|error| {
-					tracing::error!(?error, "the heartbeat task failed");
-				})
-				.map(|_| ())
-		});
-
-		Ok(())
+			Ok(())
+		}
 	}
 
 	async fn build_task(
