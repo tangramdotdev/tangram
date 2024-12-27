@@ -1,6 +1,5 @@
 pub use self::{
 	data::Blob as Data, handle::Blob as Handle, id::Id, kind::Kind, object::Blob as Object,
-	read::Reader,
 };
 
 pub mod checksum;

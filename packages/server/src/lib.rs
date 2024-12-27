@@ -22,7 +22,7 @@ use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::{
-	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
+	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt},
 	net::{TcpListener, UnixListener},
 };
 use url::Url;
@@ -121,6 +121,40 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
 		let lock_file = Mutex::new(Some(lock_file));
+
+		// Verify the version file.
+		let version_path = path.join("version");
+		let version = match tokio::fs::read_to_string(&version_path).await {
+			Ok(string) => Some(
+				string
+					.parse::<u64>()
+					.ok()
+					.ok_or_else(|| tg::error!("invalid version file"))?,
+			),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to read the version file"));
+			},
+		};
+		match version {
+			Some(0) => (),
+			Some(_) => {
+				return Err(tg::error!(
+					"the data directory was created with a newer version of tangram"
+				));
+			},
+			None => {
+				tokio::fs::write(&version_path, b"0")
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the version file"))?;
+			},
+		}
+
+		// Ensure the blobs directory exists.
+		let logs_path = path.join("blobs");
+		tokio::fs::create_dir_all(&logs_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the blobs directory"))?;
 
 		// Ensure the logs directory exists.
 		let logs_path = path.join("logs");
@@ -609,6 +643,11 @@ impl Server {
 	}
 
 	#[must_use]
+	pub fn blobs_path(&self) -> PathBuf {
+		self.path.join("blobs")
+	}
+
+	#[must_use]
 	pub fn cache_path(&self) -> PathBuf {
 		if self.vfs.lock().unwrap().is_some() {
 			self.path.join("cache")
@@ -982,7 +1021,7 @@ impl tg::Handle for Server {
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
-		self.create_blob(reader)
+		self.create_blob_with_reader(reader)
 	}
 
 	fn try_read_blob_stream(

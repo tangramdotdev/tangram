@@ -2176,7 +2176,6 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 
 	// Create the second server.
 	let temp2 = Temp::new();
-	// todo: configure the second server to use the first server as a remote.
 	let mut config = Config::with_path(temp2.path().to_owned());
 	config.remotes = [(
 		"default".to_owned(),

@@ -310,7 +310,7 @@ impl Server {
 
 		// Create the file.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let reader = file.reader(self).await?;
+		let reader = file.read(self, tg::blob::read::Arg::default()).await?;
 		let mut reader = InspectReader::new(reader, |slice| {
 			output.progress.bytes += slice.len().to_u64().unwrap();
 			state.progress.increment("bytes", slice.len() as u64);

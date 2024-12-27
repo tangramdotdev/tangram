@@ -64,7 +64,7 @@ impl Runtime {
 	) -> tg::Result<tg::Checksum> {
 		let server = &self.server;
 		let mut writer = tg::checksum::Writer::new(algorithm);
-		let mut reader = blob.reader(server).await?;
+		let mut reader = blob.read(server, tg::blob::read::Arg::default()).await?;
 		tokio::io::copy(&mut reader, &mut writer)
 			.await
 			.map_err(|source| {

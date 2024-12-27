@@ -23,6 +23,7 @@ pub struct Config {
 	pub vfs: Option<Vfs>,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug)]
 pub struct Advanced {
 	pub build_dequeue_timeout: Duration,
@@ -31,6 +32,7 @@ pub struct Advanced {
 	pub preserve_temp_directories: bool,
 	pub write_build_logs_to_database: bool,
 	pub write_build_logs_to_stderr: bool,
+	pub write_blobs_to_blobs_directory: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -170,6 +172,7 @@ impl Default for Advanced {
 			preserve_temp_directories: false,
 			write_build_logs_to_database: false,
 			write_build_logs_to_stderr: false,
+			write_blobs_to_blobs_directory: false,
 		}
 	}
 }

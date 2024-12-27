@@ -1,13 +1,13 @@
 use pin_project::pin_project;
 use std::{
-	pin::Pin,
+	pin::{pin, Pin},
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
 	},
 	task::Poll,
 };
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek, AsyncSeekExt as _};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
 
 #[pin_project]
 pub struct SharedPositionReader<R> {
@@ -16,12 +16,8 @@ pub struct SharedPositionReader<R> {
 	position: Arc<AtomicU64>,
 }
 
-impl<R> SharedPositionReader<R>
-where
-	R: AsyncRead + AsyncSeek + Unpin,
-{
-	pub async fn new(mut inner: R) -> std::io::Result<Self> {
-		let position = inner.stream_position().await?;
+impl<R> SharedPositionReader<R> {
+	pub async fn with_reader_and_position(inner: R, position: u64) -> std::io::Result<Self> {
 		let position = Arc::new(AtomicU64::new(position));
 		Ok(SharedPositionReader { inner, position })
 	}
@@ -50,24 +46,6 @@ where
 	}
 }
 
-impl<R> AsyncSeek for SharedPositionReader<R>
-where
-	R: AsyncSeek,
-{
-	fn start_seek(self: Pin<&mut Self>, position: std::io::SeekFrom) -> std::io::Result<()> {
-		let this = self.project();
-		this.inner.start_seek(position)
-	}
-
-	fn poll_complete(
-		self: Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-	) -> Poll<std::io::Result<u64>> {
-		let this = self.project();
-		this.inner.poll_complete(cx)
-	}
-}
-
 impl<R> AsyncBufRead for SharedPositionReader<R>
 where
 	R: AsyncBufRead,
@@ -84,5 +62,23 @@ where
 		let this = self.project();
 		this.inner.consume(amt);
 		this.position.fetch_add(amt as u64, Ordering::Relaxed);
+	}
+}
+
+impl<R> AsyncSeek for SharedPositionReader<R>
+where
+	R: AsyncSeek,
+{
+	fn start_seek(self: Pin<&mut Self>, position: std::io::SeekFrom) -> std::io::Result<()> {
+		let this = self.project();
+		this.inner.start_seek(position)
+	}
+
+	fn poll_complete(
+		self: Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+	) -> Poll<std::io::Result<u64>> {
+		let this = self.project();
+		this.inner.poll_complete(cx)
 	}
 }

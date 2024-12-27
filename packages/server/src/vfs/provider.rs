@@ -8,6 +8,7 @@ use rusqlite as sqlite;
 use std::{
 	os::unix::ffi::OsStrExt,
 	path::PathBuf,
+	pin::pin,
 	sync::{
 		atomic::{AtomicU64, Ordering},
 		Arc,
@@ -243,27 +244,25 @@ impl vfs::Provider for Provider {
 		};
 
 		// Create the blob stream.
+		let arg = tg::blob::read::Arg {
+			position: Some(std::io::SeekFrom::Start(position)),
+			length: Some(length),
+			size: None,
+		};
 		let stream = self
 			.server
-			.try_read_blob(
-				&file_handle.blob,
-				tg::blob::read::Arg {
-					position: Some(std::io::SeekFrom::Start(position)),
-					length: Some(length),
-					size: None,
-				},
-			)
+			.try_read_blob(&file_handle.blob, arg)
 			.await
 			.map_err(|error| {
-				tracing::error!(%error, "failed to read blob");
+				tracing::error!(%error, "failed to read the blob");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?
 			.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EIO))?
 			.map_err(|error| {
-				tracing::error!(%error, "failed to read chunk");
+				tracing::error!(%error, "failed to read a chunk");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			});
-		let mut stream = std::pin::pin!(stream);
+		let mut stream = pin!(stream);
 		let mut bytes = Vec::with_capacity(length.to_usize().unwrap());
 		while let Some(chunk) = stream.try_next().await? {
 			bytes.extend_from_slice(&chunk.bytes);

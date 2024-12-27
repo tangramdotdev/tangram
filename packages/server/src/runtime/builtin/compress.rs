@@ -38,10 +38,10 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "invalid format"))?;
 
 		// Create the reader.
-		let reader = blob.reader(server).await?;
-		let reader = SharedPositionReader::new(reader)
+		let reader = blob.read(server, tg::blob::read::Arg::default()).await?;
+		let reader = SharedPositionReader::with_reader_and_position(reader, 0)
 			.await
-			.map_err(|source| tg::error!(!source, "io error"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
 
 		// Spawn a task to log progress.
 		let position = reader.shared_position();

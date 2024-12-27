@@ -1,8 +1,8 @@
 use crate::{
-	pool::{self, Pool},
 	Error as _, Row, Value,
+	pool::{self, Pool},
 };
-use futures::{stream, Future, Stream};
+use futures::{Future, Stream, stream};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;

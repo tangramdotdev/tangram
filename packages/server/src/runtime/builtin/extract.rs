@@ -7,7 +7,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::read::SharedPositionReader;
-use tokio::io::{AsyncBufRead, AsyncSeek};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
 use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
 
 impl Runtime {
@@ -47,10 +47,10 @@ impl Runtime {
 		};
 
 		// Create the reader.
-		let reader = blob.reader(server).await?;
-		let reader = SharedPositionReader::new(reader)
+		let reader = crate::blob::Reader::new(&self.server, blob.clone()).await?;
+		let reader = SharedPositionReader::with_reader_and_position(reader, 0)
 			.await
-			.map_err(|source| tg::error!(!source, "io error"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
 
 		// Create the log task.
 		let position = reader.shared_position();
@@ -120,7 +120,7 @@ impl Runtime {
 
 async fn tar<R>(server: &Server, reader: R) -> tg::Result<tg::Artifact>
 where
-	R: tokio::io::AsyncRead + Unpin + Send + Sync + 'static,
+	R: AsyncRead + Unpin + Send + 'static,
 {
 	// Create the reader.
 	let reader = async_tar::Archive::new(reader.compat());
@@ -207,7 +207,7 @@ where
 
 async fn zip<R>(server: &Server, reader: R) -> tg::Result<tg::Artifact>
 where
-	R: AsyncBufRead + AsyncSeek + Unpin + Send + Sync + 'static,
+	R: AsyncBufRead + AsyncSeek + Unpin + Send + 'static,
 {
 	// Create the reader.
 	let mut reader = async_zip::base::read::seek::ZipFileReader::new(reader.compat())
@@ -216,29 +216,36 @@ where
 
 	let mut entries: Vec<(PathBuf, tg::Artifact)> = Vec::new();
 	for index in 0..reader.file().entries().len() {
-		// Get the entry.
-		let entry = reader.file().entries().get(index).unwrap();
+		// Get the reader.
+		let mut reader = reader
+			.reader_with_entry(index)
+			.await
+			.map_err(|source| tg::error!(!source, "unable to get the entry"))?;
 
 		// Get the path.
 		let path = PathBuf::from(
-			entry
+			reader
+				.entry()
 				.filename()
 				.as_str()
 				.map_err(|source| tg::error!(!source, "failed to get the entry filename"))?,
 		);
 
 		// Check if the entry is a directory.
-		let is_dir = entry
+		let is_dir = reader
+			.entry()
 			.dir()
 			.map_err(|source| tg::error!(!source, "failed to get type of entry"))?;
 
 		// Check if the entry is a symlink.
-		let is_symlink = entry
+		let is_symlink = reader
+			.entry()
 			.unix_permissions()
 			.is_some_and(|permissions| permissions & 0o120_000 == 0o120_000);
 
 		// Check if the entry is executable.
-		let is_executable = entry
+		let is_executable = reader
+			.entry()
 			.unix_permissions()
 			.is_some_and(|permissions| permissions & 0o000_111 != 0);
 
@@ -248,12 +255,8 @@ where
 			let artifact = tg::Artifact::Directory(directory);
 			entries.push((path, artifact));
 		} else if is_symlink {
-			let mut entry = reader
-				.reader_without_entry(index)
-				.await
-				.map_err(|source| tg::error!(!source, "unable to get the entry reader"))?;
 			let mut buffer = Vec::new();
-			entry
+			reader
 				.read_to_end(&mut buffer)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read symlink target"))?;
@@ -263,11 +266,7 @@ where
 			let artifact = tg::Artifact::Symlink(symlink);
 			entries.push((path, artifact));
 		} else {
-			let entry = reader
-				.reader_without_entry(index)
-				.await
-				.map_err(|source| tg::error!(!source, "unable to get the entry reader"))?;
-			let output = server.create_blob(entry.compat()).await?;
+			let output = server.create_blob_with_reader(reader.compat()).await?;
 			let blob = tg::Blob::with_id(output.blob);
 			let file = tg::File::builder(blob).executable(is_executable).build();
 			let artifact = tg::Artifact::File(file);

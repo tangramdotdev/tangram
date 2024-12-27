@@ -491,6 +491,11 @@ impl Cli {
 			if let Some(write_build_logs_to_stderr) = advanced.write_build_logs_to_stderr {
 				config.advanced.write_build_logs_to_stderr = write_build_logs_to_stderr;
 			}
+			if let Some(write_blobs_to_blobs_directory) = advanced.write_blobs_to_blobs_directory {
+				config.advanced.write_blobs_to_blobs_directory = write_blobs_to_blobs_directory;
+			} else {
+				config.advanced.write_blobs_to_blobs_directory = true;
+			}
 		}
 
 		// Set the authentication options.

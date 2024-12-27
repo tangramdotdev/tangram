@@ -4,6 +4,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_either::Either;
+use tokio::io::AsyncBufRead;
 
 #[derive(Clone, Debug)]
 pub struct File {
@@ -337,18 +338,22 @@ impl File {
 		}
 	}
 
-	pub async fn reader<H>(&self, handle: &H) -> tg::Result<tg::blob::Reader<H>>
-	where
-		H: tg::Handle,
-	{
-		self.contents(handle).await?.reader(handle).await
-	}
-
 	pub async fn size<H>(&self, handle: &H) -> tg::Result<u64>
 	where
 		H: tg::Handle,
 	{
 		self.contents(handle).await?.size(handle).await
+	}
+
+	pub async fn read<H>(
+		&self,
+		handle: &H,
+		arg: tg::blob::read::Arg,
+	) -> tg::Result<impl AsyncBufRead + Send + 'static>
+	where
+		H: tg::Handle,
+	{
+		self.contents(handle).await?.read(handle, arg).await
 	}
 
 	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
