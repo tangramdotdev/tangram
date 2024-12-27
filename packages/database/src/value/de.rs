@@ -3,7 +3,6 @@ use serde::de::Error as _;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
-	Json(serde_json::Error),
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -52,110 +51,7 @@ impl<'de> serde::Deserializer<'de> for Value {
 		}
 	}
 
-	fn deserialize_newtype_struct<V>(
-		self,
-		name: &'static str,
-		visitor: V,
-	) -> Result<V::Value, Self::Error>
-	where
-		V: serde::de::Visitor<'de>,
-	{
-		let json = self
-			.try_unwrap_text()
-			.map_err(|_| Error::custom("expected a text value"))?;
-		let value = serde_json::from_str::<serde_json::Value>(&json)?;
-		let value = value.deserialize_newtype_struct(name, visitor)?;
-		Ok(value)
-	}
-
-	fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-	where
-		V: serde::de::Visitor<'de>,
-	{
-		let json = self
-			.try_unwrap_text()
-			.map_err(|_| Error::custom("expected a text value"))?;
-		let value = serde_json::from_str::<serde_json::Value>(&json)?;
-		let value = value.deserialize_seq(visitor)?;
-		Ok(value)
-	}
-
-	fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
-	where
-		V: serde::de::Visitor<'de>,
-	{
-		let json = self
-			.try_unwrap_text()
-			.map_err(|_| Error::custom("expected a text value"))?;
-		let value = serde_json::from_str::<serde_json::Value>(&json)?;
-		let value = value.deserialize_tuple(len, visitor)?;
-		Ok(value)
-	}
-
-	fn deserialize_tuple_struct<V>(
-		self,
-		name: &'static str,
-		len: usize,
-		visitor: V,
-	) -> Result<V::Value, Self::Error>
-	where
-		V: serde::de::Visitor<'de>,
-	{
-		let json = self
-			.try_unwrap_text()
-			.map_err(|_| Error::custom("expected a text value"))?;
-		let value = serde_json::from_str::<serde_json::Value>(&json)?;
-		let value = value.deserialize_tuple_struct(name, len, visitor)?;
-		Ok(value)
-	}
-
-	fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-	where
-		V: serde::de::Visitor<'de>,
-	{
-		let json = self
-			.try_unwrap_text()
-			.map_err(|_| Error::custom("expected a text value"))?;
-		let value = serde_json::from_str::<serde_json::Value>(&json)?;
-		let value = value.deserialize_map(visitor)?;
-		Ok(value)
-	}
-
-	fn deserialize_struct<V>(
-		self,
-		name: &'static str,
-		fields: &'static [&'static str],
-		visitor: V,
-	) -> Result<V::Value, Self::Error>
-	where
-		V: serde::de::Visitor<'de>,
-	{
-		let json = self
-			.try_unwrap_text()
-			.map_err(|_| Error::custom("expected a text value"))?;
-		let value = serde_json::from_str::<serde_json::Value>(&json)?;
-		let value = value.deserialize_struct(name, fields, visitor)?;
-		Ok(value)
-	}
-
-	fn deserialize_enum<V>(
-		self,
-		name: &'static str,
-		variants: &'static [&'static str],
-		visitor: V,
-	) -> Result<V::Value, Self::Error>
-	where
-		V: serde::de::Visitor<'de>,
-	{
-		let json = self
-			.try_unwrap_text()
-			.map_err(|_| Error::custom("expected a text value"))?;
-		let value = serde_json::from_str::<serde_json::Value>(&json)?;
-		let value = value.deserialize_enum(name, variants, visitor)?;
-		Ok(value)
-	}
-
-	serde::forward_to_deserialize_any!(i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf unit unit_struct identifier ignored_any);
+	serde::forward_to_deserialize_any!(i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf unit unit_struct newtype_struct seq tuple tuple_struct map struct enum identifier ignored_any);
 }
 
 impl serde::de::Error for Error {

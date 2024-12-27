@@ -392,7 +392,11 @@ impl Cli {
 				async move {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
-						let outcome = tg::build::outcome::Data::Canceled;
+						let outcome = tg::build::outcome::Data::Cancelation(
+							tg::build::outcome::data::Cancelation {
+								reason: Some("the build was explicitly canceled".to_owned()),
+							},
+						);
 						let arg = tg::build::finish::Arg { outcome, remote };
 						build.finish(&handle, arg).await.ok();
 					});

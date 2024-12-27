@@ -127,14 +127,15 @@ impl Server {
 		};
 
 		// Attempt to get the outcome metadata.
-		let outcome_metadata = if let Ok(output) = build
+		let outcome_metadata = if let Ok(success) = build
 			.outcome
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the outcome to be set"))?
-			.try_unwrap_succeeded_ref()
+			.try_unwrap_success_ref()
 		{
 			Some(
-				output
+				success
+					.value
 					.children()
 					.iter()
 					.map(|object| self.try_get_object_metadata(object))
@@ -691,9 +692,9 @@ impl Server {
 				.outcome
 				.as_ref()
 				.ok_or_else(|| tg::error!("expected the outcome to be set"))?
-				.try_unwrap_succeeded_ref()
+				.try_unwrap_success_ref()
 				.ok()
-				.map(tg::value::Data::children)
+				.map(|success| success.value.children())
 				.into_iter()
 				.flatten()
 				.collect::<Vec<_>>();

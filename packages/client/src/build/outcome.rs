@@ -3,6 +3,8 @@ use futures::{Future, StreamExt as _, TryStreamExt as _, future};
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
+pub use self::data::Data;
+
 #[derive(
 	Clone,
 	Debug,
@@ -15,25 +17,62 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Outcome {
-	Canceled,
-	Failed(tg::Error),
-	Succeeded(tg::Value),
+	Cancelation(Cancelation),
+	Failure(Failure),
+	Success(Success),
 }
 
-#[derive(
-	Clone,
-	Debug,
-	derive_more::IsVariant,
-	derive_more::TryUnwrap,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-#[try_unwrap(ref)]
-pub enum Data {
-	Canceled,
-	Failed(tg::Error),
-	Succeeded(tg::value::Data),
+#[derive(Clone, Debug)]
+pub struct Cancelation {
+	pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Failure {
+	pub error: tg::Error,
+}
+
+#[derive(Clone, Debug)]
+pub struct Success {
+	pub value: tg::Value,
+}
+
+pub mod data {
+	use crate as tg;
+
+	#[derive(
+		Clone,
+		Debug,
+		derive_more::IsVariant,
+		derive_more::TryUnwrap,
+		derive_more::Unwrap,
+		serde::Deserialize,
+		serde::Serialize,
+	)]
+	#[serde(tag = "kind", rename_all = "snake_case")]
+	#[try_unwrap(ref)]
+	#[unwrap(ref)]
+	pub enum Data {
+		Cancelation(Cancelation),
+		Failure(Failure),
+		Success(Success),
+	}
+
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	pub struct Cancelation {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		pub reason: Option<String>,
+	}
+
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	pub struct Failure {
+		pub error: tg::Error,
+	}
+
+	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+	pub struct Success {
+		pub value: tg::value::Data,
+	}
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -46,17 +85,19 @@ impl Outcome {
 	#[must_use]
 	pub fn retry(&self) -> tg::build::Retry {
 		match self {
-			Self::Canceled => tg::build::Retry::Canceled,
-			Self::Failed(_) => tg::build::Retry::Failed,
-			Self::Succeeded(_) => tg::build::Retry::Succeeded,
+			Self::Cancelation(Cancelation { .. }) => tg::build::Retry::Canceled,
+			Self::Failure(Failure { .. }) => tg::build::Retry::Failed,
+			Self::Success(Success { .. }) => tg::build::Retry::Succeeded,
 		}
 	}
 
 	pub fn into_result(self) -> tg::Result<tg::Value> {
 		match self {
-			Self::Canceled => Err(tg::error!("the build was canceled")),
-			Self::Failed(error) => Err(error),
-			Self::Succeeded(value) => Ok(value),
+			Self::Cancelation(Cancelation { reason }) => {
+				Err(tg::error!(?reason, "the build was canceled"))
+			},
+			Self::Failure(Failure { error }) => Err(error),
+			Self::Success(Success { value }) => Ok(value),
 		}
 	}
 
@@ -65,10 +106,20 @@ impl Outcome {
 		H: tg::Handle,
 	{
 		Ok(match self {
-			Self::Canceled => tg::build::outcome::Data::Canceled,
-			Self::Failed(error) => tg::build::outcome::Data::Failed(error.clone()),
-			Self::Succeeded(value) => {
-				tg::build::outcome::Data::Succeeded(value.data(handle).await?)
+			Self::Cancelation(cancelation) => {
+				tg::build::outcome::Data::Cancelation(tg::build::outcome::data::Cancelation {
+					reason: cancelation.reason.clone(),
+				})
+			},
+			Self::Failure(failure) => {
+				tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
+					error: failure.error.clone(),
+				})
+			},
+			Self::Success(success) => {
+				tg::build::outcome::Data::Success(tg::build::outcome::data::Success {
+					value: success.value.data(handle).await?,
+				})
 			},
 		})
 	}
@@ -115,9 +166,11 @@ impl tg::Build {
 	{
 		let outcome = self.outcome(handle).await?;
 		match outcome {
-			tg::build::Outcome::Canceled => Err(tg::error!("the build was canceled")),
-			tg::build::Outcome::Failed(error) => Err(error),
-			tg::build::Outcome::Succeeded(value) => Ok(value),
+			tg::build::Outcome::Cancelation(Cancelation { reason }) => {
+				Err(tg::error!(?reason, "the build was canceled"))
+			},
+			tg::build::Outcome::Failure(Failure { error }) => Err(error),
+			tg::build::Outcome::Success(Success { value }) => Ok(value),
 		}
 	}
 }
@@ -180,9 +233,17 @@ impl TryFrom<tg::build::outcome::Data> for Outcome {
 
 	fn try_from(data: tg::build::outcome::Data) -> tg::Result<Self, Self::Error> {
 		match data {
-			tg::build::outcome::Data::Canceled => Ok(Outcome::Canceled),
-			tg::build::outcome::Data::Failed(error) => Ok(Outcome::Failed(error)),
-			tg::build::outcome::Data::Succeeded(value) => Ok(Outcome::Succeeded(value.try_into()?)),
+			tg::build::outcome::Data::Cancelation(cancelation) => {
+				Ok(Outcome::Cancelation(Cancelation {
+					reason: cancelation.reason,
+				}))
+			},
+			tg::build::outcome::Data::Failure(failure) => Ok(Outcome::Failure(Failure {
+				error: failure.error,
+			})),
+			tg::build::outcome::Data::Success(success) => Ok(Outcome::Success(Success {
+				value: success.value.try_into()?,
+			})),
 		}
 	}
 }
