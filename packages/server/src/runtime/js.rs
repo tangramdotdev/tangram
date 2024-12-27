@@ -1,4 +1,5 @@
 use self::syscall::syscall;
+use super::util::spawn_checksum_build;
 use crate::{compiler::Compiler, Server};
 use futures::{
 	future::{self, LocalBoxFuture},
@@ -378,6 +379,14 @@ impl Runtime {
 
 		// Stop the compiler.
 		state.compiler.stop().await;
+
+		// Create a child build to calculate the checksum.
+		if let Ok(ref value) = result {
+			let checksum = target.checksum(server).await?.clone();
+			if let Some(checksum) = checksum {
+				spawn_checksum_build(server, build.id().clone(), value, &checksum).await?;
+			}
+		}
 
 		result
 	}
