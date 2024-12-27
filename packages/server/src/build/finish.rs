@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use super::log;
 use crate::Server;
 use bytes::Bytes;
