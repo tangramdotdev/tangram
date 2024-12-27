@@ -35,6 +35,8 @@ pub enum Writer {
 	Blake3(Box<blake3::Hasher>),
 	Sha256(Box<sha2::Sha256>),
 	Sha512(Box<sha2::Sha512>),
+	None,
+	Unsafe,
 }
 
 impl Checksum {
@@ -172,6 +174,8 @@ impl Writer {
 			Algorithm::Blake3 => Writer::Blake3(Box::new(blake3::Hasher::new())),
 			Algorithm::Sha256 => Writer::Sha256(Box::new(sha2::Sha256::new())),
 			Algorithm::Sha512 => Writer::Sha512(Box::new(sha2::Sha512::new())),
+			Algorithm::None => Writer::None,
+			Algorithm::Unsafe => Writer::Unsafe,
 		}
 	}
 
@@ -187,6 +191,7 @@ impl Writer {
 			Writer::Sha512(sha512) => {
 				sha2::Digest::update(sha512.as_mut(), data);
 			},
+			Writer::None | Writer::Unsafe => (),
 		}
 	}
 
@@ -207,6 +212,8 @@ impl Writer {
 				let value = sha2::Digest::finalize(*sha512);
 				Checksum::Sha512(value.as_slice().into())
 			},
+			Writer::None => Checksum::None,
+			Writer::Unsafe => Checksum::Unsafe,
 		}
 	}
 }
