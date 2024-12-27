@@ -326,7 +326,7 @@ impl Server {
 			Err(tg::error!("no checksum provided, expected {checksum}"))
 		} else if checksum != *expected {
 			Err(tg::error!(
-				"checksums do not match, expected {checksum}, actual {checksum}"
+				"checksums do not match, expected {expected}, actual {checksum}"
 			))
 		} else {
 			Ok(())
