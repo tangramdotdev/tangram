@@ -234,7 +234,7 @@ impl Server {
 		);
 		let status = tg::build::Status::Finished;
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![log, outcome, status, finished_at, id];
+		let params = db::params![log, db::value::Json(outcome), status, finished_at, id];
 		connection
 			.execute(statement, params)
 			.await
