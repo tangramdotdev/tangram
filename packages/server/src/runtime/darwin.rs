@@ -1,4 +1,4 @@
-use super::{proxy::Proxy, util::render};
+use super::{proxy::Proxy, util::render, util::spawn_checksum_build};
 use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use futures::{
@@ -490,37 +490,7 @@ impl Runtime {
 
 		// Create a child build to calculate the checksum.
 		if let Some(checksum) = checksum {
-			let algorithm = checksum.algorithm();
-			let algorithm = if algorithm == tg::checksum::Algorithm::None {
-				tg::checksum::Algorithm::Sha256
-			} else {
-				algorithm
-			};
-			if algorithm == tg::checksum::Algorithm::Unsafe {
-				return Ok(value);
-			}
-			let host = "builtin";
-			let args = vec![
-				"checksum".into(),
-				value.clone(),
-				algorithm.to_string().into(),
-			];
-			let target = tg::Target::builder(host).args(args).build();
-			let target_id = target.id(server).await?;
-			let arg = tg::target::build::Arg {
-				create: true,
-				parent: Some(build.id().clone()),
-				..Default::default()
-			};
-			if let Some(output) = server.try_build_target(&target_id, arg).await? {
-				if let Some(future) = server.try_get_build_outcome_future(&output.build).await? {
-					future.await?;
-				} else {
-					return Err(tg::error!("could not find the checksum child build"));
-				}
-			} else {
-				return Err(tg::error!("could not get checksum build output"));
-			}
+			spawn_checksum_build(server, build.id().clone(), &value, &checksum).await?;
 		}
 
 		Ok(value)
