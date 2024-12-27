@@ -1,8 +1,14 @@
+use std::panic::AssertUnwindSafe;
+
 use crate::Server;
-use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt};
+use futures::{
+	stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
+	TryStreamExt,
+};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::StreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tokio_util::task::AbortOnDropHandle;
 
 struct InnerOutput {
 	build_count: u64,
@@ -74,32 +80,34 @@ impl Server {
 					Some(0),
 					metadata.object_weight.map(Into::into),
 				);
-				let result = Self::push_or_pull_build_inner(&src, &dst, &build, arg, &progress)
-					.await
-					.map(|_| ());
+				let result = AssertUnwindSafe(
+					Self::push_or_pull_build_inner(&src, &dst, &build, arg, &progress)
+						.map_ok(|_| ()),
+				)
+				.catch_unwind()
+				.await;
 				progress.finish("builds");
 				progress.finish("objects");
 				progress.finish("bytes");
-				result
-			}
-		});
-		tokio::spawn({
-			let progress = progress.clone();
-			async move {
-				match task.await {
+				match result {
 					Ok(Ok(output)) => {
 						progress.output(output);
 					},
 					Ok(Err(error)) => {
 						progress.error(error);
 					},
-					Err(source) => {
-						progress.error(tg::error!(!source, "the task panicked"));
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						progress.error(tg::error!(?message, "the task panicked"));
 					},
 				};
 			}
 		});
-		let stream = progress.stream();
+		let abort_handle = AbortOnDropHandle::new(task);
+		let stream = progress.stream().attach(abort_handle);
 		Ok(stream)
 	}
 

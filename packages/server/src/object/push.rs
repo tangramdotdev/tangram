@@ -1,8 +1,14 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{
+	stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
+	TryStreamExt as _,
+};
 use num::ToPrimitive as _;
+use std::panic::AssertUnwindSafe;
 use tangram_client::{self as tg, handle::Ext as _};
+use tangram_futures::stream::StreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tokio_util::task::AbortOnDropHandle;
 
 #[cfg(test)]
 mod tests;
@@ -60,31 +66,32 @@ impl Server {
 					Some(0),
 					metadata.weight.map(Into::into),
 				);
-				let result = Self::push_or_pull_object_inner(&src, &dst, &object, &progress)
-					.await
-					.map(|_| ());
+				let result = AssertUnwindSafe(
+					Self::push_or_pull_object_inner(&src, &dst, &object, &progress).map_ok(|_| ()),
+				)
+				.catch_unwind()
+				.await;
 				progress.finish("objects");
 				progress.finish("bytes");
-				result
-			}
-		});
-		tokio::spawn({
-			let progress = progress.clone();
-			async move {
-				match task.await {
+				match result {
 					Ok(Ok(output)) => {
 						progress.output(output);
 					},
 					Ok(Err(error)) => {
 						progress.error(error);
 					},
-					Err(source) => {
-						progress.error(tg::error!(!source, "the task panicked"));
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						progress.error(tg::error!(?message, "the task panicked"));
 					},
 				};
 			}
 		});
-		let stream = progress.stream();
+		let abort_handle = AbortOnDropHandle::new(task);
+		let stream = progress.stream().attach(abort_handle);
 		Ok(stream)
 	}
 

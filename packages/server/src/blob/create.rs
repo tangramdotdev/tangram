@@ -215,6 +215,7 @@ impl Server {
 					"
 						insert into blobs (id, entry, position, length)
 						values ({p}1, {p}2, {p}3, {p}4)
+						on conflict (id) do update set entry = {p}2, position = {p}3, length = {p}4;
 					"
 				);
 				let params = db::params![blob, &output.blob, position, length];

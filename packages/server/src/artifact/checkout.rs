@@ -1,12 +1,14 @@
 use crate::Server;
 use dashmap::{DashMap, DashSet};
-use futures::{stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{
+	stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+};
 use num::ToPrimitive as _;
-use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc};
+use std::{os::unix::fs::PermissionsExt as _, panic::AssertUnwindSafe, path::PathBuf, sync::Arc};
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_futures::task::Task;
+use tangram_futures::stream::StreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-use tokio_util::io::InspectReader;
+use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
 mod lockfile;
 #[cfg(test)]
@@ -31,7 +33,7 @@ struct Arg {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Output {
+struct Output {
 	progress: Progress,
 }
 
@@ -51,16 +53,11 @@ impl Server {
 			+ Send
 			+ 'static,
 	> {
-		// Get the object metadata.
 		let metadata = self
 			.try_get_object_metadata(&artifact.clone().into())
 			.await?;
-
-		// Create the progress handle.
 		let progress = crate::progress::Handle::new();
-
-		// Spawn the task.
-		let task = Task::spawn(|_| {
+		let task = tokio::spawn({
 			let server = self.clone();
 			let artifact = artifact.clone();
 			let arg = arg.clone();
@@ -88,36 +85,31 @@ impl Server {
 					Some(0),
 					weight,
 				);
-				let result = server
-					.check_out_artifact_task(artifact, arg, &progress)
-					.await;
+				let result =
+					AssertUnwindSafe(server.check_out_artifact_task(artifact, arg, &progress))
+						.catch_unwind()
+						.await;
 				progress.finish("objects");
 				progress.finish("bytes");
-				result
-			}
-		});
-
-		// Spawn the progress task.
-		tokio::spawn({
-			let progress = progress.clone();
-			async move {
-				match task.wait().await {
+				match result {
 					Ok(Ok(output)) => {
 						progress.output(output);
 					},
 					Ok(Err(error)) => {
 						progress.error(error);
 					},
-					Err(source) => {
-						progress.error(tg::error!(!source, "the task panicked"));
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						progress.error(tg::error!(?message, "the task panicked"));
 					},
 				};
 			}
 		});
-
-		// Create the stream.
-		let stream = progress.stream();
-
+		let abort_handle = AbortOnDropHandle::new(task);
+		let stream = progress.stream().attach(abort_handle);
 		Ok(stream)
 	}
 
@@ -145,7 +137,7 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn check_out_artifact_task_inner(
+	async fn check_out_artifact_task_inner(
 		&self,
 		artifact: tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,

@@ -1,5 +1,6 @@
 #![allow(clippy::module_name_repetitions)]
 
+use self::attach::Attach;
 use futures::{Future, Stream, StreamExt as _, TryStream, TryStreamExt as _};
 use pin_project::pin_project;
 use std::{
@@ -7,7 +8,16 @@ use std::{
 	task::{Context, Poll},
 };
 
+pub mod attach;
+
 pub trait StreamExt: Stream {
+	fn attach<T>(self, value: T) -> Attach<Self, T>
+	where
+		Self: Sized,
+	{
+		Attach::new(self, value)
+	}
+
 	fn last(mut self) -> impl Future<Output = Option<Self::Item>>
 	where
 		Self: Sized + Unpin,

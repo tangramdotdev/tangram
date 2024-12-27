@@ -1,10 +1,12 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _};
 use indoc::indoc;
-use std::path::PathBuf;
+use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_client as tg;
+use tangram_futures::stream::StreamExt as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tangram_ignore::Matcher;
+use tokio_util::task::AbortOnDropHandle;
 
 mod input;
 mod lockfile;
@@ -27,25 +29,29 @@ impl Server {
 		let task = tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			async move { server.check_in_artifact_inner(arg, Some(&progress)).await }
-		});
-		tokio::spawn({
-			let progress = progress.clone();
 			async move {
-				match task.await {
+				let result = AssertUnwindSafe(server.check_in_artifact_inner(arg, Some(&progress)))
+					.catch_unwind()
+					.await;
+				match result {
 					Ok(Ok(output)) => {
 						progress.output(output);
 					},
 					Ok(Err(error)) => {
 						progress.error(error);
 					},
-					Err(source) => {
-						progress.error(tg::error!(!source, "the task panicked"));
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						progress.error(tg::error!(?message, "the task panicked"));
 					},
 				};
 			}
 		});
-		let stream = progress.stream();
+		let abort_handle = AbortOnDropHandle::new(task);
+		let stream = progress.stream().attach(abort_handle);
 		Ok(stream)
 	}
 

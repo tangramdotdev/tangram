@@ -33,7 +33,7 @@ pub struct Args {
 	pub lockfile: bool,
 
 	/// The path to check in.
-	#[arg(index = 1)]
+	#[arg(default_value = ".", index = 1)]
 	pub path: Option<PathBuf>,
 }
 
