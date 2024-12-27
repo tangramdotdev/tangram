@@ -5,22 +5,22 @@ use sha2::Digest;
 	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
 pub enum Checksum {
+	None,
+	Unsafe,
 	Blake3(Box<[u8]>),
 	Sha256(Box<[u8]>),
 	Sha512(Box<[u8]>),
-	None,
-	Unsafe,
 }
 
 #[derive(
 	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
 pub enum Algorithm {
+	None,
+	Unsafe,
 	Blake3,
 	Sha256,
 	Sha512,
-	None,
-	Unsafe,
 }
 
 pub enum Encoding {
@@ -30,22 +30,22 @@ pub enum Encoding {
 
 #[derive(Debug)]
 pub enum Writer {
+	None,
+	Unsafe,
 	Blake3(Box<blake3::Hasher>),
 	Sha256(Box<sha2::Sha256>),
 	Sha512(Box<sha2::Sha512>),
-	None,
-	Unsafe,
 }
 
 impl Checksum {
 	#[must_use]
 	pub fn algorithm(&self) -> Algorithm {
 		match self {
+			Checksum::None => Algorithm::None,
+			Checksum::Unsafe => Algorithm::Unsafe,
 			Checksum::Blake3(_) => Algorithm::Blake3,
 			Checksum::Sha256(_) => Algorithm::Sha256,
 			Checksum::Sha512(_) => Algorithm::Sha512,
-			Checksum::None => Algorithm::None,
-			Checksum::Unsafe => Algorithm::Unsafe,
 		}
 	}
 }
@@ -53,13 +53,13 @@ impl Checksum {
 impl std::fmt::Display for Checksum {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
+			Checksum::None => write!(f, "none")?,
+			Checksum::Unsafe => write!(f, "unsafe")?,
 			Checksum::Blake3(body) | Checksum::Sha256(body) | Checksum::Sha512(body) => {
 				let algorithm = self.algorithm();
 				let body = data_encoding::HEXLOWER.encode(body);
 				write!(f, "{algorithm}:{body}")?;
 			},
-			Checksum::None => write!(f, "none")?,
-			Checksum::Unsafe => write!(f, "unsafe")?,
 		}
 		Ok(())
 	}
@@ -136,11 +136,11 @@ impl std::str::FromStr for Checksum {
 impl std::fmt::Display for Algorithm {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let system = match self {
+			Algorithm::None => "none",
+			Algorithm::Unsafe => "unsafe",
 			Algorithm::Blake3 => "blake3",
 			Algorithm::Sha256 => "sha256",
 			Algorithm::Sha512 => "sha512",
-			Algorithm::None => "none",
-			Algorithm::Unsafe => "unsafe",
 		};
 		write!(f, "{system}")?;
 		Ok(())
@@ -167,16 +167,17 @@ impl Writer {
 	#[must_use]
 	pub fn new(algorithm: Algorithm) -> Writer {
 		match algorithm {
+			Algorithm::None => Writer::None,
+			Algorithm::Unsafe => Writer::Unsafe,
 			Algorithm::Blake3 => Writer::Blake3(Box::new(blake3::Hasher::new())),
 			Algorithm::Sha256 => Writer::Sha256(Box::new(sha2::Sha256::new())),
 			Algorithm::Sha512 => Writer::Sha512(Box::new(sha2::Sha512::new())),
-			Algorithm::None => Writer::None,
-			Algorithm::Unsafe => Writer::Unsafe,
 		}
 	}
 
 	pub fn update(&mut self, data: impl AsRef<[u8]>) {
 		match self {
+			Writer::None | Writer::Unsafe => (),
 			Writer::Blake3(blake3) => {
 				blake3.update(data.as_ref());
 			},
@@ -186,13 +187,14 @@ impl Writer {
 			Writer::Sha512(sha512) => {
 				sha2::Digest::update(sha512.as_mut(), data);
 			},
-			Writer::None | Writer::Unsafe => (),
 		}
 	}
 
 	#[must_use]
 	pub fn finalize(self) -> Checksum {
 		match self {
+			Writer::None => Checksum::None,
+			Writer::Unsafe => Checksum::Unsafe,
 			Writer::Blake3(hasher) => {
 				let value = hasher.finalize();
 				Checksum::Blake3(value.as_bytes().as_slice().into())
@@ -205,8 +207,6 @@ impl Writer {
 				let value = sha2::Digest::finalize(*sha512);
 				Checksum::Sha512(value.as_slice().into())
 			},
-			Writer::None => Checksum::None,
-			Writer::Unsafe => Checksum::Unsafe,
 		}
 	}
 }
