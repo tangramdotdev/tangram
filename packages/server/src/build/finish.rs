@@ -140,66 +140,13 @@ impl Server {
 				| tg::Checksum::Sha256(_)
 				| tg::Checksum::Sha512(_)
 				| tg::Checksum::None => {
-					// Create the checksum target.
-					let host = "builtin";
 					let value: tg::Value = outcome_data.value.try_into()?;
-					let algorithm = if expected.algorithm() == tg::checksum::Algorithm::None {
-						tg::checksum::Algorithm::Sha256
-					} else {
-						expected.algorithm()
-					};
-					let args = vec![
-						"checksum".into(),
-						value.clone(),
-						algorithm.to_string().into(),
-					];
-					let target = tg::Target::builder(host).args(args).build();
-					let target_id = target.id(self).await?;
-
-					// Get the checksum build.
-					let arg = tg::target::build::Arg {
-						create: false,
-						parent: Some(id.clone()),
-						..Default::default()
-					};
-					let Some(output) = self.try_build_target(&target_id, arg).await? else {
-						return Err(tg::error!("failed to find the checksum build"));
-					};
-
-					// Get the checksum build output.
-					let Some(future) = self.try_get_build_outcome(&output.build).await? else {
-						return Err(tg::error!("failed to find the checksum build"));
-					};
-					let Some(checksum_outcome) = future.await? else {
-						return Err(tg::error!("failed to get the checksum build outcome"));
-					};
-					let checksum_outcome = checksum_outcome.data(self).await?;
-					let Ok(checksum_output) = checksum_outcome.try_unwrap_success_ref().cloned()
-					else {
-						return Err(tg::error!("the checksum failed"));
-					};
-
-					// Compare the checksum from the build.
-					let value: tg::Value = checksum_output.value.try_into()?;
-					let tg::Value::String(checksum) = value else {
-						return Err(tg::error!("failed to deserialize the checksum"));
-					};
-					let checksum = checksum.as_str().parse::<tg::Checksum>()?;
-					if expected == tg::Checksum::None {
-						let error = tg::error!("no checksum provided, expected {checksum}");
+					if let Err(error) = self.verify_checksum(id.clone(), &value, &expected).await {
 						outcome =
 							tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
 								error,
 							});
-					} else if checksum != expected {
-						let error = tg::error!(
-							"checksums do not match, expected {checksum}, actual {checksum}"
-						);
-						outcome =
-							tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
-								error,
-							});
-					}
+					};
 				},
 			};
 		}
@@ -324,6 +271,66 @@ impl Server {
 		});
 
 		Ok(true)
+	}
+
+	async fn verify_checksum(
+		&self,
+		parent_build_id: tg::build::Id,
+		value: &tg::Value,
+		expected: &tg::Checksum,
+	) -> tg::Result<()> {
+		// Create the checksum target.
+		let host = "builtin";
+		let algorithm = if expected.algorithm() == tg::checksum::Algorithm::None {
+			tg::checksum::Algorithm::Sha256
+		} else {
+			expected.algorithm()
+		};
+		let args = vec![
+			"checksum".into(),
+			value.clone(),
+			algorithm.to_string().into(),
+		];
+		let target = tg::Target::builder(host).args(args).build();
+		let target_id = target.id(self).await?;
+
+		// Get the checksum build.
+		let arg = tg::target::build::Arg {
+			create: false,
+			parent: Some(parent_build_id),
+			..Default::default()
+		};
+		let Some(output) = self.try_build_target(&target_id, arg).await? else {
+			return Err(tg::error!("failed to find the checksum build"));
+		};
+
+		// Get the checksum build output.
+		let Some(future) = self.try_get_build_outcome(&output.build).await? else {
+			return Err(tg::error!("failed to find the checksum build"));
+		};
+		let Some(checksum_outcome) = future.await? else {
+			return Err(tg::error!("failed to get the checksum build outcome"));
+		};
+		let checksum_outcome = checksum_outcome.data(self).await?;
+		let Ok(checksum_output) = checksum_outcome.try_unwrap_success_ref().cloned() else {
+			return Err(tg::error!("the checksum failed"));
+		};
+
+		// Compare the checksum from the build.
+		let value: tg::Value = checksum_output.value.try_into()?;
+		let tg::Value::String(checksum) = value else {
+			return Err(tg::error!("failed to deserialize the checksum"));
+		};
+		let checksum = checksum.as_str().parse::<tg::Checksum>()?;
+		if *expected == tg::Checksum::None {
+			Err(tg::error!("no checksum provided, expected {checksum}"))
+		} else if checksum != *expected {
+			Err(tg::error!(
+				"checksums do not match, expected {checksum}, actual {checksum}"
+			))
+		} else {
+			Ok(())
+		}
 	}
 }
 
