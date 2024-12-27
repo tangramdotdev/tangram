@@ -134,6 +134,10 @@ pub struct Advanced {
 	/// Whether to write build logs to the server's stderr.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_build_logs_to_stderr: Option<bool>,
+
+	/// Whether to write blobs to the server's cache directory.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_blobs_to_blobs_directory: Option<bool>,
 }
 
 #[serde_as]

@@ -181,6 +181,13 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index object_children_child_index on object_children (child);
 
+			create table blobs (
+				id text primary key,
+				entry text not null,
+				position integer not null,
+				length integer not null
+			);
+
 			create table tags (
 				tag text primary key,
 				item text not null

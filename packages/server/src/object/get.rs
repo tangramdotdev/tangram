@@ -3,9 +3,11 @@ use bytes::Bytes;
 use futures::{future, FutureExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
+use num::ToPrimitive as _;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 
 impl Server {
 	pub async fn try_get_object(
@@ -57,12 +59,28 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let Some(bytes) = row.bytes else {
-			return Ok(None);
-		};
 
 		// Drop the database connection.
 		drop(connection);
+
+		// If the bytes were not in the database, then attempt to read the bytes from a blob file.
+		let bytes = 'a: {
+			if let Some(bytes) = row.bytes {
+				break 'a Some(bytes);
+			};
+			let Ok(id) = id.try_unwrap_leaf_ref() else {
+				break 'a None;
+			};
+			let Some(bytes) = self.try_read_leaf_from_blobs_directory(id).await? else {
+				break 'a None;
+			};
+			Some(bytes)
+		};
+
+		// If the bytes were not found, then return None.
+		let Some(bytes) = bytes else {
+			return Ok(None);
+		};
 
 		// Create the output.
 		let output = tg::object::get::Output {
@@ -110,6 +128,60 @@ impl Server {
 		});
 
 		Ok(Some(output))
+	}
+
+	async fn try_read_leaf_from_blobs_directory(
+		&self,
+		id: &tg::leaf::Id,
+	) -> tg::Result<Option<Bytes>> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		#[derive(Debug, serde::Deserialize)]
+		struct Row {
+			entry: tg::blob::Id,
+			position: u64,
+			length: u64,
+		}
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select entry, position, length 
+				from blobs 
+				where id = {p}1
+			"
+		);
+		let params = db::params![id];
+		let Some(row) = connection
+			.query_optional_into::<Row>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
+
+		// Drop the connection.
+		drop(connection);
+
+		// Read the leaf from the file.
+		let mut file = tokio::fs::File::open(self.blobs_path().join(row.entry.to_string()))
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to find the entry in the blobs directory")
+			})?;
+		file.seek(std::io::SeekFrom::Start(row.position))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to seek in the blob file"))?;
+		let mut buffer = vec![0; row.length.to_usize().unwrap()];
+		file.read_exact(&mut buffer)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read the leaf from the file"))?;
+
+		Ok(Some(buffer.into()))
 	}
 }
 

@@ -387,7 +387,7 @@ impl Server {
 					// If analyzing the module fails, report a diagnostic and continue.
 					if let Some(progress) = progress {
 						let diagnostic = tg::Diagnostic {
-							location: None, // todo: compute a meaningful location.
+							location: None,
 							severity: tg::diagnostic::Severity::Error,
 							message: format!("failed to analyze the module: {error}"),
 						};
@@ -416,7 +416,6 @@ impl Server {
 			let references = references
 				.into_iter()
 				.filter_map(|(reference, referent)| {
-					// TODO: diagnostic for missing references.
 					let referent = tg::Referent {
 						item: referent.item?,
 						path: referent.path,

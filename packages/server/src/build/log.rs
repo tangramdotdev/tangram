@@ -18,7 +18,7 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _, Asyn
 use tokio_stream::wrappers::IntervalStream;
 
 pub enum Reader {
-	Blob(tg::blob::Reader<Server>),
+	Blob(crate::blob::Reader),
 	Database(DatabaseReader),
 	File(tokio::fs::File),
 }
@@ -390,7 +390,7 @@ impl Reader {
 			.ok_or_else(|| tg::error!("expected the build to exist"))?;
 		if let Some(log) = output.log {
 			let blob = tg::Blob::with_id(log);
-			let reader = blob.reader(server).await?;
+			let reader = crate::blob::Reader::new(server, blob).await?;
 			return Ok(Self::Blob(reader));
 		}
 

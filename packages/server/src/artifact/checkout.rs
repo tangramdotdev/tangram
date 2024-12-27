@@ -514,7 +514,7 @@ impl Server {
 		// Otherwise, create the file.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let reader = file
-			.reader(self)
+			.read(self, tg::blob::read::Arg::default())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
 		let mut reader = InspectReader::new(reader, |slice| {

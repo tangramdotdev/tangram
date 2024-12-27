@@ -124,8 +124,8 @@ where
 			if !file.dependencies(server).await?.is_empty() {
 				return Err(tg::error!("cannot archive a file with dependencies"));
 			}
-			let reader = file.reader(server).await?;
-			let size = reader.size();
+			let size = file.size(server).await?;
+			let reader = file.read(server, tg::blob::read::Arg::default()).await?;
 			let executable = file.executable(server).await?;
 			let reader = reader.compat();
 			let mut header = async_tar::Header::new_gnu();
@@ -249,7 +249,7 @@ where
 				.await
 				.unwrap()
 				.compat_write();
-			let mut file_reader = file.reader(server).await?;
+			let mut file_reader = file.read(server, tg::blob::read::Arg::default()).await?;
 			tokio::io::copy(&mut file_reader, &mut entry_writer)
 				.await
 				.map_err(|source| tg::error!(!source, "could not write the file entry"))?;
