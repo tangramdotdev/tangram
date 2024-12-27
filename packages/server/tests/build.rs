@@ -845,6 +845,58 @@ async fn builtin_download_rejects_malformed_checksum() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn target_none_checksum() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let target = await tg.target("echo 'Hello, World!' > $OUTPUT", { checksum: "none" });
+						let output = await target.output();
+						return output;
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let error = outcome.into_result().unwrap_err();
+			assert_snapshot!(error, @r"failed to build the target");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn target_set_checksum() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let target = await tg.target("echo 'Hello, World!' > $OUTPUT", { checksum: "sha256:bf5d7670a573508ae741a64acfd35f3e2a6bab3f9d02feda16495a2e622f2017" });
+						let output = await target.output();
+						return output;
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let error = outcome.into_result().unwrap();
+			assert_snapshot!(error, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
 async fn builtin_artifact_archive_extract_simple_dir_roundtrip() -> tg::Result<()> {
 	let module = indoc!(
 		r#"
