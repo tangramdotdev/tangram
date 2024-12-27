@@ -18,7 +18,7 @@ export declare namespace Checksum {
 }
 
 export namespace Checksum {
-	export type Algorithm = "blake3" | "sha256" | "sha512" | "unsafe";
+	export type Algorithm = "blake3" | "none" | "sha256" | "sha512" | "unsafe";
 
 	export let new_ = async (
 		input: string | Uint8Array | tg.Blob | tg.Artifact,
@@ -41,6 +41,8 @@ export namespace Checksum {
 			return checksum.split(":")[0]! as Algorithm;
 		} else if (checksum.includes("-")) {
 			return checksum.split("-")[0]! as Algorithm;
+		} else if (checksum === "none") {
+			return "none";
 		} else if (checksum === "unsafe") {
 			return "unsafe";
 		} else {
