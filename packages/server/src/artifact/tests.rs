@@ -439,7 +439,7 @@ async fn symlink_roundtrip() -> tg::Result<()> {
   {
     "contents": "c",
     "executable": false,
-    "xattr": {
+    "xattrs": {
       "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"sym_01ky91btcmtmxv1973agar5b43tjvrq0qty6wcynkq3n0s4mynh880\":{\"item\":\"sym_01ky91btcmtmxv1973agar5b43tjvrq0qty6wcynkq3n0s4mynh880\"}},\"id\":\"fil_016eea5b1xt939meb567ckn2yhwhhvcgc0vg65h0zqssg6dw569pbg\"}]}"
     }
   }
@@ -590,7 +590,7 @@ async fn file_with_object_dependencies() -> tg::Result<()> {
     "kind": "file",
     "contents": "\n\t\t\t\timport file from \"fil_01my5jh8zn8r1jmpm8j6286w0v65pqe95wmn116pvf6k18rkbbacf0\";\n\t\t\t\timport blob from \"lef_01be9a1a2fqh8ab33myhrqqg6nyg1jgaq4snyqme2327pkrgca2qc0\";\n\t\t\t",
     "executable": false,
-    "xattr": {
+    "xattrs": {
       "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"fil_01my5jh8zn8r1jmpm8j6286w0v65pqe95wmn116pvf6k18rkbbacf0\":{\"item\":\"fil_01my5jh8zn8r1jmpm8j6286w0v65pqe95wmn116pvf6k18rkbbacf0\"},\"lef_01be9a1a2fqh8ab33myhrqqg6nyg1jgaq4snyqme2327pkrgca2qc0\":{\"item\":\"lef_01be9a1a2fqh8ab33myhrqqg6nyg1jgaq4snyqme2327pkrgca2qc0\"}},\"id\":\"fil_01av35e5gkymwwx5dk6wn04tm1ydrq5wrancyagfg0dhfnt3jzbbjg\"}]}"
     }
   }

@@ -920,7 +920,7 @@ async fn import_from_tag() -> tg::Result<()> {
 		server.put_tag(&foo_tag, put_foo_arg).await?;
 
 		// create consumer temp
-		let bar_temp = Temp::new_persistent();
+		let bar_temp = Temp::new();
 		let bar = temp::directory! {
 			"bar" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
@@ -1023,7 +1023,7 @@ async fn build_create_false() -> tg::Result<()> {
 		"#),
 	}
 	.into();
-	let temp = Temp::new_persistent();
+	let temp = Temp::new();
 	let mut options = Config::with_path(temp.path().to_owned());
 	options.build = Some(tangram_server::config::Build::default());
 	options.build_heartbeat_monitor =
@@ -1033,7 +1033,7 @@ async fn build_create_false() -> tg::Result<()> {
 	let server = Server::start(options.clone()).await?;
 	let result = AssertUnwindSafe(async {
 		// Create the temp.
-		let artifact_temp = Temp::new_persistent();
+		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.path()).await.unwrap();
 
 		// Checkin the artifact.
@@ -1097,7 +1097,7 @@ async fn build_cache_hit() -> tg::Result<()> {
 		"#),
 	}
 	.into();
-	let temp = Temp::new_persistent();
+	let temp = Temp::new();
 	let mut options = Config::with_path(temp.path().to_owned());
 	options.build = Some(tangram_server::config::Build::default());
 	options.build_heartbeat_monitor =
@@ -1107,7 +1107,7 @@ async fn build_cache_hit() -> tg::Result<()> {
 	let server = Server::start(options.clone()).await?;
 	let result = AssertUnwindSafe(async {
 		// Create the temp.
-		let artifact_temp = Temp::new_persistent();
+		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.path()).await.unwrap();
 
 		// Checkin the artifact.
@@ -1198,11 +1198,11 @@ where
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let artifact = artifact.into();
-	let artifact_temp = Temp::new_persistent();
+	let artifact_temp = Temp::new();
 	artifact.to_path(artifact_temp.as_ref()).await.map_err(
 		|source| tg::error!(!source, %path = artifact_temp.path().display(), "failed to write the artifact"),
 	)?;
-	let server_temp = Temp::new_persistent();
+	let server_temp = Temp::new();
 	let mut options = Config::with_path(server_temp.path().to_owned());
 	options.build = Some(tangram_server::config::Build::default());
 	options.build_heartbeat_monitor =
@@ -1279,17 +1279,17 @@ where
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let artifact = artifact.into();
-	let artifact_temp = Temp::new_persistent();
+	let artifact_temp = Temp::new();
 	artifact.to_path(artifact_temp.as_ref()).await.map_err(
 		|source| tg::error!(!source, %path = artifact_temp.path().display(), "failed to write the artifact"),
 	)?;
-	let remote_temp = Temp::new_persistent();
+	let remote_temp = Temp::new();
 	let mut remote_options = Config::with_path(remote_temp.path().to_owned());
 	remote_options.build = Some(tangram_server::config::Build::default());
 	remote_options.build_heartbeat_monitor =
 		Some(tangram_server::config::BuildHeartbeatMonitor::default());
 	let remote = Server::start(remote_options).await?;
-	let local_temp = Temp::new_persistent();
+	let local_temp = Temp::new();
 	let mut local_options = Config::with_path(local_temp.path().to_owned());
 	local_options.remotes = [(
 		"default".to_owned(),

@@ -734,7 +734,7 @@ impl Compiler {
 		let path = Path::new(uri.path().as_str());
 
 		// Handle a path in the library temp.
-		if let Ok(path) = path.strip_prefix(&self.library_temp.path) {
+		if let Ok(path) = path.strip_prefix(self.library_temp.path()) {
 			let kind = tg::module::Kind::Dts;
 			let item = tg::module::Item::Path(path.to_owned());
 			let referent = tg::Referent {
@@ -816,12 +816,12 @@ impl Compiler {
 					.get_file(path)
 					.ok_or_else(|| tg::error!("invalid path"))?
 					.contents();
-				let path = self.library_temp.path.join(path);
+				let path = self.library_temp.path().join(path);
 				let exists = tokio::fs::try_exists(&path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
 				if !exists {
-					tokio::fs::create_dir_all(&self.library_temp.path)
+					tokio::fs::create_dir_all(self.library_temp.path())
 						.await
 						.map_err(|source| {
 							tg::error!(!source, "failed create the library temp directory")

@@ -1,10 +1,10 @@
 use crate::{util::fs::remove, Server};
-use futures::FutureExt as _;
 use std::path::{Path, PathBuf};
 
 pub struct Temp {
-	pub path: PathBuf,
-	pub preserve: bool,
+	path: PathBuf,
+	preserve: bool,
+	server: Server,
 }
 
 impl Temp {
@@ -16,7 +16,12 @@ impl Temp {
 		let id = ENCODING.encode(&id.into_bytes());
 		let path = server.temp_path().join(id);
 		let preserve = server.config.advanced.preserve_temp_directories;
-		Self { path, preserve }
+		let server = server.clone();
+		Self {
+			path,
+			preserve,
+			server,
+		}
 	}
 
 	pub fn path(&self) -> &Path {
@@ -33,7 +38,14 @@ impl AsRef<Path> for Temp {
 impl Drop for Temp {
 	fn drop(&mut self) {
 		if !self.preserve {
-			tokio::spawn(remove(self.path.clone()).map(|_| ()));
+			tokio::spawn({
+				let server = self.server.clone();
+				let path = self.path.clone();
+				async move {
+					remove(&path).await.ok();
+					server.temp_paths.remove(&path);
+				}
+			});
 		}
 	}
 }

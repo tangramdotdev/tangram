@@ -19,7 +19,6 @@ path = "src/main.rs"
 
 [dev-dependencies]
 insta = { workspace = true }
-tangram_temp = { workspace = true }
 
 [dependencies]
 clap = { workspace = true }
@@ -43,6 +42,7 @@ tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_either = { workspace = true }
 tangram_server = { workspace = true }
+tangram_temp = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

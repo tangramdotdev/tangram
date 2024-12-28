@@ -368,24 +368,24 @@ impl Server {
 					input,
 					output,
 					output_index,
-					temp.path.clone(),
+					temp.path().to_owned(),
 					&mut visited,
 					progress,
 				)
 				.await?;
 
 				// Update the file permissions.
-				self.update_permissions(input, output, output_index, temp.path.clone())
+				self.update_permissions(input, output, output_index, temp.path().to_owned())
 					.await?;
 
 				// Reset the file times to epoch.
-				self.set_file_times_to_epoch(&temp.path, true).await?;
+				self.set_file_times_to_epoch(&temp.path(), true).await?;
 
 				// Rename to the cache directory.
 				let dest = self
 					.cache_path()
 					.join(output.nodes[output_index].id.to_string());
-				match tokio::fs::rename(&temp.path, &dest).await {
+				match tokio::fs::rename(&temp.path(), &dest).await {
 					Ok(()) => (),
 					Err(error) if error.raw_os_error() == Some(libc::EEXIST) => (),
 					Err(error) if error.raw_os_error() == Some(libc::ENOTEMPTY) => (),

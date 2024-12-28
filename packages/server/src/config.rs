@@ -30,9 +30,9 @@ pub struct Advanced {
 	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
+	pub write_blobs_to_blobs_directory: bool,
 	pub write_build_logs_to_database: bool,
 	pub write_build_logs_to_stderr: bool,
-	pub write_blobs_to_blobs_directory: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -170,9 +170,9 @@ impl Default for Advanced {
 			},
 			file_descriptor_semaphore_size: 1_000_000_000,
 			preserve_temp_directories: false,
+			write_blobs_to_blobs_directory: true,
 			write_build_logs_to_database: false,
 			write_build_logs_to_stderr: false,
-			write_blobs_to_blobs_directory: false,
 		}
 	}
 }
