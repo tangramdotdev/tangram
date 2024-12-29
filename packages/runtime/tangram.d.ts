@@ -848,7 +848,7 @@ declare namespace tg {
 	export type Checksum = string;
 
 	export namespace Checksum {
-		export type Algorithm = "blake3" | "sha256" | "sha512" | "unsafe";
+		export type Algorithm = "none" | "unsafe" | "blake3" | "sha256" | "sha512";
 
 		export let new_: (
 			input: string | Uint8Array | tg.Blob | tg.Artifact,

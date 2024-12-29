@@ -1,6 +1,6 @@
 use crate::Server;
 use std::path::Path;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 
 /// Render a value.
 pub async fn render(
@@ -32,4 +32,37 @@ pub async fn render(
 	} else {
 		Ok("<tangram value>".to_owned())
 	}
+}
+
+pub async fn checksum(
+	server: &Server,
+	build: &tg::Build,
+	value: &tg::Value,
+	checksum: &tg::Checksum,
+) -> tg::Result<()> {
+	let algorithm = checksum.algorithm();
+	let algorithm = if algorithm == tg::checksum::Algorithm::None {
+		tg::checksum::Algorithm::Sha256
+	} else {
+		algorithm
+	};
+	if algorithm == tg::checksum::Algorithm::Unsafe {
+		return Ok(());
+	}
+	let host = "builtin";
+	let args = vec![
+		"checksum".into(),
+		value.clone(),
+		algorithm.to_string().into(),
+	];
+	let target = tg::Target::builder(host).args(args).build();
+	let target_id = target.id(server).await?;
+	let arg = tg::target::build::Arg {
+		create: true,
+		parent: Some(build.id().clone()),
+		..Default::default()
+	};
+	let output = server.build_target(&target_id, arg).await?;
+	server.get_build_outcome(&output.build).await?.await?;
+	Ok(())
 }

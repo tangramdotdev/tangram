@@ -1,9 +1,9 @@
 use super::log;
 use crate::Server;
 use bytes::Bytes;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use indoc::formatdoc;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
@@ -131,61 +131,28 @@ impl Server {
 
 		// Verify the checksum if one was provided.
 		let target = tg::Target::with_id(output.target);
-		if let Some(expected) = target.checksum(self).await?.clone() {
-			if let Ok(tg::build::outcome::data::Success {
-				value: tg::value::Data::Object(object),
-				..
-			}) = outcome.try_unwrap_success_ref().cloned()
-			{
-				if tg::artifact::Id::try_from(object.clone()).is_ok() {
-					let algorithm = expected.algorithm();
-					let actual = match algorithm {
-						tg::checksum::Algorithm::Unsafe => tg::Checksum::Unsafe,
-						_ => {
-							return Err(tg::error!("unimplemented"));
-						},
-					};
-					if expected != tg::Checksum::Unsafe && expected != actual {
-						let error = tg::error!(
-							%expected,
-							%actual,
-							"the checksum did not match"
-						);
-						outcome =
-							tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
-								error,
-							});
-					}
-				} else if let Ok(blob) = tg::blob::Id::try_from(object.clone()) {
-					let blob = tg::Blob::with_id(blob);
-					let algorithm = expected.algorithm();
-					let mut writer = tg::checksum::Writer::new(algorithm);
-					let mut reader = blob.read(self, tg::blob::read::Arg::default()).await?;
-					tokio::io::copy(&mut reader, &mut writer)
+		if let (tg::build::outcome::Data::Success(outcome_data), Some(expected)) =
+			(outcome.clone(), target.checksum(self).await?.clone())
+		{
+			match expected {
+				tg::Checksum::Unsafe => (),
+				tg::Checksum::Blake3(_)
+				| tg::Checksum::Sha256(_)
+				| tg::Checksum::Sha512(_)
+				| tg::Checksum::None => {
+					let value: tg::Value = outcome_data.value.try_into()?;
+					if let Err(error) = self
+						.verify_checksum(id.clone(), &value, &expected)
+						.boxed()
 						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to copy from the reader to the writer")
-						})?;
-					let actual = writer.finalize();
-					if expected != tg::Checksum::Unsafe && expected != actual {
-						let error = tg::error!(
-							%expected,
-							%actual,
-							"the checksum did not match"
-						);
+					{
 						outcome =
 							tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
 								error,
 							});
-					}
-				} else {
-					let error = tg::error!("a target with a checksum must have an output that is either an artifact or a blob");
-					outcome =
-						tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
-							error,
-						});
-				}
-			}
+					};
+				},
+			};
 		}
 
 		// Create a blob from the log.
@@ -308,6 +275,62 @@ impl Server {
 		});
 
 		Ok(true)
+	}
+
+	async fn verify_checksum(
+		&self,
+		parent_build_id: tg::build::Id,
+		value: &tg::Value,
+		expected: &tg::Checksum,
+	) -> tg::Result<()> {
+		// Create the target.
+		let host = "builtin";
+		let algorithm = if expected.algorithm() == tg::checksum::Algorithm::None {
+			tg::checksum::Algorithm::Sha256
+		} else {
+			expected.algorithm()
+		};
+		let args = vec![
+			"checksum".into(),
+			value.clone(),
+			algorithm.to_string().into(),
+		];
+		let target = tg::Target::builder(host).args(args).build();
+		let target_id = target.id(self).await?;
+
+		// Build the target.
+		let arg = tg::target::build::Arg {
+			create: false,
+			parent: Some(parent_build_id),
+			..Default::default()
+		};
+		let output = self.build_target(&target_id, arg).await?;
+
+		// Get the output.
+		let Some(outcome) = self.get_build_outcome(&output.build).await?.await? else {
+			return Err(tg::error!("failed to get the checksum build outcome"));
+		};
+		let outcome = outcome.data(self).await?;
+		let Ok(outcome) = outcome.try_unwrap_success_ref().cloned() else {
+			return Err(tg::error!("the checksum failed"));
+		};
+
+		// Compare the checksum from the build.
+		let value: tg::Value = outcome.value.try_into()?;
+		let checksum = value
+			.try_unwrap_string()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a string"))?;
+		let checksum = checksum.parse::<tg::Checksum>()?;
+		if *expected == tg::Checksum::None {
+			Err(tg::error!("no checksum provided, actual {checksum}"))
+		} else if checksum != *expected {
+			Err(tg::error!(
+				"checksums do not match, expected {expected}, actual {checksum}"
+			))
+		} else {
+			Ok(())
+		}
 	}
 }
 

@@ -379,6 +379,16 @@ impl Runtime {
 		// Stop the compiler.
 		state.compiler.stop().await;
 
+		// Checksum the output if necessary.
+		if let Ok(value) = &result {
+			let checksum = target.checksum(server).await?.clone();
+			if let Some(checksum) = checksum {
+				super::util::checksum(server, build, value, &checksum)
+					.boxed()
+					.await?;
+			}
+		}
+
 		result
 	}
 }

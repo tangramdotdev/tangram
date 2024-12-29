@@ -5,20 +5,22 @@ use sha2::Digest;
 	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
 pub enum Checksum {
+	None,
+	Unsafe,
 	Blake3(Box<[u8]>),
 	Sha256(Box<[u8]>),
 	Sha512(Box<[u8]>),
-	Unsafe,
 }
 
 #[derive(
 	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
 pub enum Algorithm {
+	None,
+	Unsafe,
 	Blake3,
 	Sha256,
 	Sha512,
-	Unsafe,
 }
 
 pub enum Encoding {
@@ -28,6 +30,7 @@ pub enum Encoding {
 
 #[derive(Debug)]
 pub enum Writer {
+	None,
 	Unsafe,
 	Blake3(Box<blake3::Hasher>),
 	Sha256(Box<sha2::Sha256>),
@@ -38,10 +41,11 @@ impl Checksum {
 	#[must_use]
 	pub fn algorithm(&self) -> Algorithm {
 		match self {
+			Checksum::None => Algorithm::None,
 			Checksum::Unsafe => Algorithm::Unsafe,
+			Checksum::Blake3(_) => Algorithm::Blake3,
 			Checksum::Sha256(_) => Algorithm::Sha256,
 			Checksum::Sha512(_) => Algorithm::Sha512,
-			Checksum::Blake3(_) => Algorithm::Blake3,
 		}
 	}
 }
@@ -49,12 +53,13 @@ impl Checksum {
 impl std::fmt::Display for Checksum {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
+			Checksum::None => write!(f, "none")?,
+			Checksum::Unsafe => write!(f, "unsafe")?,
 			Checksum::Blake3(body) | Checksum::Sha256(body) | Checksum::Sha512(body) => {
 				let algorithm = self.algorithm();
 				let body = data_encoding::HEXLOWER.encode(body);
 				write!(f, "{algorithm}:{body}")?;
 			},
-			Checksum::Unsafe => write!(f, "unsafe")?,
 		}
 		Ok(())
 	}
@@ -79,6 +84,7 @@ impl std::str::FromStr for Checksum {
 			.map_err(|source| tg::error!(!source, "invalid algorithm"))?;
 
 		Ok(match (algorithm, components.next()) {
+			(Algorithm::None, None) => Checksum::None,
 			(Algorithm::Unsafe, None) => Checksum::Unsafe,
 			(Algorithm::Blake3, Some(body)) if body.len() == 44 => {
 				let body = data_encoding::BASE64
@@ -130,10 +136,11 @@ impl std::str::FromStr for Checksum {
 impl std::fmt::Display for Algorithm {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let system = match self {
+			Algorithm::None => "none",
 			Algorithm::Unsafe => "unsafe",
+			Algorithm::Blake3 => "blake3",
 			Algorithm::Sha256 => "sha256",
 			Algorithm::Sha512 => "sha512",
-			Algorithm::Blake3 => "blake3",
 		};
 		write!(f, "{system}")?;
 		Ok(())
@@ -145,6 +152,7 @@ impl std::str::FromStr for Algorithm {
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		let system = match s {
+			"none" => Algorithm::None,
 			"unsafe" => Algorithm::Unsafe,
 			"sha256" => Algorithm::Sha256,
 			"sha512" => Algorithm::Sha512,
@@ -159,6 +167,7 @@ impl Writer {
 	#[must_use]
 	pub fn new(algorithm: Algorithm) -> Writer {
 		match algorithm {
+			Algorithm::None => Writer::None,
 			Algorithm::Unsafe => Writer::Unsafe,
 			Algorithm::Blake3 => Writer::Blake3(Box::new(blake3::Hasher::new())),
 			Algorithm::Sha256 => Writer::Sha256(Box::new(sha2::Sha256::new())),
@@ -168,7 +177,7 @@ impl Writer {
 
 	pub fn update(&mut self, data: impl AsRef<[u8]>) {
 		match self {
-			Writer::Unsafe => (),
+			Writer::None | Writer::Unsafe => (),
 			Writer::Blake3(blake3) => {
 				blake3.update(data.as_ref());
 			},
@@ -184,6 +193,7 @@ impl Writer {
 	#[must_use]
 	pub fn finalize(self) -> Checksum {
 		match self {
+			Writer::None => Checksum::None,
 			Writer::Unsafe => Checksum::Unsafe,
 			Writer::Blake3(hasher) => {
 				let value = hasher.finalize();

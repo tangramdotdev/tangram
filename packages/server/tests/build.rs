@@ -812,7 +812,7 @@ async fn builtin_download_rejects_incorrect_checksum() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @r"Uncaught Error: invalid checksum, expected sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa but got sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
+			assert_snapshot!(error, @"failed to build the target");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -837,7 +837,59 @@ async fn builtin_download_rejects_malformed_checksum() -> tg::Result<()> {
 		vec![],
 		|_, outcome| async move {
 			let error = outcome.into_result().unwrap_err();
-			assert_snapshot!(error, @r"Uncaught Error: invalid checksum");
+			assert_snapshot!(error, @"the syscall failed");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn target_none_checksum() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let target = await tg.target("echo 'Hello, World!' > $OUTPUT", { checksum: "none" });
+						let output = await target.output();
+						return output;
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let error = outcome.into_result().unwrap_err();
+			assert_snapshot!(error, @r"failed to build the target");
+			Ok::<_, tg::Error>(())
+		},
+	)
+	.await
+}
+
+#[tokio::test]
+async fn target_set_checksum() -> tg::Result<()> {
+	test(
+		temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					export default tg.target(async () => {
+						let target = await tg.target("echo 'Hello, World!' > $OUTPUT", { checksum: "sha256:bf5d7670a573508ae741a64acfd35f3e2a6bab3f9d02feda16495a2e622f2017" });
+						let output = await target.output();
+						return output;
+					});
+				"#),
+			}
+		},
+		"foo",
+		"default",
+		vec![],
+		|_, outcome| async move {
+			let error = outcome.into_result().unwrap();
+			assert_snapshot!(error, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
 			Ok::<_, tg::Error>(())
 		},
 	)

@@ -48,12 +48,18 @@ impl Runtime {
 
 	async fn checksum_artifact(
 		&self,
-		_artifact: &tg::Artifact,
+		artifact: &tg::Artifact,
 		algorithm: tg::checksum::Algorithm,
 	) -> tg::Result<tg::Checksum> {
 		match algorithm {
+			tg::checksum::Algorithm::None => Ok(tg::Checksum::None),
 			tg::checksum::Algorithm::Unsafe => Ok(tg::Checksum::Unsafe),
-			_ => Err(tg::error!("unimplemented")),
+			_ => {
+				let blob = artifact
+					.archive(&self.server, tg::artifact::archive::Format::Tgar)
+					.await?;
+				self.checksum_blob(&blob, algorithm).await
+			},
 		}
 	}
 

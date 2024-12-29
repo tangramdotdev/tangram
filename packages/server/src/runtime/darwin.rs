@@ -3,7 +3,7 @@ use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt as _,
+	FutureExt as _, TryStreamExt as _,
 };
 use indoc::writedoc;
 use num::ToPrimitive as _;
@@ -149,8 +149,11 @@ impl Runtime {
 			.try_collect()
 			.await?;
 
+		// Get the checksum.
+		let checksum = target.checksum(server).await?.clone();
+
 		// Enable the network if a checksum was provided.
-		let network_enabled = target.checksum(server).await?.is_some();
+		let network_enabled = checksum.is_some();
 
 		// Set `$HOME`.
 		env.insert(
@@ -484,6 +487,13 @@ impl Runtime {
 		} else {
 			tg::Value::Null
 		};
+
+		// Checksum the output if necessary.
+		if let Some(checksum) = checksum {
+			super::util::checksum(server, build, &value, &checksum)
+				.boxed()
+				.await?;
+		}
 
 		Ok(value)
 	}

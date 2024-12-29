@@ -53,6 +53,14 @@ impl Runtime {
 		}
 		.await?;
 
+		// Checksum the output if necessary.
+		let checksum = target.checksum(server).await?.clone();
+		if let Some(checksum) = checksum {
+			super::util::checksum(server, build, &output, &checksum)
+				.boxed()
+				.await?;
+		}
+
 		Ok(output)
 	}
 }

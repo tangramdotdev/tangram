@@ -109,24 +109,11 @@ export namespace Blob {
 			await tg.target({
 				host: "builtin",
 				args: ["download", url],
-				checksum: "unsafe",
+				checksum: checksum,
 				env: undefined,
 			})
 		).output();
 		tg.assert(tg.Blob.is(value));
-		let algorithm = tg.Checksum.algorithm(checksum);
-		let actual = await (
-			await tg.target({
-				host: "builtin",
-				args: ["checksum", value, algorithm],
-				env: undefined,
-			})
-		).output();
-		if (actual !== checksum) {
-			throw new Error(
-				`invalid checksum, expected ${checksum} but got ${actual}`,
-			);
-		}
 		return value;
 	};
 
