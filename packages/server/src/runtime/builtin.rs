@@ -1,4 +1,3 @@
-use super::util::spawn_checksum_build;
 use crate::Server;
 use futures::FutureExt as _;
 use tangram_client as tg;
@@ -54,10 +53,12 @@ impl Runtime {
 		}
 		.await?;
 
-		// Create a child build to calculate the checksum.
+		// Checksum the output if necessary.
 		let checksum = target.checksum(server).await?.clone();
 		if let Some(checksum) = checksum {
-			spawn_checksum_build(server, build.id().clone(), &output, &checksum).await?;
+			super::util::checksum(server, build, &output, &checksum)
+				.boxed()
+				.await?;
 		}
 
 		Ok(output)

@@ -1,6 +1,6 @@
 use crate::Server;
 use std::path::Path;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 
 /// Render a value.
 pub async fn render(
@@ -34,13 +34,12 @@ pub async fn render(
 	}
 }
 
-pub async fn spawn_checksum_build(
+pub async fn checksum(
 	server: &Server,
-	parent_build_id: tg::build::Id,
+	build: &tg::Build,
 	value: &tg::Value,
 	checksum: &tg::Checksum,
 ) -> tg::Result<()> {
-	// Create a child build to calculate the checksum.
 	let algorithm = checksum.algorithm();
 	let algorithm = if algorithm == tg::checksum::Algorithm::None {
 		tg::checksum::Algorithm::Sha256
@@ -60,19 +59,10 @@ pub async fn spawn_checksum_build(
 	let target_id = target.id(server).await?;
 	let arg = tg::target::build::Arg {
 		create: true,
-		parent: Some(parent_build_id),
+		parent: Some(build.id().clone()),
 		..Default::default()
 	};
-	if let Some(output) = server.try_build_target(&target_id, arg).await? {
-		if let Some(future) = server.try_get_build_outcome_future(&output.build).await? {
-			future
-				.await?
-				.map(|_| ())
-				.ok_or_else(|| tg::error!("checksum build failed"))
-		} else {
-			Err(tg::error!("could not find the checksum child build"))
-		}
-	} else {
-		Err(tg::error!("could not get checksum build output"))
-	}
+	let output = server.build_target(&target_id, arg).await?;
+	server.get_build_outcome(&output.build).await?.await?;
+	Ok(())
 }

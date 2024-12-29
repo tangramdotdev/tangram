@@ -1,4 +1,5 @@
 use crate::{compiler::Compiler, Server};
+use futures::FutureExt as _;
 use tangram_client as tg;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
@@ -25,12 +26,12 @@ pub enum Runtime {
 impl Runtime {
 	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
 		match self {
-			Runtime::Builtin(runtime) => runtime.build(build, remote).await,
+			Runtime::Builtin(runtime) => runtime.build(build, remote).boxed().await,
 			#[cfg(target_os = "macos")]
-			Runtime::Darwin(runtime) => runtime.build(build, remote).await,
-			Runtime::Js(runtime) => runtime.build(build, remote).await,
+			Runtime::Darwin(runtime) => runtime.build(build, remote).boxed().await,
+			Runtime::Js(runtime) => runtime.build(build, remote).boxed().await,
 			#[cfg(target_os = "linux")]
-			Runtime::Linux(runtime) => runtime.build(build, remote).await,
+			Runtime::Linux(runtime) => runtime.build(build, remote).boxed().await,
 		}
 	}
 }

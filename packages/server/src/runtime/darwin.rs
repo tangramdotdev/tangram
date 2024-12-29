@@ -1,9 +1,9 @@
-use super::{proxy::Proxy, util::render, util::spawn_checksum_build};
+use super::{proxy::Proxy, util::render};
 use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt as _,
+	FutureExt as _, TryStreamExt as _,
 };
 use indoc::writedoc;
 use num::ToPrimitive as _;
@@ -488,9 +488,11 @@ impl Runtime {
 			tg::Value::Null
 		};
 
-		// Create a child build to calculate the checksum.
+		// Checksum the output if necessary.
 		if let Some(checksum) = checksum {
-			spawn_checksum_build(server, build.id().clone(), &value, &checksum).await?;
+			super::util::checksum(server, build, &value, &checksum)
+				.boxed()
+				.await?;
 		}
 
 		Ok(value)
