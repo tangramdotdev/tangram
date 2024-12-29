@@ -7,13 +7,16 @@ use tangram_client::{self as tg, handle::Ext as _};
 pub struct Args {
 	#[arg(index = 1)]
 	pub build: tg::build::Id,
+
+	#[arg(long)]
+	pub pretty: Option<bool>,
 }
 
 impl Cli {
 	pub async fn command_build_get(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let output = handle.get_build(&args.build).await?;
-		Self::output_json(&output).await?;
+		Self::output_json(&output, args.pretty).await?;
 		Ok(())
 	}
 }

@@ -7,6 +7,9 @@ use tangram_client as tg;
 pub struct Args {
 	#[arg(index = 1)]
 	pub build: tg::build::Id,
+
+	#[arg(long)]
+	pub pretty: Option<bool>,
 }
 
 impl Cli {
@@ -15,9 +18,7 @@ impl Cli {
 		let build = tg::Build::with_id(args.build);
 		let outcome = build.outcome(&handle).await?;
 		let outcome = outcome.data(&handle).await?;
-		let json = serde_json::to_string(&outcome)
-			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
-		println!("{json}");
+		Self::output_json(&outcome, args.pretty).await?;
 		Ok(())
 	}
 }

@@ -10,6 +10,9 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
+	#[arg(long)]
+	pub pretty: Option<bool>,
+
 	#[arg(index = 1, default_value = ".")]
 	pub reference: tg::Reference,
 
@@ -33,10 +36,9 @@ impl Cli {
 
 		// Handle the runtime doc.
 		if args.runtime {
-			let doc = handle.get_js_runtime_doc().await?;
-			let output = serde_json::to_string_pretty(&doc)
-				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
-			println!("{output}");
+			let output = handle.get_js_runtime_doc().await?;
+			Self::output_json(&output, args.pretty).await?;
+			return Ok(());
 		}
 
 		// Get the reference.
@@ -62,12 +64,8 @@ impl Cli {
 		let arg = tg::package::document::Arg { package, remote };
 		let output = handle.document_package(arg).await?;
 
-		// Serialize the output.
-		let output = serde_json::to_string_pretty(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
-
 		// Print the output.
-		println!("{output}");
+		Self::output_json(&output, args.pretty).await?;
 
 		Ok(())
 	}

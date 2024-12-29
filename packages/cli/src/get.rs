@@ -7,6 +7,15 @@ use tangram_either::Either;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long)]
+	pub format: Option<crate::object::get::Format>,
+
+	#[arg(long)]
+	pub pretty: Option<bool>,
+
+	#[arg(long)]
+	pub recursive: bool,
+
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
@@ -15,6 +24,18 @@ impl Cli {
 	pub async fn command_get(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let referent = self.get_reference(&args.reference).await?;
+		eprintln!("{} item {}", "info".blue().bold(), referent.item);
+		if let Some(path) = &referent.path {
+			let path = path.display();
+			eprintln!("{} path {path}", "info".blue().bold());
+		}
+		if let Some(subpath) = &referent.subpath {
+			let path = subpath.display();
+			eprintln!("{} subpath {path}", "info".blue().bold());
+		}
+		if let Some(tag) = &referent.tag {
+			eprintln!("{} tag {tag}", "info".blue().bold());
+		}
 		let item = match referent.item.clone() {
 			Either::Left(build) => Either::Left(build),
 			Either::Right(object) => {
@@ -34,27 +55,25 @@ impl Cli {
 			Either::Left(build) => Either::Left(build.id().clone()),
 			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
 		};
-		eprintln!("{} id {item}", "info".blue().bold());
-		eprintln!("{} item {}", "info".blue().bold(), referent.item);
-		if let Some(path) = referent.path {
-			let path = path.display();
-			eprintln!("{} path {path}", "info".blue().bold());
-		}
-		if let Some(subpath) = referent.subpath {
-			let path = subpath.display();
-			eprintln!("{} subpath {path}", "info".blue().bold());
-		}
-		if let Some(tag) = referent.tag {
-			eprintln!("{} tag {tag}", "info".blue().bold());
-		}
+		let Args {
+			format,
+			pretty,
+			recursive,
+			..
+		} = args;
 		match item {
 			Either::Left(build) => {
-				self.command_build_get(crate::build::get::Args { build })
+				self.command_build_get(crate::build::get::Args { build, pretty })
 					.await?;
 			},
 			Either::Right(object) => {
-				self.command_object_get(crate::object::get::Args { object })
-					.await?;
+				self.command_object_get(crate::object::get::Args {
+					format,
+					object,
+					pretty,
+					recursive,
+				})
+				.await?;
 			},
 		}
 		Ok(())
