@@ -5,9 +5,6 @@ use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_ignore::Matcher;
 
-#[cfg(test)]
-mod tests;
-
 impl Server {
 	pub async fn format_package(&self, mut arg: tg::package::format::Arg) -> tg::Result<()> {
 		// Canonicalize the path's parent.

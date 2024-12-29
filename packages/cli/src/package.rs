@@ -20,7 +20,8 @@ pub struct Args {
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Check(self::check::Args),
-	Doc(self::document::Args),
+	#[command(alias = "doc")]
+	Document(self::document::Args),
 	Format(self::format::Args),
 	Init(self::init::Args),
 	New(self::new::Args),
@@ -32,7 +33,7 @@ impl Cli {
 	pub async fn command_package(&self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Check(args) => self.command_package_check(args).await,
-			Command::Doc(args) => self.command_package_document(args).await,
+			Command::Document(args) => self.command_package_document(args).await,
 			Command::Format(args) => self.command_package_format(args).await,
 			Command::Init(args) => self.command_package_init(args).await,
 			Command::New(args) => self.command_package_new(args).await,
