@@ -977,29 +977,28 @@ impl Cli {
 		eprintln!();
 	}
 
-	async fn output_json<T>(output: &T) -> tg::Result<()>
+	async fn output_json<T>(output: &T, pretty: Option<bool>) -> tg::Result<()>
 	where
 		T: serde::Serialize,
 	{
 		let mut stdout = tokio::io::stdout();
-		if stdout.is_tty() {
-			let output = serde_json::to_string_pretty(output)
-				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
-			stdout
-				.write_all(output.as_bytes())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write the data"))?;
+		let pretty = pretty.unwrap_or(stdout.is_tty());
+		let json = if pretty {
+			serde_json::to_string_pretty(output)
+				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+		} else {
+			serde_json::to_string(output)
+				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+		};
+		stdout
+			.write_all(json.as_bytes())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
+		if pretty {
 			stdout
 				.write_all(b"\n")
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write"))?;
-		} else {
-			let output = serde_json::to_string(&output)
-				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
-			stdout
-				.write_all(output.as_bytes())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write the data"))?;
 		}
 		Ok(())
 	}
