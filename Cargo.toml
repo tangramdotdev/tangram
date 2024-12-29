@@ -179,8 +179,11 @@ zip = { version = "2", default-features = false, features = [
 zstd = "0.13"
 
 [patch.crates-io]
-async-tar = { git = "https://github.com/tangramdotdev/async-tar", rev = "3dfc3c8dd0" }
-async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip", rev = "90e365c" }
+async-tar = { git = "https://github.com/tangramdotdev/async-tar" }
+async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip" }
+biome_js_formatter = { git = "https://github.com/biomejs/biome" }
+biome_js_parser = { git = "https://github.com/biomejs/biome" }
+biome_js_syntax = { git = "https://github.com/biomejs/biome" }
 
 [profile.dev.package.blake3]
 opt-level = 3
