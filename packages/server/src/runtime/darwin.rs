@@ -41,7 +41,9 @@ impl Runtime {
 		let checksum = target.checksum(server).await?;
 
 		// Try to reuse a build whose checksum is `None` or `Unsafe`.
-		if let Ok(value) = super::util::try_reuse_build(server, &target, checksum.as_ref()).await {
+		if let Ok(value) =
+			super::util::try_reuse_build(server, build.id(), &target, checksum.as_ref()).await
+		{
 			return Ok(value);
 		};
 

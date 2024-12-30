@@ -1,6 +1,7 @@
 use crate::Server;
-use std::path::Path;
-use tangram_client::{self as tg, handle::Ext as _};
+use futures::StreamExt as _;
+use std::{path::Path, pin::pin};
+use tangram_client::{self as tg, handle::Ext};
 
 /// Render a value.
 pub async fn render(
@@ -34,8 +35,51 @@ pub async fn render(
 	}
 }
 
+pub async fn copy_build_logs_children(
+	server: &Server,
+	src_build: &tg::build::Id,
+	dest_build: &tg::build::Id,
+) -> tg::Result<()> {
+	// Copy the logs.
+	let arg = tg::build::log::get::Arg {
+		length: None,
+		position: None,
+		remote: None,
+		size: None,
+	};
+	let mut src_logs = pin!(server.get_build_log(src_build, arg).await?);
+	while let Some(chunk) = src_logs.next().await {
+		if let Ok(chunk) = chunk {
+			let arg = tg::build::log::post::Arg {
+				bytes: chunk.bytes,
+				remote: None,
+			};
+			server.add_build_log(dest_build, arg).await?;
+		}
+	}
+
+	// Copy the children.
+	let arg = tg::build::children::get::Arg {
+		length: None,
+		position: None,
+		remote: None,
+		size: None,
+	};
+	let mut src_children = pin!(server.get_build_children(src_build, arg).await?);
+	while let Some(chunk) = src_children.next().await {
+		if let Ok(chunk) = chunk {
+			for child in chunk.data {
+				server.add_build_child(dest_build, &child).await?;
+			}
+		}
+	}
+
+	Ok(())
+}
+
 pub async fn try_reuse_build(
 	server: &Server,
+	build: &tg::build::Id,
 	target: &tg::Target,
 	checksum: Option<&tg::Checksum>,
 ) -> tg::Result<tg::Value> {
@@ -71,6 +115,7 @@ pub async fn try_reuse_build(
 
 	// Checksum the output.
 	if let Ok(()) = super::util::checksum(server, &matching_build, &value, checksum).await {
+		copy_build_logs_children(server, matching_build.id(), build).await?;
 		Ok(value)
 	} else {
 		Err(tg::error!("failed to checksum the output"))
