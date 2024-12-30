@@ -34,6 +34,38 @@ pub async fn render(
 	}
 }
 
+pub async fn find_matching_build(
+	server: &Server,
+	target: &tg::Target,
+) -> tg::Result<Option<tg::build::Id>> {
+	let target = target.load(server).await?;
+	let search_target = tg::target::Builder::from(&*target)
+		.checksum(tg::Checksum::None)
+		.build();
+	let target_id = search_target.id(server).await?;
+	let arg = tg::target::build::Arg {
+		create: false,
+		..Default::default()
+	};
+	if let Some(output) = server.try_build_target(&target_id, arg).await? {
+		return Ok(Some(output.build));
+	}
+
+	let search_target = tg::target::Builder::from(&*target)
+		.checksum(tg::Checksum::Unsafe)
+		.build();
+	let target_id = search_target.id(server).await?;
+	let arg = tg::target::build::Arg {
+		create: false,
+		..Default::default()
+	};
+	if let Some(output) = server.try_build_target(&target_id, arg).await? {
+		return Ok(Some(output.build));
+	}
+
+	Ok(None)
+}
+
 pub async fn checksum(
 	server: &Server,
 	build: &tg::Build,

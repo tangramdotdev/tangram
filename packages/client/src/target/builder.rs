@@ -63,3 +63,15 @@ impl Builder {
 		})
 	}
 }
+
+impl From<&tg::target::Object> for Builder {
+	fn from(value: &tg::target::Object) -> Self {
+		Self {
+			args: value.args.clone(),
+			checksum: value.checksum.clone(),
+			env: value.env.clone(),
+			executable: value.executable.clone(),
+			host: value.host.clone(),
+		}
+	}
+}
