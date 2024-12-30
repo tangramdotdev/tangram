@@ -140,7 +140,7 @@ impl Server {
 				| tg::Checksum::Sha256(_)
 				| tg::Checksum::Sha512(_)
 				| tg::Checksum::None => {
-					let value: tg::Value = outcome_data.value.try_into()?;
+					let value: tg::Value = outcome_data.value.clone().try_into()?;
 					if let Err(error) = self
 						.verify_checksum(id.clone(), &value, &expected)
 						.boxed()
@@ -149,6 +149,7 @@ impl Server {
 						outcome =
 							tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
 								error,
+								value: Some(outcome_data.value),
 							});
 					};
 				},
@@ -201,11 +202,22 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Add the outcome's children to the build objects.
-		let objects = outcome
-			.try_unwrap_success_ref()
-			.map(|success| success.value.children())
-			.into_iter()
-			.flatten();
+		let value = if let tg::build::outcome::Data::Success(tg::build::outcome::data::Success {
+			ref value,
+		}) = outcome
+		{
+			Some(value.clone())
+		} else if let tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
+			value: Some(ref value),
+			..
+		}) = outcome
+		{
+			Some(value.clone())
+		} else {
+			None
+		};
+
+		let objects = value.map(|value| value.children()).into_iter().flatten();
 		for object in objects {
 			let p = connection.p();
 			let statement = formatdoc!(
