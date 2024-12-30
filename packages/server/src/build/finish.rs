@@ -202,20 +202,20 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Add the outcome's children to the build objects.
-		let value = if let tg::build::outcome::Data::Success(tg::build::outcome::data::Success {
-			ref value,
-		}) = outcome
-		{
-			Some(value.clone())
-		} else if let tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
-			value: Some(ref value),
-			..
-		}) = outcome
-		{
-			Some(value.clone())
-		} else {
-			None
-		};
+		let value =
+			if let tg::build::outcome::Data::Success(tg::build::outcome::data::Success { value }) =
+				&outcome
+			{
+				Some(value.clone())
+			} else if let tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
+				value: Some(ref value),
+				..
+			}) = outcome
+			{
+				Some(value.clone())
+			} else {
+				None
+			};
 
 		let objects = value.map(|value| value.children()).into_iter().flatten();
 		for object in objects {

@@ -115,15 +115,14 @@ impl Outcome {
 				})
 			},
 			Self::Failure(failure) => {
+				let value = if let Some(ref value) = failure.value {
+					Some(value.data(handle).await?)
+				} else {
+					None
+				};
 				tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
 					error: failure.error.clone(),
-					value: {
-						if let Some(ref value) = failure.value {
-							Some(value.data(handle).await?)
-						} else {
-							None
-						}
-					},
+					value,
 				})
 			},
 			Self::Success(success) => {
@@ -248,16 +247,17 @@ impl TryFrom<tg::build::outcome::Data> for Outcome {
 					reason: cancelation.reason,
 				}))
 			},
-			tg::build::outcome::Data::Failure(failure) => Ok(Outcome::Failure(Failure {
-				error: failure.error,
-				value: {
-					if let Some(value) = failure.value {
-						Some(value.try_into()?)
-					} else {
-						None
-					}
-				},
-			})),
+			tg::build::outcome::Data::Failure(failure) => {
+				let value = if let Some(value) = failure.value {
+					Some(value.try_into()?)
+				} else {
+					None
+				};
+				Ok(Outcome::Failure(Failure {
+					error: failure.error,
+					value,
+				}))
+			},
 			tg::build::outcome::Data::Success(success) => Ok(Outcome::Success(Success {
 				value: success.value.try_into()?,
 			})),

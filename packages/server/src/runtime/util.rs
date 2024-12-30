@@ -34,58 +34,56 @@ pub async fn render(
 	}
 }
 
-pub async fn maybe_reuse_build(
+pub async fn try_reuse_build(
 	server: &Server,
 	target: &tg::Target,
 	checksum: Option<&tg::Checksum>,
 ) -> tg::Result<tg::Value> {
-	// Unwrap checksum.
+	// Unwrap the checksum.
 	let Some(checksum) = checksum else {
-		return Err(tg::error!("failed to get checksum"));
+		return Err(tg::error!("failed to get the checksum"));
 	};
 
-	// Break if checksum type is `None` or `Unsafe`.
+	// Break if the checksum type is `None` or `Unsafe`.
 	if let tg::Checksum::None | tg::Checksum::Unsafe = &checksum {
 		return Err(tg::error!("inappropriate checksum type"));
 	}
 
-	// Search for a previous build with a `None` or `Unsafe` checksum.
+	// Search for an existing build with a `None` or `Unsafe` checksum.
 	let Ok(Some(matching_build)) = find_matching_build(server, target).await else {
 		return Err(tg::error!("failed to find a matching build"));
 	};
 	let matching_build = tg::Build::with_id(matching_build);
 
-	// Get the matching build outcome.
-	let Ok(Some(future)) = server.try_get_build_outcome(matching_build.id()).await else {
-		return Err(tg::error!("failed to get the matching build outcome"));
+	// Get the outcome.
+	let Some(outcome) = server.get_build_outcome(matching_build.id()).await?.await? else {
+		return Err(tg::error!("failed to get the build outcome"));
 	};
-	let outcome = future.await;
 
-	// Get the value out of the build's outcome.
-	let Ok(Some(
-		tg::build::Outcome::Success(tg::build::outcome::Success { value })
-		| tg::build::Outcome::Failure(tg::build::outcome::Failure {
-			value: Some(value), ..
-		}),
-	)) = outcome
+	// Get the build's output.
+	let (tg::build::Outcome::Success(tg::build::outcome::Success { value })
+	| tg::build::Outcome::Failure(tg::build::outcome::Failure {
+		value: Some(value), ..
+	})) = outcome
 	else {
-		return Err(tg::error!("failed to get value from the build outcome"));
+		return Err(tg::error!("failed to get the output"));
 	};
 
-	// Launch a child build to checksum the value.
+	// Checksum the output.
 	if let Ok(()) = super::util::checksum(server, &matching_build, &value, checksum).await {
 		Ok(value)
 	} else {
-		Err(tg::error!("failed to checksum the existing build output"))
+		Err(tg::error!("failed to checksum the output"))
 	}
 }
 
-pub async fn find_matching_build(
+async fn find_matching_build(
 	server: &Server,
 	target: &tg::Target,
 ) -> tg::Result<Option<tg::build::Id>> {
+	// Attempt to find a build with the checksum set to `None`.
 	let target = target.load(server).await?;
-	let search_target = tg::target::Builder::from(&*target)
+	let search_target = tg::target::Builder::with_object(&target)
 		.checksum(tg::Checksum::None)
 		.build();
 	let target_id = search_target.id(server).await?;
@@ -97,7 +95,8 @@ pub async fn find_matching_build(
 		return Ok(Some(output.build));
 	}
 
-	let search_target = tg::target::Builder::from(&*target)
+	// Attempt to find a build with the checksum set to `Unsafe`.
+	let search_target = tg::target::Builder::with_object(&target)
 		.checksum(tg::Checksum::Unsafe)
 		.build();
 	let target_id = search_target.id(server).await?;

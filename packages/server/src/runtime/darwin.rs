@@ -41,7 +41,7 @@ impl Runtime {
 		let checksum = target.checksum(server).await?;
 
 		// Check if a similar build with a checksum failure exists.
-		let value = super::util::maybe_reuse_build(server, &target, checksum.as_ref()).await;
+		let value = super::util::try_reuse_build(server, &target, checksum.as_ref()).await;
 		if value.is_ok() {
 			return value;
 		}

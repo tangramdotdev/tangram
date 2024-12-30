@@ -1,7 +1,8 @@
 use crate as tg;
 use futures::{
-	Future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
+	future,
 	stream::{self, BoxStream},
+	Future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
 use num::ToPrimitive as _;
 use std::{

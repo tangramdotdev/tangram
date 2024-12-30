@@ -23,6 +23,17 @@ impl Builder {
 	}
 
 	#[must_use]
+	pub fn with_object(object: &tg::target::Object) -> Self {
+		Self {
+			args: object.args.clone(),
+			checksum: object.checksum.clone(),
+			env: object.env.clone(),
+			executable: object.executable.clone(),
+			host: object.host.clone(),
+		}
+	}
+
+	#[must_use]
 	pub fn args(mut self, args: Vec<tg::Value>) -> Self {
 		self.args = args;
 		self
@@ -61,17 +72,5 @@ impl Builder {
 			executable: self.executable,
 			host: self.host,
 		})
-	}
-}
-
-impl From<&tg::target::Object> for Builder {
-	fn from(value: &tg::target::Object) -> Self {
-		Self {
-			args: value.args.clone(),
-			checksum: value.checksum.clone(),
-			env: value.env.clone(),
-			executable: value.executable.clone(),
-			host: value.host.clone(),
-		}
 	}
 }

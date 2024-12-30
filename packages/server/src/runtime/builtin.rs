@@ -34,11 +34,10 @@ impl Runtime {
 		// Get the checksum.
 		let checksum = target.checksum(server).await?;
 
-		// Check if a similar build with a checksum failure exists.
-		let value = super::util::maybe_reuse_build(server, &target, checksum.as_ref()).await;
-		if value.is_ok() {
-			return value;
-		}
+		// Try to reuse a build whose checksum is `None` or `Unsafe`.
+		if let Ok(value) = super::util::try_reuse_build(server, &target, checksum.as_ref()).await {
+			return Ok(value);
+		};
 
 		// Get the name.
 		let name = args
