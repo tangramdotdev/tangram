@@ -31,6 +31,15 @@ impl Runtime {
 		// Get the args.
 		let args = target.args(server).await?;
 
+		// Get the checksum.
+		let checksum = target.checksum(server).await?;
+
+		// Check if a similar build with a checksum failure exists.
+		let value = super::util::maybe_reuse_build(server, &target, checksum.as_ref()).await;
+		if value.is_ok() {
+			return value;
+		}
+
 		// Get the name.
 		let name = args
 			.first()
@@ -54,9 +63,8 @@ impl Runtime {
 		.await?;
 
 		// Checksum the output if necessary.
-		let checksum = target.checksum(server).await?.clone();
-		if let Some(checksum) = checksum {
-			super::util::checksum(server, build, &output, &checksum)
+		if let Some(checksum) = checksum.as_ref() {
+			super::util::checksum(server, build, &output, checksum)
 				.boxed()
 				.await?;
 		}

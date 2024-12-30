@@ -1,6 +1,5 @@
 use super::{
 	proxy::{self, Proxy},
-	util::find_matching_build,
 	util::render,
 };
 use crate::{temp::Temp, Server};
@@ -19,7 +18,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::Task;
-use tg::handle::Ext as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
@@ -80,7 +78,10 @@ impl Runtime {
 		let checksum = target.checksum(server).await?;
 
 		// Check if a similar build with a checksum failure exists.
-		super::util::maybe_reuse_build(&checksum);
+		let value = super::util::maybe_reuse_build(server, &target, checksum.as_ref()).await;
+		if value.is_ok() {
+			return value;
+		}
 
 		// If the VFS is disabled, then check out the target's children.
 		if server.vfs.lock().unwrap().is_none() {
@@ -797,8 +798,8 @@ impl Runtime {
 		};
 
 		// Checksum the output if necessary.
-		if let Some(checksum) = checksum {
-			super::util::checksum(server, build, &value, &checksum)
+		if let Some(checksum) = checksum.as_ref() {
+			super::util::checksum(server, build, &value, checksum)
 				.boxed()
 				.await?;
 		}
