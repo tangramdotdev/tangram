@@ -77,47 +77,10 @@ impl Runtime {
 		let target = build.target(server).await?;
 
 		// Get the checksum.
-		let checksum = target.checksum(server).await?.clone();
+		let checksum = target.checksum(server).await?;
 
-		'a: {
-			// Unwrap checksum.
-			let Some(ref checksum) = checksum else {
-				break 'a;
-			};
-
-			// Break if checksum type is `None` or `Unsafe`.
-			if let tg::Checksum::None | tg::Checksum::Unsafe = checksum {
-				break 'a;
-			}
-
-			// Search for a previous build with a `None` or `Unsafe` checksum.
-			let Ok(Some(matching_build)) = find_matching_build(server, &target).await else {
-				break 'a;
-			};
-			let matching_build = tg::Build::with_id(matching_build);
-
-			// Get the matching build outcome.
-			let Ok(Some(future)) = server.try_get_build_outcome(matching_build.id()).await else {
-				break 'a;
-			};
-			let outcome = future.await;
-
-			// Get the value out of the build's outcome.
-			let Ok(Some(
-				tg::build::Outcome::Success(tg::build::outcome::Success { value })
-				| tg::build::Outcome::Failure(tg::build::outcome::Failure {
-					value: Some(value), ..
-				}),
-			)) = outcome
-			else {
-				break 'a;
-			};
-
-			// Launch a child build to checksum the value.
-			if let Ok(()) = super::util::checksum(server, &matching_build, &value, checksum).await {
-				return Ok(value);
-			}
-		}
+		// Check if a similar build with a checksum failure exists.
+		super::util::maybe_reuse_build(&checksum);
 
 		// If the VFS is disabled, then check out the target's children.
 		if server.vfs.lock().unwrap().is_none() {
