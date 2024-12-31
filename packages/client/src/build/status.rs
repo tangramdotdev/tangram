@@ -3,13 +3,25 @@ use futures::{future, Stream, TryStreamExt as _};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(
-	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	derive_more::IsVariant,
+	derive_more::Unwrap,
+	derive_more::TryUnwrap,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
 )]
 pub enum Status {
 	Created,
+	Enqueued,
 	Dequeued,
 	Started,
-	Finished,
+	Canceled,
+	Failed,
+	Succeeded,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -22,6 +34,12 @@ pub struct Arg {
 pub enum Event {
 	Status(Status),
 	End,
+}
+
+impl Status {
+	pub fn is_finished(&self) -> bool {
+		matches!(self, Status::Canceled | Status::Failed | Status::Succeeded)
+	}
 }
 
 impl tg::Build {
@@ -106,9 +124,12 @@ impl std::fmt::Display for Status {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Created => write!(f, "created"),
+			Self::Enqueued => write!(f, "enqueued"),
 			Self::Dequeued => write!(f, "dequeued"),
 			Self::Started => write!(f, "started"),
-			Self::Finished => write!(f, "finished"),
+			Self::Canceled => write!(f, "canceled"),
+			Self::Failed => write!(f, "failed"),
+			Self::Succeeded => write!(f, "succeeded"),
 		}
 	}
 }
@@ -119,9 +140,12 @@ impl std::str::FromStr for Status {
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			"created" => Ok(Self::Created),
+			"enqueued" => Ok(Self::Enqueued),
 			"dequeued" => Ok(Self::Dequeued),
 			"started" => Ok(Self::Started),
-			"finished" => Ok(Self::Finished),
+			"canceled" => Ok(Self::Canceled),
+			"failed" => Ok(Self::Failed),
+			"succeeded" => Ok(Self::Succeeded),
 			status => Err(tg::error!(%status, "invalid value")),
 		}
 	}

@@ -1,6 +1,6 @@
-use crate as tg;
+use crate::{self as tg, handle::Ext as _};
 
-pub use self::{outcome::Outcome, retry::Retry, status::Status};
+pub use self::{retry::Retry, status::Status};
 
 pub mod children;
 pub mod dequeue;
@@ -8,7 +8,6 @@ pub mod finish;
 pub mod get;
 pub mod heartbeat;
 pub mod log;
-pub mod outcome;
 pub mod pull;
 pub mod push;
 pub mod put;
@@ -75,6 +74,20 @@ impl Build {
 		let id = output.target.clone();
 		let target = tg::Target::with_id(id);
 		Ok(Some(target))
+	}
+
+	pub async fn try_get_output<H>(&self, handle: &H) -> tg::Result<Option<tg::Value>>
+	where
+		H: tg::Handle,
+	{
+		todo!()
+	}
+
+	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
+	where
+		H: tg::Handle,
+	{
+		todo!()
 	}
 }
 
