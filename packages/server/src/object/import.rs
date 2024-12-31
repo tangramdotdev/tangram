@@ -3,9 +3,10 @@ use futures::{Stream, StreamExt as _};
 use num::ToPrimitive as _;
 use std::pin::Pin;
 use tangram_client::{self as tg, Handle as _};
+use tangram_futures::stream::StreamExt;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tokio::io::{AsyncRead, BufReader};
-use tokio_util::io::InspectReader;
+use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
 impl Server {
 	pub(crate) async fn import_object(
@@ -60,32 +61,20 @@ impl Server {
 			let server = self.clone();
 			let progress = progress.clone();
 			async move {
-				server
-					.import_object_local_inner(arg, reader, progress)
+				match server
+					.import_object_local_inner(arg, reader, progress.clone())
 					.await
-			}
-		});
-
-		// Spawn a task to wait for progress.
-		tokio::spawn({
-			let progress = progress.clone();
-			async move {
-				match task.await {
-					Ok(Ok(output)) => {
-						progress.output(output);
-					},
-					Ok(Err(error)) => {
+				{
+					Ok(output) => progress.output(output),
+					Err(error) => {
 						progress.error(error);
 					},
-					Err(source) => {
-						progress.error(tg::error!(!source, "the task panicked"));
-					},
-				};
+				}
 			}
 		});
-
-		// Create the stream.
-		Ok(progress.stream())
+		let abort_handle = AbortOnDropHandle::new(task);
+		let stream = progress.stream().attach(abort_handle);
+		Ok(stream)
 	}
 
 	async fn import_object_local_inner(
@@ -101,10 +90,28 @@ impl Server {
 			Some(0),
 			None,
 		);
+		progress.start(
+			"speed".into(),
+			"Speed".into(),
+			tg::progress::IndicatorFormat::BytesPerSecond,
+			Some(0),
+			None,
+		);
 
 		// Create a reader that inspects progress.
-		let reader = InspectReader::new(reader, move |chunk| {
-			progress.increment("bytes", chunk.len().to_u64().unwrap());
+		let mut start = std::time::Instant::now();
+		let reader = InspectReader::new(reader, {
+			let progress = progress.clone();
+			move |chunk| {
+				let end = std::time::Instant::now();
+				let time = (end - start).as_secs_f64();
+				start = end;
+				progress.increment("bytes", chunk.len().to_u64().unwrap());
+				if time > 0.0 {
+					let bytes_per_second = (chunk.len().to_f64().unwrap() / time).to_u64().unwrap();
+					progress.set("speed", bytes_per_second);
+				}
+			}
 		});
 
 		// Decompress the reader if necessary. TODO: move to accept header where all requests should accept an encoding.
@@ -126,15 +133,19 @@ impl Server {
 		};
 
 		// Create an artifact.
+		progress.log(tg::progress::Level::Info, "extracting...".into());
 		let object = match arg.format {
-			tg::artifact::archive::Format::Tar => self.extract_tar(reader).await?.into(),
-			tg::artifact::archive::Format::Tgar => self.extract_tgar(reader).await?,
+			tg::artifact::archive::Format::Tar => {
+				self.extract_tar(reader).await?.id(self).await?.into()
+			},
+			tg::artifact::archive::Format::Tgar => {
+				self.import_archive(reader, Some(progress)).await?
+			},
 			tg::artifact::archive::Format::Zip => {
 				return Err(tg::error!(%format = arg.format, "unsupported archive format"))
 			},
 		};
 
-		let object = object.id(self).await?.into();
 		let output = tg::object::import::Output { object };
 		Ok(output)
 	}

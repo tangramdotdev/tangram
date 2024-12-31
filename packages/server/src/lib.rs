@@ -152,8 +152,8 @@ impl Server {
 		}
 
 		// Ensure the blobs directory exists.
-		let logs_path = path.join("blobs");
-		tokio::fs::create_dir_all(&logs_path)
+		let blobs_path = path.join("blobs");
+		tokio::fs::create_dir_all(&blobs_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the blobs directory"))?;
 

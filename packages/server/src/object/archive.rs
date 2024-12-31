@@ -1,6 +1,8 @@
 use crate::Server;
 use bytes::Bytes;
+use indoc::formatdoc;
 use num::ToPrimitive;
+use tangram_database::{self as db, Connection, Database, Query, Transaction};
 use std::collections::{BTreeSet, VecDeque};
 use tangram_client as tg;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
@@ -57,7 +59,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn import_archive<R>(&self, mut reader: R) -> tg::Result<tg::object::Id>
+	pub(crate) async fn import_archive<R>(&self, mut reader: R, progress: Option<crate::progress::Handle<tg::object::import::Output>>) -> tg::Result<tg::object::Id>
 	where
 		R: AsyncRead,
 	{
@@ -84,6 +86,10 @@ impl Server {
 			return Err(tg::error!("unknown version"));
 		}
 
+		// Get a database connection.
+		let mut connection = self.database.write_connection().await.map_err(|source| tg::error!(!source, "failed to acquire a database connection"))?;
+		let transaction = connection.transaction().await.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
+
 		// Read the objects.
 		let mut root_object = None;
 		while let Some(id) = try_read_bytes(&mut reader).await? {
@@ -102,18 +108,30 @@ impl Server {
 				return Err(tg::error!(%object = id, "invalid archive"))?;
 			}
 
-			// Get the object.
-			let data = tg::object::Data::deserialize(id.kind(), &data)?;
-			let object = tg::Object::with_object(data.try_into()?);
-
 			// Store the object.
-			object.store(self).await?;
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"
+					insert into objects (id)
+					values ({p}1)
+					on conflict (id) do nothing;
+				"
+			);
+			let params = db::params![id];
+			transaction
+				.execute(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			// Update the root object if necessary.
 			if root_object.is_none() {
 				root_object.replace(id);
 			}
 		}
+		if let Some(progress) = &progress {
+			progress.log(tg::progress::Level::Info, "committing transaction".into());
+		}
+		transaction.commit().await.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Return the root object.
 		root_object.ok_or_else(|| tg::error!("empty archive"))
@@ -229,7 +247,7 @@ mod tests {
 			server.export_archive(object.clone(), &mut archive).await?;
 
 			// Import the archive.
-			let id = server.import_archive(archive.as_slice()).await?;
+			let id = server.import_archive(archive.as_slice(), None).await?;
 			let object = tg::Object::with_id(id);
 
 			// Stringify the output.

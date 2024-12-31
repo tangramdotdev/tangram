@@ -153,9 +153,9 @@ where
 				return Err(tg::error!("cannot archive a file with dependencies"));
 			}
 			let executable = file.executable(server).await?;
-			let mut reader = file.reader(server).await?;
-			let length = reader.size();
-			writer.write_file(executable, length, &mut reader).await
+			let size = file.size(server).await?;
+			let mut reader = file.read(server, tg::blob::read::Arg::default()).await?;
+			writer.write_file(executable, size, &mut reader).await
 		},
 		tg::Artifact::Symlink(symlink) => {
 			let target = symlink

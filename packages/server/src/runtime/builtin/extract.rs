@@ -220,7 +220,7 @@ impl Server {
 	where
 		R: AsyncRead + Unpin + Send + 'static,
 	{
-		self.import_archive(reader).map_ok(tg::Object::with_id)
+		self.import_archive(reader, None).map_ok(tg::Object::with_id)
 	}
 
 	pub(crate) async fn extract_zip<R>(&self, reader: R) -> tg::Result<tg::Artifact>
@@ -234,29 +234,36 @@ impl Server {
 
 		let mut entries: Vec<(PathBuf, tg::Artifact)> = Vec::new();
 		for index in 0..reader.file().entries().len() {
-			// Get the entry.
-			let entry = reader.file().entries().get(index).unwrap();
+			// Get the reader.
+			let mut reader = reader
+				.reader_with_entry(index)
+				.await
+				.map_err(|source| tg::error!(!source, "unable to get the entry"))?;
 
 			// Get the path.
 			let path = PathBuf::from(
-				entry
+				reader
+					.entry()
 					.filename()
 					.as_str()
 					.map_err(|source| tg::error!(!source, "failed to get the entry filename"))?,
 			);
 
 			// Check if the entry is a directory.
-			let is_dir = entry
+			let is_dir = reader
+				.entry()
 				.dir()
 				.map_err(|source| tg::error!(!source, "failed to get type of entry"))?;
 
 			// Check if the entry is a symlink.
-			let is_symlink = entry
+			let is_symlink = reader
+				.entry()
 				.unix_permissions()
 				.is_some_and(|permissions| permissions & 0o120_000 == 0o120_000);
 
 			// Check if the entry is executable.
-			let is_executable = entry
+			let is_executable = reader
+				.entry()
 				.unix_permissions()
 				.is_some_and(|permissions| permissions & 0o000_111 != 0);
 
@@ -266,12 +273,8 @@ impl Server {
 				let artifact = tg::Artifact::Directory(directory);
 				entries.push((path, artifact));
 			} else if is_symlink {
-				let mut entry = reader
-					.reader_without_entry(index)
-					.await
-					.map_err(|source| tg::error!(!source, "unable to get the entry reader"))?;
 				let mut buffer = Vec::new();
-				entry
+				reader
 					.read_to_end(&mut buffer)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to read symlink target"))?;
@@ -281,11 +284,7 @@ impl Server {
 				let artifact = tg::Artifact::Symlink(symlink);
 				entries.push((path, artifact));
 			} else {
-				let entry = reader
-					.reader_without_entry(index)
-					.await
-					.map_err(|source| tg::error!(!source, "unable to get the entry reader"))?;
-				let output = self.create_blob(entry.compat()).await?;
+				let output = self.create_blob_with_reader(reader.compat()).await?;
 				let blob = tg::Blob::with_id(output.blob);
 				let file = tg::File::builder(blob).executable(is_executable).build();
 				let artifact = tg::Artifact::File(file);
