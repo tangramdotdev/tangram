@@ -72,12 +72,12 @@ pub async fn try_reuse_build(
 	};
 
 	// Checksum the output.
-	if let Ok(()) = super::util::checksum(server, &matching_build, &value, checksum).await {
-		copy_build_children_and_log(server, matching_build.id(), build).await?;
-		Ok(value)
-	} else {
-		Err(tg::error!("failed to checksum the output"))
-	}
+	super::util::checksum(server, &matching_build, &value, checksum).await?;
+
+	// Copy the build children and log.
+	copy_build_children_and_log(server, matching_build.id(), build).await?;
+
+	Ok(value)
 }
 
 async fn find_matching_build(
