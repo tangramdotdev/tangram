@@ -1,21 +1,22 @@
 use super::{Item, Options};
 use crossterm as ct;
-use futures::{Future, TryFutureExt as _};
+use futures::{Future, TryFutureExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
 	cell::RefCell,
-	fmt::Write as _,
+	collections::BTreeMap,
+	fmt::Write,
 	rc::{Rc, Weak},
 };
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::task::Task;
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 pub struct Tree<H> {
 	handle: H,
-	options: Options,
 	rect: Option<Rect>,
 	roots: Vec<Rc<RefCell<Node>>>,
 	selected: Rc<RefCell<Node>>,
@@ -24,16 +25,18 @@ pub struct Tree<H> {
 
 struct Node {
 	children: Vec<Rc<RefCell<Self>>>,
+	expand_task: Option<Task<()>>,
 	expanded: bool,
 	indicator: Option<Indicator>,
-	item: Item,
+	item: Option<Item>,
 	label: Option<String>,
+	options: Rc<Options>,
 	parent: Option<Weak<RefCell<Self>>>,
 	ready_sender: tokio::sync::watch::Sender<bool>,
-	task: Option<Task<()>>,
 	title: String,
 	update_receiver: NodeUpdateReceiver,
 	update_sender: NodeUpdateSender,
+	update_task: Option<Task<()>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -88,7 +91,7 @@ where
 		if self.selected.borrow().expanded {
 			let mut node = self.selected.borrow_mut();
 			node.children.clear();
-			if let Some(task) = node.task.take() {
+			if let Some(task) = node.expand_task.take() {
 				task.abort();
 			}
 			node.expanded = false;
@@ -108,24 +111,28 @@ where
 	fn create_node(
 		parent: &Rc<RefCell<Node>>,
 		label: Option<String>,
-		item: &Item,
+		item: Option<&Item>,
 	) -> Rc<RefCell<Node>> {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let (ready_sender, _) = tokio::sync::watch::channel(false);
+		let options = parent.borrow().options.clone();
 		let parent = Rc::downgrade(parent);
-		let title = Self::item_title(item);
+		let title = item.map_or(String::new(), |item| Self::item_title(item));
+
 		Rc::new(RefCell::new(Node {
 			children: Vec::new(),
+			expand_task: None,
 			expanded: false,
 			indicator: None,
-			item: item.clone(),
+			item: item.cloned(),
 			label,
+			options,
 			parent: Some(parent),
 			ready_sender,
-			task: None,
 			title,
 			update_receiver,
 			update_sender,
+			update_task: None,
 		}))
 	}
 
@@ -186,14 +193,19 @@ where
 
 	fn expand(&mut self) {
 		let mut node = self.selected.borrow_mut();
+		let Some(item) = node.item.clone() else {
+			return;
+		};
+		if node.expanded {
+			return;
+		}
 		let children_task = Task::spawn_local({
 			let handle = self.handle.clone();
-			let item = node.item.clone();
 			let update_sender = node.update_sender.clone();
 			let ready_sender = node.ready_sender.clone();
-			move |_| async move { Self::task(&handle, item, update_sender, ready_sender).await }
+			move |_| async move { Self::expand_task(&handle, item, update_sender, ready_sender).await }
 		});
-		node.task.replace(children_task);
+		node.expand_task.replace(children_task);
 		node.expanded = true;
 	}
 
@@ -241,36 +253,209 @@ where
 		}
 	}
 
-	async fn handle_array(
+	async fn expand_array(
 		_handle: &H,
 		array: tg::value::Array,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		let update = |node: Rc<RefCell<Node>>| {
-			let children = array.into_iter().map(|value| {
+			for value in array {
 				let item = Item::Value(value);
-				Self::create_node(&node, None, &item)
-			});
-			node.borrow_mut().children.extend(children);
+				let child = Self::create_node(&node, None, Some(&item));
+				node.borrow_mut().children.push(child);
+			}
 		};
 		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
-	async fn handle_branch(
+	async fn expand_branch(
 		handle: &H,
 		branch: tg::Branch,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		// Get the branch children and unload the object immediately.
+		let children = branch
+			.children_(handle)
+			.await?
+			.into_iter()
+			.map(tg::Value::Object)
+			.collect();
+		branch.unload();
+
+		// Convert to a value and send the update.
+		let value = tg::Value::Array(children);
+		let update = |node: Rc<RefCell<Node>>| {
+			let item = Item::Value(value);
+			let child = Self::create_node(&node, Some("children".to_owned()), Some(&item));
+			node.borrow_mut().children.push(child);
+		};
+		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
-	async fn handle_build(
+	async fn build_update_task(
+		handle: &H,
+		build: tg::Build,
+		options: &Options,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		if let Some(title) = Self::build_title(handle, &build).await {
+			update_sender
+				.send(Box::new(|node| {
+					node.borrow_mut().label.replace(title);
+				}))
+				.unwrap();
+		}
+
+		// Create the status stream.
+		let mut status = build.status(handle).await?;
+		while let Some(status) = status.try_next().await? {
+			let indicator = match status {
+				tg::build::Status::Created => Indicator::Created,
+				tg::build::Status::Dequeued => Indicator::Dequeued,
+				tg::build::Status::Started => Indicator::Started,
+				tg::build::Status::Finished => {
+					// Remove the child if necessary.
+					if options.collapse_finished_builds {
+						let id = build.id().clone();
+						let update = move |node: Rc<RefCell<Node>>| {
+							// Get the parent if it exists.
+							let Some(parent) =
+								node.borrow().parent.as_ref().and_then(Weak::upgrade)
+							else {
+								return;
+							};
+
+							// Find this build as a child of the parent.
+							let Some(index) = parent.borrow().children.iter().position(|child| {
+								match &child.borrow().item {
+									Some(Item::Build(build)) if build.id() == &id => true,
+									_ => false,
+								}
+							}) else {
+								return;
+							};
+
+							// Remove this node from its parent.
+							parent.borrow_mut().children.remove(index);
+						};
+						update_sender.send(Box::new(update)).unwrap();
+						return Ok(());
+					}
+
+					let outcome = build.outcome(handle).await?;
+					match outcome {
+						tg::build::Outcome::Cancelation(_) => Indicator::Canceled,
+						tg::build::Outcome::Failure(_) => Indicator::Failed,
+						tg::build::Outcome::Success(_) => Indicator::Succeeded,
+					}
+				},
+			};
+			let update = move |node: Rc<RefCell<Node>>| {
+				node.borrow_mut().indicator.replace(indicator);
+			};
+			update_sender.send(Box::new(update)).unwrap();
+		}
+
+		Ok(())
+	}
+
+	async fn expand_build(
 		handle: &H,
 		build: tg::Build,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		// Get the target.
+		let target = build.target(handle).await?;
+		let value = tg::Value::Object(target.into());
+		update_sender
+			.send(Box::new(move |node| {
+				let child =
+					Self::create_node(&node, Some("target".to_owned()), Some(&Item::Value(value)));
+				node.borrow_mut().children.push(child);
+			}))
+			.unwrap();
+
+		// Create the children stream.
+		let mut children = build
+			.children(handle, tg::build::children::get::Arg::default())
+			.await?;
+		while let Some(build) = children.try_next().await? {
+			let handle = handle.clone();
+			let update = move |node: Rc<RefCell<Node>>| {
+				// Create the child.
+				let item = Item::Build(build.clone());
+				let child = Self::create_node(&node, None, Some(&item));
+
+				// Create the update task.
+				let update_task = Task::spawn_local({
+					let options = child.borrow().options.clone();
+					let update_sender = child.borrow().update_sender.clone();
+					|_| async move {
+						Self::build_update_task(&handle, build, options.as_ref(), update_sender)
+							.await
+							.ok();
+					}
+				});
+				child.borrow_mut().update_task.replace(update_task);
+
+				// Get or create the children.
+				let children_node = node
+					.borrow()
+					.children
+					.iter()
+					.position(|node| node.borrow().label.as_deref() == Some("children"));
+				let children_node = children_node.unwrap_or_else(|| {
+					let child = Self::create_node(&node, Some("children".to_owned()), None);
+					let index = node.borrow().children.len();
+					node.borrow_mut().children.push(child);
+					index
+				});
+
+				// Add the child to the children node.
+				node.borrow().children[children_node]
+					.borrow_mut()
+					.children
+					.push(child);
+			};
+			update_sender.send(Box::new(update)).unwrap();
+		}
 		Ok(())
+	}
+
+	async fn build_title(handle: &H, build: &tg::Build) -> Option<String> {
+		let target = build.target(handle).await.ok()?;
+		let args = target.args(handle).await.ok()?;
+		let executable = target.executable(handle).await.ok()?;
+
+		let mut title = String::new();
+		match &*executable {
+			Some(tg::target::Executable::Module(module)) => {
+				if let Some(path) = &module.referent.path {
+					let path = module
+						.referent
+						.subpath
+						.as_ref()
+						.map(|subpath| path.join(subpath))
+						.unwrap_or_else(|| path.to_owned());
+					write!(title, "{} ", path.display()).unwrap();
+				} else if let Some(tag) = &module.referent.tag {
+					write!(title, "{tag} ").unwrap();
+				}
+			},
+			None => write!(title, "builtin ").unwrap(),
+			_ => (),
+		};
+
+		if let Some(tg::Value::String(arg0)) = args.get(0) {
+			write!(title, "{arg0}").unwrap();
+		}
+
+		Some(title)
 	}
 
 	async fn handle_directory(
@@ -278,16 +463,34 @@ where
 		directory: tg::Directory,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let entries = directory.entries(handle).await?;
-		let entries = entries
+		let object = directory.object(handle).await?;
+		let children: Vec<_> = match object.as_ref() {
+			tg::directory::Object::Graph { graph, node } => [
+				("graph".to_owned(), tg::Value::Object(graph.clone().into())),
+				("node".to_owned(), tg::Value::Number(node.to_f64().unwrap())),
+			]
 			.into_iter()
-			.map(|(name, artifact)| (name, artifact.into()))
-			.collect();
-		let value = tg::Value::Map(entries);
+			.collect(),
+			tg::directory::Object::Normal { entries } => {
+				let entries = entries
+					.clone()
+					.into_iter()
+					.map(|(name, artifact)| (name, artifact.into()))
+					.collect();
+				[("entries".to_owned(), tg::Value::Map(entries))]
+					.into_iter()
+					.collect()
+			},
+		};
+		directory.unload();
+
+		// Send the update.
 		let update = |node: Rc<RefCell<Node>>| {
-			let item = Item::Value(value);
-			let child = Self::create_node(&node, Some("entries".to_owned()), &item);
-			node.borrow_mut().children.push(child);
+			for (name, child) in children {
+				let item = Item::Value(child);
+				let child = Self::create_node(&node, Some(name), Some(&item));
+				node.borrow_mut().children.push(child);
+			}
 		};
 		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
@@ -298,6 +501,65 @@ where
 		file: tg::File,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		let object = file.object(handle).await?;
+		let children = match object.as_ref() {
+			tg::file::Object::Graph { graph, node } => [
+				("graph".to_owned(), tg::Value::Object(graph.clone().into())),
+				("node".to_owned(), tg::Value::Number(node.to_f64().unwrap())),
+			]
+			.into_iter()
+			.collect(),
+			tg::file::Object::Normal {
+				contents,
+				dependencies,
+				executable,
+			} => {
+				let mut children = Vec::with_capacity(3);
+				children.push((
+					"contents".to_owned(),
+					tg::Value::Object(contents.clone().into()),
+				));
+				if *executable {
+					children.push(("executable".to_owned(), tg::Value::Bool(*executable)));
+				}
+				let dependencies = dependencies
+					.clone()
+					.into_iter()
+					.map(|(reference, referent)| {
+						let mut map = BTreeMap::new();
+						let item = tg::Value::Object(referent.item);
+						map.insert("item".into(), item);
+						if let Some(path) = referent.path {
+							let path = path.to_string_lossy().to_string();
+							map.insert("path".to_owned(), tg::Value::String(path));
+						}
+						if let Some(subpath) = referent.subpath {
+							let subpath = subpath.to_string_lossy().to_string();
+							map.insert("subpath".to_owned(), tg::Value::String(subpath));
+						}
+						if let Some(tag) = referent.tag {
+							map.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
+						}
+						(reference.to_string(), tg::Value::Map(map))
+					})
+					.collect::<BTreeMap<_, _>>();
+				if !dependencies.is_empty() {
+					children.push(("dependencies".to_owned(), tg::Value::Map(dependencies)))
+				}
+				children
+			},
+		};
+		file.unload();
+
+		// Send the update.
+		let update = |node: Rc<RefCell<Node>>| {
+			for (name, child) in children {
+				let item = Item::Value(child);
+				let child = Self::create_node(&node, Some(name), Some(&item));
+				node.borrow_mut().children.push(child);
+			}
+		};
+		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
@@ -306,6 +568,104 @@ where
 		graph: tg::Graph,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		// Get the graph nodes and unload the object immediately.
+		let nodes = graph.nodes(handle).await?;
+		graph.unload();
+
+		// Convert nodes to tg::Value::Maps
+		let nodes = nodes
+			.into_iter()
+			.map(|node| {
+				let mut map = BTreeMap::new();
+				map.insert(
+					"kind".to_owned(),
+					tg::Value::String(node.kind().to_string()),
+				);
+				match node {
+					tg::graph::Node::Directory(directory) => {
+						let entries = directory
+							.entries
+							.into_iter()
+							.map(|(name, entry)| {
+								let value = match entry {
+									Either::Left(index) => {
+										tg::Value::Number(index.to_f64().unwrap())
+									},
+									Either::Right(artifact) => tg::Value::Object(artifact.into()),
+								};
+								(name, value)
+							})
+							.collect::<BTreeMap<_, _>>();
+						map.insert("entries".into(), tg::Value::Map(entries));
+					},
+					tg::graph::Node::File(file) => {
+						map.insert("contents".into(), tg::Value::Object(file.contents.into()));
+						if file.executable {
+							map.insert("executable".into(), file.executable.into());
+						}
+						let dependencies = file
+							.dependencies
+							.into_iter()
+							.map(|(reference, referent)| {
+								let mut map = BTreeMap::new();
+								let item = match referent.item {
+									Either::Left(index) => {
+										tg::Value::Number(index.to_f64().unwrap())
+									},
+									Either::Right(object) => tg::Value::Object(object),
+								};
+								map.insert("item".into(), item);
+								if let Some(path) = referent.path {
+									let path = path.to_string_lossy().to_string();
+									map.insert("path".to_owned(), tg::Value::String(path));
+								}
+								if let Some(subpath) = referent.subpath {
+									let subpath = subpath.to_string_lossy().to_string();
+									map.insert("subpath".to_owned(), tg::Value::String(subpath));
+								}
+								if let Some(tag) = referent.tag {
+									map.insert(
+										"tag".to_owned(),
+										tg::Value::String(tag.to_string()),
+									);
+								}
+								(reference.to_string(), tg::Value::Map(map))
+							})
+							.collect::<BTreeMap<_, _>>();
+						if !dependencies.is_empty() {
+							map.insert("dependencies".into(), tg::Value::Map(dependencies));
+						}
+					},
+					tg::graph::Node::Symlink(symlink) => match symlink {
+						tg::graph::object::Symlink::Artifact { artifact, subpath } => {
+							let artifact = match artifact {
+								Either::Left(index) => tg::Value::Number(index.to_f64().unwrap()),
+								Either::Right(artifact) => tg::Value::Object(artifact.into()),
+							};
+							map.insert("artifact".to_owned(), artifact);
+							if let Some(subpath) = subpath {
+								let subpath = subpath.to_string_lossy().to_string();
+								map.insert("subpath".into(), tg::Value::String(subpath));
+							}
+						},
+						tg::graph::object::Symlink::Target { target } => {
+							let target = target.to_string_lossy().to_string();
+							map.insert("target".into(), tg::Value::String(target));
+						},
+					},
+				}
+				tg::Value::Map(map)
+			})
+			.collect();
+
+		// Convert to a value and send the update.
+		let value = tg::Value::Array(nodes);
+		let update = |node: Rc<RefCell<Node>>| {
+			let item = Item::Value(value);
+			let child = Self::create_node(&node, Some("nodes".to_owned()), Some(&item));
+			node.borrow_mut().children.push(child);
+		};
+		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
@@ -317,31 +677,93 @@ where
 		Ok(())
 	}
 
-	async fn handle_map(
+	async fn expand_map(
 		_handle: &H,
 		map: tg::value::Map,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		let update = |node: Rc<RefCell<Node>>| {
-			let children = map.into_iter().map(|(key, value)| {
+			for (name, value) in map {
 				let item = Item::Value(value);
-				Self::create_node(&node, Some(key), &item)
-			});
-			node.borrow_mut().children.extend(children);
+				let child = Self::create_node(&node, Some(name), Some(&item));
+				node.borrow_mut().children.push(child);
+			}
 		};
 		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
-	async fn handle_mutation(
-		handle: &H,
+	async fn expand_mutation(
+		_handle: &H,
 		value: tg::Mutation,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		let children: Vec<_> = match value {
+			tg::Mutation::Append { values } => [
+				("kind".to_owned(), tg::Value::String("append".to_owned())),
+				("values".to_owned(), tg::Value::Array(values)),
+			]
+			.into_iter()
+			.collect(),
+			tg::Mutation::Prefix {
+				separator,
+				template,
+			} => {
+				let mut children = Vec::new();
+				children.push(("kind".to_owned(), tg::Value::String("prefix".to_owned())));
+				if let Some(separator) = separator {
+					children.push(("separator".to_owned(), tg::Value::String(separator)));
+				}
+				children.push(("template".to_owned(), tg::Value::Template(template)));
+				children
+			},
+			tg::Mutation::Prepend { values } => [
+				("kind".to_owned(), tg::Value::String("append".to_owned())),
+				("values".to_owned(), tg::Value::Array(values)),
+			]
+			.into_iter()
+			.collect(),
+			tg::Mutation::Set { value } => [
+				("kind".to_owned(), tg::Value::String("set".to_owned())),
+				("value".to_owned(), *value),
+			]
+			.into_iter()
+			.collect(),
+			tg::Mutation::SetIfUnset { value } => [
+				("kind".to_owned(), tg::Value::String("set".to_owned())),
+				("value".to_owned(), *value),
+			]
+			.into_iter()
+			.collect(),
+			tg::Mutation::Suffix {
+				separator,
+				template,
+			} => {
+				let mut children = Vec::new();
+				children.push(("kind".to_owned(), tg::Value::String("prefix".to_owned())));
+				if let Some(separator) = separator {
+					children.push(("separator".to_owned(), tg::Value::String(separator)));
+				}
+				children.push(("template".to_owned(), tg::Value::Template(template)));
+				children
+			},
+			tg::Mutation::Unset => [("kind".to_owned(), tg::Value::String("unset".to_owned()))]
+				.into_iter()
+				.collect(),
+		};
+
+		let update = |node: Rc<RefCell<Node>>| {
+			for (name, child) in children {
+				let item = Item::Value(child);
+				let child = Self::create_node(&node, Some(name), Some(&item));
+				node.borrow_mut().children.push(child);
+			}
+		};
+		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
-	async fn handle_object(
+	async fn expand_object(
 		handle: &H,
 		object: tg::Object,
 		update_sender: NodeUpdateSender,
@@ -351,7 +773,7 @@ where
 				Self::handle_leaf(handle, leaf, update_sender).await?;
 			},
 			tg::Object::Branch(branch) => {
-				Self::handle_branch(handle, branch, update_sender).await?;
+				Self::expand_branch(handle, branch, update_sender).await?;
 			},
 			tg::Object::Directory(directory) => {
 				Self::handle_directory(handle, directory, update_sender).await?;
@@ -377,6 +799,43 @@ where
 		symlink: tg::Symlink,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		let object = symlink.object(handle).await?;
+		let children = match object.as_ref() {
+			tg::symlink::Object::Graph { graph, node } => [
+				("graph".to_owned(), tg::Value::Object(graph.clone().into())),
+				("node".to_owned(), tg::Value::Number(node.to_f64().unwrap())),
+			]
+			.into_iter()
+			.collect(),
+			tg::symlink::Object::Artifact { artifact, subpath } => {
+				let mut children = Vec::new();
+				children.push((
+					"artifact".to_owned(),
+					tg::Value::Object(artifact.clone().into()),
+				));
+				if let Some(subpath) = subpath {
+					let subpath = subpath.to_string_lossy().to_string();
+					children.push(("subpath".to_owned(), tg::Value::String(subpath)));
+				}
+				children
+			},
+			tg::symlink::Object::Target { target } => {
+				let target = target.to_string_lossy().to_string();
+				vec![("target".to_owned(), tg::Value::String(target))]
+			},
+		};
+		symlink.unload();
+
+		// Send the update.
+		let update = |node: Rc<RefCell<Node>>| {
+			for (name, child) in children {
+				let item = Item::Value(child);
+				let child = Self::create_node(&node, Some(name), Some(&item));
+				node.borrow_mut().children.push(child);
+			}
+		};
+		update_sender.send(Box::new(update)).unwrap();
+
 		Ok(())
 	}
 
@@ -385,37 +844,118 @@ where
 		target: tg::Target,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		let object = target.object(handle).await?;
+		let mut children = Vec::new();
+		children.push(("args".to_owned(), tg::Value::Array(object.args.clone())));
+		if let Some(checksum) = &object.checksum {
+			children.push((
+				"checksum".to_owned(),
+				tg::Value::String(checksum.to_string()),
+			));
+		}
+		children.push(("env".to_owned(), tg::Value::Map(object.env.clone())));
+		if let Some(executable) = &object.executable {
+			let value = match executable {
+				tg::target::Executable::Artifact(artifact) => {
+					tg::Value::Object(artifact.clone().into())
+				},
+				tg::target::Executable::Module(module) => {
+					let mut map = BTreeMap::new();
+					map.insert(
+						"kind".to_owned(),
+						tg::Value::String(module.kind.to_string()),
+					);
+
+					let mut referent = BTreeMap::new();
+					referent.insert(
+						"item".to_owned(),
+						tg::Value::Object(module.referent.item.clone()),
+					);
+					if let Some(path) = &module.referent.path {
+						let path = path.to_string_lossy().to_string();
+						referent.insert("path".to_owned(), tg::Value::String(path));
+					}
+					if let Some(subpath) = &module.referent.subpath {
+						let subpath = subpath.to_string_lossy().to_string();
+						referent.insert("subpath".to_owned(), tg::Value::String(subpath));
+					}
+					if let Some(tag) = &module.referent.tag {
+						referent.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
+					}
+					map.insert("referent".to_owned(), tg::Value::Map(referent));
+					tg::Value::Map(map)
+				},
+			};
+			children.push(("executable".to_owned(), value));
+		}
+		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
+		target.unload();
+
+		// Send the update.;
+		let update = |node: Rc<RefCell<Node>>| {
+			for (name, child) in children {
+				let item = Item::Value(child);
+				let child = Self::create_node(&node, Some(name), Some(&item));
+				node.borrow_mut().children.push(child);
+			}
+		};
+		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
-	async fn handle_template(
-		handle: &H,
+	async fn expand_template(
+		_handle: &H,
 		template: tg::Template,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		let array = template
+			.components
+			.into_iter()
+			.map(|component| {
+				let mut map = BTreeMap::new();
+				match component {
+					tg::template::Component::Artifact(artifact) => {
+						map.insert("kind".to_owned(), tg::Value::String("artifact".to_owned()));
+						map.insert("value".to_owned(), tg::Value::Object(artifact.into()));
+					},
+					tg::template::Component::String(string) => {
+						map.insert("kind".to_owned(), tg::Value::String("string".to_owned()));
+						map.insert("value".to_owned(), tg::Value::String(string));
+					},
+				}
+				tg::Value::Map(map)
+			})
+			.collect();
+		let value = tg::Value::Array(array);
+		let update = |node: Rc<RefCell<Node>>| {
+			let item = Item::Value(value);
+			let child = Self::create_node(&node, Some("components".to_owned()), Some(&item));
+			node.borrow_mut().children.push(child);
+		};
+		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
-	async fn handle_value(
+	async fn expand_value(
 		handle: &H,
 		value: tg::Value,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		match value {
 			tg::Value::Array(array) => {
-				Self::handle_array(handle, array, update_sender).await?;
+				Self::expand_array(handle, array, update_sender).await?;
 			},
 			tg::Value::Map(map) => {
-				Self::handle_map(handle, map, update_sender).await?;
+				Self::expand_map(handle, map, update_sender).await?;
 			},
 			tg::Value::Object(object) => {
-				Self::handle_object(handle, object, update_sender).await?;
+				Self::expand_object(handle, object, update_sender).await?;
 			},
 			tg::Value::Mutation(mutation) => {
-				Self::handle_mutation(handle, mutation, update_sender).await?;
+				Self::expand_mutation(handle, mutation, update_sender).await?;
 			},
 			tg::Value::Template(template) => {
-				Self::handle_template(handle, template, update_sender).await?;
+				Self::expand_template(handle, template, update_sender).await?;
 			},
 			_ => (),
 		}
@@ -512,27 +1052,47 @@ where
 	}
 
 	pub fn new(handle: &H, item: Item, options: Options) -> Self {
+		let options = Rc::new(options);
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let (ready_sender, _) = tokio::sync::watch::channel(false);
 		let title = Self::item_title(&item);
+
+		let update_task = if let Item::Build(build) = &item {
+			// Create the update task.
+			let update_task = Task::spawn_local({
+				let build = build.clone();
+				let handle = handle.clone();
+				let options = options.clone();
+				let update_sender = update_sender.clone();
+				|_| async move {
+					Self::build_update_task(&handle, build, options.as_ref(), update_sender)
+						.await
+						.ok();
+				}
+			});
+			Some(update_task)
+		} else {
+			None
+		};
 		let root = Rc::new(RefCell::new(Node {
 			children: Vec::new(),
+			expand_task: None,
 			expanded: false,
 			indicator: None,
-			item,
+			item: Some(item),
 			label: None,
+			options: options.clone(),
 			parent: None,
 			ready_sender,
-			task: None,
 			title,
 			update_receiver,
 			update_sender,
+			update_task,
 		}));
 		let roots = vec![root.clone()];
 		let selected = root.clone();
 		Self {
 			handle: handle.clone(),
-			options,
 			rect: None,
 			roots,
 			scroll: 0,
@@ -647,15 +1207,15 @@ where
 		self.rect = Some(rect);
 	}
 
-	async fn task(
+	async fn expand_task(
 		handle: &H,
 		item: Item,
 		update_sender: NodeUpdateSender,
 		ready_sender: tokio::sync::watch::Sender<bool>,
 	) {
-		let result = match item {
-			Item::Build(build) => Self::handle_build(handle, build, update_sender).await,
-			Item::Value(value) => Self::handle_value(handle, value, update_sender).await,
+		let _result = match item {
+			Item::Build(build) => Self::expand_build(handle, build, update_sender).await,
+			Item::Value(value) => Self::expand_value(handle, value, update_sender).await,
 		};
 		ready_sender.send_replace(true);
 	}
@@ -693,7 +1253,7 @@ where
 
 impl Drop for Node {
 	fn drop(&mut self) {
-		if let Some(task) = self.task.take() {
+		if let Some(task) = self.expand_task.take() {
 			task.abort();
 		}
 	}
