@@ -99,7 +99,6 @@ enum Mode {
 	Server,
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, clap::Subcommand)]
 enum Command {
 	Artifact(self::artifact::Args),

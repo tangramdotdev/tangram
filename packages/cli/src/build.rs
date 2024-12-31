@@ -28,7 +28,6 @@ pub struct Args {
 	pub command: Option<Command>,
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Cancel(self::cancel::Args),
