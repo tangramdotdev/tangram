@@ -10,11 +10,13 @@ pub struct Arg {
 	pub id: tg::build::Id,
 	pub children: Vec<tg::build::Id>,
 	pub depth: u64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::Error>,
 	pub host: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcome: Option<tg::build::outcome::Data>,
+	pub output: Option<tg::value::Data>,
 	pub retry: tg::build::Retry,
 	pub status: tg::build::Status,
 	pub target: tg::target::Id,
@@ -65,15 +67,9 @@ impl Arg {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
 		let log = self.log.iter().map(|id| id.clone().into());
 		let outcome = self
-			.outcome
+			.output
 			.as_ref()
-			.map(|outcome| {
-				outcome
-					.try_unwrap_success_ref()
-					.ok()
-					.map(|success| success.value.children())
-					.unwrap_or_default()
-			})
+			.map(|output| output.children())
 			.into_iter()
 			.flatten();
 		let target = std::iter::once(self.target.clone().into());

@@ -720,17 +720,6 @@ impl tg::Handle for Client {
 		self.add_build_log(id, arg)
 	}
 
-	fn try_get_build_outcome_future(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
-		>,
-	> {
-		self.try_get_build_outcome_future(id)
-	}
-
 	fn finish_build(
 		&self,
 		id: &tg::build::Id,

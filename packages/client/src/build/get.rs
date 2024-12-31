@@ -13,6 +13,9 @@ pub struct Output {
 
 	pub depth: u64,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::Error>,
+
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -28,16 +31,16 @@ pub struct Output {
 	pub logs_weight: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcome: Option<tg::build::outcome::Data>,
+	pub output: Option<tg::value::Data>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcomes_count: Option<u64>,
+	pub outputs_count: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcomes_depth: Option<u64>,
+	pub outputs_depth: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcomes_weight: Option<u64>,
+	pub outputs_weight: Option<u64>,
 
 	pub retry: tg::build::Retry,
 
@@ -74,15 +77,9 @@ impl Output {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
 		let log = self.log.iter().map(|id| id.clone().into());
 		let outcome = self
-			.outcome
+			.output
 			.as_ref()
-			.map(|outcome| {
-				if let tg::build::outcome::Data::Success(success) = outcome {
-					success.value.children()
-				} else {
-					[].into()
-				}
-			})
+			.map(|output| output.children())
 			.into_iter()
 			.flatten();
 		let target = std::iter::once(self.target.clone().into());
