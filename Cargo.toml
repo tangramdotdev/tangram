@@ -1,7 +1,6 @@
 [workspace]
 default-members = ["packages/cli"]
 members = [
-  "packages/archive",
   "packages/cli",
   "packages/client",
   "packages/database",
@@ -130,7 +129,6 @@ swc_core = { version = "9", features = [
   "ecma_visit",
 ] }
 sync_wrapper = "1"
-tangram_archive = { path = "packages/archive" }
 tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }

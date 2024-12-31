@@ -5760,16 +5760,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 
 [[package]]
-name = "tangram_archive"
-version = "0.0.0"
-dependencies = [
- "futures",
- "num",
- "tangram_client",
- "tokio",
-]
-
-[[package]]
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
@@ -6009,7 +5999,6 @@ dependencies = [
  "sourcemap",
  "swc_core",
  "sync_wrapper",
- "tangram_archive",
  "tangram_client",
  "tangram_database",
  "tangram_either",
