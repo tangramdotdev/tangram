@@ -37,6 +37,16 @@ impl Runtime {
 		// Get the target.
 		let target = build.target(server).await?;
 
+		// Get the checksum.
+		let checksum = target.checksum(server).await?;
+
+		// Try to reuse a build whose checksum is `None` or `Unsafe`.
+		if let Ok(value) =
+			super::util::try_reuse_build(server, build.id(), &target, checksum.as_ref()).await
+		{
+			return Ok(value);
+		};
+
 		// If the VFS is disabled, then check out the target's children.
 		if server.vfs.lock().unwrap().is_none() {
 			target
@@ -148,9 +158,6 @@ impl Runtime {
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
-
-		// Get the checksum.
-		let checksum = target.checksum(server).await?.clone();
 
 		// Enable the network if a checksum was provided.
 		let network_enabled = checksum.is_some();
@@ -489,8 +496,8 @@ impl Runtime {
 		};
 
 		// Checksum the output if necessary.
-		if let Some(checksum) = checksum {
-			super::util::checksum(server, build, &value, &checksum)
+		if let Some(checksum) = checksum.as_ref() {
+			super::util::checksum(server, build, &value, checksum)
 				.boxed()
 				.await?;
 		}

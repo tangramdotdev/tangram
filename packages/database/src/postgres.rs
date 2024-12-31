@@ -1,8 +1,8 @@
 use crate::{
-	Row, Value,
 	pool::{self, Pool},
+	Row, Value,
 };
-use futures::{Future, Stream, TryStreamExt as _, future};
+use futures::{future, Future, Stream, TryStreamExt as _};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use std::collections::HashMap;

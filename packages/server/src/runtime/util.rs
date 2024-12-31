@@ -1,6 +1,7 @@
 use crate::Server;
-use std::path::Path;
-use tangram_client::{self as tg, handle::Ext as _};
+use futures::TryStreamExt as _;
+use std::{path::Path, pin::pin};
+use tangram_client::{self as tg, handle::Ext};
 
 /// Render a value.
 pub async fn render(
@@ -32,6 +33,113 @@ pub async fn render(
 	} else {
 		Ok("<tangram value>".to_owned())
 	}
+}
+
+pub async fn try_reuse_build(
+	server: &Server,
+	build: &tg::build::Id,
+	target: &tg::Target,
+	checksum: Option<&tg::Checksum>,
+) -> tg::Result<tg::Value> {
+	// Unwrap the checksum.
+	let Some(checksum) = checksum else {
+		return Err(tg::error!("failed to get the checksum"));
+	};
+
+	// Break if the checksum type is `None` or `Unsafe`.
+	if let tg::Checksum::None | tg::Checksum::Unsafe = &checksum {
+		return Err(tg::error!("inappropriate checksum type"));
+	}
+
+	// Search for an existing build with a `None` or `Unsafe` checksum.
+	let Ok(Some(matching_build)) = find_matching_build(server, target).await else {
+		return Err(tg::error!("failed to find a matching build"));
+	};
+	let matching_build = tg::Build::with_id(matching_build);
+
+	// Get the outcome.
+	let Some(outcome) = server.get_build_outcome(matching_build.id()).await?.await? else {
+		return Err(tg::error!("failed to get the build outcome"));
+	};
+
+	// Get the build's output.
+	let (tg::build::Outcome::Success(tg::build::outcome::Success { value })
+	| tg::build::Outcome::Failure(tg::build::outcome::Failure {
+		value: Some(value), ..
+	})) = outcome
+	else {
+		return Err(tg::error!("failed to get the output"));
+	};
+
+	// Checksum the output.
+	if let Ok(()) = super::util::checksum(server, &matching_build, &value, checksum).await {
+		copy_build_children_and_log(server, matching_build.id(), build).await?;
+		Ok(value)
+	} else {
+		Err(tg::error!("failed to checksum the output"))
+	}
+}
+
+async fn find_matching_build(
+	server: &Server,
+	target: &tg::Target,
+) -> tg::Result<Option<tg::build::Id>> {
+	// Attempt to find a build with the checksum set to `None`.
+	let target = target.load(server).await?;
+	let search_target = tg::target::Builder::with_object(&target)
+		.checksum(tg::Checksum::None)
+		.build();
+	let target_id = search_target.id(server).await?;
+	let arg = tg::target::build::Arg {
+		create: false,
+		..Default::default()
+	};
+	if let Some(output) = server.try_build_target(&target_id, arg).await? {
+		return Ok(Some(output.build));
+	}
+
+	// Attempt to find a build with the checksum set to `Unsafe`.
+	let search_target = tg::target::Builder::with_object(&target)
+		.checksum(tg::Checksum::Unsafe)
+		.build();
+	let target_id = search_target.id(server).await?;
+	let arg = tg::target::build::Arg {
+		create: false,
+		..Default::default()
+	};
+	if let Some(output) = server.try_build_target(&target_id, arg).await? {
+		return Ok(Some(output.build));
+	}
+
+	Ok(None)
+}
+
+async fn copy_build_children_and_log(
+	server: &Server,
+	src_build: &tg::build::Id,
+	dst_build: &tg::build::Id,
+) -> tg::Result<()> {
+	// Copy the children.
+	let arg = tg::build::children::get::Arg::default();
+	let mut src_children = pin!(server.get_build_children(src_build, arg).await?);
+	while let Some(chunk) = src_children.try_next().await? {
+		for child in chunk.data {
+			server.add_build_child(dst_build, &child).await?;
+		}
+	}
+
+	// Copy the log.
+	let arg = tg::build::log::get::Arg::default();
+	let mut src_log = pin!(server.get_build_log(src_build, arg).await?);
+	while let Some(chunk) = src_log.try_next().await? {
+		let arg = tg::build::log::post::Arg {
+			bytes: chunk.bytes,
+			remote: None,
+		};
+		server.add_build_log(dst_build, arg).await?;
+	}
+
+	Ok(())
 }
 
 pub async fn checksum(

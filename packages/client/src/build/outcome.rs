@@ -1,5 +1,5 @@
 use crate::{self as tg, handle::Ext as _};
-use futures::{Future, StreamExt as _, TryStreamExt as _, future};
+use futures::{future, Future, StreamExt as _, TryStreamExt as _};
 use tangram_futures::stream::TryStreamExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
@@ -30,6 +30,7 @@ pub struct Cancelation {
 #[derive(Clone, Debug)]
 pub struct Failure {
 	pub error: tg::Error,
+	pub value: Option<tg::Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -67,6 +68,8 @@ pub mod data {
 	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 	pub struct Failure {
 		pub error: tg::Error,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		pub value: Option<tg::value::Data>,
 	}
 
 	#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -96,7 +99,7 @@ impl Outcome {
 			Self::Cancelation(Cancelation { reason }) => {
 				Err(tg::error!(?reason, "the build was canceled"))
 			},
-			Self::Failure(Failure { error }) => Err(error),
+			Self::Failure(Failure { error, .. }) => Err(error),
 			Self::Success(Success { value }) => Ok(value),
 		}
 	}
@@ -112,8 +115,14 @@ impl Outcome {
 				})
 			},
 			Self::Failure(failure) => {
+				let value = if let Some(ref value) = failure.value {
+					Some(value.data(handle).await?)
+				} else {
+					None
+				};
 				tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
 					error: failure.error.clone(),
+					value,
 				})
 			},
 			Self::Success(success) => {
@@ -169,7 +178,7 @@ impl tg::Build {
 			tg::build::Outcome::Cancelation(Cancelation { reason }) => {
 				Err(tg::error!(?reason, "the build was canceled"))
 			},
-			tg::build::Outcome::Failure(Failure { error }) => Err(error),
+			tg::build::Outcome::Failure(Failure { error, .. }) => Err(error),
 			tg::build::Outcome::Success(Success { value }) => Ok(value),
 		}
 	}
@@ -238,9 +247,17 @@ impl TryFrom<tg::build::outcome::Data> for Outcome {
 					reason: cancelation.reason,
 				}))
 			},
-			tg::build::outcome::Data::Failure(failure) => Ok(Outcome::Failure(Failure {
-				error: failure.error,
-			})),
+			tg::build::outcome::Data::Failure(failure) => {
+				let value = if let Some(value) = failure.value {
+					Some(value.try_into()?)
+				} else {
+					None
+				};
+				Ok(Outcome::Failure(Failure {
+					error: failure.error,
+					value,
+				}))
+			},
 			tg::build::outcome::Data::Success(success) => Ok(Outcome::Success(Success {
 				value: success.value.try_into()?,
 			})),

@@ -117,7 +117,9 @@ impl Server {
 		let result = self.build_task_inner(build.clone(), remote.clone()).await;
 		let outcome = match result {
 			Ok(outcome) => outcome,
-			Err(error) => tg::build::Outcome::Failure(tg::build::outcome::Failure { error }),
+			Err(error) => {
+				tg::build::Outcome::Failure(tg::build::outcome::Failure { error, value: None })
+			},
 		};
 		let outcome = outcome.data(self).await?;
 
@@ -184,7 +186,9 @@ impl Server {
 		// Create the outcome.
 		let outcome = match result {
 			Ok(value) => tg::build::Outcome::Success(tg::build::outcome::Success { value }),
-			Err(error) => tg::build::Outcome::Failure(tg::build::outcome::Failure { error }),
+			Err(error) => {
+				tg::build::Outcome::Failure(tg::build::outcome::Failure { error, value: None })
+			},
 		};
 
 		Ok(outcome)

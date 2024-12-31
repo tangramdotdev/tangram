@@ -23,6 +23,17 @@ impl Builder {
 	}
 
 	#[must_use]
+	pub fn with_object(object: &tg::target::Object) -> Self {
+		Self {
+			args: object.args.clone(),
+			checksum: object.checksum.clone(),
+			env: object.env.clone(),
+			executable: object.executable.clone(),
+			host: object.host.clone(),
+		}
+	}
+
+	#[must_use]
 	pub fn args(mut self, args: Vec<tg::Value>) -> Self {
 		self.args = args;
 		self

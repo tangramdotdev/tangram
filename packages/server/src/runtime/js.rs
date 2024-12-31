@@ -87,6 +87,7 @@ impl Runtime {
 						main_runtime_handle.clone(),
 						isolate_handle_sender,
 					)
+					.boxed_local()
 					.await
 			}
 		});
@@ -112,6 +113,16 @@ impl Runtime {
 	) -> tg::Result<tg::Value> {
 		// Get the target.
 		let target = build.target(server).await?;
+
+		// Get the checksum.
+		let checksum = target.checksum(server).await?;
+
+		// Try to reuse a build whose checksum is `None` or `Unsafe`.
+		if let Ok(value) =
+			super::util::try_reuse_build(server, build.id(), &target, checksum.as_ref()).await
+		{
+			return Ok(value);
+		};
 
 		// Get the root module.
 		let root = target
@@ -381,9 +392,8 @@ impl Runtime {
 
 		// Checksum the output if necessary.
 		if let Ok(value) = &result {
-			let checksum = target.checksum(server).await?.clone();
-			if let Some(checksum) = checksum {
-				super::util::checksum(server, build, value, &checksum)
+			if let Some(checksum) = checksum.as_ref() {
+				super::util::checksum(server, build, value, checksum)
 					.boxed()
 					.await?;
 			}
