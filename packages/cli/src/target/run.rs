@@ -13,6 +13,13 @@ pub struct Args {
 	#[arg(short = 'x', long)]
 	pub executable: Option<std::path::PathBuf>,
 
+	#[command(flatten)]
+	pub inner: crate::target::build::InnerArgs,
+
+	/// The reference to the target to build.
+	#[arg(index = 1)]
+	pub reference: Option<tg::Reference>,
+
 	/// Arguments to pass to the executable.
 	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
@@ -22,8 +29,8 @@ impl Cli {
 	pub async fn command_target_run(&self, mut args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Check out the output.
-		args.build.checkout = Some(None);
+		// Checkout the output.
+		args.inner.checkout = Some(None);
 
 		// Build the target.
 		let output = self.command_target_build_inner(args.build).await?;

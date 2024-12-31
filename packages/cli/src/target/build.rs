@@ -11,10 +11,21 @@ use tangram_either::Either;
 use tangram_futures::task::Task;
 
 /// Build a target.
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// The reference to the target to build.
+	#[arg(index = 1)]
+	pub reference: Option<tg::Reference>,
+
+	#[command(flatten)]
+	pub inner: InnerArgs,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct InnerArgs {
 	/// Set the arguments.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub arg: Vec<String>,
@@ -43,10 +54,6 @@ pub struct Args {
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[arg(long)]
 	pub locked: bool,
-
-	/// The reference to the target to build.
-	#[arg(index = 1)]
-	pub reference: Option<tg::Reference>,
 
 	/// The remote to use.
 	#[allow(clippy::option_option)]
@@ -125,6 +132,7 @@ impl Cli {
 
 		// Get the remote.
 		let remote = args
+			.inner
 			.remote
 			.clone()
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
@@ -257,6 +265,7 @@ impl Cli {
 
 			// Get the args.
 			let mut args_: Vec<tg::Value> = args
+				.inner
 				.arg
 				.into_iter()
 				.map(|arg| arg.parse())
@@ -265,6 +274,7 @@ impl Cli {
 
 			// Get the env.
 			let mut env: tg::value::Map = args
+				.inner
 				.env
 				.into_iter()
 				.flatten()
@@ -283,7 +293,7 @@ impl Cli {
 
 			// Set the TANGRAM_HOST environment variable if it is not set.
 			if !env.contains_key("TANGRAM_HOST") {
-				let host = if let Some(host) = args.host {
+				let host = if let Some(host) = args.inner.host {
 					host
 				} else {
 					tg::host().to_owned()
@@ -303,7 +313,7 @@ impl Cli {
 		};
 
 		// Determine the retry.
-		let retry = match args.retry {
+		let retry = match args.inner.retry {
 			None => tg::build::Retry::default(),
 			Some(None) => tg::build::Retry::Succeeded,
 			Some(Some(retry)) => retry,
@@ -327,7 +337,7 @@ impl Cli {
 		// Build the target.
 		let id = target.id(&handle).await?;
 		let arg = tg::target::build::Arg {
-			create: args.create,
+			create: args.inner.create,
 			parent: None,
 			remote: remote.clone(),
 			retry,
@@ -336,7 +346,7 @@ impl Cli {
 		let build = tg::Build::with_id(output.build);
 
 		// Tag the build if requested.
-		if let Some(tag) = args.tag {
+		if let Some(tag) = args.inner.tag {
 			let item = Either::Left(build.id().clone());
 			let arg = tg::tag::put::Arg {
 				force: false,
@@ -347,7 +357,7 @@ impl Cli {
 		}
 
 		// If the detach flag is set, then return the build.
-		if args.detach {
+		if args.inner.detach {
 			return Ok(InnerOutput::Detached(build.id().clone()));
 		}
 
@@ -393,7 +403,7 @@ impl Cli {
 							let item = crate::viewer::Item::Build(build);
 							let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
 
-							match args.view {
+							match args.inner.view {
 								View::None => (),
 								View::Inline => {
 									viewer.run_inline(stop).await?;
@@ -450,7 +460,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "the build failed"))?;
 
 		// Check out the output if requested.
-		if let Some(path) = args.checkout {
+		if let Some(path) = args.inner.checkout {
 			// Get the artifact.
 			let artifact = tg::Artifact::try_from(output.clone())
 				.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
@@ -486,18 +496,20 @@ impl Cli {
 impl Default for Args {
 	fn default() -> Self {
 		Self {
-			arg: vec![],
-			checkout: None,
-			create: true,
-			detach: false,
-			env: vec![],
-			host: None,
-			locked: false,
 			reference: None,
-			remote: None,
-			retry: None,
-			tag: None,
-			view: View::None,
+			inner: InnerArgs {
+				arg: vec![],
+				checkout: None,
+				create: true,
+				detach: false,
+				env: vec![],
+				host: None,
+				locked: false,
+				remote: None,
+				retry: None,
+				tag: None,
+				view: View::default(),
+			},
 		}
 	}
 }

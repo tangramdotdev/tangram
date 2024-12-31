@@ -10,6 +10,9 @@ pub struct Args {
 	#[arg(long)]
 	pub checksum: Option<tg::Checksum>,
 
+	#[command(flatten)]
+	pub inner: crate::target::build::InnerArgs,
+
 	#[arg(index = 1)]
 	pub url: Url,
 }
