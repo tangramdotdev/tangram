@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::StreamExt as _;
+use futures::TryStreamExt as _;
 use std::{path::Path, pin::pin};
 use tangram_client::{self as tg, handle::Ext};
 
@@ -33,48 +33,6 @@ pub async fn render(
 	} else {
 		Ok("<tangram value>".to_owned())
 	}
-}
-
-pub async fn copy_build_logs_children(
-	server: &Server,
-	src_build: &tg::build::Id,
-	dest_build: &tg::build::Id,
-) -> tg::Result<()> {
-	// Copy the logs.
-	let arg = tg::build::log::get::Arg {
-		length: None,
-		position: None,
-		remote: None,
-		size: None,
-	};
-	let mut src_logs = pin!(server.get_build_log(src_build, arg).await?);
-	while let Some(chunk) = src_logs.next().await {
-		if let Ok(chunk) = chunk {
-			let arg = tg::build::log::post::Arg {
-				bytes: chunk.bytes,
-				remote: None,
-			};
-			server.add_build_log(dest_build, arg).await?;
-		}
-	}
-
-	// Copy the children.
-	let arg = tg::build::children::get::Arg {
-		length: None,
-		position: None,
-		remote: None,
-		size: None,
-	};
-	let mut src_children = pin!(server.get_build_children(src_build, arg).await?);
-	while let Some(chunk) = src_children.next().await {
-		if let Ok(chunk) = chunk {
-			for child in chunk.data {
-				server.add_build_child(dest_build, &child).await?;
-			}
-		}
-	}
-
-	Ok(())
 }
 
 pub async fn try_reuse_build(
@@ -115,7 +73,7 @@ pub async fn try_reuse_build(
 
 	// Checksum the output.
 	if let Ok(()) = super::util::checksum(server, &matching_build, &value, checksum).await {
-		copy_build_logs_children(server, matching_build.id(), build).await?;
+		copy_build_children_and_log(server, matching_build.id(), build).await?;
 		Ok(value)
 	} else {
 		Err(tg::error!("failed to checksum the output"))
@@ -154,6 +112,34 @@ async fn find_matching_build(
 	}
 
 	Ok(None)
+}
+
+async fn copy_build_children_and_log(
+	server: &Server,
+	src_build: &tg::build::Id,
+	dst_build: &tg::build::Id,
+) -> tg::Result<()> {
+	// Copy the children.
+	let arg = tg::build::children::get::Arg::default();
+	let mut src_children = pin!(server.get_build_children(src_build, arg).await?);
+	while let Some(chunk) = src_children.try_next().await? {
+		for child in chunk.data {
+			server.add_build_child(dst_build, &child).await?;
+		}
+	}
+
+	// Copy the log.
+	let arg = tg::build::log::get::Arg::default();
+	let mut src_log = pin!(server.get_build_log(src_build, arg).await?);
+	while let Some(chunk) = src_log.try_next().await? {
+		let arg = tg::build::log::post::Arg {
+			bytes: chunk.bytes,
+			remote: None,
+		};
+		server.add_build_log(dst_build, arg).await?;
+	}
+
+	Ok(())
 }
 
 pub async fn checksum(

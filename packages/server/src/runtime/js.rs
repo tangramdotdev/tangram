@@ -79,14 +79,16 @@ impl Runtime {
 			let server = server.clone();
 			let build = build.clone();
 			move || async move {
-				Box::pin(runtime.run_inner(
-					&server,
-					&build,
-					remote,
-					main_runtime_handle.clone(),
-					isolate_handle_sender,
-				))
-				.await
+				runtime
+					.run_inner(
+						&server,
+						&build,
+						remote,
+						main_runtime_handle.clone(),
+						isolate_handle_sender,
+					)
+					.boxed_local()
+					.await
 			}
 		});
 		let abort_handle = task.abort_handle();
