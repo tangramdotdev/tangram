@@ -1,5 +1,5 @@
 use insta::assert_snapshot;
-use tangram_cli::{assert_output_failure, assert_output_success, config::Config, test::test};
+use tangram_cli::{assert_output_failure, assert_output_success, test::test};
 use tokio::io::AsyncWriteExt as _;
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
