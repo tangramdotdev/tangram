@@ -69,11 +69,7 @@ pub struct Config {
 
 	/// Configure remotes.
 	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
+	#[serde(default, with = "serde_with::rust::double_option")]
 	pub remotes: Option<Option<BTreeMap<String, Option<Remote>>>>,
 
 	/// Configure tracing.

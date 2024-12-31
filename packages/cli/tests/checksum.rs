@@ -11,7 +11,11 @@ async fn download_checksum_none() {
 		let mut context = context.lock().await;
 
 		// Start the server.
-		let server = context.spawn_server().await.unwrap();
+		let config = Config {
+			remotes: Some(None),
+			..Default::default()
+		};
+		let server = context.spawn_server_with_config(config).await.unwrap();
 
 		// Download with checksum None.
 		let output = server
