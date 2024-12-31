@@ -1,17 +1,16 @@
 use num::ToPrimitive as _;
 use tangram_client as tg;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _};
+use tokio::io::{AsyncRead, AsyncWriteExt as _};
 
-pub struct Writer<W> {
-	inner: W,
+pub struct Writer {
+	inner: tg::checksum::Writer,
 }
 
-impl<W> Writer<W>
-where
-	W: AsyncWrite + Unpin + Send + Sync,
+impl Writer
 {
-	pub fn new(writer: W) -> Self {
-		Self { inner: writer }
+	pub fn new(algorithm: tg::checksum::Algorithm) -> Self {
+		let inner = tg::checksum::Writer::new(algorithm);
+		Self { inner }
 	}
 
 	pub async fn write_header(&mut self) -> tg::Result<()> {
@@ -84,11 +83,18 @@ where
 			.map_err(|source| tg::error!(!source, "failed to write the target path"))
 	}
 
-	pub async fn finish(&mut self) -> tg::Result<()> {
+	pub async fn write_blob(&mut self, mut reader: impl AsyncRead) -> tg::Result<()> {
+		let mut source = std::pin::pin!(reader);
+		tokio::io::copy(&mut source, &mut self.inner).await.map_err(|source| tg::error!(!source, "failed to write blob"))?;
+		Ok(())
+	}
+
+	pub async fn finish(mut self) -> tg::Result<tg::Checksum> {
 		self.inner
 			.flush()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to flush the writer"))
+			.map_err(|source| tg::error!(!source, "failed to flush the writer"))?;
+		Ok(self.inner.finalize())
 	}
 
 	async fn write_varint(&mut self, mut src: u64) -> tg::Result<()> {

@@ -1,9 +1,6 @@
-use crate::Server;
-
 use super::Runtime;
 use num::ToPrimitive;
 use tangram_client as tg;
-use tokio::io::AsyncWrite;
 
 mod writer;
 
@@ -52,6 +49,26 @@ impl Runtime {
 		Ok(checksum.to_string().into())
 	}
 
+	async fn checksum_blob(
+		&self,
+		blob: &tg::Blob,
+		algorithm: tg::checksum::Algorithm,
+	) -> tg::Result<tg::Checksum> {
+		match algorithm {
+			tg::checksum::Algorithm::None => Ok(tg::Checksum::None),
+			tg::checksum::Algorithm::Unsafe => Ok(tg::Checksum::Unsafe),
+			algorithm => {
+				let mut writer = writer::Writer::new(algorithm);
+				writer.write_header().await?;
+				let reader = blob
+					.read(&self.server, tg::blob::read::Arg::default())
+					.await?;
+				writer.write_blob(reader).await?;
+				writer.finish().await
+			},
+		}
+	}
+
 	async fn checksum_artifact(
 		&self,
 		artifact: &tg::Artifact,
@@ -60,111 +77,52 @@ impl Runtime {
 		match algorithm {
 			tg::checksum::Algorithm::None => Ok(tg::Checksum::None),
 			tg::checksum::Algorithm::Unsafe => Ok(tg::Checksum::Unsafe),
-			_ => {
-				let blob = self.create_blob_from_artifact(artifact).await?;
-				self.checksum_blob(&blob, algorithm).await
+			algorithm => {
+				let mut writer = writer::Writer::new(algorithm);
+				writer.write_header().await?;
+				self.checksum_artifact_inner(&mut writer, artifact).await?;
+				writer.finish().await
 			},
 		}
 	}
 
-	async fn checksum_blob(
+	async fn checksum_artifact_inner(
 		&self,
-		blob: &tg::Blob,
-		algorithm: tg::checksum::Algorithm,
-	) -> tg::Result<tg::Checksum> {
-		let server = &self.server;
-		let mut writer = tg::checksum::Writer::new(algorithm);
-		let mut reader = blob.read(server, tg::blob::read::Arg::default()).await?;
-		tokio::io::copy(&mut reader, &mut writer)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to copy from the reader to the writer")
-			})?;
-		let checksum = writer.finalize();
-		Ok(checksum)
-	}
-
-	async fn create_blob_from_artifact(&self, artifact: &tg::Artifact) -> tg::Result<tg::Blob> {
-		// Create a duplex stream.
-		let (reader, writer) = tokio::io::duplex(8192);
-
-		// Create the archive future.
-		let server = self.server.clone();
-		let archive_future = async move {
-			// Create the writer.
-			let mut writer = writer::Writer::new(writer);
-
-			// Write the archive header.
-			writer.write_header().await?;
-
-			// Archive the artifact.
-			create_blob_from_artifact_inner(&server, &mut writer, artifact).await?;
-
-			// Finish the archive.
-			writer.finish().await?;
-
-			Ok::<_, tg::Error>(())
-		};
-
-		// Create the blob future.
-		let blob_future = tg::Blob::with_reader(&self.server, reader);
-
-		let blob = match futures::future::join(archive_future, blob_future).await {
-			(_, Ok(blob)) => blob,
-			(Err(source), _) | (_, Err(source)) => {
-				return Err(tg::error!(
-					!source,
-					"failed to join the archive and blob futures"
-				));
+		writer: &mut writer::Writer,
+		artifact: &tg::Artifact,
+	) -> tg::Result<()> {
+		match artifact {
+			tg::Artifact::Directory(directory) => {
+				let entries = directory.entries(&self.server).await?;
+				writer
+					.write_directory(entries.len().to_u64().unwrap())
+					.await?;
+				for (entry, artifact) in entries {
+					writer.write_directory_entry(entry.as_str()).await?;
+					Box::pin(self.checksum_artifact_inner(writer, &artifact.clone())).await?;
+				}
+				Ok(())
 			},
-		};
-
-		Ok(blob)
-	}
-}
-
-async fn create_blob_from_artifact_inner<W>(
-	server: &Server,
-	writer: &mut writer::Writer<W>,
-	artifact: &tg::Artifact,
-) -> tg::Result<()>
-where
-	W: AsyncWrite + Unpin + Send + Sync,
-{
-	match artifact {
-		tg::Artifact::Directory(directory) => {
-			let entries = directory.entries(server).await?;
-			writer
-				.write_directory(entries.len().to_u64().unwrap())
-				.await?;
-			for (entry, artifact) in entries {
-				writer.write_directory_entry(entry.as_str()).await?;
-				Box::pin(create_blob_from_artifact_inner(
-					server,
-					writer,
-					&artifact.clone(),
-				))
-				.await?;
-			}
-			Ok(())
-		},
-		tg::Artifact::File(file) => {
-			if !file.dependencies(server).await?.is_empty() {
-				return Err(tg::error!("cannot archive a file with dependencies"));
-			}
-			let executable = file.executable(server).await?;
-			let size = file.size(server).await?;
-			let mut reader = file.read(server, tg::blob::read::Arg::default()).await?;
-			writer.write_file(executable, size, &mut reader).await
-		},
-		tg::Artifact::Symlink(symlink) => {
-			let target = symlink
-				.target(server)
-				.await?
-				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
-			writer
-				.write_symlink(target.to_string_lossy().as_ref())
-				.await
-		},
+			tg::Artifact::File(file) => {
+				if !file.dependencies(&self.server).await?.is_empty() {
+					return Err(tg::error!("cannot checksum a file with dependencies"));
+				}
+				let executable = file.executable(&self.server).await?;
+				let size = file.size(&self.server).await?;
+				let mut reader = file
+					.read(&self.server, tg::blob::read::Arg::default())
+					.await?;
+				writer.write_file(executable, size, &mut reader).await
+			},
+			tg::Artifact::Symlink(symlink) => {
+				let target = symlink
+					.target(&self.server)
+					.await?
+					.ok_or_else(|| tg::error!("cannot checksum a symlink without a target"))?;
+				writer
+					.write_symlink(target.to_string_lossy().as_ref())
+					.await
+			},
+		}
 	}
 }
