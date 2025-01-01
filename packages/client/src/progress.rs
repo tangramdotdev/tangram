@@ -1,6 +1,5 @@
-use num::ToPrimitive as _;
-
 use crate as tg;
+use num::ToPrimitive as _;
 
 #[derive(Debug, Clone, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -42,7 +41,6 @@ pub struct Indicator {
 pub enum IndicatorFormat {
 	Normal,
 	Bytes,
-	BytesPerSecond,
 }
 
 impl std::fmt::Display for Indicator {
@@ -74,10 +72,6 @@ impl std::fmt::Display for Indicator {
 					let current = byte_unit::Byte::from_u64(current);
 					write!(f, " {current:#}")?;
 				},
-				tg::progress::IndicatorFormat::BytesPerSecond => {
-					let current = byte_unit::Byte::from_u64(current);
-					write!(f, " {current:#}/s")?;
-				},
 			}
 			if let Some(total) = self.total {
 				match self.format {
@@ -88,9 +82,6 @@ impl std::fmt::Display for Indicator {
 						let total = byte_unit::Byte::from_u64(total);
 						write!(f, " of {total:#}")?;
 					},
-					tg::progress::IndicatorFormat::BytesPerSecond => {
-						()
-					}
 				}
 				let percent = 100.0 * current.to_f64().unwrap() / total.to_f64().unwrap();
 				write!(f, " {percent:.2}%")?;

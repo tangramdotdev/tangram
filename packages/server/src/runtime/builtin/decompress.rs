@@ -1,7 +1,7 @@
 use super::Runtime;
 use std::{pin::Pin, time::Duration};
 use tangram_client as tg;
-use tangram_futures::read::SharedPositionReader;
+use tangram_futures::read::shared_position_reader::SharedPositionReader;
 use tokio::io::AsyncRead;
 
 impl Runtime {

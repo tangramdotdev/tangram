@@ -30,6 +30,7 @@ use url::Url;
 mod artifact;
 mod blob;
 mod build;
+mod checksum;
 mod clean;
 mod compiler;
 mod database;
@@ -890,6 +891,9 @@ impl Server {
 			(http::Method::GET, ["objects", object]) => {
 				Self::handle_get_object_request(handle, request, object).boxed()
 			},
+			(http::Method::POST, ["objects", object, "export"]) => {
+				Self::handle_object_export_request(handle, request, object).boxed()
+			},
 			(http::Method::POST, ["objects", "import"]) => {
 				Self::handle_object_import_request(handle, request).boxed()
 			},
@@ -1209,10 +1213,18 @@ impl tg::Handle for Server {
 		self.try_get_object(id)
 	}
 
+	fn export_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::export::Arg,
+	) -> impl Future<Output = tg::Result<impl AsyncRead + Send + 'static>> + Send {
+		self.export_object(id, arg)
+	}
+
 	fn import_object(
 		&self,
 		arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Send + 'static,
+		reader: impl AsyncRead + Unpin + Send + 'static,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>>

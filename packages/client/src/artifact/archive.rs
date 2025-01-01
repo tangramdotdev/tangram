@@ -3,7 +3,6 @@ use crate as tg;
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum Format {
 	Tar,
-	Tgar,
 	Zip,
 }
 
@@ -37,9 +36,6 @@ impl std::fmt::Display for Format {
 			Self::Tar => {
 				write!(f, "tar")?;
 			},
-			Self::Tgar => {
-				write!(f, "tgar")?;
-			},
 			Self::Zip => {
 				write!(f, "zip")?;
 			},
@@ -54,7 +50,6 @@ impl std::str::FromStr for Format {
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			"tar" => Ok(Self::Tar),
-			"tgar" => Ok(Self::Tgar),
 			"zip" => Ok(Self::Zip),
 			extension => Err(tg::error!(%extension, "invalid format")),
 		}

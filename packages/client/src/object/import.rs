@@ -1,16 +1,10 @@
+use crate as tg;
 use futures::{future, Stream, TryStreamExt};
 use tangram_http::{incoming::response::Ext as _, Outgoing};
 use tokio::io::AsyncRead;
 
-use crate as tg;
-
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub compress: Option<tg::blob::compress::Format>,
-
-	pub format: tg::artifact::archive::Format,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 }
@@ -24,7 +18,7 @@ impl tg::Client {
 	pub(crate) async fn import_object(
 		&self,
 		arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Send + 'static,
+		reader: impl AsyncRead + Unpin + Send + 'static,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<Output>>> + Send + 'static> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
@@ -72,6 +66,7 @@ impl tg::Client {
 					},
 				)
 			});
+
 		Ok(stream)
 	}
 }

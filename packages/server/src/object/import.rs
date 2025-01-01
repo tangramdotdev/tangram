@@ -1,23 +1,29 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _};
+use indoc::formatdoc;
 use num::ToPrimitive as _;
-use std::pin::Pin;
+use std::pin::pin;
 use tangram_client::{self as tg, Handle as _};
-use tangram_futures::stream::StreamExt;
+use tangram_database::{self as db, prelude::*};
+use tangram_futures::{read::Ext as _, stream::Ext};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-use tokio::io::{AsyncRead, BufReader};
+use time::format_description::well_known::Rfc3339;
+use tokio::io::AsyncRead;
 use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
 impl Server {
 	pub(crate) async fn import_object(
 		&self,
 		arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Send + 'static,
+		reader: impl AsyncRead + Unpin + Send + 'static,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>> + Send + 'static,
 	> {
-		if arg.remote.is_some() {
-			let stream = self.import_object_remote(arg, reader).await?.left_stream();
+		if let Some(remote) = arg.remote.clone() {
+			let stream = self
+				.import_object_remote(arg, reader, remote)
+				.await?
+				.left_stream();
 			Ok(stream)
 		} else {
 			let stream = self.import_object_local(arg, reader).await?.right_stream();
@@ -27,19 +33,16 @@ impl Server {
 
 	async fn import_object_remote(
 		&self,
-		mut arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Send + 'static,
+		arg: tg::object::import::Arg,
+		reader: impl AsyncRead + Unpin + Send + 'static,
+		remote: String,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>> + Send + 'static,
 	> {
-		// Lookup the remote.
-		let remote = arg.remote.take().unwrap();
 		let remote = self
 			.remotes
 			.get(&remote)
 			.ok_or_else(|| tg::error!(%remote, "the remote does not exist"))?;
-
-		// Import the object on the remote.
 		remote
 			.import_object(arg, reader)
 			.await
@@ -74,12 +77,13 @@ impl Server {
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = progress.stream().attach(abort_handle);
+
 		Ok(stream)
 	}
 
 	async fn import_object_local_inner(
 		&self,
-		arg: tg::object::import::Arg,
+		_arg: tg::object::import::Arg,
 		reader: impl AsyncRead + Send + 'static,
 		progress: crate::progress::Handle<tg::object::import::Output>,
 	) -> tg::Result<tg::object::import::Output> {
@@ -90,63 +94,63 @@ impl Server {
 			Some(0),
 			None,
 		);
-		progress.start(
-			"speed".into(),
-			"Speed".into(),
-			tg::progress::IndicatorFormat::BytesPerSecond,
-			Some(0),
-			None,
-		);
 
 		// Create a reader that inspects progress.
-		let mut start = std::time::Instant::now();
 		let reader = InspectReader::new(reader, {
 			let progress = progress.clone();
 			move |chunk| {
-				let end = std::time::Instant::now();
-				let time = (end - start).as_secs_f64();
-				start = end;
 				progress.increment("bytes", chunk.len().to_u64().unwrap());
-				if time > 0.0 {
-					let bytes_per_second = (chunk.len().to_f64().unwrap() / time).to_u64().unwrap();
-					progress.set("speed", bytes_per_second);
-				}
 			}
-		});
+		})
+		.boxed();
 
-		// Decompress the reader if necessary. TODO: move to accept header where all requests should accept an encoding.
-		let reader = BufReader::new(reader);
-		let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match arg.compress {
-			Some(tg::blob::compress::Format::Bz2) => {
-				Box::pin(async_compression::tokio::bufread::BzDecoder::new(reader))
-			},
-			Some(tg::blob::compress::Format::Gz) => {
-				Box::pin(async_compression::tokio::bufread::GzipDecoder::new(reader))
-			},
-			Some(tg::blob::compress::Format::Xz) => {
-				Box::pin(async_compression::tokio::bufread::XzDecoder::new(reader))
-			},
-			Some(tg::blob::compress::Format::Zstd) => {
-				Box::pin(async_compression::tokio::bufread::ZstdDecoder::new(reader))
-			},
-			None => Box::pin(reader),
-		};
+		let stream = self.extract_object(reader).await?;
+		let mut stream = pin!(stream);
 
-		// Create an artifact.
-		progress.log(tg::progress::Level::Info, "extracting...".into());
-		let object = match arg.format {
-			tg::artifact::archive::Format::Tar => {
-				self.extract_tar(reader).await?.id(self).await?.into()
-			},
-			tg::artifact::archive::Format::Tgar => {
-				self.import_archive(reader, Some(progress)).await?
-			},
-			tg::artifact::archive::Format::Zip => {
-				return Err(tg::error!(%format = arg.format, "unsupported archive format"))
-			},
-		};
+		// Get a database connection.
+		let mut connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+		let mut object = None;
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		while let Some((id, bytes)) = stream.try_next().await? {
+			if object.is_none() {
+				object.replace(id.clone());
+			}
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"
+					insert into objects (id, bytes, touched_at)
+					values ({p}1, {p}2, {p}3)
+					on conflict (id) do update set touched_at = {p}3;
+				"
+			);
+			let params = db::params![id, bytes, now];
+			transaction
+				.execute(statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		let object = object.ok_or_else(|| tg::error!("the archive is empty"))?;
 
 		let output = tg::object::import::Output { object };
+
 		Ok(output)
 	}
 }

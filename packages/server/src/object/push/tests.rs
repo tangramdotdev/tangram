@@ -2,7 +2,7 @@ use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt as _;
 use std::{panic::AssertUnwindSafe, pin::pin};
 use tangram_client as tg;
-use tangram_futures::stream::TryStreamExt as _;
+use tangram_futures::stream::TryExt as _;
 use tangram_temp::Temp;
 
 #[tokio::test]

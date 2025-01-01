@@ -169,10 +169,16 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> + Send;
 
+	fn export_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::export::Arg,
+	) -> impl Future<Output = tg::Result<impl AsyncRead + Send + 'static>> + Send;
+
 	fn import_object(
 		&self,
 		arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Send + 'static,
+		reader: impl AsyncRead + Unpin + Send + 'static,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>>

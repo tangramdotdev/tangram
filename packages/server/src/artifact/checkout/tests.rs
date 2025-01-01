@@ -4,7 +4,7 @@ use insta::assert_json_snapshot;
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_futures::stream::TryStreamExt as _;
+use tangram_futures::stream::TryExt as _;
 use tangram_temp::{self as temp, Temp};
 
 #[derive(Clone, Debug, Default)]

@@ -1,13 +1,13 @@
 use super::Runtime;
 use crate::Server;
-use futures::{AsyncReadExt as _, Future, StreamExt as _, TryFutureExt};
+use futures::{AsyncReadExt as _, StreamExt as _};
 use std::{
 	path::{Path, PathBuf},
 	time::Duration,
 };
 use tangram_client as tg;
-use tangram_futures::read::SharedPositionReader;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
+use tangram_futures::read::shared_position_reader::SharedPositionReader;
+use tokio::io::{AsyncBufRead, AsyncSeek};
 use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
 
 impl Runtime {
@@ -93,11 +93,6 @@ impl Runtime {
 		// Extract the artifact.
 		let artifact = match format {
 			tg::artifact::archive::Format::Tar => server.extract_tar(reader).await?,
-			tg::artifact::archive::Format::Tgar => server
-				.extract_tgar(reader)
-				.await?
-				.try_into()
-				.map_err(|_| tg::error!("expected an artifact"))?,
 			tg::artifact::archive::Format::Zip => server.extract_zip(reader).await?,
 		};
 
@@ -213,16 +208,6 @@ impl Server {
 		Ok(directory.into())
 	}
 
-	pub(crate) fn extract_tgar<R>(
-		&self,
-		reader: R,
-	) -> impl Future<Output = tg::Result<tg::Object>> + '_
-	where
-		R: AsyncRead + Unpin + Send + 'static,
-	{
-		self.import_archive(reader, None).map_ok(tg::Object::with_id)
-	}
-
 	pub(crate) async fn extract_zip<R>(&self, reader: R) -> tg::Result<tg::Artifact>
 	where
 		R: AsyncBufRead + AsyncSeek + Unpin + Send + 'static,
@@ -241,13 +226,12 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "unable to get the entry"))?;
 
 			// Get the path.
-			let path = PathBuf::from(
-				reader
-					.entry()
-					.filename()
-					.as_str()
-					.map_err(|source| tg::error!(!source, "failed to get the entry filename"))?,
-			);
+			let path =
+				PathBuf::from(
+					reader.entry().filename().as_str().map_err(|source| {
+						tg::error!(!source, "failed to get the entry filename")
+					})?,
+				);
 
 			// Check if the entry is a directory.
 			let is_dir = reader

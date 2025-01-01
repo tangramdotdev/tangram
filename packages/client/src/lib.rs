@@ -769,10 +769,18 @@ impl tg::Handle for Client {
 		self.try_get_object(id)
 	}
 
+	fn export_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::export::Arg,
+	) -> impl Future<Output = tg::Result<impl AsyncRead + Send + 'static>> + Send {
+		self.export_object(id, arg)
+	}
+
 	fn import_object(
 		&self,
 		arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Send + 'static,
+		reader: impl AsyncRead + Unpin + Send + 'static,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>>

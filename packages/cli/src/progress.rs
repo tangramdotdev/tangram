@@ -7,7 +7,7 @@ use std::{
 	pin::pin,
 };
 use tangram_client as tg;
-use tangram_futures::stream::TryStreamExt as _;
+use tangram_futures::stream::TryExt as _;
 
 impl Cli {
 	pub async fn render_progress_stream<T>(
