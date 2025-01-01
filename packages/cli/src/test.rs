@@ -79,9 +79,10 @@ impl Context {
 
 	pub async fn spawn_server_with_temp_and_config(
 		&mut self,
+		temp: Temp,
 		config: Config,
 	) -> tg::Result<Arc<Server>> {
-		let server = Server::with_config(self.tg, config).await?;
+		let server = Server::with_temp_and_config(self.tg, temp, config).await?;
 		let server = Arc::new(server);
 		self.servers.push(server.clone());
 		Ok(server)
@@ -96,7 +97,16 @@ impl Server {
 
 	async fn with_config(tg: &'static str, config: Config) -> tg::Result<Self> {
 		// Create a temp and create the config and data paths.
-		let temp = Arc::new(Temp::new());
+		let temp = Temp::new();
+		Self::with_temp_and_config(tg, temp, config).await
+	}
+
+	async fn with_temp_and_config(
+		tg: &'static str,
+		temp: Temp,
+		config: Config,
+	) -> tg::Result<Self> {
+		let temp = Arc::new(temp);
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -204,6 +214,7 @@ impl Server {
 #[macro_export]
 macro_rules! assert_output_success {
 	($output:expr) => {
+		use tokio::io::AsyncWriteExt as _;
 		let output = &$output;
 		if !output.status.success() {
 			let mut stderr = tokio::io::stderr();
