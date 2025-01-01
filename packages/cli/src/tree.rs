@@ -14,10 +14,6 @@ pub struct Args {
 	#[arg(long, default_value = "false")]
 	pub locked: bool,
 
-	/// The remote to use.
-	#[arg(short, long)]
-	pub remote: Option<String>,
-
 	/// The reference to display a tree for.
 	#[arg(index = 1)]
 	pub reference: tg::Reference,

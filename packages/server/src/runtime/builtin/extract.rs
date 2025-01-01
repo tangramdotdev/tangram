@@ -6,7 +6,7 @@ use std::{
 	time::Duration,
 };
 use tangram_client as tg;
-use tangram_futures::read::SharedPositionReader;
+use tangram_futures::read::shared_position_reader::SharedPositionReader;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
 use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
 
@@ -93,7 +93,6 @@ impl Runtime {
 		// Extract the artifact.
 		let artifact = match format {
 			tg::artifact::archive::Format::Tar => tar(server, reader).await?,
-			tg::artifact::archive::Format::Tgar => tangram_archive::extract(server, reader).await?,
 			tg::artifact::archive::Format::Zip => zip(server, reader).await?,
 		};
 

@@ -3,7 +3,7 @@ use indoc::indoc;
 use insta::assert_snapshot;
 use std::{panic::AssertUnwindSafe, pin::pin, str::FromStr};
 use tangram_client::{self as tg, handle::Ext};
-use tangram_futures::stream::TryStreamExt as _;
+use tangram_futures::stream::TryExt as _;
 use tangram_server::{Config, Server};
 use tangram_temp::{self as temp, Temp};
 

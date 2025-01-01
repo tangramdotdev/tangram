@@ -1,6 +1,7 @@
 use crate::{Error, Outgoing};
 use bytes::Bytes;
-use futures::{Future, Stream, TryStreamExt as _};
+use futures::{Stream, TryStreamExt as _};
+use tokio::io::AsyncRead;
 
 pub trait Ext: Sized {
 	#[must_use]
@@ -33,23 +34,9 @@ pub trait Ext: Sized {
 		T: Into<Bytes> + 'static,
 		E: Into<Error> + 'static;
 
-	fn future_bytes<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
+	fn reader<R>(self, value: R) -> http::Result<http::Response<Outgoing>>
 	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: Into<Bytes> + 'static,
-		E: Into<Error> + 'static;
-
-	fn future_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
-	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: serde::Serialize,
-		E: Into<Error> + 'static;
-
-	fn future_optional_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
-	where
-		F: Future<Output = Result<Option<T>, E>> + Send + 'static,
-		T: serde::Serialize,
-		E: Into<Error> + 'static;
+		R: AsyncRead + Send + 'static;
 }
 
 impl Ext for http::response::Builder {
@@ -101,30 +88,10 @@ impl Ext for http::response::Builder {
 		self.body(Outgoing::stream(value.err_into()))
 	}
 
-	fn future_bytes<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
+	fn reader<R>(self, value: R) -> http::Result<http::Response<Outgoing>>
 	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: Into<Bytes> + 'static,
-		E: Into<Error> + 'static,
+		R: AsyncRead + Send + 'static,
 	{
-		self.body(Outgoing::future_bytes(value))
-	}
-
-	fn future_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
-	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: serde::Serialize,
-		E: Into<Error> + 'static,
-	{
-		self.body(Outgoing::future_json(value))
-	}
-
-	fn future_optional_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
-	where
-		F: Future<Output = Result<Option<T>, E>> + Send + 'static,
-		T: serde::Serialize,
-		E: Into<Error> + 'static,
-	{
-		self.body(Outgoing::future_optional_json(value))
+		self.body(Outgoing::reader(value))
 	}
 }

@@ -6,7 +6,7 @@ use futures::{
 use num::ToPrimitive as _;
 use std::{os::unix::fs::PermissionsExt as _, panic::AssertUnwindSafe, path::PathBuf, sync::Arc};
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_futures::stream::StreamExt as _;
+use tangram_futures::stream::Ext as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 

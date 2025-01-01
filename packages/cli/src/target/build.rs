@@ -51,7 +51,7 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub reference: Option<tg::Reference>,
 
-	/// Whether to build on a remote.
+	/// The remote to use.
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
 	pub remote: Option<Option<String>>,

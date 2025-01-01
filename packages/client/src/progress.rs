@@ -1,6 +1,5 @@
-use num::ToPrimitive as _;
-
 use crate as tg;
+use num::ToPrimitive as _;
 
 #[derive(Debug, Clone, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]

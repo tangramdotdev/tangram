@@ -42,9 +42,6 @@ impl Runtime {
 		// Create the archive task.
 		let blob = match format {
 			tg::artifact::archive::Format::Tar => tar(server, &artifact).await?,
-			tg::artifact::archive::Format::Tgar => {
-				tangram_archive::archive(server, &artifact).await?
-			},
 			tg::artifact::archive::Format::Zip => zip(server, &artifact).await?,
 		};
 

@@ -1,6 +1,7 @@
 use crate::{Error, Outgoing};
 use bytes::Bytes;
-use futures::{Future, Stream};
+use futures::{Stream, TryStreamExt as _};
+use tokio::io::AsyncRead;
 
 pub trait Ext: Sized {
 	fn empty(self) -> http::Result<http::Request<Outgoing>>;
@@ -12,6 +13,16 @@ pub trait Ext: Sized {
 	fn json<T>(self, value: T) -> http::Result<http::Request<Outgoing>>
 	where
 		T: serde::Serialize + Send + Sync + 'static;
+
+	fn stream<S, T, E>(self, value: S) -> http::Result<http::Request<Outgoing>>
+	where
+		S: Stream<Item = Result<T, E>> + Send + 'static,
+		T: Into<Bytes> + 'static,
+		E: Into<Error> + 'static;
+
+	fn reader<R>(self, value: R) -> http::Result<http::Request<Outgoing>>
+	where
+		R: AsyncRead + Send + 'static;
 }
 
 impl Ext for http::request::Builder {
@@ -32,34 +43,20 @@ impl Ext for http::request::Builder {
 	{
 		self.body(Outgoing::json(value))
 	}
-}
 
-pub trait ResponseBuilderExt: Sized {
-	fn empty(self) -> http::Result<http::Response<Outgoing>>;
-
-	fn bytes<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
-	where
-		T: Into<Bytes>;
-
-	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
-	where
-		T: serde::Serialize + Send + 'static;
-
-	fn stream<S, T, E>(self, value: S) -> http::Result<http::Response<Outgoing>>
+	fn stream<S, T, E>(self, value: S) -> http::Result<http::Request<Outgoing>>
 	where
 		S: Stream<Item = Result<T, E>> + Send + 'static,
 		T: Into<Bytes> + 'static,
-		E: Into<Error> + 'static;
+		E: Into<Error> + 'static,
+	{
+		self.body(Outgoing::stream(value.err_into()))
+	}
 
-	fn future_bytes<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
+	fn reader<R>(self, value: R) -> http::Result<http::Request<Outgoing>>
 	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: Into<Bytes> + 'static,
-		E: Into<Error> + 'static;
-
-	fn future_json<F, T, E>(self, value: F) -> http::Result<http::Response<Outgoing>>
-	where
-		F: Future<Output = Result<T, E>> + Send + 'static,
-		T: serde::Serialize,
-		E: Into<Error> + 'static;
+		R: AsyncRead + Send + 'static,
+	{
+		self.body(Outgoing::reader(value))
+	}
 }

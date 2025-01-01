@@ -5,7 +5,7 @@ use std::{
 	time::Duration,
 };
 use tangram_client as tg;
-use tangram_futures::stream::StreamExt as _;
+use tangram_futures::stream::Ext as _;
 use tokio_stream::wrappers::IntervalStream;
 
 #[derive(Clone, Debug)]

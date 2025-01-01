@@ -1,3 +1,5 @@
+use std::pin::Pin;
+
 use crate::{self as tg, handle::Ext as _};
 use futures::{Future, FutureExt as _, Stream};
 use tangram_either::Either;
@@ -322,6 +324,52 @@ where
 		match self {
 			Either::Left(s) => s.try_get_object(id).left_future(),
 			Either::Right(s) => s.try_get_object(id).right_future(),
+		}
+	}
+
+	fn export_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::export::Arg,
+	) -> impl Future<Output = tg::Result<impl AsyncRead + Send + 'static>> + Send {
+		match self {
+			Either::Left(s) => s
+				.export_object(id, arg)
+				.map(|result| {
+					result
+						.map(|reader| Box::pin(reader) as Pin<Box<dyn AsyncRead + Send + 'static>>)
+				})
+				.left_future(),
+			Either::Right(s) => s
+				.export_object(id, arg)
+				.map(|result| {
+					result
+						.map(|reader| Box::pin(reader) as Pin<Box<dyn AsyncRead + Send + 'static>>)
+				})
+				.right_future(),
+		}
+	}
+
+	fn import_object(
+		&self,
+		arg: tg::object::import::Arg,
+		reader: impl AsyncRead + Unpin + Send + 'static,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>>
+				+ Send
+				+ 'static,
+		>,
+	> + Send {
+		match self {
+			Either::Left(s) => s
+				.import_object(arg, reader)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.import_object(arg, reader)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 

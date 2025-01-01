@@ -6,9 +6,10 @@ use num::ToPrimitive;
 use std::{io::Cursor, pin::pin};
 use sync_wrapper::SyncWrapper;
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_futures::task::Stop;
+use tangram_futures::{stream::Ext, task::Stop};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Outgoing};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
+use tokio_util::task::AbortOnDropHandle;
 
 pub enum Reader {
 	File(File),
@@ -45,7 +46,7 @@ impl Server {
 		let (sender, receiver) = async_channel::unbounded();
 
 		// Spawn the task.
-		tokio::spawn({
+		let task = tokio::spawn({
 			let server = self.clone();
 			async move {
 				let result = server.try_read_blob_task(arg, reader, sender.clone()).await;
@@ -54,8 +55,9 @@ impl Server {
 				}
 			}
 		});
+		let abort_handle = AbortOnDropHandle::new(task);
 
-		Ok(Some(receiver))
+		Ok(Some(receiver.attach(abort_handle)))
 	}
 
 	async fn try_read_blob_task(

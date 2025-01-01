@@ -3,7 +3,7 @@ use futures::{FutureExt as _, Stream, StreamExt as _};
 use indoc::indoc;
 use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_client as tg;
-use tangram_futures::stream::StreamExt as _;
+use tangram_futures::stream::Ext as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tangram_ignore::Matcher;
 use tokio_util::task::AbortOnDropHandle;

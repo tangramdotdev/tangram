@@ -126,11 +126,15 @@ enum Command {
 
 	Download(self::blob::download::Args),
 
+	Export(self::object::export::Args),
+
 	Format(self::package::format::Args),
 
 	Get(self::get::Args),
 
 	Health(self::health::Args),
+
+	Import(self::object::import::Args),
 
 	Init(self::package::init::Args),
 
@@ -843,9 +847,11 @@ impl Cli {
 			Command::Clean(args) => self.command_clean(args).boxed(),
 			Command::Document(args) => self.command_package_document(args).boxed(),
 			Command::Download(args) => self.command_blob_download(args).boxed(),
+			Command::Export(args) => self.command_object_export(args).boxed(),
 			Command::Format(args) => self.command_package_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Health(args) => self.command_health(args).boxed(),
+			Command::Import(args) => self.command_object_import(args).boxed(),
 			Command::Init(args) => self.command_package_init(args).boxed(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_build_log(args).boxed(),

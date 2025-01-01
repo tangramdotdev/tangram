@@ -16,8 +16,9 @@ pub struct Args {
 	#[arg(long)]
 	pub position: Option<u64>,
 
+	#[allow(clippy::option_option)]
 	#[arg(short, long)]
-	pub remote: Option<String>,
+	pub remote: Option<Option<String>>,
 
 	#[arg(long)]
 	pub size: Option<u64>,
@@ -28,10 +29,13 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the children.
+		let remote = args
+			.remote
+			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::build::children::get::Arg {
 			position: args.position.map(std::io::SeekFrom::Start),
 			length: args.length,
-			remote: args.remote,
+			remote,
 			size: args.size,
 		};
 		let stream = handle.get_build_children(&args.build, arg).await?;
