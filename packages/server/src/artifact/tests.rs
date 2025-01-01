@@ -1,5 +1,5 @@
 use crate::{util::fs::cleanup, Config, Server};
-use futures::FutureExt;
+use futures::FutureExt as _;
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::{future::Future, panic::AssertUnwindSafe, path::Path};
 use tangram_client as tg;

@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
-use std::{path::Path, pin::pin};
+use std::{os::unix::fs::PermissionsExt as _, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -90,6 +90,10 @@ impl Server {
 		tokio::fs::copy(path, temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+		let permissions = std::fs::Permissions::from_mode(0o644);
+		tokio::fs::set_permissions(temp.path(), permissions)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		let blob_path = self.blobs_path().join(blob.to_string());
 		tokio::fs::rename(temp.path(), blob_path)
 			.await

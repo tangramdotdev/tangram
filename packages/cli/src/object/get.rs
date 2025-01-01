@@ -1,7 +1,7 @@
 use crate::Cli;
 use crossterm::{style::Stylize as _, tty::IsTty};
 use tangram_client::{self as tg, handle::Ext as _};
-use tokio::io::AsyncWriteExt;
+use tokio::io::AsyncWriteExt as _;
 
 /// Get an object.
 #[derive(Clone, Debug, clap::Args)]

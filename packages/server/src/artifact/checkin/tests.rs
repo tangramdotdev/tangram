@@ -3,11 +3,10 @@ use futures::{Future, FutureExt as _};
 use indoc::indoc;
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::{panic::AssertUnwindSafe, pin::pin};
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
 use tangram_temp::{self as temp, Temp};
-use tg::handle::Ext;
 
 #[tokio::test]
 async fn directory() -> tg::Result<()> {

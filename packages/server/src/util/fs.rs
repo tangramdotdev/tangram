@@ -1,4 +1,4 @@
-use futures::TryFutureExt;
+use futures::TryFutureExt as _;
 use std::path::{Path, PathBuf};
 
 pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {

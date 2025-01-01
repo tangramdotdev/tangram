@@ -1,6 +1,6 @@
 use super::Graph;
 use crate::{util::fs::cleanup, Config, Server};
-use futures::FutureExt;
+use futures::FutureExt as _;
 use indoc::indoc;
 use insta::assert_snapshot;
 use std::panic::AssertUnwindSafe;
