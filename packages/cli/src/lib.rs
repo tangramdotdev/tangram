@@ -1047,7 +1047,7 @@ impl Cli {
 		let console_layer = if config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
-			.map_or(false, |advanced| advanced.tokio_console)
+			.is_some_and(|advanced| advanced.tokio_console)
 		{
 			Some(console_subscriber::spawn())
 		} else {

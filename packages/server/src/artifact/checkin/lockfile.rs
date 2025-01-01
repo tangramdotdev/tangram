@@ -243,7 +243,7 @@ impl Server {
 					tg::graph::object::Symlink::Artifact {
 						artifact: _,
 						subpath,
-					} => subpath.map(PathBuf::from),
+					} => subpath,
 					tg::graph::object::Symlink::Target { target } => Some(target),
 				}
 			},
@@ -251,7 +251,7 @@ impl Server {
 			tg::symlink::Data::Artifact {
 				artifact: _,
 				subpath,
-			} => subpath.clone().map(PathBuf::from),
+			} => subpath.clone(),
 		};
 
 		// The artifact is either another point in the graph, or referred to explicitly by data.

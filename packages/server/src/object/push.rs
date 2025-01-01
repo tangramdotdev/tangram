@@ -57,14 +57,14 @@ impl Server {
 					"objects".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
-					metadata.count.map(Into::into),
+					metadata.count,
 				);
 				progress.start(
 					"bytes".to_owned(),
 					"bytes".to_owned(),
 					tg::progress::IndicatorFormat::Bytes,
 					Some(0),
-					metadata.weight.map(Into::into),
+					metadata.weight,
 				);
 				let result = AssertUnwindSafe(
 					Self::push_or_pull_object_inner(&src, &dst, &object, &progress).map_ok(|_| ()),

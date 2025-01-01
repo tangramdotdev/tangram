@@ -140,7 +140,6 @@ impl Artifact {
 				.artifact(handle)
 				.await?
 				.clone()
-				.map(Into::into)
 				.into_iter()
 				.collect()),
 		}

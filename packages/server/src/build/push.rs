@@ -64,21 +64,21 @@ impl Server {
 					"builds".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
-					metadata.build_count.map(Into::into),
+					metadata.build_count,
 				);
 				progress.start(
 					"objects".to_owned(),
 					"objects".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
-					metadata.object_count.map(Into::into),
+					metadata.object_count,
 				);
 				progress.start(
 					"bytes".to_owned(),
 					"bytes".to_owned(),
 					tg::progress::IndicatorFormat::Bytes,
 					Some(0),
-					metadata.object_weight.map(Into::into),
+					metadata.object_weight,
 				);
 				let result = AssertUnwindSafe(
 					Self::push_or_pull_build_inner(&src, &dst, &build, arg, &progress)

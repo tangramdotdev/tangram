@@ -63,14 +63,8 @@ impl Server {
 			let arg = arg.clone();
 			let progress = progress.clone();
 			async move {
-				let count = metadata
-					.as_ref()
-					.and_then(|metadata| metadata.count)
-					.map(Into::into);
-				let weight = metadata
-					.as_ref()
-					.and_then(|metadata| metadata.weight)
-					.map(Into::into);
+				let count = metadata.as_ref().and_then(|metadata| metadata.count);
+				let weight = metadata.as_ref().and_then(|metadata| metadata.weight);
 				progress.start(
 					"objects".to_owned(),
 					"objects".to_owned(),
