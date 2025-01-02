@@ -1,6 +1,6 @@
 use super::{Item, Options};
 use crossterm as ct;
-use futures::{Future, StreamExt, TryFutureExt as _, TryStreamExt as _};
+use futures::{Future, TryFutureExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
@@ -30,6 +30,7 @@ struct Node {
 	indicator: Option<Indicator>,
 	item: Option<Item>,
 	label: Option<String>,
+	log_task: Option<Task<()>>,
 	options: Rc<Options>,
 	parent: Option<Weak<RefCell<Self>>>,
 	ready_sender: tokio::sync::watch::Sender<bool>,
@@ -126,6 +127,7 @@ where
 			indicator: None,
 			item: item.cloned(),
 			label,
+			log_task: None,
 			options,
 			parent: Some(parent),
 			ready_sender,
@@ -364,8 +366,14 @@ where
 		Ok(())
 	}
 
-	async fn build_log_task(handle: &H, build: tg::Build, update_sender: NodeUpdateSender) -> tg::Result<()> {
-		let mut log = build.log(handle, tg::build::log::get::Arg::default()).await?;
+	async fn build_log_task(
+		handle: &H,
+		build: tg::Build,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()> {
+		let mut log = build
+			.log(handle, tg::build::log::get::Arg::default())
+			.await?;
 
 		while let Some(chunk) = log.try_next().await? {
 			let chunk = String::from_utf8_lossy(&chunk.bytes);
@@ -385,7 +393,7 @@ where
 						index
 					});
 					let log_node = &node.borrow().children[log_node];
-					log_node.borrow_mut().title = line;	
+					log_node.borrow_mut().title = line;
 				};
 				update_sender.send(Box::new(update)).unwrap();
 			}
@@ -399,7 +407,22 @@ where
 		build: tg::Build,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		// Get the target.
+		// Create the log task.
+		let log_task = Task::spawn_local({
+			let build = build.clone();
+			let handle = handle.clone();
+			let update_sender = update_sender.clone();
+			|_| async move {
+				Self::build_log_task(&handle, build, update_sender)
+					.await
+					.ok();
+			}
+		});
+		let update = move |node: Rc<RefCell<Node>>| {
+			node.borrow_mut().log_task.replace(log_task);
+		};
+		update_sender.send(Box::new(update)).unwrap();			
+
 		let target = build.target(handle).await?;
 		let value = tg::Value::Object(target.into());
 		update_sender
@@ -446,7 +469,7 @@ where
 					}
 				});
 				child.borrow_mut().update_task.replace(update_task);
-
+				
 				// Add the child to the children node.
 				children_node.borrow_mut().children.push(child);
 			};
@@ -1102,6 +1125,7 @@ where
 		} else {
 			None
 		};
+
 		let root = Rc::new(RefCell::new(Node {
 			children: Vec::new(),
 			expand_task: None,
@@ -1109,6 +1133,7 @@ where
 			indicator: None,
 			item: Some(item),
 			label: None,
+			log_task: None,
 			options: options.clone(),
 			parent: None,
 			ready_sender,
@@ -1282,6 +1307,9 @@ where
 impl Drop for Node {
 	fn drop(&mut self) {
 		if let Some(task) = self.expand_task.take() {
+			task.abort();
+		}
+		if let Some(task) = self.log_task.take() {
 			task.abort();
 		}
 		if let Some(task) = self.update_task.take() {
