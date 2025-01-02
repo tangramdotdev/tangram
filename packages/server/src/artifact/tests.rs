@@ -672,7 +672,7 @@ async fn file_with_transitive_object_dependencies() -> tg::Result<()> {
     "contents": "hello",
     "executable": false,
     "xattrs": {
-      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"fil_010ahk1drre093nerbycshqfpb5vzcjptq94jyfw5r5y9j7jhfx1mg\":{\"item\":\"fil_010ahk1drre093nerbycshqfpb5vzcjptq94jyfw5r5y9j7jhfx1mg\"}},\"id\":\"fil_01jwz4z27dcyft5q87egvz5r7mh1k67v7q0sey4ffb63nqbpdhj21g\"}]}"
+      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"dir_01s8c95696nppdhy29sdjqxbzdmhyw53g807z2ddm47dt9w5xbts9g\":{\"item\":1}},\"id\":\"fil_015g2z6mnxhe1wtz6f9vgv1cjxpxvvmmph32a7n18153n74hrj33n0\"},{\"kind\":\"directory\",\"entries\":{\"entry\":2},\"id\":\"dir_01s8c95696nppdhy29sdjqxbzdmhyw53g807z2ddm47dt9w5xbts9g\"},{\"kind\":\"file\",\"dependencies\":{\"fil_010ahk1drre093nerbycshqfpb5vzcjptq94jyfw5r5y9j7jhfx1mg\":{\"item\":\"fil_010ahk1drre093nerbycshqfpb5vzcjptq94jyfw5r5y9j7jhfx1mg\"}},\"id\":\"fil_01jwz4z27dcyft5q87egvz5r7mh1k67v7q0sey4ffb63nqbpdhj21g\"}]}"
     }
   }
   "#);
