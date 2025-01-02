@@ -101,6 +101,14 @@ impl Graph {
 		Ok(id)
 	}
 
+	pub async fn nodes<H>(&self, handle: &H) -> tg::Result<Vec<tg::graph::Node>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load(handle).await?;
+		Ok(object.nodes.clone())
+	}
+
 	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
 	where
 		H: tg::Handle,
