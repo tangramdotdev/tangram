@@ -17,7 +17,6 @@ mod build;
 mod cat;
 mod checksum;
 mod clean;
-mod config;
 mod get;
 mod health;
 mod lsp;
@@ -34,6 +33,7 @@ mod target;
 mod tree;
 mod view;
 
+pub mod config;
 pub mod test;
 
 pub struct Cli {

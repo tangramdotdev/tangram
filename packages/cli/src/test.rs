@@ -213,4 +213,19 @@ macro_rules! assert_output_success {
 		assert!(output.status.success());
 	};
 }
+
+#[macro_export]
+macro_rules! assert_output_failure {
+	($output:expr) => {
+		let output = &$output;
+		if output.status.success() {
+			let mut stderr = tokio::io::stderr();
+			stderr.write_all(&output.stderr).await.unwrap();
+			stderr.flush().await.unwrap();
+		}
+		assert!(!output.status.success());
+	};
+}
+
+pub use assert_output_failure;
 pub use assert_output_success;
