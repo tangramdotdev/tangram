@@ -29,7 +29,7 @@ async fn checkin_locked_file() {
 					});
 					const d_id = await d.id();
 					const f = await tg.file("contents", { dependencies: { [d_id]: { item: d }}});
-					return await f.id();
+					return f;
 				});
 			"#),
 		};
@@ -44,10 +44,7 @@ async fn checkin_locked_file() {
 			.await
 			.unwrap();
 		assert_output_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout)
-			.unwrap()
-			.trim()
-			.trim_matches('"');
+		let stdout = std::str::from_utf8(&output.stdout).unwrap().trim();
 		let orig_id: tg::file::Id = stdout.parse().unwrap();
 
 		// Store the output of `tg get`.
@@ -86,10 +83,7 @@ async fn checkin_locked_file() {
 			.await
 			.unwrap();
 		assert_output_success!(checkin_output);
-		let checkin_stdout = std::str::from_utf8(&checkin_output.stdout)
-			.unwrap()
-			.trim()
-			.trim_matches('"');
+		let checkin_stdout = std::str::from_utf8(&checkin_output.stdout).unwrap().trim();
 		let checkin_id: tg::file::Id = checkin_stdout.parse().unwrap();
 
 		// The checked in file should match the original file.
@@ -107,7 +101,6 @@ async fn checkin_locked_file() {
 			.unwrap()
 			.trim();
 		assert_eq!(orig_get_stdout, checkin_get_stdout);
-		// assert_eq!("a", checkin_get_stdout);
 	})
 	.await;
 }
@@ -137,7 +130,7 @@ async fn checkin_locked_file_with_transitive_dependency() {
 					});
 					const d_id = await d.id();
 					const f = await tg.file("contents", { dependencies: { [d_id]: { item: d }}});
-					return await f.id();
+					return f;
 				});
 			"#),
 		};
@@ -152,10 +145,7 @@ async fn checkin_locked_file_with_transitive_dependency() {
 			.await
 			.unwrap();
 		assert_output_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout)
-			.unwrap()
-			.trim()
-			.trim_matches('"');
+		let stdout = std::str::from_utf8(&output.stdout).unwrap().trim();
 		let orig_id: tg::file::Id = stdout.parse().unwrap();
 
 		// Store the output of `tg get`.
@@ -194,10 +184,7 @@ async fn checkin_locked_file_with_transitive_dependency() {
 			.await
 			.unwrap();
 		assert_output_success!(checkin_output);
-		let checkin_stdout = std::str::from_utf8(&checkin_output.stdout)
-			.unwrap()
-			.trim()
-			.trim_matches('"');
+		let checkin_stdout = std::str::from_utf8(&checkin_output.stdout).unwrap().trim();
 		let checkin_id: tg::file::Id = checkin_stdout.parse().unwrap();
 
 		// The checked in file should match the original file.
@@ -215,7 +202,6 @@ async fn checkin_locked_file_with_transitive_dependency() {
 			.unwrap()
 			.trim();
 		assert_eq!(orig_get_stdout, checkin_get_stdout);
-		// assert_eq!("a", checkin_get_stdout);
 	})
 	.await;
 }
