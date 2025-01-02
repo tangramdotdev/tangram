@@ -1,6 +1,6 @@
 use super::{Item, Options};
 use crossterm as ct;
-use futures::{Future, TryFutureExt as _, TryStreamExt as _};
+use futures::{Future, StreamExt, TryFutureExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
@@ -359,6 +359,36 @@ where
 				node.borrow_mut().indicator.replace(indicator);
 			};
 			update_sender.send(Box::new(update)).unwrap();
+		}
+
+		Ok(())
+	}
+
+	async fn build_log_task(handle: &H, build: tg::Build, update_sender: NodeUpdateSender) -> tg::Result<()> {
+		let mut log = build.log(handle, tg::build::log::get::Arg::default()).await?;
+
+		while let Some(chunk) = log.try_next().await? {
+			let chunk = String::from_utf8_lossy(&chunk.bytes);
+			for line in chunk.lines() {
+				let line = line.to_owned();
+				let update = move |node: Rc<RefCell<Node>>| {
+					// Get or create the log node.
+					let log_node = node
+						.borrow()
+						.children
+						.iter()
+						.position(|node| node.borrow().label.as_deref() == Some("log"));
+					let log_node = log_node.unwrap_or_else(|| {
+						let child = Self::create_node(&node, Some("log".to_owned()), None);
+						let index = node.borrow().children.len();
+						node.borrow_mut().children.push(child);
+						index
+					});
+					let log_node = &node.borrow().children[log_node];
+					log_node.borrow_mut().title = line;	
+				};
+				update_sender.send(Box::new(update)).unwrap();
+			}
 		}
 
 		Ok(())
