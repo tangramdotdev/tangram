@@ -14,7 +14,7 @@ async fn build_module_without_package() {
 
 		// Start the server.
 		let config = Config {
-			remotes: None,
+			remotes: Some(None),
 			..Default::default()
 		};
 		let server = context.spawn_server_with_config(config).await.unwrap();

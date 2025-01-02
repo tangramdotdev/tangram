@@ -14,7 +14,7 @@ async fn checkin_locked_file() {
 
 		// Start the server.
 		let config = Config {
-			remotes: None,
+			remotes: Some(None),
 			..Default::default()
 		};
 		let server = context.spawn_server_with_config(config).await.unwrap();
@@ -28,7 +28,7 @@ async fn checkin_locked_file() {
 						entry: tg.file("inner")
 					});
 					const d_id = await d.id();
-					const f = await tg.file("contents");
+					const f = await tg.file("contents", { dependencies: { [d_id]: { item: d }}});
 					return await f.id();
 				});
 			"#),
@@ -44,29 +44,70 @@ async fn checkin_locked_file() {
 			.await
 			.unwrap();
 		assert_output_success!(output);
-		// let id: tg::file::Id = String::from_utf8(output.stdout).unwrap().parse().unwrap();
+		let stdout = std::str::from_utf8(&output.stdout)
+			.unwrap()
+			.trim()
+			.trim_matches('"');
+		let orig_id: tg::file::Id = stdout.parse().unwrap();
+
+		// Store the output of `tg get`.
+		let orig_get_output = server
+			.tg()
+			.arg("get")
+			.arg(orig_id.to_string())
+			.output()
+			.await
+			.unwrap();
+		let orig_get_stdout = std::str::from_utf8(&orig_get_output.stdout).unwrap().trim();
 
 		// Check out the file with dependencies=false, lockfile=true.
 		let checkout_temp = Temp::new();
 		tokio::fs::create_dir_all(checkout_temp.path())
 			.await
 			.unwrap();
-		// let checkout_output = server
-		// 	.tg()
-		// 	.arg("checkout")
-		// 	.arg("--dependencies=false")
-		// 	.arg("--lockfile=true")
-		// 	.arg(id.to_string())
-		// 	.arg(checkout_temp.path().join("orig"))
-		// 	.output()
-		// 	.await
-		// 	.unwrap();
-		// assert_output_success!(checkout_output);
+		let checkout_output = server
+			.tg()
+			.arg("checkout")
+			.arg("--dependencies=false")
+			.arg("--lockfile=true")
+			.arg(orig_id.to_string())
+			.arg(checkout_temp.path().join("orig"))
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(checkout_output);
 
-		//
 		// Check in the file
-		//
-		// Assert the contents and dependencies match the original.
+		let checkin_output = server
+			.tg()
+			.arg("checkin")
+			.arg(checkout_temp.path().join("orig"))
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(checkin_output);
+		let checkin_stdout = std::str::from_utf8(&checkin_output.stdout)
+			.unwrap()
+			.trim()
+			.trim_matches('"');
+		let checkin_id: tg::file::Id = checkin_stdout.parse().unwrap();
+
+		// The checked in file should match the original file.
+		assert_eq!(orig_id, checkin_id);
+
+		// The `tg get` output of each should be identical.
+		let checkin_get_output = server
+			.tg()
+			.arg("get")
+			.arg(checkin_id.to_string())
+			.output()
+			.await
+			.unwrap();
+		let checkin_get_stdout = std::str::from_utf8(&checkin_get_output.stdout)
+			.unwrap()
+			.trim();
+		assert_eq!(orig_get_stdout, checkin_get_stdout);
+		// assert_eq!("a", checkin_get_stdout);
 	})
 	.await;
 }
