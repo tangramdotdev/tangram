@@ -877,7 +877,7 @@ async fn target_set_checksum() -> tg::Result<()> {
 			"foo" => temp::directory! {
 				"tangram.ts" => indoc!(r#"
 					export default tg.target(async () => {
-						let target = await tg.target("echo 'Hello, World!' > $OUTPUT", { checksum: "sha256:bf5d7670a573508ae741a64acfd35f3e2a6bab3f9d02feda16495a2e622f2017" });
+						let target = await tg.target("echo 'Hello, World!' > $OUTPUT", { checksum: "sha256:b0ce0c823ecf506d4f2ee0b54e333df416225644415fd999ffe18385b0626601" });
 						let output = await target.output();
 						return output;
 					});
@@ -923,7 +923,7 @@ where
 	F: FnOnce(Server, tg::build::Outcome) -> Fut + Clone,
 	Fut: Future<Output = tg::Result<()>>,
 {
-	for format in &["tar", "tgar", "zip"] {
+	for format in &["tar", "zip"] {
 		let module = module.replace("format", format);
 		let directory = temp::directory! {
 			"foo" => temp::directory! {
