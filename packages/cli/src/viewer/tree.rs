@@ -387,9 +387,23 @@ where
 		while let Some(build) = children.try_next().await? {
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
+				// Get or create the children.
+				let children_node = node
+					.borrow()
+					.children
+					.iter()
+					.position(|node| node.borrow().label.as_deref() == Some("children"));
+				let children_node = children_node.unwrap_or_else(|| {
+					let child = Self::create_node(&node, Some("children".to_owned()), None);
+					let index = node.borrow().children.len();
+					node.borrow_mut().children.push(child);
+					index
+				});
+				let children_node = &node.borrow().children[children_node];
+
 				// Create the child.
 				let item = Item::Build(build.clone());
-				let child = Self::create_node(&node, None, Some(&item));
+				let child = Self::create_node(&children_node, None, Some(&item));
 
 				// Create the update task.
 				let update_task = Task::spawn_local({
@@ -403,24 +417,8 @@ where
 				});
 				child.borrow_mut().update_task.replace(update_task);
 
-				// Get or create the children.
-				let children_node = node
-					.borrow()
-					.children
-					.iter()
-					.position(|node| node.borrow().label.as_deref() == Some("children"));
-				let children_node = children_node.unwrap_or_else(|| {
-					let child = Self::create_node(&node, Some("children".to_owned()), None);
-					let index = node.borrow().children.len();
-					node.borrow_mut().children.push(child);
-					index
-				});
-
 				// Add the child to the children node.
-				node.borrow().children[children_node]
-					.borrow_mut()
-					.children
-					.push(child);
+				children_node.borrow_mut().children.push(child);
 			};
 			update_sender.send(Box::new(update)).unwrap();
 		}
@@ -1254,6 +1252,9 @@ where
 impl Drop for Node {
 	fn drop(&mut self) {
 		if let Some(task) = self.expand_task.take() {
+			task.abort();
+		}
+		if let Some(task) = self.update_task.take() {
 			task.abort();
 		}
 	}
