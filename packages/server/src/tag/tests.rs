@@ -226,17 +226,19 @@ async fn remote_put() -> tg::Result<()> {
 	let remote = Server::start(remote_config).await?;
 
 	let server_temp = Temp::new();
-	let mut server_config = Config::with_path(server_temp.path().to_owned());
-	server_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
-	.into();
+	let server_config = Config::with_path(server_temp.path().to_owned());
 	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
+		server
+			.put_remote(
+				"default",
+				tg::remote::put::Arg {
+					url: remote.url().clone(),
+				},
+			)
+			.await?;
+
 		let file = tg::File::with_contents("test");
 		let id = file.id(&server).await?;
 

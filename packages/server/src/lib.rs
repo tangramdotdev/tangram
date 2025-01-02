@@ -253,14 +253,7 @@ impl Server {
 		};
 
 		// Create the remotes.
-		let remotes = config
-			.remotes
-			.iter()
-			.map(|(name, remote)| {
-				let client = tg::Client::new(remote.url.clone());
-				(name.clone(), client)
-			})
-			.collect();
+		let remotes = DashMap::default();
 
 		// Create the runtimes.
 		let runtimes = RwLock::new(HashMap::default());
@@ -299,11 +292,6 @@ impl Server {
 		self::database::migrate(&server.database)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
-
-		// Spawn tasks to connect the remotes.
-		for remote in server.remotes.iter().map(|entry| entry.value().clone()) {
-			tokio::spawn(async move { remote.connect().await.ok() });
-		}
 
 		// Start the VFS if enabled.
 		let artifacts_path = server.path.join("artifacts");

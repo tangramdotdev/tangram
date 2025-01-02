@@ -11,11 +11,7 @@ impl Server {
 		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
-			let remote = self
-				.remotes
-				.get(remote)
-				.ok_or_else(|| tg::error!("the remote does not exist"))?
-				.clone();
+			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::tag::list::Arg {
 				remote: None,
 				..arg
@@ -32,11 +28,12 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Otherwise, try the remotes.
-		for remote in &self.remotes {
-			let output = remote.list_tags(arg.clone()).await?;
-			if !output.data.is_empty() {
-				return Ok(output);
+		// Otherwise, try the default remote.
+		if let Some(remote) = self.try_get_remote_client("default".to_owned()).await? {
+			if let Ok(output) = remote.list_tags(arg.clone()).await {
+				if !output.data.is_empty() {
+					return Ok(output);
+				}
 			}
 		}
 

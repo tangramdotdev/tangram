@@ -13,36 +13,13 @@ impl Server {
 		arg: tg::object::export::Arg,
 	) -> tg::Result<impl AsyncRead + Send + 'static> {
 		if let Some(remote) = arg.remote.clone() {
-			let reader = self.export_object_remote(id, arg, remote).await?;
+			let remote = self.get_remote_client(remote).await?;
+			let arg = tg::object::export::Arg { remote: None };
+			let reader = remote.export_object(id, arg).await?;
 			let reader = Box::pin(reader) as Pin<Box<dyn AsyncRead + Send + 'static>>;
-			Ok(reader)
-		} else {
-			let reader = self.export_object_local(id, arg).await?;
-			let reader = Box::pin(reader) as Pin<Box<dyn AsyncRead + Send + 'static>>;
-			Ok(reader)
+			return Ok(reader);
 		}
-	}
 
-	async fn export_object_remote(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::export::Arg,
-		remote: String,
-	) -> tg::Result<impl AsyncRead + Send + 'static> {
-		let remote = self
-			.remotes
-			.get(&remote)
-			.ok_or_else(|| tg::error!(%remote, "the remote does not exist"))?;
-		let reader = remote.export_object(id, arg).await?;
-		let reader = Box::pin(reader) as Pin<Box<dyn AsyncRead + Send + 'static>>;
-		Ok(reader)
-	}
-
-	async fn export_object_local(
-		&self,
-		id: &tg::object::Id,
-		_arg: tg::object::export::Arg,
-	) -> tg::Result<impl AsyncRead + Send + 'static> {
 		let (writer, reader) = tokio::io::duplex(8192);
 		let task = tokio::spawn({
 			let id = id.clone();
@@ -56,7 +33,10 @@ impl Server {
 			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
-		Ok(reader.attach(abort_handle))
+
+		let reader = reader.attach(abort_handle).boxed();
+
+		Ok(reader)
 	}
 }
 

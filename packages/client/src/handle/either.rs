@@ -1,5 +1,3 @@
-use std::pin::Pin;
-
 use crate::{self as tg, handle::Ext as _};
 use futures::{Future, FutureExt as _, Stream};
 use tangram_either::Either;
@@ -335,17 +333,11 @@ where
 		match self {
 			Either::Left(s) => s
 				.export_object(id, arg)
-				.map(|result| {
-					result
-						.map(|reader| Box::pin(reader) as Pin<Box<dyn AsyncRead + Send + 'static>>)
-				})
+				.map(|result| result.map(tangram_futures::read::Ext::boxed))
 				.left_future(),
 			Either::Right(s) => s
 				.export_object(id, arg)
-				.map(|result| {
-					result
-						.map(|reader| Box::pin(reader) as Pin<Box<dyn AsyncRead + Send + 'static>>)
-				})
+				.map(|result| result.map(tangram_futures::read::Ext::boxed))
 				.right_future(),
 		}
 	}

@@ -80,7 +80,7 @@ impl std::fmt::Display for Indicator {
 					},
 					tg::progress::IndicatorFormat::Bytes => {
 						let total = byte_unit::Byte::from_u64(total);
-						write!(f, " of {total:#}")?;
+						write!(f, " of {total:#.9}")?;
 					},
 				}
 				let percent = 100.0 * current.to_f64().unwrap() / total.to_f64().unwrap();

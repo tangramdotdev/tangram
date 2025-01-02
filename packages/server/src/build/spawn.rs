@@ -28,13 +28,17 @@ impl Server {
 					.unwrap()
 					.remotes
 					.iter()
-					.filter_map(|name| {
-						let remote = self.remotes.get(name)?.clone();
-						let arg = tg::build::dequeue::Arg::default();
-						let future = async move { remote.dequeue_build(arg).await }
-							.map_ok(|output| (output, Some(name.clone())))
-							.boxed();
-						Some(future)
+					.map(|name| {
+						let server = self.clone();
+						let remote = name.to_owned();
+						async move {
+							let client = server.get_remote_client(remote).await?;
+							let arg = tg::build::dequeue::Arg::default();
+							let build = client.dequeue_build(arg).await?;
+							let output = (build, Some(name.to_owned()));
+							Ok::<_, tg::Error>(output)
+						}
+						.boxed()
 					}),
 			);
 			let (output, remote) = match future::select_ok(futures).await {

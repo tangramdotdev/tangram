@@ -163,14 +163,14 @@ enum Command {
 
 	Run(self::target::run::Args),
 
+	#[command(name = "self")]
+	Tangram(self::tangram::Args),
+
 	Serve(self::server::run::Args),
 
 	Server(self::server::Args),
 
 	Tag(self::tag::Args),
-
-	#[command(alias = "self")]
-	Tangram(self::tangram::Args),
 
 	Target(self::target::Args),
 
@@ -435,13 +435,6 @@ impl Cli {
 		let database = tangram_server::config::Database::Sqlite(
 			tangram_server::config::SqliteDatabase::with_path(path.join("database")),
 		);
-		let remotes = [(
-			"default".to_owned(),
-			tangram_server::config::Remote {
-				url: "https://api.tangram.dev".parse().unwrap(),
-			},
-		)]
-		.into();
 		let url = tangram_server::Config::default_url_for_path(&path);
 		let vfs = if cfg!(target_os = "linux") {
 			Some(tangram_server::config::Vfs::default())
@@ -458,7 +451,6 @@ impl Cli {
 			messenger: tangram_server::config::Messenger::default(),
 			object_indexer: Some(tangram_server::config::ObjectIndexer::default()),
 			path,
-			remotes,
 			url,
 			version: None,
 			vfs,
@@ -667,31 +659,6 @@ impl Cli {
 			},
 		}
 
-		// Set the remote options.
-		match self
-			.config
-			.as_ref()
-			.and_then(|config| config.remotes.as_ref())
-		{
-			None => (),
-			Some(None) => config.remotes.clear(),
-			Some(Some(remotes)) => {
-				for (name, remote) in remotes {
-					match remote {
-						None => {
-							config.remotes.remove(name);
-						},
-						Some(remote) => {
-							let name = name.clone();
-							let url = remote.url.clone();
-							let remote = tangram_server::config::Remote { url };
-							config.remotes.insert(name, remote);
-						},
-					}
-				}
-			},
-		}
-
 		// Set the vfs options.
 		match self.config.as_ref().and_then(|config| config.vfs.clone()) {
 			None => (),
@@ -865,10 +832,10 @@ impl Cli {
 			Command::Put(args) => self.command_object_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_target_run(args).boxed(),
+			Command::Tangram(args) => self.command_tangram(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Tag(args) => self.command_tag(args).boxed(),
-			Command::Tangram(args) => self.command_tangram(args).boxed(),
 			Command::Target(args) => self.command_target(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),

@@ -1,9 +1,8 @@
-use self::attach::Attach;
+use crate::attach::Attach;
 use futures::Future;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 
-pub mod attach;
 pub mod shared_position_reader;
 
 pub type Boxed<'a> = Pin<Box<dyn AsyncRead + Send + 'a>>;
@@ -22,6 +21,13 @@ pub trait Ext: AsyncRead {
 	{
 		Box::pin(self)
 	}
+
+	// fn left_reader<'a>(self) -> Boxed<'a>
+	// where
+	// 	Self: Sized + Send + 'a,
+	// {
+	// 	Box::pin(self)
+	// }
 
 	fn read_uvarint(&mut self) -> impl Future<Output = std::io::Result<u64>> + Send
 	where

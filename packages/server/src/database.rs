@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use futures::FutureExt as _;
-use indoc::formatdoc;
+use indoc::indoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _};
 use tangram_either::Either;
@@ -85,7 +85,7 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 }
 
 async fn migration_0000(database: &Database) -> tg::Result<()> {
-	let sql = formatdoc!(
+	let sql = indoc!(
 		r#"
 			create table builds (
 				id text primary key,
@@ -188,6 +188,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				length integer not null
 			);
 
+			create table remotes (
+				name text primary key,
+				url text not null
+			);
+
 			create table tags (
 				tag text primary key,
 				item text not null
@@ -212,7 +217,17 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 	connection
 		.with(move |connection| {
 			connection
-				.execute_batch(&sql)
+				.execute_batch(sql)
+				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
+			Ok::<_, tg::Error>(())
+		})
+		.await?;
+	connection
+		.with(move |connection| {
+			let sql =
+				"insert into remotes (name, url) values ('default', 'https://api.tangram.dev');";
+			connection
+				.execute_batch(sql)
 				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
 			Ok::<_, tg::Error>(())
 		})

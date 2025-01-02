@@ -20,42 +20,12 @@ impl Server {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>> + Send + 'static,
 	> {
 		if let Some(remote) = arg.remote.clone() {
-			let stream = self
-				.import_object_remote(arg, reader, remote)
-				.await?
-				.left_stream();
-			Ok(stream)
-		} else {
-			let stream = self.import_object_local(arg, reader).await?.right_stream();
-			Ok(stream)
+			let remote = self.get_remote_client(remote).await?;
+			let arg = tg::object::import::Arg { remote: None };
+			let stream = remote.import_object(arg, reader).await?.boxed();
+			return Ok(stream.left_stream());
 		}
-	}
 
-	async fn import_object_remote(
-		&self,
-		arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Unpin + Send + 'static,
-		remote: String,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>> + Send + 'static,
-	> {
-		let remote = self
-			.remotes
-			.get(&remote)
-			.ok_or_else(|| tg::error!(%remote, "the remote does not exist"))?;
-		remote
-			.import_object(arg, reader)
-			.await
-			.map(futures::StreamExt::boxed)
-	}
-
-	async fn import_object_local(
-		&self,
-		arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>> + Send + 'static,
-	> {
 		// Create the progress.
 		let progress = crate::progress::Handle::new();
 
@@ -65,7 +35,7 @@ impl Server {
 			let progress = progress.clone();
 			async move {
 				match server
-					.import_object_local_inner(arg, reader, progress.clone())
+					.import_object_inner(arg, reader, progress.clone())
 					.await
 				{
 					Ok(output) => progress.output(output),
@@ -78,10 +48,10 @@ impl Server {
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = progress.stream().attach(abort_handle);
 
-		Ok(stream)
+		Ok(stream.right_stream())
 	}
 
-	async fn import_object_local_inner(
+	async fn import_object_inner(
 		&self,
 		_arg: tg::object::import::Arg,
 		reader: impl AsyncRead + Send + 'static,
@@ -89,7 +59,7 @@ impl Server {
 	) -> tg::Result<tg::object::import::Output> {
 		progress.start(
 			"bytes".into(),
-			"Bytes".into(),
+			"bytes".into(),
 			tg::progress::IndicatorFormat::Bytes,
 			Some(0),
 			None,

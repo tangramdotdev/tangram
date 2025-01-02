@@ -79,7 +79,9 @@ impl Runtime {
 
 		// Try to reuse a build whose checksum is `None` or `Unsafe`.
 		if let Ok(value) =
-			super::util::try_reuse_build(server, build.id(), &target, checksum.as_ref()).await
+			super::util::try_reuse_build(server, build.id(), &target, checksum.as_ref())
+				.boxed()
+				.await
 		{
 			return Ok(value);
 		};

@@ -1,5 +1,4 @@
 use std::{
-	collections::BTreeMap,
 	path::{Path, PathBuf},
 	time::Duration,
 };
@@ -17,7 +16,6 @@ pub struct Config {
 	pub messenger: Messenger,
 	pub object_indexer: Option<ObjectIndexer>,
 	pub path: PathBuf,
-	pub remotes: BTreeMap<String, Remote>,
 	pub url: Url,
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
@@ -108,11 +106,6 @@ pub struct ObjectIndexer {
 	pub timeout: Duration,
 }
 
-#[derive(Clone, Debug)]
-pub struct Remote {
-	pub url: Url,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct Vfs {
 	pub cache_ttl: Duration,
@@ -131,7 +124,6 @@ impl Config {
 		let database = Database::Sqlite(SqliteDatabase::with_path(path.join("database")));
 		let messenger = Messenger::default();
 		let object_indexer = None;
-		let remotes = BTreeMap::new();
 		let url = Self::default_url_for_path(&path);
 		let version = None;
 		let vfs = None;
@@ -145,7 +137,6 @@ impl Config {
 			messenger,
 			object_indexer,
 			path,
-			remotes,
 			url,
 			version,
 			vfs,

@@ -1,5 +1,5 @@
 use serde_with::{serde_as, DurationSecondsWithFrac};
-use std::{collections::BTreeMap, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 use tangram_client::{self as tg, util::serde::is_false};
 use url::Url;
 
@@ -66,15 +66,6 @@ pub struct Config {
 	/// The path where a client will look for a socket file and where a server will store its data.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
-
-	/// Configure remotes.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub remotes: Option<Option<BTreeMap<String, Option<Remote>>>>,
 
 	/// Configure tracing.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -263,13 +254,6 @@ pub struct ObjectIndexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Remote {
-	/// The remote's url.
-	pub url: Url,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

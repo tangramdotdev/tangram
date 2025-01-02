@@ -1,11 +1,30 @@
 use crate::Server;
+use indoc::formatdoc;
 use tangram_client as tg;
+use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
 	pub async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
-		let remote = tg::Client::new(arg.url);
-		self.remotes.insert(name.to_owned(), remote);
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into remotes (name, url)
+				values ({p}1, {p}2)
+				on conflict (name)
+				do update set url = {p}2;
+			",
+		);
+		let params = db::params![&name, &arg.url];
+		connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
 		Ok(())
 	}
 }

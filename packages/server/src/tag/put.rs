@@ -9,11 +9,7 @@ impl Server {
 		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
-			let remote = self
-				.remotes
-				.get(remote)
-				.ok_or_else(|| tg::error!("failed to find the remote"))?
-				.clone();
+			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::tag::put::Arg {
 				remote: None,
 				..arg.clone()

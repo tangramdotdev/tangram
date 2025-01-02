@@ -102,9 +102,10 @@ impl Server {
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Attempt to get the object from the remotes.
 		let futures = self
-			.remotes
-			.iter()
-			.map(|remote| async move { remote.get_object(id).await }.boxed())
+			.get_remote_clients()
+			.await?
+			.into_values()
+			.map(|client| async move { client.get_object(id).await }.boxed())
 			.collect_vec();
 		if futures.is_empty() {
 			return Ok(None);

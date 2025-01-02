@@ -946,16 +946,18 @@ async fn import_from_tag() -> tg::Result<()> {
 	server_config.build = Some(tangram_server::config::Build::default());
 	server_config.build_heartbeat_monitor =
 		Some(tangram_server::config::BuildHeartbeatMonitor::default());
-	server_config.remotes = [(
-		"default".to_owned(),
-		tangram_server::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
-	.into();
 	let server = Server::start(server_config).await?;
 
 	let result = AssertUnwindSafe(async {
+		server
+			.put_remote(
+				"default",
+				tg::remote::put::Arg {
+					url: remote.url().clone(),
+				},
+			)
+			.await?;
+
 		// create package
 		let foo = tg::directory! {
 			"tangram.ts" => tg::file!(r#"export default tg.target(() => "foo");"#)
@@ -1342,16 +1344,17 @@ where
 		Some(tangram_server::config::BuildHeartbeatMonitor::default());
 	let remote = Server::start(remote_options).await?;
 	let local_temp = Temp::new();
-	let mut local_options = Config::with_path(local_temp.path().to_owned());
-	local_options.remotes = [(
-		"default".to_owned(),
-		tangram_server::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
-	.into();
+	let local_options = Config::with_path(local_temp.path().to_owned());
 	let local = Server::start(local_options).await?;
 	let result = AssertUnwindSafe(async {
+		local
+			.put_remote(
+				"default",
+				tg::remote::put::Arg {
+					url: remote.url().clone(),
+				},
+			)
+			.await?;
 		let arg = tg::artifact::checkin::Arg {
 			cache: false,
 			destructive: false,

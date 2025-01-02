@@ -13,11 +13,7 @@ impl Server {
 		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
-			let remote = self
-				.remotes
-				.get(remote)
-				.ok_or_else(|| tg::error!("the remote does not exist"))?
-				.clone();
+			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::build::touch::Arg { remote: None };
 			remote.touch_build(id, arg).await?;
 			return Ok(());

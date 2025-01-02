@@ -1,10 +1,9 @@
-use std::panic::AssertUnwindSafe;
-
 use crate::Server;
 use futures::{
 	stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
 	TryStreamExt,
 };
+use std::panic::AssertUnwindSafe;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::Ext as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
@@ -30,12 +29,8 @@ impl Server {
 		build: &tg::build::Id,
 		arg: tg::build::push::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		let remote = self
-			.remotes
-			.get(&arg.remote)
-			.ok_or_else(|| tg::error!("failed to find the remote"))?
-			.clone();
-		Self::push_or_pull_build(self, &remote, build, arg).await
+		let client = self.get_remote_client(arg.remote.clone()).await?;
+		Self::push_or_pull_build(self, &client, build, arg).await
 	}
 
 	pub(crate) async fn push_or_pull_build<S, D>(

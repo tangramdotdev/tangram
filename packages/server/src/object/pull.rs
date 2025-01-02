@@ -9,11 +9,7 @@ impl Server {
 		object: &tg::object::Id,
 		arg: tg::object::pull::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		let remote = self
-			.remotes
-			.get(&arg.remote)
-			.ok_or_else(|| tg::error!("failed to find the remote"))?
-			.clone();
+		let remote = self.get_remote_client(arg.remote.clone()).await?;
 		Self::push_or_pull_object(&remote, self, object).await
 	}
 }

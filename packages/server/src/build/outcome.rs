@@ -103,14 +103,15 @@ impl Server {
 		Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
 	> {
 		let futures = self
-			.remotes
-			.iter()
-			.map(|remote| {
+			.get_remote_clients()
+			.await?
+			.into_values()
+			.map(|client| {
 				{
-					let remote = remote.clone();
+					let client = client.clone();
 					let id = id.clone();
 					async move {
-						remote
+						client
 							.get_build_outcome(&id)
 							.await
 							.map(futures::FutureExt::boxed)

@@ -12,28 +12,31 @@ async fn push_file() -> tg::Result<()> {
 	let remote = Server::start(remote_config).await?;
 
 	let server_temp = Temp::new();
-	let mut server_config = Config::with_path(server_temp.path().to_owned());
-	server_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
-	.into();
+	let server_config = Config::with_path(server_temp.path().to_owned());
 	let server = Server::start(server_config).await?;
 
 	let other_temp = Temp::new();
-	let mut other_config = Config::with_path(other_temp.path().to_owned());
-	other_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
-	.into();
+	let other_config = Config::with_path(other_temp.path().to_owned());
 	let other = Server::start(other_config).await?;
 
 	let result = AssertUnwindSafe(async {
+		server
+			.put_remote(
+				"default",
+				tg::remote::put::Arg {
+					url: remote.url().clone(),
+				},
+			)
+			.await?;
+		other
+			.put_remote(
+				"default",
+				tg::remote::put::Arg {
+					url: remote.url().clone(),
+				},
+			)
+			.await?;
+
 		let file = tg::File::with_contents("test");
 		let file = file.id(&server).await?;
 		let server_get_output = server.try_get_object(&file.clone().into()).await?;
@@ -70,28 +73,31 @@ async fn push_simple_directory() -> tg::Result<()> {
 	let remote = Server::start(remote_config).await?;
 
 	let server_temp = Temp::new();
-	let mut server_config = Config::with_path(server_temp.path().to_owned());
-	server_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
-	.into();
+	let server_config = Config::with_path(server_temp.path().to_owned());
 	let server = Server::start(server_config).await?;
 
 	let other_temp = Temp::new();
-	let mut other_config = Config::with_path(other_temp.path().to_owned());
-	other_config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
-	.into();
+	let other_config = Config::with_path(other_temp.path().to_owned());
 	let other = Server::start(other_config).await?;
 
 	let result = AssertUnwindSafe(async {
+		server
+			.put_remote(
+				"default",
+				tg::remote::put::Arg {
+					url: remote.url().clone(),
+				},
+			)
+			.await?;
+		other
+			.put_remote(
+				"default",
+				tg::remote::put::Arg {
+					url: remote.url().clone(),
+				},
+			)
+			.await?;
+
 		let directory = tg::directory! {
 			"hello.txt" => tg::file!("Hello, world!"),
 			"subdirectory" => tg::directory! {

@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::TryStreamExt as _;
+use futures::{FutureExt as _, TryStreamExt as _};
 use std::{path::Path, pin::pin};
 use tangram_client::{self as tg, handle::Ext};
 
@@ -72,7 +72,9 @@ pub async fn try_reuse_build(
 	};
 
 	// Checksum the output.
-	super::util::checksum(server, &matching_build, &value, checksum).await?;
+	super::util::checksum(server, &matching_build, &value, checksum)
+		.boxed()
+		.await?;
 
 	// Copy the build children and log.
 	copy_build_children_and_log(server, matching_build.id(), build).await?;

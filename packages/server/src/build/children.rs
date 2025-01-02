@@ -221,7 +221,7 @@ impl Server {
 				where build = {p}1
 				order by position
 				limit {p}2
-				offset {p}3
+				offset {p}3;
 			"
 		);
 		let params = db::params![id, length, position,];
@@ -250,15 +250,16 @@ impl Server {
 		Option<impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static>,
 	> {
 		let futures = self
-			.remotes
-			.iter()
-			.map(|remote| {
+			.get_remote_clients()
+			.await?
+			.values()
+			.map(|client| {
 				{
-					let remote = remote.clone();
+					let client = client.clone();
 					let id = id.clone();
 					let arg = arg.clone();
 					async move {
-						remote
+						client
 							.get_build_children(&id, arg)
 							.await
 							.map(futures::StreamExt::boxed)

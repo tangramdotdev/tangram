@@ -9,12 +9,8 @@ impl Server {
 		build: &tg::build::Id,
 		arg: tg::build::pull::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		let remote = self
-			.remotes
-			.get(&arg.remote)
-			.ok_or_else(|| tg::error!("failed to find the remote"))?
-			.clone();
-		Self::push_or_pull_build(&remote, self, build, arg).await
+		let client = self.get_remote_client(arg.remote.clone()).await?;
+		Self::push_or_pull_build(&client, self, build, arg).await
 	}
 }
 

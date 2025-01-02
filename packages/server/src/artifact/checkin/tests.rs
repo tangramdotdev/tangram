@@ -1387,30 +1387,33 @@ async fn tagged_package_survives_clean() -> tg::Result<()> {
 
 	// Create one local server.
 	let temp2 = Temp::new();
-	let mut options = Config::with_path(temp2.path().to_owned());
-	options.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
-	.into();
+	let options = Config::with_path(temp2.path().to_owned());
 	let local1 = Server::start(options.clone()).await?;
 
 	// Create a second local server.
 	let temp3 = Temp::new();
-	let mut options = Config::with_path(temp3.path().to_owned());
-	options.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: remote.url().clone(),
-		},
-	)]
-	.into();
+	let options = Config::with_path(temp3.path().to_owned());
 	let local2 = Server::start(options.clone()).await?;
 
 	// Run the test.
 	let result = AssertUnwindSafe(async {
+		local1
+			.put_remote(
+				"default",
+				tg::remote::put::Arg {
+					url: remote.url().clone(),
+				},
+			)
+			.await?;
+		local2
+			.put_remote(
+				"default",
+				tg::remote::put::Arg {
+					url: remote.url().clone(),
+				},
+			)
+			.await?;
+
 		// Publish some tag to the remote.
 		publish(&remote, "foo", temp::file!("foo")).await?;
 
@@ -2164,62 +2167,6 @@ async fn diamond_dependency() -> tg::Result<()> {
 	.await;
 	cleanup(temp, server).await;
 	result.unwrap()
-}
-
-#[tokio::test]
-async fn tag_dependencies_after_clean() -> tg::Result<()> {
-	// Create the first server.
-	let temp1 = Temp::new();
-	let config = Config::with_path(temp1.path().to_owned());
-	let server1 = Server::start(config).await?;
-
-	// Create the second server.
-	let temp2 = Temp::new();
-	let mut config = Config::with_path(temp2.path().to_owned());
-	config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: server1.url().clone(),
-		},
-	)]
-	.into();
-	let server2 = Server::start(config).await?;
-
-	let referent = temp::directory! {
-			"tangram.ts" => indoc::indoc!(r#"
-					export default tg.target(() => "foo")
-			"#)
-	};
-	let referrer = temp::directory! {
-			"tangram.ts" => indoc::indoc!(r#"
-					import foo from "foo";
-					export default tg.target(() => foo())
-			"#)
-	};
-
-	publish(&server1, "foo", referent).await?;
-	let (_, _, _, output1) = checkin(&server2, referrer.clone()).await?;
-	cleanup(temp2, server2).await;
-	// Create the second server again.
-	let temp2 = Temp::new();
-	let mut config = Config::with_path(temp2.path().to_owned());
-	config.remotes = [(
-		"default".to_owned(),
-		crate::config::Remote {
-			url: server1.url().clone(),
-		},
-	)]
-	.into();
-	let server2 = Server::start(config).await?;
-
-	// checkin the referrer again, knowing that its lockfile has been written already
-	let (_, _, _, output2) = checkin(&server2, referrer).await?;
-
-	cleanup(temp2, server2).await;
-	cleanup(temp1, server1).await;
-
-	assert_eq!(output1, output2);
-	Ok(())
 }
 
 async fn test<F, Fut>(

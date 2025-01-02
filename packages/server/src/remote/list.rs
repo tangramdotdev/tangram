@@ -1,22 +1,45 @@
 use crate::Server;
+use indoc::formatdoc;
 use tangram_client as tg;
+use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use url::Url;
 
 impl Server {
 	pub async fn list_remotes(
 		&self,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		let items = self
-			.remotes
-			.iter()
-			.map(|entry| {
-				let name = entry.key().to_owned();
-				let url = entry.value().url().clone();
-				tg::remote::get::Output { name, url }
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		#[derive(Debug, serde::Deserialize)]
+		struct Row {
+			name: String,
+			url: Url,
+		}
+		let statement = formatdoc!(
+			"
+				select name, url
+				from remotes
+				order by name;
+			",
+		);
+		let params = db::params![];
+		let rows = connection
+			.query_all_into::<Row>(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?;
+		let data = rows
+			.into_iter()
+			.map(|row| tg::remote::get::Output {
+				name: row.name,
+				url: row.url,
 			})
 			.collect();
-		let output = tg::remote::list::Output { data: items };
+		let output = tg::remote::list::Output { data };
 		Ok(output)
 	}
 }

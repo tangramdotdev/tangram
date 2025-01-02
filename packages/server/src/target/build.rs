@@ -17,11 +17,7 @@ impl Server {
 	) -> tg::Result<Option<tg::target::build::Output>> {
 		// If the remote arg was set, then build the target remotely.
 		if let Some(remote) = arg.remote.as_ref() {
-			let remote = self
-				.remotes
-				.get(remote)
-				.ok_or_else(|| tg::error!(%remote, "the remote does not exist"))?
-				.clone();
+			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::target::build::Arg {
 				remote: None,
 				..arg
@@ -124,12 +120,13 @@ impl Server {
 		'a: {
 			// Find a build.
 			let futures = self
-				.remotes
-				.iter()
-				.map(|remote| {
+				.get_remote_clients()
+				.await?
+				.into_iter()
+				.map(|(remote, client)| {
 					let server = self.clone();
 					let arg = arg.clone();
-					let remote = remote.key().clone();
+					let remote = remote.clone();
 					Box::pin(async move {
 						let arg = tg::target::build::Arg {
 							create: false,
@@ -139,7 +136,7 @@ impl Server {
 						let tg::target::build::Output { build } =
 							server.build_target(id, arg).await?;
 						let build = tg::Build::with_id(build);
-						Ok::<_, tg::Error>(Some((build, remote)))
+						Ok::<_, tg::Error>(Some((build, client)))
 					})
 				})
 				.collect_vec();

@@ -252,15 +252,16 @@ impl Server {
 		Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
 	> {
 		let futures = self
-			.remotes
-			.iter()
-			.map(|remote| {
+			.get_remote_clients()
+			.await?
+			.values()
+			.map(|client| {
 				{
-					let remote = remote.clone();
+					let client = client.clone();
 					let id = id.clone();
 					let arg = arg.clone();
 					async move {
-						remote
+						client
 							.get_build_log(&id, arg)
 							.await
 							.map(futures::StreamExt::boxed)
