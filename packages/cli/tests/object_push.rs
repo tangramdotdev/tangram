@@ -11,26 +11,11 @@ use tangram_temp::{self as temp, Temp};
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
-async fn list_no_results() -> tg::Result<()> {
+async fn push_file() -> tg::Result<()> {
 	todo!()
 }
 
 #[tokio::test]
-async fn get_no_results() -> tg::Result<()> {
-	todo!()
-}
-
-#[tokio::test]
-async fn single() -> tg::Result<()> {
-	todo!()
-}
-
-#[tokio::test]
-async fn multiple() -> tg::Result<()> {
-	todo!()
-}
-
-#[tokio::test]
-async fn remote_put() -> tg::Result<()> {
+async fn push_simple_directory() -> tg::Result<()> {
 	todo!()
 }

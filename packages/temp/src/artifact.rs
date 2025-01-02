@@ -217,14 +217,20 @@ impl File {
 					.to_str()
 					.ok_or_else(|| tg::error!("non utf8 xattr name"))?
 					.to_owned();
+				if !name.starts_with("user.tangram") {
+					return Ok(None);
+				}
 				let value = xattr::get(path, &name)
 					.map_err(|source| tg::error!(!source, %name, "failed to read xattr"))?
 					.ok_or_else(|| tg::error!(%name, "expected an xattr"))?;
 				let value =
 					String::from_utf8(value).map_err(|_| tg::error!("non utf8 xattr value"))?;
-				Ok::<_, tg::Error>((Cow::Owned(name), Cow::Owned(value)))
+				Ok::<_, tg::Error>(Some((Cow::Owned(name), Cow::Owned(value))))
 			})
-			.try_collect()?;
+			.collect::<Result<Vec<_>, _>>()?
+			.into_iter()
+			.flatten()
+			.collect();
 		Ok(Self {
 			contents,
 			executable,
