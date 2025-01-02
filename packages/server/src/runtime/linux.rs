@@ -766,8 +766,6 @@ impl Runtime {
 				return Err(tg::error!(%code, "the process did not exit successfully"));
 			},
 			ExitStatus::Signal(signal) => {
-				let signame =
-					unsafe { std::ffi::CStr::from_ptr(libc::strsignal(signal)).to_string_lossy() };
 				return Err(tg::error!(%signal, "the process did not exit successfully"));
 			},
 		};

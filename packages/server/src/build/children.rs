@@ -7,7 +7,7 @@ use num::ToPrimitive as _;
 use std::time::Duration;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
-use tangram_futures::{stream::StreamExt as _, task::Stop};
+use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
