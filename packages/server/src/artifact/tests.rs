@@ -1,5 +1,6 @@
 use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt as _;
+use indoc::formatdoc;
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::{future::Future, panic::AssertUnwindSafe, path::Path};
 use tangram_client as tg;
@@ -496,6 +497,121 @@ async fn symlink_roundtrip() -> tg::Result<()> {
 }
 
 #[tokio::test]
+async fn file_with_transitive_dependencies() -> tg::Result<()> {
+	let temp = Temp::new();
+	let config = Config::with_path(temp.path().to_owned());
+	let server = Server::start(config.clone()).await?;
+
+	let result = AssertUnwindSafe(async {
+		// Create a directory
+		let directory: tg::Object = tg::directory! {
+			"entry" => "",
+		}
+		.into();
+
+		let orig: tg::Artifact = tg::File::builder("hello")
+			.dependencies([(
+				tg::Reference::with_object(&directory.id(&server).await?),
+				tg::Referent {
+					item: directory,
+					path: None,
+					subpath: None,
+					tag: None
+				}
+			)])
+			.build()
+			.into();
+		let object: tg::Object = orig.clone().into();
+		object.load_recursive(&server).await.unwrap();
+		let value = tg::Value::Object(object);
+		let options = tg::value::print::Options {
+			recursive: true,
+			style: tg::value::print::Style::Pretty { indentation: "\t" },
+		};
+		let orig_output = value.print(options);
+		assert_snapshot!(orig_output, @r#"
+  tg.file({
+  	"contents": tg.leaf("hello"),
+  	"dependencies": {
+  		"dir_01ky1zyhww356cxhs58zrmfgdb64j6xnzmnhp0sd4gcsa468ztfwm0": {
+  			"item": tg.directory({
+  				"entry": tg.file({
+  					"contents": tg.leaf(""),
+  				}),
+  			}),
+  		},
+  	},
+  })
+  "#);
+
+		// Check out the file.
+		let temp = Temp::new();
+		let arg = tg::artifact::checkout::Arg {
+			dependencies: false,
+			force: false,
+			lockfile: true,
+			path: Some(temp.path().to_owned()),
+		};
+		let path = orig
+			.check_out(&server, arg)
+			.await?;
+		let artifact = temp::Artifact::with_path(&path).await?;
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "file",
+    "contents": "hello",
+    "executable": false,
+    "xattrs": {
+      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"dir_01ky1zyhww356cxhs58zrmfgdb64j6xnzmnhp0sd4gcsa468ztfwm0\":{\"item\":\"dir_01ky1zyhww356cxhs58zrmfgdb64j6xnzmnhp0sd4gcsa468ztfwm0\"}},\"id\":\"fil_01n3xgyre7wtdgq74h1jxzy5x9vt2jxr1bcv98kytwgeckw4y14e8g\"}]}"
+    }
+  }
+  "#);
+
+		// Check the file back in.
+		let arg = tg::artifact::checkin::Arg {
+			cache: false,
+			destructive: false,
+			deterministic: false,
+			ignore: false,
+			locked: true,
+			lockfile: false,
+			path,
+		};
+		let roundtrip = tg::Artifact::check_in(&server, arg).await?;
+		let object: tg::Object = roundtrip.clone().into();
+		object.load_recursive(&server).await.unwrap();
+		let value = tg::Value::Object(object);
+		let options = tg::value::print::Options {
+			recursive: true,
+			style: tg::value::print::Style::Pretty { indentation: "\t" },
+		};
+		let roundtrip_output = value.print(options);
+		assert_snapshot!(roundtrip_output, @r#"
+  tg.file({
+  	"contents": tg.leaf("hello"),
+  	"dependencies": {
+  		"dir_01ky1zyhww356cxhs58zrmfgdb64j6xnzmnhp0sd4gcsa468ztfwm0": {
+  			"item": tg.directory({
+  				"entry": tg.file({
+  					"contents": tg.leaf(""),
+  				}),
+  			}),
+  		},
+  	},
+  })
+  "#);
+
+		// Verify the same file was checked in.
+		assert_eq!(orig.id(&server).await?, roundtrip.id(&server).await?);
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+	cleanup(temp, server).await;
+	result.unwrap()
+}
+
+#[tokio::test]
 async fn file_with_object_dependencies() -> tg::Result<()> {
 	// Create the first server.
 	let temp1 = Temp::new();
@@ -596,6 +712,18 @@ async fn file_with_object_dependencies() -> tg::Result<()> {
   }
   "#);
 
+  		// Check the file back in.
+		let arg = tg::artifact::checkin::Arg {
+			cache: false,
+			destructive: false,
+			deterministic: false,
+			ignore: false,
+			locked: false,
+			lockfile: true,
+			path: temp.path().to_owned(),
+		};
+		let file2 = tg::Artifact::check_in(&server1, arg).await?;
+		assert_eq!(file2.id(&server1).await?, file.id(&server1).await?);
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()

@@ -8,6 +8,7 @@ impl Server {
 	pub(crate) async fn create_lockfile_for_artifact(
 		&self,
 		artifact: &tg::Artifact,
+		checkout_dependencies: bool,
 	) -> tg::Result<tg::Lockfile> {
 		// Create the state.
 		let mut nodes = Vec::new();
@@ -18,6 +19,7 @@ impl Server {
 		let root = self
 			.get_or_create_lockfile_node_for_artifact(
 				artifact,
+				checkout_dependencies,
 				&mut nodes,
 				&mut visited,
 				&mut graphs,
@@ -45,6 +47,7 @@ impl Server {
 	async fn get_or_create_lockfile_node_for_artifact(
 		&self,
 		artifact: &tg::Artifact,
+		checkout_dependencies: bool,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut BTreeMap<tg::artifact::Id, usize>,
 		graphs: &mut BTreeMap<tg::graph::Id, Vec<usize>>,
@@ -81,9 +84,14 @@ impl Server {
 					(graph.clone(), *node)
 				},
 			};
-			let nodes =
-				Box::pin(self.create_lockfile_node_with_graph(&graph, nodes, visited, graphs))
-					.await?;
+			let nodes = Box::pin(self.create_lockfile_node_with_graph(
+				checkout_dependencies,
+				&graph,
+				nodes,
+				visited,
+				graphs,
+			))
+			.await?;
 			return Ok(nodes[node]);
 		}
 
@@ -101,7 +109,11 @@ impl Server {
 				let mut entries_ = BTreeMap::new();
 				for (name, artifact) in entries {
 					let index = Box::pin(self.get_or_create_lockfile_node_for_artifact(
-						artifact, nodes, visited, graphs,
+						artifact,
+						checkout_dependencies,
+						nodes,
+						visited,
+						graphs,
 					))
 					.await?;
 					entries_.insert(name.clone(), Either::Left(index));
@@ -125,26 +137,38 @@ impl Server {
 				let mut dependencies_ = BTreeMap::new();
 				for (reference, referent) in dependencies {
 					let item = match &referent.item {
-						tg::Object::Directory(directory) => {
+						tg::Object::Directory(directory) if !checkout_dependencies => {
 							let artifact = directory.clone().into();
 							let index = Box::pin(self.get_or_create_lockfile_node_for_artifact(
-								&artifact, nodes, visited, graphs,
+								&artifact,
+								checkout_dependencies,
+								nodes,
+								visited,
+								graphs,
 							))
 							.await?;
 							Either::Left(index)
 						},
-						tg::Object::File(file) => {
+						tg::Object::File(file) if !checkout_dependencies => {
 							let artifact = file.clone().into();
 							let index = Box::pin(self.get_or_create_lockfile_node_for_artifact(
-								&artifact, nodes, visited, graphs,
+								&artifact,
+								checkout_dependencies,
+								nodes,
+								visited,
+								graphs,
 							))
 							.await?;
 							Either::Left(index)
 						},
-						tg::Object::Symlink(symlink) => {
+						tg::Object::Symlink(symlink) if !checkout_dependencies => {
 							let artifact = symlink.clone().into();
 							let index = Box::pin(self.get_or_create_lockfile_node_for_artifact(
-								&artifact, nodes, visited, graphs,
+								&artifact,
+								checkout_dependencies,
+								nodes,
+								visited,
+								graphs,
 							))
 							.await?;
 							Either::Left(index)
@@ -181,7 +205,11 @@ impl Server {
 					let id = id.unwrap_symlink();
 					let artifact = {
 						let index = Box::pin(self.get_or_create_lockfile_node_for_artifact(
-							artifact, nodes, visited, graphs,
+							artifact,
+							checkout_dependencies,
+							nodes,
+							visited,
+							graphs,
 						))
 						.await?;
 						Either::Left(index)
@@ -204,6 +232,7 @@ impl Server {
 
 	async fn create_lockfile_node_with_graph(
 		&self,
+		checkout_dependencies: bool,
 		graph: &tg::Graph,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut BTreeMap<tg::artifact::Id, usize>,
@@ -267,7 +296,11 @@ impl Server {
 							Either::Left(index) => indices[*index],
 							Either::Right(artifact) => {
 								Box::pin(self.get_or_create_lockfile_node_for_artifact(
-									artifact, nodes, visited, graphs,
+									artifact,
+									checkout_dependencies,
+									nodes,
+									visited,
+									graphs,
 								))
 								.await?
 							},
@@ -298,7 +331,11 @@ impl Server {
 									let artifact = artifact.clone().into();
 									let index =
 										Box::pin(self.get_or_create_lockfile_node_for_artifact(
-											&artifact, nodes, visited, graphs,
+											&artifact,
+											checkout_dependencies,
+											nodes,
+											visited,
+											graphs,
 										))
 										.await?;
 									Either::Left(index)
@@ -307,7 +344,11 @@ impl Server {
 									let artifact = artifact.clone().into();
 									let index =
 										Box::pin(self.get_or_create_lockfile_node_for_artifact(
-											&artifact, nodes, visited, graphs,
+											&artifact,
+											checkout_dependencies,
+											nodes,
+											visited,
+											graphs,
 										))
 										.await?;
 									Either::Left(index)
@@ -316,7 +357,11 @@ impl Server {
 									let artifact = artifact.clone().into();
 									let index =
 										Box::pin(self.get_or_create_lockfile_node_for_artifact(
-											&artifact, nodes, visited, graphs,
+											&artifact,
+											checkout_dependencies,
+											nodes,
+											visited,
+											graphs,
 										))
 										.await?;
 									Either::Left(index)
@@ -373,7 +418,11 @@ impl Server {
 							Either::Left(index) => indices[*index],
 							Either::Right(artifact) => {
 								Box::pin(self.get_or_create_lockfile_node_for_artifact(
-									artifact, nodes, visited, graphs,
+									artifact,
+									checkout_dependencies,
+									nodes,
+									visited,
+									graphs,
 								))
 								.await?
 							},

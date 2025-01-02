@@ -215,7 +215,7 @@ impl Server {
 			// Create the lockfile.
 			let artifact = tg::Artifact::with_id(artifact.clone());
 			let lockfile = self
-				.create_lockfile_for_artifact(&artifact)
+				.create_lockfile_for_artifact(&artifact, arg.dependencies)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
 
