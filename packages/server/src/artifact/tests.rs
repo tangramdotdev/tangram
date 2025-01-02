@@ -701,6 +701,109 @@ async fn file_with_transitive_object_dependencies() -> tg::Result<()> {
 	result.unwrap()
 }
 
+#[tokio::test]
+async fn file_with_transitive_object_dependencies_branch_blob() -> tg::Result<()> {
+	// Create the first server.
+	let temp1 = Temp::new();
+	let config = Config::with_path(temp1.path().to_owned());
+	let server = Server::start(config.clone()).await?;
+
+	// Run the test.
+	let result = AssertUnwindSafe(async {
+		let transitive_dep = tg::file!("transitive");
+		
+		// Create the dependency artifact and object.
+		let file_dep = tg::File::with_object(tg::file::Object::Normal {
+			contents: "hello".into(),
+			dependencies: [(
+				tg::Reference::with_object(&transitive_dep.id(&server).await?.into()),
+				tg::Referent {
+					item: transitive_dep.clone().into(),
+					path: None,
+					subpath: None,
+					tag: None,
+				},
+			)]
+			.into_iter()
+			.collect(),
+			executable: false,
+		});
+
+		let dep_dir = tg::directory!{ "entry" => file_dep };
+		let blob = tg::Blob::new(vec![
+			tg::branch::Child { blob: tg::Blob::from("a"), size: 1 },
+			tg::branch::Child { blob: tg::Blob::from("b"), size: 1 },
+		]);
+		let blob_id = blob.id(&server).await?;
+		let orig = tg::File::with_object(tg::file::Object::Normal {
+			contents: blob,
+			dependencies: [(
+				tg::Reference::with_object(&dep_dir.id(&server).await?.into()),
+				tg::Referent {
+					item: dep_dir.clone().into(),
+					path: None,
+					subpath: None,
+					tag: None,
+				},
+			)]
+			.into_iter()
+			.collect(),
+			executable: false,
+		});
+		
+		// let orig_id = orig.id(&server).await?;
+
+  		// Check out the file within the artifact.
+		let temp = Temp::new();
+		let arg = tg::artifact::checkout::Arg {
+			dependencies: false,
+			force: false,
+			lockfile: true,
+			path: Some(temp.path().to_owned()),
+		};
+		let path = tg::Artifact::from(orig).check_out(&server, arg).await?;
+
+		// Get the result.
+		let artifact = temp::Artifact::with_path(&path).await.map_err(|source| tg::error!(!source, "failed to get the artifact"))?;
+
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "file",
+    "contents": "hello",
+    "executable": false,
+    "xattrs": {
+      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"dir_01s8c95696nppdhy29sdjqxbzdmhyw53g807z2ddm47dt9w5xbts9g\":{\"item\":1}},\"id\":\"fil_015g2z6mnxhe1wtz6f9vgv1cjxpxvvmmph32a7n18153n74hrj33n0\"},{\"kind\":\"directory\",\"entries\":{\"entry\":2},\"id\":\"dir_01s8c95696nppdhy29sdjqxbzdmhyw53g807z2ddm47dt9w5xbts9g\"},{\"kind\":\"file\",\"dependencies\":{\"fil_010ahk1drre093nerbycshqfpb5vzcjptq94jyfw5r5y9j7jhfx1mg\":{\"item\":\"fil_010ahk1drre093nerbycshqfpb5vzcjptq94jyfw5r5y9j7jhfx1mg\"}},\"id\":\"fil_01jwz4z27dcyft5q87egvz5r7mh1k67v7q0sey4ffb63nqbpdhj21g\"}]}"
+    }
+  }
+  "#);
+
+	// Check back in the file.
+		let arg = tg::artifact::checkin::Arg {
+			cache: false,
+			destructive: false,
+			deterministic: false,
+			ignore: false,
+			locked: false,
+			lockfile: false,
+			path: temp.path().to_owned(),
+		};
+		let roundtrip = tg::Artifact::check_in(&server, arg).await?.try_unwrap_file().unwrap();
+		let roundtrip_contents = roundtrip.contents(&server).await?;
+		let roundtrip_contents_id = roundtrip_contents.id(&server).await?;
+		assert_eq!(blob_id, roundtrip_contents_id);
+		// let roundtrip_id = roundtrip.id(&server).await?;
+		// assert_eq!(orig_id, roundtrip_id);
+	
+
+		Ok::<_, tg::Error>(())
+	})
+	.catch_unwind()
+	.await;
+
+	cleanup(temp1, server).await;
+	result.unwrap()
+}
+
 async fn test<F, Fut>(
 	checkin: impl Into<temp::Artifact>,
 	path: &Path,
