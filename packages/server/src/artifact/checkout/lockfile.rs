@@ -137,7 +137,7 @@ impl Server {
 				let mut dependencies_ = BTreeMap::new();
 				for (reference, referent) in dependencies {
 					let item = match &referent.item {
-						tg::Object::Directory(directory) if !checkout_dependencies => {
+						tg::Object::Directory(directory) if checkout_dependencies => {
 							let artifact = directory.clone().into();
 							let index = Box::pin(self.get_or_create_lockfile_node_for_artifact(
 								&artifact,
@@ -149,7 +149,7 @@ impl Server {
 							.await?;
 							Either::Left(index)
 						},
-						tg::Object::File(file) if !checkout_dependencies => {
+						tg::Object::File(file) if checkout_dependencies => {
 							let artifact = file.clone().into();
 							let index = Box::pin(self.get_or_create_lockfile_node_for_artifact(
 								&artifact,
@@ -161,7 +161,7 @@ impl Server {
 							.await?;
 							Either::Left(index)
 						},
-						tg::Object::Symlink(symlink) if !checkout_dependencies => {
+						tg::Object::Symlink(symlink) if checkout_dependencies => {
 							let artifact = symlink.clone().into();
 							let index = Box::pin(self.get_or_create_lockfile_node_for_artifact(
 								&artifact,

@@ -1,6 +1,5 @@
 use crate::{util::fs::cleanup, Config, Server};
 use futures::FutureExt as _;
-use indoc::formatdoc;
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::{future::Future, panic::AssertUnwindSafe, path::Path};
 use tangram_client as tg;
@@ -503,9 +502,23 @@ async fn file_with_transitive_dependencies() -> tg::Result<()> {
 	let server = Server::start(config.clone()).await?;
 
 	let result = AssertUnwindSafe(async {
+		let transitive_dep = tg::file!("transitive");
+
 		// Create a directory
 		let directory: tg::Object = tg::directory! {
-			"entry" => "",
+			"entry" => tg::File::builder("")
+			.dependencies(
+				[(
+					tg::Reference::with_object(&transitive_dep.id(&server).await?.into()),
+					tg::Referent {
+						item: transitive_dep.clone().into(),
+						path: None,
+						subpath: None,
+						tag: None,
+					},
+				)]
+			)
+			.build()
 		}
 		.into();
 
@@ -533,10 +546,17 @@ async fn file_with_transitive_dependencies() -> tg::Result<()> {
   tg.file({
   	"contents": tg.leaf("hello"),
   	"dependencies": {
-  		"dir_01ky1zyhww356cxhs58zrmfgdb64j6xnzmnhp0sd4gcsa468ztfwm0": {
+  		"dir_01b50fphpnfk7dwnz4873t4zhnk0aexmt5a6e59sr4eq8s2yjtq060": {
   			"item": tg.directory({
   				"entry": tg.file({
   					"contents": tg.leaf(""),
+  					"dependencies": {
+  						"fil_010ahk1drre093nerbycshqfpb5vzcjptq94jyfw5r5y9j7jhfx1mg": {
+  							"item": tg.file({
+  								"contents": tg.leaf("transitive"),
+  							}),
+  						},
+  					},
   				}),
   			}),
   		},
@@ -562,7 +582,7 @@ async fn file_with_transitive_dependencies() -> tg::Result<()> {
     "contents": "hello",
     "executable": false,
     "xattrs": {
-      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"dir_01ky1zyhww356cxhs58zrmfgdb64j6xnzmnhp0sd4gcsa468ztfwm0\":{\"item\":\"dir_01ky1zyhww356cxhs58zrmfgdb64j6xnzmnhp0sd4gcsa468ztfwm0\"}},\"id\":\"fil_01n3xgyre7wtdgq74h1jxzy5x9vt2jxr1bcv98kytwgeckw4y14e8g\"}]}"
+      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"dir_01b50fphpnfk7dwnz4873t4zhnk0aexmt5a6e59sr4eq8s2yjtq060\":{\"item\":\"dir_01b50fphpnfk7dwnz4873t4zhnk0aexmt5a6e59sr4eq8s2yjtq060\"}},\"id\":\"fil_01jmkfx8pn5be507200b1a5zzbmv0y5wt1nbhnafbzxq81w4av4ke0\"}]}"
     }
   }
   "#);
@@ -590,10 +610,17 @@ async fn file_with_transitive_dependencies() -> tg::Result<()> {
   tg.file({
   	"contents": tg.leaf("hello"),
   	"dependencies": {
-  		"dir_01ky1zyhww356cxhs58zrmfgdb64j6xnzmnhp0sd4gcsa468ztfwm0": {
+  		"dir_01b50fphpnfk7dwnz4873t4zhnk0aexmt5a6e59sr4eq8s2yjtq060": {
   			"item": tg.directory({
   				"entry": tg.file({
   					"contents": tg.leaf(""),
+  					"dependencies": {
+  						"fil_010ahk1drre093nerbycshqfpb5vzcjptq94jyfw5r5y9j7jhfx1mg": {
+  							"item": tg.file({
+  								"contents": tg.leaf("transitive"),
+  							}),
+  						},
+  					},
   				}),
   			}),
   		},
