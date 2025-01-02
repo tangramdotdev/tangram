@@ -24,28 +24,28 @@ async fn directory() -> tg::Result<()> {
 	let path = "directory";
 	let assertions = |object: String, metadata: String, _| async move {
 		assert_snapshot!(object, @r#"
-            tg.directory({
-            	"hello.txt": tg.file({
-            		"contents": tg.leaf("Hello, world!"),
-            	}),
-            	"link": tg.symlink({
-            		"target": "hello.txt",
-            	}),
-            	"subdirectory": tg.directory({
-            		"sublink": tg.symlink({
-            			"target": "../link",
-            		}),
-            	}),
-            })
-            "#);
+  tg.directory({
+    "hello.txt": tg.file({
+      "contents": tg.leaf("Hello, world!"),
+    }),
+    "link": tg.symlink({
+      "target": "hello.txt",
+    }),
+    "subdirectory": tg.directory({
+      "sublink": tg.symlink({
+        "target": "../link",
+      }),
+    }),
+  })
+  "#);
 		assert_snapshot!(metadata, @r#"
-            {
-            	"complete": true,   
-            	"count": 6,
-            	"depth": 3,
-            	"weight": 442
-            }
-            "#);
+  {
+    "complete": true,
+    "count": 6,
+    "depth": 3,
+    "weight": 442
+  }
+  "#);
 		Ok::<_, tg::Error>(())
 	};
 	let destructive = false;
@@ -63,20 +63,20 @@ async fn file() -> tg::Result<()> {
 	let path = "directory";
 	let assertions = |object: String, metadata: String, _| async move {
 		assert_snapshot!(object, @r#"
-            tg.directory({
-            	"README.md": tg.file({
-            		"contents": tg.leaf("Hello, World!"),
-            	}),
-            })
-            "#);
+  tg.directory({
+    "README.md": tg.file({
+      "contents": tg.leaf("Hello, World!"),
+    }),
+  })
+  "#);
 		assert_snapshot!(metadata, @r#"
-            {
-            	"complete": true,
-            	"count": 3,
-            	"depth": 3,
-            	"weight": 172
-            }
-            "#);
+  {
+    "complete": true,
+    "count": 3,
+    "depth": 3,
+    "weight": 172
+  }
+  "#);
 		Ok::<_, tg::Error>(())
 	};
 	let destructive = false;
@@ -94,20 +94,20 @@ async fn symlink() -> tg::Result<()> {
 	let path = "directory";
 	let assertions = |object: String, metadata: String, _| async move {
 		assert_snapshot!(object, @r#"
-            tg.directory({
-            	"link": tg.symlink({
-            		"target": ".",
-            	}),
-            })
-            "#);
+  tg.directory({
+    "link": tg.symlink({
+      "target": ".",
+    }),
+  })
+  "#);
 		assert_snapshot!(metadata, @r#"
-            {
-            	"complete": true,
-            	"count": 2,
-            	"depth": 2,
-            	"weight": 95
-            }
-            "#);
+  {
+    "complete": true,
+    "count": 2,
+    "depth": 2,
+    "weight": 95
+  }
+  "#);
 		Ok::<_, tg::Error>(())
 	};
 	let destructive = false;
@@ -154,7 +154,23 @@ async fn file_through_symlink() -> tg::Result<()> {
   }
   "#);
 		let lockfile = lockfile.expect("expected a lockfile");
-		assert_json_snapshot!(lockfile, @r#""#);
+		assert_json_snapshot!(lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01herzzj4fs0kkcx2gexc8g19z65ye1nf8bcf7seb79x7xwp0twb10"
+      },
+      {
+        "kind": "file",
+        "id": "fil_015kyznxcqzkjhghra06294bdqgbsc6s5jxhm9kkf7fzyabxmdhyp0"
+      }
+    ]
+  }
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -178,20 +194,20 @@ async fn artifact_symlink() -> tg::Result<()> {
 	let path = "a";
 	let assertions = |object: String, metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-            tg.directory({
-                "tangram.ts": tg.file({
-                    "contents": tg.leaf("import \"../b/c"),
-                    "dependencies": {
-                        "../b/c": {
-                            "item": tg.symlink({
-                                "target": "e",
-                            }),
-                            "path": "../b/c",
-                        },
-                    },
-                }),
-            })
-            "#);
+  tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.leaf("import \"../b/c"),
+      "dependencies": {
+        "../b/c": {
+          "item": tg.symlink({
+            "target": "e",
+          }),
+          "path": "../b/c",
+        },
+      },
+    }),
+  })
+  "#);
 		assert_snapshot!(metadata, @r#"
             {
                 "complete": true,
@@ -201,7 +217,23 @@ async fn artifact_symlink() -> tg::Result<()> {
             }
             "#);
 		let lockfile = lockfile.expect("expected a lockfile");
-		assert_json_snapshot!(lockfile, @r#""#);
+		assert_json_snapshot!(lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01xbgdpny7b5ps7cnrmdnjb5hs5wdxg27kbdvpp0qmgcrv0r8n0st0"
+      },
+      {
+        "kind": "file",
+        "id": "fil_01t5dgeercxdbxwggkw0hzpzxmvqe8tqsmvbxbrtqz56zyh7sm1nc0"
+      }
+    ]
+  }
+  "#);
 		Ok::<_, tg::Error>(())
 	};
 	let destructive = false;
@@ -281,34 +313,34 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
 }
 "#);
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "graph": tg.graph({
-        "nodes": [
-            {
-                "kind": "directory",
-                "entries": {
-                    "b.tg.ts": tg.file({
-                        "contents": tg.leaf(""),
-                    }),
-                    "tangram.ts": 1,
-                },
+      "nodes": [
+        {
+          "kind": "directory",
+          "entries": {
+            "b.tg.ts": tg.file({
+              "contents": tg.leaf(""),
+            }),
+            "tangram.ts": 1,
+          },
+        },
+        {
+          "kind": "file",
+          "contents": tg.leaf("import \"./b.tg.ts"),
+          "dependencies": {
+            "./b.tg.ts": {
+              "item": 0,
+              "path": "",
+              "subpath": "b.tg.ts",
             },
-            {
-                "kind": "file",
-                "contents": tg.leaf("import \"./b.tg.ts"),
-                "dependencies": {
-                    "./b.tg.ts": {
-                        "item": 0,
-                        "path": "",
-                        "subpath": "b.tg.ts",
-                    },
-                },
-            },
-        ],
+          },
+        },
+      ],
     }),
     "node": 0,
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -365,23 +397,23 @@ async fn simple_path_dependency() -> tg::Result<()> {
 }
 "#);
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "tangram.ts": tg.file({
-        "contents": tg.leaf("import * as bar from \"../bar\";"),
-        "dependencies": {
-            "../bar": {
-                "item": tg.directory({
-                    "tangram.ts": tg.file({
-                        "contents": tg.leaf(""),
-                    }),
-                }),
-                "path": "../bar",
-                "subpath": "tangram.ts",
-            },
+      "contents": tg.leaf("import * as bar from \"../bar\";"),
+      "dependencies": {
+        "../bar": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.leaf(""),
+            }),
+          }),
+          "path": "../bar",
+          "subpath": "tangram.ts",
         },
+      },
     }),
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -411,124 +443,124 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-{
-  "nodes": [
-    {
-      "kind": "directory",
-      "entries": {
-        "bar": 1,
-        "baz": 3,
-        "tangram.ts": 5
-      },
-      "id": "dir_01dzr73p15nepynspxv401bjk1k6qntf09whpr3bfhyp4anfmcgmmg"
-    },
-    {
-      "kind": "directory",
-      "entries": {
-        "tangram.ts": 2
-      },
-      "id": "dir_0178dk0vn8m0ajqv0j37wjt24vmnqs21d7pn95hvncxnzqqbm922bg"
-    },
-    {
-      "kind": "file",
-      "dependencies": {
-        "../baz": {
-          "item": 3,
-          "path": "baz",
-          "subpath": "tangram.ts"
-        }
-      },
-      "id": "fil_01w3vaptn2y3evejngg9r59ct6zf5mk723sh6dhsdd4sn4220ffw0g"
-    },
-    {
-      "kind": "directory",
-      "entries": {
-        "tangram.ts": 4
-      },
-      "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
-    },
-    {
-      "kind": "file",
-      "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
-    },
-    {
-      "kind": "file",
-      "dependencies": {
-        "./bar": {
-          "item": 1,
-          "path": "bar",
-          "subpath": "tangram.ts"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "bar": 1,
+          "baz": 3,
+          "tangram.ts": 5
         },
-        "./baz": {
-          "item": 3,
-          "path": "baz",
-          "subpath": "tangram.ts"
-        }
+        "id": "dir_016zqsg4nj2rsq93crzkzgxpfbnf698c1m9rnjsch94dn54w03mx0g"
       },
-      "id": "fil_015ya4qczcz84x720tkc0fx7kmm474kqv87ykptenwcf7qj573tv8g"
-    }
-  ]
-}
-"#);
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 2
+        },
+        "id": "dir_01cmbf4kbd8sfepznbv275a0ang024ak826twngg41n3jtnb58g240"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "../baz": {
+            "item": 3,
+            "path": "baz",
+            "subpath": "tangram.ts"
+          }
+        },
+        "id": "fil_017z07qpr3dh0gnydewrgjzm5fshmd14etyb89vcw0hntcmkmdjgp0"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 4
+        },
+        "id": "dir_01xgt4hh9nhgacbsa204wnne5346kmfd2eh3ddqqde8gyr6ma2jcj0"
+      },
+      {
+        "kind": "file",
+        "id": "fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "./bar": {
+            "item": 1,
+            "path": "bar",
+            "subpath": "tangram.ts"
+          },
+          "./baz": {
+            "item": 3,
+            "path": "baz",
+            "subpath": "tangram.ts"
+          }
+        },
+        "id": "fil_013pscm7dntrq6rv5myxmn2x2fjn1xezjmxz648d2dzk6qrjvqgc90"
+      }
+    ]
+  }
+  "#);
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "bar": tg.directory({
-        "tangram.ts": tg.file({
-            "contents": tg.leaf("\n                    import * as baz from \"../baz\";\n                "),
-            "dependencies": {
-                "../baz": {
-                    "item": tg.directory({
-                        "tangram.ts": tg.file({
-                            "contents": tg.leaf(""),
-                        }),
-                    }),
-                    "path": "baz",
-                    "subpath": "tangram.ts",
-                },
-            },
-        }),
+      "tangram.ts": tg.file({
+        "contents": tg.leaf("\n                    import * as baz from \"../baz\";\n                "),
+        "dependencies": {
+          "../baz": {
+            "item": tg.directory({
+              "tangram.ts": tg.file({
+                "contents": tg.leaf(""),
+              }),
+            }),
+            "path": "baz",
+            "subpath": "tangram.ts",
+          },
+        },
+      }),
     }),
     "baz": tg.directory({
-        "tangram.ts": tg.file({
-            "contents": tg.leaf(""),
-        }),
+      "tangram.ts": tg.file({
+        "contents": tg.leaf(""),
+      }),
     }),
     "tangram.ts": tg.file({
-        "contents": tg.leaf("\n                import * as bar from \"./bar\";\n                import * as baz from \"./baz\";\n            "),
-        "dependencies": {
-            "./bar": {
-                "item": tg.directory({
+      "contents": tg.leaf("\n                import * as bar from \"./bar\";\n                import * as baz from \"./baz\";\n            "),
+      "dependencies": {
+        "./bar": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.leaf("\n                    import * as baz from \"../baz\";\n                "),
+              "dependencies": {
+                "../baz": {
+                  "item": tg.directory({
                     "tangram.ts": tg.file({
-                        "contents": tg.leaf("\n                    import * as baz from \"../baz\";\n                "),
-                        "dependencies": {
-                            "../baz": {
-                                "item": tg.directory({
-                                    "tangram.ts": tg.file({
-                                        "contents": tg.leaf(""),
-                                    }),
-                                }),
-                                "path": "baz",
-                                "subpath": "tangram.ts",
-                            },
-                        },
+                      "contents": tg.leaf(""),
                     }),
-                }),
-                "path": "bar",
-                "subpath": "tangram.ts",
-            },
-            "./baz": {
-                "item": tg.directory({
-                    "tangram.ts": tg.file({
-                        "contents": tg.leaf(""),
-                    }),
-                }),
-                "path": "baz",
-                "subpath": "tangram.ts",
-            },
+                  }),
+                  "path": "baz",
+                  "subpath": "tangram.ts",
+                },
+              },
+            }),
+          }),
+          "path": "bar",
+          "subpath": "tangram.ts",
         },
+        "./baz": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.leaf(""),
+            }),
+          }),
+          "path": "baz",
+          "subpath": "tangram.ts",
+        },
+      },
     }),
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -564,12 +596,12 @@ async fn package() -> tg::Result<()> {
 }
 "#);
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "tangram.ts": tg.file({
-        "contents": tg.leaf("export default tg.target(() => {})"),
+      "contents": tg.leaf("export default tg.target(() => {})"),
     }),
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -627,19 +659,19 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
 }
 "#);
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "bar": tg.directory({
-        "tangram.ts": tg.file({
-            "contents": tg.leaf(""),
-        }),
+      "tangram.ts": tg.file({
+        "contents": tg.leaf(""),
+      }),
     }),
     "foo": tg.directory({
-        "tangram.ts": tg.file({
-            "contents": tg.leaf(""),
-        }),
+      "tangram.ts": tg.file({
+        "contents": tg.leaf(""),
+      }),
     }),
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -1106,43 +1138,43 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
 }
 "#);
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "graph": tg.graph({
-        "nodes": [
-            {
-                "kind": "directory",
-                "entries": {
-                    "foo.tg.ts": 2,
-                    "tangram.ts": 1,
-                },
+      "nodes": [
+        {
+          "kind": "directory",
+          "entries": {
+            "foo.tg.ts": 2,
+            "tangram.ts": 1,
+          },
+        },
+        {
+          "kind": "file",
+          "contents": tg.leaf("import * as foo from \"./foo.tg.ts\";"),
+          "dependencies": {
+            "./foo.tg.ts": {
+              "item": 0,
+              "path": "",
+              "subpath": "foo.tg.ts",
             },
-            {
-                "kind": "file",
-                "contents": tg.leaf("import * as foo from \"./foo.tg.ts\";"),
-                "dependencies": {
-                    "./foo.tg.ts": {
-                        "item": 0,
-                        "path": "",
-                        "subpath": "foo.tg.ts",
-                    },
-                },
+          },
+        },
+        {
+          "kind": "file",
+          "contents": tg.leaf("import * as root from \"./tangram.ts\";"),
+          "dependencies": {
+            "./tangram.ts": {
+              "item": 0,
+              "path": "",
+              "subpath": "tangram.ts",
             },
-            {
-                "kind": "file",
-                "contents": tg.leaf("import * as root from \"./tangram.ts\";"),
-                "dependencies": {
-                    "./tangram.ts": {
-                        "item": 0,
-                        "path": "",
-                        "subpath": "tangram.ts",
-                    },
-                },
-            },
-        ],
+          },
+        },
+      ],
     }),
     "node": 0,
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -1210,48 +1242,48 @@ async fn cyclic_dependencies() -> tg::Result<()> {
 }
 "#);
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "graph": tg.graph({
-        "nodes": [
-            {
-                "kind": "directory",
-                "entries": {
-                    "tangram.ts": 1,
-                },
+      "nodes": [
+        {
+          "kind": "directory",
+          "entries": {
+            "tangram.ts": 1,
+          },
+        },
+        {
+          "kind": "file",
+          "contents": tg.leaf("import * as bar from \"../bar\""),
+          "dependencies": {
+            "../bar": {
+              "item": 2,
+              "path": "../bar",
+              "subpath": "tangram.ts",
             },
-            {
-                "kind": "file",
-                "contents": tg.leaf("import * as bar from \"../bar\""),
-                "dependencies": {
-                    "../bar": {
-                        "item": 2,
-                        "path": "../bar",
-                        "subpath": "tangram.ts",
-                    },
-                },
+          },
+        },
+        {
+          "kind": "directory",
+          "entries": {
+            "tangram.ts": 3,
+          },
+        },
+        {
+          "kind": "file",
+          "contents": tg.leaf("import * as foo from \"../foo\""),
+          "dependencies": {
+            "../foo": {
+              "item": 0,
+              "path": "",
+              "subpath": "tangram.ts",
             },
-            {
-                "kind": "directory",
-                "entries": {
-                    "tangram.ts": 3,
-                },
-            },
-            {
-                "kind": "file",
-                "contents": tg.leaf("import * as foo from \"../foo\""),
-                "dependencies": {
-                    "../foo": {
-                        "item": 0,
-                        "path": "",
-                        "subpath": "tangram.ts",
-                    },
-                },
-            },
-        ],
+          },
+        },
+      ],
     }),
     "node": 0,
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -1315,34 +1347,34 @@ async fn package_destructive() -> tg::Result<()> {
 	let path = "";
 	let assertions = |object: String, _metadata: String, _lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "graph": tg.graph({
-        "nodes": [
-            {
-                "kind": "directory",
-                "entries": {
-                    "a.tg.ts": tg.file({
-                        "contents": tg.leaf(""),
-                    }),
-                    "tangram.ts": 1,
-                },
+      "nodes": [
+        {
+          "kind": "directory",
+          "entries": {
+            "a.tg.ts": tg.file({
+              "contents": tg.leaf(""),
+            }),
+            "tangram.ts": 1,
+          },
+        },
+        {
+          "kind": "file",
+          "contents": tg.leaf("import * as a from \"./a.tg.ts"),
+          "dependencies": {
+            "./a.tg.ts": {
+              "item": 0,
+              "path": "",
+              "subpath": "a.tg.ts",
             },
-            {
-                "kind": "file",
-                "contents": tg.leaf("import * as a from \"./a.tg.ts"),
-                "dependencies": {
-                    "./a.tg.ts": {
-                        "item": 0,
-                        "path": "",
-                        "subpath": "a.tg.ts",
-                    },
-                },
-            },
-        ],
+          },
+        },
+      ],
     }),
     "node": 0,
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = true;
@@ -1366,12 +1398,12 @@ async fn default_ignore() -> tg::Result<()> {
 	let path = "";
 	let assertions = |object: String, _metadata: String, _lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "tangram.ts": tg.file({
-        "contents": tg.leaf(""),
+      "contents": tg.leaf(""),
     }),
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -1423,12 +1455,12 @@ async fn missing_in_lockfile() -> tg::Result<()> {
 }
 "#);
 		assert_snapshot!(object, @r#"
-tg.directory({
+  tg.directory({
     "tangram.ts": tg.file({
-        "contents": tg.leaf(""),
+      "contents": tg.leaf(""),
     }),
-})
-"#);
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -1495,8 +1527,49 @@ async fn tagged_object() -> tg::Result<()> {
 	let path = "";
 	let assertions = |object: String, _: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
-		assert_json_snapshot!(&lockfile, @r#""#);
-		assert_snapshot!(object, @r#""#);
+		assert_json_snapshot!(&lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01nnp9jbwak11sksnwv2jtcdjyv252wg1ksm3zv4pbrc8dvdbkkrw0"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "hello-world": {
+            "item": 2,
+            "tag": "hello-world"
+          }
+        },
+        "id": "fil_01713frgeanw8fswtkpa36t55p90zhgmsm8hht2nsfxhzxs21dq5p0"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_01xqjw1c8f5v29f739pmqp3s1fypt16mcww2dy1wad166wzsfpz66g",
+        "id": "fil_01yxtf8s9sxc1dcv6vs0zjxhra1xp11j97h485cjhmtwa4mrrzbrag"
+      }
+    ]
+  }
+  "#);
+		assert_snapshot!(object, @r#"
+  tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.leaf("import hello from \"hello-world\""),
+      "dependencies": {
+        "hello-world": {
+          "item": tg.file({
+            "contents": tg.leaf("Hello, world!"),
+          }),
+          "tag": "hello-world",
+        },
+      },
+    }),
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -1523,8 +1596,60 @@ async fn tagged_package() -> tg::Result<()> {
 	};
 	let assertions = |object: String, _: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
-		assert_json_snapshot!(&lockfile, @r#""#);
-		assert_snapshot!(object, @r#""#);
+		assert_json_snapshot!(&lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01ddxjx4z76qm88m0gfssfffr77w22d9z7cqsqrsqds5vq8n4swm9g"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "a": {
+            "item": 2,
+            "subpath": "tangram.ts",
+            "tag": "a"
+          }
+        },
+        "id": "fil_01h1q72t3c0mhwcrjwn4ardy8d2mjc1d258tw5s39k68bxan6rk540"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 3
+        },
+        "id": "dir_01rt33awnmsr341vxm2tejp5txxn7zrrca8hqwtp2jxfakxv8ps75g"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_01fktw8vh756v2jmnpp5dyy76nvj3e3d9eysxp24ebr2anqprrbwz0",
+        "id": "fil_01kjqjy201v16b4xg7vs9qcyj69jm5bd6h2k3qrsr6cznmbhswaea0"
+      }
+    ]
+  }
+  "#);
+		assert_snapshot!(object, @r#"
+  tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.leaf("import a from \"a\";\nexport default tg.target(async () => {\n    return await a();\n});\n"),
+      "dependencies": {
+        "a": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.leaf("export default tg.target(() => \"a\");\n"),
+            }),
+          }),
+          "subpath": "tangram.ts",
+          "tag": "a",
+        },
+      },
+    }),
+  })
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -1613,51 +1738,51 @@ async fn tagged_package_with_cyclic_dependency() -> tg::Result<()> {
   "#);
 		assert_snapshot!(object, @r#"
   tg.directory({
-  	"tangram.ts": tg.file({
-  		"contents": tg.leaf("import a from \"a\";\n"),
-  		"dependencies": {
-  			"a": {
-  				"item": tg.directory({
-  					"graph": tg.graph({
-  						"nodes": [
-  							{
-  								"kind": "directory",
-  								"entries": {
-  									"foo.tg.ts": 2,
-  									"tangram.ts": 1,
-  								},
-  							},
-  							{
-  								"kind": "file",
-  								"contents": tg.leaf("import foo from \"./foo.tg.ts\";\n"),
-  								"dependencies": {
-  									"./foo.tg.ts": {
-  										"item": 0,
-  										"subpath": "foo.tg.ts",
-  										"tag": "a",
-  									},
-  								},
-  							},
-  							{
-  								"kind": "file",
-  								"contents": tg.leaf("import * as a from \"./tangram.ts\";\n"),
-  								"dependencies": {
-  									"./tangram.ts": {
-  										"item": 0,
-  										"subpath": "tangram.ts",
-  										"tag": "a",
-  									},
-  								},
-  							},
-  						],
-  					}),
-  					"node": 0,
-  				}),
-  				"subpath": "tangram.ts",
-  				"tag": "a",
-  			},
-  		},
-  	}),
+    "tangram.ts": tg.file({
+      "contents": tg.leaf("import a from \"a\";\n"),
+      "dependencies": {
+        "a": {
+          "item": tg.directory({
+            "graph": tg.graph({
+              "nodes": [
+                {
+                  "kind": "directory",
+                  "entries": {
+                    "foo.tg.ts": 2,
+                    "tangram.ts": 1,
+                  },
+                },
+                {
+                  "kind": "file",
+                  "contents": tg.leaf("import foo from \"./foo.tg.ts\";\n"),
+                  "dependencies": {
+                    "./foo.tg.ts": {
+                      "item": 0,
+                      "subpath": "foo.tg.ts",
+                      "tag": "a",
+                    },
+                  },
+                },
+                {
+                  "kind": "file",
+                  "contents": tg.leaf("import * as a from \"./tangram.ts\";\n"),
+                  "dependencies": {
+                    "./tangram.ts": {
+                      "item": 0,
+                      "subpath": "tangram.ts",
+                      "tag": "a",
+                    },
+                  },
+                },
+              ],
+            }),
+            "node": 0,
+          }),
+          "subpath": "tangram.ts",
+          "tag": "a",
+        },
+      },
+    }),
   })
   "#);
 		Ok(())
@@ -1707,8 +1832,224 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
 	let path = "";
 	let assertions = |object: String, _: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
-		assert_json_snapshot!(&lockfile, @r#"..."#); // Keep existing snapshot
-		assert_snapshot!(object, @r#"..."#); // Keep existing snapshot
+		assert_json_snapshot!(&lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01tzv7mnqxkq5t3sw5sg8jes7bjdazgrsnmp9zt93fqswazpz43r8g"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "a/*": {
+            "item": 2,
+            "subpath": "tangram.ts",
+            "tag": "a/1.1.0"
+          },
+          "b/*": {
+            "item": 4,
+            "subpath": "tangram.ts",
+            "tag": "b/1.0.0"
+          }
+        },
+        "id": "fil_01s77r9zrw3fj54epdrw103dptdbqzke2878y272e35g5s7qs1yd6g"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 3
+        },
+        "id": "dir_01c10z175t2xft8kp58f71vs990yyt3wxbhcrvb9qe7zkb5qga8pwg"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_015qtah5hxy64eyx8vqccxt04pwnm87j851w784yr4nq7rjrmgtts0",
+        "dependencies": {
+          "b/*": {
+            "item": 4,
+            "subpath": "tangram.ts",
+            "tag": "b/1.0.0"
+          }
+        },
+        "id": "fil_01v140jjq24vh3nk8n61rz28t9xyqy365prfrnadmz65m8hzckwaqg"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "foo.tg.ts": 5,
+          "tangram.ts": 6
+        },
+        "id": "dir_01bjjfcggydyvgjaetwh5pazhnmsg1wgetxdahpewqjvpc4pszefk0"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_016bmyhqk81jgbkns2m3w5yke2h9dadqt4r60mnkcpedev96hha9j0",
+        "dependencies": {
+          "./tangram.ts": {
+            "item": 4,
+            "subpath": "tangram.ts",
+            "tag": "b/1.0.0"
+          }
+        },
+        "id": "fil_0152j633eft4bbtswdmjrkqy2awwj75kck7k1cyx7hkb0bw30rmgbg"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_01gj0fndzaa1p7tch03pvja4ne3nhv0rwewcvm9w4v2k1xwckacwy0",
+        "dependencies": {
+          "./foo.tg.ts": {
+            "item": 4,
+            "subpath": "foo.tg.ts",
+            "tag": "b/1.0.0"
+          },
+          "a/*": {
+            "item": 2,
+            "subpath": "tangram.ts",
+            "tag": "a/1.1.0"
+          }
+        },
+        "id": "fil_01mc1angae3s1me6na3zw6axjdjkke8m13a97s0tmnh7w7at0p9ss0"
+      }
+    ]
+  }
+  "#); // Keep existing snapshot
+		assert_snapshot!(object, @r#"
+  tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.leaf("import * as b from \"b/*\";\nimport * as a from \"a/*\";\n"),
+      "dependencies": {
+        "a/*": {
+          "item": tg.directory({
+            "graph": tg.graph({
+              "nodes": [
+                {
+                  "kind": "directory",
+                  "entries": {
+                    "tangram.ts": 1,
+                  },
+                },
+                {
+                  "kind": "file",
+                  "contents": tg.leaf("import * as b from \"b/*\";\n"),
+                  "dependencies": {
+                    "b/*": {
+                      "item": 2,
+                      "subpath": "tangram.ts",
+                      "tag": "b/1.0.0",
+                    },
+                  },
+                },
+                {
+                  "kind": "directory",
+                  "entries": {
+                    "foo.tg.ts": 4,
+                    "tangram.ts": 3,
+                  },
+                },
+                {
+                  "kind": "file",
+                  "contents": tg.leaf("import * as a from \"a/*\";\nimport * as foo from \"./foo.tg.ts\";\n"),
+                  "dependencies": {
+                    "./foo.tg.ts": {
+                      "item": 2,
+                      "subpath": "foo.tg.ts",
+                      "tag": "b/1.0.0",
+                    },
+                    "a/*": {
+                      "item": 0,
+                      "subpath": "tangram.ts",
+                      "tag": "a/1.1.0",
+                    },
+                  },
+                },
+                {
+                  "kind": "file",
+                  "contents": tg.leaf("import * as b from \"./tangram.ts\";\n"),
+                  "dependencies": {
+                    "./tangram.ts": {
+                      "item": 2,
+                      "subpath": "tangram.ts",
+                      "tag": "b/1.0.0",
+                    },
+                  },
+                },
+              ],
+            }),
+            "node": 0,
+          }),
+          "subpath": "tangram.ts",
+          "tag": "a/1.1.0",
+        },
+        "b/*": {
+          "item": tg.directory({
+            "graph": tg.graph({
+              "nodes": [
+                {
+                  "kind": "directory",
+                  "entries": {
+                    "tangram.ts": 1,
+                  },
+                },
+                {
+                  "kind": "file",
+                  "contents": tg.leaf("import * as b from \"b/*\";\n"),
+                  "dependencies": {
+                    "b/*": {
+                      "item": 2,
+                      "subpath": "tangram.ts",
+                      "tag": "b/1.0.0",
+                    },
+                  },
+                },
+                {
+                  "kind": "directory",
+                  "entries": {
+                    "foo.tg.ts": 4,
+                    "tangram.ts": 3,
+                  },
+                },
+                {
+                  "kind": "file",
+                  "contents": tg.leaf("import * as a from \"a/*\";\nimport * as foo from \"./foo.tg.ts\";\n"),
+                  "dependencies": {
+                    "./foo.tg.ts": {
+                      "item": 2,
+                      "subpath": "foo.tg.ts",
+                      "tag": "b/1.0.0",
+                    },
+                    "a/*": {
+                      "item": 0,
+                      "subpath": "tangram.ts",
+                      "tag": "a/1.1.0",
+                    },
+                  },
+                },
+                {
+                  "kind": "file",
+                  "contents": tg.leaf("import * as b from \"./tangram.ts\";\n"),
+                  "dependencies": {
+                    "./tangram.ts": {
+                      "item": 2,
+                      "subpath": "tangram.ts",
+                      "tag": "b/1.0.0",
+                    },
+                  },
+                },
+              ],
+            }),
+            "node": 2,
+          }),
+          "subpath": "tangram.ts",
+          "tag": "b/1.0.0",
+        },
+      },
+    }),
+  })
+  "#); // Keep existing snapshot
 		Ok(())
 	};
 	let destructive = false;
@@ -1768,8 +2109,134 @@ async fn diamond_dependency() -> tg::Result<()> {
 	let path = "";
 	let assertions = |object: String, _: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
-		assert_json_snapshot!(&lockfile, @r#"..."#); // Keep existing snapshot
-		assert_snapshot!(object, @r#"..."#); // Keep existing snapshot
+		assert_json_snapshot!(&lockfile, @r#"
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01b0w2h29250pjct1grbad1b4ymwtrrb79t6r16sqpm5zb2bxar88g"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "b": {
+            "item": 2,
+            "subpath": "tangram.ts",
+            "tag": "b"
+          },
+          "c": {
+            "item": 6,
+            "subpath": "tangram.ts",
+            "tag": "c"
+          }
+        },
+        "id": "fil_01jngpnpjmgmpcg1avyeg4tvzq6ytnkhe2zg2tvxrwnhc3f8a4faf0"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 3
+        },
+        "id": "dir_018qhq81pgj7h0ma5dkb3gm462s1hvf898hxmpsef2s6n74g23k4mg"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_016aa5kmw3xyza9w49yp5ne2gbkht99ffpyf26cwdje2qnnc4txqmg",
+        "dependencies": {
+          "a/^1": {
+            "item": 4,
+            "subpath": "tangram.ts",
+            "tag": "a/1.1.0"
+          }
+        },
+        "id": "fil_019qsmy6834zn638f3mjp4hew1exmr389851yae94fh6zp94mn8zqg"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 5
+        },
+        "id": "dir_012hz5p6pdchm8gkh9hckz6p0at3bfbg6jbzs7ssxgzfw16cr92qe0"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_0168ekj28pg9zqt482xwmd8vr2prnkhchq89xa1gttrbzxp6j38c4g",
+        "id": "fil_01kfc5za52ez058jcs13s4bpqp87dstbdqrm2kesdswv7dq3ymdrqg"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 7
+        },
+        "id": "dir_01seccvtmyd7dfqfyw93ttf6qeh2t1pm9st4c75xsj83bdzphmj5e0"
+      },
+      {
+        "kind": "file",
+        "contents": "lef_01mz2t5fs44eajv57yab8nw0e9wkzz8q61gjnzkqvw2sjtk1ft5s4g",
+        "dependencies": {
+          "a/^1.0": {
+            "item": 4,
+            "subpath": "tangram.ts",
+            "tag": "a/1.1.0"
+          }
+        },
+        "id": "fil_01h0g1hfh5zw35xfvj2bgncbq9mgayb5pt314mqgpv8kqp405bx3k0"
+      }
+    ]
+  }
+  "#); // Keep existing snapshot
+		assert_snapshot!(object, @r#"
+  tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.leaf("import b from \"b\";\nimport c from \"c\";\n"),
+      "dependencies": {
+        "b": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.leaf("// b/tangram.ts\nimport a from \"a/^1\";\nexport default tg.target(() => \"b\");\n"),
+              "dependencies": {
+                "a/^1": {
+                  "item": tg.directory({
+                    "tangram.ts": tg.file({
+                      "contents": tg.leaf("// a/tangram.ts\nexport default tg.target(() => \"a/1.1.0\");\n"),
+                    }),
+                  }),
+                  "subpath": "tangram.ts",
+                  "tag": "a/1.1.0",
+                },
+              },
+            }),
+          }),
+          "subpath": "tangram.ts",
+          "tag": "b",
+        },
+        "c": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.leaf("// c/tangram.ts\nimport a from \"a/^1.0\";\nexport default tg.target(() => \"c\");\n"),
+              "dependencies": {
+                "a/^1.0": {
+                  "item": tg.directory({
+                    "tangram.ts": tg.file({
+                      "contents": tg.leaf("// a/tangram.ts\nexport default tg.target(() => \"a/1.1.0\");\n"),
+                    }),
+                  }),
+                  "subpath": "tangram.ts",
+                  "tag": "a/1.1.0",
+                },
+              },
+            }),
+          }),
+          "subpath": "tangram.ts",
+          "tag": "c",
+        },
+      },
+    }),
+  })
+  "#); // Keep existing snapshot
 		Ok(())
 	};
 	let destructive = false;

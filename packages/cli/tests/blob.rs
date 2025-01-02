@@ -53,7 +53,7 @@ async fn create_from_file() {
 			.await
 			.unwrap();
 		assert_output_success!(output);
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#""#);
+		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"tg.leaf("hello, world!\n")"#);
 	})
 	.await;
 }
