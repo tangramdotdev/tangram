@@ -17,7 +17,7 @@ mod build;
 mod cat;
 mod checksum;
 mod clean;
-mod config;
+pub mod config;
 mod get;
 mod health;
 mod lsp;

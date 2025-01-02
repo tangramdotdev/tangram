@@ -1,6 +1,6 @@
 use indoc::indoc;
 use insta::assert_snapshot;
-use tangram_cli::{assert_output_success, test::test};
+use tangram_cli::{assert_output_success, config::Config, test::test};
 use tangram_temp::{self as temp, Temp};
 use tokio::io::AsyncWriteExt as _;
 
@@ -13,7 +13,11 @@ async fn build_module_without_package() {
 		let mut context = context.lock().await;
 
 		// Start the server.
-		let server = context.spawn_server().await.unwrap();
+		let config = Config {
+			remotes: None,
+			..Default::default()
+		};
+		let server = context.spawn_server_with_config(config).await.unwrap();
 
 		// Create a directory with a module.
 		let temp = Temp::new();
