@@ -12,7 +12,7 @@ pub struct Args {
 	#[arg(short, long)]
 	pub remote: Option<Option<String>>,
 
-	#[arg(long, action = clap::ArgAction::Set)]
+	#[arg(default_value = "false", long, action = clap::ArgAction::Set)]
 	pub reverse: bool,
 }
 
