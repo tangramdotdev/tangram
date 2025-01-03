@@ -18,8 +18,8 @@ async fn hello_world() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""Hello, World!""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -38,8 +38,8 @@ async fn hello_world_remote() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""Hello, World!""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -58,8 +58,8 @@ async fn accepts_target_with_no_return_value() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r"null");
 			Ok::<_, tg::Error>(())
 		},
@@ -78,8 +78,8 @@ async fn accepts_arg() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec!["Tangram".into()],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""Hello, Tangram!""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -104,8 +104,8 @@ async fn host_target_hello_world() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
 			Ok::<_, tg::Error>(())
 		},
@@ -130,8 +130,8 @@ async fn host_target_hello_world_remote() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
 			Ok::<_, tg::Error>(())
 		},
@@ -154,8 +154,8 @@ async fn two_modules() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""Hello from bar""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -180,8 +180,8 @@ async fn path_dependency() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""Hello from bar""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -206,8 +206,8 @@ async fn path_dependency_import_attribute() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""Hello from bar""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -229,8 +229,8 @@ async fn named_target() -> tg::Result<()> {
 		"foo",
 		"five",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r"5");
 			Ok::<_, tg::Error>(())
 		},
@@ -255,8 +255,8 @@ async fn concurrent_targets() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r"9900");
 			Ok::<_, tg::Error>(())
 		},
@@ -275,8 +275,8 @@ async fn capture_error() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let error = outcome.into_result().unwrap_err();
+		|_, output| async move {
+			let error = output.unwrap().error.unwrap();
 			assert_snapshot!(error, @r"Uncaught Error: not so fast!");
 			Ok::<_, tg::Error>(())
 		},
@@ -299,8 +299,8 @@ async fn import_file() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""Hello, World!""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -329,8 +329,8 @@ async fn import_directory() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""Hello, World!""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -351,8 +351,8 @@ async fn template_raw() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#"tg.template(["\n\tHello, World!\n"])"#);
 			Ok::<_, tg::Error>(())
 		},
@@ -375,8 +375,8 @@ async fn template_single_line() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#"tg.template(["cat ",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g])"#);
 			Ok::<_, tg::Error>(())
 		},
@@ -407,8 +407,8 @@ async fn template_with_quote() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#"tg.template(["other_command\n\nother_command\n\nother_command\n\necho 'exec ",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g," \"$@\"' >> script.sh\n"])"#);
 			Ok::<_, tg::Error>(())
 		},
@@ -433,8 +433,8 @@ async fn template_single_line_two_artifacts() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#"tg.template([fil_01mav0wfrn654f51gn5dbk8t8akh830xd1a97yjd1j85w5y8evmc1g," ",fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80])"#);
 			Ok::<_, tg::Error>(())
 		},
@@ -462,8 +462,8 @@ async fn template_empty_lines() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#"tg.template(["function foo() {\n\techo \"Hello, World!\"\n\n}\n\n\n"])"#);
 			Ok::<_, tg::Error>(())
 		},
@@ -488,8 +488,8 @@ async fn template_only_placeholders_on_a_line() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#"tg.template([fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"\n"])"#);
 			Ok::<_, tg::Error>(())
 		},
@@ -514,8 +514,8 @@ async fn template_single_line_explicit_newline() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#"tg.template([fil_01mav0wfrn654f51gn5dbk8t8akh830xd1a97yjd1j85w5y8evmc1g,"\n",fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80])"#);
 			Ok::<_, tg::Error>(())
 		},
@@ -542,8 +542,8 @@ async fn template_multiple_placeholders() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#"tg.template(["cat\t",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"\t",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"\n"])"#);
 			Ok::<_, tg::Error>(())
 		},
@@ -573,8 +573,8 @@ async fn directory_get_follows_intermediate_component_symlinks() -> tg::Result<(
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""foo""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -604,8 +604,8 @@ async fn directory_get_follows_final_component_symlinks() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r###""foo""###);
 			Ok::<_, tg::Error>(())
 		},
@@ -624,8 +624,8 @@ async fn target_cycle_detection() -> tg::Result<()> {
 		"foo",
 		"x",
 		vec![],
-		|_, outcome| async move {
-			let error = outcome.into_result().unwrap_err();
+		|_, output| async move {
+			let error = output.unwrap().error.unwrap();
 			assert_snapshot!(error, @"failed to build the target");
 			Ok::<_, tg::Error>(())
 		},
@@ -653,8 +653,8 @@ async fn target_cycle_detection_between_packages() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let error = outcome.into_result().unwrap_err();
+		|_, output| async move {
+			let error = output.unwrap().error.unwrap();
 			assert_snapshot!(error, @"failed to build the target");
 			Ok::<_, tg::Error>(())
 		},
@@ -683,8 +683,8 @@ async fn package_cycle_without_target_cycle() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#""foo""#);
 			Ok::<_, tg::Error>(())
 		},
@@ -709,8 +709,8 @@ async fn value_cycle_detection_object() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let error = outcome.into_result().unwrap_err();
+		|_, output| async move {
+			let error = output.unwrap().error.unwrap();
 			assert_snapshot!(error, @r"Uncaught Error: cycle detected");
 			Ok::<_, tg::Error>(())
 		},
@@ -735,8 +735,8 @@ async fn value_cycle_detection_array() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let error = outcome.into_result().unwrap_err();
+		|_, output| async move {
+			let error = output.unwrap().error.unwrap();
 			assert_snapshot!(error, @r"Uncaught Error: cycle detected");
 			Ok::<_, tg::Error>(())
 		},
@@ -760,8 +760,8 @@ async fn builtin_download_unsafe_checksum() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
 			Ok::<_, tg::Error>(())
 		},
@@ -785,8 +785,8 @@ async fn builtin_download_exact_checksum() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
 			Ok::<_, tg::Error>(())
 		},
@@ -810,8 +810,8 @@ async fn builtin_download_rejects_incorrect_checksum() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let error = outcome.into_result().unwrap_err();
+		|_, output| async move {
+			let error = output.unwrap().error.unwrap();
 			assert_snapshot!(error, @"failed to build the target");
 			Ok::<_, tg::Error>(())
 		},
@@ -835,8 +835,8 @@ async fn builtin_download_rejects_malformed_checksum() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let error = outcome.into_result().unwrap_err();
+		|_, output| async move {
+			let error = output.unwrap().error.unwrap();
 			assert_snapshot!(error, @"the syscall failed");
 			Ok::<_, tg::Error>(())
 		},
@@ -861,8 +861,8 @@ async fn target_none_checksum() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let error = outcome.into_result().unwrap_err();
+		|_, output| async move {
+			let error = output.unwrap().error.unwrap();
 			assert_snapshot!(error, @r"failed to build the target");
 			Ok::<_, tg::Error>(())
 		},
@@ -887,9 +887,9 @@ async fn target_set_checksum() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let error = outcome.into_result().unwrap();
-			assert_snapshot!(error, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
+			assert_snapshot!(output, @r"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
 			Ok::<_, tg::Error>(())
 		},
 	)
@@ -911,8 +911,8 @@ async fn builtin_artifact_archive_extract_simple_dir_roundtrip() -> tg::Result<(
 			});
 		"#
 	);
-	test_archive(module, |_, outcome| async move {
-		outcome.into_result().unwrap();
+	test_archive(module, |_, output| async move {
+		output.unwrap().output.unwrap();
 		Ok::<_, tg::Error>(())
 	})
 	.await
@@ -920,10 +920,10 @@ async fn builtin_artifact_archive_extract_simple_dir_roundtrip() -> tg::Result<(
 
 async fn test_archive<F, Fut>(module: &str, assertions: F) -> tg::Result<()>
 where
-	F: FnOnce(Server, tg::build::Outcome) -> Fut + Clone,
+	F: FnOnce(Server, Option<tg::build::get::Output>) -> Fut + Clone,
 	Fut: Future<Output = tg::Result<()>>,
 {
-	for format in &["tar", "tgar", "zip"] {
+	for format in &["tar", "zip"] {
 		let module = module.replace("format", format);
 		let directory = temp::directory! {
 			"foo" => temp::directory! {
@@ -1030,9 +1030,10 @@ async fn import_from_tag() -> tg::Result<()> {
 		let target = target.id(&server).await?;
 		let output = server.build_target(&target, arg).await?;
 		let build = tg::Build::with_id(output.build);
-		let outcome = build.outcome(&server).await?;
-		let outcome = outcome.into_result()?;
-		assert_snapshot!(outcome, @r#""foo""#);
+		let Some(output) = build.try_get_output(&server).await? else {
+			panic!("failed to get build output")
+		};
+		assert_snapshot!(output, @r#""foo""#);
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()
@@ -1060,8 +1061,8 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() -> tg::Result<()> {
 		"foo",
 		"default",
 		vec![],
-		|_, outcome| async move {
-			let output = outcome.into_result()?;
+		|_, output| async move {
+			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
 			assert_snapshot!(output, @r#""contents""#);
 			Ok::<_, tg::Error>(())
 		},
@@ -1208,7 +1209,9 @@ async fn build_cache_hit() -> tg::Result<()> {
 		};
 		let target = target.id(&server).await?;
 		let build1 = server.build_target(&target, arg.clone()).await?.build;
-		let _outcome1 = tg::Build::with_id(build1.clone()).outcome(&server).await?;
+		let _outcome1 = tg::Build::with_id(build1.clone())
+			.try_get_output(&server)
+			.await?;
 
 		// Stop the server.
 		server.stop();
@@ -1222,7 +1225,9 @@ async fn build_cache_hit() -> tg::Result<()> {
 
 		// Get a build.
 		let build2 = server.build_target(&target, arg.clone()).await?.build;
-		let _outcome2 = tg::Build::with_id(build2.clone()).outcome(&server).await?;
+		let _outcome2 = tg::Build::with_id(build2.clone())
+			.try_get_output(&server)
+			.await?;
 
 		// Stop the server.
 		server.stop();
@@ -1248,7 +1253,7 @@ async fn test<F, Fut>(
 	assertions: F,
 ) -> tg::Result<()>
 where
-	F: FnOnce(Server, tg::build::Outcome) -> Fut,
+	F: FnOnce(Server, Option<tg::build::get::Output>) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let artifact = artifact.into();
@@ -1305,9 +1310,10 @@ where
 		};
 		let target = target.id(&server).await?;
 		let output = server.build_target(&target, arg).await?;
-		let build = tg::Build::with_id(output.build);
-		let outcome = build.outcome(&server).await?;
-		(assertions)(server.clone(), outcome).await?;
+		let build = tg::Build::with_id(output.build.clone());
+		let _ = build.try_get_output(&server).await?;
+		let output = server.try_get_build(&output.build).await?;
+		(assertions)(server.clone(), output).await?;
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()
@@ -1329,7 +1335,7 @@ async fn test_remote<F, Fut>(
 	assertions: F,
 ) -> tg::Result<()>
 where
-	F: FnOnce(Server, tg::build::Outcome) -> Fut,
+	F: FnOnce(Server, Option<tg::build::get::Output>) -> Fut,
 	Fut: Future<Output = tg::Result<()>>,
 {
 	let artifact = artifact.into();
@@ -1410,9 +1416,10 @@ where
 			.and_then(|event| event.try_unwrap_output().ok())
 			.ok_or_else(|| tg::error!("stream ended without output"))?;
 		let output = local.build_target(&target, arg).await?;
-		let build = tg::Build::with_id(output.build);
-		let outcome = build.outcome(&local).await?;
-		(assertions)(local.clone(), outcome).await?;
+		let build = tg::Build::with_id(output.build.clone());
+		let _ = build.try_get_output(&local).await?;
+		let output = local.try_get_build(&output.build).await?;
+		(assertions)(local.clone(), output).await?;
 		Ok::<_, tg::Error>(())
 	})
 	.catch_unwind()

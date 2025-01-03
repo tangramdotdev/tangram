@@ -358,19 +358,19 @@ impl Cli {
 			.ok_or_else(|| tg::error!("failed to get the status"))?;
 
 		// If the build is finished, then get the build's outcome.
-		let outcome = if status == tg::build::Status::Finished {
-			let outcome = build
-				.outcome(&handle)
+		let output = if status.is_finished() {
+			let output = build
+				.try_get_output(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the outcome"))?;
-			Some(outcome)
+			Some(output)
 		} else {
 			None
 		};
 
 		// If the build is not finished, then wait for it to finish while showing the TUI if enabled.
-		let outcome = if let Some(outcome) = outcome {
-			outcome
+		let output = if let Some(output) = output {
+			output
 		} else {
 			// Spawn the tree task.
 			let tree_task = (!args.quiet).then(|| {
@@ -392,12 +392,12 @@ impl Cli {
 				async move {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
-						let outcome = tg::build::outcome::Data::Cancelation(
-							tg::build::outcome::data::Cancelation {
-								reason: Some("the build was explicitly canceled".to_owned()),
-							},
-						);
-						let arg = tg::build::finish::Arg { outcome, remote };
+						let arg = tg::build::finish::Arg {
+							remote,
+							error: Some(tg::error!("the build was explicitly canceled")),
+							output: None,
+							status: tg::build::Status::Canceled,
+						};
 						build.finish(&handle, arg).await.ok();
 					});
 					tokio::signal::ctrl_c().await.unwrap();
@@ -406,7 +406,7 @@ impl Cli {
 			});
 
 			// Wait for the build's outcome.
-			let outcome = build.outcome(&handle).await;
+			let output = build.try_get_output(&handle).await;
 
 			// Abort the cancel task.
 			cancel_task.abort();
@@ -416,13 +416,13 @@ impl Cli {
 				tree_task.await.unwrap()?;
 			}
 
-			outcome.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?
+			output.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?
 		};
 
 		// Handle a failed build.
-		let output = outcome
-			.into_result()
-			.map_err(|source| tg::error!(!source, "the build failed"))?;
+		let Some(output) = output else {
+			return Err(tg::error!("the build failed"));
+		};
 
 		// Check out the output if requested.
 		if let Some(path) = args.checkout {

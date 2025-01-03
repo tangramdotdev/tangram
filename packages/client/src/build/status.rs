@@ -37,6 +37,7 @@ pub enum Event {
 }
 
 impl Status {
+	#[must_use]
 	pub fn is_finished(&self) -> bool {
 		matches!(self, Status::Canceled | Status::Failed | Status::Succeeded)
 	}

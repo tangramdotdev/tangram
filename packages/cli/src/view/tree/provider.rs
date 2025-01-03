@@ -134,19 +134,18 @@ impl Provider {
 						};
 						let indicator = match status {
 							tg::build::Status::Created => Indicator::Created,
+							tg::build::Status::Enqueued => Indicator::Enqueued,
 							tg::build::Status::Dequeued => Indicator::Dequeued,
-							tg::build::Status::Finished => break,
+							tg::build::Status::Canceled => Indicator::Canceled,
+							tg::build::Status::Failed => Indicator::Failed,
+							tg::build::Status::Succeeded => Indicator::Succeeded,
 							tg::build::Status::Started => Indicator::Started,
 						};
 						watch.send(indicator).ok();
+						if status.is_finished() {
+							break;
+						}
 					}
-					let outcome = build.outcome(&handle).await;
-					let indicator = match outcome {
-						Ok(tg::build::Outcome::Cancelation(_)) => Indicator::Canceled,
-						Ok(tg::build::Outcome::Failure(_)) | Err(_) => Indicator::Failed,
-						Ok(tg::build::Outcome::Success(_)) => Indicator::Succeeded,
-					};
-					watch.send(indicator).ok();
 				};
 				future.boxed()
 			})

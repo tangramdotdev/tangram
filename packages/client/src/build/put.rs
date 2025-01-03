@@ -58,7 +58,7 @@ pub struct IncompleteChild {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub logs: bool,
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub outcomes: bool,
+	pub outputs: bool,
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub targets: bool,
 }
@@ -69,7 +69,7 @@ impl Arg {
 		let outcome = self
 			.output
 			.as_ref()
-			.map(|output| output.children())
+			.map(tg::value::data::Data::children)
 			.into_iter()
 			.flatten();
 		let target = std::iter::once(self.target.clone().into());

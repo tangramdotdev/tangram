@@ -265,17 +265,6 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	fn try_get_build_outcome_future(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
-		>,
-	> {
-		self.server.try_get_build_outcome_future(id)
-	}
-
 	async fn finish_build(
 		&self,
 		_id: &tg::build::Id,

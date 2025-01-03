@@ -10,7 +10,7 @@ mod get;
 mod heartbeat;
 mod index;
 mod log;
-mod outcome;
+// mod outcome;
 mod pull;
 mod push;
 mod put;

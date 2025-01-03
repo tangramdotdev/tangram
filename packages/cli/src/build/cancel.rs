@@ -24,10 +24,10 @@ impl Cli {
 
 		// Cancel the build.
 		let arg = tg::build::finish::Arg {
-			outcome: tg::build::outcome::Data::Cancelation(tg::build::outcome::data::Cancelation {
-				reason: Some("the build was explicitly canceled".to_owned()),
-			}),
+			error: Some(tg::error!("the build was explicitly canceled")),
+			output: None,
 			remote,
+			status: tg::build::Status::Canceled,
 		};
 		handle.finish_build(&args.build, arg).await?;
 

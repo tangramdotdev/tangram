@@ -26,7 +26,9 @@ impl<H> Node<H> {
 		let mut title = String::new();
 		match self.indicator {
 			Some(Indicator::Created) => write!(title, "{} ", "⟳".yellow()).unwrap(),
-			Some(Indicator::Dequeued) => write!(title, "{} ", "•".yellow()).unwrap(),
+			Some(Indicator::Enqueued | Indicator::Dequeued) => {
+				write!(title, "{} ", "•".yellow()).unwrap();
+			},
 			Some(Indicator::Started) => {
 				const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 				let now = std::time::SystemTime::now()

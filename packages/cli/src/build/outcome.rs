@@ -16,9 +16,13 @@ impl Cli {
 	pub async fn command_build_outcome(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let build = tg::Build::with_id(args.build);
-		let outcome = build.outcome(&handle).await?;
-		let outcome = outcome.data(&handle).await?;
-		Self::output_json(&outcome, args.pretty).await?;
+		let output = build.try_get_output(&handle).await?;
+		let output = if let Some(output) = output {
+			Some(output.data(&handle).await?)
+		} else {
+			None
+		};
+		Self::output_json(&output, args.pretty).await?;
 		Ok(())
 	}
 }
