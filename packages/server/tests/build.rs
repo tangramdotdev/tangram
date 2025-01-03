@@ -1209,7 +1209,7 @@ async fn build_cache_hit() -> tg::Result<()> {
 		};
 		let target = target.id(&server).await?;
 		let build1 = server.build_target(&target, arg.clone()).await?.build;
-		let _outcome1 = tg::Build::with_id(build1.clone())
+		let _output1 = tg::Build::with_id(build1.clone())
 			.try_get_output(&server)
 			.await?;
 
@@ -1225,7 +1225,7 @@ async fn build_cache_hit() -> tg::Result<()> {
 
 		// Get a build.
 		let build2 = server.build_target(&target, arg.clone()).await?.build;
-		let _outcome2 = tg::Build::with_id(build2.clone())
+		let _output2 = tg::Build::with_id(build2.clone())
 			.try_get_output(&server)
 			.await?;
 

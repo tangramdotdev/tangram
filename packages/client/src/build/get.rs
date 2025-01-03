@@ -76,7 +76,7 @@ pub struct Output {
 impl Output {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
 		let log = self.log.iter().map(|id| id.clone().into());
-		let outcome = self
+		let output = self
 			.output
 			.as_ref()
 			.map(tg::value::data::Data::children)
@@ -85,7 +85,7 @@ impl Output {
 		let target = std::iter::once(self.target.clone().into());
 		std::iter::empty()
 			.chain(log)
-			.chain(outcome)
+			.chain(output)
 			.chain(target)
 			.collect()
 	}

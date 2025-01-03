@@ -171,7 +171,7 @@ impl Server {
 			}
 		}
 		if arg.outputs {
-			incomplete_objects.extend(incomplete.outcome);
+			incomplete_objects.extend(incomplete.output);
 		}
 		if arg.targets && incomplete.target {
 			incomplete_objects.push(output.target.clone().into());
@@ -319,7 +319,7 @@ impl Server {
 				.sum::<Option<u64>>();
 			(count, depth, weight)
 		} else {
-			// If the push is not recursive, then use the count, depth, and weight of the log, outcome, and target.
+			// If the push is not recursive, then use the count, depth, and weight of the log, output, and target.
 			let (log_count, log_depth, log_weight) = if arg.logs {
 				if let Some(log) = output.log.as_ref() {
 					if let Some(metadata) = src.try_get_object_metadata(&log.clone().into()).await?
@@ -334,7 +334,7 @@ impl Server {
 			} else {
 				(Some(0), Some(0), Some(0))
 			};
-			let (outcome_count, outcome_depth, outcome_weight) = if arg.outputs {
+			let (output_count, output_depth, output_weight) = if arg.outputs {
 				if output.status.is_succeeded() {
 					let metadata = output
 						.output
@@ -379,18 +379,18 @@ impl Server {
 			};
 			let count = std::iter::empty()
 				.chain(Some(log_count))
-				.chain(Some(outcome_count))
+				.chain(Some(output_count))
 				.chain(Some(target_count))
 				.sum::<Option<u64>>();
 			let depth = std::iter::empty()
 				.chain(Some(log_depth))
-				.chain(Some(outcome_depth))
+				.chain(Some(output_depth))
 				.chain(Some(target_depth))
 				.max()
 				.unwrap();
 			let weight = std::iter::empty()
 				.chain(Some(log_weight))
-				.chain(Some(outcome_weight))
+				.chain(Some(output_weight))
 				.chain(Some(target_weight))
 				.sum::<Option<u64>>();
 			(count, depth, weight)

@@ -81,7 +81,7 @@ impl Server {
 			// Drop the connection.
 			drop(connection);
 
-			// If the build is finished, then verify that the build's outcome satisfies the retry constraint.
+			// If the build is finished, then verify that the build's output satisfies the retry constraint.
 			if status.is_finished() {
 				let output = self.try_get_build(&id).await?;
 				if let Some(output) = output {

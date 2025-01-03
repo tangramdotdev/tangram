@@ -240,15 +240,15 @@ impl Server {
 			.query_one_value_into(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let outcome_objects = arg
+		let output_objects = arg
 			.output
 			.as_ref()
 			.map(|value| value.children())
 			.into_iter()
 			.flatten()
 			.collect::<Vec<_>>();
-		let outcome_objects = serde_json::to_string(&outcome_objects).unwrap();
-		let outcome_objects_query = match &connection {
+		let output_objects = serde_json::to_string(&output_objects).unwrap();
+		let output_objects_query = match &connection {
 			Either::Left(_) => format!("select value from json_each({p}1)"),
 			Either::Right(_) => {
 				format!("select value from json_array_elements_text({p}1::string::jsonb)")
@@ -257,7 +257,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				select value
-				from ({outcome_objects_query})
+				from ({output_objects_query})
 				left join objects on objects.id = value
 				where
 					case
@@ -269,8 +269,8 @@ impl Server {
 					end;
 			"
 		);
-		let params = db::params![outcome_objects];
-		let outcome = connection
+		let params = db::params![output_objects];
+		let output = connection
 			.query_all_value_into(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -348,7 +348,7 @@ impl Server {
 			incomplete: tg::build::put::Incomplete {
 				children,
 				log,
-				outcome,
+				output,
 				target,
 			},
 		};
