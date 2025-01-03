@@ -19,6 +19,10 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
+	/// If this flag is set, the package's lockfile will not be updated.
+	#[arg(long, hide = true)]
+	pub print: bool,
+
 	/// The reference to view.
 	#[arg(index = 1, default_value = ".")]
 	pub reference: tg::Reference,
@@ -60,6 +64,7 @@ impl Cli {
 
 		// Run the view.
 		let kind = args.kind;
+		let print = args.print;
 		Task::spawn_blocking(move |stop| {
 			tokio::runtime::LocalRuntime::new()
 				.unwrap()
@@ -78,6 +83,9 @@ impl Cli {
 						Kind::Fullscreen => {
 							viewer.run_fullscreen(stop).await?;
 						},
+					}
+					if print {
+						println!("{}", viewer.tree().display());
 					}
 					Ok::<_, tg::Error>(())
 				})

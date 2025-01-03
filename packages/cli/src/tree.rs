@@ -24,6 +24,7 @@ impl Cli {
 			depth: args.depth,
 			kind: crate::view::Kind::Inline,
 			locked: args.locked,
+			print: true,
 			reference: args.reference,
 		};
 		self.command_view(args).await?;
