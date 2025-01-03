@@ -857,9 +857,6 @@ impl Server {
 			(http::Method::POST, ["builds", build, "log"]) => {
 				Self::handle_add_build_log_request(handle, request, build).boxed()
 			},
-			// (http::Method::GET, ["builds", build, "outcome"]) => {
-			// 	Self::handle_get_build_outcome_request(handle, request, build).boxed()
-			// },
 			(http::Method::POST, ["builds", build, "finish"]) => {
 				Self::handle_finish_build_request(handle, request, build).boxed()
 			},

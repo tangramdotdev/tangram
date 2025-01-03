@@ -94,7 +94,7 @@ impl Server {
 		if children
 			.iter()
 			.map(|child_id| async move {
-				// Check if the child is finished before awaiting its outcome.
+				// Check if the child is finished before awaiting its output.
 				let Some(status) = self.try_get_current_build_status_local(child_id).await? else {
 					return Ok(None);
 				};
@@ -105,7 +105,7 @@ impl Server {
 			.await?
 			.iter()
 			.filter_map(Option::as_ref)
-			.any(|outcome| outcome.is_canceled())
+			.any(|output| output.is_canceled())
 		{
 			status = tg::build::status::Status::Canceled;
 			error = Some(tg::error!("one of the build's children was canceled"));
@@ -298,7 +298,7 @@ impl Server {
 
 		// Get the output.
 		let Some(value) = build else {
-			return Err(tg::error!("failed to get the checksum build outcome"));
+			return Err(tg::error!("failed to get the checksum build output"));
 		};
 
 		// Compare the checksum from the build.

@@ -45,7 +45,7 @@ pub struct Incomplete {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub log: bool,
 	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-	pub outcome: BTreeSet<tg::object::Id>,
+	pub output: BTreeSet<tg::object::Id>,
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub target: bool,
 }
@@ -66,14 +66,14 @@ pub struct IncompleteChild {
 impl Arg {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
 		let log = self.log.iter().map(|id| id.clone().into());
-		let outcome = self
+		let output = self
 			.output
 			.as_ref()
 			.map(tg::value::data::Data::children)
 			.into_iter()
 			.flatten();
 		let target = std::iter::once(self.target.clone().into());
-		log.chain(outcome).chain(target).collect()
+		log.chain(output).chain(target).collect()
 	}
 }
 

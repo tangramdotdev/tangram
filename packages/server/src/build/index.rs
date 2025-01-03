@@ -126,7 +126,7 @@ impl Server {
 			None
 		};
 
-		// Attempt to get the outcome metadata.
+		// Attempt to get the output metadata.
 		let output_metadata = if tg::build::Status::Succeeded == build.status {
 			if let Some(value) = &build.output {
 				Some(
@@ -536,8 +536,8 @@ impl Server {
 
 		// Attempt to set the outputs count if necessary.
 		if build.outputs_count.is_none() {
-			// Attempt to get the outcome count.
-			let outcome_count = output_metadata.as_ref().and_then(|metadata| {
+			// Attempt to get the output count.
+			let output_count = output_metadata.as_ref().and_then(|metadata| {
 				metadata
 					.iter()
 					.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.count))
@@ -548,7 +548,7 @@ impl Server {
 			let count = children
 				.iter()
 				.map(|option| option.as_ref().and_then(|output| output.outputs_count))
-				.chain(std::iter::once(outcome_count))
+				.chain(std::iter::once(output_count))
 				.sum::<Option<u64>>();
 
 			// Set the outputs count if possible.
@@ -632,8 +632,8 @@ impl Server {
 
 		// Attempt to set the outputs weight if necessary.
 		if build.outputs_weight.is_none() {
-			// Attempt to get the outcome weight.
-			let outcome_weight = output_metadata.as_ref().and_then(|metadata| {
+			// Attempt to get the output weight.
+			let output_weight = output_metadata.as_ref().and_then(|metadata| {
 				metadata
 					.iter()
 					.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.weight))
@@ -644,7 +644,7 @@ impl Server {
 			let weight = children
 				.iter()
 				.map(|option| option.as_ref().and_then(|output| output.outputs_weight))
-				.chain(std::iter::once(outcome_weight))
+				.chain(std::iter::once(output_weight))
 				.sum::<Option<u64>>();
 
 			// Set the outputs weight if possible.

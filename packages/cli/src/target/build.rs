@@ -375,12 +375,12 @@ impl Cli {
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the status"))?;
 
-		// If the build is finished, then get the build's outcome.
+		// If the build is finished, then get the build's output.
 		let output = if status.is_finished() {
 			let output = build
 				.try_get_output(&handle)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the outcome"))?;
+				.map_err(|source| tg::error!(!source, "failed to get the output"))?;
 			Some(output)
 		} else {
 			None
