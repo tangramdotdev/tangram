@@ -52,30 +52,40 @@ impl Server {
 			",
 		);
 		let params = db::params![id];
-		let Some(row) = connection
+		let row = connection
 			.query_optional_into::<Row>(statement, params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-		else {
-			return Ok(None);
-		};
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
 
-		// If the bytes were not in the database, then attempt to read the bytes from a blob file.
-		let bytes = 'a: {
-			if let Some(bytes) = row.bytes {
-				break 'a Some(bytes);
-			};
-			let Ok(id) = id.try_unwrap_leaf_ref() else {
-				break 'a None;
-			};
-			let Some(bytes) = self.try_read_leaf_from_blobs_directory(id).await? else {
-				break 'a None;
-			};
-			Some(bytes)
+		// Create the bytes and metadata.
+		let mut bytes = None;
+		let mut metadata = tg::object::Metadata::default();
+
+		// If the row was in the database, then get the values.
+		if let Some(row) = row {
+			bytes = row.bytes;
+			metadata.complete = row.complete;
+			metadata.count = row.count;
+			metadata.depth = row.depth;
+			metadata.weight = row.weight;
 		};
+
+		// If the bytes were not in the database, then attempt to get the bytes from the store.
+		if bytes.is_none() {
+			if let Some(store) = &self.store {
+				bytes = store.try_get(id).await?;
+			}
+		}
+
+		// If the bytes were not in the database or the store, then attempt to read the bytes from a blob file.
+		if bytes.is_none() {
+			if let Ok(id) = id.try_unwrap_leaf_ref() {
+				bytes = self.try_read_leaf_from_blobs_directory(id).await?;
+			}
+		}
 
 		// If the bytes were not found, then return None.
 		let Some(bytes) = bytes else {
@@ -83,15 +93,7 @@ impl Server {
 		};
 
 		// Create the output.
-		let output = tg::object::get::Output {
-			bytes,
-			metadata: tg::object::Metadata {
-				complete: row.complete,
-				count: row.count,
-				depth: row.depth,
-				weight: row.weight,
-			},
-		};
+		let output = tg::object::get::Output { bytes, metadata };
 
 		Ok(Some(output))
 	}

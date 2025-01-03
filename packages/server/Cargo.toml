@@ -36,6 +36,8 @@ async-compression = { workspace = true }
 async-nats = { workspace = true }
 async-tar = { workspace = true }
 async_zip = { workspace = true }
+aws-credential-types = { workspace = true }
+aws-sdk-s3 = { workspace = true }
 biome_js_formatter = { workspace = true }
 biome_js_parser = { workspace = true }
 biome_js_syntax = { workspace = true }

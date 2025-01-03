@@ -1,4 +1,6 @@
-use self::{database::Database, messenger::Messenger, runtime::Runtime, util::fs::remove};
+use self::{
+	database::Database, messenger::Messenger, runtime::Runtime, store::Store, util::fs::remove,
+};
 use async_nats as nats;
 use compiler::Compiler;
 use dashmap::{DashMap, DashSet};
@@ -44,6 +46,7 @@ mod progress;
 mod reference;
 mod remote;
 mod runtime;
+mod store;
 mod tag;
 mod target;
 mod temp;
@@ -75,6 +78,7 @@ pub struct Inner {
 	path: PathBuf,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
+	store: Option<Arc<Store>>,
 	task: Mutex<Option<Task<()>>>,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -259,6 +263,12 @@ impl Server {
 		// Create the runtimes.
 		let runtimes = RwLock::new(HashMap::default());
 
+		// Create the store.
+		let store = config.store.as_ref().map(|store| match store {
+			config::Store::Memory => Arc::new(Store::new_memory()),
+			config::Store::S3(s3) => Arc::new(Store::new_s3(s3)),
+		});
+
 		// Create the task.
 		let task = Mutex::new(None);
 
@@ -284,6 +294,7 @@ impl Server {
 			path,
 			remotes,
 			runtimes,
+			store,
 			task,
 			temp_paths,
 			vfs,

@@ -16,6 +16,7 @@ pub struct Config {
 	pub messenger: Messenger,
 	pub object_indexer: Option<ObjectIndexer>,
 	pub path: PathBuf,
+	pub store: Option<Store>,
 	pub url: Url,
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
@@ -106,6 +107,22 @@ pub struct ObjectIndexer {
 	pub timeout: Duration,
 }
 
+#[derive(Clone, Debug, Default)]
+pub enum Store {
+	#[default]
+	Memory,
+	S3(S3Store),
+}
+
+#[derive(Clone, Debug)]
+pub struct S3Store {
+	pub access_key: Option<String>,
+	pub bucket: String,
+	pub region: Option<String>,
+	pub secret_key: Option<String>,
+	pub url: Url,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Vfs {
 	pub cache_ttl: Duration,
@@ -124,6 +141,7 @@ impl Config {
 		let database = Database::Sqlite(SqliteDatabase::with_path(path.join("database")));
 		let messenger = Messenger::default();
 		let object_indexer = None;
+		let store = None;
 		let url = Self::default_url_for_path(&path);
 		let version = None;
 		let vfs = None;
@@ -137,6 +155,7 @@ impl Config {
 			messenger,
 			object_indexer,
 			path,
+			store,
 			url,
 			version,
 			vfs,

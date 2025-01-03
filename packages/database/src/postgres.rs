@@ -117,6 +117,10 @@ impl Connection {
 		self.cache = Cache::default();
 		Ok(())
 	}
+
+	pub fn client(&mut self) -> &mut postgres::Client {
+		&mut self.client
+	}
 }
 
 impl super::Database for Database {

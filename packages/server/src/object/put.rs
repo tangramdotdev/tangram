@@ -12,6 +12,14 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<tg::object::put::Output> {
+		// If there is a store, then put the object in the store.
+		if let Some(store) = &self.store {
+			store
+				.put(id.clone(), arg.bytes.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to put the object in the store"))?;
+		}
+
 		// Get a database connection.
 		let connection = self
 			.database
@@ -35,7 +43,12 @@ impl Server {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![id, arg.bytes, now];
+		let bytes = if self.store.is_none() {
+			Some(arg.bytes.clone())
+		} else {
+			None
+		};
+		let params = db::params![id, bytes, now];
 		let Row { children, complete } = connection
 			.query_one_into::<Row>(statement, params)
 			.await

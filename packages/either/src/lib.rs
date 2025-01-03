@@ -15,6 +15,13 @@ impl<L, R> Either<L, R> {
 		}
 	}
 
+	pub fn as_mut(&mut self) -> Either<&mut L, &mut R> {
+		match self {
+			Self::Left(left) => Either::Left(left),
+			Self::Right(right) => Either::Right(right),
+		}
+	}
+
 	pub fn left(self) -> Option<L> {
 		match self {
 			Self::Left(left) => Some(left),

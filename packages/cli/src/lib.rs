@@ -453,6 +453,7 @@ impl Cli {
 			messenger: tangram_server::config::Messenger::default(),
 			object_indexer: Some(tangram_server::config::ObjectIndexer::default()),
 			path,
+			store: None,
 			url,
 			version: None,
 			vfs,
@@ -658,6 +659,28 @@ impl Cli {
 					object_indexer_.timeout = timeout;
 				}
 				config.object_indexer = Some(object_indexer_);
+			},
+		}
+
+		// Set the authentication options.
+		match self.config.as_ref().and_then(|config| config.store.clone()) {
+			None => (),
+			Some(None) => {
+				config.store = None;
+			},
+			Some(Some(store)) => {
+				config.store = Some(match store {
+					config::Store::Memory => tangram_server::config::Store::Memory,
+					config::Store::S3(s3) => {
+						tangram_server::config::Store::S3(tangram_server::config::S3Store {
+							access_key: s3.access_key,
+							bucket: s3.bucket,
+							region: s3.region,
+							secret_key: s3.secret_key,
+							url: s3.url,
+						})
+					},
+				});
 			},
 		}
 

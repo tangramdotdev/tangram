@@ -50,6 +50,8 @@ async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.38"
 async-tar = "0.5"
 async_zip = { version = "0.0", features = ["full"] }
+aws-credential-types = "1"
+aws-sdk-s3 = "1"
 biome_js_formatter = "0.5"
 biome_js_parser = "0.5"
 biome_js_syntax = "0.5"

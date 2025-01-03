@@ -37,7 +37,7 @@ impl Server {
 		S: tg::Handle,
 		D: tg::Handle,
 	{
-		let metadata = src.get_object_metadata(object).await?;
+		let metadata = src.try_get_object_metadata(object).await?;
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({
 			let src = src.clone();
@@ -50,14 +50,14 @@ impl Server {
 					"objects".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
-					metadata.count,
+					metadata.as_ref().and_then(|metadata| metadata.count),
 				);
 				progress.start(
 					"bytes".to_owned(),
 					"bytes".to_owned(),
 					tg::progress::IndicatorFormat::Bytes,
 					Some(0),
-					metadata.weight,
+					metadata.as_ref().and_then(|metadata| metadata.weight),
 				);
 				let result = AssertUnwindSafe(
 					Self::push_or_pull_object_inner(&src, &dst, &object, &progress).map_ok(|_| ()),

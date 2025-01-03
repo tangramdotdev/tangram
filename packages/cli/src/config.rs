@@ -67,6 +67,15 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
+	/// Configure the store.
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub store: Option<Option<Store>>,
+
 	/// Configure tracing.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tracing: Option<Tracing>,
@@ -254,6 +263,24 @@ pub struct ObjectIndexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+pub enum Store {
+	#[default]
+	Memory,
+	S3(S3Store),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct S3Store {
+	pub access_key: Option<String>,
+	pub bucket: String,
+	pub region: Option<String>,
+	pub secret_key: Option<String>,
+	pub url: Url,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

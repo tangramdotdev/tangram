@@ -1,14 +1,17 @@
-use crate::Server;
+use crate::{store::Store, Server};
+use bytes::Bytes;
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
-use indoc::formatdoc;
+use indoc::indoc;
 use num::ToPrimitive as _;
-use std::pin::pin;
+use std::{pin::pin, sync::Arc};
 use tangram_client::{self as tg, Handle as _};
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 use tangram_futures::{read::Ext as _, stream::Ext};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
-use tokio::io::AsyncRead;
+use tokio::{io::AsyncRead, task::JoinSet};
+use tokio_postgres as postgres;
 use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
 impl Server {
@@ -74,8 +77,14 @@ impl Server {
 		})
 		.boxed();
 
+		// Create the stream.
 		let stream = self.extract_object(reader).await?;
-		let mut stream = pin!(stream);
+
+		if let Some(store) = &self.store {
+			let object = self.import_object_inner_store(stream, store).await?;
+			let output = tg::object::import::Output { object };
+			return Ok(output);
+		}
 
 		// Get a database connection.
 		let mut connection = self
@@ -84,29 +93,49 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
+		let object = match connection.as_mut() {
+			Either::Left(connection) => self.import_object_inner_sqlite(stream, connection).await?,
+			Either::Right(connection) => {
+				self.import_object_inner_postgres(stream, connection)
+					.await?
+			},
+		};
+
+		// Drop the database connection.
+		drop(connection);
+
+		let output = tg::object::import::Output { object };
+
+		Ok(output)
+	}
+
+	async fn import_object_inner_sqlite(
+		&self,
+		stream: impl Stream<Item = tg::Result<(tg::object::Id, Bytes)>> + Send + 'static,
+		connection: &mut db::sqlite::Connection,
+	) -> tg::Result<tg::object::Id> {
+		let mut object = None;
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		let mut object = None;
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let statement = "
+			insert into objects (id, bytes, touched_at)
+			values (?1, ?2, ?3)
+			on conflict (id) do update set touched_at = ?3;
+		";
+		let mut stream = pin!(stream);
 		while let Some((id, bytes)) = stream.try_next().await? {
 			if object.is_none() {
 				object.replace(id.clone());
 			}
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					insert into objects (id, bytes, touched_at)
-					values ({p}1, {p}2, {p}3)
-					on conflict (id) do update set touched_at = {p}3;
-				"
-			);
 			let params = db::params![id, bytes, now];
 			transaction
-				.execute(statement, params)
+				.execute(statement.to_owned(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
@@ -119,9 +148,163 @@ impl Server {
 
 		let object = object.ok_or_else(|| tg::error!("the archive is empty"))?;
 
-		let output = tg::object::import::Output { object };
+		Ok(object)
+	}
 
-		Ok(output)
+	async fn import_object_inner_postgres(
+		&self,
+		stream: impl Stream<Item = tg::Result<(tg::object::Id, Bytes)>> + Send + 'static,
+		connection: &mut db::postgres::Connection,
+	) -> tg::Result<tg::object::Id> {
+		let client = connection.client();
+		let mut object = None;
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+
+		let mut stream = pin!(stream);
+		loop {
+			let mut ids = Vec::new();
+			let mut bytes = Vec::new();
+			for _ in 0..500 {
+				let Some((id, bytes_)) = stream.try_next().await? else {
+					break;
+				};
+				if object.is_none() {
+					object.replace(id.clone());
+				}
+				ids.push(id.to_string());
+				bytes.push(bytes_.to_vec());
+			}
+
+			// If there were no objects, then break.
+			if ids.is_empty() {
+				break;
+			}
+
+			// Insert the objects.
+			let statement = indoc!(
+				"
+					insert into objects (id, bytes, touched_at)
+					select id, bytes, $3
+					from unnest($1::text[], $2::blob[]) as t (id, bytes)
+					on conflict (id) do update set touched_at = excluded.touched_at;
+				"
+			);
+			client
+				.execute(statement, &[&ids, &bytes, &now])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Get the root object.
+		let object = object.ok_or_else(|| tg::error!("the archive is empty"))?;
+
+		Ok(object)
+	}
+
+	#[allow(dead_code)]
+	async fn import_object_inner_postgres_with_copy(
+		&self,
+		stream: impl Stream<Item = tg::Result<(tg::object::Id, Bytes)>> + Send + 'static,
+		connection: &mut db::postgres::Connection,
+	) -> tg::Result<tg::object::Id> {
+		let client = connection.client();
+		let mut object = None;
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+
+		let mut stream = pin!(stream);
+		loop {
+			// Create a temporary table to copy the objects to.
+			let statement = indoc!(
+				"
+					create temporary table objects_temporary (id text primary key, bytes blob, touched_at text);
+				"
+			);
+			client
+				.execute(statement, &[])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Create a writer to copy the objects.
+			let sink = client
+				.copy_in("copy objects_temporary (id, bytes, touched_at) from stdin binary")
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let types = &[
+				postgres::types::Type::TEXT,
+				postgres::types::Type::BYTEA,
+				postgres::types::Type::TEXT,
+			];
+			let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(sink, types);
+			let mut writer = pin!(writer);
+			let mut i = 0;
+			while let Some((id, bytes)) = stream.try_next().await? {
+				if i == 1000 {
+					break;
+				}
+				if object.is_none() {
+					object.replace(id.clone());
+				}
+				writer
+					.as_mut()
+					.write(&[&id.to_string(), &bytes.as_ref(), &now])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the row"))?;
+				i += 1;
+			}
+
+			// Finish copying the object.
+			writer
+				.finish()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to finish writing"))?;
+
+			// Move the objects from the temporary table to the objects table.
+			let statement = indoc!(
+				"
+					insert into objects (id, bytes, touched_at)
+					select (id, bytes, touched_at) from objects_temporary
+					on conflict (id) do update set touched_at = excluded.touched_at;
+				"
+			);
+			let n = client
+				.execute(statement, &[])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// If there were no objects moved, then break.
+			if n == 0 {
+				break;
+			}
+		}
+
+		// Get the root object.
+		let object = object.ok_or_else(|| tg::error!("the archive is empty"))?;
+
+		Ok(object)
+	}
+
+	async fn import_object_inner_store(
+		&self,
+		stream: impl Stream<Item = tg::Result<(tg::object::Id, Bytes)>> + Send + 'static,
+		store: &Arc<Store>,
+	) -> tg::Result<tg::object::Id> {
+		let mut object = None;
+		let mut tasks = JoinSet::new();
+		let mut stream = pin!(stream);
+		while let Some((id, bytes)) = stream.try_next().await? {
+			if object.is_none() {
+				object.replace(id.clone());
+			}
+			tasks.spawn({
+				let store = store.clone();
+				async move { store.put(id, bytes).await }
+			});
+		}
+		while let Some(result) = tasks.join_next().await {
+			result.unwrap()?;
+		}
+		let object = object.ok_or_else(|| tg::error!("the archive is empty"))?;
+		Ok(object)
 	}
 }
 
