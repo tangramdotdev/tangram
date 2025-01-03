@@ -769,7 +769,7 @@ async fn import_package_from_current() -> tg::Result<()> {
 		"directory" => temp::directory! {
 			"a" => temp::directory! {
 				"mod.tg.ts" => r#"import * as a from ".";"#,
-				"tangram.ts" => r#""#
+				"tangram.ts" => ""
 			},
 		}
 	};
@@ -926,7 +926,7 @@ async fn import_package_with_type_directory_from_parent() -> tg::Result<()> {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"a" => temp::directory!{
-				"tangram.ts" => r#""#,
+				"tangram.ts" => "",
 			},
 			"tangram.ts" => r#"import a from "./a" with { type: "directory" }"#,
 		}
@@ -1014,7 +1014,7 @@ async fn import_package_from_parent() -> tg::Result<()> {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"a" => temp::directory!{
-				"tangram.ts" => r#""#,
+				"tangram.ts" => "",
 			},
 			"tangram.ts" => r#"import a from "./a"#,
 		}
@@ -1588,11 +1588,11 @@ async fn tagged_package() -> tg::Result<()> {
 	)];
 	let directory = temp::directory! {
 		"tangram.ts" => indoc::indoc!(r#"
-				import a from "a";
-				export default tg.target(async () => {
-					return await a();
-				});
-			"#)
+			import a from "a";
+			export default tg.target(async () => {
+				return await a();
+			});
+		"#)
 	};
 	let assertions = |object: String, _: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
@@ -1663,18 +1663,18 @@ async fn tagged_package_with_cyclic_dependency() -> tg::Result<()> {
 		"a".into(),
 		temp::directory! {
 			"tangram.ts" => indoc::indoc!(r#"
-					import foo from "./foo.tg.ts";
-				"#),
+				import foo from "./foo.tg.ts";
+			"#),
 			"foo.tg.ts" => indoc::indoc!(r#"
-					import * as a from "./tangram.ts";
-				"#),
+				import * as a from "./tangram.ts";
+			"#),
 		},
 	)];
 
 	let directory = temp::directory! {
 		"tangram.ts" => indoc::indoc!(r#"
-				import a from "a";
-			"#),
+			import a from "a";
+		"#),
 	};
 
 	let path = "";
@@ -1804,20 +1804,20 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
 			"b/1.0.0".into(),
 			temp::directory! {
 				"tangram.ts" => indoc!(r#"
-				import * as a from "a/*";
-				import * as foo from "./foo.tg.ts";
-			"#),
+					import * as a from "a/*";
+					import * as foo from "./foo.tg.ts";
+				"#),
 				"foo.tg.ts" => indoc!(r#"
-				import * as b from "./tangram.ts";
-			"#),
+					import * as b from "./tangram.ts";
+				"#),
 			},
 		),
 		(
 			"a/1.1.0".into(),
 			temp::directory! {
 				"tangram.ts" => indoc!(r#"
-				import * as b from "b/*";
-			"#),
+					import * as b from "b/*";
+				"#),
 			},
 		),
 	];
@@ -2063,7 +2063,6 @@ async fn diamond_dependency() -> tg::Result<()> {
 			"a/1.0.0".into(),
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
-					// a/tangram.ts
 					export default tg.target(() => "a/1.0.0");
 				"#),
 			},
@@ -2072,7 +2071,6 @@ async fn diamond_dependency() -> tg::Result<()> {
 			"a/1.1.0".into(),
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
-					// a/tangram.ts
 					export default tg.target(() => "a/1.1.0");
 				"#),
 			},
@@ -2081,7 +2079,6 @@ async fn diamond_dependency() -> tg::Result<()> {
 			"b".into(),
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
-					// b/tangram.ts
 					import a from "a/^1";
 					export default tg.target(() => "b");
 				"#),
@@ -2091,7 +2088,6 @@ async fn diamond_dependency() -> tg::Result<()> {
 			"c".into(),
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
-					// c/tangram.ts
 					import a from "a/^1.0";
 					export default tg.target(() => "c");
 				"#),
@@ -2255,7 +2251,7 @@ async fn tagged_package_reproducible_checkin() -> tg::Result<()> {
 		let tag = "foo";
 		let artifact: temp::Artifact = temp::file!("foo").into();
 		let temp = Temp::new();
-		artifact.to_path(&temp.as_ref()).await.unwrap();
+		artifact.to_path(&temp).await.unwrap();
 		let output = remote_server
 			.tg()
 			.arg("tag")
@@ -2351,13 +2347,13 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 
 		// Publish the referent to server 1.
 		let referent = temp::directory! {
-				"tangram.ts" => indoc::indoc!(r#"
-					export default tg.target(() => "foo")
+			"tangram.ts" => indoc::indoc!(r#"
+				export default tg.target(() => "foo")
 			"#)
 		};
 		let artifact: temp::Artifact = referent.into();
 		let temp = Temp::new();
-		artifact.to_path(&temp.as_ref()).await.unwrap();
+		artifact.to_path(&temp).await.unwrap();
 		let tag = "foo";
 		let output = server1
 			.tg()
@@ -2371,9 +2367,9 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 
 		// Checkin the referrer to server 2.
 		let referrer = temp::directory! {
-				"tangram.ts" => indoc::indoc!(r#"
-					import foo from "foo";
-					export default tg.target(() => foo())
+			"tangram.ts" => indoc::indoc!(r#"
+				import foo from "foo";
+				export default tg.target(() => foo())
 			"#)
 		};
 		let path = "";
@@ -2447,7 +2443,7 @@ async fn test_artifact_checkin_inner(
 	for (tag, artifact) in tags {
 		let artifact: temp::Artifact = artifact.into();
 		let temp = Temp::new();
-		artifact.to_path(&temp.as_ref()).await.unwrap();
+		artifact.to_path(&temp).await.unwrap();
 
 		// Tag the dependency
 		let output = server
@@ -2464,7 +2460,7 @@ async fn test_artifact_checkin_inner(
 	// Write the artifact to a temp.
 	let artifact: temp::Artifact = artifact.into();
 	let temp = Temp::new();
-	artifact.to_path(&temp.as_ref()).await.unwrap();
+	artifact.to_path(&temp).await.unwrap();
 
 	let path = temp.path().join(path);
 

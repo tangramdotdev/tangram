@@ -59,7 +59,7 @@ async fn single() -> tg::Result<()> {
 		let artifact: temp::Artifact = temp::file!("test").into();
 		let temp = Temp::new();
 		let path = temp.path();
-		artifact.to_path(&path).await.unwrap();
+		artifact.to_path(path).await.unwrap();
 
 		// Check in
 		let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
@@ -118,14 +118,14 @@ async fn multiple() -> tg::Result<()> {
 		let artifact: temp::Artifact = temp::file!("Hello, World!").into();
 		let temp = Temp::new();
 		let path = temp.path();
-		artifact.to_path(&path).await.unwrap();
+		artifact.to_path(path).await.unwrap();
 
 		// Check in.
 		let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
 		assert_output_success!(output);
 		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 
-		// Put tags.
+		// Tag the objects on the remote server.
 		let tags = [
 			"foo",
 			"bar",
@@ -138,10 +138,9 @@ async fn multiple() -> tg::Result<()> {
 			"test/world",
 		];
 		for tag in tags {
-			// Tag the objects on the remote server.
 			let artifact: temp::Artifact = temp::file!("Hello, World!").into();
 			let temp = Temp::new();
-			artifact.to_path(&temp.as_ref()).await.unwrap();
+			artifact.to_path(&temp).await.unwrap();
 			let output = server
 				.tg()
 				.arg("tag")
@@ -241,7 +240,7 @@ async fn remote_put() -> tg::Result<()> {
 		let tag = "foo";
 		let artifact: temp::Artifact = temp::file!("foo").into();
 		let temp = Temp::new();
-		artifact.to_path(&temp.as_ref()).await.unwrap();
+		artifact.to_path(&temp).await.unwrap();
 		let output = remote_server
 			.tg()
 			.arg("tag")
@@ -253,22 +252,23 @@ async fn remote_put() -> tg::Result<()> {
 		assert_output_success!(output);
 
 		// Create a local server.
-		let config = tangram_cli::Config {
-			remotes: Some(Some(BTreeMap::from([(
-				"default".to_owned(),
-				Some(tangram_cli::config::Remote {
-					url: remote_server.url().clone(),
-				}),
-			)]))),
-			..Default::default()
-		};
-		let local_server = context.spawn_server_with_config(config).await.unwrap();
+		let local_server = context.spawn_server().await.unwrap();
+		let output = local_server
+			.tg()
+			.arg("remote")
+			.arg("put")
+			.arg("default")
+			.arg(remote_server.url().to_string())
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(output);
 
 		// Tag the objects on the remote server.
 		let tag = "foo";
 		let artifact: temp::Artifact = temp::file!("foo").into();
 		let temp = Temp::new();
-		artifact.to_path(&temp.as_ref()).await.unwrap();
+		artifact.to_path(&temp).await.unwrap();
 		let output = local_server
 			.tg()
 			.arg("tag")

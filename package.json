@@ -6,7 +6,7 @@
 	},
 	"scripts": {
 		"canary": "bun scripts/canary.ts",
-		"check": "cargo clippy --workspace && bun run --filter \"*\" check",
+		"check": "cargo clippy --workspace --all-targets && bun run --filter \"*\" check",
 		"clean": "rm -rf node_modules target",
 		"format": "cargo fmt --all && bun run --filter \"*\" format",
 		"test": "bun run --filter \"*\" test",
