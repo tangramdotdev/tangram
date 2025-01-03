@@ -1,7 +1,8 @@
 use crate::Server;
 use futures::{FutureExt as _, TryStreamExt as _};
 use std::{path::Path, pin::pin};
-use tangram_client::{self as tg, handle::Ext};
+use tangram_client::{self as tg, handle::Ext as _};
+use tangram_futures::stream::Ext as _;
 
 /// Render a value.
 pub async fn render(
@@ -57,19 +58,13 @@ pub async fn try_reuse_build(
 	};
 	let matching_build = tg::Build::with_id(matching_build);
 
-	// Get the outcome.
-	let Some(outcome) = server.get_build_outcome(matching_build.id()).await?.await? else {
-		return Err(tg::error!("failed to get the build outcome"));
-	};
-
 	// Get the build's output.
-	let (tg::build::Outcome::Success(tg::build::outcome::Success { value })
-	| tg::build::Outcome::Failure(tg::build::outcome::Failure {
-		value: Some(value), ..
-	})) = outcome
-	else {
+	let output = server.get_build(matching_build.id()).await?;
+	let Some(value) = output.output else {
 		return Err(tg::error!("failed to get the output"));
 	};
+
+	let value = tg::Value::try_from(value)?;
 
 	// Checksum the output.
 	super::util::checksum(server, &matching_build, &value, checksum)
@@ -173,6 +168,15 @@ pub async fn checksum(
 		..Default::default()
 	};
 	let output = server.build_target(&target_id, arg).await?;
-	server.get_build_outcome(&output.build).await?.await?;
-	Ok(())
+	let Some(stream) = server.try_get_build_status(&output.build).await? else {
+		return Err(tg::error!("failed to get build status"));
+	};
+	let Some(Ok(status)) = pin!(stream).last().await else {
+		return Err(tg::error!("failed to get the last build status"));
+	};
+	if status.is_finished() {
+		Ok(())
+	} else {
+		Err(tg::error!("checksum build failed"))
+	}
 }

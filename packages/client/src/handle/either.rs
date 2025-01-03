@@ -1,4 +1,4 @@
-use crate::{self as tg, handle::Ext as _};
+use crate as tg;
 use futures::{Future, FutureExt as _, Stream};
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};

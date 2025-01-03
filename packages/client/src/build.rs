@@ -1,4 +1,6 @@
 use crate::{self as tg, handle::Ext as _};
+use std::pin::pin;
+use tangram_futures::stream::Ext;
 
 pub use self::{retry::Retry, status::Status};
 
@@ -68,10 +70,10 @@ impl Build {
 	where
 		H: tg::Handle,
 	{
-		let Some(output) = handle.try_get_build(&self.id).await? else {
+		let Some(build) = handle.try_get_build(&self.id).await? else {
 			return Ok(None);
 		};
-		let id = output.target.clone();
+		let id = build.target.clone();
 		let target = tg::Target::with_id(id);
 		Ok(Some(target))
 	}
@@ -80,14 +82,33 @@ impl Build {
 	where
 		H: tg::Handle,
 	{
-		todo!()
+		let Some(stream) = handle.try_get_build_status(&self.id).await? else {
+			return Ok(None);
+		};
+		let Some(Ok(status)) = pin!(stream).last().await else {
+			return Err(tg::error!("failed to get the last build status"));
+		};
+		if status.is_finished() {
+			let build = handle.get_build(&self.id).await?;
+			let Some(output) = build.output else {
+				return Ok(None);
+			};
+			let Ok(value) = output.try_into() else {
+				return Ok(None);
+			};
+			Ok(Some(value))
+		} else {
+			Err(tg::error!("checksum build failed"))
+		}
 	}
 
 	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,
 	{
-		todo!()
+		self.try_get_output(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the build output"))
 	}
 }
 

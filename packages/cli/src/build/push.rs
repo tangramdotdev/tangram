@@ -31,7 +31,7 @@ impl Cli {
 		// Push the build.
 		let arg = tg::build::push::Arg {
 			logs: args.logs,
-			outcomes: true,
+			outputs: true,
 			recursive: args.recursive,
 			remote,
 			targets: args.targets,

@@ -374,7 +374,7 @@ impl Server {
 			});
 		}
 
-		// If the object became complete, then index its builds with incomplete logs, outcomes, or targets.
+		// If the object became complete, then index its builds with incomplete logs, outputs, or targets.
 		if completed {
 			// Get the incomplete builds.
 			let p = connection.p();
@@ -387,7 +387,7 @@ impl Server {
 						build_objects.object = {p}1 and
 						builds.status = 'finished' and (
 							(builds.logs_complete = 0 and builds.log = {p}1) or
-							builds.outcomes_complete = 0 or
+							builds.outputs_complete = 0 or
 							(builds.targets_complete = 0 and builds.target = {p}1)
 						);
 				"

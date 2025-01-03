@@ -118,12 +118,10 @@ impl Server {
 			.map(|id| async move {
 				let build = tg::Build::with_id(id.clone());
 				let arg = tg::build::finish::Arg {
-					outcome: tg::build::outcome::Data::Cancelation(
-						tg::build::outcome::data::Cancelation {
-							reason: Some("the build's heartbeat expired".to_owned()),
-						},
-					),
+					error: Some(tg::error!("the build's heartbeat expired")),
+					output: None,
 					remote: None,
+					status: tg::build::Status::Canceled,
 				};
 				build
 					.finish(self, arg)

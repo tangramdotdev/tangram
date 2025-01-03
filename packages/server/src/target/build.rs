@@ -76,16 +76,16 @@ impl Server {
 			else {
 				break 'a;
 			};
-			let build = tg::Build::with_id(id);
+			let build = tg::Build::with_id(id.clone());
 
 			// Drop the connection.
 			drop(connection);
 
 			// If the build is finished, then verify that the build's outcome satisfies the retry constraint.
-			if status == tg::build::Status::Finished {
-				let outcome = build.get_outcome(self).await?;
-				if let Some(outcome) = outcome {
-					if outcome.retry() <= arg.retry {
+			if status.is_finished() {
+				let output = self.try_get_build(&id).await?;
+				if let Some(output) = output {
+					if output.retry <= arg.retry {
 						break 'a;
 					}
 				}
@@ -191,9 +191,10 @@ impl Server {
 			id: build_id.clone(),
 			children: Vec::new(),
 			depth: 1,
+			error: None,
 			host: host.clone(),
 			log: None,
-			outcome: None,
+			output: None,
 			retry: arg.retry,
 			status: tg::build::Status::Created,
 			target: id.clone(),

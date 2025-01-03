@@ -233,7 +233,7 @@ impl Server {
 			} else {
 				false
 			};
-			if end || status == tg::build::Status::Finished {
+			if end || status.is_finished() {
 				let result = sender.try_send(Ok(tg::build::log::get::Event::End));
 				if result.is_err() {
 					return Ok(());
