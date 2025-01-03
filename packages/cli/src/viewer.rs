@@ -16,7 +16,6 @@ mod tree;
 
 pub struct Viewer<H> {
 	focus: Focus,
-	handle: H,
 	help: Help,
 	stopped: bool,
 	tree: Tree<H>,
@@ -86,7 +85,6 @@ where
 		let tree = Tree::new(handle, item, options);
 		Self {
 			focus: Focus::Tree,
-			handle: handle.clone(),
 			help: Help,
 			stopped: false,
 			tree,
