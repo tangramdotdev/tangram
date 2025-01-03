@@ -171,15 +171,20 @@ pub async fn checksum(
 	let Some(stream) = server.try_get_build_status(&output.build).await? else {
 		return Err(tg::error!("failed to get build status"));
 	};
-	println!("waiting for the last build status");
-	let Some(Ok(status)) = pin!(stream).last().await else {
-		println!("failed");
-		return Err(tg::error!("failed to get the last build status"));
-	};
-	println!("got the last build status: {status:?}");
-	if status.is_finished() {
-		Ok(())
-	} else {
-		Err(tg::error!("checksum build failed"))
+	let mut stream = pin!(stream);
+	while let Some(status) = stream.try_next().await? {
+		if status.is_finished() {
+			return Ok(());
+		}
 	}
+	// let Some(Ok(status)) = pin!(stream).last().await else {
+	// 	println!("failed");
+	// 	return Err(tg::error!("failed to get the last build status"));
+	// };
+	// println!("got the last build status: {status:?}");
+	// if status.is_finished() {
+	// 	Ok(())
+	// } else {
+	Err(tg::error!("checksum build failed"))
+	// }
 }

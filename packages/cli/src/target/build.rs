@@ -405,7 +405,7 @@ impl Cli {
 				}
 			});
 
-			// Wait for the build's outcome.
+			// Wait for the build's output.
 			let output = build.try_get_output(&handle).await;
 
 			// Abort the cancel task.
@@ -416,7 +416,7 @@ impl Cli {
 				tree_task.await.unwrap()?;
 			}
 
-			output.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?
+			output.map_err(|source| tg::error!(!source, "failed to get the build output"))?
 		};
 
 		// Handle a failed build.
@@ -424,7 +424,7 @@ impl Cli {
 			return Err(tg::error!("the build failed"));
 		};
 
-		// Check out the output if requested.
+		// Checkout the output if requested.
 		if let Some(path) = args.checkout {
 			// Get the artifact.
 			let artifact = tg::Artifact::try_from(output.clone())

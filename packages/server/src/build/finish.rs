@@ -218,13 +218,15 @@ impl Server {
 				where id = {p}6;
 			"
 		);
-		let output = if let Some(output) = arg.output {
-			tg::Value::try_from(output)
-		} else {
-			Err(tg::error!("failed to get value"))
-		};
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![log, output, status, error, finished_at, id];
+		let params = db::params![
+			log,
+			db::value::Json(arg.output),
+			status,
+			db::value::Json(error),
+			finished_at,
+			id
+		];
 		connection
 			.execute(statement, params)
 			.await

@@ -41,7 +41,9 @@ impl Server {
 			#[serde(default)]
 			pub count: Option<u64>,
 			pub depth: u64,
-			pub error: Option<tg::Error>,
+			// pub error: Option<db::value::Json<tg::Error>>,
+			pub error: Option<db::value::Json<Option<tg::Error>>>,
+			// pub error: db::value::Json<Option<tg::Error>>,
 			pub host: String,
 			#[serde(default)]
 			pub log: Option<tg::blob::Id>,
@@ -52,7 +54,9 @@ impl Server {
 			#[serde(default)]
 			pub logs_weight: Option<u64>,
 			#[serde(default)]
-			pub output: Option<tg::value::Data>,
+			// pub output: db::value::Json<Option<tg::value::Data>>,
+			pub output: Option<db::value::Json<Option<tg::value::Data>>>,
+			// pub output: Option<db::value::Json<tg::value::Data>>,
 			#[serde(default)]
 			pub outputs_count: Option<u64>,
 			#[serde(default)]
@@ -120,13 +124,22 @@ impl Server {
 			id: row.id,
 			count: row.count,
 			depth: row.depth,
-			error: row.error,
+			error: row.error.map(|error| error.0).and_then(|x| x),
+			// error: row.error.map(|error| {
+			// 	println!("error: {:?}", serde_json::to_string_pretty(&error));
+			// 	error.0
+			// }),
 			host: row.host,
 			log: row.log,
 			logs_count: row.logs_count,
 			logs_depth: row.logs_depth,
 			logs_weight: row.logs_weight,
-			output: row.output,
+			// output: row.output.0,
+			output: row.output.map(|output| output.0).and_then(|x| x),
+			// output: row.output.map(|output| {
+			// 	println!("output: {:?}", serde_json::to_string_pretty(&output));
+			// 	output.0
+			// }),
 			outputs_count: row.outputs_count,
 			outputs_depth: row.outputs_depth,
 			outputs_weight: row.outputs_weight,
