@@ -31,6 +31,7 @@ pub enum Item {
 #[derive(Clone, Debug)]
 pub struct Options {
 	pub collapse_finished_builds: bool,
+	pub expand_on_create: bool,
 	pub hide_build_targets: bool,
 	pub max_depth: Option<u32>,
 }
@@ -164,7 +165,7 @@ where
 	}
 
 	pub async fn run_inline(&mut self, stop: Stop) -> tg::Result<()> {
-		let mut tty = if std::io::stderr().is_terminal() {
+		let mut tty: Option<std::io::Stderr> = if std::io::stderr().is_terminal() {
 			Some(std::io::stderr())
 		} else {
 			None
@@ -200,11 +201,30 @@ where
 			// Sleep. If the tree becomes ready or the task is stopped, then break.
 			let sleep = tokio::time::sleep(Duration::from_millis(100));
 			let ready = self.tree.ready();
-			if let future::Either::Left(_) =
-				future::select(future::select(pin!(ready), pin!(stop.wait())), pin!(sleep)).await
+
+			match future::select(future::select(pin!(ready), pin!(stop.wait())), pin!(sleep)).await
 			{
-				break;
+				future::Either::Left((future::Either::Left(_), _)) => {
+					break;
+				},
+				future::Either::Left((future::Either::Right(_), _)) => {
+					break;
+				},
+				_ => continue,
 			}
+		}
+
+		// Handle any pending updates.
+		self.update();
+
+		// Clear.
+		if let (Some(tty), Some(lines)) = (tty.as_mut(), lines) {
+			ct::queue!(
+				tty,
+				ct::cursor::MoveToPreviousLine(lines),
+				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+			)
+			.unwrap();
 		}
 
 		// Print the tree.
