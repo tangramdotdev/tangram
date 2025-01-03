@@ -59,8 +59,7 @@ async fn accepts_target_with_no_return_value() -> tg::Result<()> {
 		"default",
 		vec![],
 		|_, output| async move {
-			let output: tg::Value = output.unwrap().output.unwrap().try_into().unwrap();
-			assert_snapshot!(output, @r"null");
+			assert!(output.unwrap().output.is_none());
 			Ok::<_, tg::Error>(())
 		},
 	)
