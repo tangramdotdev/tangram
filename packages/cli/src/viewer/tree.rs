@@ -1,5 +1,5 @@
 use super::{Item, Options};
-use crossterm as ct;
+use crossterm::{self as ct, style::Stylize};
 use futures::{TryFutureExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
@@ -25,6 +25,7 @@ pub struct Tree<H> {
 
 struct Node {
 	children: Vec<Rc<RefCell<Self>>>,
+	depth: usize,
 	expand_task: Option<Task<()>>,
 	expanded: bool,
 	indicator: Option<Indicator>,
@@ -48,6 +49,7 @@ pub enum Indicator {
 	Canceled,
 	Failed,
 	Succeeded,
+	Error,
 }
 
 type NodeUpdateSender = std::sync::mpsc::Sender<Box<dyn FnOnce(Rc<RefCell<Node>>)>>;
@@ -118,6 +120,7 @@ where
 	where
 		H: tg::Handle,
 	{
+		let depth = parent.borrow().depth + 1;
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let (ready_sender, _) = tokio::sync::watch::channel(false);
 		let options = parent.borrow().options.clone();
@@ -139,6 +142,7 @@ where
 		};
 		Rc::new(RefCell::new(Node {
 			children: Vec::new(),
+			depth,
 			expand_task,
 			expanded: false,
 			indicator: None,
@@ -177,6 +181,7 @@ where
 			Some(Indicator::Canceled) => Some(crossterm::style::Stylize::yellow('⦻')),
 			Some(Indicator::Failed) => Some(crossterm::style::Stylize::red('✗')),
 			Some(Indicator::Succeeded) => Some(crossterm::style::Stylize::green('✓')),
+			Some(Indicator::Error) => Some(crossterm::style::Stylize::red('?')),
 		};
 		if let Some(indicator) = indicator {
 			title.push_str(&indicator.to_string());
@@ -1183,6 +1188,7 @@ where
 		};
 		let root = Rc::new(RefCell::new(Node {
 			children: Vec::new(),
+			depth: 1,
 			expanded: expand_task.is_some(),
 			expand_task,
 			indicator: None,
@@ -1236,6 +1242,9 @@ where
 			let mut ready = node.borrow().ready_sender.subscribe();
 			ready.wait_for(|ready| *ready).map_ok(|_| ()).await.unwrap();
 			self.update();
+			if let Some(Item::Build(build)) = &node.borrow().item {
+				eprintln!("{build} is ready");
+			}
 			queue.extend(node.borrow().children.iter().cloned());
 		}
 	}
@@ -1291,19 +1300,20 @@ where
 
 			let indicator = match node.borrow().indicator {
 				None => None,
-				Some(Indicator::Created) => Some("⟳".yellow()),
-				Some(Indicator::Dequeued) => Some("•".yellow()),
+				Some(Indicator::Created) => Some('⟳'.yellow()),
+				Some(Indicator::Dequeued) => Some('•'.yellow()),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();
-					Some(SPINNER[position].to_string().blue())
+					Some(SPINNER[position].blue())
 				},
-				Some(Indicator::Canceled) => Some("⦻".yellow()),
-				Some(Indicator::Failed) => Some("✗".red()),
-				Some(Indicator::Succeeded) => Some("✓".green()),
+				Some(Indicator::Canceled) => Some('⦻'.yellow()),
+				Some(Indicator::Failed) => Some('✗'.red()),
+				Some(Indicator::Succeeded) => Some('✓'.green()),
+				Some(Indicator::Error) => Some('?'.red()),
 			};
 			if let Some(indicator) = indicator {
-				line.push_span(indicator);
+				line.push_span(indicator.to_string());
 				line.push_span(" ");
 			}
 
@@ -1332,7 +1342,7 @@ where
 		};
 		if let Err(error) = result {
 			let update = move |node: Rc<RefCell<Node>>| {
-				node.borrow_mut().indicator.replace(Indicator::Failed);
+				node.borrow_mut().indicator.replace(Indicator::Error);
 				node.borrow_mut().title = error.to_string();
 			};
 			update_sender.send(Box::new(update)).ok();
