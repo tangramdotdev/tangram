@@ -124,28 +124,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the data directory"))?;
 
 		// Create the command.
-		let log_path = temp.path().join(".tangram/log");
-		let stdout = tokio::fs::OpenOptions::new()
-			.create(true)
-			.write(true)
-			.truncate(true)
-			.open(&log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
-			.into_std()
-			.await;
-		let stderr = tokio::fs::OpenOptions::new()
-			.create(true)
-			.write(true)
-			.truncate(true)
-			.open(&log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
-			.into_std()
-			.await;
 		let mut command = tokio::process::Command::new(tg);
-		command.stdout(stdout);
-		command.stderr(stderr);
+		command.stdout(std::process::Stdio::inherit());
+		command.stderr(std::process::Stdio::inherit());
 		command.arg("--config");
 		command.arg(&config_path);
 		command.arg("--path");
