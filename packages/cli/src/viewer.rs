@@ -221,10 +221,11 @@ where
 			.unwrap();
 		}
 
-		// Print the tree.
-		println!("{}", self.tree.display());
-
 		Ok(())
+	}
+
+	pub fn tree(&self) -> &Tree<H> {
+		&self.tree
 	}
 
 	pub fn update(&mut self) {

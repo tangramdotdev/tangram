@@ -63,7 +63,7 @@ pub struct Args {
 	pub tag: Option<tg::Tag>,
 
 	/// Choose the view.
-	#[arg(long, default_value = "none")]
+	#[arg(long, default_value = "inline")]
 	pub view: View,
 }
 
