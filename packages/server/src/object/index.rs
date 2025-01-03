@@ -65,6 +65,7 @@ impl Server {
 						where
 							index_status = 'enqueued' or
 							(index_status = 'started' and index_started_at <= {p}2)
+						order by index_enqueued_at
 						limit {p}3
 					)
 					returning id;
@@ -473,13 +474,15 @@ impl Server {
 						update objects
 						set
 							index_status = 'enqueued',
-							index_started_at = null
+							index_started_at = null,
+							index_enqueued_at = {p}2
 						where
 							id = {p}1 and
 							index_status is null;
 					"
 				);
-				let params = db::params![id];
+				let now = (time::OffsetDateTime::now_utc()).format(&Rfc3339).unwrap();
+				let params = db::params![id, now];
 				transaction
 					.execute(statement, params)
 					.await

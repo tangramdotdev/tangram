@@ -166,11 +166,14 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				depth integer,
 				index_status text,
 				index_started_at text,
+				index_enqueued_at text,
 				touched_at text,
 				weight integer
 			);
 
 			create index objects_index_status_index on objects (index_status, index_started_at);
+
+			create index objects_index_enqueued_at_index on objects (index_enqueued_at);
 
 			create table object_children (
 				object text not null,
