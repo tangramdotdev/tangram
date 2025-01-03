@@ -66,6 +66,7 @@ impl Cli {
 				.block_on(async move {
 					let options = crate::viewer::Options {
 						collapse_finished_builds: false,
+						expand_on_create: true,
 						hide_build_targets: false,
 						max_depth: None,
 					};

@@ -110,19 +110,36 @@ where
 	}
 
 	fn create_node(
+		handle: &H,
 		parent: &Rc<RefCell<Node>>,
 		label: Option<String>,
 		item: Option<&Item>,
-	) -> Rc<RefCell<Node>> {
+	) -> Rc<RefCell<Node>>
+	where
+		H: tg::Handle,
+	{
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let (ready_sender, _) = tokio::sync::watch::channel(false);
 		let options = parent.borrow().options.clone();
 		let parent = Rc::downgrade(parent);
 		let title = item.map_or(String::new(), |item| Self::item_title(item));
 
+		let expand_task = match (item, options.expand_on_create) {
+			(Some(item), true) => {
+				let handle = handle.clone();
+				let item = item.clone();
+				let ready_sender = ready_sender.clone();
+				let update_sender = update_sender.clone();
+				let task = Task::spawn_local(|_| async move {
+					Self::expand_task(&handle, item, update_sender, ready_sender).await;
+				});
+				Some(task)
+			},
+			_ => None,
+		};
 		Rc::new(RefCell::new(Node {
 			children: Vec::new(),
-			expand_task: None,
+			expand_task,
 			expanded: false,
 			indicator: None,
 			item: item.cloned(),
@@ -193,7 +210,7 @@ where
 		}
 	}
 
-	fn expand(&mut self) {
+	pub(crate) fn expand(&mut self) {
 		let mut node = self.selected.borrow_mut();
 		let Some(item) = node.item.clone() else {
 			return;
@@ -256,14 +273,15 @@ where
 	}
 
 	async fn expand_array(
-		_handle: &H,
+		handle: &H,
 		array: tg::value::Array,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let update = |node: Rc<RefCell<Node>>| {
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
 			for value in array {
 				let item = Item::Value(value);
-				let child = Self::create_node(&node, None, Some(&item));
+				let child = Self::create_node(&handle, &node, None, Some(&item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -286,10 +304,11 @@ where
 		branch.unload();
 
 		// Convert to a value and send the update.
+		let handle = handle.clone();
 		let value = tg::Value::Array(children);
-		let update = |node: Rc<RefCell<Node>>| {
+		let update = move |node: Rc<RefCell<Node>>| {
 			let item = Item::Value(value);
-			let child = Self::create_node(&node, Some("children".to_owned()), Some(&item));
+			let child = Self::create_node(&handle, &node, Some("children".to_owned()), Some(&item));
 			node.borrow_mut().children.push(child);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -360,7 +379,7 @@ where
 			let update = move |node: Rc<RefCell<Node>>| {
 				node.borrow_mut().indicator.replace(indicator);
 			};
-			update_sender.send(Box::new(update)).unwrap();
+			update_sender.send(Box::new(update)).ok();
 		}
 
 		Ok(())
@@ -379,6 +398,7 @@ where
 			let chunk = String::from_utf8_lossy(&chunk.bytes);
 			for line in chunk.lines() {
 				let line = line.to_owned();
+				let handle = handle.clone();
 				let update = move |node: Rc<RefCell<Node>>| {
 					// Get or create the log node.
 					let log_node = node
@@ -387,7 +407,7 @@ where
 						.iter()
 						.position(|node| node.borrow().label.as_deref() == Some("log"));
 					let log_node = log_node.unwrap_or_else(|| {
-						let child = Self::create_node(&node, Some("log".to_owned()), None);
+						let child = Self::create_node(&handle, &node, Some("log".to_owned()), None);
 						let index = node.borrow().children.len();
 						node.borrow_mut().children.push(child);
 						index
@@ -421,16 +441,26 @@ where
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().log_task.replace(log_task);
 		};
-		update_sender.send(Box::new(update)).unwrap();			
+		update_sender.send(Box::new(update)).unwrap();
 
 		let target = build.target(handle).await?;
 		let value = tg::Value::Object(target.into());
 		update_sender
-			.send(Box::new(move |node| {
-				let child =
-					Self::create_node(&node, Some("target".to_owned()), Some(&Item::Value(value)));
-				node.borrow_mut().children.push(child);
-			}))
+			.send({
+				let handle = handle.clone();
+				Box::new(move |node| {
+					if node.borrow().options.hide_build_targets {
+						return;
+					}
+					let child = Self::create_node(
+						&handle,
+						&node,
+						Some("target".to_owned()),
+						Some(&Item::Value(value)),
+					);
+					node.borrow_mut().children.push(child);
+				})
+			})
 			.unwrap();
 
 		// Create the children stream.
@@ -447,7 +477,8 @@ where
 					.iter()
 					.position(|node| node.borrow().label.as_deref() == Some("children"));
 				let children_node = children_node.unwrap_or_else(|| {
-					let child = Self::create_node(&node, Some("children".to_owned()), None);
+					let child =
+						Self::create_node(&handle, &node, Some("children".to_owned()), None);
 					let index = node.borrow().children.len();
 					node.borrow_mut().children.push(child);
 					index
@@ -456,7 +487,7 @@ where
 
 				// Create the child.
 				let item = Item::Build(build.clone());
-				let child = Self::create_node(&children_node, None, Some(&item));
+				let child = Self::create_node(&handle, &children_node, None, Some(&item));
 
 				// Create the update task.
 				let update_task = Task::spawn_local({
@@ -469,7 +500,7 @@ where
 					}
 				});
 				child.borrow_mut().update_task.replace(update_task);
-				
+
 				// Add the child to the children node.
 				children_node.borrow_mut().children.push(child);
 			};
@@ -509,7 +540,7 @@ where
 		Some(title)
 	}
 
-	async fn handle_directory(
+	async fn expand_directory(
 		handle: &H,
 		directory: tg::Directory,
 		update_sender: NodeUpdateSender,
@@ -536,10 +567,11 @@ where
 		directory.unload();
 
 		// Send the update.
-		let update = |node: Rc<RefCell<Node>>| {
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
 				let item = Item::Value(child);
-				let child = Self::create_node(&node, Some(name), Some(&item));
+				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -547,12 +579,13 @@ where
 		Ok(())
 	}
 
-	async fn handle_file(
+	async fn expand_file(
 		handle: &H,
 		file: tg::File,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		let object = file.object(handle).await?;
+
 		let children = match object.as_ref() {
 			tg::file::Object::Graph { graph, node } => [
 				("graph".to_owned(), tg::Value::Object(graph.clone().into())),
@@ -603,10 +636,11 @@ where
 		file.unload();
 
 		// Send the update.
-		let update = |node: Rc<RefCell<Node>>| {
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
 				let item = Item::Value(child);
-				let child = Self::create_node(&node, Some(name), Some(&item));
+				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -614,7 +648,7 @@ where
 		Ok(())
 	}
 
-	async fn handle_graph(
+	async fn expand_graph(
 		handle: &H,
 		graph: tg::Graph,
 		update_sender: NodeUpdateSender,
@@ -710,17 +744,18 @@ where
 			.collect();
 
 		// Convert to a value and send the update.
+		let handle = handle.clone();
 		let value = tg::Value::Array(nodes);
-		let update = |node: Rc<RefCell<Node>>| {
+		let update = move |node: Rc<RefCell<Node>>| {
 			let item = Item::Value(value);
-			let child = Self::create_node(&node, Some("nodes".to_owned()), Some(&item));
+			let child = Self::create_node(&handle, &node, Some("nodes".to_owned()), Some(&item));
 			node.borrow_mut().children.push(child);
 		};
 		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
-	async fn handle_leaf(
+	async fn expand_leaf(
 		_handle: &H,
 		_leaf: tg::Leaf,
 		_update_sender: NodeUpdateSender,
@@ -729,14 +764,15 @@ where
 	}
 
 	async fn expand_map(
-		_handle: &H,
+		handle: &H,
 		map: tg::value::Map,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let update = |node: Rc<RefCell<Node>>| {
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, value) in map {
 				let item = Item::Value(value);
-				let child = Self::create_node(&node, Some(name), Some(&item));
+				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -745,7 +781,7 @@ where
 	}
 
 	async fn expand_mutation(
-		_handle: &H,
+		handle: &H,
 		value: tg::Mutation,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
@@ -803,10 +839,11 @@ where
 				.collect(),
 		};
 
-		let update = |node: Rc<RefCell<Node>>| {
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
 				let item = Item::Value(child);
-				let child = Self::create_node(&node, Some(name), Some(&item));
+				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -821,31 +858,31 @@ where
 	) -> tg::Result<()> {
 		match object {
 			tg::Object::Leaf(leaf) => {
-				Self::handle_leaf(handle, leaf, update_sender).await?;
+				Self::expand_leaf(handle, leaf, update_sender).await?;
 			},
 			tg::Object::Branch(branch) => {
 				Self::expand_branch(handle, branch, update_sender).await?;
 			},
 			tg::Object::Directory(directory) => {
-				Self::handle_directory(handle, directory, update_sender).await?;
+				Self::expand_directory(handle, directory, update_sender).await?;
 			},
 			tg::Object::File(file) => {
-				Self::handle_file(handle, file, update_sender).await?;
+				Self::expand_file(handle, file, update_sender).await?;
 			},
 			tg::Object::Symlink(symlink) => {
-				Self::handle_symlink(handle, symlink, update_sender).await?;
+				Self::expand_symlink(handle, symlink, update_sender).await?;
 			},
 			tg::Object::Graph(graph) => {
-				Self::handle_graph(handle, graph, update_sender).await?;
+				Self::expand_graph(handle, graph, update_sender).await?;
 			},
 			tg::Object::Target(target) => {
-				Self::handle_target(handle, target, update_sender).await?;
+				Self::expand_target(handle, target, update_sender).await?;
 			},
 		}
 		Ok(())
 	}
 
-	async fn handle_symlink(
+	async fn expand_symlink(
 		handle: &H,
 		symlink: tg::Symlink,
 		update_sender: NodeUpdateSender,
@@ -878,10 +915,11 @@ where
 		symlink.unload();
 
 		// Send the update.
-		let update = |node: Rc<RefCell<Node>>| {
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
 				let item = Item::Value(child);
-				let child = Self::create_node(&node, Some(name), Some(&item));
+				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -890,7 +928,7 @@ where
 		Ok(())
 	}
 
-	async fn handle_target(
+	async fn expand_target(
 		handle: &H,
 		target: tg::Target,
 		update_sender: NodeUpdateSender,
@@ -942,11 +980,12 @@ where
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
 		target.unload();
 
-		// Send the update.;
-		let update = |node: Rc<RefCell<Node>>| {
+		// Send the update.
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
 				let item = Item::Value(child);
-				let child = Self::create_node(&node, Some(name), Some(&item));
+				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -955,7 +994,7 @@ where
 	}
 
 	async fn expand_template(
-		_handle: &H,
+		handle: &H,
 		template: tg::Template,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
@@ -978,9 +1017,11 @@ where
 			})
 			.collect();
 		let value = tg::Value::Array(array);
-		let update = |node: Rc<RefCell<Node>>| {
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
 			let item = Item::Value(value);
-			let child = Self::create_node(&node, Some("components".to_owned()), Some(&item));
+			let child =
+				Self::create_node(&handle, &node, Some("components".to_owned()), Some(&item));
 			node.borrow_mut().children.push(child);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -1108,6 +1149,19 @@ where
 		let (ready_sender, _) = tokio::sync::watch::channel(false);
 		let title = Self::item_title(&item);
 
+		let expand_task = if options.expand_on_create {
+			let handle = handle.clone();
+			let item = item.clone();
+			let ready_sender = ready_sender.clone();
+			let update_sender = update_sender.clone();
+			let task = Task::spawn_local(|_| async move {
+				Self::expand_task(&handle, item, update_sender, ready_sender).await;
+			});
+			Some(task)
+		} else {
+			None
+		};
+
 		let update_task = if let Item::Build(build) = &item {
 			// Create the update task.
 			let update_task = Task::spawn_local({
@@ -1128,7 +1182,7 @@ where
 
 		let root = Rc::new(RefCell::new(Node {
 			children: Vec::new(),
-			expand_task: None,
+			expand_task,
 			expanded: false,
 			indicator: None,
 			item: Some(item),
@@ -1266,10 +1320,17 @@ where
 		update_sender: NodeUpdateSender,
 		ready_sender: tokio::sync::watch::Sender<bool>,
 	) {
-		let _result = match item {
-			Item::Build(build) => Self::expand_build(handle, build, update_sender).await,
-			Item::Value(value) => Self::expand_value(handle, value, update_sender).await,
+		let result = match item {
+			Item::Build(build) => Self::expand_build(handle, build, update_sender.clone()).await,
+			Item::Value(value) => Self::expand_value(handle, value, update_sender.clone()).await,
 		};
+		if let Err(error) = result {
+			let update = move |node: Rc<RefCell<Node>>| {
+				node.borrow_mut().indicator.replace(Indicator::Failed);
+				node.borrow_mut().title = error.to_string();
+			};
+			update_sender.send(Box::new(update)).ok();
+		}
 		ready_sender.send_replace(true);
 	}
 
