@@ -199,8 +199,8 @@ where
 			}
 
 			// Sleep. If the tree becomes ready or the task is stopped, then break.
-			let sleep = tokio::time::sleep(Duration::from_millis(100));
 			let ready = self.tree.ready();
+			let sleep = tokio::time::sleep(Duration::from_millis(100));
 
 			match future::select(future::select(pin!(ready), pin!(stop.wait())), pin!(sleep)).await
 			{
