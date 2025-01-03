@@ -11,8 +11,6 @@ use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
 mod lockfile;
-#[cfg(test)]
-mod tests;
 
 #[derive(Clone, Debug)]
 struct State {

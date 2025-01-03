@@ -1,10 +1,6 @@
 use indoc::indoc;
-use insta::{assert_json_snapshot, assert_snapshot};
-use std::{collections::BTreeMap, future::Future, path::Path};
-use tangram_cli::{
-	assert_output_success,
-	test::{test, Server},
-};
+use std::collections::BTreeMap;
+use tangram_cli::{assert_output_success, test::test};
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
@@ -12,10 +8,113 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
 async fn push_file() -> tg::Result<()> {
-	todo!()
+	let build = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default tg.target(() => {
+				return tg.file("Hello, World!")
+			})
+	"#),
+	};
+	test_object_push(build).await?;
+	Ok(())
 }
 
 #[tokio::test]
 async fn push_simple_directory() -> tg::Result<()> {
-	todo!()
+	let build = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default tg.target(() => {
+				return tg.directory({
+					"hello.txt": tg.file("Hello, world!"),
+					"subdirectory": tg.directory({
+						"nested.txt": tg.file("I'm nested!")
+					})
+				})
+			})
+		"#)
+	};
+	test_object_push(build).await?;
+	Ok(())
+}
+
+async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) -> tg::Result<()> {
+	test(TG, move |context| async move {
+		let mut context = context.lock().await;
+		// Create a remote server.
+		let remote_server = context.spawn_server().await.unwrap();
+
+		// Create a local server.
+		let config = tangram_cli::Config {
+			remotes: Some(Some(BTreeMap::from([(
+				"default".to_owned(),
+				Some(tangram_cli::config::Remote {
+					url: remote_server.url().clone(),
+				}),
+			)]))),
+			..Default::default()
+		};
+		let local_server = context.spawn_server_with_config(config).await.unwrap();
+
+		let artifact: temp::Artifact = artifact.into();
+
+		let artifact_temp = Temp::new();
+		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
+
+		// Build the module.
+		let output = local_server
+			.tg()
+			.arg("build")
+			.arg("--quiet")
+			.arg(artifact_temp.path())
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(output);
+
+		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
+
+		// Push the object.
+		let output = local_server
+			.tg()
+			.arg("push")
+			.arg(id)
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(output);
+
+		// Confirm the object is on the remote and the same.
+		let local_object_output = local_server
+			.tg()
+			.arg("get")
+			.arg(id)
+			.arg("--format")
+			.arg("tgvn")
+			.arg("--pretty")
+			.arg("true")
+			.arg("--recursive")
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(local_object_output);
+		let remote_object_output = local_server
+			.tg()
+			.arg("get")
+			.arg(id)
+			.arg("--format")
+			.arg("tgvn")
+			.arg("--pretty")
+			.arg("true")
+			.arg("--recursive")
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(remote_object_output);
+
+		let local_object = std::str::from_utf8(&local_object_output.stdout).unwrap();
+		let remote_object = std::str::from_utf8(&remote_object_output.stdout).unwrap();
+		assert_eq!(local_object, remote_object);
+	})
+	.await;
+	Ok(())
 }

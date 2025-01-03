@@ -1,5 +1,4 @@
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
-use itertools::Itertools;
 use std::{
 	borrow::Cow,
 	collections::BTreeMap,
