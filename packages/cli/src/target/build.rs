@@ -392,12 +392,13 @@ impl Cli {
 						.block_on(async move {
 							let options = crate::viewer::Options {
 								collapse_finished_builds: true,
-								expand_on_create: false,
+								expand_on_create: true,
 								hide_build_targets: true,
 								max_depth: None,
 							};
 							let item = crate::viewer::Item::Build(build);
 							let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
+
 							match args.view {
 								View::None => (),
 								View::Inline => {

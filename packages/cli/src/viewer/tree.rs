@@ -1,6 +1,6 @@
 use super::{Item, Options};
 use crossterm as ct;
-use futures::{Future, TryFutureExt as _, TryStreamExt as _};
+use futures::{TryFutureExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
@@ -160,7 +160,7 @@ where
 			.duration_since(std::time::UNIX_EPOCH)
 			.unwrap()
 			.as_millis();
-		Self::display_node(&self.roots.last().unwrap(), now)
+		Self::display_node(self.roots.last().unwrap(), now)
 	}
 
 	fn display_node(node: &Rc<RefCell<Node>>, now: u128) -> Display {
@@ -180,7 +180,7 @@ where
 		};
 		if let Some(indicator) = indicator {
 			title.push_str(&indicator.to_string());
-			title.push_str(" ");
+			title.push(' ');
 		}
 		if let Some(label) = node.borrow().label.clone() {
 			title.push_str(&label);
@@ -352,12 +352,9 @@ where
 							};
 
 							// Find this build as a child of the parent.
-							let Some(index) = parent.borrow().children.iter().position(|child| {
-								match &child.borrow().item {
-									Some(Item::Build(build)) if build.id() == &id => true,
-									_ => false,
-								}
-							}) else {
+							let Some(index) = parent.borrow().children.iter().position(
+								|child| matches!(&child.borrow().item, Some(Item::Build(build)) if build.id() == &id),
+							) else {
 								return;
 							};
 
@@ -487,7 +484,7 @@ where
 
 				// Create the child.
 				let item = Item::Build(build.clone());
-				let child = Self::create_node(&handle, &children_node, None, Some(&item));
+				let child = Self::create_node(&handle, children_node, None, Some(&item));
 
 				// Create the update task.
 				let update_task = Task::spawn_local({
@@ -522,8 +519,7 @@ where
 						.referent
 						.subpath
 						.as_ref()
-						.map(|subpath| path.join(subpath))
-						.unwrap_or_else(|| path.to_owned());
+						.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
 					write!(title, "{} ", path.display()).unwrap();
 				} else if let Some(tag) = &module.referent.tag {
 					write!(title, "{tag} ").unwrap();
@@ -533,7 +529,11 @@ where
 			_ => (),
 		};
 
-		if let Some(tg::Value::String(arg0)) = args.get(0) {
+		let host = target.host(handle).await.ok();
+		let host = host.as_deref();
+		if let (Some(tg::Value::String(arg0)), Some("js")) =
+			(args.first(), host.map(String::as_str))
+		{
 			write!(title, "{arg0}").unwrap();
 		}
 
@@ -628,7 +628,7 @@ where
 					})
 					.collect::<BTreeMap<_, _>>();
 				if !dependencies.is_empty() {
-					children.push(("dependencies".to_owned(), tg::Value::Map(dependencies)))
+					children.push(("dependencies".to_owned(), tg::Value::Map(dependencies)));
 				}
 				children
 			},
@@ -805,7 +805,7 @@ where
 				children
 			},
 			tg::Mutation::Prepend { values } => [
-				("kind".to_owned(), tg::Value::String("append".to_owned())),
+				("kind".to_owned(), tg::Value::String("prepend".to_owned())),
 				("values".to_owned(), tg::Value::Array(values)),
 			]
 			.into_iter()
@@ -817,7 +817,10 @@ where
 			.into_iter()
 			.collect(),
 			tg::Mutation::SetIfUnset { value } => [
-				("kind".to_owned(), tg::Value::String("set".to_owned())),
+				(
+					"kind".to_owned(),
+					tg::Value::String("set_if_unset".to_owned()),
+				),
 				("value".to_owned(), *value),
 			]
 			.into_iter()
@@ -827,7 +830,7 @@ where
 				template,
 			} => {
 				let mut children = Vec::new();
-				children.push(("kind".to_owned(), tg::Value::String("prefix".to_owned())));
+				children.push(("kind".to_owned(), tg::Value::String("suffix".to_owned())));
 				if let Some(separator) = separator {
 					children.push(("separator".to_owned(), tg::Value::String(separator)));
 				}
@@ -1148,7 +1151,6 @@ where
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let (ready_sender, _) = tokio::sync::watch::channel(false);
 		let title = Self::item_title(&item);
-
 		let expand_task = if options.expand_on_create {
 			let handle = handle.clone();
 			let item = item.clone();
@@ -1179,11 +1181,10 @@ where
 		} else {
 			None
 		};
-
 		let root = Rc::new(RefCell::new(Node {
 			children: Vec::new(),
+			expanded: expand_task.is_some(),
 			expand_task,
-			expanded: false,
 			indicator: None,
 			item: Some(item),
 			label: None,
