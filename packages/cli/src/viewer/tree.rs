@@ -5,7 +5,7 @@ use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
 	cell::RefCell,
-	collections::BTreeMap,
+	collections::{BTreeMap, VecDeque},
 	fmt::Write,
 	rc::{Rc, Weak},
 };
@@ -1229,9 +1229,14 @@ where
 		}
 	}
 
-	pub fn ready(&self) -> impl Future<Output = ()> + Send + 'static {
-		let mut ready = self.roots.last().unwrap().borrow().ready_sender.subscribe();
-		async move { ready.wait_for(|ready| *ready).map_ok(|_| ()).await.unwrap() }
+	pub async fn ready(&mut self) {
+		let mut queue = VecDeque::from([self.roots.last().unwrap().clone()]);
+		while let Some(node) = queue.pop_front() {
+			let mut ready = node.borrow().ready_sender.subscribe();
+			ready.wait_for(|ready| *ready).map_ok(|_| ()).await.unwrap();
+			self.update();
+			queue.extend(node.borrow().children.iter().cloned());
+		}
 	}
 
 	pub fn render(&mut self, rect: Rect, buffer: &mut Buffer) {
