@@ -5,7 +5,7 @@ use itertools::Itertools as _;
 use std::time::Duration;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
-use tangram_futures::task::Stop;
+use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
@@ -53,7 +53,6 @@ impl Server {
 		let server = self.clone();
 		let id = id.clone();
 		let mut previous: Option<tg::build::Status> = None;
-		let mut end = false;
 		let stream = stream::select(status, interval)
 			.boxed()
 			.then(move |()| {
@@ -74,14 +73,11 @@ impl Server {
 					},
 				})
 			})
-			.take_while(move |result| {
-				if end {
-					return future::ready(false);
-				}
-				if matches!(result, Ok(tangram_client::build::Status::Finished)) {
-					end = true;
-				}
-				future::ready(true)
+			.take_while_inclusive(move |result| {
+				future::ready(!matches!(
+					result,
+					Ok(tangram_client::build::Status::Finished)
+				))
 			})
 			.map_ok(tg::build::status::Event::Status)
 			.chain(stream::once(future::ok(tg::build::status::Event::End)));
