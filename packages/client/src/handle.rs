@@ -126,15 +126,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::build::log::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn try_get_build_outcome_future(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
-		>,
-	> + Send;
-
 	fn finish_build(
 		&self,
 		id: &tg::build::Id,

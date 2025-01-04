@@ -148,14 +148,14 @@ impl InfoViewExt for tg::build::get::Output {
 		if let Some(logs_weight) = self.logs_weight {
 			rows.push(("logs_weight", logs_weight.to_string()));
 		}
-		if let Some(outcome) = &self.outcome {
-			rows.push(("outcome", serde_json::to_string(outcome).unwrap()));
+		if let Some(output) = &self.output {
+			rows.push(("output", serde_json::to_string(output).unwrap()));
 		}
-		if let Some(outcomes_count) = self.outcomes_count {
-			rows.push(("outcomes_count", outcomes_count.to_string()));
+		if let Some(outputs_count) = self.outputs_count {
+			rows.push(("outputs_count", outputs_count.to_string()));
 		}
-		if let Some(outcomes_weight) = self.outcomes_weight {
-			rows.push(("outcomes_weight", outcomes_weight.to_string()));
+		if let Some(outputs_weight) = self.outputs_weight {
+			rows.push(("outputs_weight", outputs_weight.to_string()));
 		}
 		if let Some(targets_count) = self.targets_count {
 			rows.push(("targets_count", targets_count.to_string()));

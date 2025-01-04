@@ -119,19 +119,17 @@ impl Server {
 
 		// Build.
 		let result = self.build_task_inner(build.clone(), remote.clone()).await;
-		let outcome = match result {
-			Ok(outcome) => outcome,
-			Err(error) => {
-				tg::build::Outcome::Failure(tg::build::outcome::Failure { error, value: None })
-			},
+		let (output, status, error) = match result {
+			Ok(output) => (Some(output), tg::build::Status::Succeeded, None),
+			Err(error) => (None, tg::build::Status::Failed, Some(error)),
 		};
-		let outcome = outcome.data(self).await?;
 
 		// Push the output if the build is remote.
 		if let Some(remote) = remote.clone() {
-			if let tg::build::outcome::Data::Success(success) = &outcome {
+			if status.is_succeeded() {
+				let value = output.clone().unwrap();
 				let arg = tg::object::push::Arg { remote };
-				tg::Value::try_from(success.value.clone())?
+				value
 					.objects()
 					.iter()
 					.map(|object| object.push(self, arg.clone()))
@@ -141,10 +139,18 @@ impl Server {
 			}
 		}
 
+		// Get the output data.
+		let output = match &output {
+			Some(output) => Some(output.data(self).await?),
+			None => None,
+		};
+
 		// Finish the build.
 		let arg = tg::build::finish::Arg {
-			outcome,
+			error,
+			output,
 			remote: remote.clone(),
+			status,
 		};
 		build
 			.finish(self, arg)
@@ -158,7 +164,7 @@ impl Server {
 		&self,
 		build: tg::Build,
 		remote: Option<String>,
-	) -> tg::Result<tg::build::Outcome> {
+	) -> tg::Result<tg::Value> {
 		// Get the runtime.
 		let target = build.target(self).await?;
 		let host = target.host(self).await?;
@@ -187,15 +193,7 @@ impl Server {
 			build.add_log(self, arg).await?;
 		}
 
-		// Create the outcome.
-		let outcome = match result {
-			Ok(value) => tg::build::Outcome::Success(tg::build::outcome::Success { value }),
-			Err(error) => {
-				tg::build::Outcome::Failure(tg::build::outcome::Failure { error, value: None })
-			},
-		};
-
-		Ok(outcome)
+		result
 	}
 
 	async fn heartbeat_task(&self, build: tg::Build, remote: Option<String>) -> tg::Result<()> {

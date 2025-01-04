@@ -78,8 +78,10 @@ impl Server {
 				if end {
 					return future::ready(false);
 				}
-				if matches!(result, Ok(tangram_client::build::Status::Finished)) {
-					end = true;
+				if let Ok(result) = result {
+					if result.is_finished() {
+						end = true;
+					}
 				}
 				future::ready(true)
 			})

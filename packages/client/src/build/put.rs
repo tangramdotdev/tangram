@@ -10,16 +10,21 @@ pub struct Arg {
 	pub id: tg::build::Id,
 	pub children: Vec<tg::build::Id>,
 	pub depth: u64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::Error>,
 	pub host: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcome: Option<tg::build::outcome::Data>,
+	pub output: Option<tg::value::Data>,
 	pub retry: tg::build::Retry,
 	pub status: tg::build::Status,
 	pub target: tg::target::Id,
 	#[serde_as(as = "Rfc3339")]
 	pub created_at: time::OffsetDateTime,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Rfc3339>")]
+	pub enqueued_at: Option<time::OffsetDateTime>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub dequeued_at: Option<time::OffsetDateTime>,
@@ -43,7 +48,7 @@ pub struct Incomplete {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub log: bool,
 	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-	pub outcome: BTreeSet<tg::object::Id>,
+	pub output: BTreeSet<tg::object::Id>,
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub target: bool,
 }
@@ -56,7 +61,7 @@ pub struct IncompleteChild {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub logs: bool,
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub outcomes: bool,
+	pub outputs: bool,
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub targets: bool,
 }
@@ -64,20 +69,14 @@ pub struct IncompleteChild {
 impl Arg {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
 		let log = self.log.iter().map(|id| id.clone().into());
-		let outcome = self
-			.outcome
+		let output = self
+			.output
 			.as_ref()
-			.map(|outcome| {
-				outcome
-					.try_unwrap_success_ref()
-					.ok()
-					.map(|success| success.value.children())
-					.unwrap_or_default()
-			})
+			.map(tg::value::data::Data::children)
 			.into_iter()
 			.flatten();
 		let target = std::iter::once(self.target.clone().into());
-		log.chain(outcome).chain(target).collect()
+		log.chain(output).chain(target).collect()
 	}
 }
 

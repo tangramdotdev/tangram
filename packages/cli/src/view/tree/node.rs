@@ -33,6 +33,7 @@ pub struct Node<H> {
 #[derive(Copy, Clone, Debug)]
 pub enum Indicator {
 	Created,
+	Enqueued,
 	Dequeued,
 	Started,
 	Canceled,
@@ -187,6 +188,7 @@ where
 		let indicator = match node.indicator {
 			None => " ".red(),
 			Some(Indicator::Created) => "⟳".yellow(),
+			Some(Indicator::Enqueued) => "•".yellow(),
 			Some(Indicator::Dequeued) => "•".yellow(),
 			Some(Indicator::Started) => {
 				const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

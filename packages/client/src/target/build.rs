@@ -36,19 +36,6 @@ impl tg::Target {
 		Ok(build)
 	}
 
-	pub async fn outcome<H>(
-		&self,
-		handle: &H,
-		arg: tg::target::build::Arg,
-	) -> tg::Result<tg::build::Outcome>
-	where
-		H: tg::Handle,
-	{
-		let build = self.build(handle, arg).await?;
-		let outcome = build.outcome(handle).await?;
-		Ok(outcome)
-	}
-
 	pub async fn output<H>(&self, handle: &H, arg: tg::target::build::Arg) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,
