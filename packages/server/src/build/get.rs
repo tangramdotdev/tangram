@@ -72,6 +72,9 @@ impl Server {
 			pub created_at: time::OffsetDateTime,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
+			pub enqueued_at: Option<time::OffsetDateTime>,
+			#[serde(default)]
+			#[serde_as(as = "Option<Rfc3339>")]
 			pub dequeued_at: Option<time::OffsetDateTime>,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
@@ -104,6 +107,7 @@ impl Server {
 					targets_count,
 					targets_weight,
 					created_at,
+					enqueued_at,
 					dequeued_at,
 					started_at,
 					finished_at
@@ -137,6 +141,7 @@ impl Server {
 			targets_depth: row.targets_depth,
 			targets_weight: row.targets_weight,
 			created_at: row.created_at,
+			enqueued_at: row.enqueued_at,
 			dequeued_at: row.dequeued_at,
 			started_at: row.started_at,
 			finished_at: row.finished_at,
@@ -194,6 +199,7 @@ impl Server {
 						status: output.status,
 						target: output.target.clone(),
 						created_at: output.created_at,
+						enqueued_at: output.enqueued_at,
 						dequeued_at: output.dequeued_at,
 						started_at: output.started_at,
 						finished_at: output.finished_at,
