@@ -52,7 +52,6 @@ impl Server {
 		// Create the stream.
 		let server = self.clone();
 		let id = id.clone();
-		let mut previous: Option<tg::build::Status> = None;
 		let mut end = false;
 		let stream = stream::select(status, interval)
 			.boxed()
@@ -60,19 +59,6 @@ impl Server {
 				let server = server.clone();
 				let id = id.clone();
 				async move { server.try_get_build_status_local_inner(&id).await }
-			})
-			.try_filter(move |status| {
-				future::ready(match (previous.as_mut(), *status) {
-					(None, status) => {
-						previous.replace(status);
-						true
-					},
-					(Some(previous), status) if *previous == status => false,
-					(Some(previous), status) => {
-						*previous = status;
-						true
-					},
-				})
 			})
 			.take_while(move |result| {
 				if end {
