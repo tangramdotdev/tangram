@@ -1,5 +1,4 @@
 use insta::{assert_json_snapshot, assert_snapshot};
-use std::collections::BTreeMap;
 use tangram_cli::{assert_output_success, test::test};
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};

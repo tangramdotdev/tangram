@@ -1,6 +1,6 @@
 use indoc::indoc;
 use insta::{assert_json_snapshot, assert_snapshot};
-use std::{collections::BTreeMap, future::Future, path::Path};
+use std::{future::Future, path::Path};
 use tangram_cli::{
 	assert_output_success,
 	test::{test, Server},
@@ -2263,28 +2263,30 @@ async fn tagged_package_reproducible_checkin() -> tg::Result<()> {
 		assert_output_success!(output);
 
 		// Create a local server.
-		let config = tangram_cli::Config {
-			remotes: Some(Some(BTreeMap::from([(
-				"default".to_owned(),
-				Some(tangram_cli::config::Remote {
-					url: remote_server.url().clone(),
-				}),
-			)]))),
-			..Default::default()
-		};
-		let local_server1 = context.spawn_server_with_config(config).await.unwrap();
+		let local_server1 = context.spawn_server().await.unwrap();
+		let output = local_server1
+			.tg()
+			.arg("remote")
+			.arg("put")
+			.arg("default")
+			.arg(remote_server.url().to_string())
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(output);
 
 		// Create a second local server.
-		let config = tangram_cli::Config {
-			remotes: Some(Some(BTreeMap::from([(
-				"default".to_owned(),
-				Some(tangram_cli::config::Remote {
-					url: remote_server.url().clone(),
-				}),
-			)]))),
-			..Default::default()
-		};
-		let local_server2 = context.spawn_server_with_config(config).await.unwrap();
+		let local_server2 = context.spawn_server().await.unwrap();
+		let output = local_server2
+			.tg()
+			.arg("remote")
+			.arg("put")
+			.arg("default")
+			.arg(remote_server.url().to_string())
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(output);
 
 		// Create an artifact.
 		let artifact: temp::Artifact = temp::directory! {
@@ -2319,31 +2321,22 @@ async fn tagged_package_reproducible_checkin() -> tg::Result<()> {
 async fn tag_dependencies_after_clean() -> tg::Result<()> {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
+
 		// Create the first server.
-		let temp1 = Temp::new();
-		let config = tangram_cli::Config {
-			..Default::default()
-		};
-		let server1 = context
-			.spawn_server_with_temp_and_config(temp1, config)
-			.await
-			.unwrap();
+		let server1 = context.spawn_server().await.unwrap();
 
 		// Create the second server.
-		let temp2 = Temp::new();
-		let config = tangram_cli::Config {
-			remotes: Some(Some(BTreeMap::from([(
-				"default".to_owned(),
-				Some(tangram_cli::config::Remote {
-					url: server1.url().clone(),
-				}),
-			)]))),
-			..Default::default()
-		};
-		let server2 = context
-			.spawn_server_with_temp_and_config(temp2, config)
+		let server2 = context.spawn_server().await.unwrap();
+		let output = server2
+			.tg()
+			.arg("remote")
+			.arg("put")
+			.arg("default")
+			.arg(server1.url().to_string())
+			.output()
 			.await
 			.unwrap();
+		assert_output_success!(output);
 
 		// Publish the referent to server 1.
 		let referent = temp::directory! {
@@ -2381,20 +2374,17 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 		// Clean up server 2.
 
 		// Create the second server again.
-		let temp2 = Temp::new();
-		let config = tangram_cli::Config {
-			remotes: Some(Some(BTreeMap::from([(
-				"default".to_owned(),
-				Some(tangram_cli::config::Remote {
-					url: server1.url().clone(),
-				}),
-			)]))),
-			..Default::default()
-		};
-		let server2 = context
-			.spawn_server_with_temp_and_config(temp2, config)
+		let server2 = context.spawn_server().await.unwrap();
+		let output = server2
+			.tg()
+			.arg("remote")
+			.arg("put")
+			.arg("default")
+			.arg(server1.url().to_string())
+			.output()
 			.await
 			.unwrap();
+		assert_output_success!(output);
 
 		// Checkin the artifact to server 2 again, this time the lockfile has been written to disk.
 		let path = "";

@@ -22,20 +22,13 @@ where
 		Ok(()) => {
 			// If there was no panic, then gracefully shutdown the servers.
 			for server in &context.servers {
-				let mut process = server.process.lock().await;
-				unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGINT) };
-				let result = process.wait().await;
-				if let Ok(status) = result {
-					if !status.success() {}
-				}
+				server.stop_gracefully().await;
 			}
 		},
 		Err(error) => {
-			// If there was a panic, then forcefully shutdown the servers and resume unwinding.
+			// If there was a panic, then forcefully shut down the servers and resume unwinding.
 			for server in &context.servers {
-				let mut process = server.process.lock().await;
-				unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGKILL) };
-				process.wait().await.ok();
+				server.stop_forcefully().await;
 			}
 			std::panic::resume_unwind(error);
 		},
@@ -125,8 +118,6 @@ impl Server {
 
 		// Create the command.
 		let mut command = tokio::process::Command::new(tg);
-		command.stdout(std::process::Stdio::inherit());
-		command.stderr(std::process::Stdio::inherit());
 		command.arg("--config");
 		command.arg(&config_path);
 		command.arg("--path");
@@ -181,14 +172,17 @@ impl Server {
 		format!("http+unix://{path}").parse().unwrap()
 	}
 
-	pub async fn print_log(&self) -> tg::Result<()> {
-		let log_path = self.temp.join(".tangram/log");
-		let mut log_file = tokio::fs::File::open(log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?;
-		let mut stderr = tokio::io::stderr();
-		tokio::io::copy(&mut log_file, &mut stderr).await.ok();
-		Ok(())
+	pub async fn stop_gracefully(&self) {
+		let mut process = self.process.lock().await;
+		unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGINT) };
+		let status = process.wait().await.unwrap();
+		assert!(status.success());
+	}
+
+	pub async fn stop_forcefully(&self) {
+		let mut process = self.process.lock().await;
+		unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGKILL) };
+		process.wait().await.ok();
 	}
 }
 

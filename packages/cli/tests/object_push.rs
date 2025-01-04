@@ -1,5 +1,4 @@
 use indoc::indoc;
-use std::collections::BTreeMap;
 use tangram_cli::{assert_output_success, test::test};
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
@@ -44,16 +43,17 @@ async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) 
 		let remote_server = context.spawn_server().await.unwrap();
 
 		// Create a local server.
-		let config = tangram_cli::Config {
-			remotes: Some(Some(BTreeMap::from([(
-				"default".to_owned(),
-				Some(tangram_cli::config::Remote {
-					url: remote_server.url().clone(),
-				}),
-			)]))),
-			..Default::default()
-		};
-		let local_server = context.spawn_server_with_config(config).await.unwrap();
+		let local_server = context.spawn_server().await.unwrap();
+		let output = local_server
+			.tg()
+			.arg("remote")
+			.arg("put")
+			.arg("default")
+			.arg(remote_server.url().to_string())
+			.output()
+			.await
+			.unwrap();
+		assert_output_success!(output);
 
 		let artifact: temp::Artifact = artifact.into();
 

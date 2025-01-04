@@ -1368,22 +1368,3 @@ impl std::ops::Deref for Server {
 		&self.0
 	}
 }
-
-#[cfg(test)]
-#[ctor::ctor]
-fn ctor() {
-	// Set file descriptor limit.
-	let limit = 65536;
-	let rlimit = libc::rlimit {
-		rlim_cur: limit,
-		rlim_max: limit,
-	};
-	let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &rlimit) };
-	assert!(ret == 0, "failed to set the file descriptor limit");
-
-	// Initialize v8.
-	v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
-	let platform = v8::new_default_platform(0, true);
-	v8::V8::initialize_platform(platform.make_shared());
-	v8::V8::initialize();
-}
