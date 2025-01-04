@@ -181,7 +181,7 @@ impl Server {
 				.chain(
 					arg.output
 						.as_ref()
-						.map(|value| value.children())
+						.map(tg::value::Data::children)
 						.into_iter()
 						.flatten(),
 				)
@@ -247,7 +247,7 @@ impl Server {
 		let output_objects = arg
 			.output
 			.as_ref()
-			.map(|value| value.children())
+			.map(tg::value::Data::children)
 			.into_iter()
 			.flatten()
 			.collect::<Vec<_>>();

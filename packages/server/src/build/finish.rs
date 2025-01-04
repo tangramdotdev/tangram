@@ -105,7 +105,7 @@ impl Server {
 			.await?
 			.iter()
 			.filter_map(Option::as_ref)
-			.any(|output| output.is_canceled())
+			.any(tg::build::Status::is_canceled)
 		{
 			status = tg::build::status::Status::Canceled;
 			error = Some(tg::error!("one of the build's children was canceled"));
@@ -184,7 +184,7 @@ impl Server {
 		let objects = arg
 			.output
 			.as_ref()
-			.map(|value| value.children())
+			.map(tg::value::Data::children)
 			.into_iter()
 			.flatten();
 		for object in objects {

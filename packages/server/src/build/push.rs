@@ -340,7 +340,7 @@ impl Server {
 					let metadata = output
 						.output
 						.as_ref()
-						.map(|value| value.children())
+						.map(tg::value::Data::children)
 						.iter()
 						.flatten()
 						.map(|child| src.try_get_object_metadata(child))
