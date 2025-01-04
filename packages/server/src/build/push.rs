@@ -151,6 +151,7 @@ impl Server {
 			status: output.status,
 			target: output.target.clone(),
 			created_at: output.created_at,
+			enqueued_at: output.enqueued_at,
 			dequeued_at: output.dequeued_at,
 			started_at: output.started_at,
 			finished_at: output.finished_at,

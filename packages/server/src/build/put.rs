@@ -46,6 +46,7 @@ impl Server {
 						target,
 						touched_at,
 						created_at,
+						enqueued_at,
 						dequeued_at,
 						started_at,
 						finished_at
@@ -64,7 +65,8 @@ impl Server {
 						{p}11,
 						{p}12,
 						{p}13,
-						{p}14
+						{p}14,
+						{p}15
 					)
 					on conflict (id) do update set
 						depth = {p}2,
@@ -77,9 +79,10 @@ impl Server {
 						target = {p}9,
 						touched_at = {p}10,
 						created_at = {p}11,
-						dequeued_at = {p}12,
-						started_at = {p}13,
-						finished_at = {p}14;
+						enqueued_at = {p}12,
+						dequeued_at = {p}13,
+						started_at = {p}14,
+						finished_at = {p}15;
 				"
 			);
 			let params = db::params![
@@ -94,6 +97,7 @@ impl Server {
 				arg.target,
 				time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 				arg.created_at.format(&Rfc3339).unwrap(),
+				arg.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
 				arg.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
 				arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 				arg.finished_at.map(|t| t.format(&Rfc3339).unwrap()),

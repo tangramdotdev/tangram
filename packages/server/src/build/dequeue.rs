@@ -42,9 +42,9 @@ impl Server {
 						select id
 						from builds
 						where
-							status = 'created' or
+							status = 'enqueued' or
 							(status = 'dequeued' and dequeued_at <= {p}2)
-						order by created_at
+						order by enqueued_at
 						limit 1
 					)
 					returning id;

@@ -176,6 +176,7 @@ async fn create_test_build(
 		status: tg::build::Status::Succeeded,
 		target: tg::target::Id::new(&Bytes::from("target id")),
 		created_at: time::OffsetDateTime::now_utc(),
+		enqueued_at: Some(time::OffsetDateTime::now_utc()),
 		dequeued_at: None,
 		started_at: None,
 		finished_at: None,

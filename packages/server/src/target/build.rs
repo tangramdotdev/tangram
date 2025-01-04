@@ -64,7 +64,7 @@ impl Server {
 					from builds
 					where
 						target = {p}1
-					order by created_at desc
+					order by enqueued_at desc
 					limit 1;
 				"
 			);
@@ -196,9 +196,10 @@ impl Server {
 			log: None,
 			output: None,
 			retry: arg.retry,
-			status: tg::build::Status::Created,
+			status: tg::build::Status::Enqueued,
 			target: id.clone(),
 			created_at: time::OffsetDateTime::now_utc(),
+			enqueued_at: Some(time::OffsetDateTime::now_utc()),
 			dequeued_at: None,
 			started_at: None,
 			finished_at: None,

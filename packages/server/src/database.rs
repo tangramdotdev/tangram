@@ -116,6 +116,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				targets_weight integer,
 				touched_at text,
 				created_at text not null,
+				enqueued_at text,
 				dequeued_at text,
 				started_at text,
 				finished_at text
