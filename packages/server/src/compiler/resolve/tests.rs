@@ -1,159 +1,149 @@
-use crate::{compiler::Compiler, Config, Server};
-use futures::{Future, FutureExt};
+use crate::{compiler::Compiler, test::test, Server};
+use futures::Future;
 use pretty_assertions::assert_eq;
-use std::{panic::AssertUnwindSafe, path::PathBuf};
+use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 #[tokio::test]
-async fn path_dependency_path() -> tg::Result<()> {
-	test_path(
-		tg::module::Kind::Ts,
-		temp::directory! {
-			"tangram.ts" => r#"import * as foo from "./foo.tg.ts""#,
-			"foo.tg.ts" => "",
-		},
-		"",
-		"tangram.ts",
-		tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap(),
-		|_, path, module| async move {
-			let right = tg::Module {
-				kind: tg::module::Kind::Ts,
-				referent: tg::Referent {
-					item: tg::module::Item::Path(path),
-					path: Some("".into()),
-					subpath: Some("foo.tg.ts".into()),
-					tag: None,
-				},
-			};
-			assert_eq!(module, right);
-			Ok::<_, tg::Error>(())
-		},
-	)
-	.await
-}
-
-#[tokio::test]
-async fn path_dependency_object() -> tg::Result<()> {
-	test_object(
-		tg::module::Kind::Ts,
-		temp::directory! {
-			"tangram.ts" => r#"import * as foo from "./foo.tg.ts""#,
-			"foo.tg.ts" => "",
-		},
-		"",
-		"tangram.ts",
-		tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap(),
-		|server, artifact, module| async move {
-			let right = tg::Module {
-				kind: tg::module::Kind::Ts,
-				referent: tg::Referent {
-					item: tg::module::Item::Object(artifact.id(&server).await?.into()),
-					path: Some("".into()),
-					subpath: Some("foo.tg.ts".into()),
-					tag: None,
-				},
-			};
-			assert_eq!(module, right);
-			Ok::<_, tg::Error>(())
-		},
-	)
-	.await
-}
-
-#[tokio::test]
-async fn package_path_dependency_path() -> tg::Result<()> {
-	test_path(
-		tg::module::Kind::Ts,
-		temp::directory! {
-			"foo" => temp::directory! {
-				"tangram.ts" => r#"import * as bar from "../bar""#,
+async fn path_dependency_path() {
+	let kind = tg::module::Kind::Ts;
+	let artifact = temp::directory! {
+		"tangram.ts" => r#"import * as foo from "./foo.tg.ts""#,
+		"foo.tg.ts" => "",
+	};
+	let path = "";
+	let subpath = "tangram.ts";
+	let import = tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap();
+	let assertions = |_, path, module| async move {
+		let right = tg::Module {
+			kind: tg::module::Kind::Ts,
+			referent: tg::Referent {
+				item: tg::module::Item::Path(path),
+				path: Some("".into()),
+				subpath: Some("foo.tg.ts".into()),
+				tag: None,
 			},
-			"bar" => temp::directory! {
-				"tangram.ts" => "",
-			}
-		},
-		"foo",
-		"tangram.ts",
-		tg::Import::with_specifier_and_attributes("../bar", None).unwrap(),
-		|_, path, module| async move {
-			let path = tokio::fs::canonicalize(path.join("bar")).await.unwrap();
-			let right = tg::Module {
-				kind: tg::module::Kind::Ts,
-				referent: tg::Referent {
-					item: tg::module::Item::Path(path),
-					path: Some("bar".into()),
-					subpath: Some("tangram.ts".into()),
-					tag: None,
-				},
-			};
-			assert_eq!(module, right);
-			Ok::<_, tg::Error>(())
-		},
-	)
-	.await
+		};
+		assert_eq!(module, right);
+	};
+	test_path(kind, artifact, path, subpath, import, assertions).await;
 }
 
 #[tokio::test]
-async fn package_path_dependency_object() -> tg::Result<()> {
-	test_object(
-		tg::module::Kind::Ts,
-		temp::directory! {
-			"foo" => temp::directory! {
-				"tangram.ts" => r#"import * as bar from "../bar""#,
+async fn path_dependency_object() {
+	let kind = tg::module::Kind::Ts;
+	let artifact = temp::directory! {
+		"tangram.ts" => r#"import * as foo from "./foo.tg.ts""#,
+		"foo.tg.ts" => "",
+	};
+	let path = "";
+	let subpath = "tangram.ts";
+	let import = tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap();
+	let assertions = |server, artifact: tg::Artifact, module| async move {
+		let right = tg::Module {
+			kind: tg::module::Kind::Ts,
+			referent: tg::Referent {
+				item: tg::module::Item::Object(artifact.id(&server).await.unwrap().into()),
+				path: Some("".into()),
+				subpath: Some("foo.tg.ts".into()),
+				tag: None,
 			},
-			"bar" => temp::directory! {
-				"tangram.ts" => "",
-			}
+		};
+		assert_eq!(module, right);
+	};
+	test_object(kind, artifact, path, subpath, import, assertions).await;
+}
+
+#[tokio::test]
+async fn package_path_dependency_path() {
+	let kind = tg::module::Kind::Ts;
+	let artifact = temp::directory! {
+		"foo" => temp::directory! {
+			"tangram.ts" => r#"import * as bar from "../bar""#,
 		},
-		"foo",
-		"tangram.ts",
-		tg::Import::with_specifier_and_attributes("../bar", None).unwrap(),
-		|server, artifact, module| async move {
-			let artifact = artifact
-				.unwrap_directory()
-				.get(&server, "bar")
-				.await
-				.unwrap();
-			let object = artifact.id(&server).await?.into();
-			let right = tg::Module {
-				kind: tg::module::Kind::Ts,
-				referent: tg::Referent {
-					item: tg::module::Item::Object(object),
-					path: Some("bar".into()),
-					subpath: Some("tangram.ts".into()),
-					tag: None,
-				},
-			};
-			assert_eq!(module, right);
-			Ok::<_, tg::Error>(())
+		"bar" => temp::directory! {
+			"tangram.ts" => "",
+		}
+	};
+	let path = "foo";
+	let subpath = "tangram.ts";
+	let import = tg::Import::with_specifier_and_attributes("../bar", None).unwrap();
+	let assertions = |_, path: PathBuf, module| async move {
+		let path = tokio::fs::canonicalize(path.join("bar")).await.unwrap();
+		let right = tg::Module {
+			kind: tg::module::Kind::Ts,
+			referent: tg::Referent {
+				item: tg::module::Item::Path(path),
+				path: Some("bar".into()),
+				subpath: Some("tangram.ts".into()),
+				tag: None,
+			},
+		};
+		assert_eq!(module, right);
+	};
+	test_path(kind, artifact, path, subpath, import, assertions).await;
+}
+
+#[tokio::test]
+async fn package_path_dependency_object() {
+	let kind = tg::module::Kind::Ts;
+	let artifact = temp::directory! {
+		"foo" => temp::directory! {
+			"tangram.ts" => r#"import * as bar from "../bar""#,
 		},
-	)
-	.await
+		"bar" => temp::directory! {
+			"tangram.ts" => "",
+		}
+	};
+	let path = "foo";
+	let subpath = "tangram.ts";
+	let import = tg::Import::with_specifier_and_attributes("../bar", None).unwrap();
+	let assertions = |server, artifact: tg::Artifact, module| async move {
+		let artifact = artifact
+			.unwrap_directory()
+			.get(&server, "bar")
+			.await
+			.unwrap();
+		let object = artifact.id(&server).await.unwrap().into();
+		let right = tg::Module {
+			kind: tg::module::Kind::Ts,
+			referent: tg::Referent {
+				item: tg::module::Item::Object(object),
+				path: Some("bar".into()),
+				subpath: Some("tangram.ts".into()),
+				tag: None,
+			},
+		};
+		assert_eq!(module, right);
+	};
+	test_object(kind, artifact, path, subpath, import, assertions).await;
 }
 
 async fn test_path<F, Fut>(
 	kind: tg::module::Kind,
-	artifact: impl Into<temp::Artifact>,
+	artifact: impl Into<temp::Artifact> + Send,
 	path: &str,
 	subpath: &str,
 	import: tg::Import,
 	assertions: F,
-) -> tg::Result<()>
-where
-	F: FnOnce(Server, PathBuf, tg::Module) -> Fut,
-	Fut: Future<Output = tg::Result<()>>,
+) where
+	F: FnOnce(Server, PathBuf, tg::Module) -> Fut + Send + 'static,
+	Fut: Future<Output = ()> + Send + 'static,
 {
-	let artifact = artifact.into();
-	let temp = Temp::new();
-	let options = Config::with_path(temp.path().to_owned());
-	let server = Server::start(options).await?;
-	let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
-	let result = AssertUnwindSafe(async {
+	test(|context| async move {
+		let mut context = context.lock().await;
+		let server = context.start_server().await;
+		let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
 		let temp = Temp::new();
-		artifact.to_path(temp.as_ref()).await.map_err(
-			|source| tg::error!(!source, %path = temp.path().display(), "failed to write the artifact"),
-		)?;
+		let artifact = artifact.into();
+		artifact
+			.to_path(temp.as_ref())
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = temp.path().display(), "failed to write the artifact"),
+			)
+			.unwrap();
 		tg::Artifact::check_in(
 			&server,
 			tg::artifact::checkin::Arg {
@@ -167,8 +157,8 @@ where
 			},
 		)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
-
+		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))
+		.unwrap();
 		let referrer = tg::Module {
 			kind,
 			referent: tg::Referent {
@@ -178,39 +168,36 @@ where
 				tag: None,
 			},
 		};
-		let module = compiler.resolve_module(&referrer, &import).await?;
-		(assertions)(server.clone(), temp.path().to_owned(), module).await?;
-		Ok::<_, tg::Error>(())
+		let module = compiler.resolve_module(&referrer, &import).await.unwrap();
+		(assertions)(server, temp.path().to_owned(), module).await;
 	})
-	.catch_unwind()
 	.await;
-	server.stop();
-	server.wait().await;
-	result.unwrap()
 }
 
 async fn test_object<F, Fut>(
 	kind: tg::module::Kind,
-	artifact: impl Into<temp::Artifact>,
+	artifact: impl Into<temp::Artifact> + Send,
 	path: &str,
 	subpath: &str,
 	import: tg::Import,
 	assertions: F,
-) -> tg::Result<()>
-where
-	F: FnOnce(Server, tg::Artifact, tg::Module) -> Fut,
-	Fut: Future<Output = tg::Result<()>>,
+) where
+	F: FnOnce(Server, tg::Artifact, tg::Module) -> Fut + Send + 'static,
+	Fut: Future<Output = ()> + Send + 'static,
 {
-	let artifact = artifact.into();
-	let temp = Temp::new();
-	let options = Config::with_path(temp.path().to_owned());
-	let server = Server::start(options).await?;
-	let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
-	let result = AssertUnwindSafe(async {
-		let directory = Temp::new();
-		artifact.to_path(directory.as_ref()).await.map_err(
-			|source| tg::error!(!source, %path = directory.path().display(), "failed to write the artifact"),
-		)?;
+	test(|context| async move {
+		let mut context = context.lock().await;
+		let server = context.start_server().await;
+		let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
+		let temp = Temp::new();
+		let artifact = artifact.into();
+		artifact
+			.to_path(temp.as_ref())
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = temp.path().display(), "failed to write the artifact"),
+			)
+			.unwrap();
 		let artifact = tg::Artifact::check_in(
 			&server,
 			tg::artifact::checkin::Arg {
@@ -220,19 +207,21 @@ where
 				ignore: true,
 				locked: false,
 				lockfile: true,
-				path: directory.path().to_owned(),
+				path: temp.path().to_owned(),
 			},
 		)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
-
+		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))
+		.unwrap();
 		let item = artifact
 			.clone()
 			.unwrap_directory()
 			.get(&server, path)
-			.await?
+			.await
+			.unwrap()
 			.id(&server)
-			.await?
+			.await
+			.unwrap()
 			.into();
 		let referrer = tg::Module {
 			kind,
@@ -243,13 +232,8 @@ where
 				tag: None,
 			},
 		};
-		let module = compiler.resolve_module(&referrer, &import).await?;
-		(assertions)(server.clone(), artifact, module).await?;
-		Ok::<_, tg::Error>(())
+		let module = compiler.resolve_module(&referrer, &import).await.unwrap();
+		(assertions)(server, artifact, module).await;
 	})
-	.catch_unwind()
 	.await;
-	server.stop();
-	server.wait().await;
-	result.unwrap()
 }

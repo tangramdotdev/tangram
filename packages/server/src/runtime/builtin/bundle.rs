@@ -4,9 +4,6 @@ use futures::{stream::FuturesOrdered, TryStreamExt as _};
 use std::path::PathBuf;
 use tangram_client as tg;
 
-#[cfg(test)]
-mod tests;
-
 static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 
 static TANGRAM_RUN_PATH: &str = ".tangram/run";

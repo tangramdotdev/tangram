@@ -54,6 +54,7 @@ mod vfs;
 pub use self::config::Config;
 
 pub mod config;
+pub mod test;
 
 /// A server.
 #[derive(Clone)]
