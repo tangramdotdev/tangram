@@ -1,6 +1,12 @@
 use crate::Server;
+use futures::{
+	stream::{self, FuturesUnordered},
+	StreamExt as _, TryStreamExt,
+};
 use indoc::formatdoc;
+use itertools::Itertools as _;
 use num::ToPrimitive;
+use std::collections::BTreeMap;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
@@ -20,27 +26,6 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Attempt to list the tags locally.
-		let output = self.list_tags_local(arg.clone()).await?;
-
-		// If the output is not empty, then return it.
-		if !output.data.is_empty() {
-			return Ok(output);
-		}
-
-		// Otherwise, try the default remote.
-		if let Some(remote) = self.try_get_remote_client("default".to_owned()).await? {
-			if let Ok(output) = remote.list_tags(arg.clone()).await {
-				if !output.data.is_empty() {
-					return Ok(output);
-				}
-			}
-		}
-
-		Ok(tg::tag::list::Output { data: vec![] })
-	}
-
-	async fn list_tags_local(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -74,31 +59,68 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		// Drop the database connection.
+		drop(connection);
+
 		// Filter the rows.
 		rows.retain(|row| arg.pattern.matches(&row.tag));
 
+		// Create the outputs.
+		let mut outputs = rows
+			.into_iter()
+			.map(|row| {
+				let tag = row.tag.clone();
+				let output = tg::tag::get::Output {
+					tag: row.tag,
+					item: row.item,
+				};
+				(tag, output)
+			})
+			.collect::<BTreeMap<tg::Tag, tg::tag::get::Output>>();
+
+		// Get the outputs from the remotes.
+		let remote_outputs = self
+			.get_remote_clients()
+			.await?
+			.into_values()
+			.map(|client| {
+				let arg = tg::tag::list::Arg {
+					remote: None,
+					..arg.clone()
+				};
+				async move { client.list_tags(arg).await }
+			})
+			.collect::<FuturesUnordered<_>>()
+			.map_ok(|output| stream::iter(output.data).map(Ok::<_, tg::Error>))
+			.try_flatten()
+			.collect::<Vec<_>>()
+			.await
+			.into_iter()
+			.filter_map(Result::ok);
+		for output in remote_outputs {
+			if !outputs.contains_key(&output.tag) {
+				outputs.insert(output.tag.clone(), output);
+			}
+		}
+
+		// Get the outputs.
+		let mut outputs = outputs.into_values().collect_vec();
+
 		// Sort the rows.
-		rows.sort_by(|a, b| a.tag.cmp(&b.tag));
+		outputs.sort_by(|a, b| a.tag.cmp(&b.tag));
 
 		// Reverse if requested.
 		if arg.reverse {
-			rows.reverse();
+			outputs.reverse();
 		}
 
 		// Limit.
 		if let Some(length) = arg.length {
-			rows.truncate(length.to_usize().unwrap());
+			outputs.truncate(length.to_usize().unwrap());
 		}
 
 		// Create the output.
-		let data = rows
-			.into_iter()
-			.map(|row| tg::tag::get::Output {
-				tag: row.tag,
-				item: row.item,
-			})
-			.collect();
-		let output = tg::tag::list::Output { data };
+		let output = tg::tag::list::Output { data: outputs };
 
 		Ok(output)
 	}
