@@ -4,11 +4,6 @@ declare global {
 	function syscall(syscall: "blob_read", blob: tg.Blob): Promise<Uint8Array>;
 
 	function syscall(
-		syscall: "build_output",
-		target: tg.Target,
-	): Promise<tg.Value>;
-
-	function syscall(
 		syscall: "checksum",
 		input: string | Uint8Array,
 		algorithm: tg.Checksum.Algorithm,
@@ -59,4 +54,9 @@ declare global {
 	function syscall(syscall: "log", value: string): void;
 
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
+
+	function syscall(
+		syscall: "target_output",
+		target: tg.Target,
+	): Promise<tg.Value>;
 }

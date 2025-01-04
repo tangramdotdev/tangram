@@ -28,10 +28,12 @@ async fn build_module_without_package() {
 			.tg()
 			.arg("build")
 			.arg(temp.path().join("foo.tg.ts"))
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Assert the output.
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#""Hello, World!""#);

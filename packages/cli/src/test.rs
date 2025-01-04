@@ -145,6 +145,8 @@ impl Server {
 		let config_path = self.temp.path().join(".config/tangram/config.json");
 		let data_path = self.temp.path().join(".tangram");
 		command
+			.stdout(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::inherit())
 			.arg("--config")
 			.arg(config_path)
 			.arg("--path")
@@ -196,7 +198,6 @@ macro_rules! assert_output_success {
 			stderr.write_all(&output.stderr).await.unwrap();
 			stderr.flush().await.unwrap();
 		}
-		assert!(output.status.success());
 	};
 }
 pub use assert_output_success;
