@@ -2,13 +2,12 @@ use indoc::indoc;
 use insta::assert_json_snapshot;
 use std::future::Future;
 use tangram_cli::test::test;
-use tangram_client::{self as tg};
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
-async fn directory() -> tg::Result<()> {
+async fn directory() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 		export default tg.target(() => {
@@ -31,14 +30,13 @@ async fn directory() -> tg::Result<()> {
     }
   }
   "#);
-		Ok(())
 	};
 	let checkout_dependencies = None;
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 #[tokio::test]
-async fn file() -> tg::Result<()> {
+async fn file() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -54,14 +52,13 @@ async fn file() -> tg::Result<()> {
     "executable": false
   }
   "#);
-		Ok(())
 	};
 	let checkout_dependencies = None;
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 #[tokio::test]
-async fn executable_file() -> tg::Result<()> {
+async fn executable_file() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -80,14 +77,13 @@ async fn executable_file() -> tg::Result<()> {
     "executable": true
   }
   "#);
-		Ok(())
 	};
 	let checkout_dependencies = None;
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 #[tokio::test]
-async fn file_with_dependency() -> tg::Result<()> {
+async fn file_with_dependency() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -114,13 +110,12 @@ async fn file_with_dependency() -> tg::Result<()> {
     }
   }
   "#);
-		Ok(())
 	};
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 #[tokio::test]
-async fn symlink() -> tg::Result<()> {
+async fn symlink() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -149,14 +144,13 @@ async fn symlink() -> tg::Result<()> {
     }
   }
   "#);
-		Ok(())
 	};
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 /// Test checking out a directory with a symlink.
 #[tokio::test]
-async fn symlink_shared_target() -> tg::Result<()> {
+async fn symlink_shared_target() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -190,15 +184,14 @@ async fn symlink_shared_target() -> tg::Result<()> {
     }
   }
   "#);
-		Ok(())
 	};
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 /// Test checking out a very deep directory.
 #[ignore]
 #[tokio::test]
-async fn deeply_nested_directory() -> tg::Result<()> {
+async fn deeply_nested_directory() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -212,13 +205,13 @@ async fn deeply_nested_directory() -> tg::Result<()> {
 		"#),
 	};
 	let checkout_dependencies = None;
-	let assertions = |_artifact: temp::Artifact| async move { Ok(()) };
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	let assertions = |_artifact: temp::Artifact| async move {};
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 /// Test checking out a directory with a file with a dependency.
 #[tokio::test]
-async fn directory_with_file_with_dependency() -> tg::Result<()> {
+async fn directory_with_file_with_dependency() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -269,14 +262,13 @@ async fn directory_with_file_with_dependency() -> tg::Result<()> {
     }
   }
   "#);
-		Ok(())
 	};
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 /// Test checking out a directory with a symlink with a dependency.
 #[tokio::test]
-async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
+async fn directory_with_symlink_with_dependency() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -314,14 +306,13 @@ async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
     }
   }
   "#);
-		Ok(())
 	};
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 /// Test checking out a symlink that is a member of a graph.
 #[tokio::test]
-async fn graph_directory() -> tg::Result<()> {
+async fn graph_directory() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -351,16 +342,13 @@ async fn graph_directory() -> tg::Result<()> {
     }
   }
   "#);
-		Ok(())
 	};
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 /// Test checking out a file that is a member of a graph.
-/// TODO: THIS TEST FAILS
-#[ignore]
 #[tokio::test]
-async fn graph_file() -> tg::Result<()> {
+async fn graph_file() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -371,21 +359,26 @@ async fn graph_file() -> tg::Result<()> {
 						executable: false,
 					}],
 				});
-				return tg.file({ graph: graph, node: 0 });  
+				return tg.file({ graph, node: 0 });  
 			});
 		"#),
 	};
 	let checkout_dependencies = None;
 	let assertions = |artifact: temp::Artifact| async move {
-		assert_json_snapshot!(artifact, @r#""#);
-		Ok(())
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "file",
+    "contents": "Hello, World!",
+    "executable": false
+  }
+  "#);
 	};
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 /// Test checking out a symlink that is a member of a graph.
 #[tokio::test]
-async fn graph_symlink() -> tg::Result<()> {
+async fn graph_symlink() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -407,14 +400,13 @@ async fn graph_symlink() -> tg::Result<()> {
     "target": "/bin/sh"
   }
   "#);
-		Ok(())
 	};
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 /// Test checking out a directory with an artifact symlink that points to itself.
 #[tokio::test]
-async fn directory_with_symlink_cycle() -> tg::Result<()> {
+async fn directory_with_symlink_cycle() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -452,19 +444,17 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
     }
   }
   "#);
-		Ok(())
 	};
-	test_artifact_checkout(build, checkout_dependencies, assertions).await
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
 async fn test_artifact_checkout<F, Fut>(
 	artifact: impl Into<temp::Artifact> + Send + 'static,
 	checkout_dependencies: Option<bool>,
 	assertions: F,
-) -> tg::Result<()>
-where
+) where
 	F: FnOnce(temp::Artifact) -> Fut + Send + 'static,
-	Fut: Future<Output = tg::Result<()>> + Send,
+	Fut: Future<Output = ()> + Send,
 {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
@@ -505,8 +495,7 @@ where
 
 		let artifact = temp::Artifact::with_path(temp.path()).await.unwrap();
 
-		assertions(artifact).await.unwrap();
+		assertions(artifact).await;
 	})
 	.await;
-	Ok(())
 }

@@ -1,13 +1,12 @@
 use indoc::indoc;
 use insta::assert_json_snapshot;
 use tangram_cli::test::test;
-use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
-async fn hello_world() -> tg::Result<()> {
+async fn hello_world() {
 	test(TG, |context| async move {
 		let mut context = context.lock().await;
 
@@ -38,11 +37,10 @@ async fn hello_world() -> tg::Result<()> {
 		assert_json_snapshot!(stderr, @r#""""#);
 	})
 	.await;
-	Ok(())
 }
 
 #[tokio::test]
-async fn nonexistent_function() -> tg::Result<()> {
+async fn nonexistent_function() {
 	test(TG, |context| async move {
 		let mut context = context.lock().await;
 
@@ -73,5 +71,4 @@ async fn nonexistent_function() -> tg::Result<()> {
 		assert_json_snapshot!(stderr, @r#""\u001b[38;5;9m\u001b[1merror\u001b[0m: Cannot find name 'foo'.\n   \u001b[38;5;11mdir_01sb97esva2e75cyaar1szc6835pcvkzd0eb486m5fmye3etcd3nc0:tangram.ts:1:32\u001b[39m\n\u001b[38;5;9m\u001b[1merror\u001b[0m failed to run the command\n\u001b[38;5;9m->\u001b[39m type checking failed\n""#);
 	})
 	.await;
-	Ok(())
 }

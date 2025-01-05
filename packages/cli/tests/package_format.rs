@@ -1,5 +1,5 @@
 use insta::assert_json_snapshot;
-use tangram_cli::{test::test};
+use tangram_cli::test::test;
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");

@@ -1,12 +1,11 @@
 use insta::{assert_json_snapshot, assert_snapshot};
 use tangram_cli::test::test;
-use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
-async fn list_no_results() -> tg::Result<()> {
+async fn list_no_results() {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
@@ -26,11 +25,10 @@ async fn list_no_results() -> tg::Result<()> {
 		assert_json_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#""""#);
 	})
 	.await;
-	Ok(())
 }
 
 #[tokio::test]
-async fn get_no_results() -> tg::Result<()> {
+async fn get_no_results() {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
@@ -47,11 +45,10 @@ async fn get_no_results() -> tg::Result<()> {
 		assert!(!output.status.success());
 	})
 	.await;
-	Ok(())
 }
 
 #[tokio::test]
-async fn single() -> tg::Result<()> {
+async fn single() {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
@@ -119,11 +116,10 @@ async fn single() -> tg::Result<()> {
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01gtq62nh8tjjx5h9v0vn7k5gdr07p3es3wypse70hymnzn3dgrw8g");
 	})
 	.await;
-	Ok(())
 }
 
 #[tokio::test]
-async fn multiple() -> tg::Result<()> {
+async fn multiple() {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 
@@ -262,11 +258,10 @@ async fn multiple() -> tg::Result<()> {
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
 	})
 	.await;
-	Ok(())
 }
 
 #[tokio::test]
-async fn remote_put() -> tg::Result<()> {
+async fn remote_put() {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 
@@ -350,5 +345,4 @@ async fn remote_put() -> tg::Result<()> {
 		assert_eq!(local_output, remote_output);
 	})
 	.await;
-	Ok(())
 }

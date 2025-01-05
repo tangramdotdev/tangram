@@ -2,14 +2,13 @@ use indoc::indoc;
 use insta::assert_snapshot;
 use std::future::Future;
 use tangram_cli::test::test;
-use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 /// Test building a module without a package.
 #[tokio::test]
-async fn build_module_without_package() -> tg::Result<()> {
+async fn build_module_without_package() {
 	let directory = temp::directory! {
 		"foo.tg.ts" => indoc!(r#"
 			export default tg.target(() => "Hello, World!");
@@ -17,16 +16,15 @@ async fn build_module_without_package() -> tg::Result<()> {
 	};
 	let assertions = |output: String| async move {
 		assert_snapshot!(output, @r#""Hello, World!""#);
-		Ok(())
 	};
 	let path = "foo.tg.ts";
 	let target = "default";
 	let args = vec![];
-	test_build(directory, path, target, args, assertions).await
+	test_build(directory, path, target, args, assertions).await;
 }
 
 #[tokio::test]
-async fn hello_world() -> tg::Result<()> {
+async fn hello_world() {
 	let directory = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => r#"export default tg.target(() => "Hello, World!")"#,
@@ -34,16 +32,15 @@ async fn hello_world() -> tg::Result<()> {
 	};
 	let assertions = |output: String| async move {
 		assert_snapshot!(output, @r###""Hello, World!""###);
-		Ok(())
 	};
 	let args = vec![];
 	let path = "foo";
 	let target = "default";
-	test_build(directory, path, target, args, assertions).await
+	test_build(directory, path, target, args, assertions).await;
 }
 
 #[tokio::test]
-async fn accepts_target_with_no_return_value() -> tg::Result<()> {
+async fn accepts_target_with_no_return_value() {
 	let directory = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => r"export default tg.target(() => {})",
@@ -51,16 +48,15 @@ async fn accepts_target_with_no_return_value() -> tg::Result<()> {
 	};
 	let assertions = |output: String| async move {
 		assert_snapshot!(output, @r"null");
-		Ok(())
 	};
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	test_build(directory, path, target, args, assertions).await
+	test_build(directory, path, target, args, assertions).await;
 }
 
 #[tokio::test]
-async fn accepts_arg() -> tg::Result<()> {
+async fn accepts_arg() {
 	let directory = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => r"export default tg.target((name: string) => `Hello, ${name}!`)",
@@ -68,12 +64,11 @@ async fn accepts_arg() -> tg::Result<()> {
 	};
 	let assertions = |output: String| async move {
 		assert_snapshot!(output, @r###""Hello, Tangram!""###);
-		Ok(())
 	};
 	let path = "foo";
 	let target = "default";
 	let args = vec![r#""Tangram""#.into()];
-	test_build(directory, path, target, args, assertions).await
+	test_build(directory, path, target, args, assertions).await;
 }
 
 async fn test_build<F, Fut>(
@@ -82,10 +77,9 @@ async fn test_build<F, Fut>(
 	target: &str,
 	args: Vec<String>,
 	assertions: F,
-) -> tg::Result<()>
-where
+) where
 	F: FnOnce(String) -> Fut + Send + 'static,
-	Fut: Future<Output = tg::Result<()>> + Send,
+	Fut: Future<Output = ()> + Send,
 {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
@@ -111,10 +105,7 @@ where
 		assert!(output.status.success());
 
 		// Assert the output.
-		assertions(std::str::from_utf8(&output.stdout).unwrap().to_owned())
-			.await
-			.unwrap();
+		assertions(std::str::from_utf8(&output.stdout).unwrap().to_owned()).await;
 	})
 	.await;
-	Ok(())
 }

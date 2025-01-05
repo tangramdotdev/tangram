@@ -2,14 +2,13 @@ use indoc::indoc;
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::future::Future;
 use tangram_cli::test::test;
-use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
-#[tokio::test]
 /// Test bundling a file with no dependencies.
-async fn file_no_dependencies_js() -> tg::Result<()> {
+#[tokio::test]
+async fn file_no_dependencies_js() {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
@@ -68,59 +67,54 @@ async fn file_no_dependencies_js() -> tg::Result<()> {
   "#);
 	})
 	.await;
-	Ok(())
 }
 
-#[tokio::test]
 /// Test bundling a file with no dependencies.
-async fn file_no_dependencies() -> tg::Result<()> {
+#[tokio::test]
+async fn file_no_dependencies() {
 	let file = temp::file!("hello!");
 	let assertions = |object: String| async move {
 		dbg!(&object);
 		assert_snapshot!(object, @r#""#);
-		Ok::<_, tg::Error>(())
 	};
-	test_bundle(file, assertions).await
+	test_bundle(file, assertions).await;
 }
 
 // /// Test bundling a directory that contains no files with dependencies
 // #[tokio::test]
-// async fn directory_no_dependencies() -> tg::Result<()> {
+// async fn directory_no_dependencies()  {
 // 	todo!()
 // }
 
 // /// Test bundling an executable file with a dependency.
 // #[tokio::test]
-// async fn executable_file_with_dependency() -> tg::Result<()> {
+// async fn executable_file_with_dependency()  {
 // 	todo!()
 // }
 
 // /// Test bundling a directory that contains files with dependencies.
 // #[tokio::test]
-// async fn directory_containing_file_with_file_dependency() -> tg::Result<()> {
+// async fn directory_containing_file_with_file_dependency()  {
 // 	todo!()
 // }
 
 // /// Test bundling dependencies that contain target symlinks.
 // #[tokio::test]
-// async fn directory_containing_file_with_directory_dependency_target_symlink() -> tg::Result<()> {
+// async fn directory_containing_file_with_directory_dependency_target_symlink()  {
 // 	todo!()
 // }
 
 // /// Test bundling dependencies that contain artifact/path symlinks.
 // #[tokio::test]
 // async fn directory_containing_file_with_directory_dependency_artifact_path_symlink(
-// ) -> tg::Result<()> {
+// )  {
 // 	todo!()
 // }
 
-async fn test_bundle<F, Fut>(
-	artifact: impl Into<temp::Artifact> + Send + 'static,
-	assertions: F,
-) -> tg::Result<()>
+async fn test_bundle<F, Fut>(artifact: impl Into<temp::Artifact> + Send + 'static, assertions: F)
 where
 	F: FnOnce(String) -> Fut + Send + 'static,
-	Fut: Future<Output = tg::Result<()>> + Send,
+	Fut: Future<Output = ()> + Send,
 {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
@@ -145,6 +139,7 @@ where
 			.tg()
 			.arg("artifact")
 			.arg("bundle")
+			.arg("--quiet")
 			.arg(id.clone())
 			.spawn()
 			.unwrap()
@@ -153,8 +148,9 @@ where
 			.unwrap();
 		assert!(output.status.success());
 
-		assertions(std::str::from_utf8(&output.stdout).unwrap().to_owned());
+		let output = std::str::from_utf8(&output.stdout).unwrap().to_owned();
+
+		(assertions)(output).await;
 	})
 	.await;
-	Ok(())
 }

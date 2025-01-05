@@ -374,9 +374,9 @@ declare namespace tg {
 		text(): Promise<string>;
 
 		/** Get this file's dependencies. */
-		dependencies(): Promise<
-			{ [reference: tg.Reference]: tg.Referent<tg.Object> } | undefined
-		>;
+		dependencies(): Promise<{
+			[reference: tg.Reference]: tg.Referent<tg.Object>;
+		}>;
 
 		/** Get this file's dependencies as an array. */
 		dependencyObjects(): Promise<Array<tg.Object>>;
@@ -527,9 +527,9 @@ declare namespace tg {
 		type FileNode = {
 			kind: "file";
 			contents: tg.Blob;
-			dependencies:
-				| { [reference: tg.Reference]: tg.Referent<number | tg.Object> }
-				| undefined;
+			dependencies: {
+				[reference: tg.Reference]: tg.Referent<number | tg.Object>;
+			};
 			executable: boolean;
 		};
 

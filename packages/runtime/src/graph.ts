@@ -33,7 +33,7 @@ export class Graph {
 					return {
 						kind: "file" as const,
 						contents: await tg.blob(node.contents),
-						dependencies: node.dependencies ?? undefined,
+						dependencies: node.dependencies ?? {},
 						executable: node.executable ?? false,
 					};
 				} else if (node.kind === "symlink") {
@@ -52,7 +52,7 @@ export class Graph {
 						return tg.unreachable();
 					}
 				} else {
-					return tg.unreachable(node);
+					return tg.unreachable();
 				}
 			}),
 		);
@@ -235,9 +235,9 @@ export namespace Graph {
 	export type FileNode = {
 		kind: "file";
 		contents: tg.Blob;
-		dependencies:
-			| { [reference: tg.Reference]: tg.Referent<number | tg.Object> }
-			| undefined;
+		dependencies: {
+			[reference: tg.Reference]: tg.Referent<number | tg.Object>;
+		};
 		executable: boolean;
 	};
 

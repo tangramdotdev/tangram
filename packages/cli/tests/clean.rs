@@ -1,13 +1,12 @@
 use indoc::indoc;
 use std::path::Path;
 use tangram_cli::test::{test, Server};
-use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
-async fn builds() -> tg::Result<()> {
+async fn builds() {
 	test(TG, move |context| async move {
 		let build = temp::directory! {
 			"tangram.ts" => indoc!(r#"
@@ -125,11 +124,10 @@ async fn builds() -> tg::Result<()> {
 		assert!(output.status.success());
 	})
 	.await;
-	Ok(())
 }
 
 #[tokio::test]
-async fn objects() -> tg::Result<()> {
+async fn objects() {
 	test(TG, move |context| async move {
 		let build = temp::directory! {
 			"tangram.ts" => indoc!(r#"
@@ -311,7 +309,6 @@ async fn objects() -> tg::Result<()> {
 		assert!(h_output.status.success());
 	})
 	.await;
-	Ok(())
 }
 
 async fn build_target_get_build_id(name: &str, server: &Server, path: &Path) -> String {

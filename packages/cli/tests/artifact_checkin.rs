@@ -8,7 +8,7 @@ use tangram_temp::{self as temp, Temp};
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
-async fn directory() -> tg::Result<()> {
+async fn directory() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"hello.txt" => "Hello, world!",
@@ -43,15 +43,14 @@ async fn directory() -> tg::Result<()> {
     "weight": 442
   }
   "#);
-		Ok::<_, tg::Error>(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn file() -> tg::Result<()> {
+async fn file() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"README.md" => "Hello, World!",
@@ -74,15 +73,14 @@ async fn file() -> tg::Result<()> {
     "weight": 172
   }
   "#);
-		Ok::<_, tg::Error>(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn symlink() -> tg::Result<()> {
+async fn symlink() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"link" => temp::symlink!("."),
@@ -105,15 +103,14 @@ async fn symlink() -> tg::Result<()> {
     "weight": 95
   }
   "#);
-		Ok::<_, tg::Error>(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn file_through_symlink() -> tg::Result<()> {
+async fn file_through_symlink() {
 	let directory = temp::directory! {
 		"a" => temp::directory! {
 			"tangram.ts" => r#"import "../b/c/d"#,
@@ -168,15 +165,14 @@ async fn file_through_symlink() -> tg::Result<()> {
     ]
   }
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn artifact_symlink() -> tg::Result<()> {
+async fn artifact_symlink() {
 	let directory = temp::directory! {
 		"a" => temp::directory! {
 			"tangram.ts" => r#"import "../b/c"#,
@@ -231,15 +227,14 @@ async fn artifact_symlink() -> tg::Result<()> {
     ]
   }
   "#);
-		Ok::<_, tg::Error>(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn lockfile_out_of_date() -> tg::Result<()> {
+async fn lockfile_out_of_date() {
 	let directory = temp::directory! {
 		"tangram.ts" => r#"import "./b.tg.ts"#,
 		"./b.tg.ts" => "",
@@ -337,15 +332,14 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
     "node": 0,
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn simple_path_dependency() -> tg::Result<()> {
+async fn simple_path_dependency() {
 	let directory = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => r#"import * as bar from "../bar";"#,
@@ -410,15 +404,14 @@ async fn simple_path_dependency() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn package_with_nested_dependencies() -> tg::Result<()> {
+async fn package_with_nested_dependencies() {
 	let directory = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => r#"
@@ -557,15 +550,14 @@ async fn package_with_nested_dependencies() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn package() -> tg::Result<()> {
+async fn package() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"tangram.ts" => "export default tg.target(() => {})",
@@ -598,15 +590,14 @@ async fn package() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn directory_with_nested_packages() -> tg::Result<()> {
+async fn directory_with_nested_packages() {
 	let directory = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => "",
@@ -668,15 +659,14 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn import_directory_from_current() -> tg::Result<()> {
+async fn import_directory_from_current() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"a" => temp::directory! {
@@ -751,15 +741,14 @@ async fn import_directory_from_current() -> tg::Result<()> {
     "node": 0,
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn import_package_from_current() -> tg::Result<()> {
+async fn import_package_from_current() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"a" => temp::directory! {
@@ -839,15 +828,14 @@ async fn import_package_from_current() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn import_directory_from_parent() -> tg::Result<()> {
+async fn import_directory_from_parent() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"a" => temp::directory!{},
@@ -909,15 +897,14 @@ async fn import_directory_from_parent() -> tg::Result<()> {
     "node": 0,
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn import_package_with_type_directory_from_parent() -> tg::Result<()> {
+async fn import_package_with_type_directory_from_parent() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"a" => temp::directory!{
@@ -997,15 +984,14 @@ async fn import_package_with_type_directory_from_parent() -> tg::Result<()> {
     "node": 0,
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn import_package_from_parent() -> tg::Result<()> {
+async fn import_package_from_parent() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"a" => temp::directory!{
@@ -1076,15 +1062,14 @@ async fn import_package_from_parent() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn package_with_cyclic_modules() -> tg::Result<()> {
+async fn package_with_cyclic_modules() {
 	let directory = temp::directory! {
 		"package" => temp::directory! {
 			"tangram.ts" => r#"import * as foo from "./foo.tg.ts";"#,
@@ -1170,15 +1155,14 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
     "node": 0,
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn cyclic_dependencies() -> tg::Result<()> {
+async fn cyclic_dependencies() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"foo" => temp::directory! {
@@ -1279,15 +1263,14 @@ async fn cyclic_dependencies() -> tg::Result<()> {
     "node": 0,
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn directory_destructive() -> tg::Result<()> {
+async fn directory_destructive() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"a" => temp::directory! {
@@ -1326,15 +1309,14 @@ async fn directory_destructive() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = true;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn package_destructive() -> tg::Result<()> {
+async fn package_destructive() {
 	let directory = temp::directory! {
 		"tangram.ts" => r#"import * as a from "./a.tg.ts"#,
 		"a.tg.ts" => "",
@@ -1370,15 +1352,14 @@ async fn package_destructive() -> tg::Result<()> {
     "node": 0,
   })
   "#);
-		Ok(())
 	};
 	let destructive = true;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn default_ignore() -> tg::Result<()> {
+async fn default_ignore() {
 	let directory = temp::directory! {
 		".DS_Store" => temp::file!(""),
 		".git" => temp::directory! {
@@ -1399,15 +1380,14 @@ async fn default_ignore() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn missing_in_lockfile() -> tg::Result<()> {
+async fn missing_in_lockfile() {
 	let directory = temp::directory! {
 		"tangram.ts" => r#"import * as a from "./a"#,
 		"tangram.lock" => temp::file!(indoc!(r#"
@@ -1465,15 +1445,14 @@ async fn missing_in_lockfile() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn invalid_lockfile() -> tg::Result<()> {
+async fn invalid_lockfile() {
 	let directory = temp::directory! {
 		"tangram.lock" => temp::file!(indoc!(r#"
 			{
@@ -1515,15 +1494,14 @@ async fn invalid_lockfile() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn tagged_object() -> tg::Result<()> {
+async fn tagged_object() {
 	let tags = vec![("hello-world".into(), temp::file!("Hello, world!"))];
 	let directory = temp::directory! {
 		"tangram.ts" => r#"import hello from "hello-world""#,
@@ -1574,14 +1552,13 @@ async fn tagged_object() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn tagged_package() -> tg::Result<()> {
+async fn tagged_package() {
 	let tags = vec![(
 		"a".into(),
 		temp::directory! {
@@ -1654,15 +1631,14 @@ async fn tagged_package() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
 	let path = "";
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn tagged_package_with_cyclic_dependency() -> tg::Result<()> {
+async fn tagged_package_with_cyclic_dependency() {
 	let tags = vec![(
 		"a".into(),
 		temp::directory! {
@@ -1789,14 +1765,13 @@ async fn tagged_package_with_cyclic_dependency() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn tag_dependency_cycles() -> tg::Result<()> {
+async fn tag_dependency_cycles() {
 	let tags = vec![
 		(
 			"a/1.0.0".into(),
@@ -2054,14 +2029,13 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
     }),
   })
   "#); // Keep existing snapshot
-		Ok(())
 	};
 	let destructive = false;
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn diamond_dependency() -> tg::Result<()> {
+async fn diamond_dependency() {
 	let tags = vec![
 		(
 			"a/1.0.0".into(),
@@ -2237,14 +2211,13 @@ async fn diamond_dependency() -> tg::Result<()> {
     }),
   })
   "#);
-		Ok(())
 	};
 	let destructive = false;
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
-async fn tagged_package_reproducible_checkin() -> tg::Result<()> {
+async fn tagged_package_reproducible_checkin() {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 
@@ -2324,11 +2297,10 @@ async fn tagged_package_reproducible_checkin() -> tg::Result<()> {
 		assert_eq!(object_output1, object_output2);
 	})
 	.await;
-	Ok(())
 }
 
 #[tokio::test]
-async fn tag_dependencies_after_clean() -> tg::Result<()> {
+async fn tag_dependencies_after_clean() {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 
@@ -2414,7 +2386,6 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 		assert_eq!(output1, output2);
 	})
 	.await;
-	Ok(())
 }
 
 async fn test_artifact_checkin<F, Fut>(
@@ -2423,20 +2394,18 @@ async fn test_artifact_checkin<F, Fut>(
 	destructive: bool,
 	tags: Vec<(String, impl Into<temp::Artifact> + Send + 'static)>,
 	assertions: F,
-) -> tg::Result<()>
-where
+) where
 	F: FnOnce(String, String, Option<tg::Lockfile>) -> Fut + Send + 'static,
-	Fut: Future<Output = tg::Result<()>> + Send,
+	Fut: Future<Output = ()> + Send,
 {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
 		let (object, metadata, lockfile) =
 			test_artifact_checkin_inner(artifact, path, destructive, tags, &server).await;
-		assertions(object, metadata, lockfile).await.unwrap();
+		assertions(object, metadata, lockfile).await;
 	})
 	.await;
-	Ok(())
 }
 
 async fn test_artifact_checkin_inner(

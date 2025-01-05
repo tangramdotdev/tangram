@@ -1,12 +1,11 @@
 use indoc::indoc;
 use tangram_cli::test::test;
-use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
-async fn push_file() -> tg::Result<()> {
+async fn push_file() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -14,12 +13,11 @@ async fn push_file() -> tg::Result<()> {
 			})
 	"#),
 	};
-	test_object_push(build).await?;
-	Ok(())
+	test_object_push(build).await;
 }
 
 #[tokio::test]
-async fn push_simple_directory() -> tg::Result<()> {
+async fn push_simple_directory() {
 	let build = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.target(() => {
@@ -32,11 +30,10 @@ async fn push_simple_directory() -> tg::Result<()> {
 			})
 		"#)
 	};
-	test_object_push(build).await?;
-	Ok(())
+	test_object_push(build).await;
 }
 
-async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) -> tg::Result<()> {
+async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) {
 	test(TG, move |context| async move {
 		let mut context = context.lock().await;
 		// Create a remote server.
@@ -128,5 +125,4 @@ async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) 
 		assert_eq!(local_object, remote_object);
 	})
 	.await;
-	Ok(())
 }
