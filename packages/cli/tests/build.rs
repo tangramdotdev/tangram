@@ -1,7 +1,7 @@
 use indoc::indoc;
 use insta::assert_snapshot;
 use std::future::Future;
-use tangram_cli::{assert_success, test::test};
+use tangram_cli::{assert_failure, assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
@@ -13,7 +13,8 @@ async fn hello_world() {
 			"tangram.ts" => r#"export default tg.target(() => "Hello, World!")"#,
 		}
 	};
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r###""Hello, World!""###);
 	};
 	let args = vec![];
@@ -29,7 +30,9 @@ async fn hello_world_remote() {
 			"tangram.ts" => r#"export default tg.target(() => "Hello, World!")"#,
 		}
 	};
-	let assertions = |local: String, remote: String| async move {
+	let assertions = |local: std::process::Output, remote: std::process::Output| async move {
+		let local = std::str::from_utf8(&local.stdout).unwrap();
+		let remote = std::str::from_utf8(&remote.stdout).unwrap();
 		assert_snapshot!(local, @r#""Hello, World!""#);
 		assert_snapshot!(remote, @r#""Hello, World!""#);
 	};
@@ -47,7 +50,8 @@ async fn build_module_without_package() {
 			export default tg.target(() => "Hello, World!");
 		"#),
 	};
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#""Hello, World!""#);
 	};
 	let path = "foo.tg.ts";
@@ -63,7 +67,8 @@ async fn accepts_target_with_no_return_value() {
 			"tangram.ts" => r"export default tg.target(() => {})",
 		}
 	};
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r"null");
 	};
 	let path = "foo";
@@ -79,7 +84,8 @@ async fn accepts_arg() {
 			"tangram.ts" => r"export default tg.target((name: string) => `Hello, ${name}!`)",
 		}
 	};
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r###""Hello, Tangram!""###);
 	};
 	let path = "foo";
@@ -104,7 +110,8 @@ async fn host_target_hello_world() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -126,7 +133,9 @@ async fn host_target_hello_world_remote() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |local: String, remote: String| async move {
+	let assertions = |local: std::process::Output, remote: std::process::Output| async move {
+		let local = std::str::from_utf8(&local.stdout).unwrap();
+		let remote = std::str::from_utf8(&remote.stdout).unwrap();
 		assert_snapshot!(local, @"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
 		assert_snapshot!(remote, @"fil_01r4jx5ae6bkr2q5gbhewjrdzfban0kx9pmqmvh2prhkxwxj45mg6g");
 	};
@@ -147,7 +156,8 @@ async fn two_modules() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#""Hello from bar""#);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -169,7 +179,8 @@ async fn path_dependency() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#""Hello from bar""#);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -191,7 +202,8 @@ async fn path_dependency_import_attribute() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#""Hello from bar""#);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -210,7 +222,8 @@ async fn named_target() {
 	let path = "foo";
 	let target = "five";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @"5");
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -232,7 +245,8 @@ async fn concurrent_targets() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @"9900");
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -248,8 +262,8 @@ async fn capture_error() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stderr: String, _: String| async move {
-		assert_snapshot!(stderr, @"");
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -268,7 +282,8 @@ async fn import_file() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r###""Hello, World!""###);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -291,7 +306,8 @@ async fn import_directory() {
 			}
 		},
 	};
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r###""Hello, World!""###);
 	};
 	let path = "foo";
@@ -309,7 +325,8 @@ async fn template_raw() {
 			",
 		},
 	};
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template(["\n\tHello, World!\n"])"#);
 	};
 	let path = "foo";
@@ -329,7 +346,8 @@ async fn template_single_line() {
 			"hello.txt" => "Hello, World!",
 		},
 	};
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template(["cat ",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g])"#);
 	};
 	let path = "foo";
@@ -360,7 +378,8 @@ async fn template_with_quote() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template(["other_command\n\nother_command\n\nother_command\n\necho 'exec ",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g," \"$@\"' >> script.sh\n"])"#);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -382,7 +401,8 @@ async fn template_single_line_two_artifacts() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template([fil_01mav0wfrn654f51gn5dbk8t8akh830xd1a97yjd1j85w5y8evmc1g," ",fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80])"#);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -405,7 +425,8 @@ async fn template_empty_lines() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template(["function foo() {\n\techo \"Hello, World!\"\n\n}\n"])"#);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -427,7 +448,8 @@ async fn template_only_placeholders_on_a_line() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template([fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"\n"])"#);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -449,7 +471,8 @@ async fn template_single_line_explicit_newline() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template([fil_01mav0wfrn654f51gn5dbk8t8akh830xd1a97yjd1j85w5y8evmc1g,"\n",fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80])"#);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -470,7 +493,8 @@ async fn template_multiple_placeholders() {
 			"hello.txt" => "Hello, World!",
 		},
 	};
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template(["cat\t",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"\t",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"\n"])"#);
 	};
 	let path = "foo";
@@ -497,7 +521,8 @@ async fn directory_get_follows_intermediate_component_symlinks() {
 			}
 		},
 	};
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r###""foo""###);
 	};
 	let path = "foo";
@@ -527,7 +552,8 @@ async fn directory_get_follows_final_component_symlinks() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r###""foo""###);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -543,8 +569,8 @@ async fn target_cycle_detection() {
 	let path = "foo";
 	let target = "x";
 	let args = vec![];
-	let assertions = |_stdout: String, stderr: String| async move {
-		assert_snapshot!(stderr, @"");
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -568,8 +594,8 @@ async fn target_cycle_detection_between_packages() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |_stdout: String, stderr: String| async move {
-		assert_snapshot!(stderr, @"");
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -594,8 +620,9 @@ async fn package_cycle_without_target_cycle() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr: String| async move {
-		assert_snapshot!(stdout, @r#""foo""#);
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
+		assert_snapshot!(stdout, @r###""foo""###);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -616,8 +643,8 @@ async fn value_cycle_detection_object() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |_stdout: String, stderr: String| async move {
-		assert_snapshot!(stderr, @"");
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -638,8 +665,8 @@ async fn value_cycle_detection_array() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |_stdout: String, stderr: String| async move {
-		assert_snapshot!(stderr, @"");
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -659,7 +686,8 @@ async fn builtin_download_unsafe_checksum() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr: String| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -680,7 +708,8 @@ async fn builtin_download_exact_checksum() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -701,8 +730,8 @@ async fn builtin_download_rejects_incorrect_checksum() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |_stdout: String, stderr| async move {
-		assert_snapshot!(stderr, @"");
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -722,8 +751,8 @@ async fn builtin_download_rejects_malformed_checksum() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |_stdout: String, stderr| async move {
-		assert_snapshot!(stderr, @"");
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -744,8 +773,8 @@ async fn target_none_checksum() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |_stdout: String, stderr| async move {
-		assert_snapshot!(stderr, @"");
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -766,8 +795,8 @@ async fn target_set_checksum() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |_stdout: String, stderr| async move {
-		assert_snapshot!(stderr, @"");
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
 }
@@ -788,31 +817,22 @@ async fn builtin_artifact_archive_extract_simple_dir_roundtrip() {
 		"#
 	);
 
-	let assertions = |stdout: String, stderr| async move {
-		assert_snapshot!(stdout, @"null");
-		assert_snapshot!(stderr, @r"");
+	let assertions = |output: std::process::Output| async move {
+		assert_success!(output);
 	};
 	let format = "tar";
 	test_archive(module, format, assertions).await;
 
-	let format = "tgar";
-	let assertions = |stdout: String, stderr| async move {
-		assert_snapshot!(stdout, @r"");
-		assert_snapshot!(stderr, @r"");
-	};
-	test_archive(module, format, assertions).await;
-
 	let format = "zip";
-	let assertions = |stdout: String, stderr| async move {
-		assert_snapshot!(stdout, @"null");
-		assert_snapshot!(stderr, @r"");
+	let assertions = |output: std::process::Output| async move {
+		assert_success!(output);
 	};
 	test_archive(module, format, assertions).await;
 }
 
 async fn test_archive<F, Fut>(module: &str, format: &str, assertions: F)
 where
-	F: FnOnce(String, String) -> Fut + Send + 'static + Clone,
+	F: FnOnce(std::process::Output) -> Fut + Send + 'static + Clone,
 	Fut: Future<Output = ()> + Send,
 {
 	let module = module.replace("format", format);
@@ -887,7 +907,7 @@ async fn import_from_tag() {
 			.await
 			.unwrap();
 		assert_success!(output);
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(),@r#"foo"#);
+		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(),@r#""foo""#);
 	})
 	.await;
 }
@@ -909,7 +929,8 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() {
 	let path = "foo";
 	let target = "default";
 	let args = vec![];
-	let assertions = |stdout: String, _stderr| async move {
+	let assertions = |output: std::process::Output| async move {
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#""contents""#);
 	};
 	test_build(directory, path, target, args, assertions).await;
@@ -922,7 +943,7 @@ async fn test_build<F, Fut>(
 	args: Vec<String>,
 	assertions: F,
 ) where
-	F: FnOnce(String, String) -> Fut + Send + 'static,
+	F: FnOnce(std::process::Output) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send,
 {
 	test(TG, move |context| async move {
@@ -938,16 +959,14 @@ async fn test_build<F, Fut>(
 
 		// Build the module.
 		let mut command = server.tg();
-		command.arg("build").arg("--quiet").arg(target);
+		command.arg("build").arg(target);
 		for arg in args {
 			command.arg("--arg");
 			command.arg(arg);
 		}
 		let output = command.output().await.unwrap();
-		let stdout = std::str::from_utf8(&output.stdout).unwrap().to_owned();
-		let stderr = std::str::from_utf8(&output.stderr).unwrap().to_owned();
 
-		assertions(stdout, stderr).await;
+		assertions(output).await;
 	})
 	.await;
 }
@@ -959,7 +978,7 @@ async fn test_build_remote<F, Fut>(
 	_args: Vec<String>,
 	assertions: F,
 ) where
-	F: FnOnce(String, String) -> Fut + Send + 'static,
+	F: FnOnce(std::process::Output, std::process::Output) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send,
 {
 	test(TG, move |context| async move {
@@ -1030,15 +1049,7 @@ async fn test_build_remote<F, Fut>(
 			.unwrap();
 		assert_success!(remote_output);
 
-		assertions(
-			std::str::from_utf8(&local_output.stdout)
-				.unwrap()
-				.to_owned(),
-			std::str::from_utf8(&remote_output.stdout)
-				.unwrap()
-				.to_owned(),
-		)
-		.await;
+		assertions(local_output, remote_output).await;
 	})
 	.await;
 }

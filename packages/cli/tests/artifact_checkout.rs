@@ -468,7 +468,6 @@ async fn test_artifact_checkout<F, Fut>(
 		let output = server
 			.tg()
 			.arg("build")
-			.arg("--quiet")
 			.arg(artifact_temp.path())
 			.output()
 			.await

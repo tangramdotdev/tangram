@@ -20,9 +20,9 @@ async fn file_no_dependencies_js() {
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
-	"kind": "file",
-	"contents": "hello",
-	"executable": false
+    "kind": "file",
+    "contents": "hello",
+    "executable": false
   }
   "#);
 	};
@@ -36,7 +36,7 @@ async fn file_no_dependencies() {
 	let assertions = |object: String| async move {
 		assert_snapshot!(object, @r#"
   tg.file({
-	"contents": tg.leaf("hello!"),
+    "contents": tg.leaf("hello!"),
   })
   "#);
 	};
@@ -53,12 +53,12 @@ async fn directory_no_dependencies() {
 	let assertions = |output: String| async move {
 		assert_snapshot!(output, @r#"
   tg.directory({
-	"file": tg.file({
-	  "contents": tg.leaf("hello"),
-	}),
-	"link": tg.symlink({
-	  "target": "link",
-	}),
+    "file": tg.file({
+      "contents": tg.leaf("hello"),
+    }),
+    "link": tg.symlink({
+      "target": "link",
+    }),
   })
   "#);
 	};
@@ -88,29 +88,29 @@ async fn executable_file_with_dependency() {
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
-	"kind": "directory",
-	"entries": {
-	  ".tangram": {
-		"kind": "directory",
-		"entries": {
-		  "artifacts": {
-			"kind": "directory",
-			"entries": {
-			  "fil_01gkrw51xnwqmtdqg7eww1yzcgvwjber106q9j96z94zdgkr49073g": {
-				"kind": "file",
-				"contents": "dependency",
-				"executable": false
-			  }
-			}
-		  },
-		  "run": {
-			"kind": "file",
-			"contents": "hello",
-			"executable": true
-		  }
-		}
-	  }
-	}
+    "kind": "directory",
+    "entries": {
+      ".tangram": {
+        "kind": "directory",
+        "entries": {
+          "artifacts": {
+            "kind": "directory",
+            "entries": {
+              "fil_01gkrw51xnwqmtdqg7eww1yzcgvwjber106q9j96z94zdgkr49073g": {
+                "kind": "file",
+                "contents": "dependency",
+                "executable": false
+              }
+            }
+          },
+          "run": {
+            "kind": "file",
+            "contents": "f",
+            "executable": true
+          }
+        }
+      }
+    }
   }
   "#);
 	};
@@ -162,7 +162,7 @@ async fn directory_containing_file_with_file_dependency() {
       },
       "file": {
         "kind": "file",
-        "contents": "hello",
+        "contents": "f",
         "executable": true
       }
     }
@@ -411,7 +411,6 @@ where
 		let output = server
 			.tg()
 			.arg("build")
-			.arg("--quiet")
 			.arg(artifact_temp.path())
 			.output()
 			.await

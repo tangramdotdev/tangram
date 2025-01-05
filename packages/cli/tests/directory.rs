@@ -32,7 +32,6 @@ async fn get_symlink() {
 		let output = server
 			.tg()
 			.arg("build")
-			.arg("--quiet")
 			.arg(temp.path())
 			.output()
 			.await
@@ -73,7 +72,6 @@ async fn get_file_through_symlink() {
 		let output = server
 			.tg()
 			.arg("build")
-			.arg("--quiet")
 			.arg(temp.path())
 			.output()
 			.await

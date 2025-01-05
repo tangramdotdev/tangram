@@ -155,9 +155,6 @@ async fn objects() {
 		let g = build_target_get_object_id("g", &server, artifact_temp.path()).await;
 		let h = build_target_get_object_id("h", &server, artifact_temp.path()).await;
 
-		// sleep 10 secs
-		tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-
 		// Tag c.
 		let pattern = "c";
 		let output = server
@@ -274,7 +271,6 @@ async fn build_target_get_build_id(name: &str, server: &Server, path: &Path) -> 
 	let output = server
 		.tg()
 		.arg("build")
-		.arg("--quiet")
 		.arg("--detach")
 		.arg(format!("{}#{}", path.display(), name))
 		.output()
@@ -298,7 +294,6 @@ async fn build_target_get_object_id(name: &str, server: &Server, path: &Path) ->
 	let output = server
 		.tg()
 		.arg("build")
-		.arg("--quiet")
 		.arg(format!("{}#{}", path.display(), name))
 		.output()
 		.await

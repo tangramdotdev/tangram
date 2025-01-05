@@ -61,7 +61,6 @@ async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) 
 		let output = local_server
 			.tg()
 			.arg("build")
-			.arg("--quiet")
 			.arg(artifact_temp.path())
 			.output()
 			.await
