@@ -73,43 +73,42 @@ async fn file_no_dependencies_js() {
 #[tokio::test]
 async fn file_no_dependencies() {
 	let file = temp::file!("hello!");
+	// let object = "hello";
 	let assertions = |object: String| async move {
-		dbg!(&object);
 		assert_snapshot!(object, @r#""#);
 	};
 	test_bundle(file, assertions).await;
 }
 
 // /// Test bundling a directory that contains no files with dependencies
-// #[tokio::test]
-// async fn directory_no_dependencies()  {
-// 	todo!()
-// }
+#[tokio::test]
+async fn directory_no_dependencies() {
+	todo!()
+}
 
-// /// Test bundling an executable file with a dependency.
-// #[tokio::test]
-// async fn executable_file_with_dependency()  {
-// 	todo!()
-// }
+/// Test bundling an executable file with a dependency.
+#[tokio::test]
+async fn executable_file_with_dependency() {
+	todo!()
+}
 
-// /// Test bundling a directory that contains files with dependencies.
-// #[tokio::test]
-// async fn directory_containing_file_with_file_dependency()  {
-// 	todo!()
-// }
+/// Test bundling a directory that contains files with dependencies.
+#[tokio::test]
+async fn directory_containing_file_with_file_dependency() {
+	todo!()
+}
 
-// /// Test bundling dependencies that contain target symlinks.
-// #[tokio::test]
-// async fn directory_containing_file_with_directory_dependency_target_symlink()  {
-// 	todo!()
-// }
+/// Test bundling dependencies that contain target symlinks.
+#[tokio::test]
+async fn directory_containing_file_with_directory_dependency_target_symlink() {
+	todo!()
+}
 
-// /// Test bundling dependencies that contain artifact/path symlinks.
-// #[tokio::test]
-// async fn directory_containing_file_with_directory_dependency_artifact_path_symlink(
-// )  {
-// 	todo!()
-// }
+/// Test bundling dependencies that contain artifact/path symlinks.
+#[tokio::test]
+async fn directory_containing_file_with_directory_dependency_artifact_path_symlink() {
+	todo!()
+}
 
 async fn test_bundle<F, Fut>(artifact: impl Into<temp::Artifact> + Send + 'static, assertions: F)
 where
