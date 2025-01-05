@@ -98,7 +98,7 @@ async fn builds() -> tg::Result<()> {
 			.wait_with_output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert!(!output.status.success());
 
 		let output = server
 			.tg()
@@ -162,7 +162,13 @@ async fn objects() -> tg::Result<()> {
 		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
 
+		let a = build_target_get_object_id("a", &server, artifact_temp.path()).await;
+		let b = build_target_get_object_id("b", &server, artifact_temp.path()).await;
 		let c = build_target_get_object_id("c", &server, artifact_temp.path()).await;
+		let d = build_target_get_object_id("d", &server, artifact_temp.path()).await;
+		let e = build_target_get_object_id("e", &server, artifact_temp.path()).await;
+		let f = build_target_get_object_id("f", &server, artifact_temp.path()).await;
+		let g = build_target_get_object_id("g", &server, artifact_temp.path()).await;
 		let h = build_target_get_object_id("h", &server, artifact_temp.path()).await;
 
 		// sleep 10 secs
@@ -188,7 +194,7 @@ async fn objects() -> tg::Result<()> {
 			.tg()
 			.arg("tag")
 			.arg(pattern)
-			.arg(h)
+			.arg(h.clone())
 			.spawn()
 			.unwrap()
 			.wait_with_output()
@@ -210,33 +216,33 @@ async fn objects() -> tg::Result<()> {
 		// Confirm presence/absence of objects.
 		let a_output = server
 			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(artifact_temp.path().join("a.tg.ts"))
+			.arg("object")
+			.arg("get")
+			.arg(a)
 			.spawn()
 			.unwrap()
 			.wait_with_output()
 			.await
 			.unwrap();
-		assert!(a_output.status.success());
+		assert!(!a_output.status.success());
 
 		let b_output = server
 			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(artifact_temp.path().join("b.tg.ts"))
+			.arg("object")
+			.arg("get")
+			.arg(b)
 			.spawn()
 			.unwrap()
 			.wait_with_output()
 			.await
 			.unwrap();
-		assert!(b_output.status.success());
+		assert!(!b_output.status.success());
 
 		let c_output = server
 			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(artifact_temp.path().join("c.tg.ts"))
+			.arg("object")
+			.arg("get")
+			.arg(c)
 			.spawn()
 			.unwrap()
 			.wait_with_output()
@@ -246,45 +252,45 @@ async fn objects() -> tg::Result<()> {
 
 		let d_output = server
 			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(artifact_temp.path().join("d.tg.ts"))
+			.arg("object")
+			.arg("get")
+			.arg(d)
 			.spawn()
 			.unwrap()
 			.wait_with_output()
 			.await
 			.unwrap();
-		assert!(d_output.status.success());
+		assert!(!d_output.status.success());
 
 		let e_output = server
 			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(artifact_temp.path().join("e.tg.ts"))
+			.arg("object")
+			.arg("get")
+			.arg(e)
 			.spawn()
 			.unwrap()
 			.wait_with_output()
 			.await
 			.unwrap();
-		assert!(e_output.status.success());
+		assert!(!e_output.status.success());
 
 		let f_output = server
 			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(artifact_temp.path().join("f.tg.ts"))
+			.arg("object")
+			.arg("get")
+			.arg(f)
 			.spawn()
 			.unwrap()
 			.wait_with_output()
 			.await
 			.unwrap();
-		assert!(f_output.status.success());
+		assert!(!f_output.status.success());
 
 		let g_output = server
 			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(artifact_temp.path().join("g.tg.ts"))
+			.arg("object")
+			.arg("get")
+			.arg(g)
 			.spawn()
 			.unwrap()
 			.wait_with_output()
@@ -294,9 +300,9 @@ async fn objects() -> tg::Result<()> {
 
 		let h_output = server
 			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(artifact_temp.path().join("h.tg.ts"))
+			.arg("object")
+			.arg("get")
+			.arg(h)
 			.spawn()
 			.unwrap()
 			.wait_with_output()
@@ -313,7 +319,8 @@ async fn build_target_get_build_id(name: &str, server: &Server, path: &Path) -> 
 		.tg()
 		.arg("build")
 		.arg("--quiet")
-		.arg(path.join(format!("{name}.tg.ts")))
+		.arg("--detach")
+		.arg(format!("{}#{}", path.display(), name))
 		.spawn()
 		.unwrap()
 		.wait_with_output()
@@ -340,7 +347,7 @@ async fn build_target_get_object_id(name: &str, server: &Server, path: &Path) ->
 		.tg()
 		.arg("build")
 		.arg("--quiet")
-		.arg(path.join(format!("{name}.tg.ts")))
+		.arg(format!("{}#{}", path.display(), name))
 		.spawn()
 		.unwrap()
 		.wait_with_output()

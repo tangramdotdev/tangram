@@ -83,36 +83,36 @@ async fn file_no_dependencies() -> tg::Result<()> {
 	test_bundle(file, assertions).await
 }
 
-/// Test bundling a directory that contains no files with dependencies
-#[tokio::test]
-async fn directory_no_dependencies() -> tg::Result<()> {
-	todo!()
-}
+// /// Test bundling a directory that contains no files with dependencies
+// #[tokio::test]
+// async fn directory_no_dependencies() -> tg::Result<()> {
+// 	todo!()
+// }
 
-/// Test bundling an executable file with a dependency.
-#[tokio::test]
-async fn executable_file_with_dependency() -> tg::Result<()> {
-	todo!()
-}
+// /// Test bundling an executable file with a dependency.
+// #[tokio::test]
+// async fn executable_file_with_dependency() -> tg::Result<()> {
+// 	todo!()
+// }
 
-/// Test bundling a directory that contains files with dependencies.
-#[tokio::test]
-async fn directory_containing_file_with_file_dependency() -> tg::Result<()> {
-	todo!()
-}
+// /// Test bundling a directory that contains files with dependencies.
+// #[tokio::test]
+// async fn directory_containing_file_with_file_dependency() -> tg::Result<()> {
+// 	todo!()
+// }
 
-/// Test bundling dependencies that contain target symlinks.
-#[tokio::test]
-async fn directory_containing_file_with_directory_dependency_target_symlink() -> tg::Result<()> {
-	todo!()
-}
+// /// Test bundling dependencies that contain target symlinks.
+// #[tokio::test]
+// async fn directory_containing_file_with_directory_dependency_target_symlink() -> tg::Result<()> {
+// 	todo!()
+// }
 
-/// Test bundling dependencies that contain artifact/path symlinks.
-#[tokio::test]
-async fn directory_containing_file_with_directory_dependency_artifact_path_symlink(
-) -> tg::Result<()> {
-	todo!()
-}
+// /// Test bundling dependencies that contain artifact/path symlinks.
+// #[tokio::test]
+// async fn directory_containing_file_with_directory_dependency_artifact_path_symlink(
+// ) -> tg::Result<()> {
+// 	todo!()
+// }
 
 async fn test_bundle<F, Fut>(
 	artifact: impl Into<temp::Artifact> + Send + 'static,

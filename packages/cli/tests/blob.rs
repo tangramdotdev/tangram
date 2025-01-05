@@ -42,9 +42,13 @@ async fn create_from_file() {
 			.to_owned();
 		let output = server
 			.tg()
-			.arg("blob")
 			.arg("get")
 			.arg(id)
+			.arg("--format")
+			.arg("tgvn")
+			.arg("--pretty")
+			.arg("true")
+			.arg("--recursive")
 			.spawn()
 			.unwrap()
 			.wait_with_output()

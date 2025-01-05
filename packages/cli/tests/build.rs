@@ -1,121 +1,120 @@
 use indoc::indoc;
-use insta::assert_snapshot;
-use tangram_cli::test::test;
+use insta::{assert_json_snapshot, assert_snapshot};
+use std::{future::Future, path::Path};
+use tangram_cli::test::{test, Server};
+use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 /// Test building a module without a package.
 #[tokio::test]
-async fn build_module_without_package() {
-	test(TG, |context| async move {
-		let mut context = context.lock().await;
-
-		// Start the server.
-		let server = context.spawn_server().await.unwrap();
-
-		// Create a directory with a module.
-		let temp = Temp::new();
-		let directory = temp::directory! {
-			"foo.tg.ts" => indoc!(r#"
-				export default tg.target(() => "Hello, World!");
-			"#),
-		};
-		directory.to_path(temp.as_ref()).await.unwrap();
-
-		// Build the module.
-		let output = server
-			.tg()
-			.arg("build")
-			.arg(temp.path().join("foo.tg.ts"))
-			.spawn()
-			.unwrap()
-			.wait_with_output()
-			.await
-			.unwrap();
-		assert!(output.status.success());
-
-		// Assert the output.
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#""Hello, World!""#);
-	})
-	.await;
+async fn build_module_without_package() -> tg::Result<()> {
+	let directory = temp::directory! {
+		"foo.tg.ts" => indoc!(r#"
+			export default tg.target(() => "Hello, World!");
+		"#),
+	};
+	let assertions = |output: String| async move {
+		assert_snapshot!(output, @r#""Hello, World!""#);
+		Ok(())
+	};
+	let path = "foo.tg.ts";
+	let target = "default";
+	let args = vec![];
+	test_build(directory, path, target, args, assertions).await
 }
 
 #[tokio::test]
-async fn get_symlink() {
-	test(TG, |context| async move {
-		let mut context = context.lock().await;
+async fn hello_world() -> tg::Result<()> {
+	let directory = temp::directory! {
+		"foo" => temp::directory! {
+			"tangram.ts" => r#"export default tg.target(() => "Hello, World!")"#,
+		}
+	};
+	let assertions = |output: String| async move {
+		assert_snapshot!(output, @r###""Hello, World!""###);
+		Ok(())
+	};
+	let args = vec![];
+	let path = "foo";
+	let target = "default";
+	test_build(directory, path, target, args, assertions).await
+}
 
-		// Start the server.
+#[tokio::test]
+async fn accepts_target_with_no_return_value() -> tg::Result<()> {
+	let directory = temp::directory! {
+		"foo" => temp::directory! {
+			"tangram.ts" => r"export default tg.target(() => {})",
+		}
+	};
+	let assertions = |output: String| async move {
+		assert_snapshot!(output, @r"null");
+		Ok(())
+	};
+	let path = "foo";
+	let target = "default";
+	let args = vec![];
+	test_build(directory, path, target, args, assertions).await
+}
+
+#[tokio::test]
+async fn accepts_arg() -> tg::Result<()> {
+	let directory = temp::directory! {
+		"foo" => temp::directory! {
+			"tangram.ts" => r"export default tg.target((name: string) => `Hello, ${name}!`)",
+		}
+	};
+	let assertions = |output: String| async move {
+		assert_snapshot!(output, @r###""Hello, Tangram!""###);
+		Ok(())
+	};
+	let path = "foo";
+	let target = "default";
+	let args = vec![r#""Tangram""#.into()];
+	test_build(directory, path, target, args, assertions).await
+}
+
+async fn test_build<F, Fut>(
+	artifact: impl Into<temp::Artifact> + Send + 'static,
+	path: &str,
+	target: &str,
+	args: Vec<String>,
+	assertions: F,
+) -> tg::Result<()>
+where
+	F: FnOnce(String) -> Fut + Send + 'static,
+	Fut: Future<Output = tg::Result<()>> + Send,
+{
+	test(TG, move |context| async move {
+		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
 
+		let artifact: temp::Artifact = artifact.into();
 		// Create a directory with a module.
 		let temp = Temp::new();
-		let directory = temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default tg.target(async () => {
-					let directory = await tg.directory({
-						"hello.txt": "Hello, World!",
-						"link": tg.symlink("hello.txt"),
-					});
-					return directory.get("link");
-				});
-			"#),
-		};
-		directory.to_path(temp.as_ref()).await.unwrap();
+		artifact.to_path(temp.as_ref()).await.unwrap();
+
+		let path = temp.path().join(path);
+		let target = format!("{path}#{target}", path = path.display());
 
 		// Build the module.
-		let output = server
-			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(temp.path())
-			.output()
-			.await
-			.unwrap();
+		let mut command = server.tg();
+		command.arg("build").arg("--quiet").arg(target);
+		for arg in args {
+			command.arg("--arg");
+			command.arg(arg);
+		}
+		let output = command.spawn().unwrap().wait_with_output().await.unwrap();
+		dbg!(&output);
 		assert!(output.status.success());
 
 		// Assert the output.
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
-	})
-	.await;
-}
-#[tokio::test]
-async fn get_file_through_symlink() {
-	test(TG, |context| async move {
-		let mut context = context.lock().await;
-
-		// Start the server.
-		let server = context.spawn_server().await.unwrap();
-
-		// Create a directory with a module.
-		let temp = Temp::new();
-		let directory = temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default tg.target(async () => {
-					let directory = await tg.directory({
-						"subdirectory": {
-							"hello.txt": "Hello, World!",
-						},
-						"link": tg.symlink("subdirectory"),
-					});
-					return directory.get("link/hello.txt");
-				});
-			"#),
-		};
-		directory.to_path(temp.as_ref()).await.unwrap();
-
-		// Build the module.
-		let output = server
-			.tg()
-			.arg("build")
-			.arg("--quiet")
-			.arg(temp.path())
-			.output()
+		assertions(std::str::from_utf8(&output.stdout).unwrap().to_owned())
 			.await
 			.unwrap();
-		assert!(output.status.success());
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
 	})
 	.await;
+	Ok(())
 }

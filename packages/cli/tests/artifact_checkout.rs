@@ -357,6 +357,7 @@ async fn graph_directory() -> tg::Result<()> {
 }
 
 /// Test checking out a file that is a member of a graph.
+/// TODO: THIS TEST FAILS
 #[tokio::test]
 async fn graph_file() -> tg::Result<()> {
 	let build = temp::directory! {
@@ -475,7 +476,8 @@ where
 		// Build the module.
 		let output = server
 			.tg()
-			.arg("checkin")
+			.arg("build")
+			.arg("--quiet")
 			.arg(artifact_temp.path())
 			.spawn()
 			.unwrap()
@@ -497,12 +499,7 @@ where
 				.arg("--dependencies")
 				.arg(checkout_dependencies.to_string());
 		}
-		let output = command
-			.spawn()
-			.unwrap()
-			.wait_with_output()
-			.await
-			.unwrap();
+		let output = command.spawn().unwrap().wait_with_output().await.unwrap();
 		assert!(output.status.success());
 
 		let artifact = temp::Artifact::with_path(temp.path()).await.unwrap();

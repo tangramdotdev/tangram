@@ -323,7 +323,8 @@ async fn remote_put() -> tg::Result<()> {
 		let local_output = local_server
 			.tg()
 			.arg("tag")
-			.arg("list")
+			.arg("get")
+			.arg(tag)
 			.spawn()
 			.unwrap()
 			.wait_with_output()
@@ -334,7 +335,8 @@ async fn remote_put() -> tg::Result<()> {
 		let remote_output = remote_server
 			.tg()
 			.arg("tag")
-			.arg("list")
+			.arg("get")
+			.arg(tag)
 			.spawn()
 			.unwrap()
 			.wait_with_output()

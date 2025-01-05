@@ -2509,7 +2509,6 @@ async fn test_artifact_checkin_inner(
 	// Check in.
 	let mut cmd = server.tg();
 	cmd.arg("checkin");
-	cmd.arg("--build-module-without-package");
 	cmd.arg(path.clone());
 	if destructive {
 		cmd.arg("--destructive");
@@ -2542,8 +2541,8 @@ async fn test_artifact_checkin_inner(
 	// Get the metadata.
 	let metadata_output = server
 		.tg()
+		.arg("object")
 		.arg("metadata")
-		.arg("get")
 		.arg(id)
 		.arg("--pretty")
 		.arg("true")
