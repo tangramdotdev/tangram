@@ -32,14 +32,11 @@ pub struct Options {
 	pub collapse_finished_builds: bool,
 	pub expand_on_create: bool,
 	pub hide_build_targets: bool,
-	pub max_depth: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Focus {
-	Data,
 	Help,
-	Log,
 	Tree,
 }
 
@@ -169,7 +166,7 @@ where
 			None
 		};
 
-		// Render the tree until it is ready.
+		// Render the tree.
 		let mut lines = None;
 		loop {
 			// Update.
@@ -196,12 +193,9 @@ where
 				lines = Some(tree.lines().count().to_u16().unwrap());
 			}
 
-			// Sleep. If the tree becomes ready or the task is stopped, then break.
-			let ready = self.tree.ready();
+			// Sleep. If the task is stopped, then break.
 			let sleep = tokio::time::sleep(Duration::from_millis(100));
-			if let future::Either::Left(_) =
-				future::select(future::select(pin!(ready), pin!(stop.wait())), pin!(sleep)).await
-			{
+			if let future::Either::Left(_) = future::select(pin!(stop.wait()), pin!(sleep)).await {
 				break;
 			}
 		}

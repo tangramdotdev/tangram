@@ -1,11 +1,11 @@
 use super::{Item, Options};
 use crossterm::{self as ct, style::Stylize};
-use futures::{TryFutureExt as _, TryStreamExt as _};
+use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
 	cell::RefCell,
-	collections::{BTreeMap, VecDeque},
+	collections::BTreeMap,
 	fmt::Write,
 	rc::{Rc, Weak},
 };
@@ -34,7 +34,6 @@ struct Node {
 	log_task: Option<Task<()>>,
 	options: Rc<Options>,
 	parent: Option<Weak<RefCell<Self>>>,
-	ready_sender: tokio::sync::watch::Sender<bool>,
 	title: String,
 	update_receiver: NodeUpdateReceiver,
 	update_sender: NodeUpdateSender,
@@ -122,7 +121,6 @@ where
 	{
 		let depth = parent.borrow().depth + 1;
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
-		let (ready_sender, _) = tokio::sync::watch::channel(false);
 		let options = parent.borrow().options.clone();
 		let parent = Rc::downgrade(parent);
 		let title = item.map_or(String::new(), |item| Self::item_title(item));
@@ -131,10 +129,9 @@ where
 			(Some(item), true) => {
 				let handle = handle.clone();
 				let item = item.clone();
-				let ready_sender = ready_sender.clone();
 				let update_sender = update_sender.clone();
 				let task = Task::spawn_local(|_| async move {
-					Self::expand_task(&handle, item, update_sender, ready_sender).await;
+					Self::expand_task(&handle, item, update_sender).await;
 				});
 				Some(task)
 			},
@@ -151,7 +148,6 @@ where
 			log_task: None,
 			options,
 			parent: Some(parent),
-			ready_sender,
 			title,
 			update_receiver,
 			update_sender,
@@ -226,8 +222,7 @@ where
 		let children_task = Task::spawn_local({
 			let handle = self.handle.clone();
 			let update_sender = node.update_sender.clone();
-			let ready_sender = node.ready_sender.clone();
-			move |_| async move { Self::expand_task(&handle, item, update_sender, ready_sender).await }
+			move |_| async move { Self::expand_task(&handle, item, update_sender).await }
 		});
 		node.expand_task.replace(children_task);
 		node.expanded = true;
@@ -1154,15 +1149,13 @@ where
 	pub fn new(handle: &H, item: Item, options: Options) -> Self {
 		let options = Rc::new(options);
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
-		let (ready_sender, _) = tokio::sync::watch::channel(false);
 		let title = Self::item_title(&item);
 		let expand_task = if options.expand_on_create {
 			let handle = handle.clone();
 			let item = item.clone();
-			let ready_sender = ready_sender.clone();
 			let update_sender = update_sender.clone();
 			let task = Task::spawn_local(|_| async move {
-				Self::expand_task(&handle, item, update_sender, ready_sender).await;
+				Self::expand_task(&handle, item, update_sender).await;
 			});
 			Some(task)
 		} else {
@@ -1197,7 +1190,6 @@ where
 			log_task: None,
 			options: options.clone(),
 			parent: None,
-			ready_sender,
 			title,
 			update_receiver,
 			update_sender,
@@ -1233,19 +1225,6 @@ where
 	fn push(&mut self) {
 		if !Rc::ptr_eq(self.roots.last().unwrap(), &self.selected) {
 			self.roots.push(self.selected.clone());
-		}
-	}
-
-	pub async fn ready(&mut self) {
-		let mut queue = VecDeque::from([self.roots.last().unwrap().clone()]);
-		while let Some(node) = queue.pop_front() {
-			let mut ready = node.borrow().ready_sender.subscribe();
-			ready.wait_for(|ready| *ready).map_ok(|_| ()).await.unwrap();
-			self.update();
-			if let Some(Item::Build(build)) = &node.borrow().item {
-				eprintln!("{build} is ready");
-			}
-			queue.extend(node.borrow().children.iter().cloned());
 		}
 	}
 
@@ -1330,12 +1309,7 @@ where
 		self.rect = Some(rect);
 	}
 
-	async fn expand_task(
-		handle: &H,
-		item: Item,
-		update_sender: NodeUpdateSender,
-		ready_sender: tokio::sync::watch::Sender<bool>,
-	) {
+	async fn expand_task(handle: &H, item: Item, update_sender: NodeUpdateSender) {
 		let result = match item {
 			Item::Build(build) => Self::expand_build(handle, build, update_sender.clone()).await,
 			Item::Value(value) => Self::expand_value(handle, value, update_sender.clone()).await,
@@ -1347,7 +1321,6 @@ where
 			};
 			update_sender.send(Box::new(update)).ok();
 		}
-		ready_sender.send_replace(true);
 	}
 
 	fn top(&mut self) {

@@ -175,6 +175,7 @@ enum Command {
 
 	Target(self::target::Args),
 
+	#[command(hide = true)]
 	Tree(self::tree::Args),
 
 	Update(self::package::update::Args),
