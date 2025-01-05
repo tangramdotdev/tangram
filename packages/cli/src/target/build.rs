@@ -378,7 +378,7 @@ impl Cli {
 		// If the build is finished, then get the build's output.
 		let output = if status.is_finished() {
 			let output = build
-				.try_get_output(&handle)
+				.output(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the output"))?;
 			Some(output)
@@ -443,7 +443,7 @@ impl Cli {
 			});
 
 			// Wait for the build's output.
-			let output = build.try_get_output(&handle).await;
+			let output = build.output(&handle).await;
 
 			// Abort the cancel task.
 			cancel_task.abort();
@@ -458,14 +458,23 @@ impl Cli {
 		};
 
 		// Handle a failed build.
-		let Some(output) = output else {
+		if output.status.is_failed() {
+			if let Some(error) = output.error {
+				return Err(tg::error!(!error, "the build failed"));
+			}
 			return Err(tg::error!("the build failed"));
+		}
+
+		// Get the output data.
+		let Some(output) = output.output else {
+			return Err(tg::error!("failed to find build output"));
 		};
+		let value = tg::Value::try_from(output)?;
 
 		// Checkout the output if requested.
 		if let Some(path) = args.checkout {
 			// Get the artifact.
-			let artifact = tg::Artifact::try_from(output.clone())
+			let artifact = tg::Artifact::try_from(value)
 				.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
 
 			// Get the path.
@@ -492,7 +501,7 @@ impl Cli {
 			return Ok(InnerOutput::Path(output));
 		}
 
-		Ok(InnerOutput::Value(output))
+		Ok(InnerOutput::Value(value))
 	}
 }
 

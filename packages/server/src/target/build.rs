@@ -85,8 +85,10 @@ impl Server {
 			if status.is_finished() {
 				let output = self.try_get_build(&id).await?;
 				if let Some(output) = output {
-					if output.retry <= arg.retry {
-						break 'a;
+					if let Some(output_retry) = output.status.retry() {
+						if output_retry <= arg.retry {
+							break 'a;
+						}
 					}
 				}
 			}

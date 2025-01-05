@@ -78,37 +78,21 @@ impl Build {
 		Ok(Some(target))
 	}
 
-	pub async fn try_get_output<H>(&self, handle: &H) -> tg::Result<Option<tg::Value>>
+	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::build::get::Output>
 	where
 		H: tg::Handle,
 	{
 		let Some(stream) = handle.try_get_build_status(&self.id).await? else {
-			return Ok(None);
+			return Err(tg::error!("failed to get the build status stream"));
 		};
 		let Some(Ok(status)) = pin!(stream).last().await else {
 			return Err(tg::error!("failed to get the last build status"));
 		};
 		if status.is_finished() {
-			let build = handle.get_build(&self.id).await?;
-			let Some(output) = build.output else {
-				return Ok(None);
-			};
-			let Ok(value) = output.try_into() else {
-				return Ok(None);
-			};
-			Ok(Some(value))
+			handle.get_build(&self.id).await
 		} else {
-			Err(tg::error!("checksum build failed"))
+			Err(tg::error!("the build failed to finish"))
 		}
-	}
-
-	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
-	where
-		H: tg::Handle,
-	{
-		self.try_get_output(handle)
-			.await?
-			.ok_or_else(|| tg::error!("failed to get the build output"))
 	}
 }
 

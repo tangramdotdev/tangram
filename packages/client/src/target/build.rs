@@ -42,7 +42,16 @@ impl tg::Target {
 	{
 		let build = self.build(handle, arg).await?;
 		let output = build.output(handle).await?;
-		Ok(output)
+		if output.status.is_failed() {
+			if let Some(error) = output.error {
+				return Err(tg::error!(!error, "the build failed"));
+			}
+			return Err(tg::error!("the build failed"));
+		}
+		let Some(output) = output.output else {
+			return Err(tg::error!("failed to get the build output"));
+		};
+		output.try_into()
 	}
 }
 

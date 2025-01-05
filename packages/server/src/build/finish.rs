@@ -294,10 +294,18 @@ impl Server {
 		};
 		let output = self.build_target(&target_id, arg).await?;
 		let output = self.get_build(&output.build).await?;
-		let build = tg::Build::with_id(output.id).try_get_output(self).await?;
+		let output = tg::Build::with_id(output.id).output(self).await?;
+
+		// Check if the build failed.
+		if output.status.is_failed() {
+			if let Some(error) = output.error {
+				return Err(tg::error!(!error, "the checksum build failed"));
+			}
+			return Err(tg::error!("the checksum build failed"));
+		}
 
 		// Get the output.
-		let Some(value) = build else {
+		let Some(value) = output.output else {
 			return Err(tg::error!("failed to get the checksum build output"));
 		};
 

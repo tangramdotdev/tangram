@@ -14,7 +14,12 @@ impl Cli {
 		let handle = self.handle().await?;
 		let build = tg::Build::with_id(args.build);
 		let output = build.output(&handle).await?;
-		println!("{output}");
+		if let Some(error) = output.error {
+			println!("{error}");
+		} else if let Some(output) = output.output {
+			let value = tg::Value::try_from(output)?;
+			println!("{value}");
+		}
 		Ok(())
 	}
 }
