@@ -73,9 +73,12 @@ async fn file_no_dependencies_js() {
 #[tokio::test]
 async fn file_no_dependencies() {
 	let file = temp::file!("hello!");
-	// let object = "hello";
 	let assertions = |object: String| async move {
-		assert_snapshot!(object, @r#""#);
+		assert_snapshot!(object, @r#"
+  tg.file({
+    "contents": tg.leaf("hello!"),
+  })
+  "#);
 	};
 	test_bundle(file, assertions).await;
 }
@@ -83,31 +86,23 @@ async fn file_no_dependencies() {
 // /// Test bundling a directory that contains no files with dependencies
 #[tokio::test]
 async fn directory_no_dependencies() {
-	todo!()
-}
-
-/// Test bundling an executable file with a dependency.
-#[tokio::test]
-async fn executable_file_with_dependency() {
-	todo!()
-}
-
-/// Test bundling a directory that contains files with dependencies.
-#[tokio::test]
-async fn directory_containing_file_with_file_dependency() {
-	todo!()
-}
-
-/// Test bundling dependencies that contain target symlinks.
-#[tokio::test]
-async fn directory_containing_file_with_directory_dependency_target_symlink() {
-	todo!()
-}
-
-/// Test bundling dependencies that contain artifact/path symlinks.
-#[tokio::test]
-async fn directory_containing_file_with_directory_dependency_artifact_path_symlink() {
-	todo!()
+	let directory = temp::directory! {
+		"file" => temp::file!("hello"),
+		"link" => temp::symlink!("link")
+	};
+	let assertions = |output: String| async move {
+		assert_snapshot!(output, @r#"
+  tg.directory({
+    "file": tg.file({
+      "contents": tg.leaf("hello"),
+    }),
+    "link": tg.symlink({
+      "target": "link",
+    }),
+  })
+  "#);
+	};
+	test_bundle(directory, assertions).await;
 }
 
 async fn test_bundle<F, Fut>(artifact: impl Into<temp::Artifact> + Send + 'static, assertions: F)
@@ -138,7 +133,6 @@ where
 			.tg()
 			.arg("artifact")
 			.arg("bundle")
-			.arg("--quiet")
 			.arg(id.clone())
 			.spawn()
 			.unwrap()
@@ -147,9 +141,32 @@ where
 			.unwrap();
 		assert!(output.status.success());
 
-		let output = std::str::from_utf8(&output.stdout).unwrap().to_owned();
+		// Get the object.
+		let id = std::str::from_utf8(&output.stdout)
+			.unwrap()
+			.trim()
+			.to_owned();
+		let object_output = server
+			.tg()
+			.arg("object")
+			.arg("get")
+			.arg(id.clone())
+			.arg("--format")
+			.arg("tgvn")
+			.arg("--pretty")
+			.arg("true")
+			.arg("--recursive")
+			.spawn()
+			.unwrap()
+			.wait_with_output()
+			.await
+			.unwrap();
+		assert!(object_output.status.success());
+		let object_output = std::str::from_utf8(&object_output.stdout)
+			.unwrap()
+			.to_owned();
 
-		(assertions)(output).await;
+		assertions(object_output).await;
 	})
 	.await;
 }
