@@ -11,10 +11,21 @@ use tangram_either::Either;
 use tangram_futures::task::Task;
 
 /// Build a target.
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// The reference to the target to build.
+	#[arg(index = 1)]
+	pub reference: Option<tg::Reference>,
+
+	#[command(flatten)]
+	pub inner: InnerArgs,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct InnerArgs {
 	/// Set the arguments.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub arg: Vec<String>,
@@ -43,10 +54,6 @@ pub struct Args {
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[arg(long)]
 	pub locked: bool,
-
-	/// The reference to the target to build.
-	#[arg(index = 1)]
-	pub reference: Option<tg::Reference>,
 
 	/// The remote to use.
 	#[allow(clippy::option_option)]
@@ -85,8 +92,16 @@ pub enum InnerOutput {
 
 impl Cli {
 	pub async fn command_target_build(&self, args: Args) -> tg::Result<()> {
+		// Get the reference.
+		let reference = args
+			.reference
+			.clone()
+			.unwrap_or_else(|| ".".parse().unwrap());
+
 		// Build.
-		let output = self.command_target_build_inner(args).await?;
+		let output = self
+			.command_target_build_inner(reference, args.inner)
+			.await?;
 
 		// Print the output.
 		match output {
@@ -114,14 +129,12 @@ impl Cli {
 		Ok(())
 	}
 
-	pub(crate) async fn command_target_build_inner(&self, args: Args) -> tg::Result<InnerOutput> {
+	pub(crate) async fn command_target_build_inner(
+		&self,
+		reference: tg::Reference,
+		args: InnerArgs,
+	) -> tg::Result<InnerOutput> {
 		let handle = self.handle().await?;
-
-		// Get the reference.
-		let reference = args
-			.reference
-			.clone()
-			.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Get the remote.
 		let remote = args
@@ -486,18 +499,20 @@ impl Cli {
 impl Default for Args {
 	fn default() -> Self {
 		Self {
-			arg: vec![],
-			checkout: None,
-			create: true,
-			detach: false,
-			env: vec![],
-			host: None,
-			locked: false,
 			reference: None,
-			remote: None,
-			retry: None,
-			tag: None,
-			view: View::None,
+			inner: InnerArgs {
+				arg: vec![],
+				checkout: None,
+				create: true,
+				detach: false,
+				env: vec![],
+				host: None,
+				locked: false,
+				remote: None,
+				retry: None,
+				tag: None,
+				view: View::default(),
+			},
 		}
 	}
 }
