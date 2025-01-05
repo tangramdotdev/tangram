@@ -1,7 +1,7 @@
 use indoc::indoc;
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::future::Future;
-use tangram_cli::test::test;
+use tangram_cli::{assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
@@ -349,7 +349,7 @@ where
 
 		// Check in.
 		let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Get the object.
 		let id = std::str::from_utf8(&output.stdout)
@@ -361,12 +361,10 @@ where
 			.arg("artifact")
 			.arg("bundle")
 			.arg(id.clone())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Get the object.
 		let id = std::str::from_utf8(&output.stdout)
@@ -383,12 +381,10 @@ where
 			.arg("--pretty")
 			.arg("true")
 			.arg("--recursive")
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(object_output.status.success());
+		assert_success!(object_output);
 		let object_output = std::str::from_utf8(&object_output.stdout)
 			.unwrap()
 			.to_owned();
@@ -417,12 +413,10 @@ where
 			.arg("build")
 			.arg("--quiet")
 			.arg(artifact_temp.path())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 
@@ -435,12 +429,10 @@ where
 			.arg("checkout")
 			.arg(id)
 			.arg(path)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		let artifact = temp::Artifact::with_path(temp.path()).await.unwrap();
 

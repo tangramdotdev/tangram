@@ -1,7 +1,10 @@
 use indoc::indoc;
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::{future::Future, path::Path};
-use tangram_cli::test::{test, Server};
+use tangram_cli::{
+	assert_success,
+	test::{test, Server},
+};
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
@@ -2234,12 +2237,10 @@ async fn tagged_package_reproducible_checkin() {
 			.arg("tag")
 			.arg(tag)
 			.arg(temp.path())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Create a local server.
 		let local_server1 = context.spawn_server().await.unwrap();
@@ -2249,12 +2250,10 @@ async fn tagged_package_reproducible_checkin() {
 			.arg("put")
 			.arg("default")
 			.arg(remote_server.url().to_string())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Create a second local server.
 		let local_server2 = context.spawn_server().await.unwrap();
@@ -2264,12 +2263,10 @@ async fn tagged_package_reproducible_checkin() {
 			.arg("put")
 			.arg("default")
 			.arg(remote_server.url().to_string())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Create an artifact.
 		let artifact: temp::Artifact = temp::directory! {
@@ -2315,12 +2312,10 @@ async fn tag_dependencies_after_clean() {
 			.arg("put")
 			.arg("default")
 			.arg(server1.url().to_string())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Publish the referent to server 1.
 		let referent = temp::directory! {
@@ -2337,12 +2332,10 @@ async fn tag_dependencies_after_clean() {
 			.arg("tag")
 			.arg(tag)
 			.arg(temp.path())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Checkin the referrer to server 2.
 		let referrer = temp::directory! {
@@ -2368,12 +2361,10 @@ async fn tag_dependencies_after_clean() {
 			.arg("put")
 			.arg("default")
 			.arg(server1.url().to_string())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Checkin the artifact to server 2 again, this time the lockfile has been written to disk.
 		let path = "";
@@ -2427,12 +2418,10 @@ async fn test_artifact_checkin_inner(
 			.arg("tag")
 			.arg(tag)
 			.arg(temp.path())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 	}
 
 	// Write the artifact to a temp.
@@ -2443,14 +2432,14 @@ async fn test_artifact_checkin_inner(
 	let path = temp.path().join(path);
 
 	// Check in.
-	let mut cmd = server.tg();
-	cmd.arg("checkin");
-	cmd.arg(path.clone());
+	let mut command = server.tg();
+	command.arg("checkin");
+	command.arg(path.clone());
 	if destructive {
-		cmd.arg("--destructive");
+		command.arg("--destructive");
 	}
-	let output = cmd.spawn().unwrap().wait_with_output().await.unwrap();
-	assert!(output.status.success());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
 
 	// Get the object.
 	let id = std::str::from_utf8(&output.stdout)
@@ -2467,12 +2456,10 @@ async fn test_artifact_checkin_inner(
 		.arg("--pretty")
 		.arg("true")
 		.arg("--recursive")
-		.spawn()
-		.unwrap()
-		.wait_with_output()
+		.output()
 		.await
 		.unwrap();
-	assert!(object_output.status.success());
+	assert_success!(object_output);
 
 	// Get the metadata.
 	let metadata_output = server
@@ -2482,12 +2469,10 @@ async fn test_artifact_checkin_inner(
 		.arg(id)
 		.arg("--pretty")
 		.arg("true")
-		.spawn()
-		.unwrap()
-		.wait_with_output()
+		.output()
 		.await
 		.unwrap();
-	assert!(metadata_output.status.success());
+	assert_success!(metadata_output);
 
 	// Get the lockfile if it exists.
 	let lockfile = tokio::fs::read(path.join(tg::package::LOCKFILE_FILE_NAME))

@@ -1,7 +1,7 @@
 use indoc::indoc;
 use insta::assert_json_snapshot;
 use std::future::Future;
-use tangram_cli::test::test;
+use tangram_cli::{assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
@@ -470,12 +470,10 @@ async fn test_artifact_checkout<F, Fut>(
 			.arg("build")
 			.arg("--quiet")
 			.arg(artifact_temp.path())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 
@@ -490,8 +488,8 @@ async fn test_artifact_checkout<F, Fut>(
 				.arg("--dependencies")
 				.arg(checkout_dependencies.to_string());
 		}
-		let output = command.spawn().unwrap().wait_with_output().await.unwrap();
-		assert!(output.status.success());
+		let output = command.output().await.unwrap();
+		assert_success!(output);
 
 		let artifact = temp::Artifact::with_path(temp.path()).await.unwrap();
 

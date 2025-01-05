@@ -1,5 +1,5 @@
 use insta::{assert_json_snapshot, assert_snapshot};
-use tangram_cli::test::test;
+use tangram_cli::{assert_failure, assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
@@ -16,12 +16,10 @@ async fn list_no_results() {
 			.arg("tag")
 			.arg("list")
 			.arg(pattern)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		assert_json_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#""""#);
 	})
 	.await;
@@ -42,7 +40,7 @@ async fn get_no_results() {
 			.output()
 			.await
 			.unwrap();
-		assert!(!output.status.success());
+		assert_failure!(output);
 	})
 	.await;
 }
@@ -64,12 +62,10 @@ async fn single() {
 			.tg()
 			.arg("checkin")
 			.arg(path)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 
 		// Put tag
@@ -80,12 +76,10 @@ async fn single() {
 			.arg("put")
 			.arg(pattern)
 			.arg(id)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// List tags
 		let output = server
@@ -93,12 +87,10 @@ async fn single() {
 			.arg("tag")
 			.arg("list")
 			.arg(pattern)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"test");
 
 		// Get tag
@@ -107,12 +99,10 @@ async fn single() {
 			.arg("tag")
 			.arg("get")
 			.arg(pattern)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01gtq62nh8tjjx5h9v0vn7k5gdr07p3es3wypse70hymnzn3dgrw8g");
 	})
 	.await;
@@ -137,12 +127,10 @@ async fn multiple() {
 			.tg()
 			.arg("checkin")
 			.arg(path)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 
 		// Tag the objects on the remote server.
@@ -167,12 +155,10 @@ async fn multiple() {
 				.arg("put")
 				.arg(tag)
 				.arg(id)
-				.spawn()
-				.unwrap()
-				.wait_with_output()
+				.output()
 				.await
 				.unwrap();
-			assert!(output.status.success());
+			assert_success!(output);
 		}
 
 		// List
@@ -182,12 +168,10 @@ async fn multiple() {
 			.arg("tag")
 			.arg("list")
 			.arg(pattern)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"test");
 
 		// List
@@ -197,12 +181,10 @@ async fn multiple() {
 			.arg("tag")
 			.arg("list")
 			.arg(pattern)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r"
   test/hello
   test/world
@@ -219,12 +201,10 @@ async fn multiple() {
 			.arg("tag")
 			.arg("get")
 			.arg(pattern)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
 
 		// Get
@@ -234,12 +214,10 @@ async fn multiple() {
 			.arg("tag")
 			.arg("get")
 			.arg(pattern)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
 
 		// Get
@@ -249,12 +227,10 @@ async fn multiple() {
 			.arg("tag")
 			.arg("get")
 			.arg(pattern)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
 	})
 	.await;
@@ -282,7 +258,7 @@ async fn remote_put() {
 			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Create a local server.
 		let local_server = context.spawn_server().await.unwrap();
@@ -295,7 +271,7 @@ async fn remote_put() {
 			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Tag the objects on the remote server.
 		let tag = "foo";
@@ -313,31 +289,27 @@ async fn remote_put() {
 			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		let local_output = local_server
 			.tg()
 			.arg("tag")
 			.arg("get")
 			.arg(tag)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(local_output.status.success());
+		assert_success!(local_output);
 
 		let remote_output = remote_server
 			.tg()
 			.arg("tag")
 			.arg("get")
 			.arg(tag)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(remote_output.status.success());
+		assert_success!(remote_output);
 
 		let local_output = std::str::from_utf8(&local_output.stdout).unwrap();
 		let remote_output = std::str::from_utf8(&remote_output.stdout).unwrap();

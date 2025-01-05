@@ -1,6 +1,9 @@
 use indoc::indoc;
 use std::path::Path;
-use tangram_cli::test::{test, Server};
+use tangram_cli::{
+	assert_failure, assert_success,
+	test::{test, Server},
+};
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
@@ -45,24 +48,15 @@ async fn builds() {
 				.arg("tag")
 				.arg(pattern)
 				.arg(id)
-				.spawn()
-				.unwrap()
-				.wait_with_output()
+				.output()
 				.await
 				.unwrap();
-			assert!(output.status.success());
+			assert_success!(output);
 		}
 
 		// Clean.
-		let output = server
-			.tg()
-			.arg("clean")
-			.spawn()
-			.unwrap()
-			.wait_with_output()
-			.await
-			.unwrap();
-		assert!(output.status.success());
+		let output = server.tg().arg("clean").output().await.unwrap();
+		assert_success!(output);
 
 		// Confirm presence/absence of builds.
 		let a_output = server
@@ -73,55 +67,47 @@ async fn builds() {
 			.output()
 			.await
 			.unwrap();
-		assert!(!a_output.status.success());
+		assert_failure!(a_output);
 
 		let output = server
 			.tg()
 			.arg("build")
 			.arg("get")
 			.arg(b)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		let output = server
 			.tg()
 			.arg("build")
 			.arg("get")
 			.arg(c)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(!output.status.success());
+		assert_failure!(output);
 
 		let output = server
 			.tg()
 			.arg("build")
 			.arg("get")
 			.arg(d)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		let output = server
 			.tg()
 			.arg("build")
 			.arg("get")
 			.arg(e)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 	})
 	.await;
 }
@@ -179,12 +165,10 @@ async fn objects() {
 			.arg("tag")
 			.arg(pattern)
 			.arg(c.clone())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Tag h.
 		let pattern = "h";
@@ -193,23 +177,14 @@ async fn objects() {
 			.arg("tag")
 			.arg(pattern)
 			.arg(h.clone())
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(output.status.success());
+		assert_success!(output);
 
 		// Clean.
-		let output = server
-			.tg()
-			.arg("clean")
-			.spawn()
-			.unwrap()
-			.wait_with_output()
-			.await
-			.unwrap();
-		assert!(output.status.success());
+		let output = server.tg().arg("clean").output().await.unwrap();
+		assert_success!(output);
 
 		// Confirm presence/absence of objects.
 		let a_output = server
@@ -217,96 +192,80 @@ async fn objects() {
 			.arg("object")
 			.arg("get")
 			.arg(a)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(!a_output.status.success());
+		assert_failure!(a_output);
 
 		let b_output = server
 			.tg()
 			.arg("object")
 			.arg("get")
 			.arg(b)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(!b_output.status.success());
+		assert_failure!(b_output);
 
 		let c_output = server
 			.tg()
 			.arg("object")
 			.arg("get")
 			.arg(c)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(c_output.status.success());
+		assert_success!(c_output);
 
 		let d_output = server
 			.tg()
 			.arg("object")
 			.arg("get")
 			.arg(d)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(!d_output.status.success());
+		assert_failure!(d_output);
 
 		let e_output = server
 			.tg()
 			.arg("object")
 			.arg("get")
 			.arg(e)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(!e_output.status.success());
+		assert_failure!(e_output);
 
 		let f_output = server
 			.tg()
 			.arg("object")
 			.arg("get")
 			.arg(f)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(!f_output.status.success());
+		assert_failure!(f_output);
 
 		let g_output = server
 			.tg()
 			.arg("object")
 			.arg("get")
 			.arg(g)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(g_output.status.success());
+		assert_success!(g_output);
 
 		let h_output = server
 			.tg()
 			.arg("object")
 			.arg("get")
 			.arg(h)
-			.spawn()
-			.unwrap()
-			.wait_with_output()
+			.output()
 			.await
 			.unwrap();
-		assert!(h_output.status.success());
+		assert_success!(h_output);
 	})
 	.await;
 }
@@ -318,24 +277,20 @@ async fn build_target_get_build_id(name: &str, server: &Server, path: &Path) -> 
 		.arg("--quiet")
 		.arg("--detach")
 		.arg(format!("{}#{}", path.display(), name))
-		.spawn()
-		.unwrap()
-		.wait_with_output()
+		.output()
 		.await
 		.unwrap();
-	assert!(output.status.success());
+	assert_success!(output);
 	let build_id = std::str::from_utf8(&output.stdout).unwrap().trim();
 	let output = server
 		.tg()
 		.arg("build")
 		.arg("output")
 		.arg(build_id)
-		.spawn()
-		.unwrap()
-		.wait_with_output()
+		.output()
 		.await
 		.unwrap();
-	assert!(output.status.success());
+	assert_success!(output);
 	build_id.to_owned()
 }
 
@@ -345,12 +300,10 @@ async fn build_target_get_object_id(name: &str, server: &Server, path: &Path) ->
 		.arg("build")
 		.arg("--quiet")
 		.arg(format!("{}#{}", path.display(), name))
-		.spawn()
-		.unwrap()
-		.wait_with_output()
+		.output()
 		.await
 		.unwrap();
-	assert!(output.status.success());
+	assert_success!(output);
 	let output = std::str::from_utf8(&output.stdout).unwrap().trim();
 	output.to_owned()
 }

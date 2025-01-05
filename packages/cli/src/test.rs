@@ -42,7 +42,7 @@ pub struct Context {
 
 pub struct Server {
 	config: Config,
-	process: tokio::sync::Mutex<tokio::process::Child>,
+	process: tokio::sync::Mutex<Option<tokio::process::Child>>,
 	temp: Arc<Temp>,
 	tg: &'static str,
 }
@@ -118,6 +118,8 @@ impl Server {
 
 		// Create the command.
 		let mut command = tokio::process::Command::new(tg);
+		command.stdout(std::process::Stdio::piped());
+		command.stderr(std::process::Stdio::piped());
 		command.arg("--config");
 		command.arg(&config_path);
 		command.arg("--path");
@@ -126,7 +128,7 @@ impl Server {
 
 		// Spawn the process.
 		let process = command.spawn().unwrap();
-		let process = tokio::sync::Mutex::new(process);
+		let process = tokio::sync::Mutex::new(Some(process));
 
 		// Create the server.
 		let server = Self {
@@ -145,8 +147,6 @@ impl Server {
 		let config_path = self.temp.path().join(".config/tangram/config.json");
 		let data_path = self.temp.path().join(".tangram");
 		command
-			.stdout(std::process::Stdio::piped())
-			.stderr(std::process::Stdio::inherit())
 			.arg("--config")
 			.arg(config_path)
 			.arg("--path")
@@ -162,11 +162,6 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn process(&self) -> &tokio::sync::Mutex<tokio::process::Child> {
-		&self.process
-	}
-
-	#[must_use]
 	pub fn url(&self) -> Url {
 		let path = self.temp.path().join(".tangram/socket");
 		let path = path.to_str().unwrap();
@@ -175,15 +170,48 @@ impl Server {
 	}
 
 	pub async fn stop_gracefully(&self) {
-		let mut process = self.process.lock().await;
-		unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGINT) };
-		let status = process.wait().await.unwrap();
-		assert!(status.success());
+		if let Some(process) = self.process.lock().await.take() {
+			unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGINT) };
+			let output = process.wait_with_output().await.unwrap();
+			assert_success!(output);
+		}
 	}
 
 	pub async fn stop_forcefully(&self) {
-		let mut process = self.process.lock().await;
-		unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGKILL) };
-		process.wait().await.ok();
+		if let Some(mut process) = self.process.lock().await.take() {
+			unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGKILL) };
+			process.wait().await.ok();
+		}
 	}
 }
+
+#[macro_export]
+macro_rules! assert_success {
+	($output:expr) => {
+		let output = &$output;
+		if !output.status.success() {
+			let stderr = std::str::from_utf8(&output.stderr).unwrap();
+			for line in stderr.lines() {
+				eprintln!("{line}");
+			}
+		}
+		assert!(output.status.success());
+	};
+}
+
+#[macro_export]
+macro_rules! assert_failure {
+	($output:expr) => {
+		let output = &$output;
+		if output.status.success() {
+			let stderr = std::str::from_utf8(&output.stderr).unwrap();
+			for line in stderr.lines() {
+				eprintln!("{line}");
+			}
+		}
+		assert!(!output.status.success());
+	};
+}
+
+pub use assert_failure;
+pub use assert_success;
