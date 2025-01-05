@@ -352,10 +352,11 @@ impl Server {
 			}
 		}
 
-		// Attempt to set the logs depth?
+		// Attempt to set the logs depth.
 		if build.logs_depth.is_none() {
 			// Attempt to get the log depth.
 			let log_depth = log_metadata.as_ref().and_then(|metadata| metadata.depth);
+
 			// Attempt to compute the logs depth.
 			let outputs_log_depth = children.iter().try_fold(1, |depth, output| {
 				output
@@ -369,6 +370,7 @@ impl Server {
 				if let Some(log_depth) = log_depth {
 					depth = std::cmp::max(log_depth, depth);
 				}
+
 				// Get a database connection.
 				let connection =
 					self.database.write_connection().await.map_err(|source| {

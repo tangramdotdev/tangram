@@ -10,7 +10,7 @@ struct StackTrace {
 	call_sites: Vec<CallSite>,
 }
 
-#[allow(dead_code, clippy::struct_excessive_bools)]
+#[allow(clippy::struct_excessive_bools, dead_code)]
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CallSite {
@@ -142,7 +142,7 @@ pub fn capture_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::er
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Get the current stack trace.
-	let stack = v8::StackTrace::current_stack_trace(scope, 1024 * 1024)?;
+	let stack = v8::StackTrace::current_stack_trace(scope, 1024)?;
 
 	// Collect the stack frames.
 	let stack = (0..stack.get_frame_count())

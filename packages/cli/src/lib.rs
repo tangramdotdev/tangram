@@ -33,6 +33,7 @@ mod tangram;
 mod target;
 mod tree;
 mod view;
+mod viewer;
 
 pub mod test;
 
@@ -174,6 +175,7 @@ enum Command {
 
 	Target(self::target::Args),
 
+	#[command(hide = true)]
 	Tree(self::tree::Args),
 
 	Update(self::package::update::Args),

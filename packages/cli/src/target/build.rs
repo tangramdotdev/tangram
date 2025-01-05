@@ -8,6 +8,7 @@ use std::{
 };
 use tangram_client::{self as tg, handle::Ext as _, Handle};
 use tangram_either::Either;
+use tangram_futures::task::Task;
 
 /// Build a target.
 #[allow(clippy::struct_excessive_bools)]
@@ -43,10 +44,6 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
-	/// Whether to suppress printing the tree.
-	#[arg(short, long)]
-	pub quiet: bool,
-
 	/// The reference to the target to build.
 	#[arg(index = 1)]
 	pub reference: Option<tg::Reference>,
@@ -64,6 +61,19 @@ pub struct Args {
 	/// Create a tag for this build.
 	#[arg(long)]
 	pub tag: Option<tg::Tag>,
+
+	/// Choose the view.
+	#[arg(long, default_value = "inline")]
+	pub view: View,
+}
+
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum View {
+	None,
+	#[default]
+	Inline,
+	Fullscreen,
 }
 
 #[derive(Clone, Debug, derive_more::Unwrap)]
@@ -368,22 +378,41 @@ impl Cli {
 			None
 		};
 
-		// If the build is not finished, then wait for it to finish while showing the TUI if enabled.
+		// If the build is not finished, then wait for it to finish while showing a view if enabled.
 		let outcome = if let Some(outcome) = outcome {
 			outcome
 		} else {
-			// Spawn the tree task.
-			let tree_task = (!args.quiet).then(|| {
+			// Spawn the view task.
+			let view_task = {
 				let handle = handle.clone();
 				let build = build.clone();
-				let options = crate::view::tree::Options {
-					depth: None,
-					objects: false,
-					builds: true,
-					collapse_builds_on_success: true,
-				};
-				tokio::spawn(Self::tree_inner(handle, Either::Left(build), options))
-			});
+				let task = Task::spawn_blocking(move |stop| {
+					tokio::runtime::LocalRuntime::new()
+						.unwrap()
+						.block_on(async move {
+							let options = crate::viewer::Options {
+								collapse_finished_builds: true,
+								expand_on_create: true,
+								hide_build_targets: true,
+							};
+							let item = crate::viewer::Item::Build(build);
+							let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
+
+							match args.view {
+								View::None => (),
+								View::Inline => {
+									viewer.run_inline(stop).await?;
+								},
+								View::Fullscreen => {
+									viewer.run_fullscreen(stop).await?;
+								},
+							}
+							Ok::<_, tg::Error>(())
+						})
+						.unwrap();
+				});
+				Some(task)
+			};
 
 			// Spawn a task to attempt to cancel the build on the first interrupt signal and exit the process on the second.
 			let cancel_task = tokio::spawn({
@@ -411,9 +440,10 @@ impl Cli {
 			// Abort the cancel task.
 			cancel_task.abort();
 
-			// Wait for the tree task to finish.
-			if let Some(tree_task) = tree_task {
-				tree_task.await.unwrap()?;
+			// Stop and await the view task.
+			if let Some(view_task) = view_task {
+				view_task.stop();
+				view_task.wait().await.unwrap();
 			}
 
 			outcome.map_err(|source| tg::error!(!source, "failed to get the build outcome"))?
@@ -468,11 +498,11 @@ impl Default for Args {
 			env: vec![],
 			host: None,
 			locked: false,
-			quiet: false,
 			reference: None,
 			remote: None,
 			retry: None,
 			tag: None,
+			view: View::None,
 		}
 	}
 }

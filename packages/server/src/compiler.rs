@@ -148,14 +148,14 @@ impl Compiler {
 		let shutdown = {
 			let compiler = compiler.clone();
 			async move {
-				// Stop and wait the serve task.
+				// Stop and await the serve task.
 				let serve_task = compiler.serve_task.lock().await.clone();
 				if let Some(serve_task) = serve_task {
 					serve_task.stop();
 					serve_task.wait().await.unwrap();
 				}
 
-				// Stop and wait the request task.
+				// Stop and await the request task.
 				compiler.request_sender.lock().unwrap().take();
 				let task = compiler.request_task.lock().unwrap().take();
 				if let Some(task) = task {

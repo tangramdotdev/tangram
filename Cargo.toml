@@ -58,7 +58,7 @@ bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env", "string", "unstable-v5"] }
 console-subscriber = "0.4"
 copypasta = "0.10"
-crossterm = "0.28"
+crossterm = { version = "0.28", features = ["event-stream"] }
 ctor = "0.2"
 dashmap = "6"
 data-encoding = "2"
@@ -110,7 +110,7 @@ rustls = "0.23"
 scopeguard = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
-serde_repr = "0.1.19"
+serde_repr = "0.1"
 serde_urlencoded = "0.7"
 serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
