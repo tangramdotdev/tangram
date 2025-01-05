@@ -93,13 +93,7 @@ impl Server {
 		// If any of the children were canceled, then this build should be canceled.
 		if children
 			.iter()
-			.map(|child_id| async move {
-				// Check if the child is finished before awaiting its output.
-				let Some(status) = self.try_get_current_build_status_local(child_id).await? else {
-					return Ok(None);
-				};
-				Ok::<_, tg::Error>(Some(status))
-			})
+			.map(|child_id| self.try_get_current_build_status_local(child_id))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?
@@ -305,12 +299,12 @@ impl Server {
 		}
 
 		// Get the output.
-		let Some(value) = output.output else {
+		let Some(data) = output.output else {
 			return Err(tg::error!("failed to get the checksum build output"));
 		};
 
 		// Compare the checksum from the build.
-		let checksum = value
+		let checksum = data
 			.try_unwrap_string()
 			.ok()
 			.ok_or_else(|| tg::error!("expected a string"))?;

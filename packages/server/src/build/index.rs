@@ -127,11 +127,10 @@ impl Server {
 		};
 
 		// Attempt to get the output metadata.
-		let output_metadata = if tg::build::Status::Succeeded == build.status {
-			if let Some(value) = &build.output {
+		let output_metadata = if build.status.is_succeeded() {
+			if let Some(data) = &build.output {
 				Some(
-					value
-						.children()
+					data.children()
 						.iter()
 						.map(|object| self.try_get_object_metadata(object))
 						.collect::<FuturesUnordered<_>>()

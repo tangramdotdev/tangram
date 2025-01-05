@@ -58,8 +58,8 @@ pub async fn try_reuse_build(
 	};
 	let matching_build = tg::Build::with_id(matching_build);
 
-	// Get the build's output.
-	let output = server.get_build(matching_build.id()).await?;
+	// Wait for the build to finish and get its output.
+	let output = matching_build.output(server).await?;
 	let Some(value) = output.output else {
 		return Err(tg::error!("failed to get the output"));
 	};
@@ -174,7 +174,7 @@ pub async fn checksum(
 	let Some(Ok(status)) = pin!(stream).last().await else {
 		return Err(tg::error!("failed to get the last build status"));
 	};
-	if status.is_finished() {
+	if status.is_succeeded() {
 		Ok(())
 	} else {
 		Err(tg::error!("checksum build failed"))
