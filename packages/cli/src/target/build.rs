@@ -17,7 +17,7 @@ use tangram_futures::task::Task;
 pub struct Args {
 	/// Set the arguments.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
-	pub arg: Vec<Vec<String>>,
+	pub arg: Vec<String>,
 
 	/// Whether to check out the output. The output must be an artifact. A path to check out to may be provided.
 	#[allow(clippy::option_option)]
@@ -259,13 +259,8 @@ impl Cli {
 			let mut args_: Vec<tg::Value> = args
 				.arg
 				.into_iter()
-				.map(|arg| {
-					arg.into_iter()
-						.map(|arg| arg.parse())
-						.collect::<Result<tg::value::Array, tg::Error>>()
-						.map(Into::into)
-				})
-				.try_collect()?;
+				.map(|arg| arg.parse())
+				.try_collect::<tg::Value, _, _>()?;
 			args_.insert(0, target.into());
 
 			// Get the env.
