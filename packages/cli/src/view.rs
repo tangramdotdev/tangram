@@ -73,7 +73,6 @@ impl Cli {
 						collapse_finished_builds: false,
 						expand_on_create: matches!(kind, Kind::Inline),
 						hide_build_targets: false,
-						max_depth: None,
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
 					match kind {

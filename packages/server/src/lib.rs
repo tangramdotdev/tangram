@@ -483,7 +483,7 @@ impl Server {
 
 		// Listen.
 		let listener = Self::listen(&server.config.url).await?;
-		tracing::info!("listening on {}", server.config.url);
+		tracing::trace!("listening on {}", server.config.url);
 
 		// Spawn the HTTP task.
 		let http_task = Some(Task::spawn(|stop| {

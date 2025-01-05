@@ -52,7 +52,7 @@ where
 						Focus::Help => {
 							self.focus = Focus::Tree;
 						},
-						_ => {
+						Focus::Tree => {
 							self.focus = Focus::Help;
 						},
 					}
@@ -74,7 +74,6 @@ where
 		match &self.focus {
 			Focus::Help => self.help.handle(event),
 			Focus::Tree => self.tree.handle(event),
-			_ => (),
 		}
 	}
 
