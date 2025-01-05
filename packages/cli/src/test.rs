@@ -187,17 +187,3 @@ impl Server {
 		process.wait().await.ok();
 	}
 }
-
-#[macro_export]
-macro_rules! assert_output_success {
-	($output:expr) => {
-		use tokio::io::AsyncWriteExt as _;
-		let output = &$output;
-		if !output.status.success() {
-			let mut stderr = tokio::io::stderr();
-			stderr.write_all(&output.stderr).await.unwrap();
-			stderr.flush().await.unwrap();
-		}
-	};
-}
-pub use assert_output_success;

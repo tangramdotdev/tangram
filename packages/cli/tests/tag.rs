@@ -1,5 +1,5 @@
 use insta::{assert_json_snapshot, assert_snapshot};
-use tangram_cli::{assert_output_success, test::test};
+use tangram_cli::test::test;
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
@@ -17,10 +17,12 @@ async fn list_no_results() -> tg::Result<()> {
 			.arg("tag")
 			.arg("list")
 			.arg(pattern)
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 		assert_json_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#""""#);
 	})
 	.await;
@@ -61,8 +63,16 @@ async fn single() -> tg::Result<()> {
 		artifact.to_path(path).await.unwrap();
 
 		// Check in
-		let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
-		assert_output_success!(output);
+		let output = server
+			.tg()
+			.arg("checkin")
+			.arg(path)
+			.spawn()
+			.unwrap()
+			.wait_with_output()
+			.await
+			.unwrap();
+		assert!(output.status.success());
 		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 
 		// Put tag
@@ -70,12 +80,15 @@ async fn single() -> tg::Result<()> {
 		let output = server
 			.tg()
 			.arg("tag")
+			.arg("put")
 			.arg(pattern)
 			.arg(id)
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// List tags
 		let output = server
@@ -83,10 +96,12 @@ async fn single() -> tg::Result<()> {
 			.arg("tag")
 			.arg("list")
 			.arg(pattern)
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"test");
 
 		// Get tag
@@ -95,10 +110,12 @@ async fn single() -> tg::Result<()> {
 			.arg("tag")
 			.arg("get")
 			.arg(pattern)
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01gtq62nh8tjjx5h9v0vn7k5gdr07p3es3wypse70hymnzn3dgrw8g");
 	})
 	.await;
@@ -120,8 +137,16 @@ async fn multiple() -> tg::Result<()> {
 		artifact.to_path(path).await.unwrap();
 
 		// Check in.
-		let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
-		assert_output_success!(output);
+		let output = server
+			.tg()
+			.arg("checkin")
+			.arg(path)
+			.spawn()
+			.unwrap()
+			.wait_with_output()
+			.await
+			.unwrap();
+		assert!(output.status.success());
 		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 
 		// Tag the objects on the remote server.
@@ -143,12 +168,15 @@ async fn multiple() -> tg::Result<()> {
 			let output = server
 				.tg()
 				.arg("tag")
+				.arg("put")
 				.arg(tag)
 				.arg(id)
-				.output()
+				.spawn()
+				.unwrap()
+				.wait_with_output()
 				.await
 				.unwrap();
-			assert_output_success!(output);
+			assert!(output.status.success());
 		}
 
 		// List
@@ -158,10 +186,12 @@ async fn multiple() -> tg::Result<()> {
 			.arg("tag")
 			.arg("list")
 			.arg(pattern)
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"test");
 
 		// List
@@ -171,10 +201,12 @@ async fn multiple() -> tg::Result<()> {
 			.arg("tag")
 			.arg("list")
 			.arg(pattern)
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r"
   test/hello
   test/world
@@ -191,10 +223,12 @@ async fn multiple() -> tg::Result<()> {
 			.arg("tag")
 			.arg("get")
 			.arg(pattern)
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
 
 		// Get
@@ -204,10 +238,12 @@ async fn multiple() -> tg::Result<()> {
 			.arg("tag")
 			.arg("get")
 			.arg(pattern)
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
 
 		// Get
@@ -217,10 +253,12 @@ async fn multiple() -> tg::Result<()> {
 			.arg("tag")
 			.arg("get")
 			.arg(pattern)
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
 	})
 	.await;
@@ -243,12 +281,13 @@ async fn remote_put() -> tg::Result<()> {
 		let output = remote_server
 			.tg()
 			.arg("tag")
+			.arg("put")
 			.arg(tag)
 			.arg(temp.path())
 			.output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Create a local server.
 		let local_server = context.spawn_server().await.unwrap();
@@ -261,7 +300,7 @@ async fn remote_put() -> tg::Result<()> {
 			.output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Tag the objects on the remote server.
 		let tag = "foo";
@@ -279,28 +318,31 @@ async fn remote_put() -> tg::Result<()> {
 			.output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		let local_output = local_server
 			.tg()
 			.arg("tag")
-			.arg("get")
-			.arg("foo")
-			.output()
+			.arg("list")
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(local_output);
-		let local_output = std::str::from_utf8(&local_output.stdout).unwrap();
+		assert!(local_output.status.success());
 
 		let remote_output = remote_server
 			.tg()
 			.arg("tag")
-			.arg("get")
-			.arg("foo")
-			.output()
+			.arg("list")
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(remote_output);
+		assert!(remote_output.status.success());
+
+		let local_output = std::str::from_utf8(&local_output.stdout).unwrap();
 		let remote_output = std::str::from_utf8(&remote_output.stdout).unwrap();
 
 		assert_eq!(local_output, remote_output);

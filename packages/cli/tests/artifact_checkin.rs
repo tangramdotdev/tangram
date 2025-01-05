@@ -1,10 +1,7 @@
 use indoc::indoc;
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::{future::Future, path::Path};
-use tangram_cli::{
-	assert_output_success,
-	test::{test, Server},
-};
+use tangram_cli::test::{test, Server};
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
@@ -272,7 +269,7 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
 	};
 	let path = "";
 	let assertions = |object: String, metadata: String, lockfile: Option<tg::Lockfile>| async move {
-		assert_json_snapshot!(&metadata, @r#"
+		assert_json_snapshot!(metadata, @r#"
 {
   "complete": true,
   "count": 4,
@@ -280,7 +277,6 @@ async fn lockfile_out_of_date() -> tg::Result<()> {
   "weight": 440
 }
 "#);
-
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
 {
@@ -590,7 +586,7 @@ async fn package() -> tg::Result<()> {
 	},
 	{
 	  "kind": "file",
-	  "id": "fil_017nhpghzswya07fxkrvjeqrehffdp11em51yag7msbzzt65gteqrg"
+		"id": "fil_017nhpghzswya07fxkrvjeqrehffdp11em51yag7msbzzt65gteqrg"
 	}
   ]
 }
@@ -679,7 +675,6 @@ async fn directory_with_nested_packages() -> tg::Result<()> {
 	test_artifact_checkin(directory, path, destructive, tags, assertions).await
 }
 
-// THIS IS WRONG? WHAT
 #[tokio::test]
 async fn import_directory_from_current() -> tg::Result<()> {
 	let directory = temp::directory! {
@@ -1051,13 +1046,13 @@ async fn import_package_from_parent() -> tg::Result<()> {
 			"item": 1,
 			"path": "a",
 			"subpath": "tangram.ts"
-		  }
-		},
-		"id": "fil_016g7fp581r3e8n81dg6na50bddcen9pk8prqgqct7df8pqzphyyag"
-	  }
-	]
-  }
-  "#);
+		}
+	  },
+	  "id": "fil_016g7fp581r3e8n81dg6na50bddcen9pk8prqgqct7df8pqzphyyag"
+	}
+  ]
+}
+"#);
 		assert_snapshot!(object, @r#"
   tg.directory({
 	"a": tg.directory({
@@ -1112,27 +1107,25 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
 	},
 	{
 	  "kind": "file",
-	  "contents": "lef_01wz1kgzch869nmx5q4pq7ka0vjszxqa4nj39bgjgm2hpxwem2jdxg",
-	  "dependencies": {
-		"./tangram.ts": {
-		  "item": 0,
-		  "path": "",
-		  "subpath": "tangram.ts"
-		}
-	  },
-	  "id": "fil_01ktrenvk1711bckv8hdpe0ze6ty00yxexptrts9b26vh994frtbwg"
+		"contents": "lef_01wz1kgzch869nmx5q4pq7ka0vjszxqa4nj39bgjgm2hpxwem2jdxg",
+		"dependencies": {
+			"./tangram.ts": {
+				"item": 0,
+				"subpath": "tangram.ts",
+			}
+		},
+		"id": "fil_01ktrenvk1711bckv8hdpe0ze6ty00yxexptrts9b26vh994frtbwg"
 	},
 	{
-	  "kind": "file",
-	  "contents": "lef_01a2nf5j3bh75f7g1nntakjjtv6h3k0h7aykjstpyzamks4sebyz2g",
-	  "dependencies": {
-		"./foo.tg.ts": {
-		  "item": 0,
-		  "path": "",
-		  "subpath": "foo.tg.ts"
-		}
-	  },
-	  "id": "fil_01brq5a8r3prynqs1say65vbcv47z0e4qtk5gadg2q11hazjfnqyqg"
+		"kind": "file",
+		"contents": "lef_01a2nf5j3bh75f7g1nntakjjtv6h3k0h7aykjstpyzamks4sebyz2g",
+		"dependencies": {
+			"./foo.tg.ts": {
+				"item": 0,
+				"subpath": "foo.tg.ts",
+			}
+		},
+		"id": "fil_01brq5a8r3prynqs1say65vbcv47z0e4qtk5gadg2q11hazjfnqyqg"
 	}
   ]
 }
@@ -1154,7 +1147,6 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
 		  "dependencies": {
 			"./foo.tg.ts": {
 			  "item": 0,
-			  "path": "",
 			  "subpath": "foo.tg.ts",
 			},
 		  },
@@ -1165,7 +1157,6 @@ async fn package_with_cyclic_modules() -> tg::Result<()> {
 		  "dependencies": {
 			"./tangram.ts": {
 			  "item": 0,
-			  "path": "",
 			  "subpath": "tangram.ts",
 			},
 		  },
@@ -1426,6 +1417,15 @@ async fn missing_in_lockfile() -> tg::Result<()> {
 					},
 					{
 						"kind": "file"
+					},
+					{
+						"kind": "file",
+						"dependencies": {
+							"./a.tg.ts": {
+								"item": 0,
+								"subpath": "./a.tg.ts"
+							}
+						}
 					}
 				]
 			}
@@ -1797,35 +1797,43 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
 		(
 			"a/1.0.0".into(),
 			temp::directory! {
-				"tangram.ts" => "",
-			},
-		),
-		(
-			"b/1.0.0".into(),
-			temp::directory! {
-				"tangram.ts" => indoc!(r#"
-					import * as a from "a/*";
-					import * as foo from "./foo.tg.ts";
-				"#),
-				"foo.tg.ts" => indoc!(r#"
-					import * as b from "./tangram.ts";
+				"tangram.ts" => indoc::indoc!(r#"
+					export default tg.target(() => "a/1.0.0");
 				"#),
 			},
 		),
 		(
 			"a/1.1.0".into(),
 			temp::directory! {
-				"tangram.ts" => indoc!(r#"
+				"tangram.ts" => indoc::indoc!(r#"
 					import * as b from "b/*";
+				"#),
+			},
+		),
+		(
+			"b".into(),
+			temp::directory! {
+				"tangram.ts" => indoc::indoc!(r#"
+					import a from "a/^1";
+					export default tg.target(() => "b");
+				"#),
+			},
+		),
+		(
+			"c".into(),
+			temp::directory! {
+				"tangram.ts" => indoc::indoc!(r#"
+					import a from "a/^1.0";
+					export default tg.target(() => "c");
 				"#),
 			},
 		),
 	];
 
 	let directory = temp::directory! {
-		"tangram.ts" => indoc!(r#"
-			import * as b from "b/*";
-			import * as a from "a/*";
+		"tangram.ts" => indoc::indoc!(r#"
+			import b from "b";
+			import c from "c";
 		"#),
 	};
 
@@ -1845,15 +1853,15 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
 	  {
 		"kind": "file",
 		"dependencies": {
-		  "a/*": {
+		  "b/*": {
 			"item": 2,
 			"subpath": "tangram.ts",
-			"tag": "a/1.1.0"
+			"tag": "b/1.0.0"
 		  },
-		  "b/*": {
+		  "c/*": {
 			"item": 4,
 			"subpath": "tangram.ts",
-			"tag": "b/1.0.0"
+			"tag": "c"
 		  }
 		},
 		"id": "fil_01s77r9zrw3fj54epdrw103dptdbqzke2878y272e35g5s7qs1yd6g"
@@ -1869,10 +1877,10 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
 		"kind": "file",
 		"contents": "lef_015qtah5hxy64eyx8vqccxt04pwnm87j851w784yr4nq7rjrmgtts0",
 		"dependencies": {
-		  "b/*": {
-			"item": 4,
+		  "a/^1": {
+			"item": 6,
 			"subpath": "tangram.ts",
-			"tag": "b/1.0.0"
+			"tag": "a/1.1.0"
 		  }
 		},
 		"id": "fil_01v140jjq24vh3nk8n61rz28t9xyqy365prfrnadmz65m8hzckwaqg"
@@ -1906,8 +1914,8 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
 			"subpath": "foo.tg.ts",
 			"tag": "b/1.0.0"
 		  },
-		  "a/*": {
-			"item": 2,
+		  "a/^1.0": {
+			"item": 6,
 			"subpath": "tangram.ts",
 			"tag": "a/1.1.0"
 		  }
@@ -1920,7 +1928,7 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
 		assert_snapshot!(object, @r#"
   tg.directory({
 	"tangram.ts": tg.file({
-	  "contents": tg.leaf("import * as b from \"b/*\";\nimport * as a from \"a/*\";\n"),
+	  "contents": tg.leaf("import b from \"b/*\";\nimport c from \"c/*\";\n"),
 	  "dependencies": {
 		"a/*": {
 		  "item": tg.directory({
@@ -1991,17 +1999,18 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
 				{
 				  "kind": "directory",
 				  "entries": {
+					"foo.tg.ts": 2,
 					"tangram.ts": 1,
 				  },
 				},
 				{
 				  "kind": "file",
-				  "contents": tg.leaf("import * as b from \"b/*\";\n"),
+				  "contents": tg.leaf("import a from \"a/^1\";\nexport default tg.target(() => \"b\");\n"),
 				  "dependencies": {
-					"b/*": {
-					  "item": 2,
+					"a/^1": {
+					  "item": 0,
 					  "subpath": "tangram.ts",
-					  "tag": "b/1.0.0",
+					  "tag": "a/1.1.0",
 					},
 				  },
 				},
@@ -2045,6 +2054,34 @@ async fn tag_dependency_cycles() -> tg::Result<()> {
 		  }),
 		  "subpath": "tangram.ts",
 		  "tag": "b/1.0.0",
+		},
+		"c/*": {
+		  "item": tg.directory({
+			"graph": tg.graph({
+			  "nodes": [
+				{
+				  "kind": "directory",
+				  "entries": {
+					"tangram.ts": 1,
+				  },
+				},
+				{
+				  "kind": "file",
+				  "contents": tg.leaf("import a from \"a/^1.0\";\nexport default tg.target(() => \"c\");\n"),
+				  "dependencies": {
+					"a/^1.0": {
+					  "item": 0,
+					  "subpath": "tangram.ts",
+					  "tag": "a/1.1.0",
+					},
+				  },
+				},
+			  ],
+			}),
+			"node": 0,
+		  }),
+		  "subpath": "tangram.ts",
+		  "tag": "c",
 		},
 	  },
 	}),
@@ -2106,41 +2143,41 @@ async fn diamond_dependency() -> tg::Result<()> {
 	let assertions = |object: String, _: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(&lockfile, @r#"
-  {
-	"nodes": [
-	  {
-		"kind": "directory",
-		"entries": {
-		  "tangram.ts": 1
-		},
-		"id": "dir_01b0w2h29250pjct1grbad1b4ymwtrrb79t6r16sqpm5zb2bxar88g"
+{
+  "nodes": [
+	{
+	  "kind": "directory",
+	  "entries": {
+		"tangram.ts": 1
 	  },
-	  {
-		"kind": "file",
-		"dependencies": {
-		  "b": {
-			"item": 2,
-			"subpath": "tangram.ts",
-			"tag": "b"
-		  },
-		  "c": {
-			"item": 6,
-			"subpath": "tangram.ts",
-			"tag": "c"
-		  }
+	  "id": "dir_01b0w2h29250pjct1grbad1b4ymwtrrb79t6r16sqpm5zb2bxar88g"
+	},
+	{
+	  "kind": "file",
+	  "dependencies": {
+		"b": {
+		  "item": 2,
+		  "subpath": "tangram.ts",
+		  "tag": "b"
 		},
-		"id": "fil_01jngpnpjmgmpcg1avyeg4tvzq6ytnkhe2zg2tvxrwnhc3f8a4faf0"
+		"c": {
+		  "item": 6,
+		  "subpath": "tangram.ts",
+		  "tag": "c"
+		}
 	  },
-	  {
-		"kind": "directory",
-		"entries": {
-		  "tangram.ts": 3
-		},
-		"id": "dir_018qhq81pgj7h0ma5dkb3gm462s1hvf898hxmpsef2s6n74g23k4mg"
+	  "id": "fil_01jngpnpjmgmpcg1avyeg4tvzq6ytnkhe2zg2tvxrwnhc3f8a4faf0"
+	},
+	{
+	  "kind": "directory",
+	  "entries": {
+		"tangram.ts": 3
 	  },
-	  {
-		"kind": "file",
-		"contents": "lef_016aa5kmw3xyza9w49yp5ne2gbkht99ffpyf26cwdje2qnnc4txqmg",
+	  "id": "dir_018qhq81pgj7h0ma5dkb3gm462s1hvf898hxmpsef2s6n74g23k4mg"
+	},
+	{
+	  "kind": "file",
+	  "contents": "lef_016aa5kmw3xyza9w49yp5ne2gbkht99ffpyf26cwdje2qnnc4txqmg",
 		"dependencies": {
 		  "a/^1": {
 			"item": 4,
@@ -2149,29 +2186,29 @@ async fn diamond_dependency() -> tg::Result<()> {
 		  }
 		},
 		"id": "fil_019qsmy6834zn638f3mjp4hew1exmr389851yae94fh6zp94mn8zqg"
+	},
+	{
+	  "kind": "directory",
+	  "entries": {
+		"tangram.ts": 5
 	  },
-	  {
-		"kind": "directory",
-		"entries": {
-		  "tangram.ts": 5
-		},
-		"id": "dir_012hz5p6pdchm8gkh9hckz6p0at3bfbg6jbzs7ssxgzfw16cr92qe0"
-	  },
-	  {
-		"kind": "file",
-		"contents": "lef_0168ekj28pg9zqt482xwmd8vr2prnkhchq89xa1gttrbzxp6j38c4g",
+	  "id": "dir_012hz5p6pdchm8gkh9hckz6p0at3bfbg6jbzs7ssxgzfw16cr92qe0"
+	},
+	{
+	  "kind": "file",
+	  "contents": "lef_0168ekj28pg9zqt482xwmd8vr2prnkhchq89xa1gttrbzxp6j38c4g",
 		"id": "fil_01kfc5za52ez058jcs13s4bpqp87dstbdqrm2kesdswv7dq3ymdrqg"
+	},
+	{
+	  "kind": "directory",
+	  "entries": {
+		"tangram.ts": 7
 	  },
-	  {
-		"kind": "directory",
-		"entries": {
-		  "tangram.ts": 7
-		},
-		"id": "dir_01seccvtmyd7dfqfyw93ttf6qeh2t1pm9st4c75xsj83bdzphmj5e0"
-	  },
-	  {
-		"kind": "file",
-		"contents": "lef_01mz2t5fs44eajv57yab8nw0e9wkzz8q61gjnzkqvw2sjtk1ft5s4g",
+	  "id": "dir_01seccvtmyd7dfqfyw93ttf6qeh2t1pm9st4c75xsj83bdzphmj5e0"
+	},
+	{
+	  "kind": "file",
+	  "contents": "lef_01mz2t5fs44eajv57yab8nw0e9wkzz8q61gjnzkqvw2sjtk1ft5s4g",
 		"dependencies": {
 		  "a/^1.0": {
 			"item": 4,
@@ -2180,10 +2217,10 @@ async fn diamond_dependency() -> tg::Result<()> {
 		  }
 		},
 		"id": "fil_01h0g1hfh5zw35xfvj2bgncbq9mgayb5pt314mqgpv8kqp405bx3k0"
-	  }
-	]
-  }
-  "#); // Keep existing snapshot
+	}
+  ]
+}
+"#); // Keep existing snapshot
 		assert_snapshot!(object, @r#"
   tg.directory({
 	"tangram.ts": tg.file({
@@ -2232,7 +2269,7 @@ async fn diamond_dependency() -> tg::Result<()> {
 	  },
 	}),
   })
-  "#); // Keep existing snapshot
+  "#);
 		Ok(())
 	};
 	let destructive = false;
@@ -2257,10 +2294,12 @@ async fn tagged_package_reproducible_checkin() -> tg::Result<()> {
 			.arg("tag")
 			.arg(tag)
 			.arg(temp.path())
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Create a local server.
 		let local_server1 = context.spawn_server().await.unwrap();
@@ -2270,10 +2309,12 @@ async fn tagged_package_reproducible_checkin() -> tg::Result<()> {
 			.arg("put")
 			.arg("default")
 			.arg(remote_server.url().to_string())
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Create a second local server.
 		let local_server2 = context.spawn_server().await.unwrap();
@@ -2283,14 +2324,16 @@ async fn tagged_package_reproducible_checkin() -> tg::Result<()> {
 			.arg("put")
 			.arg("default")
 			.arg(remote_server.url().to_string())
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Create an artifact.
 		let artifact: temp::Artifact = temp::directory! {
-			"tangram.ts" => indoc!(r#"
+			"tangram.ts" => indoc::indoc!(r#"
 				import * as foo from "foo";
 			"#),
 		}
@@ -2333,10 +2376,12 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 			.arg("put")
 			.arg("default")
 			.arg(server1.url().to_string())
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Publish the referent to server 1.
 		let referent = temp::directory! {
@@ -2353,10 +2398,12 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 			.arg("tag")
 			.arg(tag)
 			.arg(temp.path())
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Checkin the referrer to server 2.
 		let referrer = temp::directory! {
@@ -2381,10 +2428,12 @@ async fn tag_dependencies_after_clean() -> tg::Result<()> {
 			.arg("put")
 			.arg("default")
 			.arg(server1.url().to_string())
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Checkin the artifact to server 2 again, this time the lockfile has been written to disk.
 		let path = "";
@@ -2441,10 +2490,12 @@ async fn test_artifact_checkin_inner(
 			.arg("tag")
 			.arg(tag)
 			.arg(temp.path())
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 	}
 
 	// Write the artifact to a temp.
@@ -2456,12 +2507,14 @@ async fn test_artifact_checkin_inner(
 
 	// Check in.
 	let mut cmd = server.tg();
-	cmd.arg("checkin").arg(path.clone());
+	cmd.arg("checkin");
+	cmd.arg("--build-module-without-package");
+	cmd.arg(path.clone());
 	if destructive {
 		cmd.arg("--destructive");
 	}
-	let output = cmd.output().await.unwrap();
-	assert_output_success!(output);
+	let output = cmd.spawn().unwrap().wait_with_output().await.unwrap();
+	assert!(output.status.success());
 
 	// Get the object.
 	let id = std::str::from_utf8(&output.stdout)
@@ -2470,6 +2523,7 @@ async fn test_artifact_checkin_inner(
 		.to_owned();
 	let object_output = server
 		.tg()
+		.arg("object")
 		.arg("get")
 		.arg(id.clone())
 		.arg("--format")
@@ -2477,23 +2531,27 @@ async fn test_artifact_checkin_inner(
 		.arg("--pretty")
 		.arg("true")
 		.arg("--recursive")
-		.output()
+		.spawn()
+		.unwrap()
+		.wait_with_output()
 		.await
 		.unwrap();
-	assert_output_success!(object_output);
+	assert!(object_output.status.success());
 
 	// Get the metadata.
 	let metadata_output = server
 		.tg()
-		.arg("object")
 		.arg("metadata")
+		.arg("get")
 		.arg(id)
 		.arg("--pretty")
 		.arg("true")
-		.output()
+		.spawn()
+		.unwrap()
+		.wait_with_output()
 		.await
 		.unwrap();
-	assert_output_success!(metadata_output);
+	assert!(metadata_output.status.success());
 
 	// Get the lockfile if it exists.
 	let lockfile = tokio::fs::read(path.join(tg::package::LOCKFILE_FILE_NAME))

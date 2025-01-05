@@ -1,7 +1,7 @@
 use indoc::indoc;
 use insta::assert_json_snapshot;
 use std::future::Future;
-use tangram_cli::{assert_output_success, test::test};
+use tangram_cli::test::test;
 use tangram_client::{self as tg};
 use tangram_temp::{self as temp, Temp};
 
@@ -475,13 +475,14 @@ where
 		// Build the module.
 		let output = server
 			.tg()
-			.arg("build")
-			.arg("--quiet")
+			.arg("checkin")
 			.arg(artifact_temp.path())
-			.output()
+			.spawn()
+			.unwrap()
+			.wait_with_output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 
@@ -496,8 +497,13 @@ where
 				.arg("--dependencies")
 				.arg(checkout_dependencies.to_string());
 		}
-		let output = command.output().await.unwrap();
-		assert_output_success!(output);
+		let output = command
+			.spawn()
+			.unwrap()
+			.wait_with_output()
+			.await
+			.unwrap();
+		assert!(output.status.success());
 
 		let artifact = temp::Artifact::with_path(temp.path()).await.unwrap();
 

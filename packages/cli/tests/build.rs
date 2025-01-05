@@ -1,6 +1,6 @@
 use indoc::indoc;
 use insta::assert_snapshot;
-use tangram_cli::{assert_output_success, test::test};
+use tangram_cli::test::test;
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
@@ -73,7 +73,7 @@ async fn get_symlink() {
 			.output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 
 		// Assert the output.
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
@@ -114,7 +114,7 @@ async fn get_file_through_symlink() {
 			.output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert!(output.status.success());
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
 	})
 	.await;
