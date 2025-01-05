@@ -1,4 +1,5 @@
 use super::State;
+use futures::FutureExt as _;
 use std::rc::Rc;
 use tangram_client as tg;
 
@@ -19,6 +20,7 @@ pub async fn output(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::Val
 			};
 			target
 				.output(&server, arg)
+				.boxed()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the target output"))
 		})

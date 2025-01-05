@@ -78,21 +78,33 @@ impl Build {
 		Ok(Some(target))
 	}
 
-	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::build::get::Output>
+	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,
 	{
 		let Some(stream) = handle.try_get_build_status(&self.id).await? else {
 			return Err(tg::error!("failed to get the build status stream"));
 		};
-		let Some(Ok(status)) = pin!(stream).last().await else {
+		let Some(Ok(_)) = pin!(stream).last().await else {
 			return Err(tg::error!("failed to get the last build status"));
 		};
-		if status.is_finished() {
-			handle.get_build(&self.id).await
-		} else {
-			Err(tg::error!("the build failed to finish"))
-		}
+		let output = handle.get_build(&self.id).await?;
+		let output = match output.status {
+			Status::Canceled | Status::Failed => {
+				let error = output
+					.error
+					.ok_or_else(|| tg::error!("expected the error to be set"))?;
+				return Err(error);
+			},
+			Status::Succeeded => output
+				.output
+				.ok_or_else(|| tg::error!("expected the output to be set"))?
+				.try_into()?,
+			_ => {
+				return Err(tg::error!("expected the build to be finished"));
+			},
+		};
+		Ok(output)
 	}
 }
 

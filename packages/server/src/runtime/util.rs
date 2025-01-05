@@ -59,22 +59,17 @@ pub async fn try_reuse_build(
 	let matching_build = tg::Build::with_id(matching_build);
 
 	// Wait for the build to finish and get its output.
-	let output = matching_build.output(server).await?;
-	let Some(value) = output.output else {
-		return Err(tg::error!("failed to get the output"));
-	};
-
-	let value = tg::Value::try_from(value)?;
+	let output = matching_build.output(server).boxed().await?;
 
 	// Checksum the output.
-	super::util::checksum(server, &matching_build, &value, checksum)
+	super::util::checksum(server, &matching_build, &output, checksum)
 		.boxed()
 		.await?;
 
 	// Copy the build children and log.
 	copy_build_children_and_log(server, matching_build.id(), build).await?;
 
-	Ok(value)
+	Ok(output)
 }
 
 async fn find_matching_build(

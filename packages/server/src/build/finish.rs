@@ -288,36 +288,23 @@ impl Server {
 		};
 		let output = self.build_target(&target_id, arg).await?;
 		let output = self.get_build(&output.build).await?;
-		let output = tg::Build::with_id(output.id).output(self).await?;
-
-		// Check if the build failed.
-		if output.status.is_failed() {
-			if let Some(error) = output.error {
-				return Err(tg::error!(!error, "the checksum build failed"));
-			}
-			return Err(tg::error!("the checksum build failed"));
-		}
-
-		// Get the output.
-		let Some(data) = output.output else {
-			return Err(tg::error!("failed to get the checksum build output"));
-		};
+		let output = tg::Build::with_id(output.id).output(self).boxed().await?;
 
 		// Compare the checksum from the build.
-		let checksum = data
+		let checksum = output
 			.try_unwrap_string()
 			.ok()
 			.ok_or_else(|| tg::error!("expected a string"))?;
 		let checksum = checksum.parse::<tg::Checksum>()?;
 		if *expected == tg::Checksum::None {
-			Err(tg::error!("no checksum provided, actual {checksum}"))
+			return Err(tg::error!("no checksum provided, actual {checksum}"));
 		} else if checksum != *expected {
-			Err(tg::error!(
+			return Err(tg::error!(
 				"checksums do not match, expected {expected}, actual {checksum}"
-			))
-		} else {
-			Ok(())
+			));
 		}
+
+		Ok(())
 	}
 }
 

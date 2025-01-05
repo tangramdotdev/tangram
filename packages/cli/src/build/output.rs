@@ -1,4 +1,5 @@
 use crate::Cli;
+use std::io::IsTerminal as _;
 use tangram_client as tg;
 
 /// Get a build's output.
@@ -14,12 +15,17 @@ impl Cli {
 		let handle = self.handle().await?;
 		let build = tg::Build::with_id(args.build);
 		let output = build.output(&handle).await?;
-		if let Some(error) = output.error {
-			println!("{error}");
-		} else if let Some(output) = output.output {
-			let value = tg::Value::try_from(output)?;
-			println!("{value}");
-		}
+		let stdout = std::io::stdout();
+		let output = if stdout.is_terminal() {
+			let options = tg::value::print::Options {
+				recursive: false,
+				style: tg::value::print::Style::Pretty { indentation: "\t" },
+			};
+			output.print(options)
+		} else {
+			output.to_string()
+		};
+		println!("{output}");
 		Ok(())
 	}
 }
