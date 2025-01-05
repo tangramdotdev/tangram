@@ -92,8 +92,16 @@ pub enum InnerOutput {
 
 impl Cli {
 	pub async fn command_target_build(&self, args: Args) -> tg::Result<()> {
+		// Get the reference.
+		let reference = args
+			.reference
+			.clone()
+			.unwrap_or_else(|| ".".parse().unwrap());
+
 		// Build.
-		let output = self.command_target_build_inner(args).await?;
+		let output = self
+			.command_target_build_inner(reference, args.inner)
+			.await?;
 
 		// Print the output.
 		match output {
@@ -121,18 +129,15 @@ impl Cli {
 		Ok(())
 	}
 
-	pub(crate) async fn command_target_build_inner(&self, args: Args) -> tg::Result<InnerOutput> {
+	pub(crate) async fn command_target_build_inner(
+		&self,
+		reference: tg::Reference,
+		args: InnerArgs,
+	) -> tg::Result<InnerOutput> {
 		let handle = self.handle().await?;
-
-		// Get the reference.
-		let reference = args
-			.reference
-			.clone()
-			.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Get the remote.
 		let remote = args
-			.inner
 			.remote
 			.clone()
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
@@ -265,7 +270,6 @@ impl Cli {
 
 			// Get the args.
 			let mut args_: Vec<tg::Value> = args
-				.inner
 				.arg
 				.into_iter()
 				.map(|arg| arg.parse())
@@ -274,7 +278,6 @@ impl Cli {
 
 			// Get the env.
 			let mut env: tg::value::Map = args
-				.inner
 				.env
 				.into_iter()
 				.flatten()
@@ -293,7 +296,7 @@ impl Cli {
 
 			// Set the TANGRAM_HOST environment variable if it is not set.
 			if !env.contains_key("TANGRAM_HOST") {
-				let host = if let Some(host) = args.inner.host {
+				let host = if let Some(host) = args.host {
 					host
 				} else {
 					tg::host().to_owned()
@@ -313,7 +316,7 @@ impl Cli {
 		};
 
 		// Determine the retry.
-		let retry = match args.inner.retry {
+		let retry = match args.retry {
 			None => tg::build::Retry::default(),
 			Some(None) => tg::build::Retry::Succeeded,
 			Some(Some(retry)) => retry,
@@ -337,7 +340,7 @@ impl Cli {
 		// Build the target.
 		let id = target.id(&handle).await?;
 		let arg = tg::target::build::Arg {
-			create: args.inner.create,
+			create: args.create,
 			parent: None,
 			remote: remote.clone(),
 			retry,
@@ -346,7 +349,7 @@ impl Cli {
 		let build = tg::Build::with_id(output.build);
 
 		// Tag the build if requested.
-		if let Some(tag) = args.inner.tag {
+		if let Some(tag) = args.tag {
 			let item = Either::Left(build.id().clone());
 			let arg = tg::tag::put::Arg {
 				force: false,
@@ -357,7 +360,7 @@ impl Cli {
 		}
 
 		// If the detach flag is set, then return the build.
-		if args.inner.detach {
+		if args.detach {
 			return Ok(InnerOutput::Detached(build.id().clone()));
 		}
 
@@ -403,7 +406,7 @@ impl Cli {
 							let item = crate::viewer::Item::Build(build);
 							let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
 
-							match args.inner.view {
+							match args.view {
 								View::None => (),
 								View::Inline => {
 									viewer.run_inline(stop).await?;
@@ -460,7 +463,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "the build failed"))?;
 
 		// Check out the output if requested.
-		if let Some(path) = args.inner.checkout {
+		if let Some(path) = args.checkout {
 			// Get the artifact.
 			let artifact = tg::Artifact::try_from(output.clone())
 				.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;

@@ -10,6 +10,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub format: tg::artifact::archive::Format,
+
+	#[command(flatten)]
+	pub inner: crate::target::build::InnerArgs,
 }
 
 impl Cli {
@@ -21,7 +24,7 @@ impl Cli {
 		let target = target.id(&handle).await?;
 		let args = crate::target::build::Args {
 			reference: Some(tg::Reference::with_object(&target.into())),
-			..Default::default()
+			inner: args.inner,
 		};
 		self.command_target_build(args).await?;
 		Ok(())

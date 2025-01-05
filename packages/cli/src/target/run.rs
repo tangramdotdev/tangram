@@ -6,9 +6,6 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[command(flatten)]
-	pub build: crate::target::build::Args,
-
 	/// The path to the executable in the artifact to run.
 	#[arg(short = 'x', long)]
 	pub executable: Option<std::path::PathBuf>,
@@ -29,11 +26,19 @@ impl Cli {
 	pub async fn command_target_run(&self, mut args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Checkout the output.
+		// Get the reference.
+		let reference = args
+			.reference
+			.clone()
+			.unwrap_or_else(|| ".".parse().unwrap());
+
+		// Check out the output.
 		args.inner.checkout = Some(None);
 
 		// Build the target.
-		let output = self.command_target_build_inner(args.build).await?;
+		let output = self
+			.command_target_build_inner(reference, args.inner)
+			.await?;
 
 		// Get the path to the artifact.
 		let mut artifact_path = match output {
