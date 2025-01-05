@@ -137,9 +137,9 @@ export class File {
 		}
 	}
 
-	async dependencies(): Promise<
-		{ [reference: tg.Reference]: tg.Referent<tg.Object> } | undefined
-	> {
+	async dependencies(): Promise<{
+		[reference: tg.Reference]: tg.Referent<tg.Object>;
+	}> {
 		const object = await this.object();
 		if (!("graph" in object)) {
 			return object.dependencies;
@@ -150,9 +150,6 @@ export class File {
 			tg.assert(node !== undefined, `invalid index ${object.node}`);
 			tg.assert(node.kind === "file", `expected a file node, got ${node}`);
 			const dependencies = node.dependencies;
-			if (dependencies === undefined) {
-				return undefined;
-			}
 			return Object.fromEntries(
 				Object.entries(dependencies).map(([reference, referent]) => {
 					let object: tg.Object | undefined;
@@ -252,9 +249,7 @@ export namespace File {
 	export type Object =
 		| {
 				contents: tg.Blob;
-				dependencies:
-					| { [reference: tg.Reference]: tg.Referent<tg.Object> }
-					| undefined;
+				dependencies: { [reference: tg.Reference]: tg.Referent<tg.Object> };
 				executable: boolean;
 		  }
 		| { graph: tg.Graph; node: number };

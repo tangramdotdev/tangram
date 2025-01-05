@@ -8,12 +8,12 @@ use tangram_client as tg;
 use tangram_v8::convert::{FromV8, ToV8};
 
 mod blob;
-mod build;
 mod checksum;
 mod encoding;
 mod log;
 mod object;
 mod sleep;
+mod target;
 
 pub fn syscall<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -26,7 +26,6 @@ pub fn syscall<'s>(
 	// Invoke the syscall.
 	let result = match name.as_str() {
 		"blob_read" => async_(scope, &args, self::blob::read),
-		"build_output" => async_(scope, &args, self::build::output),
 		"checksum" => async_(scope, &args, self::checksum::checksum),
 		"encoding_base64_decode" => sync(scope, &args, self::encoding::base64_decode),
 		"encoding_base64_encode" => sync(scope, &args, self::encoding::base64_encode),
@@ -44,6 +43,7 @@ pub fn syscall<'s>(
 		"object_load" => async_(scope, &args, self::object::load),
 		"object_store" => async_(scope, &args, self::object::store),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
+		"target_output" => async_(scope, &args, self::target::output),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 

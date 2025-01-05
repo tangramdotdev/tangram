@@ -1,4 +1,3 @@
-use self::config::Config;
 use clap::{CommandFactory as _, Parser as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
@@ -17,7 +16,6 @@ mod build;
 mod cat;
 mod checksum;
 mod clean;
-mod config;
 mod get;
 mod health;
 mod lsp;
@@ -35,6 +33,9 @@ mod tree;
 mod view;
 mod viewer;
 
+pub use self::config::Config;
+
+pub mod config;
 pub mod test;
 
 pub struct Cli {

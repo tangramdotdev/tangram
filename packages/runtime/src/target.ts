@@ -231,7 +231,7 @@ export class Target<
 	}
 
 	async output(): Promise<R> {
-		return (await syscall("build_output", this as Target<[], R>)) as R;
+		return (await syscall("target_output", this as Target<[], R>)) as R;
 	}
 
 	function(): Function | undefined {

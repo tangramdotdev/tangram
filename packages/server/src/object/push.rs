@@ -10,9 +10,6 @@ use tangram_futures::stream::Ext as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tokio_util::task::AbortOnDropHandle;
 
-#[cfg(test)]
-mod tests;
-
 struct InnerOutput {
 	count: u64,
 	depth: u64,

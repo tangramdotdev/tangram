@@ -22,20 +22,13 @@ where
 		Ok(()) => {
 			// If there was no panic, then gracefully shutdown the servers.
 			for server in &context.servers {
-				let mut process = server.process.lock().await;
-				unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGINT) };
-				let result = process.wait().await;
-				if let Ok(status) = result {
-					if !status.success() {}
-				}
+				server.stop_gracefully().await;
 			}
 		},
 		Err(error) => {
-			// If there was a panic, then forcefully shutdown the servers and resume unwinding.
+			// If there was a panic, then forcefully shut down the servers and resume unwinding.
 			for server in &context.servers {
-				let mut process = server.process.lock().await;
-				unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGKILL) };
-				process.wait().await.ok();
+				server.stop_forcefully().await;
 			}
 			std::panic::resume_unwind(error);
 		},
@@ -49,7 +42,7 @@ pub struct Context {
 
 pub struct Server {
 	config: Config,
-	process: tokio::sync::Mutex<tokio::process::Child>,
+	process: tokio::sync::Mutex<Option<tokio::process::Child>>,
 	temp: Arc<Temp>,
 	tg: &'static str,
 }
@@ -79,9 +72,10 @@ impl Context {
 
 	pub async fn spawn_server_with_temp_and_config(
 		&mut self,
+		temp: Temp,
 		config: Config,
 	) -> tg::Result<Arc<Server>> {
-		let server = Server::with_config(self.tg, config).await?;
+		let server = Server::with_temp_and_config(self.tg, temp, config).await?;
 		let server = Arc::new(server);
 		self.servers.push(server.clone());
 		Ok(server)
@@ -96,7 +90,16 @@ impl Server {
 
 	async fn with_config(tg: &'static str, config: Config) -> tg::Result<Self> {
 		// Create a temp and create the config and data paths.
-		let temp = Arc::new(Temp::new());
+		let temp = Temp::new();
+		Self::with_temp_and_config(tg, temp, config).await
+	}
+
+	async fn with_temp_and_config(
+		tg: &'static str,
+		temp: Temp,
+		config: Config,
+	) -> tg::Result<Self> {
+		let temp = Arc::new(temp);
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -114,28 +117,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the data directory"))?;
 
 		// Create the command.
-		let log_path = temp.path().join(".tangram/log");
-		let stdout = tokio::fs::OpenOptions::new()
-			.create(true)
-			.write(true)
-			.truncate(true)
-			.open(&log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
-			.into_std()
-			.await;
-		let stderr = tokio::fs::OpenOptions::new()
-			.create(true)
-			.write(true)
-			.truncate(true)
-			.open(&log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
-			.into_std()
-			.await;
 		let mut command = tokio::process::Command::new(tg);
-		command.stdout(stdout);
-		command.stderr(stderr);
+		command.stdout(std::process::Stdio::piped());
+		command.stderr(std::process::Stdio::piped());
 		command.arg("--config");
 		command.arg(&config_path);
 		command.arg("--path");
@@ -144,7 +128,7 @@ impl Server {
 
 		// Spawn the process.
 		let process = command.spawn().unwrap();
-		let process = tokio::sync::Mutex::new(process);
+		let process = tokio::sync::Mutex::new(Some(process));
 
 		// Create the server.
 		let server = Self {
@@ -178,11 +162,6 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn process(&self) -> &tokio::sync::Mutex<tokio::process::Child> {
-		&self.process
-	}
-
-	#[must_use]
 	pub fn url(&self) -> Url {
 		let path = self.temp.path().join(".tangram/socket");
 		let path = path.to_str().unwrap();
@@ -190,27 +169,49 @@ impl Server {
 		format!("http+unix://{path}").parse().unwrap()
 	}
 
-	pub async fn print_log(&self) -> tg::Result<()> {
-		let log_path = self.temp.join(".tangram/log");
-		let mut log_file = tokio::fs::File::open(log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?;
-		let mut stderr = tokio::io::stderr();
-		tokio::io::copy(&mut log_file, &mut stderr).await.ok();
-		Ok(())
+	pub async fn stop_gracefully(&self) {
+		if let Some(process) = self.process.lock().await.take() {
+			unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGINT) };
+			let output = process.wait_with_output().await.unwrap();
+			assert_success!(output);
+		}
+	}
+
+	pub async fn stop_forcefully(&self) {
+		if let Some(mut process) = self.process.lock().await.take() {
+			unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGKILL) };
+			process.wait().await.ok();
+		}
 	}
 }
 
 #[macro_export]
-macro_rules! assert_output_success {
+macro_rules! assert_success {
 	($output:expr) => {
 		let output = &$output;
 		if !output.status.success() {
-			let mut stderr = tokio::io::stderr();
-			stderr.write_all(&output.stderr).await.unwrap();
-			stderr.flush().await.unwrap();
+			let stderr = std::str::from_utf8(&output.stderr).unwrap();
+			for line in stderr.lines() {
+				eprintln!("{line}");
+			}
 		}
 		assert!(output.status.success());
 	};
 }
-pub use assert_output_success;
+
+#[macro_export]
+macro_rules! assert_failure {
+	($output:expr) => {
+		let output = &$output;
+		if output.status.success() {
+			let stderr = std::str::from_utf8(&output.stderr).unwrap();
+			for line in stderr.lines() {
+				eprintln!("{line}");
+			}
+		}
+		assert!(!output.status.success());
+	};
+}
+
+pub use assert_failure;
+pub use assert_success;

@@ -53,7 +53,7 @@ pub struct Trace<'a> {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct TraceOptions {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub internal: bool,
@@ -260,6 +260,15 @@ impl TryFrom<tangram_http::sse::Event> for Error {
 		let error = serde_json::from_str(&value.data)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
 		Ok(error)
+	}
+}
+
+impl Default for TraceOptions {
+	fn default() -> Self {
+		Self {
+			internal: true,
+			reverse: false,
+		}
 	}
 }
 

@@ -1,19 +1,19 @@
-use crate::{Config, Server};
-use futures::{future, Future, FutureExt as _};
+use crate::{test::test, Server};
+use futures::{future, Future};
 use insta::assert_json_snapshot;
-use std::{collections::BTreeMap, panic::AssertUnwindSafe, pin::pin};
+use std::{collections::BTreeMap, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
-use tangram_temp::{self as temp, Temp};
+use tangram_temp as temp;
 
 /// Test caching a directory.
 #[tokio::test]
-async fn directory() -> tg::Result<()> {
+async fn directory() {
 	let artifact = tg::directory! {
 		"hello.txt" => "Hello, World!",
 	};
-	test(artifact, |_, cache| async move {
+	test_cache(artifact, |_, cache| async move {
 		assert_json_snapshot!(cache, @r#"
   {
     "kind": "directory",
@@ -36,16 +36,15 @@ async fn directory() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a single file.
 #[tokio::test]
-async fn file() -> tg::Result<()> {
+async fn file() {
 	let artifact = tg::file!("Hello, World!");
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -58,16 +57,15 @@ async fn file() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out an executable file.
 #[tokio::test]
-async fn executable_file() -> tg::Result<()> {
+async fn executable_file() {
 	let artifact = tg::file!("Hello, World!", executable = true);
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -80,19 +78,18 @@ async fn executable_file() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test caching a directory with two identical files.
 #[tokio::test]
-async fn directory_with_two_identical_files() -> tg::Result<()> {
+async fn directory_with_two_identical_files() {
 	let artifact = tg::directory! {
 		"hello.txt" => "Hello, World!",
 		"world.txt" => "Hello, World!",
 	};
-	test(artifact, |_, cache| async move {
+	test_cache(artifact, |_, cache| async move {
 		assert_json_snapshot!(cache, @r#"
   {
     "kind": "directory",
@@ -120,14 +117,13 @@ async fn directory_with_two_identical_files() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a a file with a dependency.
 #[tokio::test]
-async fn file_with_dependency() -> tg::Result<()> {
+async fn file_with_dependency() {
 	let artifact = tg::file!(
 		"foo",
 		dependencies = [(
@@ -135,7 +131,7 @@ async fn file_with_dependency() -> tg::Result<()> {
 			tg::Referent::with_item(tg::file!("bar").into())
 		)]
 	);
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -153,16 +149,15 @@ async fn file_with_dependency() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a symlink.
 #[tokio::test]
-async fn symlink() -> tg::Result<()> {
+async fn symlink() {
 	let artifact = tg::symlink!("/bin/sh");
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -174,21 +169,20 @@ async fn symlink() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a directory with a symlink.
 #[tokio::test]
-async fn directory_with_symlink() -> tg::Result<()> {
+async fn directory_with_symlink() {
 	let artifact = tg::directory! {
 		"directory" => tg::directory! {
 			"hello.txt" => "Hello, World!",
 			"link" => tg::symlink!("hello.txt"),
 		}
 	};
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -220,32 +214,31 @@ async fn directory_with_symlink() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a very deep directory.
 #[ignore]
 #[tokio::test]
-async fn deeply_nested_directory() -> tg::Result<()> {
+async fn deeply_nested_directory() {
 	let mut artifact = tg::Artifact::from(tg::file!("hello"));
 	for _ in 0..256 {
 		let entries = [("a".into(), artifact.clone())].into_iter().collect();
 		artifact = tg::Directory::with_entries(entries).into();
 	}
-	test(artifact, |_, _| future::ok(())).await
+	test_cache(artifact, |_, _| future::ready(())).await;
 }
 
 /// Test checking out a directory with a file with a dependency.
 #[tokio::test]
-async fn directory_with_file_with_dependency() -> tg::Result<()> {
+async fn directory_with_file_with_dependency() {
 	let artifact = tg::directory! {
 		"foo" => tg::file!("foo", dependencies = [
 			("bar".parse().unwrap(), tg::Referent::with_item(tg::file!("bar").into()))
 		]),
 	};
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -273,18 +266,17 @@ async fn directory_with_file_with_dependency() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a directory with a symlink with a dependency.
 #[tokio::test]
-async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
+async fn directory_with_symlink_with_dependency() {
 	let artifact = tg::directory! {
 		"foo" => tg::symlink!(artifact = tg::file!("bar")),
 	};
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -306,14 +298,13 @@ async fn directory_with_symlink_with_dependency() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a symlink that is a member of a graph.
 #[tokio::test]
-async fn graph_directory() -> tg::Result<()> {
+async fn graph_directory() {
 	let graph = tg::Graph::with_object(tg::graph::Object {
 		nodes: vec![tg::graph::object::Node::Directory(
 			tg::graph::object::Directory {
@@ -326,7 +317,7 @@ async fn graph_directory() -> tg::Result<()> {
 		)],
 	});
 	let artifact = tg::Directory::with_graph_and_node(graph, 0);
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -349,14 +340,13 @@ async fn graph_directory() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a file that is a member of a graph.
 #[tokio::test]
-async fn graph_file() -> tg::Result<()> {
+async fn graph_file() {
 	let graph = tg::Graph::with_object(tg::graph::Object {
 		nodes: vec![tg::graph::object::Node::File(tg::graph::object::File {
 			contents: "Hello, World!".into(),
@@ -365,7 +355,7 @@ async fn graph_file() -> tg::Result<()> {
 		})],
 	});
 	let artifact = tg::File::with_graph_and_node(graph, 0);
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -378,14 +368,13 @@ async fn graph_file() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a symlink that is a member of a graph.
 #[tokio::test]
-async fn graph_symlink() -> tg::Result<()> {
+async fn graph_symlink() {
 	let graph = tg::Graph::with_object(tg::graph::Object {
 		nodes: vec![tg::graph::object::Node::Symlink(
 			tg::graph::object::Symlink::Target {
@@ -394,7 +383,7 @@ async fn graph_symlink() -> tg::Result<()> {
 		)],
 	});
 	let artifact = tg::Symlink::with_graph_and_node(graph, 0);
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -406,14 +395,13 @@ async fn graph_symlink() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
 /// Test checking out a directory with an artifact symlink that points to itself.
 #[tokio::test]
-async fn directory_with_symlink_cycle() -> tg::Result<()> {
+async fn directory_with_symlink_cycle() {
 	let graph = tg::Graph::with_object(tg::graph::Object {
 		nodes: vec![
 			tg::graph::object::Node::Directory(tg::graph::object::Directory {
@@ -426,7 +414,7 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
 		],
 	});
 	let artifact = tg::Directory::with_graph_and_node(graph, 0);
-	test(artifact, |_, artifact| async move {
+	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
     "kind": "directory",
@@ -443,41 +431,37 @@ async fn directory_with_symlink_cycle() -> tg::Result<()> {
     }
   }
   "#);
-		Ok::<_, tg::Error>(())
 	})
-	.await
+	.await;
 }
 
-async fn test<F, Fut>(artifact: impl Into<tg::Artifact>, assertions: F) -> tg::Result<()>
+async fn test_cache<F, Fut>(artifact: impl Into<tg::Artifact> + Send + 'static, assertions: F)
 where
-	F: FnOnce(Server, temp::Artifact) -> Fut,
-	Fut: Future<Output = tg::Result<()>>,
+	F: FnOnce(Server, temp::Artifact) -> Fut + Send + 'static,
+	Fut: Future<Output = ()> + Send + 'static,
 {
-	let temp = Temp::new();
-	let config = Config::with_path(temp.path().to_owned());
-	let server = Server::start(config).await?;
-	let result = AssertUnwindSafe(async {
+	test(|context| async move {
+		let mut context = context.lock().await;
+		let server = context.start_server().await;
 		let arg = tg::artifact::checkout::Arg {
 			dependencies: true,
 			force: false,
 			lockfile: false,
 			path: None,
 		};
-		let artifact = artifact.into().id(&server).await?;
-		let stream = server.check_out_artifact(&artifact, arg).await?;
+		let artifact = artifact.into().id(&server).await.unwrap();
+		let stream = server.check_out_artifact(&artifact, arg).await.unwrap();
 		let _ = pin!(stream)
 			.try_last()
-			.await?
+			.await
+			.unwrap()
 			.and_then(|event| event.try_unwrap_output().ok())
-			.ok_or_else(|| tg::error!("stream ended without output"))?;
-		let artifact = temp::Artifact::with_path(&server.cache_path()).await?;
-		(assertions)(server.clone(), artifact).await?;
-		Ok::<_, tg::Error>(())
+			.ok_or_else(|| tg::error!("stream ended without output"))
+			.unwrap();
+		let artifact = temp::Artifact::with_path(&server.cache_path())
+			.await
+			.unwrap();
+		(assertions)(server, artifact).await;
 	})
-	.catch_unwind()
 	.await;
-	server.stop();
-	server.wait().await;
-	temp.remove().await.ok();
-	result.unwrap()
 }

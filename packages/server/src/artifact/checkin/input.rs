@@ -10,9 +10,6 @@ use tangram_either::Either;
 use tangram_ignore::Matcher;
 use tokio::sync::RwLock;
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Debug)]
 pub struct Graph {
 	pub root: PathBuf,

@@ -39,8 +39,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 tangram_client = { workspace = true }
-tangram_futures = { workspace = true }
 tangram_either = { workspace = true }
+tangram_futures = { workspace = true }
 tangram_server = { workspace = true }
 tangram_temp = { workspace = true }
 tokio = { workspace = true }

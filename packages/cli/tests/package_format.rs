@@ -1,7 +1,6 @@
 use insta::assert_json_snapshot;
-use tangram_cli::{assert_output_success, test::test};
+use tangram_cli::{assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
-use tokio::io::AsyncWriteExt as _;
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
@@ -38,7 +37,7 @@ async fn format() {
 			.output()
 			.await
 			.unwrap();
-		assert_output_success!(output);
+		assert_success!(output);
 
 		// Snapshot the package.
 		let package = temp::Artifact::with_path(temp.path()).await.unwrap();

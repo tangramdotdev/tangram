@@ -59,7 +59,6 @@ clap = { version = "4", features = ["derive", "env", "string", "unstable-v5"] }
 console-subscriber = "0.4"
 copypasta = "0.10"
 crossterm = { version = "0.28", features = ["event-stream"] }
-ctor = "0.2"
 dashmap = "6"
 data-encoding = "2"
 data-encoding-macro = "0.1"
