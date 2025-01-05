@@ -1,7 +1,7 @@
 use indoc::indoc;
-use insta::{assert_json_snapshot, assert_snapshot};
-use std::{future::Future, path::Path};
-use tangram_cli::test::{test, Server};
+use insta::assert_snapshot;
+use std::future::Future;
+use tangram_cli::test::test;
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
