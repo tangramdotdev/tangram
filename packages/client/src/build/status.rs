@@ -41,6 +41,15 @@ impl Status {
 	pub fn is_finished(&self) -> bool {
 		matches!(self, Status::Canceled | Status::Failed | Status::Succeeded)
 	}
+	#[must_use]
+	pub fn retry(&self) -> Option<tg::build::Retry> {
+		match self {
+			Status::Created | Status::Enqueued | Status::Dequeued | Status::Started => None,
+			Status::Canceled => Some(tg::build::Retry::Canceled),
+			Status::Failed => Some(tg::build::Retry::Failed),
+			Status::Succeeded => Some(tg::build::Retry::Succeeded),
+		}
+	}
 }
 
 impl tg::Build {
