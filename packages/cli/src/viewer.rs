@@ -1,4 +1,4 @@
-use self::{help::Help, tree::Tree};
+use self::{data::Data, help::Help, log::Log, tree::Tree};
 use crossterm as ct;
 use futures::{future, TryFutureExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
@@ -6,20 +6,31 @@ use ratatui::{self as tui, prelude::*};
 use std::{
 	io::{IsTerminal as _, Write as _},
 	pin::pin,
+	sync::Arc,
 	time::Duration,
 };
 use tangram_client as tg;
 use tangram_futures::task::Stop;
 
+mod data;
 mod help;
+mod log;
 mod tree;
 
 pub struct Viewer<H> {
+	data: Data,
 	focus: Focus,
 	help: Help,
+	log: Option<Arc<Log<H>>>,
+	split: Split,
 	stopped: bool,
 	tree: Tree<H>,
+	update_receiver: UpdateReceiver<H>,
+	_update_sender: UpdateSender<H>,
 }
+
+pub type UpdateSender<H> = std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Viewer<H>)>>;
+pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewer<H>)>>;
 
 #[derive(Clone, Debug)]
 pub enum Item {
@@ -38,6 +49,12 @@ pub struct Options {
 enum Focus {
 	Help,
 	Tree,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Split {
+	Horizontal,
+	Vertical,
 }
 
 impl<H> Viewer<H>
@@ -68,6 +85,12 @@ where
 					self.stopped = true;
 					return;
 				},
+				(ct::event::KeyCode::Char('/'), ct::event::KeyModifiers::NONE) => {
+					self.split = match self.split {
+						Split::Horizontal => Split::Vertical,
+						Split::Vertical => Split::Horizontal,
+					}
+				},
 				_ => (),
 			}
 		}
@@ -78,12 +101,25 @@ where
 	}
 
 	pub fn new(handle: &H, item: Item, options: Options) -> Self {
-		let tree = Tree::new(handle, item, options);
+		let (update_sender, update_receiver) = std::sync::mpsc::channel();
+		let data = Data::new();
+		let tree = Tree::new(
+			handle,
+			item,
+			options,
+			data.update_sender(),
+			update_sender.clone(),
+		);
 		Self {
+			data,
 			focus: Focus::Tree,
 			help: Help,
+			log: None,
+			split: Split::Vertical,
 			stopped: false,
 			tree,
+			update_receiver,
+			_update_sender: update_sender,
 		}
 	}
 
@@ -92,7 +128,34 @@ where
 			self.help.render(rect, buffer);
 			return;
 		}
-		self.tree.render(rect, buffer);
+
+		// Layout.
+		let (direction, log_direction) = match self.split {
+			Split::Horizontal => (Direction::Vertical, Direction::Horizontal),
+			Split::Vertical => (Direction::Horizontal, Direction::Vertical),
+		};
+		let rects = Layout::default()
+			.direction(direction)
+			.constraints([Constraint::Fill(1), Constraint::Fill(1)])
+			.split(rect);
+		let (tree, data, log) = if self.log.is_some() {
+			let tree = rects[0];
+			let rects = Layout::default()
+				.direction(log_direction)
+				.constraints([Constraint::Fill(1), Constraint::Fill(1)])
+				.split(rects[1]);
+			(tree, rects[0], Some(rects[1]))
+		} else {
+			(rects[0], rects[1], None)
+		};
+		let tree = render_block_and_get_area("Tree", false, tree, buffer);
+		self.tree.render(tree, buffer);
+		let data = render_block_and_get_area("Data", false, data, buffer);
+		self.data.render(data, buffer);
+		if let Some(log_) = &self.log {
+			let log = render_block_and_get_area("Log", false, log.unwrap(), buffer);
+			log_.render(log, buffer);
+		}
 	}
 
 	pub async fn run_fullscreen(&mut self, stop: Stop) -> tg::Result<()> {
@@ -220,6 +283,24 @@ where
 	}
 
 	pub fn update(&mut self) {
+		while let Ok(update) = self.update_receiver.try_recv() {
+			update(self);
+		}
 		self.tree.update();
+		self.data.update();
 	}
+}
+
+fn render_block_and_get_area(title: &str, focused: bool, area: Rect, buf: &mut Buffer) -> Rect {
+	let block = tui::widgets::Block::bordered()
+		.title(title)
+		.border_style(Style::default().fg(if focused { Color::Blue } else { Color::White }));
+	block.render(area, buf);
+	Layout::default()
+		.constraints([Constraint::Percentage(100)])
+		.margin(1)
+		.split(area)
+		.first()
+		.copied()
+		.unwrap_or(area)
 }

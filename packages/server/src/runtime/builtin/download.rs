@@ -73,7 +73,8 @@ impl Runtime {
 						title: "downloading".to_owned(),
 						total: content_length,
 					};
-					let message = indicator.to_string();
+					let mut message = indicator.to_string();
+					message.push('\n');
 					let arg = tg::build::log::post::Arg {
 						bytes: message.into(),
 						remote: remote.clone(),

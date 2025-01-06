@@ -1,5 +1,6 @@
-use super::{Item, Options};
-use crossterm::{self as ct, style::Stylize};
+use super::{data, log::Log, Item, Options};
+use copypasta::ClipboardProvider as _;
+use crossterm as ct;
 use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
@@ -17,17 +18,20 @@ const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '�
 
 pub struct Tree<H> {
 	handle: H,
+	data: data::UpdateSender,
 	rect: Option<Rect>,
 	roots: Vec<Rc<RefCell<Node>>>,
 	selected: Rc<RefCell<Node>>,
+	selected_task: Option<Task<()>>,
 	scroll: usize,
+	viewer: super::UpdateSender<H>,
 }
 
 struct Node {
 	children: Vec<Rc<RefCell<Self>>>,
 	depth: usize,
 	expand_task: Option<Task<()>>,
-	expanded: bool,
+	expanded: Option<bool>,
 	indicator: Option<Indicator>,
 	item: Option<Item>,
 	label: Option<String>,
@@ -65,6 +69,26 @@ impl<H> Tree<H>
 where
 	H: tg::Handle,
 {
+	fn yank(&self) {
+		let Some(item) = self.selected.borrow().item.clone() else {
+			return;
+		};
+		let contents = match item {
+			Item::Build(build) => build.id().to_string(),
+			Item::Value(value) => {
+				let options = tg::value::print::Options {
+					recursive: true,
+					style: tg::value::print::Style::Compact,
+				};
+				value.print(options)
+			},
+		};
+		let Ok(mut context) = copypasta::ClipboardContext::new() else {
+			return;
+		};
+		context.set_contents(contents).ok();
+	}
+
 	fn ancestors(node: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
 		let mut ancestors = vec![node.clone()];
 		let mut node = node.clone();
@@ -85,19 +109,19 @@ where
 
 	fn bottom(&mut self) {
 		let nodes = self.nodes();
-		self.selected = nodes.last().unwrap().clone();
+		self.select(nodes.last().unwrap().clone());
 		let height = self.rect.as_ref().unwrap().height.to_usize().unwrap();
 		self.scroll = nodes.len().saturating_sub(height);
 	}
 
 	fn collapse(&mut self) {
-		if self.selected.borrow().expanded {
+		if matches!(self.selected.borrow().expanded, Some(true)) {
 			let mut node = self.selected.borrow_mut();
 			node.children.clear();
 			if let Some(task) = node.expand_task.take() {
 				task.abort();
 			}
-			node.expanded = false;
+			node.expanded.replace(false);
 		} else {
 			let parent = self
 				.selected
@@ -106,8 +130,75 @@ where
 				.as_ref()
 				.map(|parent| parent.upgrade().unwrap());
 			if let Some(parent) = parent {
-				self.selected = parent;
+				self.select(parent);
 			}
+		}
+	}
+
+	fn select(&mut self, node: Rc<RefCell<Node>>) {
+		self.selected = node.clone();
+		let Some(item) = node.borrow().item.clone() else {
+			return;
+		};
+		let handle = self.handle.clone();
+		let data = self.data.clone();
+		let viewer = self.viewer.clone();
+		let task = Task::spawn_local(|_| async move {
+			// Update the log view if the selected item is a build.
+			let build = node.borrow().item.as_ref().and_then(|item| match item {
+				Item::Build(build) => Some(build.clone()),
+				Item::Value(_) => None,
+			});
+			{
+				let handle = handle.clone();
+				let update = move |viewer: &mut super::Viewer<H>| {
+					if let Some(build) = build {
+						let log = Log::new(&handle, &build);
+						viewer.log.replace(log);
+					} else {
+						viewer.log.take();
+					}
+				};
+				viewer.send(Box::new(update)).unwrap();
+			}
+
+			// Update the data view.
+			let result = match item {
+				Item::Build(build) => handle.try_get_build(build.id()).await.and_then(|output| {
+					let output = output.ok_or_else(|| tg::error!("expected a build"))?;
+					serde_json::to_string_pretty(&output)
+						.map_err(|source| tg::error!(!source, "failed to serialize build output"))
+				}),
+				Item::Value(tg::Value::Object(object)) => {
+					object.data(&handle).await.and_then(|data| match data {
+						tg::object::Data::Branch(data) => serde_json::to_string_pretty(&data)
+							.map_err(|_| tg::error!("failed to serialize the data")),
+						tg::object::Data::Leaf(_) => Ok("<bytes>".to_string()),
+						tg::object::Data::Directory(data) => serde_json::to_string_pretty(&data)
+							.map_err(|_| tg::error!("failed to serialize the data")),
+						tg::object::Data::File(data) => serde_json::to_string_pretty(&data)
+							.map_err(|_| tg::error!("failed to serialize the data")),
+						tg::object::Data::Symlink(data) => serde_json::to_string_pretty(&data)
+							.map_err(|_| tg::error!("failed to serialize the data")),
+						tg::object::Data::Graph(data) => serde_json::to_string_pretty(&data)
+							.map_err(|_| tg::error!("failed to serialize the data")),
+						tg::object::Data::Target(data) => serde_json::to_string_pretty(&data)
+							.map_err(|_| tg::error!("failed to serialize the data")),
+					})
+				},
+				Item::Value(_) => Ok(String::new()),
+			};
+			let contents = match result {
+				Ok(string) => string,
+				Err(error) => error.to_string(),
+			};
+			data.send(Box::new(move |this| {
+				this.contents = contents;
+			}))
+			.unwrap();
+		});
+		if let Some(task) = self.selected_task.replace(task) {
+			task.abort();
 		}
 	}
 
@@ -138,11 +229,26 @@ where
 			},
 			_ => None,
 		};
+
+		let expanded = match item {
+			Some(
+				Item::Build(_)
+				| Item::Value(
+					tg::Value::Array(_)
+					| tg::Value::Map(_)
+					| tg::Value::Mutation(_)
+					| tg::Value::Object(_)
+					| tg::Value::Template(_),
+				),
+			) => Some(false),
+			_ => None,
+		};
+
 		Rc::new(RefCell::new(Node {
 			children: Vec::new(),
 			depth,
 			expand_task,
-			expanded: false,
+			expanded,
 			indicator: None,
 			item: item.cloned(),
 			label,
@@ -206,7 +312,7 @@ where
 			.position(|node| Rc::ptr_eq(node, &self.selected))
 			.unwrap();
 		let index = (index + 1).min(nodes.len() - 1);
-		self.selected = nodes[index].clone();
+		self.select(nodes[index].clone());
 		let height = self.rect.as_ref().unwrap().height.to_usize().unwrap();
 		if index >= self.scroll + height {
 			self.scroll += 1;
@@ -218,7 +324,7 @@ where
 		let Some(item) = node.item.clone() else {
 			return;
 		};
-		if node.expanded {
+		if matches!(node.expanded, Some(true) | None) {
 			return;
 		}
 		let children_task = Task::spawn_local({
@@ -227,7 +333,7 @@ where
 			move |_| async move { Self::expand_task(&handle, item, update_sender).await }
 		});
 		node.expand_task.replace(children_task);
-		node.expanded = true;
+		node.expanded.replace(true);
 	}
 
 	pub fn handle(&mut self, event: &ct::event::Event) {
@@ -262,6 +368,9 @@ where
 					ct::event::KeyModifiers::NONE,
 				) => {
 					self.expand();
+				},
+				(ct::event::KeyCode::Char('y'), ct::event::KeyModifiers::NONE) => {
+					self.yank();
 				},
 				(ct::event::KeyCode::Enter, ct::event::KeyModifiers::NONE) => {
 					self.push();
@@ -329,7 +438,7 @@ where
 		if let Some(title) = Self::build_title(handle, &build).await {
 			update_sender
 				.send(Box::new(|node| {
-					node.borrow_mut().label.replace(title);
+					node.borrow_mut().title = title;
 				}))
 				.unwrap();
 		}
@@ -337,47 +446,64 @@ where
 		// Create the status stream.
 		let mut status = build.status(handle).await?;
 		while let Some(status) = status.try_next().await? {
-			let indicator = match status {
-				tg::build::Status::Created => Indicator::Created,
-				tg::build::Status::Enqueued => Indicator::Enqueued,
-				tg::build::Status::Dequeued => Indicator::Dequeued,
-				tg::build::Status::Started => Indicator::Started,
-				tg::build::Status::Canceled
-				| tg::build::Status::Failed
-				| tg::build::Status::Succeeded => {
-					// Remove the child if necessary.
-					if options.collapse_finished_builds {
-						let id = build.id().clone();
-						let update = move |node: Rc<RefCell<Node>>| {
-							// Get the parent if it exists.
-							let Some(parent) =
-								node.borrow().parent.as_ref().and_then(Weak::upgrade)
-							else {
-								return;
+			let indicator =
+				match status {
+					tg::build::Status::Created => Indicator::Created,
+					tg::build::Status::Enqueued => Indicator::Enqueued,
+					tg::build::Status::Dequeued => Indicator::Dequeued,
+					tg::build::Status::Started => Indicator::Started,
+					tg::build::Status::Canceled
+					| tg::build::Status::Failed
+					| tg::build::Status::Succeeded => {
+						// Remove the log.
+						update_sender
+							.send(Box::new(|node| {
+								let mut node = node.borrow_mut();
+								if let Some(task) = node.log_task.take() {
+									task.abort();
+								}
+								let Some(position) = node.children.iter().position(|child| {
+									child.borrow().label.as_deref() == Some("log")
+								}) else {
+									return;
+								};
+								node.children.remove(position);
+							}))
+							.unwrap();
+
+						// Remove the child if necessary.
+						if options.collapse_finished_builds {
+							let id = build.id().clone();
+							let update = move |node: Rc<RefCell<Node>>| {
+								// Get the parent if it exists.
+								let Some(parent) =
+									node.borrow().parent.as_ref().and_then(Weak::upgrade)
+								else {
+									return;
+								};
+
+								// Find this build as a child of the parent.
+								let Some(index) = parent.borrow().children.iter().position(
+									|child| matches!(&child.borrow().item, Some(Item::Build(build)) if build.id() == &id),
+								) else {
+									return;
+								};
+
+								// Remove this node from its parent.
+								parent.borrow_mut().children.remove(index);
 							};
+							update_sender.send(Box::new(update)).unwrap();
+							return Ok(());
+						}
 
-							// Find this build as a child of the parent.
-							let Some(index) = parent.borrow().children.iter().position(
-								|child| matches!(&child.borrow().item, Some(Item::Build(build)) if build.id() == &id),
-							) else {
-								return;
-							};
-
-							// Remove this node from its parent.
-							parent.borrow_mut().children.remove(index);
-						};
-						update_sender.send(Box::new(update)).unwrap();
-						return Ok(());
-					}
-
-					match status {
-						tg::build::Status::Canceled => Indicator::Canceled,
-						tg::build::Status::Failed => Indicator::Failed,
-						tg::build::Status::Succeeded => Indicator::Succeeded,
-						_ => unreachable!(),
-					}
-				},
-			};
+						match status {
+							tg::build::Status::Canceled => Indicator::Canceled,
+							tg::build::Status::Failed => Indicator::Failed,
+							tg::build::Status::Succeeded => Indicator::Succeeded,
+							_ => unreachable!(),
+						}
+					},
+				};
 			let update = move |node: Rc<RefCell<Node>>| {
 				node.borrow_mut().indicator.replace(indicator);
 			};
@@ -402,6 +528,18 @@ where
 				let line = line.to_owned();
 				let handle = handle.clone();
 				let update = move |node: Rc<RefCell<Node>>| {
+					// If the node is already done, return.
+					if matches!(
+						node.borrow().indicator,
+						Some(
+							Indicator::Canceled
+								| Indicator::Failed | Indicator::Error
+								| Indicator::Succeeded
+						)
+					) {
+						return;
+					}
+
 					// Get or create the log node.
 					let log_node = node
 						.borrow()
@@ -525,21 +663,21 @@ where
 						.subpath
 						.as_ref()
 						.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
-					write!(title, "{} ", path.display()).unwrap();
+					write!(title, "{}", path.display()).unwrap();
 				} else if let Some(tag) = &module.referent.tag {
-					write!(title, "{tag} ").unwrap();
+					write!(title, "{tag}").unwrap();
 				}
 			},
-			None => write!(title, "builtin ").unwrap(),
+			None => write!(title, "builtin").unwrap(),
 			_ => (),
 		};
 
 		let host = target.host(handle).await.ok();
 		let host = host.as_deref();
-		if let (Some(tg::Value::String(arg0)), Some("js")) =
+		if let (Some(tg::Value::String(arg0)), Some("js" | "builtin")) =
 			(args.first(), host.map(String::as_str))
 		{
-			write!(title, "{arg0}").unwrap();
+			write!(title, "#{arg0}").unwrap();
 		}
 
 		Some(title)
@@ -1151,7 +1289,13 @@ where
 		}
 	}
 
-	pub fn new(handle: &H, item: Item, options: Options) -> Self {
+	pub fn new(
+		handle: &H,
+		item: Item,
+		options: Options,
+		data: data::UpdateSender,
+		viewer: super::UpdateSender<H>,
+	) -> Self {
 		let options = Rc::new(options);
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let title = Self::item_title(&item);
@@ -1187,7 +1331,7 @@ where
 		let root = Rc::new(RefCell::new(Node {
 			children: Vec::new(),
 			depth: 1,
-			expanded: expand_task.is_some(),
+			expanded: Some(expand_task.is_some()),
 			expand_task,
 			indicator: None,
 			item: Some(item),
@@ -1201,14 +1345,18 @@ where
 			update_task,
 		}));
 		let roots = vec![root.clone()];
-		let selected = root.clone();
-		Self {
+		let mut tree = Self {
 			handle: handle.clone(),
+			data,
 			rect: None,
 			roots,
 			scroll: 0,
-			selected,
-		}
+			selected: root.clone(),
+			selected_task: None,
+			viewer,
+		};
+		tree.select(root);
+		tree
 	}
 
 	fn nodes(&mut self) -> Vec<Rc<RefCell<Node>>> {
@@ -1234,6 +1382,8 @@ where
 	}
 
 	pub fn render(&mut self, rect: Rect, buffer: &mut Buffer) {
+		use tui::style::Stylize;
+
 		// Get the current time.
 		let now = std::time::SystemTime::now()
 			.duration_since(std::time::UNIX_EPOCH)
@@ -1278,24 +1428,28 @@ where
 			}
 			line.push_span(prefix);
 
-			let disclosure = if node.borrow().expanded { "▼" } else { "▶" };
+			let disclosure = match node.borrow().expanded {
+				Some(true) => "▼",
+				Some(false) => "▶",
+				None => "•",
+			};
 			line.push_span(disclosure);
 			line.push_span(" ");
 
 			let indicator = match node.borrow().indicator {
 				None => None,
-				Some(Indicator::Created) => Some('⟳'.blue()),
-				Some(Indicator::Enqueued) => Some('⟳'.yellow()),
-				Some(Indicator::Dequeued) => Some('•'.yellow()),
+				Some(Indicator::Created) => Some("⟳".blue()),
+				Some(Indicator::Enqueued) => Some("⟳".yellow()),
+				Some(Indicator::Dequeued) => Some("•".yellow()),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();
-					Some(SPINNER[position].blue())
+					Some(SPINNER[position].to_string().blue())
 				},
-				Some(Indicator::Canceled) => Some('⦻'.yellow()),
-				Some(Indicator::Failed) => Some('✗'.red()),
-				Some(Indicator::Succeeded) => Some('✓'.green()),
-				Some(Indicator::Error) => Some('?'.red()),
+				Some(Indicator::Canceled) => Some("⦻".yellow()),
+				Some(Indicator::Failed) => Some("✗".red()),
+				Some(Indicator::Succeeded) => Some("✓".green()),
+				Some(Indicator::Error) => Some("?".red()),
 			};
 			if let Some(indicator) = indicator {
 				line.push_span(indicator.to_string());
@@ -1308,11 +1462,10 @@ where
 			}
 
 			line.push_span(node.borrow().title.clone());
-
 			tui::widgets::Paragraph::new(line).render(rect, buffer);
 		}
 
-		self.rect = Some(rect);
+		self.rect.replace(rect);
 	}
 
 	async fn expand_task(handle: &H, item: Item, update_sender: NodeUpdateSender) {
@@ -1331,7 +1484,7 @@ where
 
 	fn top(&mut self) {
 		let nodes = self.nodes();
-		self.selected = nodes.first().unwrap().clone();
+		self.select(nodes.first().unwrap().clone());
 		self.scroll = 0;
 	}
 
@@ -1342,7 +1495,7 @@ where
 			.position(|node| Rc::ptr_eq(node, &self.selected))
 			.unwrap();
 		let index = index.saturating_sub(1);
-		self.selected = nodes[index].clone();
+		self.select(nodes[index].clone());
 		if index < self.scroll {
 			self.scroll = self.scroll.saturating_sub(1);
 		}
@@ -1356,6 +1509,14 @@ where
 				};
 				update(node.clone());
 			}
+		}
+	}
+}
+
+impl<H> Drop for Tree<H> {
+	fn drop(&mut self) {
+		if let Some(task) = self.selected_task.take() {
+			task.abort();
 		}
 	}
 }

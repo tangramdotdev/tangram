@@ -12,6 +12,16 @@ impl Help {
 		let commands = [
 			("?", "help", "Show this help view."),
 			("q", "exit", "Close the TUI."),
+			("Shift+G", "bottom", "Go to bottom."),
+			("g", "top", "Go to top."),
+			("h", "collapse", "Collapse the current node."),
+			("j", "down", "Navigate down."),
+			("k", "up", "Navigate up."),
+			("l", "expand", "Expand the current node."),
+			("y", "yank", "Copy the current item to the clipboard."),
+			("/", "rotate", "Rotate the view split"),
+			("enter", "push", "Push the current to the top"),
+			("backspace", "pop", "Pop the last node to the top."),
 		];
 		let rows = commands.into_iter().map(|(key, command, description)| {
 			let cells = vec![
