@@ -66,9 +66,14 @@ impl Cli {
 		let kind = args.kind;
 		let print = args.print;
 		Task::spawn_blocking(move |stop| {
-			tokio::runtime::LocalRuntime::new()
-				.unwrap()
-				.block_on(async move {
+			let local_set = tokio::task::LocalSet::new();
+			let rt = tokio::runtime::Builder::new_current_thread()
+				.worker_threads(1)
+				.enable_time()
+				.build()
+				.unwrap();
+			local_set
+				.block_on(&rt, async move {
 					let options = crate::viewer::Options {
 						collapse_finished_builds: false,
 						expand_on_create: matches!(kind, Kind::Inline),
