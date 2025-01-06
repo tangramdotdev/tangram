@@ -2,17 +2,17 @@ use crate::{store::Store, Server};
 use bytes::Bytes;
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use indoc::indoc;
-use num::ToPrimitive as _;
+use num::ToPrimitive;
 use std::{pin::pin, sync::Arc};
 use tangram_client::{self as tg, Handle as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-use tangram_futures::{read::Ext as _, stream::Ext};
+use tangram_futures::stream::Ext;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use time::format_description::well_known::Rfc3339;
 use tokio::{io::AsyncRead, task::JoinSet};
 use tokio_postgres as postgres;
-use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
+use tokio_util::task::AbortOnDropHandle;
 
 impl Server {
 	pub(crate) async fn import_object(
@@ -57,7 +57,7 @@ impl Server {
 	async fn import_object_inner(
 		&self,
 		_arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Send + 'static,
+		reader: impl AsyncRead + Unpin + Send + 'static,
 		progress: crate::progress::Handle<tg::object::import::Output>,
 	) -> tg::Result<tg::object::import::Output> {
 		progress.start(
@@ -68,20 +68,13 @@ impl Server {
 			None,
 		);
 
-		// Create a reader that inspects progress.
-		let reader = InspectReader::new(reader, {
-			let progress = progress.clone();
-			move |chunk| {
-				progress.increment("bytes", chunk.len().to_u64().unwrap());
-			}
-		})
-		.boxed();
-
 		// Create the stream.
 		let stream = self.extract_object(reader).await?;
 
 		if let Some(store) = &self.store {
-			let object = self.import_object_inner_store(stream, store).await?;
+			let object = self
+				.import_object_inner_store(stream, progress, store)
+				.await?;
 			let output = tg::object::import::Output { object };
 			return Ok(output);
 		}
@@ -94,9 +87,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		let object = match connection.as_mut() {
-			Either::Left(connection) => self.import_object_inner_sqlite(stream, connection).await?,
+			Either::Left(connection) => {
+				self.import_object_inner_sqlite(stream, progress, connection)
+					.await?
+			},
 			Either::Right(connection) => {
-				self.import_object_inner_postgres(stream, connection)
+				self.import_object_inner_postgres(stream, progress, connection)
 					.await?
 			},
 		};
@@ -112,6 +108,7 @@ impl Server {
 	async fn import_object_inner_sqlite(
 		&self,
 		stream: impl Stream<Item = tg::Result<(tg::object::Id, Bytes)>> + Send + 'static,
+		progress: crate::progress::Handle<tg::object::import::Output>,
 		connection: &mut db::sqlite::Connection,
 	) -> tg::Result<tg::object::Id> {
 		let mut object = None;
@@ -133,11 +130,13 @@ impl Server {
 			if object.is_none() {
 				object.replace(id.clone());
 			}
+			let size = bytes.len().to_u64().unwrap();
 			let params = db::params![id, bytes, now];
 			transaction
 				.execute(statement.to_owned(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			progress.increment("bytes", size);
 		}
 
 		// Commit the transaction.
@@ -154,6 +153,7 @@ impl Server {
 	async fn import_object_inner_postgres(
 		&self,
 		stream: impl Stream<Item = tg::Result<(tg::object::Id, Bytes)>> + Send + 'static,
+		progress: crate::progress::Handle<tg::object::import::Output>,
 		connection: &mut db::postgres::Connection,
 	) -> tg::Result<tg::object::Id> {
 		let client = connection.client();
@@ -193,6 +193,11 @@ impl Server {
 				.execute(statement, &[&ids, &bytes, &now])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let size = bytes
+				.iter()
+				.map(|bytes| bytes.len().to_u64().unwrap())
+				.sum();
+			progress.increment("bytes", size);
 		}
 
 		// Get the root object.
@@ -205,6 +210,7 @@ impl Server {
 	async fn import_object_inner_postgres_with_copy(
 		&self,
 		stream: impl Stream<Item = tg::Result<(tg::object::Id, Bytes)>> + Send + 'static,
+		progress: crate::progress::Handle<tg::object::import::Output>,
 		connection: &mut db::postgres::Connection,
 	) -> tg::Result<tg::object::Id> {
 		let client = connection.client();
@@ -249,6 +255,8 @@ impl Server {
 					.write(&[&id.to_string(), &bytes.as_ref(), &now])
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the row"))?;
+				let size = bytes.len().to_u64().unwrap();
+				progress.increment("bytes", size);
 				i += 1;
 			}
 
@@ -286,6 +294,7 @@ impl Server {
 	async fn import_object_inner_store(
 		&self,
 		stream: impl Stream<Item = tg::Result<(tg::object::Id, Bytes)>> + Send + 'static,
+		progress: crate::progress::Handle<tg::object::import::Output>,
 		store: &Arc<Store>,
 	) -> tg::Result<tg::object::Id> {
 		let mut object = None;
@@ -295,13 +304,20 @@ impl Server {
 			if object.is_none() {
 				object.replace(id.clone());
 			}
-			tasks.spawn({
-				let store = store.clone();
-				async move { store.put(id, bytes).await }
+			let store = store.clone();
+			tasks.spawn(async move {
+				let size = bytes.len().to_u64().unwrap();
+				store.put(id, bytes).await?;
+				Ok::<_, tg::Error>(size)
 			});
+			while let Some(result) = tasks.try_join_next() {
+				let size = result.unwrap()?;
+				progress.increment("bytes", size);
+			}
 		}
 		while let Some(result) = tasks.join_next().await {
-			result.unwrap()?;
+			let size = result.unwrap()?;
+			progress.increment("bytes", size);
 		}
 		let object = object.ok_or_else(|| tg::error!("the archive is empty"))?;
 		Ok(object)
