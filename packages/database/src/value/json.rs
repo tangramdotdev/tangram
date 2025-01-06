@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct Json<T>(pub T);
 
 impl<T> serde::Serialize for Json<T>

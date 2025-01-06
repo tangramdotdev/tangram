@@ -459,7 +459,7 @@ impl Cli {
 
 		let output = result?;
 
-		// Checkout the output if requested.
+		// Check out the output if requested.
 		if let Some(path) = args.checkout {
 			// Get the artifact.
 			let artifact = tg::Artifact::try_from(output)

@@ -37,7 +37,6 @@ impl Server {
 			.try_get_current_build_status_local(id)
 			.await?
 			.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
-
 		if status.is_finished() {
 			return Ok(false);
 		}
@@ -88,6 +87,7 @@ impl Server {
 
 		// Get the output.
 		let mut status = arg.status;
+		let output = arg.output;
 		let mut error = arg.error;
 
 		// If any of the children were canceled, then this build should be canceled.
@@ -108,7 +108,7 @@ impl Server {
 		// Verify the checksum if one was provided.
 		let target = tg::Target::with_id(build.target);
 		if let (Some(output), Some(expected)) =
-			(arg.output.clone(), target.checksum(self).await?.clone())
+			(output.clone(), target.checksum(self).await?.clone())
 		{
 			match expected {
 				tg::Checksum::Unsafe => (),
@@ -175,8 +175,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Add the output's children to the build objects.
-		let objects = arg
-			.output
+		let objects = output
 			.as_ref()
 			.map(tg::value::Data::children)
 			.into_iter()
@@ -203,22 +202,22 @@ impl Server {
 			"
 				update builds
 				set
+					error = {p}1,
+					finished_at = {p}2,
 					heartbeat_at = null,
-					log = {p}1,
-					output = {p}2,
-					status = {p}3,
-					error = {p}4,
-					finished_at = {p}5
+					log = {p}3,
+					output = {p}4,
+					status = {p}5
 				where id = {p}6;
 			"
 		);
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![
-			log,
-			db::value::Json(arg.output),
-			status,
-			db::value::Json(error),
+			error.map(db::value::Json),
 			finished_at,
+			log,
+			output.map(db::value::Json),
+			status,
 			id
 		];
 		connection

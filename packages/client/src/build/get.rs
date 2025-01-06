@@ -30,7 +30,11 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub logs_weight: Option<u64>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		default,
+		deserialize_with = "deserialize_output",
+		skip_serializing_if = "Option::is_none"
+	)]
 	pub output: Option<tg::value::Data>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -118,4 +122,12 @@ impl tg::Client {
 		let output = response.json().await?;
 		Ok(Some(output))
 	}
+}
+
+fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	use serde::Deserialize as _;
+	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
 }
