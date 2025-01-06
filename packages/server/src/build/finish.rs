@@ -1,7 +1,7 @@
 use super::log;
 use crate::Server;
 use bytes::Bytes;
-use futures::{stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
@@ -72,7 +72,7 @@ impl Server {
 			.iter()
 			.map(|child| async move {
 				let arg = tg::build::finish::Arg {
-					error: Some(tg::error!("the build's parent was canceled")),
+					error: Some(tg::error!("the parent was finished")),
 					output: None,
 					remote: None,
 					status: tg::build::Status::Canceled,
@@ -81,9 +81,8 @@ impl Server {
 				Ok::<_, tg::Error>(())
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await
-			.ok();
+			.collect::<Vec<_>>()
+			.await;
 
 		// Get the output.
 		let mut status = arg.status;

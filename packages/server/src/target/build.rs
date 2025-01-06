@@ -83,12 +83,10 @@ impl Server {
 
 			// If the build is finished, then verify that the build's output satisfies the retry constraint.
 			if status.is_finished() {
-				let output = self.try_get_build(&id).await?;
-				if let Some(output) = output {
-					if let Some(output_retry) = output.status.retry() {
-						if output_retry <= arg.retry {
-							break 'a;
-						}
+				let output = self.get_build(&id).await?;
+				if let Some(retry) = output.status.retry() {
+					if retry <= arg.retry {
+						break 'a;
 					}
 				}
 			}
@@ -96,7 +94,7 @@ impl Server {
 			// Add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
 				self.add_build_child(parent, build.id()).await.map_err(
-					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
+					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add the build as a child"),
 				)?;
 			}
 

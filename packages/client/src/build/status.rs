@@ -41,6 +41,7 @@ impl Status {
 	pub fn is_finished(&self) -> bool {
 		matches!(self, Status::Canceled | Status::Failed | Status::Succeeded)
 	}
+
 	#[must_use]
 	pub fn retry(&self) -> Option<tg::build::Retry> {
 		match self {
