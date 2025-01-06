@@ -43,6 +43,7 @@ struct Node {
 #[derive(Clone, Copy, Debug)]
 pub enum Indicator {
 	Created,
+	Enqueued,
 	Dequeued,
 	Started,
 	Canceled,
@@ -167,7 +168,8 @@ where
 		let mut title = String::new();
 		let indicator = match node.borrow().indicator {
 			None => None,
-			Some(Indicator::Created) => Some(crossterm::style::Stylize::yellow('⟳')),
+			Some(Indicator::Created) => Some(crossterm::style::Stylize::blue('⟳')),
+			Some(Indicator::Enqueued) => Some(crossterm::style::Stylize::yellow('⟳')),
 			Some(Indicator::Dequeued) => Some(crossterm::style::Stylize::yellow('•')),
 			Some(Indicator::Started) => {
 				let position = (now / (1000 / 10)) % 10;
@@ -337,9 +339,12 @@ where
 		while let Some(status) = status.try_next().await? {
 			let indicator = match status {
 				tg::build::Status::Created => Indicator::Created,
+				tg::build::Status::Enqueued => Indicator::Enqueued,
 				tg::build::Status::Dequeued => Indicator::Dequeued,
 				tg::build::Status::Started => Indicator::Started,
-				tg::build::Status::Finished => {
+				tg::build::Status::Canceled
+				| tg::build::Status::Failed
+				| tg::build::Status::Succeeded => {
 					// Remove the child if necessary.
 					if options.collapse_finished_builds {
 						let id = build.id().clone();
@@ -365,11 +370,11 @@ where
 						return Ok(());
 					}
 
-					let outcome = build.outcome(handle).await?;
-					match outcome {
-						tg::build::Outcome::Cancelation(_) => Indicator::Canceled,
-						tg::build::Outcome::Failure(_) => Indicator::Failed,
-						tg::build::Outcome::Success(_) => Indicator::Succeeded,
+					match status {
+						tg::build::Status::Canceled => Indicator::Canceled,
+						tg::build::Status::Failed => Indicator::Failed,
+						tg::build::Status::Succeeded => Indicator::Succeeded,
+						_ => unreachable!(),
 					}
 				},
 			};
@@ -1279,7 +1284,8 @@ where
 
 			let indicator = match node.borrow().indicator {
 				None => None,
-				Some(Indicator::Created) => Some('⟳'.yellow()),
+				Some(Indicator::Created) => Some('⟳'.blue()),
+				Some(Indicator::Enqueued) => Some('⟳'.yellow()),
 				Some(Indicator::Dequeued) => Some('•'.yellow()),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;

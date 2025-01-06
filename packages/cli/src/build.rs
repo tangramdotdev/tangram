@@ -5,7 +5,6 @@ pub mod cancel;
 pub mod children;
 pub mod get;
 pub mod log;
-pub mod outcome;
 pub mod output;
 pub mod pull;
 pub mod push;
@@ -34,7 +33,6 @@ pub enum Command {
 	Children(self::children::Args),
 	Get(self::get::Args),
 	Log(self::log::Args),
-	Outcome(self::outcome::Args),
 	Output(self::output::Args),
 	Pull(self::pull::Args),
 	Push(self::push::Args),
@@ -59,9 +57,6 @@ impl Cli {
 			},
 			Some(Command::Log(args)) => {
 				self.command_build_log(args).await?;
-			},
-			Some(Command::Outcome(args)) => {
-				self.command_build_outcome(args).await?;
 			},
 			Some(Command::Output(args)) => {
 				self.command_build_output(args).await?;

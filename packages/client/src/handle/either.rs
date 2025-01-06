@@ -1,4 +1,4 @@
-use crate::{self as tg, handle::Ext as _};
+use crate as tg;
 use futures::{Future, FutureExt as _, Stream};
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -238,26 +238,6 @@ where
 		match self {
 			Either::Left(s) => s.add_build_log(id, arg).left_future(),
 			Either::Right(s) => s.add_build_log(id, arg).right_future(),
-		}
-	}
-
-	fn try_get_build_outcome_future(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + 'static>,
-		>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.try_get_build_outcome(id)
-				.map(|result| result.map(|option| option.map(futures::FutureExt::left_future)))
-				.left_future(),
-			Either::Right(s) => s
-				.try_get_build_outcome(id)
-				.map(|result| result.map(|option| option.map(futures::FutureExt::right_future)))
-				.right_future(),
 		}
 	}
 

@@ -156,7 +156,7 @@ impl Server {
 
 			// If the build was finished or the length was reached, then send the end event and break.
 			let end = arg.length.is_some_and(|length| read >= length);
-			if end || status == tg::build::Status::Finished {
+			if end || status.is_finished() {
 				let result = sender.try_send(Ok(tg::build::children::get::Event::End));
 				if result.is_err() {
 					return Ok(());

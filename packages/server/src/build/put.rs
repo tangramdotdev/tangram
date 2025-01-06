@@ -37,14 +37,16 @@ impl Server {
 					insert into builds (
 						id,
 						depth,
+						error,
 						host,
 						log,
-						outcome,
+						output,
 						retry,
 						status,
 						target,
 						touched_at,
 						created_at,
+						enqueued_at,
 						dequeued_at,
 						started_at,
 						finished_at
@@ -62,34 +64,40 @@ impl Server {
 						{p}10,
 						{p}11,
 						{p}12,
-						{p}13
+						{p}13,
+						{p}14,
+						{p}15
 					)
 					on conflict (id) do update set
 						depth = {p}2,
-						host = {p}3,
-						log = {p}4,
-						outcome = {p}5,
-						retry = {p}6,
-						status = {p}7,
-						target = {p}8,
-						touched_at = {p}9,
-						created_at = {p}10,
-						dequeued_at = {p}11,
-						started_at = {p}12,
-						finished_at = {p}13;
+						error = {p}3,
+						host = {p}4,
+						log = {p}5,
+						output = {p}6,
+						retry = {p}7,
+						status = {p}8,
+						target = {p}9,
+						touched_at = {p}10,
+						created_at = {p}11,
+						enqueued_at = {p}12,
+						dequeued_at = {p}13,
+						started_at = {p}14,
+						finished_at = {p}15;
 				"
 			);
 			let params = db::params![
 				id,
 				arg.depth,
+				arg.error,
 				arg.host,
 				arg.log,
-				arg.outcome.as_ref().map(db::value::Json),
+				arg.output.as_ref().map(db::value::Json),
 				arg.retry,
 				arg.status,
 				arg.target,
 				time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 				arg.created_at.format(&Rfc3339).unwrap(),
+				arg.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
 				arg.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
 				arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 				arg.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
@@ -171,10 +179,9 @@ impl Server {
 				.map(Into::into)
 				.into_iter()
 				.chain(
-					arg.outcome
+					arg.output
 						.as_ref()
-						.and_then(|outcome| outcome.try_unwrap_success_ref().ok())
-						.map(|success| success.value.children())
+						.map(tg::value::Data::children)
 						.into_iter()
 						.flatten(),
 				)
@@ -237,22 +244,15 @@ impl Server {
 			.query_one_value_into(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let outcome_objects = arg
-			.outcome
+		let output_objects = arg
+			.output
 			.as_ref()
-			.map(|outcome| {
-				outcome
-					.try_unwrap_success_ref()
-					.ok()
-					.map(|success| success.value.children())
-					.into_iter()
-					.flatten()
-			})
+			.map(tg::value::Data::children)
 			.into_iter()
 			.flatten()
 			.collect::<Vec<_>>();
-		let outcome_objects = serde_json::to_string(&outcome_objects).unwrap();
-		let outcome_objects_query = match &connection {
+		let output_objects = serde_json::to_string(&output_objects).unwrap();
+		let output_objects_query = match &connection {
 			Either::Left(_) => format!("select value from json_each({p}1)"),
 			Either::Right(_) => {
 				format!("select value from json_array_elements_text({p}1::string::jsonb)")
@@ -261,7 +261,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				select value
-				from ({outcome_objects_query})
+				from ({output_objects_query})
 				left join objects on objects.id = value
 				where
 					case
@@ -273,8 +273,8 @@ impl Server {
 					end;
 			"
 		);
-		let params = db::params![outcome_objects];
-		let outcome = connection
+		let params = db::params![output_objects];
+		let output = connection
 			.query_all_value_into(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -308,7 +308,7 @@ impl Server {
 			id: tg::build::Id,
 			build: bool,
 			logs: bool,
-			outcomes: bool,
+			outputs: bool,
 			targets: bool,
 		}
 		let p = connection.p();
@@ -318,7 +318,7 @@ impl Server {
 					build_children.child as id,
 					case when builds.id is null then 1 else 0 end as build,
 					case when builds.logs_complete is null or builds.logs_complete = 0 then 1 else 0 end as logs,
-					case when builds.outcomes_complete is null or builds.outcomes_complete = 0 then 1 else 0 end as outcomes,
+					case when builds.outputs_complete is null or builds.outputs_complete = 0 then 1 else 0 end as outputs,
 					case when builds.targets_complete is null or builds.targets_complete = 0 then 1 else 0 end as targets
 				from build_children
 				left join builds on builds.id = build_children.child
@@ -337,7 +337,7 @@ impl Server {
 				let child = tg::build::put::IncompleteChild {
 					build: child.build,
 					logs: child.logs,
-					outcomes: child.outcomes,
+					outputs: child.outputs,
 					targets: child.targets,
 				};
 				if child == tg::build::put::IncompleteChild::default() {
@@ -352,7 +352,7 @@ impl Server {
 			incomplete: tg::build::put::Incomplete {
 				children,
 				log,
-				outcome,
+				output,
 				target,
 			},
 		};
@@ -361,7 +361,7 @@ impl Server {
 		drop(connection);
 
 		// If the build is finished, then enqueue the build for indexing.
-		if arg.status == tg::build::Status::Finished {
+		if arg.status.is_finished() {
 			tokio::spawn({
 				let server = self.clone();
 				let id = id.clone();

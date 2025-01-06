@@ -1,6 +1,8 @@
-use crate as tg;
+use crate::{self as tg, handle::Ext as _};
+use std::pin::pin;
+use tangram_futures::stream::Ext;
 
-pub use self::{outcome::Outcome, retry::Retry, status::Status};
+pub use self::{retry::Retry, status::Status};
 
 pub mod children;
 pub mod dequeue;
@@ -8,7 +10,6 @@ pub mod finish;
 pub mod get;
 pub mod heartbeat;
 pub mod log;
-pub mod outcome;
 pub mod pull;
 pub mod push;
 pub mod put;
@@ -69,12 +70,41 @@ impl Build {
 	where
 		H: tg::Handle,
 	{
-		let Some(output) = handle.try_get_build(&self.id).await? else {
+		let Some(build) = handle.try_get_build(&self.id).await? else {
 			return Ok(None);
 		};
-		let id = output.target.clone();
+		let id = build.target.clone();
 		let target = tg::Target::with_id(id);
 		Ok(Some(target))
+	}
+
+	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
+	where
+		H: tg::Handle,
+	{
+		let Some(stream) = handle.try_get_build_status(&self.id).await? else {
+			return Err(tg::error!("failed to get the build status stream"));
+		};
+		let Some(Ok(_)) = pin!(stream).last().await else {
+			return Err(tg::error!("failed to get the last build status"));
+		};
+		let output = handle.get_build(&self.id).await?;
+		let output = match output.status {
+			Status::Canceled | Status::Failed => {
+				let error = output
+					.error
+					.ok_or_else(|| tg::error!("expected the error to be set"))?;
+				return Err(error);
+			},
+			Status::Succeeded => output
+				.output
+				.ok_or_else(|| tg::error!("expected the output to be set"))?
+				.try_into()?,
+			_ => {
+				return Err(tg::error!("expected the build to be finished"));
+			},
+		};
+		Ok(output)
 	}
 }
 

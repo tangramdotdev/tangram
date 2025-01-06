@@ -120,7 +120,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the build"))?;
 
 		// Return an error if the build is not finished.
-		if !matches!(output.status, tg::build::Status::Finished) {
+		if !output.status.is_finished() {
 			return Err(tg::error!(%build, "build is not finished"));
 		}
 
@@ -143,13 +143,15 @@ impl Server {
 			id: build.clone(),
 			children,
 			depth: output.depth,
+			error: output.error,
 			host: output.host,
 			log: output.log.clone(),
-			outcome: output.outcome,
+			output: output.output,
 			retry: output.retry,
 			status: output.status,
 			target: output.target.clone(),
 			created_at: output.created_at,
+			enqueued_at: output.enqueued_at,
 			dequeued_at: output.dequeued_at,
 			started_at: output.started_at,
 			finished_at: output.finished_at,
@@ -169,8 +171,8 @@ impl Server {
 				incomplete_objects.push(log.clone().into());
 			}
 		}
-		if arg.outcomes {
-			incomplete_objects.extend(incomplete.outcome);
+		if arg.outputs {
+			incomplete_objects.extend(incomplete.output);
 		}
 		if arg.targets && incomplete.target {
 			incomplete_objects.push(output.target.clone().into());
@@ -262,10 +264,10 @@ impl Server {
 	) -> tg::Result<Metadata> {
 		let build_count = if arg.recursive { output.count } else { Some(1) };
 		let (object_count, object_depth, object_weight) = if arg.recursive {
-			// If the push is recursive, then use the logs', outcomes', and targets' counts and weights.
+			// If the push is recursive, then use the logs', outputs', and targets' counts and weights.
 			let logs_count = if arg.logs { output.logs_count } else { Some(0) };
-			let outcomes_count = if arg.outcomes {
-				output.outcomes_count
+			let outputs_count = if arg.outputs {
+				output.outputs_count
 			} else {
 				Some(0)
 			};
@@ -276,12 +278,12 @@ impl Server {
 			};
 			let count = std::iter::empty()
 				.chain(Some(logs_count))
-				.chain(Some(outcomes_count))
+				.chain(Some(outputs_count))
 				.chain(Some(targets_count))
 				.sum::<Option<u64>>();
 			let logs_depth = if arg.logs { output.logs_depth } else { Some(0) };
-			let outcomes_depth = if arg.outcomes {
-				output.outcomes_depth
+			let outputs_depth = if arg.outputs {
+				output.outputs_depth
 			} else {
 				Some(0)
 			};
@@ -292,7 +294,7 @@ impl Server {
 			};
 			let depth = std::iter::empty()
 				.chain(Some(logs_depth))
-				.chain(Some(outcomes_depth))
+				.chain(Some(outputs_depth))
 				.chain(Some(targets_depth))
 				.max()
 				.unwrap();
@@ -301,8 +303,8 @@ impl Server {
 			} else {
 				Some(0)
 			};
-			let outcomes_weight = if arg.outcomes {
-				output.outcomes_weight
+			let outputs_weight = if arg.outputs {
+				output.outputs_weight
 			} else {
 				Some(0)
 			};
@@ -313,12 +315,12 @@ impl Server {
 			};
 			let weight = std::iter::empty()
 				.chain(Some(logs_weight))
-				.chain(Some(outcomes_weight))
+				.chain(Some(outputs_weight))
 				.chain(Some(targets_weight))
 				.sum::<Option<u64>>();
 			(count, depth, weight)
 		} else {
-			// If the push is not recursive, then use the count, depth, and weight of the log, outcome, and target.
+			// If the push is not recursive, then use the count, depth, and weight of the log, output, and target.
 			let (log_count, log_depth, log_weight) = if arg.logs {
 				if let Some(log) = output.log.as_ref() {
 					if let Some(metadata) = src.try_get_object_metadata(&log.clone().into()).await?
@@ -333,12 +335,14 @@ impl Server {
 			} else {
 				(Some(0), Some(0), Some(0))
 			};
-			let (outcome_count, outcome_depth, outcome_weight) = if arg.outcomes {
-				if let Some(tg::build::outcome::Data::Success(success)) = output.outcome.as_ref() {
-					let metadata = success
-						.value
-						.children()
+			let (output_count, output_depth, output_weight) = if arg.outputs {
+				if output.status.is_succeeded() {
+					let metadata = output
+						.output
+						.as_ref()
+						.map(tg::value::Data::children)
 						.iter()
+						.flatten()
 						.map(|child| src.try_get_object_metadata(child))
 						.collect::<FuturesUnordered<_>>()
 						.try_collect::<Vec<_>>()
@@ -376,18 +380,18 @@ impl Server {
 			};
 			let count = std::iter::empty()
 				.chain(Some(log_count))
-				.chain(Some(outcome_count))
+				.chain(Some(output_count))
 				.chain(Some(target_count))
 				.sum::<Option<u64>>();
 			let depth = std::iter::empty()
 				.chain(Some(log_depth))
-				.chain(Some(outcome_depth))
+				.chain(Some(output_depth))
 				.chain(Some(target_depth))
 				.max()
 				.unwrap();
 			let weight = std::iter::empty()
 				.chain(Some(log_weight))
-				.chain(Some(outcome_weight))
+				.chain(Some(output_weight))
 				.chain(Some(target_weight))
 				.sum::<Option<u64>>();
 			(count, depth, weight)

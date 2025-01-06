@@ -41,6 +41,7 @@ impl Server {
 			#[serde(default)]
 			pub count: Option<u64>,
 			pub depth: u64,
+			pub error: Option<db::value::Json<tg::Error>>,
 			pub host: String,
 			#[serde(default)]
 			pub log: Option<tg::blob::Id>,
@@ -51,13 +52,13 @@ impl Server {
 			#[serde(default)]
 			pub logs_weight: Option<u64>,
 			#[serde(default)]
-			pub outcome: Option<db::value::Json<tg::build::outcome::Data>>,
+			pub output: Option<db::value::Json<tg::value::Data>>,
 			#[serde(default)]
-			pub outcomes_count: Option<u64>,
+			pub outputs_count: Option<u64>,
 			#[serde(default)]
-			pub outcomes_depth: Option<u64>,
+			pub outputs_depth: Option<u64>,
 			#[serde(default)]
-			pub outcomes_weight: Option<u64>,
+			pub outputs_weight: Option<u64>,
 			pub retry: tg::build::Retry,
 			pub status: tg::build::Status,
 			pub target: tg::target::Id,
@@ -69,6 +70,9 @@ impl Server {
 			pub targets_weight: Option<u64>,
 			#[serde_as(as = "Rfc3339")]
 			pub created_at: time::OffsetDateTime,
+			#[serde(default)]
+			#[serde_as(as = "Option<Rfc3339>")]
+			pub enqueued_at: Option<time::OffsetDateTime>,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			pub dequeued_at: Option<time::OffsetDateTime>,
@@ -86,15 +90,16 @@ impl Server {
 					id,
 					count,
 					depth,
+					error,
 					host,
 					log,
 					logs_complete,
 					logs_count,
 					logs_weight,
-					outcome,
-					outcomes_complete,
-					outcomes_count,
-					outcomes_weight,
+					output,
+					outputs_complete,
+					outputs_count,
+					outputs_weight,
 					retry,
 					status,
 					target,
@@ -102,6 +107,7 @@ impl Server {
 					targets_count,
 					targets_weight,
 					created_at,
+					enqueued_at,
 					dequeued_at,
 					started_at,
 					finished_at
@@ -118,15 +124,16 @@ impl Server {
 			id: row.id,
 			count: row.count,
 			depth: row.depth,
+			error: row.error.map(|error| error.0),
 			host: row.host,
 			log: row.log,
 			logs_count: row.logs_count,
 			logs_depth: row.logs_depth,
 			logs_weight: row.logs_weight,
-			outcome: row.outcome.map(|json| json.0),
-			outcomes_count: row.outcomes_count,
-			outcomes_depth: row.outcomes_depth,
-			outcomes_weight: row.outcomes_weight,
+			output: row.output.map(|output| output.0),
+			outputs_count: row.outputs_count,
+			outputs_depth: row.outputs_depth,
+			outputs_weight: row.outputs_weight,
 			retry: row.retry,
 			status: row.status,
 			target: row.target,
@@ -134,6 +141,7 @@ impl Server {
 			targets_depth: row.targets_depth,
 			targets_weight: row.targets_weight,
 			created_at: row.created_at,
+			enqueued_at: row.enqueued_at,
 			dequeued_at: row.dequeued_at,
 			started_at: row.started_at,
 			finished_at: row.finished_at,
@@ -164,7 +172,7 @@ impl Server {
 		};
 
 		// Spawn a task to put the build if it is finished.
-		if output.status == tg::build::Status::Finished {
+		if output.status.is_finished() {
 			tokio::spawn({
 				let server = self.clone();
 				let id = id.clone();
@@ -183,13 +191,15 @@ impl Server {
 						id: output.id.clone(),
 						children,
 						depth: output.depth,
+						error: output.error,
 						host: output.host.clone(),
 						log: output.log.clone(),
-						outcome: output.outcome.clone(),
+						output: output.output,
 						retry: output.retry,
 						status: output.status,
 						target: output.target.clone(),
 						created_at: output.created_at,
+						enqueued_at: output.enqueued_at,
 						dequeued_at: output.dequeued_at,
 						started_at: output.started_at,
 						finished_at: output.finished_at,

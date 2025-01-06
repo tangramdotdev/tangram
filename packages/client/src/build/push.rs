@@ -6,7 +6,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub logs: bool,
-	pub outcomes: bool,
+	pub outputs: bool,
 	pub recursive: bool,
 	pub remote: String,
 	pub targets: bool,

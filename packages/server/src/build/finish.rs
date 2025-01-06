@@ -28,7 +28,7 @@ impl Server {
 		}
 
 		// Get the build.
-		let Some(output) = self.try_get_build_local(id).await? else {
+		let Some(build) = self.try_get_build_local(id).await? else {
 			return Err(tg::error!("failed to find the build"));
 		};
 
@@ -37,8 +37,7 @@ impl Server {
 			.try_get_current_build_status_local(id)
 			.await?
 			.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
-
-		if matches!(status, tg::build::Status::Finished) {
+		if status.is_finished() {
 			return Ok(false);
 		}
 
@@ -73,12 +72,10 @@ impl Server {
 			.iter()
 			.map(|child| async move {
 				let arg = tg::build::finish::Arg {
-					outcome: tg::build::outcome::Data::Cancelation(
-						tg::build::outcome::data::Cancelation {
-							reason: Some("the build's parent was canceled".to_owned()),
-						},
-					),
+					error: Some(tg::error!("the build's parent was canceled")),
+					output: None,
 					remote: None,
+					status: tg::build::Status::Canceled,
 				};
 				self.finish_build(child, arg).await?;
 				Ok::<_, tg::Error>(())
@@ -88,47 +85,30 @@ impl Server {
 			.await
 			.ok();
 
-		// Get the outcome.
-		let mut outcome = arg.outcome;
+		// Get the output.
+		let mut status = arg.status;
+		let output = arg.output;
+		let mut error = arg.error;
 
 		// If any of the children were canceled, then this build should be canceled.
-		let outcomes = children
+		if children
 			.iter()
-			.map(|child_id| async move {
-				// Check if the child is finished before awaiting its outcome.
-				let Some(tg::build::Status::Finished) =
-					self.try_get_current_build_status_local(child_id).await?
-				else {
-					return Ok(None);
-				};
-
-				// Get the outcome.
-				let outcome = self
-					.try_get_build_outcome_future(child_id)
-					.await?
-					.ok_or_else(|| tg::error!(%child_id, "failed to get the build"))?
-					.await?
-					.ok_or_else(|| tg::error!(%child_id, "expected an outcome"))?;
-				Ok::<_, tg::Error>(Some(outcome))
-			})
+			.map(|child_id| self.try_get_current_build_status_local(child_id))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
-			.await?;
-		if outcomes
+			.await?
 			.iter()
 			.filter_map(Option::as_ref)
-			.any(|outcome| outcome.try_unwrap_cancelation_ref().is_ok())
+			.any(tg::build::Status::is_canceled)
 		{
-			outcome =
-				tg::build::outcome::Data::Cancelation(tg::build::outcome::data::Cancelation {
-					reason: Some("one of the build's children was canceled".to_owned()),
-				});
+			status = tg::build::status::Status::Canceled;
+			error = Some(tg::error!("one of the build's children was canceled"));
 		}
 
 		// Verify the checksum if one was provided.
-		let target = tg::Target::with_id(output.target);
-		if let (tg::build::outcome::Data::Success(outcome_data), Some(expected)) =
-			(outcome.clone(), target.checksum(self).await?.clone())
+		let target = tg::Target::with_id(build.target);
+		if let (Some(output), Some(expected)) =
+			(output.clone(), target.checksum(self).await?.clone())
 		{
 			match expected {
 				tg::Checksum::Unsafe => (),
@@ -136,17 +116,14 @@ impl Server {
 				| tg::Checksum::Sha256(_)
 				| tg::Checksum::Sha512(_)
 				| tg::Checksum::None => {
-					let value: tg::Value = outcome_data.value.clone().try_into()?;
-					if let Err(error) = self
+					let value: tg::Value = output.try_into()?;
+					if let Err(checksum_error) = self
 						.verify_checksum(id.clone(), &value, &expected)
 						.boxed()
 						.await
 					{
-						outcome =
-							tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
-								error,
-								value: Some(outcome_data.value),
-							});
+						status = tg::build::status::Status::Failed;
+						error = Some(checksum_error);
 					};
 				},
 			};
@@ -197,23 +174,12 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Add the outcome's children to the build objects.
-		let value =
-			if let tg::build::outcome::Data::Success(tg::build::outcome::data::Success { value }) =
-				&outcome
-			{
-				Some(value.clone())
-			} else if let tg::build::outcome::Data::Failure(tg::build::outcome::data::Failure {
-				value: Some(ref value),
-				..
-			}) = outcome
-			{
-				Some(value.clone())
-			} else {
-				None
-			};
-
-		let objects = value.map(|value| value.children()).into_iter().flatten();
+		// Add the output's children to the build objects.
+		let objects = output
+			.as_ref()
+			.map(tg::value::Data::children)
+			.into_iter()
+			.flatten();
 		for object in objects {
 			let p = connection.p();
 			let statement = formatdoc!(
@@ -236,17 +202,24 @@ impl Server {
 			"
 				update builds
 				set
+					error = {p}1,
+					finished_at = {p}2,
 					heartbeat_at = null,
-					log = {p}1,
-					outcome = {p}2,
-					status = {p}3,
-					finished_at = {p}4
-				where id = {p}5;
+					log = {p}3,
+					output = {p}4,
+					status = {p}5
+				where id = {p}6;
 			"
 		);
-		let status = tg::build::Status::Finished;
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![log, db::value::Json(outcome), status, finished_at, id];
+		let params = db::params![
+			error.map(db::value::Json),
+			finished_at,
+			log,
+			output.map(db::value::Json),
+			status,
+			id
+		];
 		connection
 			.execute(statement, params)
 			.await
@@ -313,32 +286,24 @@ impl Server {
 			..Default::default()
 		};
 		let output = self.build_target(&target_id, arg).await?;
-
-		// Get the output.
-		let Some(outcome) = self.get_build_outcome(&output.build).await?.await? else {
-			return Err(tg::error!("failed to get the checksum build outcome"));
-		};
-		let outcome = outcome.data(self).await?;
-		let Ok(outcome) = outcome.try_unwrap_success_ref().cloned() else {
-			return Err(tg::error!("the checksum failed"));
-		};
+		let output = self.get_build(&output.build).await?;
+		let output = tg::Build::with_id(output.id).output(self).boxed().await?;
 
 		// Compare the checksum from the build.
-		let value: tg::Value = outcome.value.try_into()?;
-		let checksum = value
+		let checksum = output
 			.try_unwrap_string()
 			.ok()
 			.ok_or_else(|| tg::error!("expected a string"))?;
 		let checksum = checksum.parse::<tg::Checksum>()?;
 		if *expected == tg::Checksum::None {
-			Err(tg::error!("no checksum provided, actual {checksum}"))
+			return Err(tg::error!("no checksum provided, actual {checksum}"));
 		} else if checksum != *expected {
-			Err(tg::error!(
+			return Err(tg::error!(
 				"checksums do not match, expected {expected}, actual {checksum}"
-			))
-		} else {
-			Ok(())
+			));
 		}
+
+		Ok(())
 	}
 }
 

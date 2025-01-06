@@ -13,6 +13,9 @@ pub struct Output {
 
 	pub depth: u64,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::Error>,
+
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -27,17 +30,21 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub logs_weight: Option<u64>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcome: Option<tg::build::outcome::Data>,
+	#[serde(
+		default,
+		deserialize_with = "deserialize_output",
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub output: Option<tg::value::Data>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcomes_count: Option<u64>,
+	pub outputs_count: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcomes_depth: Option<u64>,
+	pub outputs_depth: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outcomes_weight: Option<u64>,
+	pub outputs_weight: Option<u64>,
 
 	pub retry: tg::build::Retry,
 
@@ -59,6 +66,10 @@ pub struct Output {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
+	pub enqueued_at: Option<time::OffsetDateTime>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Rfc3339>")]
 	pub dequeued_at: Option<time::OffsetDateTime>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -73,22 +84,16 @@ pub struct Output {
 impl Output {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
 		let log = self.log.iter().map(|id| id.clone().into());
-		let outcome = self
-			.outcome
+		let output = self
+			.output
 			.as_ref()
-			.map(|outcome| {
-				if let tg::build::outcome::Data::Success(success) = outcome {
-					success.value.children()
-				} else {
-					[].into()
-				}
-			})
+			.map(tg::value::data::Data::children)
 			.into_iter()
 			.flatten();
 		let target = std::iter::once(self.target.clone().into());
 		std::iter::empty()
 			.chain(log)
-			.chain(outcome)
+			.chain(output)
 			.chain(target)
 			.collect()
 	}
@@ -117,4 +122,12 @@ impl tg::Client {
 		let output = response.json().await?;
 		Ok(Some(output))
 	}
+}
+
+fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	use serde::Deserialize as _;
+	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
 }

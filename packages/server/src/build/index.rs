@@ -98,7 +98,7 @@ impl Server {
 		let build = self.get_build(id).await?;
 
 		// Ensure the build is finished.
-		if build.status != tg::build::Status::Finished {
+		if !build.status.is_finished() {
 			return Err(tg::error!("expected the build to be finished"));
 		}
 
@@ -126,23 +126,20 @@ impl Server {
 			None
 		};
 
-		// Attempt to get the outcome metadata.
-		let outcome_metadata = if let Ok(success) = build
-			.outcome
-			.as_ref()
-			.ok_or_else(|| tg::error!("expected the outcome to be set"))?
-			.try_unwrap_success_ref()
-		{
-			Some(
-				success
-					.value
-					.children()
-					.iter()
-					.map(|object| self.try_get_object_metadata(object))
-					.collect::<FuturesUnordered<_>>()
-					.try_collect::<Vec<_>>()
-					.await?,
-			)
+		// Attempt to get the output metadata.
+		let output_metadata = if build.status.is_succeeded() {
+			if let Some(data) = &build.output {
+				Some(
+					data.children()
+						.iter()
+						.map(|object| self.try_get_object_metadata(object))
+						.collect::<FuturesUnordered<_>>()
+						.try_collect::<Vec<_>>()
+						.await?,
+				)
+			} else {
+				None
+			}
 		} else {
 			None
 		};
@@ -165,7 +162,7 @@ impl Server {
 		struct Row {
 			complete: bool,
 			logs_complete: bool,
-			outcomes_complete: bool,
+			outputs_complete: bool,
 			targets_complete: bool,
 		}
 		let p = connection.p();
@@ -174,7 +171,7 @@ impl Server {
 				select
 					complete,
 					logs_complete,
-					outcomes_complete,
+					outputs_complete,
 					targets_complete
 				from builds
 				where id = {p}1;
@@ -184,7 +181,7 @@ impl Server {
 		let Row {
 			complete,
 			logs_complete,
-			outcomes_complete,
+			outputs_complete,
 			targets_complete,
 		} = connection
 			.query_one_into::<Row>(statement, params)
@@ -536,24 +533,24 @@ impl Server {
 			});
 		}
 
-		// Attempt to set the outcomes count if necessary.
-		if build.outcomes_count.is_none() {
-			// Attempt to get the outcome count.
-			let outcome_count = outcome_metadata.as_ref().and_then(|metadata| {
+		// Attempt to set the outputs count if necessary.
+		if build.outputs_count.is_none() {
+			// Attempt to get the output count.
+			let output_count = output_metadata.as_ref().and_then(|metadata| {
 				metadata
 					.iter()
 					.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.count))
 					.sum::<Option<u64>>()
 			});
 
-			// Attempt to compute the outcomes count.
+			// Attempt to compute the outputs count.
 			let count = children
 				.iter()
-				.map(|option| option.as_ref().and_then(|output| output.outcomes_count))
-				.chain(std::iter::once(outcome_count))
+				.map(|option| option.as_ref().and_then(|output| output.outputs_count))
+				.chain(std::iter::once(output_count))
 				.sum::<Option<u64>>();
 
-			// Set the outcomes count if possible.
+			// Set the outputs count if possible.
 			if count.is_some() {
 				// Get a database connection.
 				let connection =
@@ -561,12 +558,12 @@ impl Server {
 						tg::error!(!source, "failed to get a database connection")
 					})?;
 
-				// Set the outcomes count.
+				// Set the outputs count.
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
 						update builds
-						set outcomes_count = {p}1
+						set outputs_count = {p}1
 						where id = {p}2;
 					"
 				);
@@ -581,10 +578,10 @@ impl Server {
 			}
 		}
 
-		// Attempt to set the outcomes depth if necessary.
-		if build.outcomes_depth.is_none() {
-			// Attempt to get the outcome depth.
-			let outcome_depth = outcome_metadata.as_ref().and_then(|metadata| {
+		// Attempt to set the outputs depth if necessary.
+		if build.outputs_depth.is_none() {
+			// Attempt to get the output depth.
+			let output_depth = output_metadata.as_ref().and_then(|metadata| {
 				metadata.iter().try_fold(1, |depth, metadata| {
 					metadata
 						.clone()
@@ -593,18 +590,18 @@ impl Server {
 				})
 			});
 
-			// Attempt to compute the outcomes depth.
-			let outputs_outcome_depth = children.iter().try_fold(1, |depth, output| {
+			// Attempt to compute the outputs depth.
+			let outputs_depth = children.iter().try_fold(1, |depth, output| {
 				output
 					.as_ref()
-					.and_then(|output| output.outcomes_depth)
+					.and_then(|output| output.outputs_depth)
 					.map(|d| depth.max(d))
 			});
 
-			// Set the outcomes depth if possible.
-			if let Some(mut depth) = outputs_outcome_depth {
-				if let Some(outcome_depth) = outcome_depth {
-					depth = std::cmp::max(outcome_depth, depth);
+			// Set the outputs depth if possible.
+			if let Some(mut depth) = outputs_depth {
+				if let Some(output_depth) = output_depth {
+					depth = std::cmp::max(output_depth, depth);
 				}
 				// Get a database connection.
 				let connection =
@@ -612,12 +609,12 @@ impl Server {
 						tg::error!(!source, "failed to get a database connection")
 					})?;
 
-				// Set the outcomes depth.
+				// Set the outputs depth.
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
 						update builds
-						set outcomes_depth = {p}1
+						set outputs_depth = {p}1
 						where id = {p}2;
 					"
 				);
@@ -632,24 +629,24 @@ impl Server {
 			}
 		}
 
-		// Attempt to set the outcomes weight if necessary.
-		if build.outcomes_weight.is_none() {
-			// Attempt to get the outcome weight.
-			let outcome_weight = outcome_metadata.as_ref().and_then(|metadata| {
+		// Attempt to set the outputs weight if necessary.
+		if build.outputs_weight.is_none() {
+			// Attempt to get the output weight.
+			let output_weight = output_metadata.as_ref().and_then(|metadata| {
 				metadata
 					.iter()
 					.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.weight))
 					.sum::<Option<u64>>()
 			});
 
-			// Attempt to compute the outcomes weight.
+			// Attempt to compute the outputs weight.
 			let weight = children
 				.iter()
-				.map(|option| option.as_ref().and_then(|output| output.outcomes_weight))
-				.chain(std::iter::once(outcome_weight))
+				.map(|option| option.as_ref().and_then(|output| output.outputs_weight))
+				.chain(std::iter::once(output_weight))
 				.sum::<Option<u64>>();
 
-			// Set the outcomes weight if possible.
+			// Set the outputs weight if possible.
 			if weight.is_some() {
 				// Get a database connection.
 				let connection =
@@ -657,12 +654,12 @@ impl Server {
 						tg::error!(!source, "failed to get a database connection")
 					})?;
 
-				// Set the outcomes weight.
+				// Set the outputs weight.
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
 						update builds
-						set outcomes_weight = {p}1
+						set outputs_weight = {p}1
 						where id = {p}2;
 					"
 				);
@@ -677,8 +674,8 @@ impl Server {
 			}
 		}
 
-		// Attempt to mark the outcomes complete if necessary.
-		let outcomes_completed = if outcomes_complete {
+		// Attempt to mark the outputs complete if necessary.
+		let outputs_completed = if outputs_complete {
 			false
 		} else {
 			// Get a database connection.
@@ -688,20 +685,17 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// Attempt to set the outcomes complete flag.
+			// Attempt to set the outputs complete flag.
 			let p = connection.p();
-			let outcome_objects = build
-				.outcome
+			let output_objects = build
+				.output
 				.as_ref()
-				.ok_or_else(|| tg::error!("expected the outcome to be set"))?
-				.try_unwrap_success_ref()
-				.ok()
-				.map(|success| success.value.children())
+				.map(tg::value::Data::children)
 				.into_iter()
 				.flatten()
 				.collect::<Vec<_>>();
-			let outcome_objects = serde_json::to_string(&outcome_objects).unwrap();
-			let outcome_objects_query = match &connection {
+			let output_objects = serde_json::to_string(&output_objects).unwrap();
+			let output_objects_query = match &connection {
 				Either::Left(_) => format!("select value from json_each({p}1)"),
 				Either::Right(_) => {
 					format!("select value from json_array_elements_text({p}1::string::jsonb)")
@@ -718,16 +712,16 @@ impl Server {
 			let statement = formatdoc!(
 				"
 					update builds
-					set outcomes_complete = (select (
+					set outputs_complete = (select (
 						select case
 							when count(*) = count(complete) then coalesce(min(complete), 1)
 							else 0
 						end
 						from objects
-						where id in ({outcome_objects_query})
+						where id in ({output_objects_query})
 					){bool_cast} and (
 						select case
-							when count(*) = count(outcomes_complete) then coalesce(min(outcomes_complete), 1)
+							when count(*) = count(outputs_complete) then coalesce(min(outputs_complete), 1)
 							else 0
 						end
 						from build_children
@@ -735,11 +729,11 @@ impl Server {
 						where build_children.build = {p}2
 					){bool_cast}){integer_cast}
 					where id = {p}2
-					returning outcomes_complete;
+					returning outputs_complete;
 				"
 			);
-			let params = db::params![outcome_objects, id];
-			let outcomes_completed = connection
+			let params = db::params![output_objects, id];
+			let outputs_completed = connection
 				.query_one_value_into(statement, params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -747,11 +741,11 @@ impl Server {
 			// Drop the connection.
 			drop(connection);
 
-			outcomes_completed
+			outputs_completed
 		};
 
-		// If the build's outcomes became complete, then add its finished parents with incomplete outcomes to the queue.
-		if outcomes_completed {
+		// If the build's outputs became complete, then add its finished parents with incomplete outputs to the queue.
+		if outputs_completed {
 			// Get a database connection.
 			let connection = self
 				.database
@@ -759,7 +753,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// Get the parents with incomplete outcomes.
+			// Get the parents with incomplete outputs.
 			let p = connection.p();
 			let statement = formatdoc!(
 				"
@@ -769,7 +763,7 @@ impl Server {
 					where
 						build_children.child = {p}1 and
 						builds.status = 'finished' and
-						builds.outcomes_complete = 0;
+						builds.outputs_complete = 0;
 				"
 			);
 			let params = db::params![id];
@@ -781,7 +775,7 @@ impl Server {
 			// Drop the connection.
 			drop(connection);
 
-			// Index the parents with incomplete outcomes.
+			// Index the parents with incomplete outputs.
 			tokio::spawn({
 				let server = self.clone();
 				async move {

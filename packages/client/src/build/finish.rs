@@ -3,10 +3,16 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub outcome: tg::build::outcome::Data,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<tg::Error>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub output: Option<tg::value::Data>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	pub status: tg::build::Status,
 }
 
 impl tg::Build {

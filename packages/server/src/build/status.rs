@@ -74,10 +74,11 @@ impl Server {
 				})
 			})
 			.take_while_inclusive(move |result| {
-				future::ready(!matches!(
-					result,
-					Ok(tangram_client::build::Status::Finished)
-				))
+				if let Ok(status) = result {
+					future::ready(!status.is_finished())
+				} else {
+					future::ready(false)
+				}
 			})
 			.map_ok(tg::build::status::Event::Status)
 			.chain(stream::once(future::ok(tg::build::status::Event::End)));

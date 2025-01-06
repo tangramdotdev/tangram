@@ -157,7 +157,7 @@ pub trait Ext: tg::Handle {
 			.inspect_ok({
 				let state = state.clone();
 				move |status| {
-					state.lock().unwrap().end = matches!(status, tg::build::Status::Finished);
+					state.lock().unwrap().end = status.is_finished();
 				}
 			});
 			Ok(Some(stream))
@@ -373,52 +373,6 @@ pub trait Ext: tg::Handle {
 		>,
 	> + Send {
 		self.try_get_build_log(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
-		})
-	}
-
-	fn try_get_build_outcome(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static>,
-		>,
-	> + Send {
-		async move {
-			let Some(future) = self.try_get_build_outcome_future(id).await? else {
-				return Ok(None);
-			};
-			let future = {
-				let mut future = future.boxed();
-				let handle = self.clone();
-				let id = id.clone();
-				async move {
-					loop {
-						if let Some(outcome) = future.await? {
-							return Ok(Some(outcome));
-						};
-						future = handle
-							.try_get_build_outcome_future(&id)
-							.await?
-							.ok_or_else(|| tg::error!("expected the build to exist"))?
-							.boxed();
-					}
-				}
-			};
-			Ok(Some(future))
-		}
-	}
-
-	fn get_build_outcome(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Future<Output = tg::Result<Option<tg::build::Outcome>>> + Send + 'static,
-		>,
-	> + Send {
-		self.try_get_build_outcome(id).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
 		})
 	}
