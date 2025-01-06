@@ -86,6 +86,15 @@ impl Server {
 		Ok(Some(stream))
 	}
 
+	pub(crate) async fn get_current_build_status_local(
+		&self,
+		id: &tg::build::Id,
+	) -> tg::Result<tg::build::Status> {
+		self.try_get_current_build_status_local(id)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the build"))
+	}
+
 	pub(crate) async fn try_get_current_build_status_local(
 		&self,
 		id: &tg::build::Id,

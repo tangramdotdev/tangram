@@ -1,4 +1,3 @@
-use super::log;
 use crate::Server;
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, FutureExt as _, StreamExt as _, TryStreamExt as _};
@@ -92,12 +91,11 @@ impl Server {
 		// If any of the children were canceled, then this build should be canceled.
 		if children
 			.iter()
-			.map(|child_id| self.try_get_current_build_status_local(child_id))
+			.map(|child| self.get_current_build_status_local(child))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?
 			.iter()
-			.filter_map(Option::as_ref)
 			.any(tg::build::Status::is_canceled)
 		{
 			status = tg::build::status::Status::Canceled;
@@ -129,7 +127,7 @@ impl Server {
 		}
 
 		// Create a blob from the log.
-		let reader = log::Reader::new(self, id).await?;
+		let reader = crate::build::log::Reader::new(self, id).await?;
 		let log = tg::Blob::with_reader(self, reader).await?;
 		let log = log.id(self).await?;
 
