@@ -435,7 +435,13 @@ impl Cli {
 							output: None,
 							status: tg::build::Status::Canceled,
 						};
-						build.finish(&handle, arg).await.ok();
+						build
+							.finish(&handle, arg)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to cancel the build");
+							})
+							.ok();
 					});
 					tokio::signal::ctrl_c().await.unwrap();
 					std::process::exit(130);

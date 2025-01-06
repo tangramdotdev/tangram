@@ -59,7 +59,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let children = connection
-			.query_all_value_into(statement, params)
+			.query_all_value_into::<tg::build::Id>(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -127,9 +127,19 @@ impl Server {
 		}
 
 		// Create a blob from the log.
-		let reader = crate::build::log::Reader::new(self, id).await?;
-		let log = tg::Blob::with_reader(self, reader).await?;
-		let log = log.id(self).await?;
+		let log_path = self.logs_path().join(id.to_string());
+		let tg::blob::create::Output { blob: log, .. } = if tokio::fs::try_exists(&log_path)
+			.await
+			.map_err(|source| {
+			tg::error!(!source, "failed to determine if the path exists")
+		})? {
+			let output = self.create_blob_with_path(&log_path).await?;
+			tokio::fs::remove_file(&log_path).await.ok();
+			output
+		} else {
+			let reader = crate::build::log::Reader::new(self, id).await?;
+			self.create_blob_with_reader(reader).await?
+		};
 
 		// Get a database connection.
 		let connection = self
@@ -137,10 +147,6 @@ impl Server {
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Remove the log file if it exists.
-		let path = self.logs_path().join(id.to_string());
-		tokio::fs::remove_file(path).await.ok();
 
 		// Remove the log from the database.
 		let p = connection.p();

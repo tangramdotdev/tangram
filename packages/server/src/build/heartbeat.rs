@@ -48,7 +48,7 @@ impl Server {
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![now, id];
 		let status = connection
-			.query_one_value_into(statement, params)
+			.query_one_value_into::<tg::build::Status>(statement, params)
 			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to perform heartbeat query"))
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -57,7 +57,7 @@ impl Server {
 		drop(connection);
 
 		// Create the output.
-		let stop = !matches!(status, tg::build::Status::Started);
+		let stop = status.is_finished();
 		let output = tg::build::heartbeat::Output { stop };
 
 		Ok(output)
@@ -110,6 +110,8 @@ impl Server {
 			.query_all_value_into::<tg::build::Id>(statement, params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
 		drop(connection);
 
 		// Cancel the builds.
