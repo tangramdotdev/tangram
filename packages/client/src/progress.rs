@@ -69,8 +69,9 @@ impl std::fmt::Display for Indicator {
 					write!(f, " {current}")?;
 				},
 				tg::progress::IndicatorFormat::Bytes => {
-					let current = byte_unit::Byte::from_u64(current);
-					write!(f, " {current:#}")?;
+					let current = byte_unit::Byte::from_u64(current)
+						.get_appropriate_unit(byte_unit::UnitType::Decimal);
+					write!(f, " {current:#.1}")?;
 				},
 			}
 			if let Some(total) = self.total {
@@ -79,8 +80,9 @@ impl std::fmt::Display for Indicator {
 						write!(f, " of {total}")?;
 					},
 					tg::progress::IndicatorFormat::Bytes => {
-						let total = byte_unit::Byte::from_u64(total);
-						write!(f, " of {total:#.9}")?;
+						let total = byte_unit::Byte::from_u64(total)
+							.get_appropriate_unit(byte_unit::UnitType::Decimal);
+						write!(f, " of {total:#.1}")?;
 					},
 				}
 				let percent = 100.0 * current.to_f64().unwrap() / total.to_f64().unwrap();
