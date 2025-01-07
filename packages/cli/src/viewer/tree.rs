@@ -130,6 +130,12 @@ where
 				.as_ref()
 				.map(|parent| parent.upgrade().unwrap());
 			if let Some(parent) = parent {
+				let index = self
+					.nodes()
+					.iter()
+					.position(|n| Rc::ptr_eq(n, &parent))
+					.unwrap();
+				self.scroll = self.scroll.min(index);
 				self.select(parent);
 			}
 		}
@@ -169,24 +175,13 @@ where
 					serde_json::to_string_pretty(&output)
 						.map_err(|source| tg::error!(!source, "failed to serialize build output"))
 				}),
-				Item::Value(tg::Value::Object(object)) => {
-					object.data(&handle).await.and_then(|data| match data {
-						tg::object::Data::Branch(data) => serde_json::to_string_pretty(&data)
-							.map_err(|_| tg::error!("failed to serialize the data")),
-						tg::object::Data::Leaf(_) => Ok("<bytes>".to_string()),
-						tg::object::Data::Directory(data) => serde_json::to_string_pretty(&data)
-							.map_err(|_| tg::error!("failed to serialize the data")),
-						tg::object::Data::File(data) => serde_json::to_string_pretty(&data)
-							.map_err(|_| tg::error!("failed to serialize the data")),
-						tg::object::Data::Symlink(data) => serde_json::to_string_pretty(&data)
-							.map_err(|_| tg::error!("failed to serialize the data")),
-						tg::object::Data::Graph(data) => serde_json::to_string_pretty(&data)
-							.map_err(|_| tg::error!("failed to serialize the data")),
-						tg::object::Data::Target(data) => serde_json::to_string_pretty(&data)
-							.map_err(|_| tg::error!("failed to serialize the data")),
-					})
+				Item::Value(value) => {
+					let options = tg::value::print::Options {
+						recursive: true,
+						style: tg::value::print::Style::Pretty { indentation: "  " },
+					};
+					Ok(value.print(options))
 				},
-				Item::Value(_) => Ok(String::new()),
 			};
 			let contents = match result {
 				Ok(string) => string,
@@ -446,64 +441,47 @@ where
 		// Create the status stream.
 		let mut status = build.status(handle).await?;
 		while let Some(status) = status.try_next().await? {
-			let indicator =
-				match status {
-					tg::build::Status::Created => Indicator::Created,
-					tg::build::Status::Enqueued => Indicator::Enqueued,
-					tg::build::Status::Dequeued => Indicator::Dequeued,
-					tg::build::Status::Started => Indicator::Started,
-					tg::build::Status::Canceled
-					| tg::build::Status::Failed
-					| tg::build::Status::Succeeded => {
-						// Remove the log.
-						update_sender
-							.send(Box::new(|node| {
-								let mut node = node.borrow_mut();
-								if let Some(task) = node.log_task.take() {
-									task.abort();
-								}
-								let Some(position) = node.children.iter().position(|child| {
-									child.borrow().label.as_deref() == Some("log")
-								}) else {
-									return;
-								};
-								node.children.remove(position);
-							}))
-							.unwrap();
-
-						// Remove the child if necessary.
-						if options.collapse_finished_builds {
-							let id = build.id().clone();
-							let update = move |node: Rc<RefCell<Node>>| {
-								// Get the parent if it exists.
-								let Some(parent) =
-									node.borrow().parent.as_ref().and_then(Weak::upgrade)
-								else {
-									return;
-								};
-
-								// Find this build as a child of the parent.
-								let Some(index) = parent.borrow().children.iter().position(
-									|child| matches!(&child.borrow().item, Some(Item::Build(build)) if build.id() == &id),
-								) else {
-									return;
-								};
-
-								// Remove this node from its parent.
-								parent.borrow_mut().children.remove(index);
+			let indicator = match status {
+				tg::build::Status::Created => Indicator::Created,
+				tg::build::Status::Enqueued => Indicator::Enqueued,
+				tg::build::Status::Dequeued => Indicator::Dequeued,
+				tg::build::Status::Started => Indicator::Started,
+				tg::build::Status::Canceled
+				| tg::build::Status::Failed
+				| tg::build::Status::Succeeded => {
+					// Remove the child if necessary.
+					if options.collapse_finished_builds {
+						let id = build.id().clone();
+						let update = move |node: Rc<RefCell<Node>>| {
+							// Get the parent if it exists.
+							let Some(parent) =
+								node.borrow().parent.as_ref().and_then(Weak::upgrade)
+							else {
+								return;
 							};
-							update_sender.send(Box::new(update)).unwrap();
-							return Ok(());
-						}
 
-						match status {
-							tg::build::Status::Canceled => Indicator::Canceled,
-							tg::build::Status::Failed => Indicator::Failed,
-							tg::build::Status::Succeeded => Indicator::Succeeded,
-							_ => unreachable!(),
-						}
-					},
-				};
+							// Find this build as a child of the parent.
+							let Some(index) = parent.borrow().children.iter().position(
+								|child| matches!(&child.borrow().item, Some(Item::Build(build)) if build.id() == &id),
+							) else {
+								return;
+							};
+
+							// Remove this node from its parent.
+							parent.borrow_mut().children.remove(index);
+						};
+						update_sender.send(Box::new(update)).unwrap();
+						return Ok(());
+					}
+
+					match status {
+						tg::build::Status::Canceled => Indicator::Canceled,
+						tg::build::Status::Failed => Indicator::Failed,
+						tg::build::Status::Succeeded => Indicator::Succeeded,
+						_ => unreachable!(),
+					}
+				},
+			};
 			let update = move |node: Rc<RefCell<Node>>| {
 				node.borrow_mut().indicator.replace(indicator);
 			};
@@ -526,32 +504,16 @@ where
 			let chunk = String::from_utf8_lossy(&chunk.bytes);
 			for line in chunk.lines() {
 				let line = line.to_owned();
-				let handle = handle.clone();
 				let update = move |node: Rc<RefCell<Node>>| {
-					// If the node is already done, return.
-					if matches!(
-						node.borrow().indicator,
-						Some(
-							Indicator::Canceled
-								| Indicator::Failed | Indicator::Error
-								| Indicator::Succeeded
-						)
-					) {
-						return;
-					}
-
-					// Get or create the log node.
+					// Get  the log node.
 					let log_node = node
 						.borrow()
 						.children
 						.iter()
 						.position(|node| node.borrow().label.as_deref() == Some("log"));
-					let log_node = log_node.unwrap_or_else(|| {
-						let child = Self::create_node(&handle, &node, Some("log".to_owned()), None);
-						let index = node.borrow().children.len();
-						node.borrow_mut().children.push(child);
-						index
-					});
+					let Some(log_node) = log_node else {
+						return;
+					};
 					let log_node = &node.borrow().children[log_node];
 					log_node.borrow_mut().title = line;
 				};
@@ -589,16 +551,17 @@ where
 			.send({
 				let handle = handle.clone();
 				Box::new(move |node| {
-					if node.borrow().options.hide_build_targets {
-						return;
-					}
-					let child = Self::create_node(
-						&handle,
-						&node,
-						Some("target".to_owned()),
-						Some(&Item::Value(value)),
-					);
+					let child = Self::create_node(&handle, &node, Some("log".to_owned()), None);
 					node.borrow_mut().children.push(child);
+					if !node.borrow().options.hide_build_targets {
+						let child = Self::create_node(
+							&handle,
+							&node,
+							Some("target".to_owned()),
+							Some(&Item::Value(value)),
+						);
+						node.borrow_mut().children.push(child);
+					}
 				})
 			})
 			.unwrap();
@@ -610,20 +573,15 @@ where
 		while let Some(build) = children.try_next().await? {
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
-				// Get or create the children.
-				let children_node = node
-					.borrow()
-					.children
-					.iter()
-					.position(|node| node.borrow().label.as_deref() == Some("children"));
-				let children_node = children_node.unwrap_or_else(|| {
+				if node.borrow().children.get(0).map_or(true, |node| {
+					node.borrow().label.as_deref() != Some("children")
+				}) {
 					let child =
 						Self::create_node(&handle, &node, Some("children".to_owned()), None);
-					let index = node.borrow().children.len();
-					node.borrow_mut().children.push(child);
-					index
-				});
-				let children_node = &node.borrow().children[children_node];
+					node.borrow_mut().children.insert(0, child);
+				}
+
+				let children_node = &node.borrow().children[0];
 
 				// Create the child.
 				let item = Item::Build(build.clone());
@@ -646,6 +604,25 @@ where
 			};
 			update_sender.send(Box::new(update)).unwrap();
 		}
+
+		// Remove the log.
+		update_sender
+			.send(Box::new(|node| {
+				let mut node = node.borrow_mut();
+				if let Some(task) = node.log_task.take() {
+					task.abort();
+				}
+				let Some(position) = node
+					.children
+					.iter()
+					.position(|child| child.borrow().label.as_deref() == Some("log"))
+				else {
+					return;
+				};
+				node.children.remove(position);
+			}))
+			.unwrap();
+
 		Ok(())
 	}
 
@@ -1452,7 +1429,7 @@ where
 				Some(Indicator::Error) => Some("?".red()),
 			};
 			if let Some(indicator) = indicator {
-				line.push_span(indicator.to_string());
+				line.push_span(indicator);
 				line.push_span(" ");
 			}
 
