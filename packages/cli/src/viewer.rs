@@ -31,6 +31,7 @@ pub struct Viewer<H> {
 }
 
 pub type UpdateSender<H> = std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Viewer<H>)>>;
+
 pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewer<H>)>>;
 
 #[derive(Clone, Debug)]
@@ -123,6 +124,27 @@ where
 		}
 	}
 
+	fn layout(&self, area: Rect) -> (Rect, Rect, Option<Rect>) {
+		let (direction, log_direction) = match self.split {
+			Split::Horizontal => (Direction::Vertical, Direction::Horizontal),
+			Split::Vertical => (Direction::Horizontal, Direction::Vertical),
+		};
+		let rects = Layout::default()
+			.direction(direction)
+			.constraints([Constraint::Fill(1), Constraint::Fill(1)])
+			.split(area);
+		if self.log.is_some() {
+			let tree = rects[0];
+			let rects = Layout::default()
+				.direction(log_direction)
+				.constraints([Constraint::Fill(1), Constraint::Fill(1)])
+				.split(rects[1]);
+			(tree, rects[0], Some(rects[1]))
+		} else {
+			(rects[0], rects[1], None)
+		}
+	}
+
 	pub fn new(handle: &H, item: Item, options: Options) -> Self {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let data = Data::new();
@@ -167,27 +189,6 @@ where
 		if let Some(log_) = &self.log {
 			let log = render_block_and_get_area("Log", false, log.unwrap(), buffer);
 			log_.render(log, buffer);
-		}
-	}
-
-	fn layout(&self, area: Rect) -> (Rect, Rect, Option<Rect>) {
-		let (direction, log_direction) = match self.split {
-			Split::Horizontal => (Direction::Vertical, Direction::Horizontal),
-			Split::Vertical => (Direction::Horizontal, Direction::Vertical),
-		};
-		let rects = Layout::default()
-			.direction(direction)
-			.constraints([Constraint::Fill(1), Constraint::Fill(1)])
-			.split(area);
-		if self.log.is_some() {
-			let tree = rects[0];
-			let rects = Layout::default()
-				.direction(log_direction)
-				.constraints([Constraint::Fill(1), Constraint::Fill(1)])
-				.split(rects[1]);
-			(tree, rects[0], Some(rects[1]))
-		} else {
-			(rects[0], rects[1], None)
 		}
 	}
 

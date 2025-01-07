@@ -10,9 +10,25 @@ pub struct Data {
 }
 
 pub type UpdateSender = std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Data)>>;
+
 pub type UpdateReceiver = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Data)>>;
 
 impl Data {
+	pub fn down(&mut self) {
+		let max = self.rect.map_or(0, |rect| {
+			self.contents
+				.lines()
+				.count()
+				.saturating_sub(rect.height.to_usize().unwrap())
+		});
+		self.scroll = (self.scroll + 1).min(max);
+	}
+
+	pub fn hit_test(&self, x: u16, y: u16) -> bool {
+		self.rect
+			.is_some_and(|rect| rect.contains(Position { x, y }))
+	}
+
 	pub fn new() -> Self {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		Self {
@@ -21,12 +37,6 @@ impl Data {
 			update_receiver,
 			scroll: 0,
 			rect: None,
-		}
-	}
-
-	pub fn update(&mut self) {
-		while let Ok(update) = self.update_receiver.try_recv() {
-			update(self);
 		}
 	}
 
@@ -42,26 +52,17 @@ impl Data {
 		self.rect.replace(rect);
 	}
 
-	pub fn update_sender(&self) -> UpdateSender {
-		self.update_sender.clone()
-	}
-
 	pub fn up(&mut self) {
 		self.scroll = self.scroll.saturating_sub(1);
 	}
 
-	pub fn down(&mut self) {
-		let max = self.rect.map_or(0, |rect| {
-			self.contents
-				.lines()
-				.count()
-				.saturating_sub(rect.height.to_usize().unwrap())
-		});
-		self.scroll = (self.scroll + 1).min(max);
+	pub fn update(&mut self) {
+		while let Ok(update) = self.update_receiver.try_recv() {
+			update(self);
+		}
 	}
 
-	pub fn hit_test(&self, x: u16, y: u16) -> bool {
-		self.rect
-			.map_or(false, |rect| rect.contains(Position { x, y }))
+	pub fn update_sender(&self) -> UpdateSender {
+		self.update_sender.clone()
 	}
 }
