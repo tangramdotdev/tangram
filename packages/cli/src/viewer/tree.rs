@@ -453,8 +453,7 @@ where
 				| tg::build::Status::Failed
 				| tg::build::Status::Succeeded => {
 					// Remove the child if necessary.
-					if options.collapse_finished_builds {
-						let id = build.id().clone();
+					if options.condensed_builds {
 						let update = move |node: Rc<RefCell<Node>>| {
 							// Get the parent if it exists.
 							let Some(parent) =
@@ -464,9 +463,12 @@ where
 							};
 
 							// Find this build as a child of the parent.
-							let Some(index) = parent.borrow().children.iter().position(
-								|child| matches!(&child.borrow().item, Some(Item::Build(build)) if build.id() == &id),
-							) else {
+							let Some(index) = parent
+								.borrow()
+								.children
+								.iter()
+								.position(|child| Rc::ptr_eq(child, &node))
+							else {
 								return;
 							};
 
@@ -556,7 +558,7 @@ where
 				Box::new(move |node| {
 					let child = Self::create_node(&handle, &node, Some("log".to_owned()), None);
 					node.borrow_mut().children.push(child);
-					if !node.borrow().options.hide_build_targets {
+					if !node.borrow().options.condensed_builds {
 						let child = Self::create_node(
 							&handle,
 							&node,
@@ -576,22 +578,27 @@ where
 		while let Some(build) = children.try_next().await? {
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
-				if node
-					.borrow()
-					.children
-					.first()
-					.is_none_or(|node| node.borrow().label.as_deref() != Some("children"))
+				if !node.borrow().options.condensed_builds
+					&& node
+						.borrow()
+						.children
+						.first()
+						.is_none_or(|node| node.borrow().label.as_deref() != Some("children"))
 				{
 					let child =
 						Self::create_node(&handle, &node, Some("children".to_owned()), None);
 					node.borrow_mut().children.insert(0, child);
 				}
 
-				let children_node = &node.borrow().children[0];
+				let parent = if node.borrow().options.condensed_builds {
+					node
+				} else {
+					node.borrow().children[0].clone()
+				};
 
 				// Create the child.
 				let item = Item::Build(build.clone());
-				let child = Self::create_node(&handle, children_node, None, Some(&item));
+				let child = Self::create_node(&handle, &parent, None, Some(&item));
 
 				// Create the update task.
 				let update_task = Task::spawn_local({
@@ -606,7 +613,7 @@ where
 				child.borrow_mut().update_task.replace(update_task);
 
 				// Add the child to the children node.
-				children_node.borrow_mut().children.push(child);
+				parent.borrow_mut().children.push(child);
 			};
 			update_sender.send(Box::new(update)).unwrap();
 		}
