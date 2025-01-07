@@ -41,9 +41,8 @@ pub enum Item {
 
 #[derive(Clone, Debug)]
 pub struct Options {
-	pub collapse_finished_builds: bool,
+	pub condensed_builds: bool,
 	pub expand_on_create: bool,
-	pub hide_build_targets: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

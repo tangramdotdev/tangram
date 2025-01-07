@@ -75,9 +75,8 @@ impl Cli {
 			local_set
 				.block_on(&runtime, async move {
 					let options = crate::viewer::Options {
-						collapse_finished_builds: false,
+						condensed_builds: false,
 						expand_on_create: matches!(kind, Kind::Inline),
-						hide_build_targets: false,
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
 					match kind {

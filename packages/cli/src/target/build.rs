@@ -404,9 +404,8 @@ impl Cli {
 					local_set
 						.block_on(&runtime, async move {
 							let options = crate::viewer::Options {
-								collapse_finished_builds: true,
+								condensed_builds: true,
 								expand_on_create: true,
-								hide_build_targets: true,
 							};
 							let item = crate::viewer::Item::Build(build);
 							let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
