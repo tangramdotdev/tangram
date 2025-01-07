@@ -67,13 +67,13 @@ impl Cli {
 		let print = args.print;
 		Task::spawn_blocking(move |stop| {
 			let local_set = tokio::task::LocalSet::new();
-			let rt = tokio::runtime::Builder::new_current_thread()
+			let runtime = tokio::runtime::Builder::new_current_thread()
 				.worker_threads(1)
 				.enable_time()
 				.build()
 				.unwrap();
 			local_set
-				.block_on(&rt, async move {
+				.block_on(&runtime, async move {
 					let options = crate::viewer::Options {
 						collapse_finished_builds: false,
 						expand_on_create: matches!(kind, Kind::Inline),

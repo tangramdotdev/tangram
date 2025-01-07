@@ -395,9 +395,14 @@ impl Cli {
 				let handle = handle.clone();
 				let build = build.clone();
 				let task = Task::spawn_blocking(move |stop| {
-					tokio::runtime::LocalRuntime::new()
-						.unwrap()
-						.block_on(async move {
+					let local_set = tokio::task::LocalSet::new();
+					let runtime = tokio::runtime::Builder::new_current_thread()
+						.worker_threads(1)
+						.enable_time()
+						.build()
+						.unwrap();
+					local_set
+						.block_on(&runtime, async move {
 							let options = crate::viewer::Options {
 								collapse_finished_builds: true,
 								expand_on_create: true,
