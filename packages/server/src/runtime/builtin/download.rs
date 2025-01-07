@@ -1,4 +1,5 @@
 use super::Runtime;
+use crate::temp::Temp;
 use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use std::{
@@ -93,7 +94,7 @@ impl Runtime {
 		};
 
 		// Create the reader.
-		let reader = StreamReader::new(
+		let mut reader = StreamReader::new(
 			response
 				.bytes_stream()
 				.map_err(std::io::Error::other)
@@ -108,10 +109,22 @@ impl Runtime {
 				}),
 		);
 
+		// Create a temp file to download to.
+		let temp = Temp::new(server);
+		let mut file = tokio::fs::File::create(temp.path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed create the temp file"))?;
+		tokio::io::copy(&mut reader, &mut file)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
+		drop(file);
+
 		// Create the blob.
-		let blob = tg::Blob::with_reader(server, reader)
+		let output = server
+			.create_blob_with_path(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
+		let blob = tg::Blob::with_id(output.blob);
 
 		// Abort and await the log task.
 		log_task.abort();

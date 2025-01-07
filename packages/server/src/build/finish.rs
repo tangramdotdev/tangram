@@ -26,6 +26,9 @@ impl Server {
 			return Ok(output);
 		}
 
+		// Abort the build task.
+		self.builds.abort(id);
+
 		// Get the build.
 		let Some(build) = self.try_get_build_local(id).await? else {
 			return Err(tg::error!("failed to find the build"));
@@ -89,14 +92,15 @@ impl Server {
 		let mut error = arg.error;
 
 		// If any of the children were canceled, then this build should be canceled.
-		if children
-			.iter()
-			.map(|child| self.get_current_build_status_local(child))
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?
-			.iter()
-			.any(tg::build::Status::is_canceled)
+		if status != tg::build::status::Status::Canceled
+			&& children
+				.iter()
+				.map(|child| self.get_current_build_status_local(child))
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<Vec<_>>()
+				.await?
+				.iter()
+				.any(tg::build::Status::is_canceled)
 		{
 			status = tg::build::status::Status::Canceled;
 			error = Some(tg::error!("one of the build's children was canceled"));
@@ -133,12 +137,24 @@ impl Server {
 			.map_err(|source| {
 			tg::error!(!source, "failed to determine if the path exists")
 		})? {
-			let output = self.create_blob_with_path(&log_path).await?;
-			tokio::fs::remove_file(&log_path).await.ok();
+			let output = self
+				.create_blob_with_path(&log_path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?;
+			tokio::fs::remove_file(&log_path)
+				.await
+				.inspect_err(|error| tracing::error!(?error, "failed to remove the log file"))
+				.ok();
 			output
 		} else {
-			let reader = crate::build::log::Reader::new(self, id).await?;
-			self.create_blob_with_reader(reader).await?
+			let reader = crate::build::log::Reader::new(self, id)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the blob reader for the log")
+				})?;
+			self.create_blob_with_reader(reader)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?
 		};
 
 		// Get a database connection.

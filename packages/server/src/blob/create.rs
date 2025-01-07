@@ -54,13 +54,13 @@ impl Server {
 			.database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Create a transaction.
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database transaction"))?;
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Create the state.
 		let state = State {
@@ -86,20 +86,25 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Copy the file to the blobs directory through a temp if it is not already present.
-		let temp = Temp::new(self);
-		tokio::fs::copy(path, temp.path())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
-		let permissions = std::fs::Permissions::from_mode(0o644);
-		tokio::fs::set_permissions(temp.path(), permissions)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		let blob_path = self.blobs_path().join(blob.to_string());
-		tokio::fs::rename(temp.path(), blob_path)
+		if !tokio::fs::try_exists(&blob_path)
 			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to rename the file to the blobs directory")
-			})?;
+			.map_err(|source| tg::error!(!source, "failed to check if the blob path exists"))?
+		{
+			let temp = Temp::new(self);
+			tokio::fs::copy(path, temp.path())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+			let permissions = std::fs::Permissions::from_mode(0o644);
+			tokio::fs::set_permissions(temp.path(), permissions)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+			tokio::fs::rename(temp.path(), blob_path)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to rename the file to the blobs directory")
+				})?;
+		}
 
 		// Create the metadata.
 		let metadata = tg::object::Metadata {

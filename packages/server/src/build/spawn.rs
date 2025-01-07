@@ -205,7 +205,7 @@ impl Server {
 			let result = build.heartbeat(self, arg).await;
 			if let Ok(output) = result {
 				if output.stop {
-					self.builds.stop(build.id());
+					self.builds.abort(build.id());
 					break;
 				}
 			}

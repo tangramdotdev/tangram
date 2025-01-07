@@ -42,7 +42,7 @@ impl Server {
 					heartbeat_at = {p}1,
 					started_at = {p}1,
 					status = 'started'
-				where id = {p}2 and (status = 'created' or status = 'dequeued')
+				where id = {p}2 and (status = 'created' or status = 'enqueued' or status = 'dequeued')
 				returning 1;
 			"
 		);

@@ -1088,6 +1088,16 @@ impl Cli {
 			.with(console_layer)
 			.with(output_layer)
 			.init();
+		std::panic::set_hook(Box::new(|panic_info| {
+			let payload = panic_info.payload();
+			let payload = payload
+				.downcast_ref::<&str>()
+				.copied()
+				.or(payload.downcast_ref::<String>().map(String::as_str));
+			let location = panic_info.location().map(ToString::to_string);
+			let backtrace = std::backtrace::Backtrace::capture();
+			tracing::error!(payload, location, %backtrace, "a panic occurred");
+		}));
 	}
 
 	fn set_file_descriptor_limit() -> tg::Result<()> {
