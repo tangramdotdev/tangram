@@ -50,6 +50,7 @@ pub enum Indicator {
 	Enqueued,
 	Dequeued,
 	Started,
+	Finishing,
 	Canceled,
 	Failed,
 	Succeeded,
@@ -277,6 +278,7 @@ where
 				let position = position.to_usize().unwrap();
 				Some(crossterm::style::Stylize::blue(SPINNER[position]))
 			},
+			Some(Indicator::Finishing) => Some(crossterm::style::Stylize::red('⟳')),
 			Some(Indicator::Canceled) => Some(crossterm::style::Stylize::yellow('⦻')),
 			Some(Indicator::Failed) => Some(crossterm::style::Stylize::red('✗')),
 			Some(Indicator::Succeeded) => Some(crossterm::style::Stylize::green('✓')),
@@ -446,6 +448,7 @@ where
 				tg::build::Status::Enqueued => Indicator::Enqueued,
 				tg::build::Status::Dequeued => Indicator::Dequeued,
 				tg::build::Status::Started => Indicator::Started,
+				tg::build::Status::Finishing => Indicator::Finishing,
 				tg::build::Status::Canceled
 				| tg::build::Status::Failed
 				| tg::build::Status::Succeeded => {
@@ -573,9 +576,12 @@ where
 		while let Some(build) = children.try_next().await? {
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
-				if node.borrow().children.get(0).map_or(true, |node| {
-					node.borrow().label.as_deref() != Some("children")
-				}) {
+				if node
+					.borrow()
+					.children
+					.first()
+					.is_none_or(|node| node.borrow().label.as_deref() != Some("children"))
+				{
 					let child =
 						Self::create_node(&handle, &node, Some("children".to_owned()), None);
 					node.borrow_mut().children.insert(0, child);
@@ -1423,6 +1429,7 @@ where
 					let position = position.to_usize().unwrap();
 					Some(SPINNER[position].to_string().blue())
 				},
+				Some(Indicator::Finishing) => Some("⟳".red()),
 				Some(Indicator::Canceled) => Some("⦻".yellow()),
 				Some(Indicator::Failed) => Some("✗".red()),
 				Some(Indicator::Succeeded) => Some("✓".green()),

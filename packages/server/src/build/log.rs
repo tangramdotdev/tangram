@@ -291,9 +291,9 @@ impl Server {
 		id: &tg::build::Id,
 		arg: tg::build::log::post::Arg,
 	) -> tg::Result<()> {
-		// Verify the build is local.
-		if !self.get_build_exists_local(id).await? {
-			return Err(tg::error!("failed to find the build"));
+		// Verify the build is local and started.
+		if self.get_current_build_status_local(id).await? != tg::build::Status::Started {
+			return Err(tg::error!("the build is not started"));
 		}
 
 		// Log.

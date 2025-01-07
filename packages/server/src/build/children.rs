@@ -291,9 +291,9 @@ impl Server {
 		parent: &tg::build::Id,
 		child: &tg::build::Id,
 	) -> tg::Result<()> {
-		// Verify the build is local.
-		if !self.get_build_exists_local(parent).await? {
-			return Err(tg::error!("failed to find the build"));
+		// Verify the build is local and started.
+		if self.get_current_build_status_local(parent).await? != tg::build::Status::Started {
+			return Err(tg::error!("the build is not started"));
 		}
 
 		// Get a database connection.

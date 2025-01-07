@@ -19,6 +19,7 @@ pub enum Status {
 	Enqueued,
 	Dequeued,
 	Started,
+	Finishing,
 	Canceled,
 	Failed,
 	Succeeded,
@@ -45,7 +46,11 @@ impl Status {
 	#[must_use]
 	pub fn retry(&self) -> Option<tg::build::Retry> {
 		match self {
-			Status::Created | Status::Enqueued | Status::Dequeued | Status::Started => None,
+			Status::Created
+			| Status::Enqueued
+			| Status::Dequeued
+			| Status::Started
+			| Status::Finishing => None,
 			Status::Canceled => Some(tg::build::Retry::Canceled),
 			Status::Failed => Some(tg::build::Retry::Failed),
 			Status::Succeeded => Some(tg::build::Retry::Succeeded),
@@ -138,6 +143,7 @@ impl std::fmt::Display for Status {
 			Self::Enqueued => write!(f, "enqueued"),
 			Self::Dequeued => write!(f, "dequeued"),
 			Self::Started => write!(f, "started"),
+			Self::Finishing => write!(f, "finishing"),
 			Self::Canceled => write!(f, "canceled"),
 			Self::Failed => write!(f, "failed"),
 			Self::Succeeded => write!(f, "succeeded"),
@@ -154,6 +160,7 @@ impl std::str::FromStr for Status {
 			"enqueued" => Ok(Self::Enqueued),
 			"dequeued" => Ok(Self::Dequeued),
 			"started" => Ok(Self::Started),
+			"finishing" => Ok(Self::Finishing),
 			"canceled" => Ok(Self::Canceled),
 			"failed" => Ok(Self::Failed),
 			"succeeded" => Ok(Self::Succeeded),

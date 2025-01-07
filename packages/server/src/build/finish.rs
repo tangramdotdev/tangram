@@ -26,19 +26,34 @@ impl Server {
 			return Ok(output);
 		}
 
+		// Attempt to set the build's status to finishing.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update builds
+				set status = 'finishing'
+				where id = {p}1 and status = 'started';
+			"
+		);
+		let params = db::params![id];
+		let n = connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
+		if n == 0 {
+			return Ok(false);
+		}
+
 		// Get the build.
 		let Some(build) = self.try_get_build_local(id).await? else {
 			return Err(tg::error!("failed to find the build"));
 		};
-
-		// If the build is finished, then return.
-		let status = self
-			.try_get_current_build_status_local(id)
-			.await?
-			.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
-		if status.is_finished() {
-			return Ok(false);
-		}
 
 		// Get a database connection.
 		let connection = self
