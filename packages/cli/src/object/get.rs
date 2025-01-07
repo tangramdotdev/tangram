@@ -48,6 +48,8 @@ impl Cli {
 		eprintln!();
 		eprint!("{} weight ", "info".blue().bold());
 		if let Some(weight) = metadata.weight {
+			let weight = byte_unit::Byte::from_u64(weight)
+				.get_appropriate_unit(byte_unit::UnitType::Decimal);
 			eprint!("{weight}");
 		} else {
 			eprint!("∅");
