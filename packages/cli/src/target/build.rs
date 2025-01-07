@@ -398,7 +398,7 @@ impl Cli {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
 						.worker_threads(1)
-						.enable_time()
+						.enable_all()
 						.build()
 						.unwrap();
 					local_set
