@@ -780,8 +780,9 @@ impl Server {
 				let idle = idle.clone();
 				let stop = stop.clone();
 				async move {
-					let builder =
+					let mut builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+					builder.http2().max_concurrent_streams(None);
 					let connection = builder.serve_connection_with_upgrades(stream, service);
 					let result = match future::select(
 						pin!(connection),
