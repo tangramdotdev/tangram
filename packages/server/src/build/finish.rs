@@ -26,9 +26,6 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Abort the build task.
-		self.builds.abort(id);
-
 		// Get the build.
 		let Some(build) = self.try_get_build_local(id).await? else {
 			return Err(tg::error!("failed to find the build"));
