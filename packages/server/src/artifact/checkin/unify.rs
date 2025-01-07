@@ -755,7 +755,7 @@ impl Server {
 				.edges
 				.iter()
 				.filter_map(|(reference, edge)| {
-					let is_missing_subpath = graph.nodes.get(&edge.referent).unwrap().tag.is_some()
+					let is_missing_subpath = graph.nodes.get(&edge.referent)?.tag.is_some()
 						&& graph
 							.nodes
 							.get(&edge.referent)
