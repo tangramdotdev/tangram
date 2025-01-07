@@ -105,19 +105,19 @@ impl Server {
 		let (unification_graph, root) = self
 			.create_unification_graph(&input_graph, arg.deterministic)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to construct the object graph"))?;
+			.map_err(|source| tg::error!(!source, "failed to unify dependencies"))?;
 
 		// Create the object graph.
 		let object_graph = self
 			.create_object_graph(&input_graph, &unification_graph, &root)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create object graph"))?;
+			.map_err(|source| tg::error!(!source, "failed to create objects"))?;
 
 		// Create the output graph.
 		let output_graph = self
 			.create_output_graph(&input_graph, &object_graph)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the output graph"))?;
+			.map_err(|source| tg::error!(!source, "failed to write objects"))?;
 
 		// Write the output to the database.
 		self.write_output_to_database(&output_graph)
