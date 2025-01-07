@@ -3,7 +3,6 @@ use crossterm as ct;
 use futures::{future, TryFutureExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
-use unicode_width::UnicodeWidthChar as _;
 use std::{
 	io::{IsTerminal as _, Write as _},
 	pin::pin,
@@ -12,6 +11,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::Stop;
+use unicode_width::UnicodeWidthChar as _;
 
 mod data;
 mod help;
@@ -96,15 +96,23 @@ where
 			}
 		}
 		if let ct::event::Event::Mouse(event) = event {
-			match (event.kind, &self.log) {
-				(ct::event::MouseEventKind::ScrollUp, Some(log)) => {
-					if log.hit_test(event.column, event.row) {
-						log.up();
+			match event.kind {
+				ct::event::MouseEventKind::ScrollUp => {
+					if self.data.hit_test(event.column, event.row) {
+						self.data.up();
+					} else if let Some(log) = &self.log {
+						if log.hit_test(event.column, event.row) {
+							log.up();
+						}
 					}
 				},
-				(ct::event::MouseEventKind::ScrollDown, Some(log)) => {
-					if log.hit_test(event.column, event.row) {
-						log.down();
+				ct::event::MouseEventKind::ScrollDown => {
+					if self.data.hit_test(event.column, event.row) {
+						self.data.down();
+					} else if let Some(log) = &self.log {
+						if log.hit_test(event.column, event.row) {
+							log.down();
+						}
 					}
 				},
 				_ => (),
@@ -263,8 +271,9 @@ where
 			// If stdout is a terminal, then render the tree.
 			if let Some(tty) = tty.as_mut() {
 				// Get the size of the tty.
-				let (columns, rows) =
-					ct::terminal::size().map_or((64, 64), |(columns, rows)| (columns.to_usize().unwrap(), rows.to_usize().unwrap()));
+				let (columns, rows) = ct::terminal::size().map_or((64, 64), |(columns, rows)| {
+					(columns.to_usize().unwrap(), rows.to_usize().unwrap())
+				});
 
 				// Clear.
 				if let Some(lines) = lines {
