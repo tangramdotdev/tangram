@@ -1,8 +1,7 @@
+use super::infer_module_kind;
 use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
-
-use super::infer_module_kind;
 
 /// Document a package.
 #[derive(Clone, Debug, clap::Args)]
@@ -91,7 +90,6 @@ impl Cli {
 				tg::Artifact::Symlink(_) => tg::module::Kind::Symlink,
 			}
 		};
-	
 
 		// Create the module.
 		let referent = tg::Referent {

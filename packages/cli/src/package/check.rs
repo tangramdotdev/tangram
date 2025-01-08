@@ -1,8 +1,7 @@
+use super::infer_module_kind;
 use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
-
-use super::infer_module_kind;
 
 /// Check a package.
 #[derive(Clone, Debug, clap::Args)]

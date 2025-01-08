@@ -1,8 +1,7 @@
+use super::infer_module_kind;
 use crate::Cli;
 use std::path::PathBuf;
 use tangram_client::{self as tg, Handle as _};
-
-use super::infer_module_kind;
 
 /// Format a package.
 #[derive(Clone, Debug, clap::Args)]
@@ -22,7 +21,7 @@ impl Cli {
 
 		// Get the module kind.
 		let kind = infer_module_kind(&path).unwrap_or(tg::module::Kind::Artifact);
-		
+
 		// Create a module.
 		let module = tg::Module {
 			referent: tg::Referent::with_item(tg::module::Item::Path(path)),
