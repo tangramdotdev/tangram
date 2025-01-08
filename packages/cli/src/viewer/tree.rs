@@ -509,16 +509,31 @@ where
 			let chunk = String::from_utf8_lossy(&chunk.bytes);
 			for line in chunk.lines() {
 				let line = line.to_owned();
+				let handle = handle.clone();
 				let update = move |node: Rc<RefCell<Node>>| {
-					// Get  the log node.
+					// Create the log node if necessary.
 					let log_node = node
 						.borrow()
 						.children
 						.iter()
 						.position(|node| node.borrow().label.as_deref() == Some("log"));
-					let Some(log_node) = log_node else {
-						return;
-					};
+					let log_node = log_node.unwrap_or_else(|| {
+						// Create the log node.
+						let child = Self::create_node(&handle, &node, Some("log".to_owned()), None);
+
+						// Find where to insert it.
+						let has_children_node =
+							node.borrow().children.first().map_or(false, |node| {
+								node.borrow().label.as_deref() == Some("children")
+							});
+						#[allow(clippy::bool_to_int_with_if)]
+						let index = if has_children_node { 1 } else { 0 };
+
+						// Insert the new node and return the index.
+						node.borrow_mut().children.insert(index, child);
+						index
+					});
+
 					let log_node = &node.borrow().children[log_node];
 					log_node.borrow_mut().title = line;
 				};
@@ -556,8 +571,6 @@ where
 			.send({
 				let handle = handle.clone();
 				Box::new(move |node| {
-					let child = Self::create_node(&handle, &node, Some("log".to_owned()), None);
-					node.borrow_mut().children.push(child);
 					if !node.borrow().options.condensed_builds {
 						let child = Self::create_node(
 							&handle,
@@ -576,6 +589,22 @@ where
 			.children(handle, tg::build::children::get::Arg::default())
 			.await?;
 		while let Some(build) = children.try_next().await? {
+			if build
+				.status(handle)
+				.await?
+				.try_next()
+				.await?
+				.map_or(true, |status| {
+					matches!(
+						status,
+						tg::build::Status::Finishing
+							| tg::build::Status::Canceled
+							| tg::build::Status::Failed
+							| tg::build::Status::Succeeded
+					)
+				}) {
+				continue;
+			}
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
 				if !node.borrow().options.condensed_builds
@@ -668,6 +697,8 @@ where
 			(args.first(), host.map(String::as_str))
 		{
 			write!(title, "#{arg0}").unwrap();
+		} else {
+			write!(title, "{}", build.id()).unwrap();
 		}
 
 		Some(title)
