@@ -61,7 +61,7 @@ pub mod test;
 
 /// A server.
 #[derive(Clone)]
-pub struct Server(Arc<Inner>);
+pub struct Server(pub Arc<Inner>);
 
 pub struct Inner {
 	artifact_cache_task_map: ArtifactCacheTaskMap,
@@ -309,7 +309,7 @@ impl Server {
 		let artifacts_path = server.path.join("artifacts");
 		let cache_path = server.path.join("cache");
 
-		// Check if the artifacts path exists. in the case where the VFS was ungracefully shutdown, remove the artifacts path return false.
+		// Check if the artifacts path exists. If the VFS was ungracefully shutdown, then remove the artifacts path.
 		let artifacts_exists = match tokio::fs::try_exists(&artifacts_path).await {
 			Ok(exists) => exists,
 			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
@@ -513,7 +513,7 @@ impl Server {
 				// Stop the compilers.
 				let compilers = server.compilers.read().unwrap().clone();
 				for compiler in compilers {
-					compiler.stop().await;
+					compiler.stop();
 					compiler.wait().await;
 				}
 
@@ -572,8 +572,8 @@ impl Server {
 					}
 				}
 
-				// Stop the build tasks.
-				server.builds.stop_all();
+				// Abort the build tasks.
+				server.builds.abort_all();
 				let results = server.builds.wait().await;
 				for result in results {
 					if let Err(error) = result {

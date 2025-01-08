@@ -31,8 +31,9 @@ impl Server {
 		// Document the module.
 		let output = compiler.document(&module).await?;
 
-		// Stop the compiler.
-		compiler.stop().await;
+		// Stop and await the compiler.
+		compiler.stop();
+		compiler.wait().await;
 
 		Ok(output)
 	}

@@ -164,8 +164,11 @@ impl Compiler {
 
 				// Remove the compiler from the server.
 				let mut compilers = compiler.server.compilers.write().unwrap();
-				if let Some(pos) = compilers.iter().position(|c| *c == compiler) {
-					compilers.remove(pos);
+				if let Some(index) = compilers
+					.iter()
+					.position(|c| Arc::ptr_eq(&c.0, &compiler.0))
+				{
+					compilers.remove(index);
 				}
 			}
 		};
@@ -717,7 +720,7 @@ impl Compiler {
 		}
 	}
 
-	pub async fn stop(&self) {
+	pub fn stop(&self) {
 		self.task.lock().unwrap().as_ref().unwrap().stop();
 	}
 
@@ -900,7 +903,8 @@ impl crate::Server {
 	pub async fn format(&self, text: String) -> tg::Result<String> {
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		let text = compiler.format(text).await?;
-		compiler.stop().await;
+		compiler.stop();
+		compiler.wait().await;
 		Ok(text)
 	}
 
@@ -911,7 +915,8 @@ impl crate::Server {
 	) -> tg::Result<()> {
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 		compiler.serve(input, output).await?;
-		compiler.stop().await;
+		compiler.stop();
+		compiler.wait().await;
 		Ok(())
 	}
 }
@@ -984,11 +989,5 @@ impl std::ops::Deref for Compiler {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
-	}
-}
-
-impl PartialEq for Compiler {
-	fn eq(&self, other: &Self) -> bool {
-		Arc::ptr_eq(&self.0, &other.0)
 	}
 }

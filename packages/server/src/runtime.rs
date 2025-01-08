@@ -52,13 +52,14 @@ impl Server {
 		// Create the compiler.
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 
-		// Get the doc.
-		let doc = compiler.document(&module).await?;
+		// Document the module.
+		let document = compiler.document(&module).await?;
 
-		// Stop the compiler.
-		compiler.stop().await;
+		// Stop and await the compiler.
+		compiler.stop();
+		compiler.wait().await;
 
-		Ok(doc)
+		Ok(document)
 	}
 }
 

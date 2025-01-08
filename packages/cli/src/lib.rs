@@ -257,7 +257,7 @@ impl Cli {
 		let runtime = builder.build().unwrap();
 
 		// Run the command.
-		let result = runtime.block_on(cli.command(cli.args.command.clone()));
+		let result = runtime.block_on(cli.command(cli.args.command.clone()).boxed());
 
 		// Drop the handle.
 		runtime.block_on(async {
@@ -267,6 +267,9 @@ impl Cli {
 				server.wait().await;
 			}
 		});
+
+		// Drop the runtime.
+		drop(runtime);
 
 		// Handle the result.
 		let code = match result {

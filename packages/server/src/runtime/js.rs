@@ -172,6 +172,10 @@ impl Runtime {
 				}
 			}
 		});
+		let log_task_abort_handle = log_task.abort_handle();
+		scopeguard::defer! {
+			log_task_abort_handle.abort();
+		}
 
 		// Create the state.
 		let state = Rc::new(State {
@@ -187,6 +191,9 @@ impl Runtime {
 			root,
 			server: server.clone(),
 		});
+		scopeguard::defer! {
+			state.futures.borrow_mut().clear();
+		}
 
 		// Create the isolate params.
 		let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
@@ -389,8 +396,9 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to join the log task"))?;
 
-		// Stop the compiler.
-		state.compiler.stop().await;
+		// Stop and await the compiler.
+		state.compiler.stop();
+		state.compiler.wait().await;
 
 		// Checksum the output if necessary.
 		if let Ok(value) = &result {
