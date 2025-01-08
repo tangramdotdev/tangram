@@ -12,7 +12,7 @@ use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
 mod lockfile;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct State {
 	artifacts_path: Option<PathBuf>,
 	files: DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>,
@@ -253,7 +253,7 @@ impl Server {
 
 	async fn check_out_artifact_dependency(
 		&self,
-		state: &State,
+		state: &Arc<State>,
 		artifact: tg::artifact::Id,
 	) -> tg::Result<Output> {
 		// Mark the dependency as visited and exit early if it has already been visited.
@@ -293,7 +293,7 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn check_out_artifact_inner(&self, state: &State, arg: Arg) -> tg::Result<Output> {
+	async fn check_out_artifact_inner(&self, state: &Arc<State>, arg: Arg) -> tg::Result<Output> {
 		let artifact_id = arg.artifact.clone().into();
 
 		// If the artifact is the same as the existing artifact, then return.
@@ -340,7 +340,7 @@ impl Server {
 
 	async fn check_out_directory(
 		&self,
-		state: &State,
+		state: &Arc<State>,
 		arg: Arg,
 		directory: &tg::directory::Id,
 	) -> tg::Result<Output> {
@@ -432,7 +432,7 @@ impl Server {
 
 	async fn check_out_file(
 		&self,
-		state: &State,
+		state: &Arc<State>,
 		arg: Arg,
 		file: &tg::file::Id,
 	) -> tg::Result<Output> {
@@ -535,7 +535,7 @@ impl Server {
 
 	async fn check_out_symlink(
 		&self,
-		state: &State,
+		state: &Arc<State>,
 		arg: Arg,
 		symlink: &tg::symlink::Id,
 	) -> tg::Result<Output> {
@@ -596,9 +596,9 @@ impl Server {
 		};
 
 		// Create the symlink.
-		tokio::fs::symlink(target, &arg.path)
+		tokio::fs::symlink(&target, &arg.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+			.map_err(|source| tg::error!(!source, %src = target.display(), %dst = arg.path.display(), "failed to create the symlink"))?;
 
 		Ok(output)
 	}
