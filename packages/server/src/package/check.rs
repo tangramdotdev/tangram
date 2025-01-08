@@ -1,6 +1,5 @@
 use crate::{compiler::Compiler, Server};
 use tangram_client as tg;
-use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
@@ -24,9 +23,7 @@ impl Server {
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 
 		// Create the module.
-		let module = self
-			.root_module_for_package(Either::Left(arg.package))
-			.await?;
+		let module = arg.package;
 
 		// Check the package.
 		let diagnostics = compiler.check(vec![module]).await?;

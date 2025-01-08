@@ -951,25 +951,36 @@ impl Cli {
 			tg::diagnostic::Severity::Info => "info".blue().bold(),
 			tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
 		};
-		eprintln!("{title}: {}", diagnostic.message);
 		let mut string = String::new();
+		write!(string, "{title}: ").unwrap();
 		if let Some(location) = &diagnostic.location {
-			match &location.module.referent.item {
-				tg::module::Item::Path(path) => {
-					write!(string, "{}", path.display()).unwrap();
-				},
-				tg::module::Item::Object(object) => {
-					write!(string, "{object}").unwrap();
-				},
-			}
-			if let Some(path) = &location.module.referent.subpath {
-				write!(string, ":{}", path.display()).unwrap();
-			}
-			let mut string = if string.is_empty() {
-				"<unknown>".to_owned()
+			let path = location
+				.module
+				.referent
+				.item
+				.try_unwrap_path_ref()
+				.ok()
+				.or(location.module.referent.path.as_ref());
+			if let Some(path) = path {
+				let path = location
+					.module
+					.referent
+					.subpath
+					.as_ref()
+					.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
+				write!(string, "{}", path.display()).unwrap();
+			} else if let Some(tag) = &location.module.referent.tag {
+				write!(string, "{tag}").unwrap();
+				if let Some(path) = &location.module.referent.subpath {
+					write!(string, ":{}", path.display()).unwrap();
+				}
 			} else {
-				string
-			};
+				let object = location.module.referent.item.unwrap_object_ref();
+				write!(string, "{object}").unwrap();
+				if let Some(path) = &location.module.referent.subpath {
+					write!(string, ":{}", path.display()).unwrap();
+				}
+			}
 			let line = location.range.start.line + 1;
 			let character = location.range.start.character + 1;
 			write!(string, ":{line}:{character}").unwrap();

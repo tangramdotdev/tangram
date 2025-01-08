@@ -1,68 +1,9 @@
 use crate::Server;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
 
 impl Server {
-	pub(crate) async fn root_module_for_package(
-		&self,
-		package: Either<tg::directory::Id, PathBuf>,
-	) -> tg::Result<tg::Module> {
-		match package {
-			Either::Left(package) => {
-				// Get the root module file name.
-				let root_module_name = tg::Directory::with_id(package.clone())
-					.entries(self)
-					.await
-					.map_err(
-						|source| tg::error!(!source, %package, "failed to get directory entries"),
-					)?
-					.keys()
-					.find(|&name| tg::package::is_root_module_path(name.as_ref()))
-					.cloned()
-					.ok_or_else(|| tg::error!("could not find root module in package"))?;
-
-				// Infer the kind.
-				let kind = infer_module_kind(&root_module_name)?;
-
-				// Create the module.
-				Ok(tg::Module {
-					kind,
-					referent: tg::Referent {
-						item: tg::module::Item::Object(package.clone().into()),
-						path: None,
-						subpath: Some(root_module_name.into()),
-						tag: None,
-					},
-				})
-			},
-
-			Either::Right(path) => {
-				// Get the root module file name.
-				let root_module_file_name =
-					try_get_root_module_name_for_path(&path).await?.ok_or_else(
-						|| tg::error!(%package = path.display(), "missing root module file"),
-					)?;
-
-				// Infer the kind.
-				let kind = infer_module_kind(&root_module_file_name)?;
-
-				// Create the module.
-				let module = tg::Module {
-					kind,
-					referent: tg::Referent {
-						item: tg::module::Item::Path(path),
-						path: None,
-						subpath: Some(root_module_file_name.into()),
-						tag: None,
-					},
-				};
-
-				Ok(module)
-			},
-		}
-	}
-
 	pub(crate) async fn module_for_path(&self, path: &Path) -> tg::Result<tg::Module> {
 		// Find the lockfile.
 		let (lockfile_path, lockfile) = 'a: {
@@ -134,25 +75,4 @@ pub(crate) fn infer_module_kind(path: impl AsRef<Path>) -> tg::Result<tg::module
 	} else {
 		Err(tg::error!(%path = path.display(), "unknown or missing file extension"))
 	}
-}
-
-async fn try_get_root_module_name_for_path(path: &Path) -> tg::Result<Option<String>> {
-	// Collect the file names of the directory.
-	let mut file_names = Vec::new();
-	let mut read_dir = tokio::fs::read_dir(&path).await.map_err(
-		|source| tg::error!(!source, %path = path.display(), "failed to read directory"),
-	)?;
-	while let Some(entry) = read_dir.next_entry().await.map_err(
-		|source| tg::error!(!source, %path = path.display(), "failed to get directory entry"),
-	)? {
-		let Some(file_name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
-			continue;
-		};
-		file_names.push(file_name);
-	}
-	file_names.sort();
-	let root_module_file_name = file_names
-		.into_iter()
-		.find(|name| tg::package::is_root_module_path(name.as_ref()));
-	Ok(root_module_file_name)
 }

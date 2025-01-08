@@ -2,6 +2,8 @@ use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
+use super::infer_module_kind;
+
 /// Document a package.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -46,19 +48,63 @@ impl Cli {
 		let Either::Right(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
 		};
-		let object = if let Some(subpath) = &referent.subpath {
+
+		// Resolve the referent.
+		let referent = if let Some(subpath) = &referent.subpath {
 			let directory = object
 				.try_unwrap_directory()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
-			directory.get(&handle, subpath).await?.into()
+			let item = directory.get(&handle, subpath).await?.into();
+			let path = referent.path.map(|path| path.join(subpath));
+			tg::Referent {
+				item,
+				path,
+				subpath: None,
+				tag: referent.tag,
+			}
 		} else {
-			object
+			tg::Referent {
+				item: object,
+				path: referent.path,
+				subpath: referent.subpath,
+				tag: referent.tag,
+			}
 		};
-		let Ok(package) = tg::Directory::try_from(object) else {
-			return Err(tg::error!("expected a directory"));
+
+		// Get the root module.
+		let root_module =
+			tg::package::try_get_root_module_file_name(&handle, Either::Left(&referent.item))
+				.await?
+				.ok_or_else(|| tg::error!("expected a root module"))?;
+		let kind = if let Some(kind) = infer_module_kind(root_module) {
+			kind
+		} else {
+			match referent
+				.item
+				.unwrap_directory_ref()
+				.get(&handle, root_module)
+				.await?
+			{
+				tg::Artifact::Directory(_) => tg::module::Kind::Directory,
+				tg::Artifact::File(_) => tg::module::Kind::File,
+				tg::Artifact::Symlink(_) => tg::module::Kind::Symlink,
+			}
 		};
-		let package = package.id(&handle).await?;
+	
+
+		// Create the module.
+		let referent = tg::Referent {
+			item: tg::module::Item::Object(referent.item.id(&handle).await?),
+			path: referent.path,
+			subpath: Some(
+				referent
+					.subpath
+					.map_or_else(|| root_module.into(), |path| path.join(root_module)),
+			),
+			tag: referent.tag,
+		};
+		let package = tg::Module { referent, kind };
 
 		// Document the module.
 		let arg = tg::package::document::Arg { package, remote };
