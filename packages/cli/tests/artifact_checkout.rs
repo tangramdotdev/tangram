@@ -467,7 +467,52 @@ async fn shared_dependency_on_symlink() {
 	};
 	let checkout_dependencies = None;
 	let assertions = |artifact: temp::Artifact| async move {
-		assert_json_snapshot!(artifact, @r#""#);
+		assert_json_snapshot!(artifact, @r#"
+  {
+    "kind": "directory",
+    "entries": {
+      ".tangram": {
+        "kind": "directory",
+        "entries": {
+          "artifacts": {
+            "kind": "directory",
+            "entries": {
+              "dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg": {
+                "kind": "directory",
+                "entries": {
+                  "file.txt": {
+                    "kind": "file",
+                    "contents": "contents",
+                    "executable": false
+                  },
+                  "link": {
+                    "kind": "symlink",
+                    "target": "file.txt"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "bar.txt": {
+        "kind": "file",
+        "contents": "bar",
+        "executable": false
+      },
+      "foo.txt": {
+        "kind": "file",
+        "contents": "foo",
+        "executable": false
+      },
+      "tangram.lock": {
+        "kind": "file",
+        "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"bar.txt\": 1,\n        \"foo.txt\": 2\n      },\n      \"id\": \"dir_01t4mg404e196gzdgbr212nt0f6c3t18h5nb1t24682xrh9wtev5rg\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg\"\n        }\n      },\n      \"id\": \"fil_019bx1epya1wzdnb94n3aj2enhhm5cf1j891gv0m6te01j7bfbdn9g\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg\"\n        }\n      },\n      \"id\": \"fil_01pd3m89913g0wkfdre0xhmj2mrth7tdfjtyr813d2v2dxvg9e2q9g\"\n    }\n  ]\n}",
+        "executable": false
+      }
+    }
+  }
+  "#);
 	};
 	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
