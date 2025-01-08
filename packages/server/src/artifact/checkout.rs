@@ -596,9 +596,9 @@ impl Server {
 		};
 
 		// Create the symlink.
-		tokio::fs::symlink(target, &arg.path)
+		tokio::fs::symlink(&target, &arg.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+			.map_err(|source| tg::error!(!source, %src = target.display(), %dst = arg.path.display(), "failed to create the symlink"))?;
 
 		Ok(output)
 	}

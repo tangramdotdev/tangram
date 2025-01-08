@@ -188,6 +188,31 @@ async fn symlink_shared_target() {
 	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
+/// Test checking out a directory with two files that both depend on an artifact containing a synmlink.
+#[tokio::test]
+async fn shared_dependency_on_symlink() {
+	let build = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default tg.target(async () => {
+				let depDir = await tg.directory({
+					"file.txt": "contents",
+					"link": tg.symlink("dir"),
+				});
+				let depDirId = await depDir.id();
+				return tg.directory({
+					"foo.txt": tg.file("foo", { dependencies: { depDirId: { item: depDir }}}),
+					"bar.txt": tg.file("bar", { dependencies: { depDirId: { item: depDir }}})
+				})
+			})
+		"#),
+	};
+	let checkout_dependencies = None;
+	let assertions = |artifact: temp::Artifact| async move {
+		assert_json_snapshot!(artifact, @r#""#);
+	};
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
+}
+
 /// Test checking out a very deep directory.
 #[ignore]
 #[tokio::test]
