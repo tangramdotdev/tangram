@@ -86,8 +86,8 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.try_start_build(&id, arg).await?;
-		let response = http::Response::builder().empty().unwrap();
+		let output = handle.try_start_build(&id, arg).await?;
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }
