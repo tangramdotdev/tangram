@@ -196,7 +196,7 @@ async fn shared_dependency_on_symlink() {
 			export default tg.target(async () => {
 				let depDir = await tg.directory({
 					"file.txt": "contents",
-					"link": tg.symlink("dir"),
+					"link": tg.symlink("file.txt"),
 				});
 				let depDirId = await depDir.id();
 				return tg.directory({
