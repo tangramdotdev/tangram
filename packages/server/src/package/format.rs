@@ -6,9 +6,17 @@ use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, In
 use tangram_ignore::Matcher;
 
 impl Server {
-	pub async fn format_package(&self, mut arg: tg::package::format::Arg) -> tg::Result<()> {
+	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
+		let mut path = arg
+			.module
+			.referent
+			.item
+			.try_unwrap_path_ref()
+			.map_err(|_| tg::error!("expected a path"))?
+			.clone();
+
 		// Canonicalize the path's parent.
-		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
+		path = crate::util::fs::canonicalize_parent(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
@@ -16,8 +24,7 @@ impl Server {
 		let ignore_matcher = self.ignore_matcher_for_checkin().await?;
 
 		// Format.
-		self.format_package_inner(&arg.path, &ignore_matcher)
-			.await?;
+		self.format_package_inner(&path, &ignore_matcher).await?;
 
 		Ok(())
 	}
