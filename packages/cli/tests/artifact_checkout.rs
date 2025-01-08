@@ -448,6 +448,30 @@ async fn directory_with_symlink_cycle() {
 	test_artifact_checkout(build, checkout_dependencies, assertions).await;
 }
 
+#[tokio::test]
+async fn shared_dependency_on_symlink() {
+	let build = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default tg.target(async () => {
+				let depDir = await tg.directory({
+					"file.txt": "contents",
+					"link": tg.symlink("file.txt"),
+				});
+				let depDirId = await depDir.id();
+				return tg.directory({
+					"foo.txt": tg.file("foo", { dependencies: { depDirId: { item: depDir }}}),
+					"bar.txt": tg.file("bar", { dependencies: { depDirId: { item: depDir }}})
+				})
+			})
+		"#),
+	};
+	let checkout_dependencies = None;
+	let assertions = |artifact: temp::Artifact| async move {
+		assert_json_snapshot!(artifact, @r#""#);
+	};
+	test_artifact_checkout(build, checkout_dependencies, assertions).await;
+}
+
 async fn test_artifact_checkout<F, Fut>(
 	artifact: impl Into<temp::Artifact> + Send + 'static,
 	checkout_dependencies: Option<bool>,
