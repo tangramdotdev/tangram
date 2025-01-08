@@ -12,24 +12,28 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 }
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub added: bool,
+}
 
 impl tg::Build {
-	pub async fn add_log<H>(&self, handle: &H, arg: tg::build::log::post::Arg) -> tg::Result<()>
+	pub async fn add_log<H>(&self, handle: &H, arg: tg::build::log::post::Arg) -> tg::Result<bool>
 	where
 		H: tg::Handle,
 	{
 		let id = self.id();
-		handle.add_build_log(id, arg).await?;
-		Ok(())
+		let output = handle.try_add_build_log(id, arg).await?;
+		Ok(output.added)
 	}
 }
 
 impl tg::Client {
-	pub async fn add_build_log(
+	pub async fn try_add_build_log(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::post::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Output> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/log");
 		let request = http::request::Builder::default()
@@ -46,6 +50,7 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		Ok(())
+		let output = response.json().await?;
+		Ok(output)
 	}
 }

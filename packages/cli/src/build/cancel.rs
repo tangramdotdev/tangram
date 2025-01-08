@@ -29,7 +29,7 @@ impl Cli {
 			remote,
 			status: tg::build::Status::Canceled,
 		};
-		handle.finish_build(&args.build, arg).await?;
+		handle.try_finish_build(&args.build, arg).await?;
 
 		Ok(())
 	}

@@ -15,23 +15,28 @@ pub struct Arg {
 	pub status: tg::build::Status,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub finished: bool,
+}
+
 impl tg::Build {
-	pub async fn finish<H>(&self, handle: &H, arg: tg::build::finish::Arg) -> tg::Result<()>
+	pub async fn finish<H>(&self, handle: &H, arg: tg::build::finish::Arg) -> tg::Result<bool>
 	where
 		H: tg::Handle,
 	{
 		let id = self.id();
-		handle.finish_build(id, arg).await?;
-		Ok(())
+		let output = handle.try_finish_build(id, arg).await?;
+		Ok(output.finished)
 	}
 }
 
 impl tg::Client {
-	pub async fn finish_build(
+	pub async fn try_finish_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Output> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/finish");
 		let request = http::request::Builder::default()

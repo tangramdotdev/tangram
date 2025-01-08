@@ -87,7 +87,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<bool>> + Send;
+	) -> impl Future<Output = tg::Result<tg::build::start::Output>> + Send;
 
 	fn try_get_build_status_stream(
 		&self,
@@ -120,17 +120,17 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn add_build_log(
+	fn try_add_build_log(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<tg::build::log::post::Output>> + Send;
 
-	fn finish_build(
+	fn try_finish_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<bool>> + Send;
+	) -> impl Future<Output = tg::Result<tg::build::finish::Output>> + Send;
 
 	fn touch_build(
 		&self,

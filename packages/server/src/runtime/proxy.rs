@@ -214,7 +214,7 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::start::Arg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<tg::build::start::Output> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -257,19 +257,19 @@ impl tg::Handle for Proxy {
 		self.server.try_get_build_log_stream(id, arg)
 	}
 
-	async fn add_build_log(
+	async fn try_add_build_log(
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::log::post::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::build::log::post::Output> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn finish_build(
+	async fn try_finish_build(
 		&self,
 		_id: &tg::build::Id,
 		_arg: tg::build::finish::Arg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<tg::build::finish::Output> {
 		Err(tg::error!("forbidden"))
 	}
 

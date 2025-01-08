@@ -93,7 +93,7 @@ impl Server {
 
 			// Add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
-				self.add_build_child(parent, build.id()).await.map_err(
+				self.try_add_build_child(parent, build.id()).await.map_err(
 					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add the build as a child"),
 				)?;
 			}
@@ -151,7 +151,7 @@ impl Server {
 
 			// Add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
-				self.add_build_child(parent, build.id()).await.map_err(
+				self.try_add_build_child(parent, build.id()).await.map_err(
 					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
 				)?;
 			}
@@ -219,7 +219,7 @@ impl Server {
 
 		// Add the build to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.add_build_child(parent, build.id()).await.map_err(
+			self.try_add_build_child(parent, build.id()).await.map_err(
 				|source| tg::error!(!source, %parent, %child = build.id(), "failed to add build as a child"),
 			)?;
 		}

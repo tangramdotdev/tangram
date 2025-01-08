@@ -161,7 +161,7 @@ where
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<bool>> + Send {
+	) -> impl Future<Output = tg::Result<tg::build::start::Output>> + Send {
 		match self {
 			Either::Left(s) => s.try_start_build(id, arg).left_future(),
 			Either::Right(s) => s.try_start_build(id, arg).right_future(),
@@ -230,25 +230,25 @@ where
 		}
 	}
 
-	fn add_build_log(
+	fn try_add_build_log(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::build::log::post::Output>> {
 		match self {
-			Either::Left(s) => s.add_build_log(id, arg).left_future(),
-			Either::Right(s) => s.add_build_log(id, arg).right_future(),
+			Either::Left(s) => s.try_add_build_log(id, arg).left_future(),
+			Either::Right(s) => s.try_add_build_log(id, arg).right_future(),
 		}
 	}
 
-	fn finish_build(
+	fn try_finish_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<bool>> {
+	) -> impl Future<Output = tg::Result<tg::build::finish::Output>> {
 		match self {
-			Either::Left(s) => s.finish_build(id, arg).left_future(),
-			Either::Right(s) => s.finish_build(id, arg).right_future(),
+			Either::Left(s) => s.try_finish_build(id, arg).left_future(),
+			Either::Right(s) => s.try_finish_build(id, arg).right_future(),
 		}
 	}
 

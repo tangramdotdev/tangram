@@ -68,7 +68,7 @@ impl Server {
 			let arg = tg::build::start::Arg {
 				remote: remote.clone(),
 			};
-			let started = server.try_start_build(build.id(), arg).await?;
+			let started = server.try_start_build(build.id(), arg).await?.started;
 			if !started {
 				return Ok(());
 			}
