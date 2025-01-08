@@ -11,7 +11,7 @@ impl Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<tg::build::start::Output> {
 		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
@@ -71,7 +71,7 @@ impl Server {
 			}
 		});
 
-		Ok(started)
+		Ok(tg::build::start::Output { started })
 	}
 }
 

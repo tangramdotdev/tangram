@@ -116,7 +116,10 @@ async fn copy_build_children_and_log(
 	let mut src_children = pin!(server.get_build_children(src_build, arg).await?);
 	while let Some(chunk) = src_children.try_next().await? {
 		for child in chunk.data {
-			server.add_build_child(dst_build, &child).await?;
+			// If we fail to add one child, it means the build is finished and we can't add any of hte other children so break.
+			if !server.try_add_build_child(dst_build, &child).await? {
+				break;
+			}
 		}
 	}
 
@@ -128,7 +131,7 @@ async fn copy_build_children_and_log(
 			bytes: chunk.bytes,
 			remote: None,
 		};
-		server.add_build_log(dst_build, arg).await?;
+		server.try_add_build_log(dst_build, arg).await?;
 	}
 
 	Ok(())

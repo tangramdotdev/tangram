@@ -7,12 +7,17 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub started: bool,
+}
+
 impl tg::Client {
 	pub async fn try_start_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Output> {
 		let method = http::Method::POST;
 		let uri = format!("/builds/{id}/start");
 		let request = http::request::Builder::default()

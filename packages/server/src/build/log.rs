@@ -286,14 +286,14 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub async fn add_build_log(
+	pub async fn try_add_build_log(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::post::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::build::log::post::Output> {
 		// Verify the build is local and started.
 		if self.get_current_build_status_local(id).await? != tg::build::Status::Started {
-			return Err(tg::error!("the build is not started"));
+			return Ok(tg::build::log::post::Output { added: false });
 		}
 
 		// Log.
@@ -317,7 +317,7 @@ impl Server {
 			}
 		});
 
-		Ok(())
+		Ok(tg::build::log::post::Output { added: true })
 	}
 
 	async fn try_add_build_log_to_database(
@@ -751,7 +751,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.add_build_log(&id, arg).await?;
+		handle.try_add_build_log(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

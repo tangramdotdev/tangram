@@ -1105,7 +1105,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<bool>> {
+	) -> impl Future<Output = tg::Result<tg::build::start::Output>> {
 		self.try_start_build(id, arg)
 	}
 
@@ -1146,20 +1146,20 @@ impl tg::Handle for Server {
 		self.try_get_build_log_stream(id, arg)
 	}
 
-	fn add_build_log(
+	fn try_add_build_log(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::log::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.add_build_log(id, arg)
+	) -> impl Future<Output = tg::Result<tg::build::log::post::Output>> {
+		self.try_add_build_log(id, arg)
 	}
 
-	fn finish_build(
+	fn try_finish_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<bool>> {
-		self.finish_build(id, arg)
+	) -> impl Future<Output = tg::Result<tg::build::finish::Output>> {
+		self.try_finish_build(id, arg)
 	}
 
 	fn touch_build(

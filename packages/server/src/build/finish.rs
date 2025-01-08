@@ -9,11 +9,11 @@ use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn finish_build(
+	pub async fn try_finish_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::finish::Arg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<tg::build::finish::Output> {
 		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {
@@ -22,7 +22,7 @@ impl Server {
 				remote: None,
 				..arg
 			};
-			let output = client.finish_build(id, arg).await?;
+			let output = client.try_finish_build(id, arg).await?;
 			return Ok(output);
 		}
 
@@ -47,7 +47,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
 		if n == 0 {
-			return Ok(false);
+			return Ok(tg::build::finish::Output { finished: false });
 		}
 
 		// Get the build.
@@ -91,7 +91,7 @@ impl Server {
 					remote: None,
 					status: tg::build::Status::Canceled,
 				};
-				self.finish_build(child, arg).await?;
+				self.try_finish_build(child, arg).await?;
 				Ok::<_, tg::Error>(())
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -286,7 +286,7 @@ impl Server {
 			}
 		});
 
-		Ok(true)
+		Ok(tg::build::finish::Output { finished: true })
 	}
 
 	async fn verify_checksum(
@@ -349,7 +349,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		let output = handle.finish_build(&id, arg).await?;
+		let output = handle.try_finish_build(&id, arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}

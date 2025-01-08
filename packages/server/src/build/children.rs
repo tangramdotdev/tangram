@@ -286,14 +286,14 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub(crate) async fn add_build_child(
+	pub(crate) async fn try_add_build_child(
 		&self,
 		parent: &tg::build::Id,
 		child: &tg::build::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<bool> {
 		// Verify the build is local and started.
 		if self.get_current_build_status_local(parent).await? != tg::build::Status::Started {
-			return Err(tg::error!("the build is not started"));
+			return Ok(false);
 		}
 
 		// Get a database connection.
@@ -337,7 +337,7 @@ impl Server {
 			}
 		});
 
-		Ok(())
+		Ok(true)
 	}
 }
 
