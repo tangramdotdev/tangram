@@ -3,7 +3,7 @@ use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
-use tangram_client::{self as tg, Client};
+use tangram_client::{self as tg, Client, Handle};
 use tangram_either::Either;
 use tangram_server::Server;
 use tokio::io::AsyncWriteExt as _;
@@ -52,7 +52,7 @@ pub struct Cli {
 	before_help = before_help(),
 	disable_help_subcommand = true,
 	name = "tangram",
-	version = version(),
+	version = tg::health::version(),
 )]
 struct Args {
 	#[command(subcommand)]
@@ -76,18 +76,9 @@ struct Args {
 }
 
 fn before_help() -> String {
-	let version = version();
+	let version = tg::health::version();
 	let logo = include_str!("tangram.ascii").trim_end();
 	format!("Tangram {version}\n\n{logo}")
-}
-
-fn version() -> String {
-	let mut version = env!("CARGO_PKG_VERSION").to_owned();
-	if let Some(commit) = option_env!("TANGRAM_CLI_COMMIT_HASH") {
-		version.push('+');
-		version.push_str(commit);
-	}
-	version
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
@@ -830,6 +821,7 @@ impl Cli {
 
 	// Run the command.
 	async fn command(&self, command: Command) -> tg::Result<()> {
+		self.show_diagnostics().await.ok();
 		match command {
 			Command::Artifact(args) => self.command_artifact(args).boxed(),
 			Command::Blob(args) => self.command_blob(args).boxed(),
@@ -870,6 +862,15 @@ impl Cli {
 			Command::View(args) => self.command_view(args).boxed(),
 		}
 		.await
+	}
+
+	async fn show_diagnostics(&self) -> tg::Result<()> {
+		let handle = self.handle().await?;
+		let health = handle.health().await?;
+		for diagnostic in &health.diagnostics {
+			Self::print_diagnostic(diagnostic);
+		}
+		Ok(())
 	}
 
 	fn read_config(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
@@ -951,9 +952,9 @@ impl Cli {
 			tg::diagnostic::Severity::Info => "info".blue().bold(),
 			tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
 		};
-		let mut string = String::new();
-		write!(string, "{title}: ").unwrap();
+		eprint!("{title}: {}", diagnostic.message);
 		if let Some(location) = &diagnostic.location {
+			let mut string = String::new();
 			let path = location
 				.module
 				.referent

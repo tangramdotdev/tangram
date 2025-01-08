@@ -5,6 +5,8 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
+mod diagnostics;
+
 impl Server {
 	pub async fn health(&self) -> tg::Result<tg::Health> {
 		// Get a database connection.
@@ -70,6 +72,7 @@ impl Server {
 			database: Some(database),
 			file_descriptor_semaphore: Some(file_descriptor_semaphore),
 			version: self.config.version.clone(),
+			diagnostics: self.diagnostics(),
 		};
 
 		Ok(health)

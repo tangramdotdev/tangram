@@ -26,6 +26,7 @@ pub struct Config {
 #[derive(Clone, Debug)]
 pub struct Advanced {
 	pub build_dequeue_timeout: Duration,
+	pub collect_diagnostics: bool,
 	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
@@ -174,6 +175,7 @@ impl Default for Advanced {
 	fn default() -> Self {
 		Self {
 			build_dequeue_timeout: Duration::from_secs(3600),
+			collect_diagnostics: true,
 			error_trace_options: tg::error::TraceOptions {
 				internal: true,
 				reverse: false,

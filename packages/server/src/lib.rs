@@ -71,6 +71,7 @@ pub struct Inner {
 	compilers: RwLock<Vec<Compiler>>,
 	config: Config,
 	database: Database,
+	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	lock_file: Mutex<Option<tokio::fs::File>>,
@@ -235,6 +236,9 @@ impl Server {
 			},
 		};
 
+		// Create the diagnostics.
+		let diagnostics = Mutex::new(Vec::new());
+
 		// Create the file system semaphore.
 		let file_descriptor_semaphore =
 			tokio::sync::Semaphore::new(config.advanced.file_descriptor_semaphore_size);
@@ -287,6 +291,7 @@ impl Server {
 			compilers,
 			config,
 			database,
+			diagnostics,
 			file_descriptor_semaphore,
 			local_pool_handle,
 			lock_file,
@@ -463,6 +468,18 @@ impl Server {
 			None
 		};
 
+		// Spawn the diagnostics task.
+		let diagnostics_task = server.config.advanced.collect_diagnostics.then(|| {
+			let server = server.clone();
+			tokio::spawn(async move {
+				server
+					.diagnostics_task()
+					.await
+					.inspect_err(|error| tracing::error!(?error))
+					.ok();
+			})
+		});
+
 		// Spawn the object indexer task.
 		let object_indexer_task = if server.config.object_indexer.is_some() {
 			Some(tokio::spawn({
@@ -537,6 +554,11 @@ impl Server {
 							tracing::error!(?error, "the build spawn task panicked");
 						}
 					}
+				}
+
+				// Abort the diagnostics task.
+				if let Some(task) = diagnostics_task {
+					task.abort();
 				}
 
 				// Abort the object index task.
