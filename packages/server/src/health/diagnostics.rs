@@ -10,9 +10,13 @@ impl Server {
 		let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
 		loop {
 			interval.tick().await;
+			let mut diagnostics = Vec::new();
+
 			if let Some(diagnostic) = self.try_check_latest_version().await {
-				self.diagnostics.lock().unwrap().push(diagnostic);
+				diagnostics.push(diagnostic);
 			}
+
+			*self.diagnostics.lock().unwrap() = diagnostics;
 		}
 	}
 
