@@ -177,6 +177,13 @@ where
 						.map_err(|source| tg::error!(!source, "failed to serialize build output"))
 				}),
 				Item::Value(value) => {
+					let value = match value {
+						tg::Value::Object(object) => {
+							object.load(&handle).await.ok();
+							tg::Value::Object(object)
+						},
+						value => value,
+					};
 					let options = tg::value::print::Options {
 						recursive: true,
 						style: tg::value::print::Style::Pretty { indentation: "  " },

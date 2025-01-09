@@ -587,11 +587,7 @@ impl Server {
 				let dependencies = dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						let tg::Referent {
-							item,
-							subpath,
-							..
-						} = referent;
+						let tg::Referent { item, subpath, .. } = referent;
 						let item = item.unwrap_right();
 						(
 							reference,
