@@ -127,6 +127,7 @@ enum Command {
 
 	Download(self::blob::download::Args),
 
+	#[command(hide = true)]
 	Export(self::object::export::Args),
 
 	Format(self::package::format::Args),
@@ -135,6 +136,7 @@ enum Command {
 
 	Health(self::health::Args),
 
+	#[command(hide = true)]
 	Import(self::object::import::Args),
 
 	Init(self::package::init::Args),

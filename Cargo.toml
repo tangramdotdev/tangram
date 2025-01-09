@@ -30,6 +30,7 @@ version = "0.0.0"
 
 [workspace.lints.clippy]
 assigning_clones = "allow"
+bool_to_int_with_if = "allow"
 items_after_statements = "allow"
 large_enum_variant = "allow"
 manual_async_fn = "allow"

@@ -523,10 +523,9 @@ where
 
 						// Find where to insert it.
 						let has_children_node =
-							node.borrow().children.first().map_or(false, |node| {
+							node.borrow().children.first().is_some_and(|node| {
 								node.borrow().label.as_deref() == Some("children")
 							});
-						#[allow(clippy::bool_to_int_with_if)]
 						let index = if has_children_node { 1 } else { 0 };
 
 						// Insert the new node and return the index.
@@ -594,7 +593,7 @@ where
 				.await?
 				.try_next()
 				.await?
-				.map_or(true, |status| {
+				.is_none_or(|status| {
 					matches!(
 						status,
 						tg::build::Status::Finishing

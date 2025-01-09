@@ -10,11 +10,11 @@
 		"clean": "rm -rf node_modules target",
 		"format": "cargo fmt --all && bun run --filter \"*\" format",
 		"test": "cargo test --workspace && bun run --filter \"*\" test",
-		"tg": "cargo run --",
+		"tg": "cargo run -- -m client",
 		"tgs": "cargo run -- -m server",
-		"tgo": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/debug/tangram $@' --",
-		"tgor": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/release/tangram $@' --",
-		"tgr": "cargo run --release --",
+		"tgo": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/debug/tangram $@' -- -m client",
+		"tgor": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/release/tangram $@' -- -m client",
+		"tgr": "cargo run --release -- -m client",
 		"tgrs": "cargo run --release -- -m server"
 	},
 	"workspaces": ["packages/compiler", "packages/runtime", "packages/vscode"]
