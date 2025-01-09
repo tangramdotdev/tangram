@@ -136,13 +136,13 @@ impl Compiler {
 
 	async fn resolve_with_path_referrer(
 		&self,
-		path: &Path,
+		referrer: &Path,
 		subpath: Option<&Path>,
 		import: &tg::Import,
 	) -> tg::Result<tg::Referent<tg::module::Item>> {
 		// Get the referrer within some lockfile.
 		let subpath = subpath.unwrap_or("".as_ref());
-		let module_path = path.join(subpath);
+		let module_path = referrer.join(subpath);
 
 		// Get the lockfile and its path.
 		let (lockfile_path, lockfile) = 'a: {
@@ -202,16 +202,29 @@ impl Compiler {
 				subpath,
 				tag,
 			}) => {
-				let package_path = self
+				if let Ok(package_path) = self
 					.server
 					.find_path_in_lockfile(*index, &lockfile_path, &lockfile)
-					.await?;
-				Ok(tg::Referent {
-					item: tg::module::Item::Path(package_path),
-					subpath: subpath.clone(),
-					path: path.clone(),
-					tag: tag.clone(),
-				})
+					.await
+				{
+					Ok(tg::Referent {
+						item: tg::module::Item::Path(package_path),
+						subpath: subpath.clone(),
+						path: path.clone(),
+						tag: tag.clone(),
+					})
+				} else if let Some(id) = lockfile.nodes[*index].id() {
+					Ok(tg::Referent {
+						item: tg::module::Item::Object(id.into()),
+						subpath: subpath.clone(),
+						path: path.clone(),
+						tag: tag.clone(),
+					})
+				} else {
+					Err(
+						tg::error!(%referrer = referrer.display(), %reference = import.reference, "failed to resolve import"),
+					)
+				}
 			},
 
 			// Resolve objects normally.
