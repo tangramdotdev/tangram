@@ -588,7 +588,7 @@ where
 			.children(handle, tg::build::children::get::Arg::default())
 			.await?;
 		while let Some(build) = children.try_next().await? {
-			if build
+			let finished = build
 				.status(handle)
 				.await?
 				.try_next()
@@ -601,11 +601,12 @@ where
 							| tg::build::Status::Failed
 							| tg::build::Status::Succeeded
 					)
-				}) {
-				continue;
-			}
+				});
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
+				if node.borrow().options.condensed_builds && finished {
+					return;
+				}
 				if !node.borrow().options.condensed_builds
 					&& node
 						.borrow()
