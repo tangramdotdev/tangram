@@ -9,7 +9,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub stop: bool,
+	pub status: tg::build::Status,
 }
 
 impl tg::Build {

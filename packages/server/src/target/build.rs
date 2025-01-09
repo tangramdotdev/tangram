@@ -91,7 +91,7 @@ impl Server {
 				}
 			}
 
-			// Add the build as a child of the parent.
+			// Attempt to add the build as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
 				self.try_add_build_child(parent, build.id()).await.map_err(
 					|source| tg::error!(!source, %parent, %child = build.id(), "failed to add the build as a child"),
@@ -122,19 +122,17 @@ impl Server {
 			let futures = self
 				.get_remote_clients()
 				.await?
-				.into_iter()
-				.map(|(remote, client)| {
-					let server = self.clone();
+				.into_values()
+				.map(|client| {
 					let arg = arg.clone();
-					let remote = remote.clone();
 					Box::pin(async move {
 						let arg = tg::target::build::Arg {
 							create: false,
-							remote: Some(remote.clone()),
+							remote: None,
 							..arg.clone()
 						};
 						let tg::target::build::Output { build } =
-							server.build_target(id, arg).await?;
+							client.build_target(id, arg).await?;
 						let build = tg::Build::with_id(build);
 						Ok::<_, tg::Error>(Some((build, client)))
 					})

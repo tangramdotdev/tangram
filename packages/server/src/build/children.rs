@@ -292,7 +292,9 @@ impl Server {
 		child: &tg::build::Id,
 	) -> tg::Result<bool> {
 		// Verify the build is local and started.
-		if self.get_current_build_status_local(parent).await? != tg::build::Status::Started {
+		if self.try_get_current_build_status_local(parent).await?
+			!= Some(tg::build::Status::Started)
+		{
 			return Ok(false);
 		}
 

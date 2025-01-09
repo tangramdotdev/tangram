@@ -1,8 +1,10 @@
+use std::pin::pin;
+
 use crate::Server;
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, FutureExt as _, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, handle::Ext};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
@@ -107,7 +109,12 @@ impl Server {
 		if status != tg::build::status::Status::Canceled
 			&& children
 				.iter()
-				.map(|child| self.get_current_build_status_local(child))
+				.map(|child| async move {
+					pin!(self.get_build_status(child).await?)
+						.try_next()
+						.await?
+						.ok_or_else(|| tg::error!("failed to get the build status"))
+				})
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?

@@ -155,7 +155,7 @@ impl Server {
 		build
 			.finish(self, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to finish the build"))?;
+			.map_err(|source| tg::error!(!source, %build, "failed to finish the build"))?;
 
 		Ok::<_, tg::Error>(())
 	}
@@ -204,7 +204,7 @@ impl Server {
 			};
 			let result = build.heartbeat(self, arg).await;
 			if let Ok(output) = result {
-				if output.stop {
+				if output.status.is_finished() {
 					self.builds.abort(build.id());
 					break;
 				}

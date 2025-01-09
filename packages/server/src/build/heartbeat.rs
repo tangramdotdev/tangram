@@ -57,8 +57,7 @@ impl Server {
 		drop(connection);
 
 		// Create the output.
-		let stop = status.is_finished();
-		let output = tg::build::heartbeat::Output { stop };
+		let output = tg::build::heartbeat::Output { status };
 
 		Ok(output)
 	}
@@ -97,7 +96,7 @@ impl Server {
 				select id
 				from builds
 				where
-					status = 'started' and
+					(status = 'started' or status = 'finishing') and
 					heartbeat_at <= {p}1
 				limit {p}2;
 			"
