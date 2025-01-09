@@ -95,7 +95,7 @@ num = "0.4"
 oauth2 = "5.0.0-rc.1"
 octocrab = "0.42"
 once_cell = "1"
-petgraph = "0.6"
+petgraph = "0.7"
 pin-project = "1"
 pretty_assertions = "1"
 proptest = "1"
@@ -119,7 +119,7 @@ serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 sourcemap = "9"
-swc_core = { version = "9", features = [
+swc_core = { version = "10", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",
@@ -165,7 +165,7 @@ unicode-width = "0.2"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { version = "130.0.2" }
+v8 = { version = "130" }
 webbrowser = "1"
 webpki-roots = "0.26"
 winnow = "0.6"
