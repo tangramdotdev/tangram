@@ -54,11 +54,10 @@ impl Server {
 				let subpath = reference
 					.options()
 					.and_then(|options| options.subpath.clone());
-				let path = Some(PathBuf::from("."));
 				let output = tg::Referent {
 					item,
+					path: None,
 					subpath,
-					path,
 					tag: None,
 				};
 				Ok(Some(output))
@@ -74,7 +73,7 @@ impl Server {
 					item,
 					path: None,
 					subpath,
-					tag: Some(tag),
+					tag: None,
 				};
 				Ok(Some(output))
 			},
