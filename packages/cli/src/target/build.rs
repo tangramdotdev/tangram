@@ -491,12 +491,15 @@ impl Cli {
 				lockfile: false,
 				path,
 			};
-			let output = artifact
-				.check_out(&handle, arg)
+			let stream = handle
+				.check_out_artifact(&artifact.id(&handle).await?, arg)
+				.await?;
+			let output = self
+				.render_progress_stream(stream)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
-			return Ok(InnerOutput::Path(output));
+			return Ok(InnerOutput::Path(output.path));
 		}
 
 		Ok(InnerOutput::Value(output))
