@@ -38,10 +38,10 @@ pub struct Edge {
 #[derive(Clone, Debug)]
 struct RemappedEdge {
 	pub id: Either<usize, tg::object::Id>,
-	pub path: Option<PathBuf>,
+	pub _path: Option<PathBuf>,
 	pub reference: tg::Reference,
 	pub subpath: Option<PathBuf>,
-	pub tag: Option<tg::Tag>,
+	pub _tag: Option<tg::Tag>,
 }
 
 impl Server {
@@ -114,13 +114,12 @@ impl Server {
 				paths,
 			))
 			.await;
-			let referrent = unify.nodes.get(&edge.referent).unwrap();
 			let edge = Edge {
 				index: dependency_index,
-				path: edge.path.clone(),
+				path: None,
 				reference: reference.clone(),
 				subpath: edge.subpath.clone(),
-				tag: referrent.tag.clone(),
+				tag: None,
 			};
 			nodes[index].edges.push(edge);
 		}
@@ -310,10 +309,10 @@ impl Server {
 				};
 				RemappedEdge {
 					id,
-					path: edge.path.clone(),
+					_path: edge.path.clone(),
 					reference: edge.reference.clone(),
 					subpath: edge.subpath.clone(),
-					tag: edge.tag.clone(),
+					_tag: edge.tag.clone(),
 				}
 			})
 			.collect::<Vec<_>>();
@@ -399,10 +398,10 @@ impl Server {
 				};
 				RemappedEdge {
 					id,
-					path: edge.path.clone(),
+					_path: edge.path.clone(),
 					reference: edge.reference.clone(),
 					subpath: edge.subpath.clone(),
-					tag: edge.tag.clone(),
+					_tag: edge.tag.clone(),
 				}
 			})
 			.collect::<Vec<_>>();
@@ -460,9 +459,9 @@ impl Server {
 					.map(|edge| {
 						let dependency = tg::Referent {
 							item: edge.id,
-							path: edge.path,
-							tag: edge.tag,
+							path: None,
 							subpath: edge.subpath,
+							tag: None,
 						};
 						(edge.reference, dependency)
 					})
@@ -534,9 +533,9 @@ impl Server {
 			.map(|edge| {
 				let dependency = tg::Referent {
 					item: edge.id,
-					path: edge.path,
-					tag: edge.tag,
+					path: None,
 					subpath: edge.subpath,
+					tag: None,
 				};
 				(edge.reference, dependency)
 			})
@@ -590,18 +589,17 @@ impl Server {
 					.map(|(reference, referent)| {
 						let tg::Referent {
 							item,
-							path,
-							tag,
 							subpath,
+							..
 						} = referent;
 						let item = item.unwrap_right();
 						(
 							reference,
 							tg::Referent {
 								item,
-								path,
+								path: None,
 								subpath,
-								tag,
+								tag: None,
 							},
 						)
 					})

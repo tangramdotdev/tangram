@@ -252,7 +252,7 @@ async fn objects() {
 			.output()
 			.await
 			.unwrap();
-		assert_success!(g_output);
+		assert_failure!(g_output);
 
 		let h_output = server
 			.tg()

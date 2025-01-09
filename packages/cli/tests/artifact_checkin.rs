@@ -136,7 +136,6 @@ async fn file_through_symlink() {
           "item": tg.file({
             "contents": tg.leaf("hello, world!"),
           }),
-          "path": "../b/e/d",
         },
       },
     }),
@@ -147,7 +146,7 @@ async fn file_through_symlink() {
     "complete": true,
     "count": 5,
     "depth": 4,
-    "weight": 378
+    "weight": 360
   }
   "#);
 		let lockfile = lockfile.expect("expected a lockfile");
@@ -159,11 +158,11 @@ async fn file_through_symlink() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_01herzzj4fs0kkcx2gexc8g19z65ye1nf8bcf7seb79x7xwp0twb10"
+        "id": "dir_01sfxc12kdhkczx7hpf7w9qmvzdx2kskhp1jqr4rky56bh3g3bgsxg"
       },
       {
         "kind": "file",
-        "id": "fil_015kyznxcqzkjhghra06294bdqgbsc6s5jxhm9kkf7fzyabxmdhyp0"
+        "id": "fil_014bbykn7emmm5d5ade8najw6hrmnwc9at3en7wvdaahx3q5vh05ng"
       }
     ]
   }
@@ -198,7 +197,6 @@ async fn artifact_symlink() {
           "item": tg.symlink({
             "target": "e",
           }),
-          "path": "../b/c",
         },
       },
     }),
@@ -209,7 +207,7 @@ async fn artifact_symlink() {
     "complete": true,
     "count": 4,
     "depth": 3,
-    "weight": 300
+    "weight": 284
   }
   "#);
 		let lockfile = lockfile.expect("expected a lockfile");
@@ -221,11 +219,11 @@ async fn artifact_symlink() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_01xbgdpny7b5ps7cnrmdnjb5hs5wdxg27kbdvpp0qmgcrv0r8n0st0"
+        "id": "dir_01ehyscz6b09rfgrgaa0kprmy5wyb9np0c0h97ktd9nw135tpshywg"
       },
       {
         "kind": "file",
-        "id": "fil_01t5dgeercxdbxwggkw0hzpzxmvqe8tqsmvbxbrtqz56zyh7sm1nc0"
+        "id": "fil_017n95dt2m8rkr70nmh2e19cgm2hjgxvgxeb1zhc0qh6r8zv66qs30"
       }
     ]
   }
@@ -268,13 +266,13 @@ async fn lockfile_out_of_date() {
 	let path = "";
 	let assertions = |object: String, metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(metadata, @r#"
-{
-  "complete": true,
-  "count": 4,
-  "depth": 4,
-  "weight": 440
-}
-"#);
+  {
+    "complete": true,
+    "count": 4,
+    "depth": 4,
+    "weight": 430
+  }
+  "#);
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
   {
@@ -285,7 +283,7 @@ async fn lockfile_out_of_date() {
           "b.tg.ts": 1,
           "tangram.ts": 2
         },
-        "id": "dir_0160h2b0874ht1tghsj4kx52azk05h57athnmrrfrmt0d44mvp33dg"
+        "id": "dir_01zhsfa0g7bvxqr8n1r5c3p6kq6wtj1t08w063mm2atts7c69z72x0"
       },
       {
         "kind": "file",
@@ -297,11 +295,10 @@ async fn lockfile_out_of_date() {
         "dependencies": {
           "./b.tg.ts": {
             "item": 0,
-            "path": "",
             "subpath": "b.tg.ts"
           }
         },
-        "id": "fil_01vp5107n1fnx1sey6n000g3343kjhm6fzhmqvanvd5wfqhk2bn69g"
+        "id": "fil_01defcetb2r1e5vpb9j4xvsxyx1c20tvbr34f27rasqhygsjkx267g"
       }
     ]
   }
@@ -325,7 +322,6 @@ async fn lockfile_out_of_date() {
           "dependencies": {
             "./b.tg.ts": {
               "item": 0,
-              "path": "",
               "subpath": "b.tg.ts",
             },
           },
@@ -362,18 +358,17 @@ async fn simple_path_dependency() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_01za2dxxhecas2y3r5rgas60mh7bjx2bwnyxc80xkcg9n4q91vj7n0"
+        "id": "dir_01psn7dzpkyhg2ggakcs4z5t7f70dankg4jys8d8nb457r7rg2r8gg"
       },
       {
         "kind": "file",
         "dependencies": {
           "../bar": {
             "item": 2,
-            "path": "../bar",
             "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01pwga7r12479ej6c632wks0n1rs3wke5r7pswxmtcxebv0c2k7d0g"
+        "id": "fil_0164x40zgnt4ewam0t3j8rq0amv4bzcyvbqnrjd78g03pttveac7s0"
       },
       {
         "kind": "directory",
@@ -400,7 +395,6 @@ async fn simple_path_dependency() {
               "contents": tg.leaf(""),
             }),
           }),
-          "path": "../bar",
           "subpath": "tangram.ts",
         },
       },
@@ -444,25 +438,24 @@ async fn package_with_nested_dependencies() {
           "baz": 3,
           "tangram.ts": 5
         },
-        "id": "dir_016c0hyd587p2w6mcgeadwm73rjvbnwrbfej4exgdjw9xb7jynn6xg"
+        "id": "dir_0155r2egv2659mhcav4v10cyayasbmwx3wceyatjnm5acaytax1wd0"
       },
       {
         "kind": "directory",
         "entries": {
           "tangram.ts": 2
         },
-        "id": "dir_017jbe3ap28vj9qxaa4tdcbrfbvbqm48sjw20d0184bj4b4h3r5p10"
+        "id": "dir_01p51hdbwcw97c29cqbwtjasnrm0z9s4jt7hhr3ncvyx2xye0kk41g"
       },
       {
         "kind": "file",
         "dependencies": {
           "../baz": {
             "item": 3,
-            "path": "baz",
             "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01w9ep677eqfh59vsanqg0ydkrkq8n9yqbjm0tqsj3f3xgdfqny87g"
+        "id": "fil_01ech8fmtth7hmw2dprwanfax0wmra003r59taqfx65zmsqxt3qet0"
       },
       {
         "kind": "directory",
@@ -480,16 +473,14 @@ async fn package_with_nested_dependencies() {
         "dependencies": {
           "./bar": {
             "item": 1,
-            "path": "bar",
             "subpath": "tangram.ts"
           },
           "./baz": {
             "item": 3,
-            "path": "baz",
             "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01ym6gkmf9npa0n7xpwk64mc6dap53qnxan6qm4vhdw1ev2g3nnamg"
+        "id": "fil_019zqh56dswrf2d02czkxq6ne7axpkzn5n1mn3bynbp05n59c41nr0"
       }
     ]
   }
@@ -506,7 +497,6 @@ async fn package_with_nested_dependencies() {
                 "contents": tg.leaf(""),
               }),
             }),
-            "path": "baz",
             "subpath": "tangram.ts",
           },
         },
@@ -531,13 +521,11 @@ async fn package_with_nested_dependencies() {
                       "contents": tg.leaf(""),
                     }),
                   }),
-                  "path": "baz",
                   "subpath": "tangram.ts",
                 },
               },
             }),
           }),
-          "path": "bar",
           "subpath": "tangram.ts",
         },
         "./baz": {
@@ -546,7 +534,6 @@ async fn package_with_nested_dependencies() {
               "contents": tg.leaf(""),
             }),
           }),
-          "path": "baz",
           "subpath": "tangram.ts",
         },
       },
@@ -688,14 +675,14 @@ async fn import_directory_from_current() {
         "entries": {
           "a": 1
         },
-        "id": "dir_013qp759rjhk3kbma89abr001b0sc65ts68p9dwt1anww7mn0y64mg"
+        "id": "dir_01c8xhsrz9pc3yd0nwtwv18xspk5c5xm86ff1rdxnqksh6t4tv6v20"
       },
       {
         "kind": "directory",
         "entries": {
           "mod.tg.ts": 2
         },
-        "id": "dir_018ctma2cbtavcj881dm0y2n7kz8r5nrqmdp5npq4j9ya5cmvq9wa0"
+        "id": "dir_011z159ekep5rv6evxq85n733naswpa37np1hpfkqc8xaqp1g7hbxg"
       },
       {
         "kind": "file",
@@ -703,11 +690,10 @@ async fn import_directory_from_current() {
         "dependencies": {
           ".": {
             "item": 0,
-            "path": "",
             "subpath": "a"
           }
         },
-        "id": "fil_01twcsm3s5h948nr90af1x05v2t6p5ct91th1wb82r90se6v0sdtbg"
+        "id": "fil_01psm3mjtpk3nxf54dfzhbagr6ns2c7brge4nz44p3sdx4z5178rng"
       }
     ]
   }
@@ -734,7 +720,6 @@ async fn import_directory_from_current() {
           "dependencies": {
             ".": {
               "item": 0,
-              "path": "",
               "subpath": "a",
             },
           },
@@ -771,7 +756,7 @@ async fn import_package_from_current() {
         "entries": {
           "a": 1
         },
-        "id": "dir_01j82ndr1rmj49j2jzxqp9fktgavstdpztsrrbyb1jga7aqqj41ym0"
+        "id": "dir_01r2s046gvyrhjhdy6zmfdyn9wwjf15wv4669q6km5mg5kcz8nax30"
       },
       {
         "kind": "directory",
@@ -779,7 +764,7 @@ async fn import_package_from_current() {
           "mod.tg.ts": 2,
           "tangram.ts": 3
         },
-        "id": "dir_013jcybpz1dg60gjgtszaak8jreskbmcqqpm38xyz958b2vpz3qc9g"
+        "id": "dir_01qcsa7yt6f796185awafrdpx8vrcan1eygtpbnxjbep9wzjcw30cg"
       },
       {
         "kind": "file",
@@ -787,11 +772,10 @@ async fn import_package_from_current() {
         "dependencies": {
           ".": {
             "item": 1,
-            "path": "a",
             "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01p3822cwafpv4ggyrq9s1kjhk16bn00z5m0d5yp1dgccyknpzb76g"
+        "id": "fil_0198p772d5g6wpps3v01688qcmd4k8jq7z9sex2gt46xk1azvnmj9g"
       },
       {
         "kind": "file",
@@ -820,7 +804,6 @@ async fn import_package_from_current() {
             "dependencies": {
               ".": {
                 "item": 0,
-                "path": "a",
                 "subpath": "tangram.ts",
               },
             },
@@ -856,7 +839,7 @@ async fn import_directory_from_parent() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_014acgrfbgqq3cmcasbm0rg11kjga3r503c6xehfvxrenbb9vez4jg"
+        "id": "dir_01ztyjmrmb6fz29g7xfwpgy0jh2fs9vvsaa9dgyp77r4dww3zx3xe0"
       },
       {
         "kind": "file",
@@ -864,11 +847,10 @@ async fn import_directory_from_parent() {
         "dependencies": {
           "./a": {
             "item": 0,
-            "path": "",
             "subpath": "a"
           }
         },
-        "id": "fil_01yf698d5k87pyhkeqwxaadcpfyasp5mc7tad3vn2wk6zbsv4t6qz0"
+        "id": "fil_01ghq54ws34wg7ae7v4vrds7h5ywcn16avwggze5k110pvbz4by470"
       }
     ]
   }
@@ -890,7 +872,6 @@ async fn import_directory_from_parent() {
           "dependencies": {
             "./a": {
               "item": 0,
-              "path": "",
               "subpath": "a",
             },
           },
@@ -928,7 +909,7 @@ async fn import_package_with_type_directory_from_parent() {
           "a": 1,
           "tangram.ts": 3
         },
-        "id": "dir_014gmvcx8sb5zs49yqncntptqfcex3bve7tcn0cya3263mnr5t72e0"
+        "id": "dir_0183amfbapjebd89tc4d7ke2pgatrnfk87889gn88fwcwjqa5eqwrg"
       },
       {
         "kind": "directory",
@@ -947,11 +928,10 @@ async fn import_package_with_type_directory_from_parent() {
         "dependencies": {
           "./a": {
             "item": 0,
-            "path": "",
             "subpath": "a"
           }
         },
-        "id": "fil_01tyeqe83hx84c7npb1ayy1m9d4a84gs4tmvcfp8mtwn3na7728j4g"
+        "id": "fil_01ph5k4075ep1nkpdkhs2pjn2kf8mn9tp6cb826cfwtng6n9hph6yg"
       }
     ]
   }
@@ -977,7 +957,6 @@ async fn import_package_with_type_directory_from_parent() {
           "dependencies": {
             "./a": {
               "item": 0,
-              "path": "",
               "subpath": "a",
             },
           },
@@ -1015,7 +994,7 @@ async fn import_package_from_parent() {
           "a": 1,
           "tangram.ts": 3
         },
-        "id": "dir_011j1bpzfppq2r4vvtg0v4ed5we7s1jwnfdmrgr8m9tj1sk1e6n9b0"
+        "id": "dir_01ma8vacbss7qbgwwg2pj38g221vhseb7e84xbb9kn5pj6m7j7k5z0"
       },
       {
         "kind": "directory",
@@ -1033,11 +1012,10 @@ async fn import_package_from_parent() {
         "dependencies": {
           "./a": {
             "item": 1,
-            "path": "a",
             "subpath": "tangram.ts"
           }
         },
-        "id": "fil_016g7fp581r3e8n81dg6na50bddcen9pk8prqgqct7df8pqzphyyag"
+        "id": "fil_016rt7bd69x17ghh6skjcsxx7yqn2v8dyd3dqp197t9h03fmcxmha0"
       }
     ]
   }
@@ -1058,7 +1036,6 @@ async fn import_package_from_parent() {
               "contents": tg.leaf(""),
             }),
           }),
-          "path": "a",
           "subpath": "tangram.ts",
         },
       },
@@ -1091,7 +1068,7 @@ async fn package_with_cyclic_modules() {
           "foo.tg.ts": 1,
           "tangram.ts": 2
         },
-        "id": "dir_010prey26p516r3ms8z1sft1s4n3xpm5jbpt5h3qqmemm61kg97gh0"
+        "id": "dir_01hn0fxkkyf3hgthdb9179cy1pdm0t0kvr34f9f3k8tkk2ws01wj60"
       },
       {
         "kind": "file",
@@ -1099,11 +1076,10 @@ async fn package_with_cyclic_modules() {
         "dependencies": {
           "./tangram.ts": {
             "item": 0,
-            "path": "",
             "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01ktrenvk1711bckv8hdpe0ze6ty00yxexptrts9b26vh994frtbwg"
+        "id": "fil_017n9eky25y855zdndx9a8sggspg12z7sredj7vehq3pjm2t8gsttg"
       },
       {
         "kind": "file",
@@ -1111,11 +1087,10 @@ async fn package_with_cyclic_modules() {
         "dependencies": {
           "./foo.tg.ts": {
             "item": 0,
-            "path": "",
             "subpath": "foo.tg.ts"
           }
         },
-        "id": "fil_01brq5a8r3prynqs1say65vbcv47z0e4qtk5gadg2q11hazjfnqyqg"
+        "id": "fil_01jk5px81jfd00vw4kazpzhhm1q660egdtr1xbx9c07s2qb2jgy1jg"
       }
     ]
   }
@@ -1137,7 +1112,6 @@ async fn package_with_cyclic_modules() {
           "dependencies": {
             "./foo.tg.ts": {
               "item": 0,
-              "path": "",
               "subpath": "foo.tg.ts",
             },
           },
@@ -1148,7 +1122,6 @@ async fn package_with_cyclic_modules() {
           "dependencies": {
             "./tangram.ts": {
               "item": 0,
-              "path": "",
               "subpath": "tangram.ts",
             },
           },
@@ -1187,7 +1160,7 @@ async fn cyclic_dependencies() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_014q009v7jzv5686j2f0y4j17m53rsev0gy814qkchmrrnsycf32xg"
+        "id": "dir_018x18xx2b9r8mptxqh1hk59fwv1cjxz1wrx0389cj4m9fj2tzw1p0"
       },
       {
         "kind": "file",
@@ -1195,18 +1168,17 @@ async fn cyclic_dependencies() {
         "dependencies": {
           "../bar": {
             "item": 2,
-            "path": "../bar",
             "subpath": "tangram.ts"
           }
         },
-        "id": "fil_019ah53qck1p9xxe0jxvb0vxwdnt4680bfj0xtj9etawagthsrh1e0"
+        "id": "fil_01qz8cvmh02zvmw8m6sd54nng7td125gskaws5fetjp74fzqkat190"
       },
       {
         "kind": "directory",
         "entries": {
           "tangram.ts": 3
         },
-        "id": "dir_01w261pda787rg6f89jxqzevkbt30bbbe1zwnsnjav6mxdx7gcs27g"
+        "id": "dir_01cysy22404xh7ee1179kp980vtqks3azbhs73j442rjry91nwb3d0"
       },
       {
         "kind": "file",
@@ -1214,11 +1186,10 @@ async fn cyclic_dependencies() {
         "dependencies": {
           "../foo": {
             "item": 0,
-            "path": "",
             "subpath": "tangram.ts"
           }
         },
-        "id": "fil_0157mddgf6en44fc11ercy1b022135je68p0h3x3hka1syke5abvz0"
+        "id": "fil_01b6vsf5tdd8ckqjqa541wnavrvkepqnwy11phpkgxtemct51j8whg"
       }
     ]
   }
@@ -1239,7 +1210,6 @@ async fn cyclic_dependencies() {
           "dependencies": {
             "../bar": {
               "item": 2,
-              "path": "../bar",
               "subpath": "tangram.ts",
             },
           },
@@ -1256,7 +1226,6 @@ async fn cyclic_dependencies() {
           "dependencies": {
             "../foo": {
               "item": 0,
-              "path": "",
               "subpath": "tangram.ts",
             },
           },
@@ -1345,7 +1314,6 @@ async fn package_destructive() {
           "dependencies": {
             "./a.tg.ts": {
               "item": 0,
-              "path": "",
               "subpath": "a.tg.ts",
             },
           },
@@ -1520,22 +1488,16 @@ async fn tagged_object() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_01nnp9jbwak11sksnwv2jtcdjyv252wg1ksm3zv4pbrc8dvdbkkrw0"
+        "id": "dir_0103qcdk4tgcahkn262qeazkjrqx4pv4488r25e3w72pvf0a5mw1t0"
       },
       {
         "kind": "file",
         "dependencies": {
           "hello-world": {
-            "item": 2,
-            "tag": "hello-world"
+            "item": "fil_01yxtf8s9sxc1dcv6vs0zjxhra1xp11j97h485cjhmtwa4mrrzbrag"
           }
         },
-        "id": "fil_01713frgeanw8fswtkpa36t55p90zhgmsm8hht2nsfxhzxs21dq5p0"
-      },
-      {
-        "kind": "file",
-        "contents": "lef_01xqjw1c8f5v29f739pmqp3s1fypt16mcww2dy1wad166wzsfpz66g",
-        "id": "fil_01yxtf8s9sxc1dcv6vs0zjxhra1xp11j97h485cjhmtwa4mrrzbrag"
+        "id": "fil_012frh90xgpyb6k8m8dv2e7w106zjfd7t8b5ewk8bdqc6764szp2rg"
       }
     ]
   }
@@ -1549,7 +1511,6 @@ async fn tagged_object() {
           "item": tg.file({
             "contents": tg.leaf("Hello, world!"),
           }),
-          "tag": "hello-world",
         },
       },
     }),
@@ -1588,18 +1549,17 @@ async fn tagged_package() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_01qr8dyk7j1dcm99fcv2yf8xq3ex4040b5j44z16nk9ecn4mmrss9g"
+        "id": "dir_013vnxmkz1dapnw2hyac4tn9r64tzsa8gmyttnrr9jm347sp4stkvg"
       },
       {
         "kind": "file",
         "dependencies": {
           "a": {
             "item": 2,
-            "subpath": "tangram.ts",
-            "tag": "a"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01nj9vsy1dr2p3771v34pq49t2a55tyt0m0mt8bz7ryg1ascs09zeg"
+        "id": "fil_0153rytwzqkn19xp6z9ra5nmn3cwjenhfn18gztnt8vemtn74fq0tg"
       },
       {
         "kind": "directory",
@@ -1610,7 +1570,6 @@ async fn tagged_package() {
       },
       {
         "kind": "file",
-        "contents": "lef_01fktw8vh756v2jmnpp5dyy76nvj3e3d9eysxp24ebr2anqprrbwz0",
         "id": "fil_01kjqjy201v16b4xg7vs9qcyj69jm5bd6h2k3qrsr6cznmbhswaea0"
       }
     ]
@@ -1628,7 +1587,6 @@ async fn tagged_package() {
             }),
           }),
           "subpath": "tangram.ts",
-          "tag": "a",
         },
       },
     }),
@@ -1671,18 +1629,17 @@ async fn tagged_package_with_cyclic_dependency() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_018a9xvdxyjk4hbje5z1tvapt7b0nckwa4zdvmshnp2g0gnx8sbbpg"
+        "id": "dir_016av7j3e2aafe9wht7qqgjb8vz73cc47yrkrnnp2bpfzwkwtrwtdg"
       },
       {
         "kind": "file",
         "dependencies": {
           "a": {
             "item": 2,
-            "subpath": "tangram.ts",
-            "tag": "a"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_016y98m3qa8ks5gpy32dmr8837eb4jsrz9zeay0wfjjabb0twm03ng"
+        "id": "fil_01byhrjjy63jr2mdbzt2jrj6bfgnyf6v1bcfzxcaqwny6tq3hd0790"
       },
       {
         "kind": "directory",
@@ -1690,7 +1647,7 @@ async fn tagged_package_with_cyclic_dependency() {
           "foo.tg.ts": 3,
           "tangram.ts": 4
         },
-        "id": "dir_01ddweh83zaxjcq0qabp7w0qcnx5a4cnapbdstxk9anvxey5b1vmrg"
+        "id": "dir_01yan0xrn062gmr28vd4msp8cj5zgkn031v6essz4z6pxs0n7rrpk0"
       },
       {
         "kind": "file",
@@ -1698,11 +1655,10 @@ async fn tagged_package_with_cyclic_dependency() {
         "dependencies": {
           "./tangram.ts": {
             "item": 2,
-            "subpath": "tangram.ts",
-            "tag": "a"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01pgtnj5xx2kan9g7th6shsj5p1xy8vejk55z12n64eetpws8pqd50"
+        "id": "fil_01d5p4xxk27g0q1s47t0n8ypn0j5rhgrdt04s4djqey6esjrcmccr0"
       },
       {
         "kind": "file",
@@ -1710,11 +1666,10 @@ async fn tagged_package_with_cyclic_dependency() {
         "dependencies": {
           "./foo.tg.ts": {
             "item": 2,
-            "subpath": "foo.tg.ts",
-            "tag": "a"
+            "subpath": "foo.tg.ts"
           }
         },
-        "id": "fil_018mvpkw54dbcje47y0nkq4sra4y1axkhd2ka9n2xrd41w2tpqne70"
+        "id": "fil_01f466tpp902t4e9gfb1hn5z0ktgmdvefds7v9hdkcx0wnt711phqg"
       }
     ]
   }
@@ -1742,7 +1697,6 @@ async fn tagged_package_with_cyclic_dependency() {
                     "./foo.tg.ts": {
                       "item": 0,
                       "subpath": "foo.tg.ts",
-                      "tag": "a",
                     },
                   },
                 },
@@ -1753,7 +1707,6 @@ async fn tagged_package_with_cyclic_dependency() {
                     "./tangram.ts": {
                       "item": 0,
                       "subpath": "tangram.ts",
-                      "tag": "a",
                     },
                   },
                 },
@@ -1762,7 +1715,6 @@ async fn tagged_package_with_cyclic_dependency() {
             "node": 0,
           }),
           "subpath": "tangram.ts",
-          "tag": "a",
         },
       },
     }),
@@ -1822,30 +1774,28 @@ async fn tag_dependency_cycles() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_01tzv7mnqxkq5t3sw5sg8jes7bjdazgrsnmp9zt93fqswazpz43r8g"
+        "id": "dir_01nztcqdxcka49vket83atb0mhrz9psjhwqmvrqbzy4mzwyngqt4y0"
       },
       {
         "kind": "file",
         "dependencies": {
           "a/*": {
             "item": 2,
-            "subpath": "tangram.ts",
-            "tag": "a/1.1.0"
+            "subpath": "tangram.ts"
           },
           "b/*": {
             "item": 4,
-            "subpath": "tangram.ts",
-            "tag": "b/1.0.0"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01s77r9zrw3fj54epdrw103dptdbqzke2878y272e35g5s7qs1yd6g"
+        "id": "fil_01vt30yxcge5agq8rk78vs5kystffnsca8cqzrs6rxg6gyx77t3180"
       },
       {
         "kind": "directory",
         "entries": {
           "tangram.ts": 3
         },
-        "id": "dir_01c10z175t2xft8kp58f71vs990yyt3wxbhcrvb9qe7zkb5qga8pwg"
+        "id": "dir_01sqj2r5c0559hw3wpxr5cx4ehyyedxeg06s3dybsayytte4hypsy0"
       },
       {
         "kind": "file",
@@ -1853,11 +1803,10 @@ async fn tag_dependency_cycles() {
         "dependencies": {
           "b/*": {
             "item": 4,
-            "subpath": "tangram.ts",
-            "tag": "b/1.0.0"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01v140jjq24vh3nk8n61rz28t9xyqy365prfrnadmz65m8hzckwaqg"
+        "id": "fil_011ny4hdpj5qztf8kxscz6jrhc2s86wvgp9zadxn58hc5y5a43ytf0"
       },
       {
         "kind": "directory",
@@ -1865,7 +1814,7 @@ async fn tag_dependency_cycles() {
           "foo.tg.ts": 5,
           "tangram.ts": 6
         },
-        "id": "dir_01bjjfcggydyvgjaetwh5pazhnmsg1wgetxdahpewqjvpc4pszefk0"
+        "id": "dir_01xh02ecmm5y1bdd6cdf832gq3pgv01p9dzq6fryy0y851y8cxkh40"
       },
       {
         "kind": "file",
@@ -1873,11 +1822,10 @@ async fn tag_dependency_cycles() {
         "dependencies": {
           "./tangram.ts": {
             "item": 4,
-            "subpath": "tangram.ts",
-            "tag": "b/1.0.0"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_0152j633eft4bbtswdmjrkqy2awwj75kck7k1cyx7hkb0bw30rmgbg"
+        "id": "fil_01tmwyfdzczwa675jkv70tw2sa5sppe8kp6hcz775a1zszvzvh4b30"
       },
       {
         "kind": "file",
@@ -1885,16 +1833,14 @@ async fn tag_dependency_cycles() {
         "dependencies": {
           "./foo.tg.ts": {
             "item": 4,
-            "subpath": "foo.tg.ts",
-            "tag": "b/1.0.0"
+            "subpath": "foo.tg.ts"
           },
           "a/*": {
             "item": 2,
-            "subpath": "tangram.ts",
-            "tag": "a/1.1.0"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01mc1angae3s1me6na3zw6axjdjkke8m13a97s0tmnh7w7at0p9ss0"
+        "id": "fil_011g5r7dk2z0cebm0b10p8p47mm7jk0an9h1jedv3wg4ma937qg0dg"
       }
     ]
   }
@@ -1921,7 +1867,6 @@ async fn tag_dependency_cycles() {
                     "b/*": {
                       "item": 2,
                       "subpath": "tangram.ts",
-                      "tag": "b/1.0.0",
                     },
                   },
                 },
@@ -1939,12 +1884,10 @@ async fn tag_dependency_cycles() {
                     "./foo.tg.ts": {
                       "item": 2,
                       "subpath": "foo.tg.ts",
-                      "tag": "b/1.0.0",
                     },
                     "a/*": {
                       "item": 0,
                       "subpath": "tangram.ts",
-                      "tag": "a/1.1.0",
                     },
                   },
                 },
@@ -1955,7 +1898,6 @@ async fn tag_dependency_cycles() {
                     "./tangram.ts": {
                       "item": 2,
                       "subpath": "tangram.ts",
-                      "tag": "b/1.0.0",
                     },
                   },
                 },
@@ -1964,7 +1906,6 @@ async fn tag_dependency_cycles() {
             "node": 0,
           }),
           "subpath": "tangram.ts",
-          "tag": "a/1.1.0",
         },
         "b/*": {
           "item": tg.directory({
@@ -1983,7 +1924,6 @@ async fn tag_dependency_cycles() {
                     "b/*": {
                       "item": 2,
                       "subpath": "tangram.ts",
-                      "tag": "b/1.0.0",
                     },
                   },
                 },
@@ -2001,12 +1941,10 @@ async fn tag_dependency_cycles() {
                     "./foo.tg.ts": {
                       "item": 2,
                       "subpath": "foo.tg.ts",
-                      "tag": "b/1.0.0",
                     },
                     "a/*": {
                       "item": 0,
                       "subpath": "tangram.ts",
-                      "tag": "a/1.1.0",
                     },
                   },
                 },
@@ -2017,7 +1955,6 @@ async fn tag_dependency_cycles() {
                     "./tangram.ts": {
                       "item": 2,
                       "subpath": "tangram.ts",
-                      "tag": "b/1.0.0",
                     },
                   },
                 },
@@ -2026,7 +1963,6 @@ async fn tag_dependency_cycles() {
             "node": 2,
           }),
           "subpath": "tangram.ts",
-          "tag": "b/1.0.0",
         },
       },
     }),
@@ -2094,42 +2030,38 @@ async fn diamond_dependency() {
         "entries": {
           "tangram.ts": 1
         },
-        "id": "dir_01nfcqmz3k2j62ht4xh019mnxcb977twjvegsjaseggx8hpw36qjq0"
+        "id": "dir_01xzz36tpddatx0wxj8g8p4hpcsv59cp65b1fmzt83pddq2pc8wh2g"
       },
       {
         "kind": "file",
         "dependencies": {
           "b": {
             "item": 2,
-            "subpath": "tangram.ts",
-            "tag": "b"
+            "subpath": "tangram.ts"
           },
           "c": {
             "item": 6,
-            "subpath": "tangram.ts",
-            "tag": "c"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_0187wrqf0jgz30d57n8h6wekf4s00qw95jdcz8rgffsnfp6ae4dpmg"
+        "id": "fil_01770014mc5bvqfzm7p5hzhgbfjqedzj41qmeaynfyjwz4q8dkratg"
       },
       {
         "kind": "directory",
         "entries": {
           "tangram.ts": 3
         },
-        "id": "dir_01faxd74z5acazcn9vzj7w462ya1kddzy2gnkgwh9m79sn9faw37dg"
+        "id": "dir_01zexwa4d73rs0epg079txfyb9nhtatcbptrrd9r8mn0na8dg3bpwg"
       },
       {
         "kind": "file",
-        "contents": "lef_01pb6cshy8jfsp41qj4s2h2nx171dt7p3j92ykbhrsqx0zj6nbgc70",
         "dependencies": {
           "a/^1": {
             "item": 4,
-            "subpath": "tangram.ts",
-            "tag": "a/1.1.0"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01rfczghzmc67r15mqyxd183aqb5x72c58hfzy1e1vctjw34dr28jg"
+        "id": "fil_01y20v44namqtqq5w4bq33qv6vsxg3nnz12sy8z01tc54t6v3jjrv0"
       },
       {
         "kind": "directory",
@@ -2140,7 +2072,6 @@ async fn diamond_dependency() {
       },
       {
         "kind": "file",
-        "contents": "lef_01x2np2j14ewfghscp44cmtwyfg9ed8pfmcffmwccrs02gsv3ygmp0",
         "id": "fil_016cwcgvz23avmszqk01t8kh9j7aaaw8y43s8q28v30zgpq276c43g"
       },
       {
@@ -2148,19 +2079,17 @@ async fn diamond_dependency() {
         "entries": {
           "tangram.ts": 7
         },
-        "id": "dir_01zxyr1tfax0cjmbcz1bmyg7e7fm4p1gh895qbe7nxfbkh1307gybg"
+        "id": "dir_019tq93a76yfhge32wb4mma4zwkfy5b50sjn94pb10rhg1h7xm7wmg"
       },
       {
         "kind": "file",
-        "contents": "lef_01nscf5kvpy1ebv0bemqh1562vz0etqrk30e9jyenpwyxfbmfcmxgg",
         "dependencies": {
           "a/^1.0": {
             "item": 4,
-            "subpath": "tangram.ts",
-            "tag": "a/1.1.0"
+            "subpath": "tangram.ts"
           }
         },
-        "id": "fil_01g6m0gdvz6j4bhxyxwy4pxqyqajwj45czzgcy2e8hzbnarpmd741g"
+        "id": "fil_018tgmkgbajfrkpfq1ybx7jy669vf0bh9381gb555txy0y1mjdk0r0"
       }
     ]
   }
@@ -2182,13 +2111,11 @@ async fn diamond_dependency() {
                     }),
                   }),
                   "subpath": "tangram.ts",
-                  "tag": "a/1.1.0",
                 },
               },
             }),
           }),
           "subpath": "tangram.ts",
-          "tag": "b",
         },
         "c": {
           "item": tg.directory({
@@ -2202,13 +2129,11 @@ async fn diamond_dependency() {
                     }),
                   }),
                   "subpath": "tangram.ts",
-                  "tag": "a/1.1.0",
                 },
               },
             }),
           }),
           "subpath": "tangram.ts",
-          "tag": "c",
         },
       },
     }),
