@@ -1,5 +1,5 @@
 use crate::Server;
-use std::{path::PathBuf, pin::pin};
+use std::pin::pin;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
@@ -63,7 +63,7 @@ impl Server {
 				Ok(Some(output))
 			},
 			tg::reference::Item::Tag(tag) => {
-				let Some(tg::tag::get::Output { item, tag }) = self.try_get_tag(tag).await? else {
+				let Some(tg::tag::get::Output { item, .. }) = self.try_get_tag(tag).await? else {
 					return Ok(None);
 				};
 				let subpath = reference
