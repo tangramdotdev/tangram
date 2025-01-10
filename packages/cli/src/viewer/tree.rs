@@ -38,6 +38,7 @@ struct Node {
 	log_task: Option<Task<()>>,
 	options: Rc<Options>,
 	parent: Option<Weak<RefCell<Self>>>,
+	source_map: Option<Rc<tg::SourceMap>>,
 	title: String,
 	update_receiver: NodeUpdateReceiver,
 	update_sender: NodeUpdateSender,
@@ -217,6 +218,7 @@ where
 		let depth = parent.borrow().depth + 1;
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let options = parent.borrow().options.clone();
+		let source_map = parent.borrow().source_map.clone();
 		let parent = Rc::downgrade(parent);
 		let title = item.map_or(String::new(), |item| Self::item_title(item));
 
@@ -258,6 +260,7 @@ where
 			log_task: None,
 			options,
 			parent: Some(parent),
+			source_map,
 			title,
 			update_receiver,
 			update_sender,
@@ -1323,8 +1326,11 @@ where
 		options: Options,
 		data: data::UpdateSender,
 		viewer: super::UpdateSender<H>,
+		source_map: Option<tg::SourceMap>,
 	) -> Self {
 		let options = Rc::new(options);
+		let source_map = source_map.map(Rc::new);
+
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let title = Self::item_title(&item);
 		let expand_task = if options.expand_on_create {
@@ -1367,6 +1373,7 @@ where
 			log_task: None,
 			options: options.clone(),
 			parent: None,
+			source_map,
 			title,
 			update_receiver,
 			update_sender,

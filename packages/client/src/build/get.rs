@@ -19,6 +19,9 @@ pub struct Output {
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lock: Option<tg::Lockfile>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

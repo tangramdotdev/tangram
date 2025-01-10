@@ -38,10 +38,10 @@ pub struct Edge {
 #[derive(Clone, Debug)]
 struct RemappedEdge {
 	pub id: Either<usize, tg::object::Id>,
-	pub _path: Option<PathBuf>,
+	pub path: Option<PathBuf>,
 	pub reference: tg::Reference,
 	pub subpath: Option<PathBuf>,
-	pub _tag: Option<tg::Tag>,
+	pub tag: Option<tg::Tag>,
 }
 
 impl Server {
@@ -114,12 +114,13 @@ impl Server {
 				paths,
 			))
 			.await;
+			let tag = unify.nodes.get(&edge.referent).unwrap().tag.clone();
 			let edge = Edge {
 				index: dependency_index,
-				path: None,
+				path: edge.path.clone(),
 				reference: reference.clone(),
 				subpath: edge.subpath.clone(),
-				tag: None,
+				tag,
 			};
 			nodes[index].edges.push(edge);
 		}
@@ -314,10 +315,10 @@ impl Server {
 				};
 				RemappedEdge {
 					id,
-					_path: edge.path.clone(),
+					path: edge.path.clone(),
 					reference: edge.reference.clone(),
 					subpath: edge.subpath.clone(),
-					_tag: edge.tag.clone(),
+					tag: edge.tag.clone(),
 				}
 			})
 			.collect::<Vec<_>>();
@@ -403,10 +404,10 @@ impl Server {
 				};
 				RemappedEdge {
 					id,
-					_path: edge.path.clone(),
+					path: edge.path.clone(),
 					reference: edge.reference.clone(),
 					subpath: edge.subpath.clone(),
-					_tag: edge.tag.clone(),
+					tag: edge.tag.clone(),
 				}
 			})
 			.collect::<Vec<_>>();
@@ -459,14 +460,21 @@ impl Server {
 					} => (contents, executable),
 				};
 				// Compute the dependencies, which will be shared in all cases.
+				let set_path_and_tag = self
+					.config()
+					.build
+					.as_ref()
+					.map_or(false, |build| build.set_path_and_tag);
 				let dependencies = edges
 					.into_iter()
 					.map(|edge| {
+						let path = set_path_and_tag.then(|| edge.path.clone()).flatten();
+						let tag = set_path_and_tag.then(|| edge.tag.clone()).flatten();
 						let dependency = tg::Referent {
 							item: edge.id,
-							path: None,
+							path,
 							subpath: edge.subpath,
-							tag: None,
+							tag,
 						};
 						(edge.reference, dependency)
 					})

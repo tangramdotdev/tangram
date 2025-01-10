@@ -1221,8 +1221,7 @@ impl tg::Handle for Server {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	{
+	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> {
 		self.try_get_reference(reference)
 	}
 

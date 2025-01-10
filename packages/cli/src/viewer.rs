@@ -145,7 +145,12 @@ where
 		}
 	}
 
-	pub fn new(handle: &H, item: Item, options: Options) -> Self {
+	pub fn new(
+		handle: &H,
+		item: Item,
+		options: Options,
+		source_map: Option<tg::SourceMap>,
+	) -> Self {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let data = Data::new();
 		let tree = Tree::new(
@@ -154,6 +159,7 @@ where
 			options,
 			data.update_sender(),
 			update_sender.clone(),
+			source_map,
 		);
 		Self {
 			data,

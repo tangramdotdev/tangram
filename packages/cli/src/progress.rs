@@ -72,7 +72,7 @@ impl Cli {
 				},
 
 				tg::progress::Event::Diagnostic(diagnostic) => {
-					Self::print_diagnostic(&diagnostic);
+					Self::print_diagnostic(&diagnostic, None);
 				},
 
 				tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {

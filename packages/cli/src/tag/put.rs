@@ -30,7 +30,7 @@ impl Cli {
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the reference.
-		let referent = self.get_reference(&args.reference).await?;
+		let (referent, _) = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
 			Either::Left(build) => Either::Left(build),
 			Either::Right(object) => {

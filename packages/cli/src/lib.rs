@@ -3,7 +3,7 @@ use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
-use tangram_client::{self as tg, Client};
+use tangram_client::{self as tg, Client, Handle as _};
 use tangram_either::Either;
 use tangram_server::Server;
 use tokio::io::AsyncWriteExt as _;
@@ -190,7 +190,7 @@ impl Cli {
 			Ok(config) => config,
 			Err(error) => {
 				eprintln!("{} failed to read the config", "error".red().bold());
-				Cli::print_error(&error, None);
+				Cli::print_error(&error, None, None);
 				return 1.into();
 			},
 		};
@@ -272,7 +272,7 @@ impl Cli {
 			Ok(()) => 0.into(),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
-				Cli::print_error(&error, cli.config.as_ref());
+				Cli::print_error(&error, cli.config.as_ref(), None);
 				1.into()
 			},
 		};
@@ -896,7 +896,7 @@ impl Cli {
 		Ok(())
 	}
 
-	fn print_error(error: &tg::Error, config: Option<&Config>) {
+	fn print_error(error: &tg::Error, config: Option<&Config>, source_map: Option<&tg::SourceMap>) {
 		let options = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
@@ -911,6 +911,9 @@ impl Cli {
 			errors.reverse();
 		}
 		for error in errors {
+			let error = source_map
+				.map(|map| map.convert_error(error.clone()))
+				.unwrap_or_else(|| error.clone());
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
@@ -938,7 +941,10 @@ impl Cli {
 		}
 	}
 
-	fn print_diagnostic(diagnostic: &tg::Diagnostic) {
+	fn print_diagnostic(diagnostic: &tg::Diagnostic, source_map: Option<&tg::SourceMap>) {
+		let diagnostic = source_map
+			.map(|map| map.convert_diagnostic(diagnostic.clone()))
+			.unwrap_or_else(|| diagnostic.clone());
 		let title = match diagnostic.severity {
 			tg::diagnostic::Severity::Error => "error".red().bold(),
 			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
@@ -1012,7 +1018,7 @@ impl Cli {
 	async fn get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<Either<tg::Build, tg::Object>>> {
+	) -> tg::Result<(tg::Referent<Either<tg::Build, tg::Object>>, Option<PathBuf>)> {
 		let handle = self.handle().await?;
 		let mut item = reference.item().clone();
 		let mut options = reference.options().cloned();
@@ -1025,8 +1031,22 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 		}
 		let reference = tg::Reference::with_item_and_options(&item, options.as_ref());
-		let referent = reference.get(&handle).await?;
-		Ok(referent)
+		let output = handle
+			.try_get_reference(&reference)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get reference"))?;
+		let item = output
+			.referent
+			.item
+			.map_left(tg::Build::with_id)
+			.map_right(tg::Object::with_id);
+		let referent = tg::Referent {
+			item,
+			path: output.referent.path,
+			subpath: output.referent.subpath,
+			tag: output.referent.tag,
+		};
+		Ok((referent, output.lockfile))
 	}
 
 	/// Initialize V8.

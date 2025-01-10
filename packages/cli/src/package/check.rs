@@ -29,9 +29,20 @@ impl Cli {
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the reference.
-		let referent = self.get_reference(&args.reference).await?;
+		let (referent, lockfile) = self.get_reference(&args.reference).await?;
 		let Either::Right(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
+		};
+
+		// Get the source map.
+		let source_map = if let Some(lockfile) = lockfile {
+			let lockfile = tg::Lockfile::try_read(&lockfile)
+				.await?
+				.ok_or_else(|| tg::error!(%path = lockfile.display(), "failed to read lockfile"))?;
+			let source_map = tg::SourceMap::new(&handle, &lockfile, object.clone()).await?;
+			Some(source_map)
+		} else {
+			None
 		};
 
 		// Resolve the referent.
@@ -96,7 +107,7 @@ impl Cli {
 
 		// Print the diagnostics.
 		for diagnostic in &output.diagnostics {
-			Self::print_diagnostic(diagnostic);
+			Self::print_diagnostic(diagnostic, source_map.as_ref());
 		}
 
 		if !output.diagnostics.is_empty() {

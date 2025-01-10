@@ -42,7 +42,7 @@ impl Cli {
 		};
 
 		// Get the artifact.
-		let referent = self.get_reference(&args.reference).await?;
+		let (referent, _) = self.get_reference(&args.reference).await?;
 		let Either::Right(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
 		};

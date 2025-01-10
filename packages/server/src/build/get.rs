@@ -44,6 +44,8 @@ impl Server {
 			pub error: Option<db::value::Json<tg::Error>>,
 			pub host: String,
 			#[serde(default)]
+			pub lock: Option<tg::Lockfile>,
+			#[serde(default)]
 			pub log: Option<tg::blob::Id>,
 			#[serde(default)]
 			pub logs_count: Option<u64>,
@@ -92,6 +94,7 @@ impl Server {
 					depth,
 					error,
 					host,
+					lock,
 					log,
 					logs_complete,
 					logs_count,
@@ -126,6 +129,7 @@ impl Server {
 			depth: row.depth,
 			error: row.error.map(|error| error.0),
 			host: row.host,
+			lock: row.lock,
 			log: row.log,
 			logs_count: row.logs_count,
 			logs_depth: row.logs_depth,

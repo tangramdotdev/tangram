@@ -14,6 +14,7 @@ pub async fn output(state: Rc<State>, args: (tg::Target,)) -> tg::Result<tg::Val
 			let retry = parent.retry(&server).await?;
 			let arg = tg::target::build::Arg {
 				create: true,
+				lock: None,
 				parent: Some(parent.id().clone()),
 				remote,
 				retry,

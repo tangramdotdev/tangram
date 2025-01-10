@@ -391,8 +391,7 @@ where
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	       + Send {
+	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> + Send {
 		match self {
 			Either::Left(s) => s.try_get_reference(reference).left_future(),
 			Either::Right(s) => s.try_get_reference(reference).right_future(),

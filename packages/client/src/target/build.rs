@@ -11,6 +11,9 @@ pub struct Arg {
 	pub create: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lock: Option<tg::Lockfile>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::build::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -76,6 +79,7 @@ impl Default for Arg {
 	fn default() -> Self {
 		Self {
 			create: true,
+			lock: None,
 			parent: None,
 			remote: None,
 			retry: tg::build::Retry::default(),

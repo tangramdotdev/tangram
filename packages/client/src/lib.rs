@@ -40,6 +40,7 @@ pub use self::{
 	range::Range,
 	reference::Reference,
 	referent::Referent,
+	sourcemap::SourceMap,
 	symlink::Handle as Symlink,
 	tag::Tag,
 	target::Handle as Target,
@@ -78,6 +79,7 @@ pub mod reference;
 pub mod referent;
 pub mod remote;
 pub mod runtime;
+pub mod sourcemap;
 pub mod symlink;
 pub mod tag;
 pub mod target;
@@ -816,8 +818,7 @@ impl tg::Handle for Client {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	       + Send {
+	) -> impl Future<Output = tg::Result<Option<tg::reference::get::Output>>> + Send {
 		self.try_get_reference(reference)
 	}
 
