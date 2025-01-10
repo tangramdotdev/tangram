@@ -16,10 +16,8 @@ workspace = true
 [dependencies]
 derive_more = { workspace = true }
 futures = { workspace = true }
-itertools = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 tangram_client = { workspace = true }
 tokio = { workspace = true }
 xattr = { workspace = true }

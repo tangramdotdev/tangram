@@ -19,8 +19,5 @@ tangram_temp = { workspace = true }
 
 [dependencies]
 derive_more = { workspace = true }
-futures = { workspace = true }
 globset = { workspace = true }
-itertools = { workspace = true }
-libc = { workspace = true }
 tokio = { workspace = true }

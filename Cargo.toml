@@ -50,7 +50,7 @@ async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.38"
 async-tar = "0.5"
-async_zip = { version = "0.0", features = ["full"] }
+async_zip = { version = "0.0.17", features = ["full"] }
 aws-credential-types = "1"
 aws-sdk-s3 = "1"
 biome_js_formatter = "0.5"
@@ -90,7 +90,7 @@ libc = "0.2"
 lsp-types = "0.97"
 mime = "0.3"
 moka = { version = "0.12", features = ["sync"] }
-notify = "7"
+notify = "8"
 num = "0.4"
 oauth2 = "5.0.0-rc.1"
 octocrab = "0.42"
@@ -132,7 +132,6 @@ swc_core = { version = "10", features = [
   "ecma_visit",
 ] }
 sync_wrapper = "1"
-tangram_cli = { path = "packages/cli" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
 tangram_either = { path = "packages/either" }
@@ -171,12 +170,6 @@ webpki-roots = "0.26"
 winnow = "0.6"
 xattr = { version = "1" }
 zerocopy = { version = "0.8", features = ["derive"] }
-zip = { version = "2", default-features = false, features = [
-  "aes-crypto",
-  "deflate",
-  "bzip2",
-  "time",
-] }
 zstd = "0.13"
 
 [patch.crates-io]
@@ -187,37 +180,5 @@ biome_js_parser = { git = "https://github.com/biomejs/biome" }
 biome_js_syntax = { git = "https://github.com/biomejs/biome" }
 
 [profile.dev.package.blake3]
-opt-level = 3
-overflow-checks = false
-
-[profile.dev.package.bzip2]
-opt-level = 3
-overflow-checks = false
-
-[profile.dev.package.digest]
-opt-level = 3
-overflow-checks = false
-
-[profile.dev.package.flate2]
-opt-level = 3
-overflow-checks = false
-
-[profile.dev.package.sha2]
-opt-level = 3
-overflow-checks = false
-
-[profile.dev.package.tar]
-opt-level = 3
-overflow-checks = false
-
-[profile.dev.package.xz2]
-opt-level = 3
-overflow-checks = false
-
-[profile.dev.package.zip]
-opt-level = 3
-overflow-checks = false
-
-[profile.dev.package.zstd]
 opt-level = 3
 overflow-checks = false

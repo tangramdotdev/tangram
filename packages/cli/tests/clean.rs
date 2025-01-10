@@ -156,11 +156,10 @@ async fn objects() {
 		let h = build_target_get_object_id("h", &server, artifact_temp.path()).await;
 
 		// Tag c.
-		let pattern = "c";
 		let output = server
 			.tg()
 			.arg("tag")
-			.arg(pattern)
+			.arg("c")
 			.arg(c.clone())
 			.output()
 			.await
@@ -168,11 +167,10 @@ async fn objects() {
 		assert_success!(output);
 
 		// Tag h.
-		let pattern = "h";
 		let output = server
 			.tg()
 			.arg("tag")
-			.arg(pattern)
+			.arg("h")
 			.arg(h.clone())
 			.output()
 			.await

@@ -24,13 +24,10 @@ v8 = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
-deno_core_icudata = { workspace = true }
 pretty_assertions = { workspace = true }
-proptest = { workspace = true }
 insta = { workspace = true }
 
 [dependencies]
-async-broadcast = { workspace = true }
 async-channel = { workspace = true }
 async-compression = { workspace = true }
 async-nats = { workspace = true }
@@ -41,7 +38,6 @@ aws-sdk-s3 = { workspace = true }
 biome_js_formatter = { workspace = true }
 biome_js_parser = { workspace = true }
 biome_js_syntax = { workspace = true }
-byte-unit = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
@@ -51,9 +47,7 @@ fastcdc = { workspace = true }
 filetime = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
-globset = { workspace = true }
 http = { workspace = true }
-http-body = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
@@ -70,7 +64,6 @@ notify = { workspace = true }
 num = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
-once_cell = { workspace = true }
 petgraph = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
@@ -108,4 +101,3 @@ urlencoding = { workspace = true }
 uuid = { workspace = true }
 v8 = { workspace = true }
 xattr = { workspace = true }
-zip = { workspace = true }

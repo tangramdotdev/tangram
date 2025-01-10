@@ -35,7 +35,6 @@ itertools = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
 ratatui = { workspace = true }
-reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
@@ -55,4 +54,3 @@ url = { workspace = true }
 urlencoding = { workspace = true }
 v8 = { workspace = true }
 webbrowser = { workspace = true }
-atty = "0.2.14"

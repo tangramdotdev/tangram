@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{store::Store, Server};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -11,41 +11,67 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<tg::object::put::Output> {
-		// If there is a store, then put the object in the store.
-		if let Some(store) = &self.store {
-			store
-				.put(id.clone(), arg.bytes.clone())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to put the object in the store"))?;
-		} else {
-			// Get a database connection.
-			let connection = self
-				.database
-				.write_connection()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-			// Insert the object.
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					insert into objects (id, bytes, touched_at)
-					values ({p}1, {p}2, {p}3)
-					on conflict (id) do update set touched_at = {p}3;
-				"
-			);
-			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let bytes = if self.store.is_none() {
-				Some(arg.bytes.clone())
-			} else {
-				None
-			};
-			let params = db::params![id, bytes, now];
-			connection
-				.execute(statement, params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		match &self.store {
+			None => self.put_object_database(id, arg).await,
+			Some(store) => self.put_object_store(id, arg, store).await,
 		}
+	}
+
+	pub async fn put_object_database(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> tg::Result<tg::object::put::Output> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Insert the object.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into objects (id, bytes, touched_at)
+				values ({p}1, {p}2, {p}3)
+				on conflict (id) do update set touched_at = {p}3;
+			"
+		);
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let bytes = if self.store.is_none() {
+			Some(arg.bytes.clone())
+		} else {
+			None
+		};
+		let params = db::params![id, bytes, now];
+		connection
+			.execute(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Return all the children as incomplete.
+		let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+		let incomplete = data.children();
+
+		// Create the output.
+		let output = tg::object::put::Output { incomplete };
+
+		Ok(output)
+	}
+
+	pub async fn put_object_store(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+		store: &Store,
+	) -> tg::Result<tg::object::put::Output> {
+		// Put the object in the store.
+		store
+			.put(id.clone(), arg.bytes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to put the object in the store"))?;
 
 		// Return all the children as incomplete.
 		let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
