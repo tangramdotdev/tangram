@@ -953,8 +953,8 @@ impl Cli {
 			tg::diagnostic::Severity::Info => "info".blue().bold(),
 			tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
 		};
+		eprint!("{title}: {}", diagnostic.message);
 		let mut string = String::new();
-		write!(string, "{title}: ").unwrap();
 		if let Some(location) = &diagnostic.location {
 			let path = location
 				.module
