@@ -7,6 +7,8 @@ pub struct Health {
 	pub database: Option<Database>,
 	pub file_descriptor_semaphore: Option<FileDescriptorSemaphore>,
 	pub version: Option<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub diagnostics: Vec<tg::Diagnostic>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -43,4 +45,15 @@ impl tg::Client {
 		let output = response.json().await?;
 		Ok(output)
 	}
+}
+
+/// Return the compiled version string.
+#[must_use]
+pub fn version() -> String {
+	let mut version = env!("CARGO_PKG_VERSION").to_owned();
+	if let Some(commit) = option_env!("TANGRAM_CLI_COMMIT_HASH") {
+		version.push('+');
+		version.push_str(commit);
+	}
+	version
 }

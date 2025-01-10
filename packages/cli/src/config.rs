@@ -103,6 +103,9 @@ pub struct Advanced {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub build_dequeue_timeout: Option<Duration>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub collect_diagnostics: Option<bool>,
+
 	/// Options for rendering error traces.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error_trace_options: Option<tg::error::TraceOptions>,
