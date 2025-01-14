@@ -2,6 +2,7 @@ use super::{input, object};
 use crate::{temp::Temp, Server};
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
+use num::ToPrimitive;
 use std::{
 	collections::BTreeSet,
 	ffi::OsStr,
@@ -161,34 +162,15 @@ impl Server {
 			// Get the output data.
 			let output = &output.nodes[output_index];
 
-			// Write to the database.
+			// Insert the object's children.
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-					insert into objects (id, bytes, complete, count, depth, weight, touched_at)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
-					on conflict (id) do update set touched_at = {p}7;
+					insert into object_children (object, child)
+					values ({p}1, {p}2)
+					on conflict (object, child) do nothing;
 				"
 			);
-			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-
-			let params: Vec<tangram_database::Value> = db::params![
-				output.id,
-				output.data.serialize()?,
-				output.metadata.complete,
-				output.metadata.count,
-				output.metadata.depth,
-				output.metadata.weight,
-				now
-			];
-			transaction
-				.execute(statement, params)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to put the artifact into the database")
-				})?;
-
-			// Insert the object's children into the database.
 			output
 				.data
 				.children()
@@ -196,17 +178,11 @@ impl Server {
 				.map(|child| {
 					let id = output.id.clone();
 					let transaction = &transaction;
+					let statement = statement.clone();
 					async move {
-						let statement = formatdoc!(
-							"
-								insert into object_children (object, child)
-								values ({p}1, {p}2)
-								on conflict (object, child) do nothing;
-							"
-						);
 						let params = db::params![id, child];
 						transaction
-							.execute(statement, params)
+							.execute(statement.into(), params)
 							.await
 							.map_err(|source| {
 								tg::error!(
@@ -220,6 +196,35 @@ impl Server {
 				.collect::<FuturesUnordered<_>>()
 				.collect::<Vec<_>>()
 				.await;
+
+			// Insert the object.
+			let statement = formatdoc!(
+				"
+					insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7, {p}8, {p}9)
+					on conflict (id) do update set touched_at = {p}8;
+				"
+			);
+			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+			let bytes = output.data.serialize()?;
+			let size = bytes.len().to_u64().unwrap();
+			let params: Vec<tangram_database::Value> = db::params![
+				output.id,
+				bytes,
+				output.metadata.complete,
+				output.metadata.count,
+				output.metadata.depth,
+				0,
+				size,
+				now,
+				output.metadata.weight,
+			];
+			transaction
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to put the artifact into the database")
+				})?;
 
 			stack.extend(output.edges.iter().map(|edge| edge.node));
 		}

@@ -44,7 +44,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let n = connection
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
@@ -76,7 +76,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let children = connection
-			.query_all_value_into::<tg::build::Id>(statement, params)
+			.query_all_value_into::<tg::build::Id>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -193,7 +193,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		connection
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -208,7 +208,7 @@ impl Server {
 		);
 		let params = db::params![id, log];
 		connection
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -229,7 +229,7 @@ impl Server {
 			);
 			let params = db::params![id, object];
 			connection
-				.execute(statement, params)
+				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
@@ -259,25 +259,12 @@ impl Server {
 			id
 		];
 		connection
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the connection.
 		drop(connection);
-
-		// Enqueue the build for indexing.
-		tokio::spawn({
-			let server = self.clone();
-			let id = id.clone();
-			async move {
-				server
-					.enqueue_builds_for_indexing(&[id])
-					.await
-					.inspect_err(|error| tracing::error!(?error))
-					.ok();
-			}
-		});
 
 		// Publish the status message.
 		tokio::spawn({

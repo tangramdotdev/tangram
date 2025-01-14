@@ -3,7 +3,7 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use indoc::formatdoc;
-use num::ToPrimitive as _;
+use num::ToPrimitive;
 use std::{os::unix::fs::PermissionsExt as _, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -56,7 +56,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Create a transaction.
+		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
@@ -129,7 +129,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 
-		// Create a transaction.
+		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
@@ -230,7 +230,7 @@ impl Server {
 				let params = db::params![blob, &output.blob, position, length];
 				state
 					.transaction
-					.execute(statement, params)
+					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
@@ -241,27 +241,24 @@ impl Server {
 
 	async fn create_blob_inner_empty_leaf(&self, state: &State<'_>) -> tg::Result<InnerOutput> {
 		let bytes = Bytes::default();
-		let blob = tg::leaf::Id::new(&bytes).into();
-		let count = 1;
-		let depth = 1;
-		let weight = 0;
+		let id = tg::leaf::Id::new(&bytes).into();
 		let p = state.transaction.p();
 		let statement = formatdoc!(
 			"
-				insert into objects (id, bytes, complete, count, depth, weight, touched_at)
-				values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
-				on conflict (id) do update set touched_at = {p}7;
+				insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
+				values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7, {p}8, {p}9)
+				on conflict (id) do update set touched_at = {p}8;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![&blob, &bytes, 1, count, depth, weight, now];
+		let params = db::params![&id, &bytes, 1, 1, 1, 0, 0, now, 0];
 		state
 			.transaction
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		Ok(InnerOutput {
-			blob,
+			blob: id,
 			count: 1,
 			depth: 1,
 			size: 0,
@@ -276,62 +273,56 @@ impl Server {
 	) -> tg::Result<InnerOutput> {
 		let fastcdc::v2020::ChunkData {
 			offset: position,
-			length,
+			length: size,
 			data,
 			..
 		} = chunk;
-		let data = data.into();
-		let length = length.to_u64().unwrap();
-
-		let id = tg::leaf::Id::new(&data);
-
+		let bytes = data.into();
+		let size = size.to_u64().unwrap();
+		let id = tg::leaf::Id::new(&bytes);
 		let p = state.transaction.p();
-		let data = (!state.write_to_blobs_table).then_some(&data);
+		let bytes = (!state.write_to_blobs_table).then_some(&bytes);
 		let statement = formatdoc!(
 			"
-				insert into objects (id, bytes, complete, count, depth, weight, touched_at)
-				values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
-				on conflict (id) do update set touched_at = {p}7;
+				insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
+				values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7, {p}8, {p}9)
+				on conflict (id) do update set touched_at = {p}8;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![&id, &data, 1, 1, 1, length, now];
+		let params = db::params![&id, &bytes, 1, 1, 1, 0, size, now, size];
 		state
 			.transaction
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		state.entries.insert(id.clone().into(), (position, length));
-
+		state.entries.insert(id.clone().into(), (position, size));
 		let output = InnerOutput {
 			blob: id.into(),
 			count: 1,
 			depth: 1,
-			weight: length,
-			size: length,
+			size,
+			weight: size,
 		};
-
 		Ok(output)
 	}
 
 	async fn create_blob_inner_branch(
 		&self,
 		state: &State<'_>,
-		chunk: Vec<InnerOutput>,
+		children: Vec<InnerOutput>,
 	) -> tg::Result<InnerOutput> {
-		let (size, count, depth, weight) =
-			chunk
+		let (count, depth, weight) =
+			children
 				.iter()
-				.fold((0, 0, 0, 0), |(size, count, depth, weight), output| {
+				.fold((0, 0, 0), |(count, depth, weight), output| {
 					(
-						size + output.size,
 						count + output.count,
 						depth.max(output.depth),
 						weight + output.weight,
 					)
 				});
-		let children = chunk
+		let children = children
 			.into_iter()
 			.map(|output| tg::branch::data::Child {
 				blob: output.blob.clone(),
@@ -340,27 +331,41 @@ impl Server {
 			.collect();
 		let data = tg::branch::Data { children };
 		let bytes = data.serialize()?;
+		let count = 1 + count;
+		let depth = 1 + depth;
+		let size = bytes.len().to_u64().unwrap();
+		let weight = size + weight;
 		let id = tg::branch::Id::new(&bytes);
-		let count = count + 1;
-		let depth = depth + 1;
-		let weight = weight + bytes.len().to_u64().unwrap();
-
 		let p = state.transaction.p();
+		for child in data.children() {
+			let statement = formatdoc!(
+				"
+					insert into object_children (object, child)
+					values ({p}1, {p}2)
+					on conflict (object, child) do nothing;
+				"
+			);
+			let params = db::params![&id, child.to_string()];
+			state
+				.transaction
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
 		let statement = formatdoc!(
 			"
-				insert into objects (id, bytes, complete, count, depth, weight, touched_at)
-				values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7)
-				on conflict (id) do update set touched_at = {p}7;
+				insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
+				values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7, {p}8, {p}9)
+				on conflict (id) do update set touched_at = {p}8;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![&id, &bytes, 1, count, depth, weight, now];
+		let params = db::params![&id, &bytes, 1, count, depth, 0, size, now, weight];
 		state
 			.transaction
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
 		let output = InnerOutput {
 			blob: id.into(),
 			count,
@@ -368,7 +373,6 @@ impl Server {
 			size,
 			weight,
 		};
-
 		Ok(output)
 	}
 }

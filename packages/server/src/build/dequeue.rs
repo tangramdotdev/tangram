@@ -57,7 +57,7 @@ impl Server {
 				.unwrap();
 			let params = db::params![now, time];
 			let Some(id) = connection
-				.query_optional_value_into(statement, params)
+				.query_optional_value_into(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			else {

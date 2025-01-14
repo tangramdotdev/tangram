@@ -10,10 +10,10 @@ use tangram_futures::stream::Ext as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tokio_util::task::AbortOnDropHandle;
 
-struct InnerOutput {
-	count: u64,
-	depth: u64,
-	weight: u64,
+pub(crate) struct InnerOutput {
+	pub(crate) count: u64,
+	pub(crate) depth: u64,
+	pub(crate) weight: u64,
 }
 
 impl Server {
@@ -88,7 +88,7 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn push_or_pull_object_inner(
+	pub(crate) async fn push_or_pull_object_inner(
 		src: &impl tg::Handle,
 		dst: &impl tg::Handle,
 		object: &tg::object::Id,
@@ -99,6 +99,7 @@ impl Server {
 			.get_object(object)
 			.await
 			.map_err(|source| tg::error!(!source, %object, "failed to get the object"))?;
+		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
 		let size = bytes.len().to_u64().unwrap();
 
 		// Put the object.
@@ -113,23 +114,26 @@ impl Server {
 		progress.increment("bytes", size);
 
 		// Recurse into the incomplete children.
-		let (incomplete_count, incomplete_depth, incomplete_weight) = output
-			.incomplete
-			.into_iter()
-			.map(|object| async move {
-				Self::push_or_pull_object_inner(src, dst, &object, progress).await
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?
-			.into_iter()
-			.fold((0, 0, 0), |(count, depth, weight), output| {
-				(
-					count + output.count,
-					std::cmp::max(1 + output.depth, depth),
-					weight + output.weight,
-				)
-			});
+		let (incomplete_count, incomplete_depth, incomplete_weight) = if output.complete {
+			(0, 0, 0)
+		} else {
+			data.children()
+				.into_iter()
+				.map(|object| async move {
+					Self::push_or_pull_object_inner(src, dst, &object, progress).await
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<Vec<_>>()
+				.await?
+				.into_iter()
+				.fold((0, 0, 0), |(count, depth, weight), output| {
+					(
+						count + output.count,
+						depth.max(1 + output.depth),
+						weight + output.weight,
+					)
+				})
+		};
 
 		// If the count is set, then add the count not yet added.
 		if let Some(count) = metadata.count {

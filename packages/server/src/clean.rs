@@ -1,5 +1,5 @@
 use super::Server;
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
@@ -32,7 +32,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 			// Get a build to remove.
-			let statement = formatdoc!(
+			let statement = indoc!(
 				"
 					select id
 					from builds
@@ -50,7 +50,7 @@ impl Server {
 			);
 			let params = db::params![];
 			let builds = transaction
-				.query_all_value_into::<tg::build::Id>(statement, params)
+				.query_all_value_into::<tg::build::Id>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -70,7 +70,7 @@ impl Server {
 				);
 				let params = db::params![id];
 				transaction
-					.execute(statement, params)
+					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -84,7 +84,7 @@ impl Server {
 				);
 				let params = db::params![id];
 				transaction
-					.execute(statement, params)
+					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -98,7 +98,7 @@ impl Server {
 				);
 				let params = db::params![id];
 				transaction
-					.execute(statement, params)
+					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
@@ -141,7 +141,7 @@ impl Server {
 			);
 			let params = db::params![];
 			let objects = transaction
-				.query_all_value_into::<tg::object::Id>(statement, params)
+				.query_all_value_into::<tg::object::Id>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -161,7 +161,7 @@ impl Server {
 				);
 				let params = db::params![id];
 				transaction
-					.execute(statement, params)
+					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -175,7 +175,7 @@ impl Server {
 				);
 				let params = db::params![id];
 				transaction
-					.execute(statement, params)
+					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}

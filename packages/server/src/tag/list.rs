@@ -70,7 +70,7 @@ impl Server {
 		);
 		let params = db::params![prefix];
 		let mut rows = connection
-			.query_all_into::<Row>(statement, params)
+			.query_all_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 

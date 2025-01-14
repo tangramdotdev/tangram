@@ -349,15 +349,15 @@ fn render_block_and_get_area(title: &str, focused: bool, area: Rect, buf: &mut B
 		.unwrap_or(area)
 }
 
-fn clip(string: &str, mut width: usize) -> &str {
-	let mut boundary = 0;
+pub(crate) fn clip(string: &str, mut width: usize) -> &str {
+	let mut len = 0;
 	let mut chars = string.chars();
 	while width > 0 {
 		let Some(char) = chars.next() else {
 			break;
 		};
-		boundary += char.len_utf8();
+		len += char.len_utf8();
 		width = width.saturating_sub(char.width().unwrap_or(0));
 	}
-	&string[0..boundary]
+	&string[0..len]
 }

@@ -20,7 +20,7 @@ impl Server {
 		);
 		let params = db::params![&name];
 		connection
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?;
 		Ok(())

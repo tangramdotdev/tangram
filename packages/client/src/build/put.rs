@@ -1,6 +1,5 @@
 use crate::{self as tg, util::serde::is_false};
 use serde_with::serde_as;
-use std::collections::{BTreeMap, BTreeSet};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 use time::format_description::well_known::Rfc3339;
 
@@ -36,34 +35,17 @@ pub struct Arg {
 	pub finished_at: Option<time::OffsetDateTime>,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub incomplete: Incomplete,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Incomplete {
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub children: BTreeMap<tg::build::Id, IncompleteChild>,
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub log: bool,
-	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-	pub output: BTreeSet<tg::object::Id>,
+	pub complete: bool,
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub target: bool,
-}
-
-#[allow(clippy::struct_excessive_bools)]
-#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct IncompleteChild {
+	pub logs_complete: bool,
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub build: bool,
+	pub outputs_complete: bool,
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub logs: bool,
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub outputs: bool,
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub targets: bool,
+	pub targets_complete: bool,
 }
 
 impl Arg {

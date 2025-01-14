@@ -357,7 +357,7 @@ impl Server {
 		);
 		let params = db::params![id, bytes];
 		connection
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -564,7 +564,7 @@ async fn poll_read_inner(
 	);
 	let params = db::params![id, position, length];
 	let rows = connection
-		.query_all_into::<Row>(statement, params)
+		.query_all_into::<Row>(statement.into(), params)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -661,7 +661,7 @@ async fn poll_seek_inner(
 	);
 	let params = db::params![id];
 	let end = connection
-		.query_one_value_into::<u64>(statement, params)
+		.query_one_value_into::<u64>(statement.into(), params)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 

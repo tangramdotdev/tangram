@@ -2,6 +2,7 @@ use crate::{Connection, ConnectionOptions, Database, Query, Row, Transaction, Va
 use futures::{
 	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 };
+use std::borrow::Cow;
 use tangram_either::Either;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
@@ -134,7 +135,7 @@ where
 
 	fn execute(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<u64, Self::Error>> {
 		match self {
@@ -151,7 +152,7 @@ where
 
 	fn query(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<crate::Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>>, Self::Error>> {
 		match self {
@@ -178,7 +179,7 @@ where
 
 	fn query_value(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<Value, Self::Error>> + Send, Self::Error>>
 	{
@@ -206,7 +207,7 @@ where
 
 	fn query_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>> + Send, Self::Error>>
 	where
@@ -236,7 +237,7 @@ where
 
 	fn query_value_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>>, Self::Error>>
 	where
@@ -266,7 +267,7 @@ where
 
 	fn query_optional(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<Row>, Self::Error>> {
 		match self {
@@ -283,7 +284,7 @@ where
 
 	fn query_optional_value(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<Value>, Self::Error>> {
 		match self {
@@ -300,7 +301,7 @@ where
 
 	fn query_optional_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<T>, Self::Error>>
 	where
@@ -320,7 +321,7 @@ where
 
 	fn query_optional_value_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<T>, Self::Error>>
 	where
@@ -340,7 +341,7 @@ where
 
 	fn query_one(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Row, Self::Error>> {
 		match self {
@@ -357,7 +358,7 @@ where
 
 	fn query_one_value(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Value, Self::Error>> {
 		match self {
@@ -374,7 +375,7 @@ where
 
 	fn query_one_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<T, Self::Error>>
 	where
@@ -394,7 +395,7 @@ where
 
 	fn query_one_value_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<T, Self::Error>>
 	where
@@ -414,7 +415,7 @@ where
 
 	fn query_all(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<Row>, Self::Error>> {
 		match self {
@@ -431,7 +432,7 @@ where
 
 	fn query_all_value(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<Value>, Self::Error>> {
 		match self {
@@ -448,7 +449,7 @@ where
 
 	fn query_all_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<T>, Self::Error>>
 	where
@@ -468,7 +469,7 @@ where
 
 	fn query_all_value_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<T>, Self::Error>>
 	where

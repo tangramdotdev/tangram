@@ -70,7 +70,7 @@ impl Server {
 			);
 			let params = db::params![id];
 			let Some(Row { id, status }) = connection
-				.query_optional_into::<Row>(statement, params)
+				.query_optional_into::<Row>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			else {
@@ -291,7 +291,7 @@ impl Server {
 
 		let params = db::params![parent, target];
 		let cycle = connection
-			.query_one_value_into(statement, params)
+			.query_one_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		if cycle {
@@ -323,7 +323,7 @@ impl Server {
 		);
 		let params = db::params![parent, target];
 		let cycle = connection
-			.query_one_value_into(statement, params)
+			.query_one_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute statement"))?;
 
@@ -363,7 +363,7 @@ impl Server {
 		);
 		let params = db::params![parent];
 		let ancestors = connection
-			.query_all_into::<Row>(statement, params)
+			.query_all_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -383,7 +383,7 @@ impl Server {
 			);
 			let params = db::params![ancestors];
 			connection
-				.execute(statement, params)
+				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}

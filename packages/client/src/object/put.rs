@@ -1,7 +1,9 @@
-use crate::{self as tg, util::serde::BytesBase64};
+use crate::{
+	self as tg,
+	util::serde::{is_false, BytesBase64},
+};
 use bytes::Bytes;
 use serde_with::serde_as;
-use std::collections::BTreeSet;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[serde_as]
@@ -13,8 +15,8 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-	pub incomplete: BTreeSet<tg::object::Id>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub complete: bool,
 }
 
 impl tg::Client {

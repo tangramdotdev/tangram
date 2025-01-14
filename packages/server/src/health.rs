@@ -34,7 +34,7 @@ impl Server {
 			dequeued,
 			started,
 		} = connection
-			.query_one_into::<Row>(statement, params)
+			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let builds = tg::health::Builds {

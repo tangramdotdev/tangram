@@ -48,7 +48,7 @@ impl Server {
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![now, id];
 		let status = connection
-			.query_one_value_into::<tg::build::Status>(statement, params)
+			.query_one_value_into::<tg::build::Status>(statement.into(), params)
 			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to perform heartbeat query"))
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -106,7 +106,7 @@ impl Server {
 			.unwrap();
 		let params = db::params![time, limit];
 		let builds = connection
-			.query_all_value_into::<tg::build::Id>(statement, params)
+			.query_all_value_into::<tg::build::Id>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 

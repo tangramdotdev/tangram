@@ -5,7 +5,7 @@ use crate::{
 use futures::{future, Future, Stream, TryStreamExt as _};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 use tokio_postgres as postgres;
 use url::Url;
 
@@ -30,7 +30,8 @@ pub struct ConnectionOptions {
 
 #[derive(Default)]
 pub struct Cache {
-	statements: tokio::sync::Mutex<HashMap<String, postgres::Statement, fnv::FnvBuildHasher>>,
+	statements:
+		tokio::sync::Mutex<HashMap<Cow<'static, str>, postgres::Statement, fnv::FnvBuildHasher>>,
 }
 
 pub struct Database {
@@ -52,16 +53,14 @@ impl Cache {
 	pub async fn get(
 		&self,
 		client: &impl postgres::GenericClient,
-		query: impl AsRef<str>,
+		statement: Cow<'static, str>,
 	) -> Result<postgres::Statement, Error> {
-		if let Some(statement) = self.statements.lock().await.get(query.as_ref()) {
+		let key = statement;
+		if let Some(statement) = self.statements.lock().await.get(&key) {
 			return Ok(statement.clone());
 		}
-		let statement = client.prepare(query.as_ref()).await?;
-		self.statements
-			.lock()
-			.await
-			.insert(query.as_ref().to_owned(), statement.clone());
+		let statement = client.prepare(&key).await?;
+		self.statements.lock().await.insert(key, statement.clone());
 		Ok(statement)
 	}
 }
@@ -118,8 +117,24 @@ impl Connection {
 		Ok(())
 	}
 
+	pub fn cache(&self) -> &Cache {
+		&self.cache
+	}
+
 	pub fn client(&mut self) -> &mut postgres::Client {
 		&mut self.client
+	}
+}
+
+impl<'a> Transaction<'a> {
+	#[must_use]
+	pub fn cache(&self) -> &Cache {
+		self.cache
+	}
+
+	#[must_use]
+	pub fn transaction(&self) -> &postgres::Transaction<'a> {
+		&self.transaction
 	}
 }
 
@@ -189,13 +204,17 @@ impl super::Query for Connection {
 		"$"
 	}
 
-	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64, Self::Error> {
+	async fn execute(
+		&self,
+		statement: Cow<'static, str>,
+		params: Vec<Value>,
+	) -> Result<u64, Self::Error> {
 		execute(&self.client, &self.cache, statement, params).await
 	}
 
 	async fn query(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
 		query(&self.client, &self.cache, statement, params).await
@@ -211,7 +230,7 @@ impl super::Query for pool::Guard<Connection> {
 
 	fn execute(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<u64, Self::Error>> {
 		self.as_ref().execute(statement, params)
@@ -219,7 +238,7 @@ impl super::Query for pool::Guard<Connection> {
 
 	fn query(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>>
 	{
@@ -234,13 +253,17 @@ impl super::Query for Transaction<'_> {
 		"$"
 	}
 
-	async fn execute(&self, statement: String, params: Vec<Value>) -> Result<u64, Self::Error> {
+	async fn execute(
+		&self,
+		statement: Cow<'static, str>,
+		params: Vec<Value>,
+	) -> Result<u64, Self::Error> {
 		execute(&self.transaction, self.cache, statement, params).await
 	}
 
 	async fn query(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
 		query(&self.transaction, self.cache, statement, params).await
@@ -263,7 +286,7 @@ impl super::Error for Error {
 async fn execute(
 	client: &impl postgres::GenericClient,
 	cache: &Cache,
-	statement: String,
+	statement: Cow<'static, str>,
 	params: Vec<Value>,
 ) -> Result<u64, Error> {
 	let statement = cache.get(client, statement).await?;
@@ -278,7 +301,7 @@ async fn execute(
 async fn query(
 	client: &impl postgres::GenericClient,
 	cache: &Cache,
-	statement: String,
+	statement: Cow<'static, str>,
 	params: Vec<Value>,
 ) -> Result<impl Stream<Item = Result<Row, Error>> + Send, Error> {
 	let statement = cache.get(client, statement).await?;
@@ -328,9 +351,7 @@ impl<'a> postgres::types::FromSql<'a> for Value {
 	) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
 		match *ty {
 			postgres::types::Type::BOOL => Ok(Self::Integer(bool::from_sql(ty, raw)?.into())),
-			postgres::types::Type::INT8 | postgres::types::Type::NUMERIC => {
-				Ok(Self::Integer(i64::from_sql(ty, raw)?))
-			},
+			postgres::types::Type::INT8 => Ok(Self::Integer(i64::from_sql(ty, raw)?)),
 			postgres::types::Type::FLOAT8 => Ok(Self::Real(f64::from_sql(ty, raw)?)),
 			postgres::types::Type::TEXT => Ok(Self::Text(String::from_sql(ty, raw)?)),
 			postgres::types::Type::BYTEA => Ok(Self::Blob(<Vec<u8>>::from_sql(ty, raw)?)),

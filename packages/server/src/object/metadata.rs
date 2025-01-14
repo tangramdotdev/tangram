@@ -42,7 +42,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let output = connection
-			.query_optional_into(statement, params)
+			.query_optional_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 

@@ -169,24 +169,6 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn export_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::export::Arg,
-	) -> tg::Result<impl AsyncRead + Send + 'static> {
-		self.server.export_object(id, arg).await
-	}
-
-	async fn import_object(
-		&self,
-		arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Unpin + Send + 'static,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>> + Send + 'static,
-	> {
-		self.server.import_object(arg, reader).await
-	}
-
 	async fn push_build(
 		&self,
 		_id: &tg::build::Id,

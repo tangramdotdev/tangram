@@ -91,7 +91,7 @@ impl vfs::Provider for Provider {
 		);
 		let params = db::params![parent, name];
 		let row = connection
-			.query_optional_into::<Row>(statement, params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|error| {
 				tracing::error!(%error, %parent, %name, "failed to get node data from database");
@@ -165,7 +165,7 @@ impl vfs::Provider for Provider {
 		);
 		let params = db::params![id];
 		let row = connection
-			.query_one_into::<Row>(statement, params)
+			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|error| {
 				tracing::error!(%error, %id, "failed to get node parent from database");
@@ -450,7 +450,7 @@ impl Provider {
 		);
 		let params = db::params![vfs::ROOT_NODE_ID, 0];
 		connection
-			.execute(statement, params)
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to insert the root node"))?;
 
@@ -510,7 +510,7 @@ impl Provider {
 		);
 		let params = db::params![id];
 		let row = connection
-			.query_one_into::<Row>(statement, params)
+			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|error| {
 				tracing::error!(%error, %id, "failed to get the node data from the database");
@@ -579,7 +579,7 @@ impl Provider {
 				"
 				);
 				let params = db::params![id, parent, name, artifact, depth];
-				if let Err(error) = connection.execute(statement, params).await {
+				if let Err(error) = connection.execute(statement.into(), params).await {
 					tracing::error!(%error, %id, "failed to write node to the database");
 				}
 				pending_nodes.remove(&id).unwrap();

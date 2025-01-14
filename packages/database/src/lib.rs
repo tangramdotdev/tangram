@@ -2,7 +2,7 @@ use futures::{
 	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 };
 use itertools::Itertools as _;
-use std::pin::pin;
+use std::{borrow::Cow, pin::pin};
 
 pub use self::{pool::Priority, row::Row, value::Value};
 
@@ -85,20 +85,20 @@ pub trait Query {
 
 	fn execute(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<u64, Self::Error>> + Send;
 
 	fn query(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>>
 	       + Send;
 
 	fn query_value(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<
 		Output = Result<impl Stream<Item = Result<Value, Self::Error>> + Send, Self::Error>,
@@ -116,7 +116,7 @@ pub trait Query {
 
 	fn query_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>> + Send, Self::Error>>
 	       + Send
@@ -132,7 +132,7 @@ pub trait Query {
 
 	fn query_value_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>>, Self::Error>> + Send
 	where
@@ -147,7 +147,7 @@ pub trait Query {
 
 	fn query_optional(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<Row>, Self::Error>> + Send {
 		self.query(statement, params)
@@ -156,7 +156,7 @@ pub trait Query {
 
 	fn query_optional_value(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<Value>, Self::Error>> + Send {
 		self.query_optional(statement, params).map(|result| {
@@ -174,7 +174,7 @@ pub trait Query {
 
 	fn query_optional_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<T>, Self::Error>> + Send
 	where
@@ -191,7 +191,7 @@ pub trait Query {
 
 	fn query_optional_value_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<T>, Self::Error>> + Send
 	where
@@ -208,7 +208,7 @@ pub trait Query {
 
 	fn query_one(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Row, Self::Error>> + Send {
 		self.query_optional(statement, params).map(|result| {
@@ -218,7 +218,7 @@ pub trait Query {
 
 	fn query_one_value(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Value, Self::Error>> + Send {
 		self.query_one(statement, params).map(|result| {
@@ -232,7 +232,7 @@ pub trait Query {
 
 	fn query_one_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<T, Self::Error>> + Send
 	where
@@ -244,7 +244,7 @@ pub trait Query {
 
 	fn query_one_value_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<T, Self::Error>> + Send
 	where
@@ -257,7 +257,7 @@ pub trait Query {
 
 	fn query_all(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<Row>, Self::Error>> + Send {
 		self.query(statement, params)
@@ -266,7 +266,7 @@ pub trait Query {
 
 	fn query_all_value(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<Value>, Self::Error>> + Send {
 		self.query_all(statement, params).map(|result| {
@@ -284,7 +284,7 @@ pub trait Query {
 
 	fn query_all_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<T>, Self::Error>> + Send
 	where
@@ -301,7 +301,7 @@ pub trait Query {
 
 	fn query_all_value_into<T>(
 		&self,
-		statement: String,
+		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<T>, Self::Error>> + Send
 	where

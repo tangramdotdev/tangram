@@ -3,6 +3,7 @@ use futures::{
 	stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
 	TryStreamExt,
 };
+use itertools::Itertools as _;
 use std::panic::AssertUnwindSafe;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::Ext as _;
@@ -15,7 +16,7 @@ struct InnerOutput {
 	object_weight: u64,
 }
 
-struct Metadata {
+struct Stats {
 	build_count: Option<u64>,
 	object_count: Option<u64>,
 	#[allow(dead_code)]
@@ -46,7 +47,7 @@ impl Server {
 		D: tg::Handle,
 	{
 		let output = src.get_build(build).await?;
-		let metadata = Self::get_build_metadata(src, &output, &arg).await?;
+		let stats = Self::get_build_stats(src, &output, &arg).await?;
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({
 			let src = src.clone();
@@ -59,21 +60,21 @@ impl Server {
 					"builds".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
-					metadata.build_count,
+					stats.build_count,
 				);
 				progress.start(
 					"objects".to_owned(),
 					"objects".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
-					metadata.object_count,
+					stats.object_count,
 				);
 				progress.start(
 					"bytes".to_owned(),
 					"bytes".to_owned(),
 					tg::progress::IndicatorFormat::Bytes,
 					Some(0),
-					metadata.object_weight,
+					stats.object_weight,
 				);
 				let result = AssertUnwindSafe(
 					Self::push_or_pull_build_inner(&src, &dst, &build, arg, &progress)
@@ -124,8 +125,8 @@ impl Server {
 			return Err(tg::error!(%build, "build is not finished"));
 		}
 
-		// Get the metadata.
-		let metadata = Self::get_build_metadata(src, &output, &arg).await?;
+		// Get the stats.
+		let stats = Self::get_build_stats(src, &output, &arg).await?;
 
 		// Get the children.
 		let children_arg = tg::build::children::get::Arg::default();
@@ -136,17 +137,17 @@ impl Server {
 			.await?
 			.into_iter()
 			.flat_map(|chunk| chunk.data)
-			.collect();
+			.collect_vec();
 
 		// Put the object.
 		let put_arg = tg::build::put::Arg {
 			id: build.clone(),
-			children,
+			children: children.clone(),
 			depth: output.depth,
 			error: output.error,
 			host: output.host,
 			log: output.log.clone(),
-			output: output.output,
+			output: output.output.clone(),
 			retry: output.retry,
 			status: output.status,
 			target: output.target.clone(),
@@ -156,7 +157,7 @@ impl Server {
 			started_at: output.started_at,
 			finished_at: output.finished_at,
 		};
-		let tg::build::put::Output { incomplete } = dst
+		let put_output = dst
 			.put_build(build, put_arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
@@ -164,47 +165,53 @@ impl Server {
 		// Update the progress.
 		progress.increment("builds", 1);
 
-		// Handle the incomplete objects.
-		let mut incomplete_objects: Vec<tg::object::Id> = Vec::new();
-		if arg.logs && incomplete.log {
+		// Handle the log, output, and target.
+		let mut objects: Vec<tg::object::Id> = Vec::new();
+		if arg.logs {
 			if let Some(log) = output.log.clone() {
-				incomplete_objects.push(log.clone().into());
+				objects.push(log.clone().into());
 			}
 		}
 		if arg.outputs {
-			incomplete_objects.extend(incomplete.output);
+			if let Some(output_objects) = output.output.as_ref().map(tg::value::Data::children) {
+				objects.extend(output_objects);
+			}
 		}
-		if arg.targets && incomplete.target {
-			incomplete_objects.push(output.target.clone().into());
+		if arg.targets {
+			objects.push(output.target.clone().into());
 		}
-		let incomplete_object_count_and_weight = incomplete_objects
+		let self_object_count_and_weight = objects
 			.iter()
 			.map(|object| async {
-				let stream = Self::push_or_pull_object(src, dst, object).await?.boxed();
-				stream.last().await;
-				Ok::<_, tg::Error>((0, 0))
+				let output = Self::push_or_pull_object_inner(src, dst, object, progress).await?;
+				Ok::<_, tg::Error>((output.count, output.weight))
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
-		let incomplete_object_count = incomplete_object_count_and_weight
+		let self_object_count = self_object_count_and_weight
 			.iter()
 			.map(|(count, _)| count)
 			.sum::<u64>();
-		let incomplete_object_weight = incomplete_object_count_and_weight
+		let self_object_weight = self_object_count_and_weight
 			.iter()
 			.map(|(_, weight)| weight)
 			.sum::<u64>();
 
-		// Handle the incomplete children.
+		// Recurse into the children.
 		let InnerOutput {
-			build_count: incomplete_children_build_count,
-			object_count: incomplete_children_object_count,
-			object_weight: incomplete_children_object_weight,
-		} = if arg.recursive {
-			let outputs = incomplete
-				.children
-				.keys()
+			build_count: children_build_count,
+			object_count: children_object_count,
+			object_weight: children_object_weight,
+		} = if put_output.complete || !arg.recursive {
+			InnerOutput {
+				build_count: 0,
+				object_count: 0,
+				object_weight: 0,
+			}
+		} else {
+			let outputs = children
+				.iter()
 				.map(|child| Self::push_or_pull_build_inner(src, dst, child, arg.clone(), progress))
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
@@ -221,32 +228,22 @@ impl Server {
 					object_weight: a.object_weight + b.object_weight,
 				},
 			)
-		} else {
-			InnerOutput {
-				build_count: 0,
-				object_count: 0,
-				object_weight: 0,
-			}
 		};
 
 		// Update the progress.
-		let build_count = metadata.build_count.map_or_else(
-			|| 1 + incomplete_children_build_count,
-			|build_count| build_count - 1 - incomplete_children_build_count,
+		let build_count = stats.build_count.map_or_else(
+			|| 1 + children_build_count,
+			|build_count| build_count - 1 - children_build_count,
 		);
 		progress.increment("builds", build_count);
-		let object_count = metadata.object_count.map_or_else(
-			|| incomplete_object_count + incomplete_children_object_count,
-			|object_count| {
-				object_count - incomplete_object_count - incomplete_children_object_count
-			},
+		let object_count = stats.object_count.map_or_else(
+			|| self_object_count + children_object_count,
+			|object_count| object_count - self_object_count - children_object_count,
 		);
 		progress.increment("objects", object_count);
-		let object_weight = metadata.object_weight.map_or_else(
-			|| incomplete_object_weight + incomplete_children_object_weight,
-			|object_weight| {
-				object_weight - incomplete_object_weight - incomplete_children_object_weight
-			},
+		let object_weight = stats.object_weight.map_or_else(
+			|| self_object_weight + children_object_weight,
+			|object_weight| object_weight - self_object_weight - children_object_weight,
 		);
 		progress.increment("bytes", object_weight);
 
@@ -257,11 +254,11 @@ impl Server {
 		})
 	}
 
-	async fn get_build_metadata(
+	async fn get_build_stats(
 		src: &impl tg::Handle,
 		output: &tg::build::get::Output,
 		arg: &tg::build::push::Arg,
-	) -> tg::Result<Metadata> {
+	) -> tg::Result<Stats> {
 		let build_count = if arg.recursive { output.count } else { Some(1) };
 		let (object_count, object_depth, object_weight) = if arg.recursive {
 			// If the push is recursive, then use the logs', outputs', and targets' counts and weights.
@@ -396,7 +393,7 @@ impl Server {
 				.sum::<Option<u64>>();
 			(count, depth, weight)
 		};
-		Ok(Metadata {
+		Ok(Stats {
 			build_count,
 			object_count,
 			object_depth,

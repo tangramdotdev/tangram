@@ -95,8 +95,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				error text,
 				heartbeat_at text,
 				host text not null,
-				index_status text,
-				index_started_at text,
 				log text,
 				logs_complete integer not null default 0,
 				logs_count integer,
@@ -125,8 +123,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index builds_status_created_at_index on builds (status, created_at);
 
 			create index builds_target_created_at_index on builds (target, created_at desc);
-
-			create index builds_index_status_index on builds (index_status, index_started_at);
 
 			create table build_children (
 				build text not null,
@@ -162,20 +158,45 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create table objects (
 				id text primary key,
 				bytes blob,
-				children integer not null default 0,
 				complete integer not null default 0,
 				count integer,
 				depth integer,
-				index_status text,
-				index_started_at text,
-				index_enqueued_at text,
+				incomplete_children integer,
+				size integer not null,
 				touched_at text,
 				weight integer
 			);
 
-			create index objects_index_status_index on objects (index_status, index_started_at);
+			create index objects_complete_incomplete_children_index on objects (complete, incomplete_children);
 
-			create index objects_index_enqueued_at_index on objects (index_enqueued_at);
+			create trigger objects_set_incomplete_children_trigger
+			after insert on objects
+			for each row
+			when (new.incomplete_children is null)
+			begin
+				update objects 
+				set incomplete_children = (
+					select count(*)
+					from object_children
+					left join objects child_objects on child_objects.id = object_children.child
+					where object_children.object = new.id and (child_objects.complete is null or child_objects.complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger objects_update_incomplete_children_trigger
+			after update of complete on objects
+			for each row
+			when (old.complete = 0 and new.complete = 1)
+			begin
+				update objects 
+				set incomplete_children = incomplete_children - 1
+				where id in (
+					select object 
+					from object_children 
+					where child = new.id
+				);
+			end;
 
 			create table object_children (
 				object text not null,

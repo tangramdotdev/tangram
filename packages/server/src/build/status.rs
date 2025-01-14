@@ -132,7 +132,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let status = connection
-			.query_one_value_into(statement, params)
+			.query_one_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 

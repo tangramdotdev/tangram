@@ -46,7 +46,7 @@ pub enum IndicatorFormat {
 impl std::fmt::Display for Indicator {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		const LENGTH: u64 = 20;
-		write!(f, "{}", self.title)?;
+		write!(f, "{} ", self.title)?;
 		if let (Some(current), Some(total)) = (self.current, self.total) {
 			write!(f, " [")?;
 			let last = current * LENGTH / total;

@@ -445,24 +445,6 @@ impl Server {
 					})
 				});
 
-		// Spawn the build indexer task.
-		let build_indexer_task = if server.config.build_indexer.is_some() {
-			Some(tokio::spawn({
-				let server = server.clone();
-				async move {
-					server
-						.build_indexer_task()
-						.await
-						.inspect_err(|error| {
-							tracing::error!(?error);
-						})
-						.ok();
-				}
-			}))
-		} else {
-			None
-		};
-
 		// Spawn the object indexer task.
 		let object_indexer_task = if server.config.object_indexer.is_some() {
 			Some(tokio::spawn({
@@ -539,24 +521,13 @@ impl Server {
 					}
 				}
 
-				// Abort the object index task.
+				// Abort the object indexer task.
 				if let Some(task) = object_indexer_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result {
 						if !error.is_cancelled() {
 							tracing::error!(?error, "the object index task panicked");
-						}
-					}
-				}
-
-				// Abort the build index task.
-				if let Some(task) = build_indexer_task {
-					task.abort();
-					let result = task.await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the build index task panicked");
 						}
 					}
 				}
@@ -889,12 +860,6 @@ impl Server {
 			(http::Method::GET, ["objects", object]) => {
 				Self::handle_get_object_request(handle, request, object).boxed()
 			},
-			(http::Method::POST, ["objects", object, "export"]) => {
-				Self::handle_object_export_request(handle, request, object).boxed()
-			},
-			(http::Method::POST, ["objects", "import"]) => {
-				Self::handle_object_import_request(handle, request).boxed()
-			},
 			(http::Method::PUT, ["objects", object]) => {
 				Self::handle_put_object_request(handle, request, object).boxed()
 			},
@@ -1198,28 +1163,6 @@ impl tg::Handle for Server {
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
 		self.try_get_object(id)
-	}
-
-	fn export_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::export::Arg,
-	) -> impl Future<Output = tg::Result<impl AsyncRead + Send + 'static>> + Send {
-		self.export_object(id, arg)
-	}
-
-	fn import_object(
-		&self,
-		arg: tg::object::import::Arg,
-		reader: impl AsyncRead + Unpin + Send + 'static,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::object::import::Output>>>
-				+ Send
-				+ 'static,
-		>,
-	> + Send {
-		self.import_object(arg, reader)
 	}
 
 	fn put_object(
