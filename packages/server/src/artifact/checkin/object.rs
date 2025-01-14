@@ -2,7 +2,7 @@ use super::{input, unify};
 use crate::Server;
 use num::ToPrimitive;
 use std::{
-	collections::BTreeMap,
+	collections::{BTreeMap, BTreeSet},
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
 };
@@ -185,6 +185,14 @@ impl Server {
 				let index = scc[0];
 				let node = nodes[0].clone();
 				let data = self.create_normal_artifact_data(node);
+
+				// Update the graph.
+				let bytes = data.serialize()?;
+				let id = tg::artifact::Id::new(data.kind(), &bytes);
+				graph.nodes[index].data.replace(data.clone());
+				graph.nodes[index].id.replace(id.clone().into());
+				graph.objects.insert(id.into(), index);
+
 				// Get the metadata.
 				let metadata = self.compute_object_metadata(
 					graph,
@@ -193,23 +201,12 @@ impl Server {
 					&file_metadata,
 					&graph_metadata,
 				);
-
-				// Update the graph.
-				let bytes = data.serialize()?;
-				let id = tg::artifact::Id::new(data.kind(), &bytes);
-
-				graph.nodes[index].data.replace(data);
-				graph.nodes[index].id.replace(id.clone().into());
 				graph.nodes[index].metadata.replace(metadata);
-				graph.objects.insert(id.into(), index);
 			} else {
 				// Otherwise, construct an object graph.
 				let object_graph = tg::graph::Data {
 					nodes: nodes.clone(),
 				};
-
-				// Get the graph metadata.
-				let metadata = self.compute_graph_metadata(graph, &object_graph);
 
 				// Store the graph.
 				let bytes = object_graph.serialize()?;
@@ -217,9 +214,8 @@ impl Server {
 				let arg = tg::object::put::Arg { bytes };
 				self.put_object(&id.clone().into(), arg).await?;
 
-				graph_metadata.insert(id.clone(), metadata);
-
-				for old_index in scc {
+				// Update data.
+				for old_index in scc.iter().copied() {
 					// Get the index within the object graph.
 					let new_index = indices.get(&old_index).copied().unwrap();
 
@@ -242,22 +238,31 @@ impl Server {
 						.into(),
 					};
 
-					// Get the metadata.
-					let metadata = self.compute_object_metadata(
-						graph,
-						old_index,
-						&data,
-						&file_metadata,
-						&graph_metadata,
-					);
-
 					// Update the graph.
 					let bytes = data.serialize()?;
 					let id = tg::artifact::Id::new(data.kind(), &bytes);
 					graph.nodes[old_index].data.replace(data);
 					graph.nodes[old_index].id.replace(id.clone().into());
-					graph.nodes[old_index].metadata.replace(metadata);
 					graph.objects.insert(id.into(), old_index);
+				}
+
+				// Update the graph metadata.
+				let metadata =
+					self.compute_graph_metadata(graph, &object_graph, &scc, &file_metadata);
+				graph_metadata.insert(id.clone(), metadata);
+
+				// Update metadata.
+				for old_index in scc {
+					// Get the metadata.
+					let data = graph.nodes[old_index].data.as_ref().unwrap();
+					let metadata = self.compute_object_metadata(
+						graph,
+						old_index,
+						data,
+						&file_metadata,
+						&graph_metadata,
+					);
+					graph.nodes[old_index].metadata.replace(metadata);
 				}
 			}
 		}
@@ -624,17 +629,24 @@ impl Server {
 		&self,
 		graph: &Graph,
 		data: &tg::graph::Data,
+		scc: &[usize],
+		file_metadata: &BTreeMap<usize, tg::object::Metadata>,
 	) -> tg::object::Metadata {
+		// let children = data.children();
 		let mut complete = true;
 		let mut count = 1;
 		let mut depth = 1;
 		let mut weight = data.serialize().unwrap().len().to_u64().unwrap();
 
-		for node in &data.nodes {
+		let mut visited = BTreeSet::new();
+		for (new_index, node) in data.nodes.iter().enumerate() {
 			match node {
 				tg::graph::data::Node::Directory(directory) => {
 					for entry in directory.entries.values() {
 						if let Either::Right(id) = &entry {
+							if !visited.insert(id.clone().into()) {
+								continue;
+							}
 							let node = graph.objects.get(&id.clone().into()).unwrap();
 							let metadata = graph.nodes[*node].metadata.clone().unwrap();
 							complete &= metadata.complete;
@@ -645,8 +657,16 @@ impl Server {
 					}
 				},
 				tg::graph::data::Node::File(file) => {
+					if let Some(metadata) = file_metadata.get(&scc[new_index]) {
+						count += metadata.count.unwrap();
+						depth = std::cmp::max(depth, metadata.depth.unwrap_or(0) + 1);
+						weight += metadata.weight.unwrap();
+					}
 					for referent in file.dependencies.values() {
 						if let Either::Right(id) = &referent.item {
+							if !visited.insert(id.clone()) {
+								continue;
+							}
 							let node = graph.objects.get(id).unwrap();
 							let metadata = graph.nodes[*node].metadata.clone().unwrap();
 							complete &= metadata.complete;
@@ -662,6 +682,9 @@ impl Server {
 					..
 				}) => {
 					if let Either::Right(id) = artifact {
+						if !visited.insert(id.clone().into()) {
+							continue;
+						}
 						let node = graph.objects.get(&id.clone().into()).unwrap();
 						let metadata = graph.nodes[*node].metadata.clone().unwrap();
 						complete &= metadata.complete;
@@ -729,7 +752,13 @@ impl Server {
 				}
 			},
 			_ => {
+				let mut visited = BTreeSet::new();
 				for edge in &graph.nodes[index].edges {
+					let id = graph.nodes[edge.index].id.as_ref().unwrap();
+					if !visited.insert(id) {
+						continue;
+					}
+
 					let metadata = graph.nodes[edge.index].metadata.clone().unwrap_or_else(|| {
 						if let Some(data) = graph.nodes[edge.index].data.as_ref() {
 							self.compute_object_metadata(
