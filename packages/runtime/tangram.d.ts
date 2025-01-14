@@ -23,7 +23,7 @@ declare function tg(
 ): Promise<tg.Template>;
 
 declare namespace tg {
-	/** The union of all types that can be used as the input or output of Tangram targets. */
+	/** The union of all types that can be used as the input or output of Tangram commands. */
 	export type Value =
 		| undefined
 		| boolean
@@ -59,7 +59,7 @@ declare namespace tg {
 		| tg.File
 		| tg.Symlink
 		| tg.Graph
-		| tg.Target;
+		| tg.Command;
 
 	export namespace Object {
 		export type Id =
@@ -69,7 +69,7 @@ declare namespace tg {
 			| tg.File.Id
 			| tg.Symlink.Id
 			| tg.Graph.Id
-			| tg.Target.Id;
+			| tg.Command.Id;
 
 		/** Get an object with an ID. */
 		export let withId: (id: tg.Object.Id) => tg.Object;
@@ -438,8 +438,8 @@ declare namespace tg {
 		/** Resolve this symlink to the artifact it refers to, or return undefined if none is found. */
 		resolve(): Promise<tg.Artifact | undefined>;
 
-		/** Get this symlink's target. */
-		target(): Promise<string | undefined>;
+		/** Get this symlink's command. */
+		command(): Promise<string | undefined>;
 	}
 
 	export namespace Symlink {
@@ -449,7 +449,7 @@ declare namespace tg {
 
 		type ArgObject =
 			| { graph: tg.Graph; node: number }
-			| { target: string }
+			| { command: string }
 			| {
 					artifact: tg.Artifact;
 					subpath?: string | undefined;
@@ -509,7 +509,7 @@ declare namespace tg {
 		type SymlinkNodeArg =
 			| {
 					kind: "symlink";
-					target: string;
+					command: string;
 			  }
 			| {
 					kind: "symlink";
@@ -536,7 +536,7 @@ declare namespace tg {
 		type SymlinkNode =
 			| {
 					kind: "symlink";
-					target: string;
+					command: string;
 			  }
 			| {
 					kind: "symlink";
@@ -545,72 +545,72 @@ declare namespace tg {
 			  };
 	}
 
-	/** Create a target. */
-	export function target<
+	/** Create a command. */
+	export function command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
-	>(function_: (...args: A) => tg.Unresolved<R>): tg.Target<A, R>;
-	export function target<
+	>(function_: (...args: A) => tg.Unresolved<R>): tg.Command<A, R>;
+	export function command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
-	>(...args: tg.Args<tg.Target.Arg>): Promise<tg.Target<A, R>>;
+	>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
 
-	/** A target. */
-	export interface Target<
+	/** A command. */
+	export interface Command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> {
-		/** Build this target. */
+		/** Build this command. */
 		// biome-ignore lint/style/useShorthandFunctionType: interface is necessary .
 		(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): Promise<R>;
 	}
 
-	/** A target. */
-	export class Target<
+	/** A command. */
+	export class Command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends globalThis.Function {
-		/** Get a target with an ID. */
-		static withId(id: tg.Target.Id): tg.Target;
+		/** Get a command with an ID. */
+		static withId(id: tg.Command.Id): tg.Command;
 
-		/** Create a target. */
+		/** Create a command. */
 		static new<
 			A extends Array<tg.Value> = Array<tg.Value>,
 			R extends tg.Value = tg.Value,
-		>(...args: tg.Args<tg.Target.Arg>): Promise<tg.Target<A, R>>;
+		>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
 
-		/** The currently building target. */
-		static get current(): tg.Target;
+		/** The currently building command. */
+		static get current(): tg.Command;
 
-		/** Expect that a value is a `tg.Target`. */
-		static expect(value: unknown): tg.Target;
+		/** Expect that a value is a `tg.Command`. */
+		static expect(value: unknown): tg.Command;
 
-		/** Assert that a value is a `tg.Target`. */
-		static assert(value: unknown): asserts value is tg.Target;
+		/** Assert that a value is a `tg.Command`. */
+		static assert(value: unknown): asserts value is tg.Command;
 
-		/** Get this target's ID. */
-		id(): Promise<tg.Target.Id>;
+		/** Get this command's ID. */
+		id(): Promise<tg.Command.Id>;
 
-		/** Get this target's arguments. */
+		/** Get this command's arguments. */
 		args(): Promise<Array<tg.Value>>;
 
-		/** Get this target's checksum. */
+		/** Get this command's checksum. */
 		checksum(): Promise<tg.Checksum | undefined>;
 
-		/** Get this target's environment. */
+		/** Get this command's environment. */
 		env(): Promise<{ [key: string]: tg.Value }>;
 
-		/** Get this target's executable. */
-		executable(): Promise<tg.Target.Executable | undefined>;
+		/** Get this command's executable. */
+		executable(): Promise<tg.Command.Executable | undefined>;
 
-		/** Get this target's host. */
+		/** Get this command's host. */
 		host(): Promise<string>;
 
-		/** Build this target and return the build's output. */
+		/** Build this command and return the build's output. */
 		output(): Promise<R>;
 	}
 
-	export namespace Target {
+	export namespace Command {
 		export type Id = string;
 
 		export type Arg =
@@ -618,23 +618,23 @@ declare namespace tg {
 			| string
 			| tg.Artifact
 			| tg.Template
-			| tg.Target
+			| tg.Command
 			| ArgObject;
 
 		type ArgObject = {
-			/** The target's command line arguments. */
+			/** The command's command line arguments. */
 			args?: Array<tg.Value> | undefined;
 
-			/** If a checksum of the target's output is provided, then the target will have access to the network. */
+			/** If a checksum of the command's output is provided, then the command will have access to the network. */
 			checksum?: tg.Checksum | undefined;
 
-			/** The target's environment variables. */
+			/** The command's environment variables. */
 			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 
-			/** The target's executable. */
-			executable?: tg.Target.ExecutableArg | undefined;
+			/** The command's executable. */
+			executable?: tg.Command.ExecutableArg | undefined;
 
-			/** The system to build the target on. */
+			/** The system to build the command on. */
 			host?: string | undefined;
 		};
 
@@ -923,7 +923,7 @@ declare namespace tg {
 			| "file"
 			| "symlink"
 			| "graph"
-			| "target";
+			| "command";
 	}
 
 	export type Reference = string;

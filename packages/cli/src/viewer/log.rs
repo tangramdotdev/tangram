@@ -15,10 +15,10 @@ mod scroll;
 
 pub struct Log<H> {
 	// The build.
-	build: tg::Build,
+	build: tg::Process,
 
 	// A buffer of log chunks.
-	chunks: tokio::sync::Mutex<Vec<tg::build::log::get::Chunk>>,
+	chunks: tokio::sync::Mutex<Vec<tg::process::log::get::Chunk>>,
 
 	// Whether the log has reached EOF.
 	eof: AtomicBool,
@@ -59,7 +59,7 @@ impl<H> Log<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(handle: &H, build: &tg::Build) -> Arc<Self> {
+	pub fn new(handle: &H, build: &tg::Process) -> Arc<Self> {
 		let handle = handle.clone();
 		let build = build.clone();
 		let chunks = tokio::sync::Mutex::new(Vec::new());
@@ -123,7 +123,7 @@ where
 		let length = Some(-1);
 		let timeout = Duration::from_millis(16);
 		let timeout = tokio::time::sleep(timeout);
-		let arg = tg::build::log::get::Arg {
+		let arg = tg::process::log::get::Arg {
 			length,
 			position,
 			..Default::default()
@@ -319,7 +319,7 @@ where
 			.build
 			.log(
 				&self.handle,
-				tg::build::log::get::Arg {
+				tg::process::log::get::Arg {
 					length,
 					position,
 					..Default::default()

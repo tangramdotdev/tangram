@@ -56,7 +56,7 @@ declare global {
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
 
 	function syscall(
-		syscall: "target_output",
-		target: tg.Target,
+		syscall: "command_output",
+		target: tg.Command,
 	): Promise<tg.Value>;
 }

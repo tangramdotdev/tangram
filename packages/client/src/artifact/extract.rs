@@ -9,24 +9,24 @@ impl tg::Artifact {
 	where
 		H: tg::Handle,
 	{
-		let target = Self::extract_target(blob, format);
-		let arg = tg::target::build::Arg::default();
-		let output = target.output(handle, arg).await?;
+		let command = Self::extract_command(blob, format);
+		let arg = tg::command::spawn::Arg::default();
+		let output = command.output(handle, arg).await?;
 		let artifact = output.try_into()?;
 		Ok(artifact)
 	}
 
 	#[must_use]
-	pub fn extract_target(
+	pub fn extract_command(
 		blob: &tg::Blob,
 		format: Option<tg::artifact::archive::Format>,
-	) -> tg::Target {
+	) -> tg::Command {
 		let host = "builtin";
 		let args = vec![
 			"extract".into(),
 			blob.clone().into(),
 			format.map(|format| format.to_string()).into(),
 		];
-		tg::Target::builder(host).args(args).build()
+		tg::Command::builder(host).args(args).build()
 	}
 }

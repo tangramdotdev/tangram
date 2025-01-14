@@ -36,13 +36,13 @@ pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewe
 
 #[derive(Clone, Debug)]
 pub enum Item {
-	Build(tg::Build),
+	Build(tg::Process),
 	Value(tg::Value),
 }
 
 #[derive(Clone, Debug)]
 pub struct Options {
-	pub condensed_builds: bool,
+	pub condensed_processes: bool,
 	pub expand_on_create: bool,
 }
 

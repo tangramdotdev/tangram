@@ -24,14 +24,19 @@ pub enum Runtime {
 }
 
 impl Runtime {
-	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
+	pub async fn spawn(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		remote: Option<String>,
+	) -> tg::Result<tg::Value> {
 		match self {
-			Runtime::Builtin(runtime) => runtime.build(build, remote).boxed().await,
+			Runtime::Builtin(runtime) => runtime.spawn(process, command, remote).boxed().await,
 			#[cfg(target_os = "macos")]
 			Runtime::Darwin(runtime) => runtime.build(build, remote).boxed().await,
-			Runtime::Js(runtime) => runtime.build(build, remote).boxed().await,
+			Runtime::Js(runtime) => runtime.spawn(process, command, remote).boxed().await,
 			#[cfg(target_os = "linux")]
-			Runtime::Linux(runtime) => runtime.build(build, remote).boxed().await,
+			Runtime::Linux(runtime) => runtime.spawn(process, command, remote).boxed().await,
 		}
 	}
 }

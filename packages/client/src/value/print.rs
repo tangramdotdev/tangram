@@ -174,7 +174,7 @@ where
 			tg::Object::File(v) => self.file(v),
 			tg::Object::Symlink(v) => self.symlink(v),
 			tg::Object::Graph(v) => self.graph(v),
-			tg::Object::Target(v) => self.target(v),
+			tg::Object::Command(v) => self.command(v),
 		}
 	}
 
@@ -511,22 +511,22 @@ where
 		Ok(())
 	}
 
-	pub fn target(&mut self, value: &tg::Target) -> Result {
+	pub fn command(&mut self, value: &tg::Command) -> Result {
 		let state = value.state().read().unwrap();
 		match (state.id(), state.object(), self.options.recursive) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
 			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				self.target_object(object)?;
+				self.command_object(object)?;
 			},
 			(None, None, _) => unreachable!(),
 		}
 		Ok(())
 	}
 
-	fn target_object(&mut self, object: &tg::target::Object) -> Result {
-		write!(self.writer, "tg.target(")?;
+	fn command_object(&mut self, object: &tg::command::Object) -> Result {
+		write!(self.writer, "tg.command(")?;
 		self.start_map()?;
 		if !object.args.is_empty() {
 			self.map_entry("args", |s| s.array(&object.args))?;
@@ -539,8 +539,8 @@ where
 		}
 		if let Some(executable) = &object.executable {
 			self.map_entry("executable", |s| match executable {
-				tg::target::Executable::Artifact(artifact) => s.artifact(artifact),
-				tg::target::Executable::Module(module) => s.target_module(module),
+				tg::command::Executable::Artifact(artifact) => s.artifact(artifact),
+				tg::command::Executable::Module(module) => s.command_module(module),
 			})?;
 		}
 		self.map_entry("host", |s| s.string(&object.host))?;
@@ -549,7 +549,7 @@ where
 		Ok(())
 	}
 
-	pub fn target_module(&mut self, value: &tg::target::Module) -> Result {
+	pub fn command_module(&mut self, value: &tg::command::Module) -> Result {
 		self.start_map()?;
 		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
 		self.map_entry("referent", |s| {

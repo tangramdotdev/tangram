@@ -19,8 +19,8 @@ pub use self::{
 	artifact::Handle as Artifact,
 	blob::Handle as Blob,
 	branch::Handle as Branch,
-	build::Build,
 	checksum::Checksum,
+	command::Handle as Command,
 	diagnostic::Diagnostic,
 	directory::Handle as Directory,
 	error::{ok, Error, Result},
@@ -37,12 +37,12 @@ pub use self::{
 	mutation::Mutation,
 	object::Handle as Object,
 	position::Position,
+	process::Process,
 	range::Range,
 	reference::Reference,
 	referent::Referent,
 	symlink::Handle as Symlink,
 	tag::Tag,
-	target::Handle as Target,
 	template::Template,
 	user::User,
 	value::Value,
@@ -51,9 +51,9 @@ pub use self::{
 pub mod artifact;
 pub mod blob;
 pub mod branch;
-pub mod build;
 pub mod checksum;
 pub mod clean;
+pub mod command;
 pub mod compiler;
 pub mod diagnostic;
 pub mod directory;
@@ -72,6 +72,7 @@ pub mod mutation;
 pub mod object;
 pub mod package;
 pub mod position;
+pub mod process;
 pub mod progress;
 pub mod range;
 pub mod reference;
@@ -80,7 +81,6 @@ pub mod remote;
 pub mod runtime;
 pub mod symlink;
 pub mod tag;
-pub mod target;
 pub mod template;
 pub mod user;
 pub mod util;
@@ -617,125 +617,125 @@ impl tg::Handle for Client {
 		self.try_read_blob_stream(id, arg)
 	}
 
-	fn try_get_build(
+	fn try_get_process(
 		&self,
-		id: &tg::build::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> {
-		self.try_get_build(id)
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
+		self.try_get_process(id)
 	}
 
-	fn put_build(
+	fn put_process(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::put::Output>> {
-		self.put_build(id, arg)
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::put::Output>> {
+		self.put_process(id, arg)
 	}
 
-	fn push_build(
+	fn push_process(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::push::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::push::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
 	> {
-		self.push_build(id, arg)
+		self.push_process(id, arg)
 	}
 
-	fn pull_build(
+	fn pull_process(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::pull::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::pull::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
 	> {
-		self.pull_build(id, arg)
+		self.pull_process(id, arg)
 	}
 
-	fn try_dequeue_build(
+	fn try_dequeue_process(
 		&self,
-		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> {
-		self.try_dequeue_build(arg)
+		arg: tg::process::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> {
+		self.try_dequeue_process(arg)
 	}
 
-	fn try_start_build(
+	fn try_start_process(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::start::Output>> {
-		self.try_start_build(id, arg)
+		id: &tg::process::Id,
+		arg: tg::process::start::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::start::Output>> {
+		self.try_start_process(id, arg)
 	}
 
-	fn heartbeat_build(
+	fn heartbeat_process(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> {
-		self.heartbeat_build(id, arg)
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
+		self.heartbeat_process(id, arg)
 	}
 
-	fn try_get_build_status_stream(
+	fn try_get_process_status_stream(
 		&self,
-		id: &tg::build::Id,
+		id: &tg::process::Id,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::status::Event>> + Send + 'static>,
+			Option<impl Stream<Item = Result<tg::process::status::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_build_status_stream(id)
+		self.try_get_process_status_stream(id)
 	}
 
-	fn try_get_build_children_stream(
+	fn try_get_process_children_stream(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::get::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::children::get::Event>> + Send + 'static>,
+			Option<impl Stream<Item = Result<tg::process::children::get::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_build_children_stream(id, arg)
+		self.try_get_process_children_stream(id, arg)
 	}
 
-	fn try_get_build_log_stream(
+	fn try_get_process_log_stream(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::get::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::log::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::log::get::Event>> + Send + 'static>,
+			Option<impl Stream<Item = Result<tg::process::log::get::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_build_log_stream(id, arg)
+		self.try_get_process_log_stream(id, arg)
 	}
 
-	fn try_add_build_log(
+	fn try_add_process_log(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::log::post::Output>> {
-		self.try_add_build_log(id, arg)
+		id: &tg::process::Id,
+		arg: tg::process::log::post::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
+		self.try_add_process_log(id, arg)
 	}
 
-	fn try_finish_build(
+	fn try_finish_process(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::finish::Output>> {
-		self.try_finish_build(id, arg)
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::finish::Output>> {
+		self.try_finish_process(id, arg)
 	}
 
-	fn touch_build(
+	fn touch_process(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::touch::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.touch_build(id, arg)
+		self.touch_process(id, arg)
 	}
 
 	fn lsp(
@@ -816,8 +816,9 @@ impl tg::Handle for Client {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	       + Send {
+	) -> impl Future<
+		Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>,
+	> + Send {
 		self.try_get_reference(reference)
 	}
 
@@ -885,12 +886,12 @@ impl tg::Handle for Client {
 		self.delete_tag(tag)
 	}
 
-	fn try_build_target(
+	fn try_spawn_command(
 		&self,
-		id: &tg::target::Id,
-		arg: tg::target::build::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::target::build::Output>>> {
-		self.try_build_target(id, arg)
+		id: &tg::command::Id,
+		arg: tg::command::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
+		self.try_spawn_command(id, arg)
 	}
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {

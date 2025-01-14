@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg};
 
 /// Bundle an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -9,20 +9,20 @@ pub struct Args {
 	pub artifact: tg::artifact::Id,
 
 	#[command(flatten)]
-	pub inner: crate::target::build::InnerArgs,
+	pub inner: crate::command::build::InnerArgs,
 }
 
 impl Cli {
 	pub async fn command_artifact_bundle(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let artifact = tg::Artifact::with_id(args.artifact);
-		let target = artifact.bundle_target();
-		let target = target.id(&handle).await?;
-		let args = crate::target::build::Args {
-			reference: Some(tg::Reference::with_object(&target.into())),
+		let command = artifact.bundle_command();
+		let command = command.id(&handle).await?;
+		let args = crate::command::build::Args {
+			reference: Some(tg::Reference::with_object(&command.into())),
 			inner: args.inner,
 		};
-		self.command_target_build(args).await?;
+		self.command_command_build(args).await?;
 		Ok(())
 	}
 }

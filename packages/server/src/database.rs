@@ -87,7 +87,7 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 async fn migration_0000(database: &Database) -> tg::Result<()> {
 	let sql = indoc!(
 		r#"
-			create table builds (
+			create table processes (
 				id text primary key,
 				complete integer not null default 0,
 				count integer,
@@ -107,11 +107,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				outputs_weight integer,
 				retry text not null,
 				status text not null,
-				target text not null,
-				targets_complete integer not null default 0,
-				targets_count integer,
-				targets_depth integer,
-				targets_weight integer,
+				command text not null,
+				commands_complete integer not null default 0,
+				commands_count integer,
+				commands_depth integer,
+				commands_weight integer,
 				touched_at text,
 				created_at text not null,
 				enqueued_at text,
@@ -120,9 +120,9 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				finished_at text
 			);
 
-			create index builds_status_created_at_index on builds (status, created_at);
+			create index processes_status_created_at_index on processes (status, created_at);
 
-			create index builds_target_created_at_index on builds (target, created_at desc);
+			create index processes_command_created_at_index on processes (command, created_at desc);
 
 			create table build_children (
 				build text not null,
@@ -130,30 +130,37 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				child text not null
 			);
 
-			create unique index build_children_index on build_children (build, position);
+			create unique index process_children_index on process_children (process, position);
 
-			create unique index build_children_build_child_index on build_children (build, child);
+			create unique index process_children_process_child_index on process_children (process, child);
 
-			create unique index build_children_build_parent_index on build_children (child, build);
+			create unique index process_children_process_parent_index on process_children (child, process);
 
-			create index build_children_child_index on build_children (child);
+			create index process_children_child_index on process_children (child);
 
-			create table build_logs (
-				build text not null,
+			create table process_tokens (
+				token text primary key,
+				process text not null
+			);
+
+			create index process_token_process_index on process_tokens (process);
+
+			create table process_logs (
+				process text not null,
 				position integer not null,
 				bytes blob not null
 			);
 
-			create unique index build_logs_index on build_logs (build, position);
+			create unique index process_logs_index on process_logs (process, position);
 
-			create table build_objects (
-				build text not null,
+			create table process_objects (
+				process text not null,
 				object text not null
 			);
 
-			create unique index build_objects_index on build_objects (build, object);
+			create unique index process_objects_index on process_objects (process, object);
 
-			create index build_objects_object_index on build_objects (object);
+			create index process_objects_object_index on process_objects (object);
 
 			create table objects (
 				id text primary key,

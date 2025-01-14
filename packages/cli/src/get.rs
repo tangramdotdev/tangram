@@ -24,7 +24,11 @@ impl Cli {
 	pub async fn command_get(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let referent = self.get_reference(&args.reference).await?;
-		eprintln!("{} item {}", "info".blue().bold(), referent.item);
+		let item = match &referent.item {
+			Either::Left(process) => process.id().to_string(),
+			Either::Right(item)  => item.to_string(),
+		};
+		eprintln!("{} item {item}", "info".blue().bold());
 		if let Some(path) = &referent.path {
 			let path = path.display();
 			eprintln!("{} path {path}", "info".blue().bold());
@@ -63,8 +67,11 @@ impl Cli {
 		} = args;
 		match item {
 			Either::Left(build) => {
-				self.command_build_get(crate::build::get::Args { build, pretty })
-					.await?;
+				self.command_process_get(crate::process::get::Args {
+					process: build,
+					pretty,
+				})
+				.await?;
 			},
 			Either::Right(object) => {
 				self.command_object_get(crate::object::get::Args {

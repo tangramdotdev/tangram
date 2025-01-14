@@ -31,7 +31,11 @@ impl Runtime {
 		}
 	}
 
-	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
+	pub async fn spawn(
+		&self,
+		build: &tg::Process,
+		remote: Option<String>,
+	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Get the target.
@@ -445,7 +449,7 @@ impl Runtime {
 							})
 							.ok();
 					}
-					let arg = tg::build::log::post::Arg {
+					let arg = tg::process::log::post::Arg {
 						bytes,
 						remote: remote.clone(),
 					};

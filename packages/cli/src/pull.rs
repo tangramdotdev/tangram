@@ -19,7 +19,7 @@ pub struct Args {
 	pub remote: Option<String>,
 
 	#[arg(long)]
-	pub targets: bool,
+	pub commands: bool,
 }
 
 impl Cli {
@@ -51,12 +51,12 @@ impl Cli {
 		// Pull the item.
 		match item.clone() {
 			Either::Left(build) => {
-				self.command_build_pull(crate::build::pull::Args {
-					build,
+				self.command_process_pull(crate::process::pull::Args {
+					process: build,
 					logs: args.logs,
 					recursive: args.recursive,
 					remote: args.remote,
-					targets: args.targets,
+					commands: args.commands,
 				})
 				.await?;
 			},

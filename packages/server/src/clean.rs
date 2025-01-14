@@ -23,7 +23,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Remove builds.
+		// Remove processes.
 		loop {
 			// Begin a transaction.
 			let transaction = connection
@@ -31,40 +31,40 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-			// Get a build to remove.
+			// Get a process to remove.
 			let statement = indoc!(
 				"
 					select id
-					from builds
+					from processes
 					where (
 						select count(*) = 0
-						from build_children
-						where child = builds.id
+						from process_children
+						where child = processes.id
 					) and (
 						select count(*) = 0
 						from tags
-						where item = builds.id
+						where item = processes.id
 					)
 					limit 100;
 				"
 			);
 			let params = db::params![];
-			let builds = transaction
-				.query_all_value_into::<tg::build::Id>(statement.into(), params)
+			let processes = transaction
+				.query_all_value_into::<tg::process::Id>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-			// If there are no builds, then break.
-			if builds.is_empty() {
+			// If there are no processes, then break.
+			if processes.is_empty() {
 				break;
 			}
 
-			for id in builds {
-				// Remove the build.
+			for id in processes {
+				// Remove the process.
 				let p = transaction.p();
 				let statement = formatdoc!(
 					"
-						delete from builds
+						delete from processes
 						where id = {p}1;
 					"
 				);
@@ -74,12 +74,12 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-				// Remove the build children.
+				// Remove the process children.
 				let p = transaction.p();
 				let statement = formatdoc!(
 					"
-						delete from build_children
-						where build = {p}1;
+						delete from process_children
+						where process = {p}1;
 					"
 				);
 				let params = db::params![id];
@@ -88,12 +88,12 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-				// Remove the build objects.
+				// Remove the process objects.
 				let p = transaction.p();
 				let statement = formatdoc!(
 					"
-						delete from build_objects
-						where build = {p}1;
+						delete from process_objects
+						where process = {p}1;
 					"
 				);
 				let params = db::params![id];
@@ -129,7 +129,7 @@ impl Server {
 						where child = objects.id
 					) and (
 						select count(*) = 0
-						from build_objects
+						from process_objects
 						where object = objects.id
 					) and (
 						select count(*) = 0

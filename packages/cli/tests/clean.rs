@@ -13,15 +13,15 @@ async fn builds() {
 	test(TG, move |context| async move {
 		let build = temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export let e = tg.target(() => "e");
-				export let d = tg.target(() => "d");
-				export let c = tg.target(() => "c");
-				export let b = tg.target(async () => {
+				export let e = tg.command(() => "e");
+				export let d = tg.command(() => "d");
+				export let c = tg.command(() => "c");
+				export let b = tg.command(async () => {
 					await e();
 					await d();
 					return "b";
 				});
-				export let a = tg.target(async () => {
+				export let a = tg.command(async () => {
 					await b();
 					await c();
 					return "a";
@@ -35,11 +35,11 @@ async fn builds() {
 		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
 
-		let a = build_target_get_build_id("a", &server, artifact_temp.path()).await;
-		let b = build_target_get_build_id("b", &server, artifact_temp.path()).await;
-		let c = build_target_get_build_id("c", &server, artifact_temp.path()).await;
-		let d = build_target_get_build_id("d", &server, artifact_temp.path()).await;
-		let e = build_target_get_build_id("e", &server, artifact_temp.path()).await;
+		let a = build_command_get_process_id("a", &server, artifact_temp.path()).await;
+		let b = build_command_get_process_id("b", &server, artifact_temp.path()).await;
+		let c = build_command_get_process_id("c", &server, artifact_temp.path()).await;
+		let d = build_command_get_process_id("d", &server, artifact_temp.path()).await;
+		let e = build_command_get_process_id("e", &server, artifact_temp.path()).await;
 
 		// Tag the builds.
 		for (pattern, id) in [("b", &b), ("d", &d)] {
@@ -146,14 +146,14 @@ async fn objects() {
 		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
 
-		let a = build_target_get_object_id("a", &server, artifact_temp.path()).await;
-		let b = build_target_get_object_id("b", &server, artifact_temp.path()).await;
-		let c = build_target_get_object_id("c", &server, artifact_temp.path()).await;
-		let d = build_target_get_object_id("d", &server, artifact_temp.path()).await;
-		let e = build_target_get_object_id("e", &server, artifact_temp.path()).await;
-		let f = build_target_get_object_id("f", &server, artifact_temp.path()).await;
-		let g = build_target_get_object_id("g", &server, artifact_temp.path()).await;
-		let h = build_target_get_object_id("h", &server, artifact_temp.path()).await;
+		let a = build_command_get_object_id("a", &server, artifact_temp.path()).await;
+		let b = build_command_get_object_id("b", &server, artifact_temp.path()).await;
+		let c = build_command_get_object_id("c", &server, artifact_temp.path()).await;
+		let d = build_command_get_object_id("d", &server, artifact_temp.path()).await;
+		let e = build_command_get_object_id("e", &server, artifact_temp.path()).await;
+		let f = build_command_get_object_id("f", &server, artifact_temp.path()).await;
+		let g = build_command_get_object_id("g", &server, artifact_temp.path()).await;
+		let h = build_command_get_object_id("h", &server, artifact_temp.path()).await;
 
 		// Tag c.
 		let output = server
@@ -265,7 +265,7 @@ async fn objects() {
 	.await;
 }
 
-async fn build_target_get_build_id(name: &str, server: &Server, path: &Path) -> String {
+async fn build_command_get_process_id(name: &str, server: &Server, path: &Path) -> String {
 	let output = server
 		.tg()
 		.arg("build")
@@ -288,7 +288,7 @@ async fn build_target_get_build_id(name: &str, server: &Server, path: &Path) -> 
 	build_id.to_owned()
 }
 
-async fn build_target_get_object_id(name: &str, server: &Server, path: &Path) -> String {
+async fn build_command_get_object_id(name: &str, server: &Server, path: &Path) -> String {
 	let output = server
 		.tg()
 		.arg("build")

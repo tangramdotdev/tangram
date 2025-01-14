@@ -9,9 +9,9 @@ use url::Url;
 pub struct Config {
 	pub advanced: Advanced,
 	pub authentication: Option<Authentication>,
-	pub build: Option<Build>,
-	pub build_heartbeat_monitor: Option<BuildHeartbeatMonitor>,
-	pub build_indexer: Option<BuildIndexer>,
+	pub process: Option<Build>,
+	pub process_heartbeat_monitor: Option<ProcessHeartbeatMonitor>,
+	pub process_indexer: Option<ProcessIndexer>,
 	pub database: Database,
 	pub messenger: Messenger,
 	pub object_indexer: Option<ObjectIndexer>,
@@ -25,13 +25,13 @@ pub struct Config {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug)]
 pub struct Advanced {
-	pub build_dequeue_timeout: Duration,
+	pub process_dequeue_timeout: Duration,
 	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
 	pub write_blobs_to_blobs_directory: bool,
-	pub write_build_logs_to_database: bool,
-	pub write_build_logs_to_stderr: bool,
+	pub write_process_logs_to_database: bool,
+	pub write_process_logs_to_stderr: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -62,14 +62,14 @@ pub struct Build {
 }
 
 #[derive(Clone, Debug)]
-pub struct BuildHeartbeatMonitor {
+pub struct ProcessHeartbeatMonitor {
 	pub interval: Duration,
 	pub limit: usize,
 	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct BuildIndexer {}
+pub struct ProcessIndexer {}
 
 #[derive(Clone, Debug)]
 pub enum Database {
@@ -148,9 +148,9 @@ impl Config {
 		Self {
 			advanced,
 			authentication,
-			build,
-			build_heartbeat_monitor,
-			build_indexer,
+			process: build,
+			process_heartbeat_monitor: build_heartbeat_monitor,
+			process_indexer: build_indexer,
 			database,
 			messenger,
 			object_indexer,
@@ -173,7 +173,7 @@ impl Config {
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
-			build_dequeue_timeout: Duration::from_secs(3600),
+			process_dequeue_timeout: Duration::from_secs(3600),
 			error_trace_options: tg::error::TraceOptions {
 				internal: true,
 				reverse: false,
@@ -181,8 +181,8 @@ impl Default for Advanced {
 			file_descriptor_semaphore_size: 1_000_000_000,
 			preserve_temp_directories: false,
 			write_blobs_to_blobs_directory: true,
-			write_build_logs_to_database: false,
-			write_build_logs_to_stderr: false,
+			write_process_logs_to_database: false,
+			write_process_logs_to_stderr: false,
 		}
 	}
 }
@@ -199,7 +199,7 @@ impl Default for Build {
 	}
 }
 
-impl Default for BuildHeartbeatMonitor {
+impl Default for ProcessHeartbeatMonitor {
 	fn default() -> Self {
 		Self {
 			interval: Duration::from_secs(1),

@@ -10,6 +10,7 @@ mod blob;
 mod branch;
 mod build;
 mod checksum;
+mod command;
 mod de;
 mod directory;
 mod error;
@@ -24,7 +25,6 @@ mod referent;
 mod ser;
 mod serde;
 mod symlink;
-mod target;
 mod template;
 mod value;
 

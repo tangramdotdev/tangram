@@ -27,7 +27,7 @@ pub enum Id {
 	File(tg::file::Id),
 	Symlink(tg::symlink::Id),
 	Graph(tg::graph::Id),
-	Target(tg::target::Id),
+	Command(tg::command::Id),
 }
 
 impl Id {
@@ -39,7 +39,7 @@ impl Id {
 			Kind::File => tg::file::Id::new(bytes).into(),
 			Kind::Symlink => tg::symlink::Id::new(bytes).into(),
 			Kind::Graph => tg::graph::Id::new(bytes).into(),
-			Kind::Target => tg::target::Id::new(bytes).into(),
+			Kind::Command => tg::command::Id::new(bytes).into(),
 		}
 	}
 
@@ -52,7 +52,7 @@ impl Id {
 			Self::File(_) => Kind::File,
 			Self::Symlink(_) => Kind::Symlink,
 			Self::Graph(_) => Kind::Graph,
-			Self::Target(_) => Kind::Target,
+			Self::Command(_) => Kind::Command,
 		}
 	}
 }
@@ -66,7 +66,7 @@ impl From<self::Id> for crate::Id {
 			self::Id::File(id) => id.into(),
 			self::Id::Symlink(id) => id.into(),
 			self::Id::Graph(id) => id.into(),
-			self::Id::Target(id) => id.into(),
+			self::Id::Command(id) => id.into(),
 		}
 	}
 }
@@ -82,7 +82,7 @@ impl TryFrom<crate::Id> for self::Id {
 			crate::id::Kind::File => Ok(Self::File(value.try_into()?)),
 			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
 			crate::id::Kind::Graph => Ok(Self::Graph(value.try_into()?)),
-			crate::id::Kind::Target => Ok(Self::Target(value.try_into()?)),
+			crate::id::Kind::Command => Ok(Self::Command(value.try_into()?)),
 			kind => Err(tg::error!(%kind, "expected an object ID")),
 		}
 	}

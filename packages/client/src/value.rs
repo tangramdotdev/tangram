@@ -443,8 +443,8 @@ impl From<tg::Graph> for Value {
 	}
 }
 
-impl From<tg::Target> for Value {
-	fn from(value: tg::Target) -> Self {
+impl From<tg::Command> for Value {
+	fn from(value: tg::Command) -> Self {
 		tg::Object::from(value).into()
 	}
 }

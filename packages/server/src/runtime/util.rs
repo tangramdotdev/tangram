@@ -36,10 +36,10 @@ pub async fn render(
 	}
 }
 
-pub async fn try_reuse_build(
+pub async fn try_reuse_process(
 	server: &Server,
-	build: &tg::build::Id,
-	target: &tg::Target,
+	process: &tg::process::Id,
+	command: &tg::Command,
 	checksum: Option<&tg::Checksum>,
 ) -> tg::Result<tg::Value> {
 	// Unwrap the checksum.
@@ -53,85 +53,84 @@ pub async fn try_reuse_build(
 	}
 
 	// Search for an existing build with a `None` or `Unsafe` checksum.
-	let Ok(Some(matching_build)) = find_matching_build(server, target).await else {
+	let Ok(Some(matching_process)) = find_matching_process(server, command).await else {
 		return Err(tg::error!("failed to find a matching build"));
 	};
-	let matching_build = tg::Build::with_id(matching_build);
 
 	// Wait for the build to finish and get its output.
-	let output = matching_build.output(server).boxed().await?;
+	let output = tg::Process::with_id(matching_process.clone()).output(server).boxed().await?;
 
 	// Checksum the output.
-	super::util::checksum(server, &matching_build, &output, checksum)
+	super::util::checksum(server, &matching_process, &output, checksum)
 		.boxed()
 		.await?;
 
 	// Copy the build children and log.
-	copy_build_children_and_log(server, matching_build.id(), build).await?;
+	copy_process_children_and_log(server, &matching_process, process).await?;
 
 	Ok(output)
 }
 
-async fn find_matching_build(
+async fn find_matching_process(
 	server: &Server,
-	target: &tg::Target,
-) -> tg::Result<Option<tg::build::Id>> {
+	target: &tg::Command,
+) -> tg::Result<Option<tg::process::Id>> {
 	// Attempt to find a build with the checksum set to `None`.
 	let target = target.load(server).await?;
-	let search_target = tg::target::Builder::with_object(&target)
+	let search_target = tg::command::Builder::with_object(&target)
 		.checksum(tg::Checksum::None)
 		.build();
 	let target_id = search_target.id(server).await?;
-	let arg = tg::target::build::Arg {
+	let arg = tg::command::spawn::Arg {
 		create: false,
 		..Default::default()
 	};
-	if let Some(output) = server.try_build_target(&target_id, arg).await? {
-		return Ok(Some(output.build));
+	if let Some(output) = server.try_spawn_command(&target_id, arg).await? {
+		return Ok(Some(output.process));
 	}
 
 	// Attempt to find a build with the checksum set to `Unsafe`.
-	let search_target = tg::target::Builder::with_object(&target)
+	let search_target = tg::command::Builder::with_object(&target)
 		.checksum(tg::Checksum::Unsafe)
 		.build();
 	let target_id = search_target.id(server).await?;
-	let arg = tg::target::build::Arg {
+	let arg = tg::command::spawn::Arg {
 		create: false,
 		..Default::default()
 	};
-	if let Some(output) = server.try_build_target(&target_id, arg).await? {
-		return Ok(Some(output.build));
+	if let Some(output) = server.try_spawn_command(&target_id, arg).await? {
+		return Ok(Some(output.process));
 	}
 
 	Ok(None)
 }
 
-async fn copy_build_children_and_log(
+async fn copy_process_children_and_log(
 	server: &Server,
-	src_build: &tg::build::Id,
-	dst_build: &tg::build::Id,
+	src_process: &tg::process::Id,
+	dst_process: &tg::process::Id,
 ) -> tg::Result<()> {
 	// Copy the children.
-	let arg = tg::build::children::get::Arg::default();
-	let mut src_children = pin!(server.get_build_children(src_build, arg).await?);
+	let arg = tg::process::children::get::Arg::default();
+	let mut src_children = pin!(server.get_process_children(src_process, arg).await?);
 	while let Some(chunk) = src_children.try_next().await? {
 		for child in chunk.data {
 			// If we fail to add one child, it means the build is finished and we can't add any of hte other children so break.
-			if !server.try_add_build_child(dst_build, &child).await? {
+			if !server.try_add_process_child(dst_process, &child).await? {
 				break;
 			}
 		}
 	}
 
 	// Copy the log.
-	let arg = tg::build::log::get::Arg::default();
-	let mut src_log = pin!(server.get_build_log(src_build, arg).await?);
+	let arg = tg::process::log::get::Arg::default();
+	let mut src_log = pin!(server.get_process_log(src_process, arg).await?);
 	while let Some(chunk) = src_log.try_next().await? {
-		let arg = tg::build::log::post::Arg {
+		let arg = tg::process::log::post::Arg {
 			bytes: chunk.bytes,
 			remote: None,
 		};
-		server.try_add_build_log(dst_build, arg).await?;
+		server.try_add_process_log(dst_process, arg).await?;
 	}
 
 	Ok(())
@@ -139,7 +138,7 @@ async fn copy_build_children_and_log(
 
 pub async fn checksum(
 	server: &Server,
-	build: &tg::Build,
+	process: &tg::process::Id,
 	value: &tg::Value,
 	checksum: &tg::Checksum,
 ) -> tg::Result<()> {
@@ -158,15 +157,15 @@ pub async fn checksum(
 		value.clone(),
 		algorithm.to_string().into(),
 	];
-	let target = tg::Target::builder(host).args(args).build();
-	let target_id = target.id(server).await?;
-	let arg = tg::target::build::Arg {
+	let command = tg::Command::builder(host).args(args).build();
+	let command_id = command.id(server).await?;
+	let arg = tg::command::spawn::Arg {
 		create: true,
-		parent: Some(build.id().clone()),
+		parent: Some(process.clone()),
 		..Default::default()
 	};
-	let output = server.build_target(&target_id, arg).await?;
-	let Some(stream) = server.try_get_build_status(&output.build).await? else {
+	let output = server.spawn_command(&command_id, arg).await?;
+	let Some(stream) = server.try_get_process_status(&output.process).await? else {
 		return Err(tg::error!("failed to get build status"));
 	};
 	let Some(Ok(status)) = pin!(stream).last().await else {

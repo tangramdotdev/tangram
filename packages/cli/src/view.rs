@@ -75,7 +75,7 @@ impl Cli {
 			local_set
 				.block_on(&runtime, async move {
 					let options = crate::viewer::Options {
-						condensed_builds: false,
+						condensed_processes: false,
 						expand_on_create: matches!(kind, Kind::Inline),
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, item, options);

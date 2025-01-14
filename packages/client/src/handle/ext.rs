@@ -86,41 +86,42 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
-	fn get_build(
+	fn get_process(
 		&self,
-		id: &tg::build::Id,
-	) -> impl Future<Output = tg::Result<tg::build::get::Output>> + Send {
-		self.try_get_build(id).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::get::Output>> + Send {
+		self.try_get_process(id).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
 		})
 	}
 
-	fn dequeue_build(
+	fn dequeue_process(
 		&self,
-		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::dequeue::Output>> + Send {
-		self.try_dequeue_build(arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
+		arg: tg::process::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::dequeue::Output>> + Send {
+		self.try_dequeue_process(arg).map(|result| {
+			result
+				.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a process")))
 		})
 	}
 
-	fn try_get_build_status(
+	fn try_get_process_status(
 		&self,
-		id: &tg::build::Id,
+		id: &tg::process::Id,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>,
 		>,
 	> + Send {
 		async move {
 			let handle = self.clone();
 			let id = id.clone();
-			let Some(stream) = handle.try_get_build_status_stream(&id).await? else {
+			let Some(stream) = handle.try_get_process_status_stream(&id).await? else {
 				return Ok(None);
 			};
 			let stream = stream.boxed();
 			struct State {
-				stream: Option<stream::BoxStream<'static, tg::Result<tg::build::status::Event>>>,
+				stream: Option<stream::BoxStream<'static, tg::Result<tg::process::status::Event>>>,
 				end: bool,
 			}
 			let state = Arc::new(Mutex::new(State {
@@ -139,7 +140,7 @@ pub trait Ext: tg::Handle {
 						stream
 					} else {
 						handle
-							.try_get_build_status_stream(&id)
+							.try_get_process_status_stream(&id)
 							.await?
 							.unwrap()
 							.boxed()
@@ -148,9 +149,11 @@ pub trait Ext: tg::Handle {
 				}
 			})
 			.try_flatten()
-			.take_while(|event| future::ready(!matches!(event, Ok(tg::build::status::Event::End))))
+			.take_while(|event| {
+				future::ready(!matches!(event, Ok(tg::process::status::Event::End)))
+			})
 			.map(|event| match event {
-				Ok(tg::build::status::Event::Status(status)) => Ok(status),
+				Ok(tg::process::status::Event::Status(status)) => Ok(status),
 				Err(e) => Err(e),
 				_ => unreachable!(),
 			})
@@ -164,25 +167,25 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
-	fn get_build_status(
+	fn get_process_status(
 		&self,
-		id: &tg::build::Id,
+		id: &tg::process::Id,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::build::Status>> + Send + 'static>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>,
 	> + Send {
-		self.try_get_build_status(id).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
+		self.try_get_process_status(id).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
 		})
 	}
 
-	fn try_get_build_children(
+	fn try_get_process_children(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::get::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::build::children::get::Chunk>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::children::get::Chunk>> + Send + 'static,
 			>,
 		>,
 	> + Send {
@@ -190,16 +193,17 @@ pub trait Ext: tg::Handle {
 			let handle = self.clone();
 			let id = id.clone();
 			let Some(stream) = handle
-				.try_get_build_children_stream(&id, arg.clone())
+				.try_get_process_children_stream(&id, arg.clone())
 				.await?
 			else {
 				return Ok(None);
 			};
 			let stream = stream.boxed();
 			struct State {
-				stream:
-					Option<stream::BoxStream<'static, tg::Result<tg::build::children::get::Event>>>,
-				arg: tg::build::children::get::Arg,
+				stream: Option<
+					stream::BoxStream<'static, tg::Result<tg::process::children::get::Event>>,
+				>,
+				arg: tg::process::children::get::Arg,
 				end: bool,
 			}
 			let state = Arc::new(Mutex::new(State {
@@ -220,7 +224,7 @@ pub trait Ext: tg::Handle {
 					} else {
 						let arg = state.lock().unwrap().arg.clone();
 						handle
-							.try_get_build_children_stream(&id, arg)
+							.try_get_process_children_stream(&id, arg)
 							.await?
 							.unwrap()
 							.boxed()
@@ -230,10 +234,10 @@ pub trait Ext: tg::Handle {
 			})
 			.try_flatten()
 			.take_while(|event| {
-				future::ready(!matches!(event, Ok(tg::build::children::get::Event::End)))
+				future::ready(!matches!(event, Ok(tg::process::children::get::Event::End)))
 			})
 			.map(|event| match event {
-				Ok(tg::build::children::get::Event::Chunk(chunk)) => Ok(chunk),
+				Ok(tg::process::children::get::Event::Chunk(chunk)) => Ok(chunk),
 				Err(e) => Err(e),
 				_ => unreachable!(),
 			})
@@ -262,39 +266,39 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
-	fn get_build_children(
+	fn get_process_children(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::get::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::children::get::Chunk>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::process::children::get::Chunk>> + Send + 'static,
 		>,
 	> + Send {
-		self.try_get_build_children(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
+		self.try_get_process_children(id, arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
 		})
 	}
 
-	fn try_get_build_log(
+	fn try_get_process_log(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::get::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::log::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::get::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::process::log::get::Chunk>> + Send + 'static>,
 		>,
 	> + Send {
 		async move {
 			let handle = self.clone();
 			let id = id.clone();
-			let Some(stream) = handle.try_get_build_log_stream(&id, arg.clone()).await? else {
+			let Some(stream) = handle.try_get_process_log_stream(&id, arg.clone()).await? else {
 				return Ok(None);
 			};
 			let stream = stream.boxed();
 			struct State {
-				stream: Option<BoxStream<'static, tg::Result<tg::build::log::get::Event>>>,
-				arg: tg::build::log::get::Arg,
+				stream: Option<BoxStream<'static, tg::Result<tg::process::log::get::Event>>>,
+				arg: tg::process::log::get::Arg,
 				end: bool,
 			}
 			let state = State {
@@ -316,7 +320,7 @@ pub trait Ext: tg::Handle {
 					} else {
 						let arg = state.lock().unwrap().arg.clone();
 						handle
-							.try_get_build_log_stream(&id, arg)
+							.try_get_process_log_stream(&id, arg)
 							.await?
 							.unwrap()
 							.boxed()
@@ -326,10 +330,10 @@ pub trait Ext: tg::Handle {
 			})
 			.try_flatten()
 			.take_while(|event| {
-				future::ready(!matches!(event, Ok(tg::build::log::get::Event::End)))
+				future::ready(!matches!(event, Ok(tg::process::log::get::Event::End)))
 			})
 			.map(|event| match event {
-				Ok(tg::build::log::get::Event::Chunk(chunk)) => Ok(chunk),
+				Ok(tg::process::log::get::Event::Chunk(chunk)) => Ok(chunk),
 				Err(e) => Err(e),
 				_ => unreachable!(),
 			})
@@ -363,17 +367,17 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
-	fn get_build_log(
+	fn get_process_log(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::get::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::log::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::build::log::get::Chunk>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::process::log::get::Chunk>> + Send + 'static,
 		>,
 	> + Send {
-		self.try_get_build_log(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the build")))
+		self.try_get_process_log(id, arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
 		})
 	}
 
@@ -400,7 +404,7 @@ pub trait Ext: tg::Handle {
 	fn get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<tg::Referent<Either<tg::build::Id, tg::object::Id>>>> + Send
+	) -> impl Future<Output = tg::Result<tg::Referent<Either<tg::process::Id, tg::object::Id>>>> + Send
 	{
 		self.try_get_reference(reference).map(|result| {
 			result
@@ -417,13 +421,13 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
-	fn build_target(
+	fn spawn_command(
 		&self,
-		id: &tg::target::Id,
-		arg: tg::target::build::Arg,
-	) -> impl Future<Output = tg::Result<tg::target::build::Output>> + Send {
-		self.try_build_target(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("expected a build")))
+		id: &tg::command::Id,
+		arg: tg::command::spawn::Arg,
+	) -> impl Future<Output = tg::Result<tg::command::spawn::Output>> + Send {
+		self.try_spawn_command(id, arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("expected a process")))
 		})
 	}
 }

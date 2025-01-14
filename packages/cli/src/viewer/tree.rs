@@ -75,7 +75,7 @@ where
 			return;
 		};
 		let contents = match item {
-			Item::Build(build) => build.id().to_string(),
+			Item::Build(process) => process.id().to_string(),
 			Item::Value(value) => {
 				let options = tg::value::print::Options {
 					recursive: true,
@@ -151,16 +151,16 @@ where
 		let data = self.data.clone();
 		let viewer = self.viewer.clone();
 		let task = Task::spawn_local(|_| async move {
-			// Update the log view if the selected item is a build.
-			let build = node.borrow().item.as_ref().and_then(|item| match item {
-				Item::Build(build) => Some(build.clone()),
+			// Update the log view if the selected item is a process.
+			let process = node.borrow().item.as_ref().and_then(|item| match item {
+				Item::Build(process) => Some(process.clone()),
 				Item::Value(_) => None,
 			});
 			{
 				let handle = handle.clone();
 				let update = move |viewer: &mut super::Viewer<H>| {
-					if let Some(build) = build {
-						let log = Log::new(&handle, &build);
+					if let Some(process) = process {
+						let log = Log::new(&handle, &process);
 						viewer.log.replace(log);
 					} else {
 						viewer.log.take();
@@ -171,11 +171,17 @@ where
 
 			// Update the data view.
 			let result = match item {
-				Item::Build(build) => handle.try_get_build(build.id()).await.and_then(|output| {
-					let output = output.ok_or_else(|| tg::error!("expected a build"))?;
-					serde_json::to_string_pretty(&output)
-						.map_err(|source| tg::error!(!source, "failed to serialize build output"))
-				}),
+				Item::Build(process) => {
+					handle
+						.try_get_process(process.id())
+						.await
+						.and_then(|output| {
+							let output = output.ok_or_else(|| tg::error!("expected a process"))?;
+							serde_json::to_string_pretty(&output).map_err(|source| {
+								tg::error!(!source, "failed to serialize process output")
+							})
+						})
+				},
 				Item::Value(value) => {
 					let value = match value {
 						tg::Value::Object(object) => {
@@ -430,16 +436,16 @@ where
 		Ok(())
 	}
 
-	async fn build_update_task(
+	async fn process_update_task(
 		handle: &H,
-		build: tg::Build,
+		process: tg::Process,
 		options: &Options,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
-		if let Some(title) = Self::build_title(handle, &build).await {
+		if let Some(title) = Self::process_title(handle, &process).await {
 			update_sender
 				.send(Box::new(|node| {
 					node.borrow_mut().title = title;
@@ -448,19 +454,19 @@ where
 		}
 
 		// Create the status stream.
-		let mut status = build.status(handle).await?;
+		let mut status = process.status(handle).await?;
 		while let Some(status) = status.try_next().await? {
 			let indicator = match status {
-				tg::build::Status::Created => Indicator::Created,
-				tg::build::Status::Enqueued => Indicator::Enqueued,
-				tg::build::Status::Dequeued => Indicator::Dequeued,
-				tg::build::Status::Started => Indicator::Started,
-				tg::build::Status::Finishing => Indicator::Finishing,
-				tg::build::Status::Canceled
-				| tg::build::Status::Failed
-				| tg::build::Status::Succeeded => {
+				tg::process::Status::Created => Indicator::Created,
+				tg::process::Status::Enqueued => Indicator::Enqueued,
+				tg::process::Status::Dequeued => Indicator::Dequeued,
+				tg::process::Status::Started => Indicator::Started,
+				tg::process::Status::Finishing => Indicator::Finishing,
+				tg::process::Status::Canceled
+				| tg::process::Status::Failed
+				| tg::process::Status::Succeeded => {
 					// Remove the child if necessary.
-					if options.condensed_builds {
+					if options.condensed_processes {
 						let update = move |node: Rc<RefCell<Node>>| {
 							// Get the parent if it exists.
 							let Some(parent) =
@@ -469,7 +475,7 @@ where
 								return;
 							};
 
-							// Find this build as a child of the parent.
+							// Find this process as a child of the parent.
 							let Some(index) = parent
 								.borrow()
 								.children
@@ -487,9 +493,9 @@ where
 					}
 
 					match status {
-						tg::build::Status::Canceled => Indicator::Canceled,
-						tg::build::Status::Failed => Indicator::Failed,
-						tg::build::Status::Succeeded => Indicator::Succeeded,
+						tg::process::Status::Canceled => Indicator::Canceled,
+						tg::process::Status::Failed => Indicator::Failed,
+						tg::process::Status::Succeeded => Indicator::Succeeded,
 						_ => unreachable!(),
 					}
 				},
@@ -503,13 +509,13 @@ where
 		Ok(())
 	}
 
-	async fn build_log_task(
+	async fn process_log_task(
 		handle: &H,
-		build: tg::Build,
+		process: tg::Process,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let mut log = build
-			.log(handle, tg::build::log::get::Arg::default())
+		let mut log = process
+			.log(handle, tg::process::log::get::Arg::default())
 			.await?;
 
 		while let Some(chunk) = log.try_next().await? {
@@ -550,18 +556,18 @@ where
 		Ok(())
 	}
 
-	async fn expand_build(
+	async fn expand_process(
 		handle: &H,
-		build: tg::Build,
+		process: tg::Process,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		// Create the log task.
 		let log_task = Task::spawn_local({
-			let build = build.clone();
+			let process = process.clone();
 			let handle = handle.clone();
 			let update_sender = update_sender.clone();
 			|_| async move {
-				Self::build_log_task(&handle, build, update_sender)
+				Self::process_log_task(&handle, process, update_sender)
 					.await
 					.ok();
 			}
@@ -571,17 +577,17 @@ where
 		};
 		update_sender.send(Box::new(update)).unwrap();
 
-		let target = build.target(handle).await?;
-		let value = tg::Value::Object(target.into());
+		let command = process.command(handle).await?;
+		let value = tg::Value::Object(command.into());
 		update_sender
 			.send({
 				let handle = handle.clone();
 				Box::new(move |node| {
-					if !node.borrow().options.condensed_builds {
+					if !node.borrow().options.condensed_processes {
 						let child = Self::create_node(
 							&handle,
 							&node,
-							Some("target".to_owned()),
+							Some("command".to_owned()),
 							Some(&Item::Value(value)),
 						);
 						node.borrow_mut().children.push(child);
@@ -591,11 +597,11 @@ where
 			.unwrap();
 
 		// Create the children stream.
-		let mut children = build
-			.children(handle, tg::build::children::get::Arg::default())
+		let mut children = process
+			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
-		while let Some(build) = children.try_next().await? {
-			let finished = build
+		while let Some(process) = children.try_next().await? {
+			let finished = process
 				.status(handle)
 				.await?
 				.try_next()
@@ -603,18 +609,18 @@ where
 				.is_none_or(|status| {
 					matches!(
 						status,
-						tg::build::Status::Finishing
-							| tg::build::Status::Canceled
-							| tg::build::Status::Failed
-							| tg::build::Status::Succeeded
+						tg::process::Status::Finishing
+							| tg::process::Status::Canceled
+							| tg::process::Status::Failed
+							| tg::process::Status::Succeeded
 					)
 				});
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
-				if node.borrow().options.condensed_builds && finished {
+				if node.borrow().options.condensed_processes && finished {
 					return;
 				}
-				if !node.borrow().options.condensed_builds
+				if !node.borrow().options.condensed_processes
 					&& node
 						.borrow()
 						.children
@@ -626,14 +632,14 @@ where
 					node.borrow_mut().children.insert(0, child);
 				}
 
-				let parent = if node.borrow().options.condensed_builds {
+				let parent = if node.borrow().options.condensed_processes {
 					node
 				} else {
 					node.borrow().children[0].clone()
 				};
 
 				// Create the child.
-				let item = Item::Build(build.clone());
+				let item = Item::Build(process.clone());
 				let child = Self::create_node(&handle, &parent, None, Some(&item));
 
 				// Create the update task.
@@ -641,9 +647,14 @@ where
 					let options = child.borrow().options.clone();
 					let update_sender = child.borrow().update_sender.clone();
 					|_| async move {
-						Self::build_update_task(&handle, build, options.as_ref(), update_sender)
-							.await
-							.ok();
+						Self::process_update_task(
+							&handle,
+							process,
+							options.as_ref(),
+							update_sender,
+						)
+						.await
+						.ok();
 					}
 				});
 				child.borrow_mut().update_task.replace(update_task);
@@ -675,14 +686,14 @@ where
 		Ok(())
 	}
 
-	async fn build_title(handle: &H, build: &tg::Build) -> Option<String> {
-		let target = build.target(handle).await.ok()?;
-		let args = target.args(handle).await.ok()?;
-		let executable = target.executable(handle).await.ok()?;
+	async fn process_title(handle: &H, process: &tg::Process) -> Option<String> {
+		let command = process.command(handle).await.ok()?;
+		let args = command.args(handle).await.ok()?;
+		let executable = command.executable(handle).await.ok()?;
 
 		let mut title = String::new();
 		match &*executable {
-			Some(tg::target::Executable::Module(module)) => {
+			Some(tg::command::Executable::Module(module)) => {
 				if let Some(path) = &module.referent.path {
 					let path = module
 						.referent
@@ -698,14 +709,14 @@ where
 			_ => (),
 		};
 
-		let host = target.host(handle).await.ok();
+		let host = command.host(handle).await.ok();
 		let host = host.as_deref();
 		if let (Some(tg::Value::String(arg0)), Some("js" | "builtin")) =
 			(args.first(), host.map(String::as_str))
 		{
 			write!(title, "#{arg0}").unwrap();
 		} else {
-			write!(title, "{}", build.id()).unwrap();
+			write!(title, "{}", process.id()).unwrap();
 		}
 
 		Some(title)
@@ -1049,8 +1060,8 @@ where
 			tg::Object::Graph(graph) => {
 				Self::expand_graph(handle, graph, update_sender).await?;
 			},
-			tg::Object::Target(target) => {
-				Self::expand_target(handle, target, update_sender).await?;
+			tg::Object::Command(command) => {
+				Self::expand_command(handle, command, update_sender).await?;
 			},
 		}
 		Ok(())
@@ -1102,12 +1113,12 @@ where
 		Ok(())
 	}
 
-	async fn expand_target(
+	async fn expand_command(
 		handle: &H,
-		target: tg::Target,
+		command: tg::Command,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let object = target.object(handle).await?;
+		let object = command.object(handle).await?;
 		let mut children = Vec::new();
 		children.push(("args".to_owned(), tg::Value::Array(object.args.clone())));
 		if let Some(checksum) = &object.checksum {
@@ -1116,13 +1127,19 @@ where
 				tg::Value::String(checksum.to_string()),
 			));
 		}
+		if let Some(cwd) = &object.cwd {
+			children.push((
+				"cwd".to_owned(),
+				tg::Value::String(cwd.display().to_string()),
+			));
+		}
 		children.push(("env".to_owned(), tg::Value::Map(object.env.clone())));
 		if let Some(executable) = &object.executable {
 			let value = match executable {
-				tg::target::Executable::Artifact(artifact) => {
+				tg::command::Executable::Artifact(artifact) => {
 					tg::Value::Object(artifact.clone().into())
 				},
-				tg::target::Executable::Module(module) => {
+				tg::command::Executable::Module(module) => {
 					let mut map = BTreeMap::new();
 					map.insert(
 						"kind".to_owned(),
@@ -1152,7 +1169,10 @@ where
 			children.push(("executable".to_owned(), value));
 		}
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		target.unload();
+		if object.network {
+			children.push(("network".to_owned(), tg::Value::Bool(true)));
+		}
+		command.unload();
 
 		// Send the update.
 		let handle = handle.clone();
@@ -1245,7 +1265,7 @@ where
 
 	fn item_title(item: &Item) -> String {
 		match item {
-			Item::Build(build) => build.id().to_string(),
+			Item::Build(process) => process.id().to_string(),
 			Item::Value(value) => match value {
 				tg::Value::Null => "null".to_owned(),
 				tg::Value::Bool(bool) => {
@@ -1302,7 +1322,7 @@ where
 						.id
 						.as_ref()
 						.map_or_else(|| "object".to_owned(), ToString::to_string),
-					tg::Object::Target(target) => target
+					tg::Object::Command(command) => command
 						.state()
 						.read()
 						.unwrap()
@@ -1339,15 +1359,15 @@ where
 			None
 		};
 
-		let update_task = if let Item::Build(build) = &item {
+		let update_task = if let Item::Build(process) = &item {
 			// Create the update task.
 			let update_task = Task::spawn_local({
-				let build = build.clone();
+				let process = process.clone();
 				let handle = handle.clone();
 				let options = options.clone();
 				let update_sender = update_sender.clone();
 				|_| async move {
-					Self::build_update_task(&handle, build, options.as_ref(), update_sender)
+					Self::process_update_task(&handle, process, options.as_ref(), update_sender)
 						.await
 						.ok();
 				}
@@ -1499,7 +1519,9 @@ where
 
 	async fn expand_task(handle: &H, item: Item, update_sender: NodeUpdateSender) {
 		let result = match item {
-			Item::Build(build) => Self::expand_build(handle, build, update_sender.clone()).await,
+			Item::Build(process) => {
+				Self::expand_process(handle, process, update_sender.clone()).await
+			},
 			Item::Value(value) => Self::expand_value(handle, value, update_sender.clone()).await,
 		};
 		if let Err(error) = result {

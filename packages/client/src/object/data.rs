@@ -11,7 +11,7 @@ pub enum Object {
 	File(tg::file::Data),
 	Symlink(tg::symlink::Data),
 	Graph(tg::graph::Data),
-	Target(tg::target::Data),
+	Command(tg::command::Data),
 }
 
 impl Object {
@@ -24,7 +24,7 @@ impl Object {
 			Self::File(_) => Kind::File,
 			Self::Symlink(_) => Kind::Symlink,
 			Self::Graph(_) => Kind::Graph,
-			Self::Target(_) => Kind::Target,
+			Self::Command(_) => Kind::Command,
 		}
 	}
 
@@ -36,7 +36,7 @@ impl Object {
 			Self::File(data) => Ok(data.serialize()?),
 			Self::Symlink(data) => Ok(data.serialize()?),
 			Self::Graph(data) => Ok(data.serialize()?),
-			Self::Target(data) => Ok(data.serialize()?),
+			Self::Command(data) => Ok(data.serialize()?),
 		}
 	}
 
@@ -48,7 +48,7 @@ impl Object {
 			Kind::File => Ok(Self::File(tg::file::Data::deserialize(bytes)?)),
 			Kind::Symlink => Ok(Self::Symlink(tg::symlink::Data::deserialize(bytes)?)),
 			Kind::Graph => Ok(Self::Graph(tg::graph::Data::deserialize(bytes)?)),
-			Kind::Target => Ok(Self::Target(tg::target::Data::deserialize(bytes)?)),
+			Kind::Command => Ok(Self::Command(tg::command::Data::deserialize(bytes)?)),
 		}
 	}
 
@@ -61,7 +61,7 @@ impl Object {
 			Self::File(file) => file.children(),
 			Self::Symlink(symlink) => symlink.children(),
 			Self::Graph(graph) => graph.children(),
-			Self::Target(target) => target.children(),
+			Self::Command(target) => target.children(),
 		}
 	}
 }

@@ -25,7 +25,7 @@ pub struct Runtime {
 }
 
 struct State {
-	build: tg::Build,
+	process: tg::process::Id,
 	futures: RefCell<FuturesUnordered<LocalBoxFuture<'static, FutureOutput>>>,
 	global_source_map: Option<SourceMap>,
 	compiler: Compiler,
@@ -64,7 +64,12 @@ impl Runtime {
 		}
 	}
 
-	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
+	pub async fn spawn(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		remote: Option<String>,
+	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Create a handle to the main runtime.
@@ -77,12 +82,14 @@ impl Runtime {
 		let task = server.local_pool_handle.spawn_pinned({
 			let runtime = self.clone();
 			let server = server.clone();
-			let build = build.clone();
+			let process = process.clone();
+			let command = command.clone();
 			move || async move {
 				runtime
 					.run_inner(
 						&server,
-						&build,
+						&process,
+						&command,
 						remote,
 						main_runtime_handle.clone(),
 						isolate_handle_sender,
@@ -106,20 +113,18 @@ impl Runtime {
 	async fn run_inner(
 		&self,
 		server: &Server,
-		build: &tg::Build,
+		process: &tg::process::Id,
+		command: &tg::Command,
 		remote: Option<String>,
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<tg::Value> {
-		// Get the target.
-		let target = build.target(server).await?;
-
 		// Get the checksum.
-		let checksum = target.checksum(server).await?;
+		let checksum = command.checksum(server).await?;
 
 		// Try to reuse a build whose checksum is `None` or `Unsafe`.
 		if let Ok(value) =
-			super::util::try_reuse_build(server, build.id(), &target, checksum.as_ref())
+			super::util::try_reuse_process(server, process, &command, checksum.as_ref())
 				.boxed()
 				.await
 		{
@@ -127,11 +132,11 @@ impl Runtime {
 		};
 
 		// Get the root module.
-		let root = target
+		let root = command
 			.executable(server)
 			.await?
 			.as_ref()
-			.ok_or_else(|| tg::error!("expected the target to have an executable"))?
+			.ok_or_else(|| tg::error!("expected the command to have an executable"))?
 			.try_unwrap_module_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected the executable to be a module"))?
@@ -151,24 +156,24 @@ impl Runtime {
 		let (log_sender, mut log_receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
 		let log_task = main_runtime_handle.spawn({
 			let server = server.clone();
-			let build = build.clone();
+			let process = process.clone();
 			let remote = remote.clone();
 			async move {
 				while let Some(string) = log_receiver.recv().await {
-					if server.config.advanced.write_build_logs_to_stderr {
+					if server.config.advanced.write_process_logs_to_stderr {
 						tokio::io::stderr()
 							.write_all(string.as_bytes())
 							.await
 							.inspect_err(|e| {
-								tracing::error!(?e, "failed to write build log to stderr");
+								tracing::error!(?e, "failed to write process log to stderr");
 							})
 							.ok();
 					}
-					let arg = tg::build::log::post::Arg {
+					let arg = tg::process::log::post::Arg {
 						bytes: string.into(),
 						remote: remote.clone(),
 					};
-					build.add_log(&server, arg).await.ok();
+					server.try_add_process_log(&process, arg).await.ok();
 				}
 			}
 		});
@@ -179,7 +184,7 @@ impl Runtime {
 
 		// Create the state.
 		let state = Rc::new(State {
-			build: build.clone(),
+			process: process.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
 			compiler: Compiler::new(server, main_runtime_handle.clone()),
@@ -269,10 +274,10 @@ impl Runtime {
 
 			// Call the start function.
 			let undefined = v8::undefined(scope);
-			let target = target
+			let command = command
 				.to_v8(scope)
-				.map_err(|source| tg::error!(!source, "failed to serialize the target"))?;
-			let value = start.call(scope, undefined.into(), &[target]).unwrap();
+				.map_err(|source| tg::error!(!source, "failed to serialize the command"))?;
+			let value = start.call(scope, undefined.into(), &[command]).unwrap();
 
 			// Make the value global.
 			v8::Global::new(scope, value)
@@ -403,7 +408,7 @@ impl Runtime {
 		// Checksum the output if necessary.
 		if let Ok(value) = &result {
 			if let Some(checksum) = checksum.as_ref() {
-				super::util::checksum(server, build, value, checksum)
+				super::util::checksum(server, process, value, checksum)
 					.boxed()
 					.await?;
 			}

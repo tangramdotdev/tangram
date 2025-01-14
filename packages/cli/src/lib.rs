@@ -12,15 +12,16 @@ use url::Url;
 
 mod artifact;
 mod blob;
-mod build;
 mod cat;
 mod checksum;
 mod clean;
+mod command;
 mod get;
 mod health;
 mod lsp;
 mod object;
 mod package;
+mod process;
 mod progress;
 mod pull;
 mod push;
@@ -28,7 +29,6 @@ mod remote;
 mod server;
 mod tag;
 mod tangram;
-mod target;
 mod tree;
 mod view;
 mod viewer;
@@ -106,7 +106,7 @@ enum Command {
 	Blob(self::blob::Args),
 
 	#[command(alias = "b")]
-	Build(self::build::Args),
+	Build(self::process::Args),
 
 	Cat(self::cat::Args),
 
@@ -138,7 +138,7 @@ enum Command {
 	#[command(alias = "ls")]
 	List(self::tag::list::Args),
 
-	Log(self::build::log::Args),
+	Log(self::process::log::Args),
 
 	Lsp(self::lsp::Args),
 
@@ -158,7 +158,7 @@ enum Command {
 
 	Remote(self::remote::Args),
 
-	Run(self::target::run::Args),
+	Run(self::command::run::Args),
 
 	#[command(name = "self")]
 	Tangram(self::tangram::Args),
@@ -169,7 +169,7 @@ enum Command {
 
 	Tag(self::tag::Args),
 
-	Target(self::target::Args),
+	Command(self::command::Args),
 
 	#[command(hide = true)]
 	Tree(self::tree::Args),
@@ -445,9 +445,11 @@ impl Cli {
 		let mut config = tangram_server::Config {
 			advanced: tangram_server::config::Advanced::default(),
 			authentication: None,
-			build: Some(tangram_server::config::Build::default()),
-			build_heartbeat_monitor: Some(tangram_server::config::BuildHeartbeatMonitor::default()),
-			build_indexer: None,
+			process: Some(tangram_server::config::Build::default()),
+			process_heartbeat_monitor: Some(
+				tangram_server::config::ProcessHeartbeatMonitor::default(),
+			),
+			process_indexer: None,
 			database,
 			messenger: tangram_server::config::Messenger::default(),
 			object_indexer: Some(tangram_server::config::ObjectIndexer::default()),
@@ -475,7 +477,7 @@ impl Cli {
 			.and_then(|config| config.advanced.as_ref())
 		{
 			if let Some(build_dequeue_timeout) = advanced.build_dequeue_timeout {
-				config.advanced.build_dequeue_timeout = build_dequeue_timeout;
+				config.advanced.process_dequeue_timeout = build_dequeue_timeout;
 			}
 			if let Some(error_trace_options) = advanced.error_trace_options.clone() {
 				config.advanced.error_trace_options = error_trace_options;
@@ -490,10 +492,10 @@ impl Cli {
 				config.advanced.write_blobs_to_blobs_directory = write_blobs_to_blobs_directory;
 			}
 			if let Some(write_build_logs_to_database) = advanced.write_build_logs_to_database {
-				config.advanced.write_build_logs_to_database = write_build_logs_to_database;
+				config.advanced.write_process_logs_to_database = write_build_logs_to_database;
 			}
 			if let Some(write_build_logs_to_stderr) = advanced.write_build_logs_to_stderr {
-				config.advanced.write_build_logs_to_stderr = write_build_logs_to_stderr;
+				config.advanced.write_process_logs_to_stderr = write_build_logs_to_stderr;
 			}
 		}
 
@@ -528,7 +530,7 @@ impl Cli {
 		match self.config.as_ref().and_then(|config| config.build.clone()) {
 			None => (),
 			Some(None) => {
-				config.build = None;
+				config.process = None;
 			},
 			Some(Some(build)) => {
 				let mut build_ = tangram_server::config::Build::default();
@@ -544,7 +546,7 @@ impl Cli {
 				if let Some(remotes) = build.remotes.clone() {
 					build_.remotes = remotes;
 				}
-				config.build = Some(build_);
+				config.process = Some(build_);
 			},
 		}
 
@@ -556,11 +558,11 @@ impl Cli {
 		{
 			None => (),
 			Some(None) => {
-				config.build_heartbeat_monitor = None;
+				config.process_heartbeat_monitor = None;
 			},
 			Some(Some(build_heartbeat_monitor)) => {
 				let mut build_heartbeat_monitor_ =
-					tangram_server::config::BuildHeartbeatMonitor::default();
+					tangram_server::config::ProcessHeartbeatMonitor::default();
 				if let Some(interval) = build_heartbeat_monitor.interval {
 					build_heartbeat_monitor_.interval = interval;
 				}
@@ -570,7 +572,7 @@ impl Cli {
 				if let Some(timeout) = build_heartbeat_monitor.timeout {
 					build_heartbeat_monitor_.timeout = timeout;
 				}
-				config.build_heartbeat_monitor = Some(build_heartbeat_monitor_);
+				config.process_heartbeat_monitor = Some(build_heartbeat_monitor_);
 			},
 		}
 
@@ -582,11 +584,11 @@ impl Cli {
 		{
 			None => (),
 			Some(None) => {
-				config.build_indexer = None;
+				config.process_indexer = None;
 			},
 			Some(Some(_build_indexer)) => {
-				let build_indexer_ = tangram_server::config::BuildIndexer::default();
-				config.build_indexer = Some(build_indexer_);
+				let build_indexer_ = tangram_server::config::ProcessIndexer::default();
+				config.process_indexer = Some(build_indexer_);
 			},
 		}
 
@@ -836,6 +838,7 @@ impl Cli {
 			Command::Checkout(args) => self.command_artifact_checkout(args).boxed(),
 			Command::Checksum(args) => self.command_checksum(args).boxed(),
 			Command::Clean(args) => self.command_clean(args).boxed(),
+			Command::Command(args) => self.command_command(args).boxed(),
 			Command::Document(args) => self.command_package_document(args).boxed(),
 			Command::Download(args) => self.command_blob_download(args).boxed(),
 			Command::Format(args) => self.command_package_format(args).boxed(),
@@ -843,7 +846,7 @@ impl Cli {
 			Command::Health(args) => self.command_health(args).boxed(),
 			Command::Init(args) => self.command_package_init(args).boxed(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
-			Command::Log(args) => self.command_build_log(args).boxed(),
+			Command::Log(args) => self.command_process_log(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),
 			Command::New(args) => self.command_package_new(args).boxed(),
 			Command::Object(args) => self.command_object(args).boxed(),
@@ -853,12 +856,11 @@ impl Cli {
 			Command::Push(args) => self.command_push(args).boxed(),
 			Command::Put(args) => self.command_object_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
-			Command::Run(args) => self.command_target_run(args).boxed(),
+			Command::Run(args) => self.command_command_run(args).boxed(),
 			Command::Tangram(args) => self.command_tangram(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Tag(args) => self.command_tag(args).boxed(),
-			Command::Target(args) => self.command_target(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),
 			Command::View(args) => self.command_view(args).boxed(),
@@ -1012,7 +1014,7 @@ impl Cli {
 	async fn get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<Either<tg::Build, tg::Object>>> {
+	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>> {
 		let handle = self.handle().await?;
 		let mut item = reference.item().clone();
 		let mut options = reference.options().cloned();

@@ -4,6 +4,7 @@ import { assert, unimplemented, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
 import { Branch, branch } from "./branch.ts";
 import { Checksum, checksum } from "./checksum.ts";
+import { Command, command } from "./command.ts";
 import { Directory, directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
 import { Error_ } from "./error.ts";
@@ -23,7 +24,6 @@ import { sleep } from "./sleep.ts";
 import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import type { Tag } from "./tag.ts";
-import { Target, target } from "./target.ts";
 import { Template, template } from "./template.ts";
 import type {
 	MaybeMutation,
@@ -48,6 +48,7 @@ export {
 	Blob,
 	Branch,
 	Checksum,
+	Command,
 	Directory,
 	Error_ as Error,
 	File,
@@ -60,7 +61,6 @@ export {
 	type Referent,
 	Symlink,
 	type Tag,
-	Target,
 	Template,
 	Value,
 	archive,
@@ -85,7 +85,7 @@ export {
 	sleep,
 	start,
 	symlink,
-	target,
+	command,
 	template,
 	type MaybeMutation,
 	type MaybeMutationMap,

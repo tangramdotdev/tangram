@@ -42,7 +42,7 @@ export namespace Artifact {
 		format: ArchiveFormat,
 	): Promise<tg.Blob> => {
 		let value = await (
-			await tg.target({
+			await tg.command({
 				host: "builtin",
 				args: ["archive", artifact, format],
 				env: undefined,
@@ -57,7 +57,7 @@ export namespace Artifact {
 		format: ArchiveFormat,
 	): Promise<Artifact> => {
 		let value = await (
-			await tg.target({
+			await tg.command({
 				host: "builtin",
 				args: ["extract", blob, format],
 				env: undefined,
@@ -69,7 +69,7 @@ export namespace Artifact {
 
 	export let bundle = async (artifact: Artifact): Promise<Artifact> => {
 		let value = await (
-			await tg.target({
+			await tg.command({
 				host: "builtin",
 				args: ["bundle", artifact],
 				env: undefined,
@@ -84,7 +84,7 @@ export namespace Artifact {
 		algorithm: tg.Checksum.Algorithm,
 	): Promise<tg.Checksum> => {
 		let value = await (
-			await tg.target({
+			await tg.command({
 				host: "builtin",
 				args: ["checksum", artifact, algorithm],
 				env: undefined,

@@ -68,18 +68,20 @@ impl Runtime {
 		Ok(Self { server, env, sh })
 	}
 
-	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
+	pub async fn spawn(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		remote: Option<String>,
+	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
-		// Get the target.
-		let target = build.target(server).await?;
-
 		// Get the checksum.
-		let checksum = target.checksum(server).await?;
+		let checksum = command.checksum(server).await?;
 
 		// Try to reuse a build whose checksum is `None` or `Unsafe`.
 		if let Ok(value) =
-			super::util::try_reuse_build(server, build.id(), &target, checksum.as_ref())
+			super::util::try_reuse_process(server, process, &command, checksum.as_ref())
 				.boxed()
 				.await
 		{
@@ -88,7 +90,7 @@ impl Runtime {
 
 		// If the VFS is disabled, then check out the target's children.
 		if server.vfs.lock().unwrap().is_none() {
-			target
+			command
 				.data(server)
 				.await?
 				.children()
@@ -206,7 +208,7 @@ impl Runtime {
 		// Start the proxy server.
 		let proxy = Proxy::new(
 			server.clone(),
-			build.id().clone(),
+			process.clone(),
 			remote.clone(),
 			Some(path_map),
 		);
@@ -214,8 +216,8 @@ impl Runtime {
 		let proxy_task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 
 		// Render the executable.
-		let Some(tg::target::Executable::Artifact(executable)) =
-			target.executable(server).await?.as_ref().cloned()
+		let Some(tg::command::Executable::Artifact(executable)) =
+			command.executable(server).await?.as_ref().cloned()
 		else {
 			return Err(tg::error!("invalid executable"));
 		};
@@ -223,7 +225,7 @@ impl Runtime {
 			render(server, &executable.into(), &artifacts_directory_guest_path).await?;
 
 		// Render the env.
-		let env = target.env(server).await?;
+		let env = command.env(server).await?;
 		let mut env: BTreeMap<String, String> = env
 			.iter()
 			.map(|(key, value)| async {
@@ -236,7 +238,7 @@ impl Runtime {
 			.await?;
 
 		// Render the args.
-		let args = target.args(server).await?;
+		let args = command.args(server).await?;
 		let args: Vec<String> = args
 			.iter()
 			.map(|value| async {
@@ -620,7 +622,7 @@ impl Runtime {
 		let mut reader = log_recv;
 		let log_task = tokio::task::spawn({
 			let server = server.clone();
-			let build = build.clone();
+			let process = process.clone();
 			let remote = remote.clone();
 			async move {
 				let mut buffer = vec![0; 4096];
@@ -633,20 +635,22 @@ impl Runtime {
 						return Ok::<_, tg::Error>(());
 					}
 					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_build_logs_to_stderr {
+					if server.config.advanced.write_process_logs_to_stderr {
 						tokio::io::stderr()
 							.write_all(&bytes)
 							.await
 							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write the build log to stderr");
+								tracing::error!(?error, "failed to write the process log to stderr");
 							})
 							.ok();
 					}
-					let arg = tg::build::log::post::Arg {
+					let arg = tg::process::log::post::Arg {
 						bytes,
 						remote: remote.clone(),
 					};
-					build.add_log(&server, arg).await?;
+					if let Err(error) = server.try_add_process_log(&process, arg).await {
+						tracing::error!(?error, "failed to write the process log");
+					}
 				}
 			}
 		});
@@ -798,7 +802,7 @@ impl Runtime {
 
 		// Checksum the output if necessary.
 		if let Some(checksum) = checksum.as_ref() {
-			super::util::checksum(server, build, &value, checksum)
+			super::util::checksum(server, process, &value, checksum)
 				.boxed()
 				.await?;
 		}

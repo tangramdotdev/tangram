@@ -23,7 +23,7 @@ pub struct Args {
 	pub remote: Option<String>,
 
 	#[arg(long)]
-	pub targets: bool,
+	pub commands: bool,
 }
 
 impl Cli {
@@ -58,14 +58,14 @@ impl Cli {
 		// Push the item.
 		match item.clone() {
 			Either::Left(build) => {
-				let args = crate::build::push::Args {
-					build,
+				let args = crate::process::push::Args {
+					process: build,
 					logs: args.logs,
 					recursive: args.recursive,
 					remote: Some(remote.clone()),
-					targets: args.targets,
+					commands: args.commands,
 				};
-				self.command_build_push(args).await?;
+				self.command_process_push(args).await?;
 			},
 			Either::Right(object) => {
 				let args = crate::object::push::Args {

@@ -11,22 +11,22 @@ impl tg::Artifact {
 	where
 		H: tg::Handle,
 	{
-		let target = self.archive_target(format);
-		let arg = tg::target::build::Arg::default();
-		let output = target.output(handle, arg).await?;
+		let command = self.archive_command(format);
+		let arg = tg::command::spawn::Arg::default();
+		let output = command.output(handle, arg).await?;
 		let blob = output.try_into()?;
 		Ok(blob)
 	}
 
 	#[must_use]
-	pub fn archive_target(&self, format: Format) -> tg::Target {
+	pub fn archive_command(&self, format: Format) -> tg::Command {
 		let host = "builtin";
 		let args = vec![
 			"archive".into(),
 			self.clone().into(),
 			format.to_string().into(),
 		];
-		tg::Target::builder(host).args(args).build()
+		tg::Command::builder(host).args(args).build()
 	}
 }
 

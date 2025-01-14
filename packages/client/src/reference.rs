@@ -28,7 +28,7 @@ pub struct Reference {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Item {
-	Build(tg::build::Id),
+	Process(tg::process::Id),
 	Object(tg::object::Id),
 	Path(PathBuf),
 	Tag(tg::tag::Pattern),
@@ -84,7 +84,7 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn with_build(build: &tg::build::Id) -> Self {
+	pub fn with_process(build: &tg::process::Id) -> Self {
 		Self::with_uri(build.to_string().parse().unwrap()).unwrap()
 	}
 
@@ -136,7 +136,7 @@ impl Reference {
 	pub async fn get<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<tg::Referent<Either<tg::Build, tg::Object>>>
+	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>>
 	where
 		H: tg::Handle,
 	{
@@ -146,7 +146,7 @@ impl Reference {
 			.map(|referent| tg::Referent {
 				item: referent
 					.item
-					.map_left(tg::Build::with_id)
+					.map_left(tg::Process::with_id)
 					.map_right(tg::Object::with_id),
 				path: referent.path,
 				subpath: referent.subpath,
@@ -175,7 +175,7 @@ impl std::str::FromStr for Reference {
 impl std::fmt::Display for Item {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Item::Build(build) => {
+			Item::Process(build) => {
 				write!(f, "{build}")?;
 			},
 			Item::Object(object) => {
@@ -204,7 +204,7 @@ impl std::str::FromStr for Item {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		if let Ok(build) = s.parse() {
-			return Ok(Self::Build(build));
+			return Ok(Self::Process(build));
 		}
 		if let Ok(object) = s.parse() {
 			return Ok(Self::Object(object));

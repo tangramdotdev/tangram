@@ -122,7 +122,7 @@ impl Compiler {
 						tg::object::Id::File(_) => tg::module::Kind::File,
 						tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
 						tg::object::Id::Graph(_) => tg::module::Kind::Graph,
-						tg::object::Id::Target(_) => tg::module::Kind::Target,
+						tg::object::Id::Command(_) => tg::module::Kind::Command,
 					}
 				},
 			}

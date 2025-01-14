@@ -10,7 +10,7 @@ pub struct Args {
 	pub checksum: Option<tg::Checksum>,
 
 	#[command(flatten)]
-	pub inner: crate::target::build::InnerArgs,
+	pub inner: crate::command::build::InnerArgs,
 
 	#[arg(index = 1)]
 	pub url: Url,
@@ -20,17 +20,17 @@ impl Cli {
 	pub async fn command_blob_download(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let host = "builtin";
-		let target_args = vec!["download".into(), args.url.to_string().into()];
-		let target = tg::Target::builder(host)
-			.args(target_args)
+		let command_args = vec!["download".into(), args.url.to_string().into()];
+		let command = tg::Command::builder(host)
+			.args(command_args)
 			.checksum(args.checksum)
 			.build();
-		let target = target.id(&handle).await?;
-		let args = crate::target::build::Args {
-			reference: Some(tg::Reference::with_object(&target.into())),
+		let command = command.id(&handle).await?;
+		let args = crate::command::build::Args {
+			reference: Some(tg::Reference::with_object(&command.into())),
 			inner: args.inner,
 		};
-		self.command_target_build(args).await?;
+		self.command_command_build(args).await?;
 		Ok(())
 	}
 }

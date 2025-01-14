@@ -76,7 +76,7 @@ export namespace Blob {
 		format: CompressionFormat,
 	): Promise<Blob> => {
 		let value = await (
-			await tg.target({
+			await tg.command({
 				host: "builtin",
 				args: ["compress", blob, format],
 				env: undefined,
@@ -91,7 +91,7 @@ export namespace Blob {
 		format: CompressionFormat,
 	): Promise<Blob> => {
 		let value = await (
-			await tg.target({
+			await tg.command({
 				host: "builtin",
 				args: ["decompress", blob, format],
 				env: undefined,
@@ -106,7 +106,7 @@ export namespace Blob {
 		checksum: tg.Checksum,
 	): Promise<Blob> => {
 		let value = await (
-			await tg.target({
+			await tg.command({
 				host: "builtin",
 				args: ["download", url],
 				checksum: checksum,
@@ -122,7 +122,7 @@ export namespace Blob {
 		algorithm: tg.Checksum.Algorithm,
 	): Promise<tg.Checksum> => {
 		let value = await (
-			await tg.target({
+			await tg.command({
 				host: "builtin",
 				args: ["checksum", blob, algorithm],
 				env: undefined,

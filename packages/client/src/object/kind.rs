@@ -8,7 +8,7 @@ pub enum Kind {
 	File,
 	Symlink,
 	Graph,
-	Target,
+	Command,
 }
 
 impl std::fmt::Display for Kind {
@@ -34,7 +34,7 @@ impl From<Kind> for tg::id::Kind {
 			Kind::File => Self::File,
 			Kind::Symlink => Self::Symlink,
 			Kind::Graph => Self::Graph,
-			Kind::Target => Self::Target,
+			Kind::Command => Self::Command,
 		}
 	}
 }
@@ -50,7 +50,7 @@ impl TryFrom<tg::id::Kind> for Kind {
 			tg::id::Kind::File => Ok(Self::File),
 			tg::id::Kind::Symlink => Ok(Self::Symlink),
 			tg::id::Kind::Graph => Ok(Self::Graph),
-			tg::id::Kind::Target => Ok(Self::Target),
+			tg::id::Kind::Command => Ok(Self::Command),
 			kind => Err(tg::error!(%kind, "invalid kind")),
 		}
 	}

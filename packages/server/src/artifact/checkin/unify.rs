@@ -251,7 +251,7 @@ impl Server {
 
 			// Otherwise, create partial nodes.
 			match input_edge.reference.item() {
-				tg::reference::Item::Build(_) => {
+				tg::reference::Item::Process(_) => {
 					return Err(tg::error!(%reference = input_edge.reference, "invalid reference"));
 				},
 				tg::reference::Item::Object(object) => {

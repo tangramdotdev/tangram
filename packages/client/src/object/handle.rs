@@ -20,7 +20,7 @@ pub enum Object {
 	File(tg::File),
 	Symlink(tg::Symlink),
 	Graph(tg::Graph),
-	Target(tg::Target),
+	Command(tg::Command),
 }
 
 impl Object {
@@ -33,7 +33,7 @@ impl Object {
 			Id::File(id) => Self::File(tg::File::with_id(id)),
 			Id::Symlink(id) => Self::Symlink(tg::Symlink::with_id(id)),
 			Id::Graph(id) => Self::Graph(tg::Graph::with_id(id)),
-			Id::Target(id) => Self::Target(tg::Target::with_id(id)),
+			Id::Command(id) => Self::Command(tg::Command::with_id(id)),
 		}
 	}
 
@@ -46,7 +46,7 @@ impl Object {
 			Object_::File(object) => Self::File(tg::File::with_object(object)),
 			Object_::Symlink(object) => Self::Symlink(tg::Symlink::with_object(object)),
 			Object_::Graph(object) => Self::Graph(tg::Graph::with_object(object)),
-			Object_::Target(object) => Self::Target(tg::Target::with_object(object)),
+			Object_::Command(object) => Self::Command(tg::Command::with_object(object)),
 		}
 	}
 	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
@@ -60,7 +60,7 @@ impl Object {
 			Self::File(object) => object.id(handle).await.map(Id::File),
 			Self::Symlink(object) => object.id(handle).await.map(Id::Symlink),
 			Self::Graph(object) => object.id(handle).await.map(Id::Graph),
-			Self::Target(object) => object.id(handle).await.map(Id::Target),
+			Self::Command(object) => object.id(handle).await.map(Id::Command),
 		}
 	}
 
@@ -75,7 +75,7 @@ impl Object {
 			Self::File(object) => object.object(handle).await.map(Object_::File),
 			Self::Symlink(object) => object.object(handle).await.map(Object_::Symlink),
 			Self::Graph(object) => object.object(handle).await.map(Object_::Graph),
-			Self::Target(object) => object.object(handle).await.map(Object_::Target),
+			Self::Command(object) => object.object(handle).await.map(Object_::Command),
 		}
 	}
 
@@ -90,7 +90,7 @@ impl Object {
 			Self::File(file) => file.load(handle).await.map(Into::into),
 			Self::Symlink(symlink) => symlink.load(handle).await.map(Into::into),
 			Self::Graph(graph) => graph.load(handle).await.map(Into::into),
-			Self::Target(target) => target.load(handle).await.map(Into::into),
+			Self::Command(command) => command.load(handle).await.map(Into::into),
 		}
 	}
 
@@ -120,7 +120,7 @@ impl Object {
 			Self::File(file) => file.unload(),
 			Self::Symlink(symlink) => symlink.unload(),
 			Self::Graph(graph) => graph.unload(),
-			Self::Target(target) => target.unload(),
+			Self::Command(command) => command.unload(),
 		}
 	}
 
@@ -135,7 +135,7 @@ impl Object {
 			Self::File(file) => file.store(handle).await.map(Into::into),
 			Self::Symlink(symlink) => symlink.store(handle).await.map(Into::into),
 			Self::Graph(graph) => graph.store(handle).await.map(Into::into),
-			Self::Target(target) => target.store(handle).await.map(Into::into),
+			Self::Command(command) => command.store(handle).await.map(Into::into),
 		}
 	}
 
@@ -158,7 +158,7 @@ impl Object {
 			Self::File(object) => object.data(handle).await.map(Data::File),
 			Self::Symlink(object) => object.data(handle).await.map(Data::Symlink),
 			Self::Graph(object) => object.data(handle).await.map(Data::Graph),
-			Self::Target(object) => object.data(handle).await.map(Data::Target),
+			Self::Command(object) => object.data(handle).await.map(Data::Command),
 		}
 	}
 }

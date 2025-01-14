@@ -172,7 +172,7 @@ fn dot_separated_identifier<'a>(input: &mut &'a str) -> PResult<&'a str> {
 fn string(input: &mut &str) -> PResult<String> {
 	let string = take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-')
 		.verify(|value: &str| {
-			if value.parse::<tg::build::Id>().is_ok() {
+			if value.parse::<tg::process::Id>().is_ok() {
 				return false;
 			}
 			if value.parse::<tg::object::Id>().is_ok() {

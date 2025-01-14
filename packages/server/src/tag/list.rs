@@ -51,7 +51,7 @@ impl Server {
 		#[derive(Clone, Debug, serde::Deserialize)]
 		struct Row {
 			tag: tg::Tag,
-			item: Either<tg::build::Id, tg::object::Id>,
+			item: Either<tg::process::Id, tg::object::Id>,
 		}
 		let p = connection.p();
 		let prefix = arg
