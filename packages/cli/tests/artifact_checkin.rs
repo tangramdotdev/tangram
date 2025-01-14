@@ -53,6 +53,40 @@ async fn directory() {
 }
 
 #[tokio::test]
+async fn directory_with_duplicate_entries() {
+	let directory = temp::directory! {
+		"directory" => temp::directory! {
+			"a.txt" => "Hello, world!",
+	  "b.txt" => "Hello, world!",
+		}
+	};
+	let path = "directory";
+	let assertions = |object: String, metadata: String, _| async move {
+		assert_snapshot!(object, @r#"
+  tg.directory({
+    "a.txt": tg.file({
+      "contents": tg.leaf("Hello, world!"),
+    }),
+    "b.txt": tg.file({
+      "contents": tg.leaf("Hello, world!"),
+    }),
+  })
+  "#);
+		assert_snapshot!(metadata, @r#"
+  {
+    "complete": true,
+    "count": 3,
+    "depth": 3,
+    "weight": 237
+  }
+  "#)
+	};
+	let destructive = false;
+	let tags = Vec::<(String, temp::Artifact)>::new();
+	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+}
+
+#[tokio::test]
 async fn file() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
@@ -268,9 +302,9 @@ async fn lockfile_out_of_date() {
 		assert_snapshot!(metadata, @r#"
   {
     "complete": true,
-    "count": 4,
+    "count": 5,
     "depth": 4,
-    "weight": 430
+    "weight": 447
   }
   "#);
 		let lockfile = lockfile.expect("expected a lockfile");
