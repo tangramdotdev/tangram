@@ -1,4 +1,4 @@
-use crate::{runtime, BuildPermit, Server};
+use crate::{runtime, ProcessPermit, Server};
 use futures::{future, Future, FutureExt as _, TryFutureExt as _};
 use std::{sync::Arc, time::Duration};
 use tangram_client::{self as tg, handle::Ext as _};
@@ -15,7 +15,7 @@ impl Server {
 				.acquire_owned()
 				.await
 				.unwrap();
-			let permit = BuildPermit(Either::Left(permit));
+			let permit = ProcessPermit(Either::Left(permit));
 
 			// Try to dequeue a process locally or from one of the remotes.
 			let arg = tg::process::dequeue::Arg::default();
@@ -63,7 +63,7 @@ impl Server {
 	pub(crate) fn spawn_process(
 		&self,
 		process: tg::process::Id,
-		permit: BuildPermit,
+		permit: ProcessPermit,
 		remote: Option<String>,
 	) -> impl Future<Output = tg::Result<()>> + Send + 'static {
 		let server = self.clone();
@@ -110,7 +110,7 @@ impl Server {
 	async fn process_task(
 		&self,
 		process: tg::process::Id,
-		permit: BuildPermit,
+		permit: ProcessPermit,
 		remote: Option<String>,
 	) -> tg::Result<()> {
 		// Set the process's permit.

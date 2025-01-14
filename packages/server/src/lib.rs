@@ -85,9 +85,9 @@ pub struct Inner {
 }
 
 type ProcessPermits =
-	DashMap<tg::process::Id, Arc<tokio::sync::Mutex<Option<BuildPermit>>>, fnv::FnvBuildHasher>;
+	DashMap<tg::process::Id, Arc<tokio::sync::Mutex<Option<ProcessPermit>>>, fnv::FnvBuildHasher>;
 
-struct BuildPermit(
+struct ProcessPermit(
 	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
