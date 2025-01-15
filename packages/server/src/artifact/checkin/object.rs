@@ -5,12 +5,14 @@ use std::{
 	collections::{BTreeMap, BTreeSet},
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
+	sync::Arc,
 };
 use tangram_client::{self as tg, handle::Ext};
 use tangram_either::Either;
 
 #[derive(Debug)]
 pub struct Graph {
+	pub graphs: BTreeMap<tg::graph::Id, (tg::graph::Data, tg::object::Metadata)>,
 	pub indices: BTreeMap<unify::Id, usize>,
 	pub nodes: Vec<Node>,
 	pub paths: BTreeMap<PathBuf, usize>,
@@ -50,7 +52,7 @@ impl Server {
 		input: &input::Graph,
 		unify: &unify::Graph,
 		root: &unify::Id,
-	) -> tg::Result<Graph> {
+	) -> tg::Result<Arc<Graph>> {
 		let mut indices = BTreeMap::new();
 		let mut paths: BTreeMap<PathBuf, usize> = BTreeMap::new();
 		let mut nodes = Vec::with_capacity(unify.nodes.len());
@@ -60,13 +62,14 @@ impl Server {
 			.await;
 
 		let mut graph = Graph {
+			graphs: BTreeMap::new(),
 			indices,
 			nodes,
 			paths,
 			objects,
 		};
 		self.create_objects(input, &mut graph).await?;
-		Ok(graph)
+		Ok(Arc::new(graph))
 	}
 
 	async fn create_object_graph_inner(
@@ -132,7 +135,6 @@ impl Server {
 		input: &input::Graph,
 		graph: &mut Graph,
 	) -> tg::Result<()> {
-		let mut graph_metadata = BTreeMap::new();
 		let mut file_metadata = BTreeMap::new();
 
 		// Partition the graph into its strongly connected components.
@@ -193,14 +195,14 @@ impl Server {
 				graph.nodes[index].id.replace(id.clone().into());
 				graph.objects.insert(id.into(), index);
 
+				// Update the graph.
+				let bytes = data.serialize()?;
+				let id = tg::artifact::Id::new(data.kind(), &bytes);
+				graph.nodes[index].data.replace(data.clone());
+				graph.nodes[index].id.replace(id.clone().into());
+
 				// Get the metadata.
-				let metadata = self.compute_object_metadata(
-					graph,
-					index,
-					&data,
-					&file_metadata,
-					&graph_metadata,
-				);
+				let metadata = self.compute_object_metadata(graph, index, &data, &file_metadata);
 				graph.nodes[index].metadata.replace(metadata);
 			} else {
 				// Otherwise, construct an object graph.
@@ -211,10 +213,12 @@ impl Server {
 				// Store the graph.
 				let bytes = object_graph.serialize()?;
 				let id = tg::graph::Id::new(&bytes);
-				let arg = tg::object::put::Arg { bytes };
-				self.put_object(&id.clone().into(), arg).await?;
+				let metadata =
+					self.compute_graph_metadata(graph, &object_graph, &scc, &file_metadata);
+				graph
+					.graphs
+					.insert(id.clone(), (object_graph.clone(), metadata));
 
-				// Update data.
 				for old_index in scc.iter().copied() {
 					// Get the index within the object graph.
 					let new_index = indices.get(&old_index).copied().unwrap();
@@ -246,22 +250,12 @@ impl Server {
 					graph.objects.insert(id.into(), old_index);
 				}
 
-				// Update the graph metadata.
-				let metadata =
-					self.compute_graph_metadata(graph, &object_graph, &scc, &file_metadata);
-				graph_metadata.insert(id.clone(), metadata);
-
 				// Update metadata.
 				for old_index in scc {
 					// Get the metadata.
 					let data = graph.nodes[old_index].data.as_ref().unwrap();
-					let metadata = self.compute_object_metadata(
-						graph,
-						old_index,
-						data,
-						&file_metadata,
-						&graph_metadata,
-					);
+					let metadata =
+						self.compute_object_metadata(graph, old_index, data, &file_metadata);
 					graph.nodes[old_index].metadata.replace(metadata);
 				}
 			}
@@ -711,7 +705,6 @@ impl Server {
 		index: usize,
 		data: &tg::artifact::Data,
 		file_metadata: &BTreeMap<usize, tg::object::Metadata>,
-		graph_metadata: &BTreeMap<tg::graph::Id, tg::object::Metadata>,
 	) -> tg::object::Metadata {
 		if let Some(metadata) = graph.nodes[index].metadata.clone() {
 			return metadata;
@@ -730,10 +723,16 @@ impl Server {
 		let mut weight = weight.map(|weight| weight + data_size);
 
 		match data {
-			tg::artifact::Data::Directory(tg::directory::Data::Graph { graph, .. })
-			| tg::artifact::Data::File(tg::file::Data::Graph { graph, .. })
-			| tg::artifact::Data::Symlink(tg::symlink::Data::Graph { graph, .. }) => {
-				let metadata = graph_metadata.get(graph).unwrap();
+			tg::artifact::Data::Directory(tg::directory::Data::Graph {
+				graph: graph_id, ..
+			})
+			| tg::artifact::Data::File(tg::file::Data::Graph {
+				graph: graph_id, ..
+			})
+			| tg::artifact::Data::Symlink(tg::symlink::Data::Graph {
+				graph: graph_id, ..
+			}) => {
+				let metadata = &graph.graphs.get(graph_id).unwrap().1;
 				complete &= metadata.complete;
 				if let Some(c) = metadata.count {
 					count = count.map(|count| count + c);
@@ -761,13 +760,7 @@ impl Server {
 
 					let metadata = graph.nodes[edge.index].metadata.clone().unwrap_or_else(|| {
 						if let Some(data) = graph.nodes[edge.index].data.as_ref() {
-							self.compute_object_metadata(
-								graph,
-								edge.index,
-								data,
-								file_metadata,
-								graph_metadata,
-							)
+							self.compute_object_metadata(graph, edge.index, data, file_metadata)
 						} else {
 							tg::object::Metadata {
 								complete: false,

@@ -11,7 +11,7 @@ pub struct Graph {
 	pub nodes: Vec<tg::graph::data::Node>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, derive_more::TryUnwrap)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Node {
 	Directory(Directory),
