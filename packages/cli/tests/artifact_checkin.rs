@@ -79,7 +79,7 @@ async fn directory_with_duplicate_entries() {
     "depth": 3,
     "weight": 237
   }
-  "#)
+  "#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();

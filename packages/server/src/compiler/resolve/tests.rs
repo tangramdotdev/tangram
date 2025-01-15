@@ -20,7 +20,7 @@ async fn path_dependency_path() {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
 				item: tg::module::Item::Path(path),
-				path: Some("".into()),
+				path: None,
 				subpath: Some("foo.tg.ts".into()),
 				tag: None,
 			},
@@ -45,7 +45,7 @@ async fn path_dependency_object() {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
 				item: tg::module::Item::Object(artifact.id(&server).await.unwrap().into()),
-				path: Some("".into()),
+				path: None,
 				subpath: Some("foo.tg.ts".into()),
 				tag: None,
 			},
@@ -75,7 +75,7 @@ async fn package_path_dependency_path() {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
 				item: tg::module::Item::Path(path),
-				path: Some("bar".into()),
+				path: None,
 				subpath: Some("tangram.ts".into()),
 				tag: None,
 			},
@@ -110,7 +110,7 @@ async fn package_path_dependency_object() {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
 				item: tg::module::Item::Object(object),
-				path: Some("bar".into()),
+				path: None,
 				subpath: Some("tangram.ts".into()),
 				tag: None,
 			},
