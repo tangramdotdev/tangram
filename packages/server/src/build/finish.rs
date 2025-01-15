@@ -57,6 +57,9 @@ impl Server {
 			return Err(tg::error!("failed to find the build"));
 		};
 
+		// Abort the build task.
+		self.builds.abort(&build.id);
+
 		// Get a database connection.
 		let connection = self
 			.database
