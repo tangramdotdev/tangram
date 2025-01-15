@@ -397,6 +397,19 @@ impl Server {
 			Some(analysis.imports)
 		};
 
+		// Pre-emptively pull tags for the set of imports.
+		if let Some(imports) = &imports {
+			let imports = imports.clone();
+			let server = self.clone();
+			tokio::spawn(async move {
+				server
+					.pull_tags_from_imports(imports)
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to pull tags"))
+					.ok();
+			});
+		}
+
 		// Try and get the references of this file in the lockfile, if it exists.
 		let resolved_references = 'a: {
 			// Break if no lockfile is present.
@@ -693,6 +706,29 @@ impl Server {
 			}
 		}
 		Ok(artifacts_path.unwrap_or(self.artifacts_path()))
+	}
+}
+
+impl Server {
+	async fn pull_tags_from_imports(
+		&self,
+		imports: impl IntoIterator<Item = tg::Import>,
+	) -> tg::Result<()> {
+		imports
+			.into_iter()
+			.filter_map(|import| {
+				let server = self.clone();
+				let remote = import
+					.reference
+					.options()
+					.and_then(|options| options.remote.clone());
+				let pattern = import.reference.item().try_unwrap_tag_ref().ok()?.clone();
+				let future = async move { server.pull_tag(pattern, remote).await };
+				Some(future)
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await
 	}
 }
 
