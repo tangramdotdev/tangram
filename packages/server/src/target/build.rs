@@ -278,41 +278,27 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
-		// First check for a self-cycle.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select exists (
-					select 1 from builds
-					where id = {p}1 and target = {p}2
-				);
-			"
-		);
-
-		let params = db::params![parent, target];
-		let cycle = connection
-			.query_one_value_into(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		if cycle {
-			return Ok(true);
-		}
-
-		// Otherwise, recurse.
-		let statement = formatdoc!(
-			"
 				with recursive ancestors as (
-					select b.id, b.target
-					from builds b
-					join build_children c on b.id = c.child
-					where c.child = {p}1
+					select builds.id, builds.target
+					from builds
+					where id = {p}1 and target= {p}2
 
 					union all
 
-					select b.id, b.target
-					from ancestors a
-					join build_children c on a.id = c.child
-					join builds b on c.build = b.id
+					select builds.id, builds.target
+					from builds
+					join build_children on builds.id = build_children.child
+					where build_children.child = {p}1
+
+					union all
+
+					select builds.id, builds.target
+					from ancestors 
+					join build_children on ancestors.id = build_children.child
+					join builds on build_children.build = builds.id
 				)
 				select exists (
 					select 1
@@ -338,54 +324,40 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let p = connection.p();
 
-		#[derive(serde::Deserialize, serde::Serialize)]
-		struct Row {
-			id: tg::build::Id,
-			depth: u64,
-		}
+		// Get the max build depth.
 		let statement = formatdoc!(
 			"
 				with recursive ancestors as (
-					select b.id, b.depth
-					from builds b
-					join build_children c on b.id = c.child
-					where c.child = {p}1
+					select builds.id, builds.depth
+					from builds
+					join build_children on builds.id = build_children.child
+					where build_children.child = {p}1
 
 					union all
 
-					select b.id, b.depth
-					from ancestors a
-					join build_children c on a.id = c.child
-					join builds b on c.build = b.id
+					select builds.id, builds.depth
+					from ancestors
+					join build_children on ancestors.id = build_children.child
+					join builds on build_children.build = builds.id
+				), max_depth as (
+					select coalesce(max(depth), 0) as max_depth from ancestors
 				)
-				select id, depth from ancestors;
+				update builds
+				set depth = builds.depth + 1
+				from ancestors
+				where builds.id = ancestors.id
+				returning (select max_depth from max_depth);
 			"
 		);
-		let params = db::params![parent];
-		let ancestors = connection
-			.query_all_into::<Row>(statement, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		let max_depth = ancestors.iter().map(|row| row.depth).max();
-		let ancestors = ancestors.iter().map(|row| row.id.clone()).collect_vec();
-		let ancestors = serde_json::to_string(&ancestors).unwrap();
-		if let Some(max_depth) = max_depth {
-			if max_depth >= self.config.build.as_ref().unwrap().max_depth {
-				return Ok(true);
-			}
-			let statement = formatdoc!(
-				"
-					update builds
-					set depth = depth + 1
-					where id in (select value from json_each({p}1));
-				"
-			);
-			let params = db::params![ancestors];
-			connection
-				.execute(statement, params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let params = db::params![parent];
+		let max_depth: u64 = connection
+			.query_optional_value_into(statement, params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.unwrap_or(0);
+		if max_depth >= self.config.build.as_ref().unwrap().max_depth {
+			return Ok(true);
 		}
 
 		// Drop the connection.
