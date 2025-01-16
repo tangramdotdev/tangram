@@ -7,19 +7,32 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub started: bool,
+	pub status: tg::build::Status,
+}
+
+impl tg::Process {
+	pub async fn heartbeat<H>(
+		&self,
+		handle: &H,
+		arg: tg::process::heartbeat::Arg,
+	) -> tg::Result<tg::process::heartbeat::Output>
+	where
+		H: tg::Handle,
+	{
+		handle.heartbeat_process(self.id(), arg).await
+	}
 }
 
 impl tg::Client {
-	pub async fn try_start_build(
+	pub async fn heartbeat_process(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::start::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
 	) -> tg::Result<Output> {
 		let method = http::Method::POST;
-		let uri = format!("/builds/{id}/start");
+		let uri = format!("/processes/{id}/heartbeat");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

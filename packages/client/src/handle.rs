@@ -1,5 +1,4 @@
 use crate as tg;
-use bytes::Bytes;
 use futures::{Future, Stream};
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -79,17 +78,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn try_dequeue_process(
-		&self,
-		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> + Send;
-
-	fn try_start_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::start::Output>> + Send;
-
 	fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
@@ -121,29 +109,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn try_add_build_log(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::log::post::Output>> + Send;
-
-	fn try_finish_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::finish::Output>> + Send;
-
 	fn touch_build(
 		&self,
 		id: &tg::build::Id,
 		arg: tg::build::touch::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn heartbeat_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send;
 
 	fn lsp(
 		&self,
@@ -276,55 +246,46 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
 
-	fn try_run_command<R>(
+	fn try_run_command(
 		&self,
-		target: &tg::target::Id,
-		stdin: R,
-	) -> impl Future<Output = tg::Result<tg::process::Id>>
-	where
-		R: AsyncRead;
+		command: tg::process::command::Command,
+	) -> impl Future<Output = tg::Result<tg::process::command::Output>>;
 
-	fn try_kill_process(
+	fn try_dequeue_process(
 		&self,
-		process: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+		arg: tg::process::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> + Send;
 
-	fn try_read_process_stdin(
+	fn try_get_process_event_stream(
 		&self,
 		process: &tg::process::Id,
 	) -> impl Future<
-		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
-	> + Send;
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::events::Event>> + Send + 'static>,
+		>,
+	>;
 
-	fn try_write_process_stdin(
+	fn try_send_process_event(
 		&self,
 		process: &tg::process::Id,
-		bytes: Bytes,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+		event: tg::process::events::Arg,
+	) -> impl Future<Output = tg::Result<()>>;
 
-	fn try_read_process_stderr(
+	fn try_start_process(
 		&self,
-		process: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
-	> + Send;
+		id: &tg::process::Id,
+		arg: tg::process::start::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::start::Output>> + Send;
 
-	fn try_write_process_stderr(
+	fn try_finish_process(
 		&self,
-		process: &tg::process::Id,
-		bytes: Bytes,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::finish::Output>> + Send;
 
-	fn try_read_process_stdout(
+	fn heartbeat_process(
 		&self,
-		process: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
-	> + Send;
-
-	fn try_write_process_stdout(
-		&self,
-		process: &tg::process::Id,
-		bytes: Bytes,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send;
 }

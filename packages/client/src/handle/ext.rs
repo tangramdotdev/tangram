@@ -95,15 +95,6 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
-	fn dequeue_build(
-		&self,
-		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::dequeue::Output>> + Send {
-		self.try_dequeue_build(arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
-		})
-	}
-
 	fn try_get_build_status(
 		&self,
 		id: &tg::build::Id,
@@ -425,6 +416,66 @@ pub trait Ext: tg::Handle {
 		self.try_build_target(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("expected a build")))
 		})
+	}
+
+	fn dequeue_process(
+		&self,
+		arg: tg::process::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<tg::build::dequeue::Output>> + Send {
+		self.try_dequeue_process(arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
+		})
+	}
+
+	fn try_get_process_events(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::events::Event>> + Send + 'static>,
+		>,
+	> {
+		async move {
+			let handle = self.clone();
+			let id = id.clone();
+			let Some(stream) = handle.try_get_process_event_stream(&id).await? else {
+				return Ok(None);
+			};
+			let stream = stream.boxed();
+			struct State {
+				stream: Option<stream::BoxStream<'static, tg::Result<tg::process::events::Event>>>,
+				end: bool,
+			}
+			let state = Arc::new(Mutex::new(State {
+				stream: Some(stream),
+				end: false,
+			}));
+			let stream = stream::try_unfold(state.clone(), move |state| {
+				let handle = handle.clone();
+				let id = id.clone();
+				async move {
+					if state.lock().unwrap().end {
+						return Ok(None);
+					}
+					let stream = state.lock().unwrap().stream.take();
+					let stream = if let Some(stream) = stream {
+						stream
+					} else {
+						handle
+							.try_get_process_event_stream(&id)
+							.await?
+							.unwrap()
+							.boxed()
+					};
+					Ok::<_, tg::Error>(Some((stream, state)))
+				}
+			})
+			.try_flatten()
+			.take_while(|event| {
+				future::ready(!matches!(event, Ok(tg::process::events::Event::End)))
+			});
+			Ok(Some(stream))
+		}
 	}
 }
 

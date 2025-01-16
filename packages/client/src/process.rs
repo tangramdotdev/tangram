@@ -1,7 +1,11 @@
-use bytes::Bytes;
 use crate as tg;
 
+pub mod command;
 pub mod dequeue;
+pub mod events;
+pub mod finish;
+pub mod heartbeat;
+pub mod start;
 
 #[derive(
 	Clone,
@@ -34,14 +38,10 @@ pub struct Process {
 #[serde(into = "tg::Id", try_from = "tg::Id")]
 pub struct Id(tg::Id);
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(tag = "kind")]
-pub enum Event {
-	/// The process wrote to stdout
-	Stderr(Bytes),
-	
-	/// The process wrote to stderr. 
-	Stdout(Bytes),
+impl Process {
+	pub fn id(&self) -> &Id {
+		&self.id
+	}
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

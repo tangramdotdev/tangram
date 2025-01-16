@@ -5,15 +5,12 @@ use tangram_futures::stream::Ext;
 pub use self::{retry::Retry, status::Status};
 
 pub mod children;
-pub mod finish;
 pub mod get;
-pub mod heartbeat;
 pub mod log;
 pub mod pull;
 pub mod push;
 pub mod put;
 pub mod retry;
-pub mod start;
 pub mod status;
 pub mod touch;
 

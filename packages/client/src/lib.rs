@@ -37,6 +37,7 @@ pub use self::{
 	mutation::Mutation,
 	object::Handle as Object,
 	position::Position,
+	process::Process,
 	range::Range,
 	reference::Reference,
 	referent::Referent,
@@ -657,29 +658,6 @@ impl tg::Handle for Client {
 		self.pull_build(id, arg)
 	}
 
-	fn try_dequeue_build(
-		&self,
-		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> {
-		self.try_dequeue_build(arg)
-	}
-
-	fn try_start_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::start::Output>> {
-		self.try_start_build(id, arg)
-	}
-
-	fn heartbeat_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> {
-		self.heartbeat_build(id, arg)
-	}
-
 	fn try_get_build_status_stream(
 		&self,
 		id: &tg::build::Id,
@@ -713,22 +691,6 @@ impl tg::Handle for Client {
 		>,
 	> {
 		self.try_get_build_log_stream(id, arg)
-	}
-
-	fn try_add_build_log(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::log::post::Output>> {
-		self.try_add_build_log(id, arg)
-	}
-
-	fn try_finish_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::finish::Output>> {
-		self.try_finish_build(id, arg)
 	}
 
 	fn touch_build(
@@ -918,6 +880,65 @@ impl tg::Handle for Client {
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		self.get_user(token)
+	}
+
+	fn try_run_command(
+		&self,
+		command: crate::process::command::Command,
+	) -> impl Future<Output = crate::Result<crate::process::command::Output>> {
+		self.try_run_command(command)
+	}
+
+	fn try_dequeue_process(
+		&self,
+		arg: tg::process::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> {
+		self.try_dequeue_build(arg)
+	}
+
+	fn try_start_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::start::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::start::Output>> {
+		self.try_start_build(id, arg)
+	}
+
+	fn try_finish_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::finish::Output>> {
+		self.try_finish_process(id, arg)
+	}
+
+	fn heartbeat_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
+		self.heartbeat_process(id, arg)
+	}
+
+	fn try_get_process_event_stream(
+		&self,
+		process: &crate::process::Id,
+	) -> impl Future<
+		Output = crate::Result<
+			Option<
+				impl Stream<Item = crate::Result<crate::process::events::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_get_process_event_stream(process)
+	}
+
+	fn try_send_process_event(
+		&self,
+		process: &crate::process::Id,
+		arg: crate::process::events::Arg,
+	) -> impl Future<Output = crate::Result<()>> {
+		self.try_send_process_event(process, arg)
 	}
 }
 
