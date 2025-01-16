@@ -35,6 +35,7 @@ pub enum Kind {
 	User,
 	Token,
 	Request,
+	Process,
 }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -158,6 +159,7 @@ impl std::fmt::Display for Kind {
 			Self::User => "usr",
 			Self::Token => "tok",
 			Self::Request => "req",
+			Self::Process => "prc",
 		};
 		write!(f, "{kind}")?;
 		Ok(())

@@ -5,7 +5,6 @@ use tangram_futures::stream::Ext;
 pub use self::{retry::Retry, status::Status};
 
 pub mod children;
-pub mod dequeue;
 pub mod finish;
 pub mod get;
 pub mod heartbeat;

@@ -102,6 +102,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				logs_count integer,
 				logs_depth integer,
 				logs_weight integer,
+				process text,
 				output text,
 				outputs_complete integer not null default 0,
 				outputs_count integer,
@@ -142,14 +143,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index build_children_child_index on build_children (child);
 
-			create table build_logs (
-				build text not null,
-				position integer not null,
-				bytes blob not null
-			);
-
-			create unique index build_logs_index on build_logs (build, position);
-
 			create table build_objects (
 				build text not null,
 				object text not null
@@ -158,6 +151,41 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create unique index build_objects_index on build_objects (build, object);
 
 			create index build_objects_object_index on build_objects (object);
+
+			create table processes (
+				id text primary key,
+				target text not null
+			);
+
+			create table process_children (
+				process text not null,
+				position integer not null,
+				child text not null
+			);
+
+			create unique index process_children_index on process_children (process, position);
+
+			create unique index process_children_build_child_index on process_children (process, child);
+
+			create unique index process_children_build_parent_index on process_children (child, proces);
+
+			create index process_children_child_index on process_children (child);
+
+			create table process_stdout (
+				process text not null,
+				position integer not null,
+				bytes blob not null
+			);
+			
+			create unique index process_stderr_index on process_stderr (process, position);
+
+			create table process_stderr (
+				process text not null,
+				position integer not null,
+				bytes blob not null
+			);
+
+			create unique index process_stdout_index on process_stdout (process, position);
 
 			create table objects (
 				id text primary key,
@@ -212,6 +240,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				id text primary key,
 				"user" text not null
 			);
+
 		"#
 	);
 	let database = database.as_ref().unwrap_left();

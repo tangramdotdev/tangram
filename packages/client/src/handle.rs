@@ -1,4 +1,5 @@
 use crate as tg;
+use bytes::Bytes;
 use futures::{Future, Stream};
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -78,10 +79,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn try_dequeue_build(
+	fn try_dequeue_process(
 		&self,
 		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> + Send;
 
 	fn try_start_build(
 		&self,
@@ -274,4 +275,56 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	) -> impl Future<Output = tg::Result<Option<tg::target::build::Output>>> + Send;
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
+
+	fn try_run_command<R>(
+		&self,
+		target: &tg::target::Id,
+		stdin: R,
+	) -> impl Future<Output = tg::Result<tg::process::Id>>
+	where
+		R: AsyncRead;
+
+	fn try_kill_process(
+		&self,
+		process: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_read_process_stdin(
+		&self,
+		process: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
+	> + Send;
+
+	fn try_write_process_stdin(
+		&self,
+		process: &tg::process::Id,
+		bytes: Bytes,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_read_process_stderr(
+		&self,
+		process: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
+	> + Send;
+
+	fn try_write_process_stderr(
+		&self,
+		process: &tg::process::Id,
+		bytes: Bytes,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_read_process_stdout(
+		&self,
+		process: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
+	> + Send;
+
+	fn try_write_process_stdout(
+		&self,
+		process: &tg::process::Id,
+		bytes: Bytes,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 }

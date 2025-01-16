@@ -179,7 +179,7 @@ impl Server {
 			.clone();
 
 		// Build.
-		let result = runtime.build(&build, remote.clone()).await;
+		let result = runtime.run(&build, remote.clone()).await;
 
 		// Log an error if one occurred.
 		if let Err(error) = &result {

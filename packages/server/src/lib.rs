@@ -916,6 +916,29 @@ impl Server {
 				Self::handle_format_package_request(handle, request).boxed()
 			},
 
+			// Processes
+			(http::Method::POST, ["processes", process, "kill"]) => {
+				todo!()
+			},
+			(http::Method::GET, ["processes", process, "stdin"]) => {
+				todo!()	
+			},
+			(http::Method::POST, ["processes", process, "stdin"]) => {
+				todo!()	
+			},
+			(http::Method::GET, ["processes", process, "stderr"]) => {
+				todo!()
+			},
+			(http::Method::POST, ["processes", process, "stderr"]) => {
+				todo!()
+			},
+			(http::Method::GET, ["processes", process, "stdout"]) => {
+				todo!()
+			},
+			(http::Method::POST, ["processes", process, "stdout"]) => {
+				todo!()
+			},
+			
 			// References.
 			(http::Method::GET, ["references", path @ ..]) => {
 				Self::handle_get_reference_request(handle, request, path).boxed()
