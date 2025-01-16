@@ -1,7 +1,7 @@
 use indoc::indoc;
 use insta::assert_snapshot;
 use std::future::Future;
-use tangram_cli::{assert_failure, assert_success, test::test};
+use tangram_cli::{assert_failure, assert_success, test::test, Config};
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
@@ -692,6 +692,57 @@ async fn value_cycle_detection_array() {
 		assert_failure!(output);
 	};
 	test_build(directory, path, target, args, assertions).await;
+}
+
+#[tokio::test]
+async fn build_max_depth_detection() {
+	let directory = temp::directory! {
+		"foo" => temp::directory! {
+			"tangram.ts" => indoc!("
+				export let x = tg.target((depth) => {
+					depth = depth ?? 0;
+					return x(depth + 1);
+				})
+			"
+			)
+		},
+	};
+	let path = "foo";
+	let target = "x";
+	let args: Vec<String> = vec![];
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
+	};
+
+	let artifact = directory;
+
+	test(TG, move |context| async move {
+		let mut context = context.lock().await;
+		let mut config = Config::default();
+		let mut build = tangram_cli::config::Build::default();
+		build.max_depth = Some(100);
+		config.build = Some(Some(build));
+		let server = context.spawn_server_with_config(config).await.unwrap();
+
+		let artifact: temp::Artifact = artifact.into();
+		let temp = Temp::new();
+		artifact.to_path(temp.as_ref()).await.unwrap();
+
+		let path = temp.path().join(path);
+		let target = format!("{path}#{target}", path = path.display());
+
+		// Build the module.
+		let mut command = server.tg();
+		command.arg("build").arg(target);
+		for arg in args {
+			command.arg("--arg");
+			command.arg(arg);
+		}
+		let output = command.output().await.unwrap();
+
+		assertions(output).await;
+	})
+	.await;
 }
 
 #[tokio::test]
