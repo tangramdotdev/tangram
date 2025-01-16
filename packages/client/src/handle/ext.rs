@@ -421,7 +421,7 @@ pub trait Ext: tg::Handle {
 	fn dequeue_process(
 		&self,
 		arg: tg::process::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::dequeue::Output>> + Send {
+	) -> impl Future<Output = tg::Result<tg::process::dequeue::Output>> + Send {
 		self.try_dequeue_process(arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a build")))
 		})
@@ -429,16 +429,16 @@ pub trait Ext: tg::Handle {
 
 	fn try_get_process_events(
 		&self,
-		id: &tg::process::Id,
+		process: &tg::process::Id,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::process::events::Event>> + Send + 'static>,
 		>,
 	> {
+		let handle = self.clone();
+		let process = process.clone();
 		async move {
-			let handle = self.clone();
-			let id = id.clone();
-			let Some(stream) = handle.try_get_process_event_stream(&id).await? else {
+			let Some(stream) = handle.try_get_process_event_stream(&process).await? else {
 				return Ok(None);
 			};
 			let stream = stream.boxed();
@@ -452,7 +452,7 @@ pub trait Ext: tg::Handle {
 			}));
 			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
-				let id = id.clone();
+				let process = process.clone();
 				async move {
 					if state.lock().unwrap().end {
 						return Ok(None);
@@ -462,7 +462,7 @@ pub trait Ext: tg::Handle {
 						stream
 					} else {
 						handle
-							.try_get_process_event_stream(&id)
+							.try_get_process_event_stream(&process)
 							.await?
 							.unwrap()
 							.boxed()

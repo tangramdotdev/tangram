@@ -263,13 +263,13 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::process::events::Event>> + Send + 'static>,
 		>,
-	>;
+	> + Send;
 
 	fn try_send_process_event(
 		&self,
 		process: &tg::process::Id,
 		event: tg::process::events::Arg,
-	) -> impl Future<Output = tg::Result<()>>;
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_start_process(
 		&self,
