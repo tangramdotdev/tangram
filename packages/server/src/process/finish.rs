@@ -2,7 +2,7 @@ use std::pin::pin;
 
 use crate::Server;
 use bytes::Bytes;
-use futures::{stream::FuturesUnordered, FutureExt as _, StreamExt as _, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt as _, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
 use tangram_client::{self as tg, handle::Ext};
 use tangram_database::{self as db, prelude::*};
@@ -28,6 +28,25 @@ impl Server {
 			return Ok(output);
 		}
 
+		// Validate the token.
+		if !self.check_process_token(id, &arg.token).await? {
+			return Err(tg::error!("invalid token"));
+		}
+
+		// Abort any running process.
+		self.processes.abort(id);
+
+		// Finish the process.
+		self.try_finish_process_local(id, arg.error, arg.output, arg.status).await
+	}
+
+	pub async fn try_finish_process_local(
+		&self,
+		id: &tg::process::Id,
+		mut error: Option<tg::Error>,
+		output: Option<tg::value::Data>,
+		mut status: tg::process::Status,
+	) -> tg::Result<tg::process::finish::Output> {
 		// Attempt to set the process's status to finishing.
 		let connection = self
 			.database
@@ -54,7 +73,7 @@ impl Server {
 
 		// Get the process.
 		let Some(process) = self.try_get_process_local(id).await? else {
-			return Err(tg::error!("failed to find the build"));
+			return Err(tg::error!("failed to find the process"));
 		};
 
 		// Get a database connection.
@@ -65,10 +84,15 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the children.
+		#[derive(Clone, serde::Deserialize)]
+		struct Row {
+			child: tg::process::Id,
+			token: String,
+		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select child
+				select child, token
 				from process_children
 				where process = {p}1
 				order by position;
@@ -76,7 +100,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let children = connection
-			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+			.query_all_value_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -84,35 +108,30 @@ impl Server {
 		drop(connection);
 
 		// Cancel unfinished children.
-		// TODO
-		// children
-		// 	.iter()
-		// 	.map(|child| async move {
-		// 		let arg = tg::process::finish::Arg {
-		// 			error: Some(tg::error!("the parent was finished")),
-		// 			output: None,
-		// 			remote: None,
-		// 			status: tg::process::Status::Canceled,
-		// 			token: todo!(),
-		// 		};
-		// 		self.try_finish_process(child, arg).await?;
-		// 		Ok::<_, tg::Error>(())
-		// 	})
-		// 	.collect::<FuturesUnordered<_>>()
-		// 	.collect::<Vec<_>>()
-		// 	.await;
-
-		// Get the output.
-		let mut status = arg.status;
-		let output = arg.output;
-		let mut error = arg.error;
+		children
+			.clone()
+			.into_iter()
+			.map(|row| async move {
+				let arg = tg::process::finish::Arg {
+					error: Some(tg::error!("the parent was finished")),
+					output: None,
+					remote: None,
+					status: tg::process::Status::Canceled,
+					token: row.token.clone(),
+				};
+				self.try_finish_process(&row.child, arg).await?;
+				Ok::<_, tg::Error>(())
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<Vec<_>>()
+			.await;
 
 		// If any of the children were canceled, then this process should be canceled.
 		if status != tg::process::status::Status::Canceled
 			&& children
 				.iter()
-				.map(|child| async move {
-					pin!(self.get_process_status(child).await?)
+				.map(|row| async move {
+					pin!(self.get_process_status(&row.child).await?)
 						.try_next()
 						.await?
 						.ok_or_else(|| tg::error!("failed to get the process status"))
@@ -303,16 +322,16 @@ impl Server {
 			value.clone(),
 			algorithm.to_string().into(),
 		];
-		let target = tg::Command::builder(host).args(args).build();
-		let target_id = target.id(self).await?;
+		let command = tg::Command::builder(host).args(args).build();
+		let command_id = command.id(self).await?;
 
-		// Build the target.
+		// Build the command.
 		let arg = tg::command::spawn::Arg {
 			create: false,
 			parent: Some(parent_process_id),
 			..Default::default()
 		};
-		let output = self.spawn_command(&target_id, arg).await?;
+		let output = self.spawn_command(&command_id, arg).await?;
 		let output = self.get_process(&output.process).await?;
 		let output = tg::Process::with_id(output.id).output(self).boxed().await?;
 

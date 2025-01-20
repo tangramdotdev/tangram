@@ -40,7 +40,7 @@ impl Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
 	> {
-		// Verify the build is local.
+		// Verify the process is local.
 		if !self.get_process_exists_local(id).await? {
 			return Ok(None);
 		}
@@ -88,7 +88,7 @@ impl Server {
 		};
 
 		// Subscribe to children events.
-		let subject = format!("builds.{id}.children");
+		let subject = format!("processes.{id}.children");
 		let children = self
 			.messenger
 			.subscribe(subject, None)
@@ -98,7 +98,7 @@ impl Server {
 			.boxed();
 
 		// Subscribe to status events.
-		let subject = format!("builds.{id}.status");
+		let subject = format!("processes.{id}.status");
 		let status = self
 			.messenger
 			.subscribe(subject, None)
@@ -122,11 +122,11 @@ impl Server {
 
 		// Send the events.
 		loop {
-			// Get the build's status.
+			// Get the process's status.
 			let status = self
 				.try_get_current_process_status_local(id)
 				.await?
-				.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
+				.ok_or_else(|| tg::error!(%process = id, "process does not exist"))?;
 
 			// Send as many data events as possible.
 			loop {
@@ -157,7 +157,7 @@ impl Server {
 				}
 			}
 
-			// If the build was finished or the length was reached, then send the end event and break.
+			// If the process was finished or the length was reached, then send the end event and break.
 			let end = arg.length.is_some_and(|length| read >= length);
 			if end || status.is_finished() {
 				let result = sender.try_send(Ok(tg::process::children::get::Event::End));
@@ -190,8 +190,8 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				select count(*)
-				from build_children
-				where build = {p}1;
+				from process_children
+				where process = {p}1;
 			"
 		);
 		let params = db::params![id];
@@ -224,8 +224,8 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				select child
-				from build_children
-				where build = {p}1
+				from process_children
+				where process = {p}1
 				order by position
 				limit {p}2
 				offset {p}3;
@@ -294,12 +294,15 @@ impl Server {
 		parent: &tg::process::Id,
 		child: &tg::process::Id,
 	) -> tg::Result<bool> {
-		// Verify the build is local and started.
+		// Verify the process is local and started.
 		if self.try_get_current_process_status_local(parent).await?
 			!= Some(tg::process::Status::Started)
 		{
 			return Ok(false);
 		}
+
+		// Get a token for the child.
+		let token = self.try_create_process_token(child).await?.ok_or_else(|| tg::error!("failed to create a token for the process"))?;
 
 		// Get a database connection.
 		let connection = self
@@ -312,12 +315,12 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into build_children (build, position, child)
-				values ({p}1, (select coalesce(max(position) + 1, 0) from build_children where build = {p}1), {p}2)
-				on conflict (build, child) do nothing;
+				insert into process_children (process, position, child, token)
+				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3)
+				on conflict (process, child) do nothing;
 			"
 		);
-		let params = db::params![parent, child];
+		let params = db::params![parent, child, token];
 		connection
 			.execute(statement.into(), params)
 			.await
@@ -331,7 +334,7 @@ impl Server {
 			let server = self.clone();
 			let id = parent.clone();
 			async move {
-				let subject = format!("builds.{id}.children");
+				let subject = format!("processes.{id}.children");
 				let payload = Bytes::new();
 				server
 					.messenger

@@ -33,7 +33,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Get the build.
+		// Get the process.
 		#[serde_as]
 		#[derive(serde::Deserialize)]
 		pub struct Row {
@@ -111,7 +111,7 @@ impl Server {
 					dequeued_at,
 					started_at,
 					finished_at
-				from builds
+				from processes
 				where id = {p}1;
 			"
 		);
@@ -157,7 +157,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		// Attempt to get the build from the remotes.
+		// Attempt to get the process from the remotes.
 		let futures = self
 			.get_remote_clients()
 			.await?
@@ -171,7 +171,7 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Spawn a task to put the build if it is finished.
+		// Spawn a task to put the process if it is finished.
 		if output.status.is_finished() {
 			tokio::spawn({
 				let server = self.clone();
@@ -182,7 +182,7 @@ impl Server {
 					let children = server
 						.try_get_process_children(&id, arg)
 						.await?
-						.ok_or_else(|| tg::error!("expected the build to exist"))?
+						.ok_or_else(|| tg::error!("expected the process to exist"))?
 						.map_ok(|chunk| stream::iter(chunk.data).map(Ok::<_, tg::Error>))
 						.try_flatten()
 						.try_collect()

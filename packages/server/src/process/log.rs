@@ -61,7 +61,7 @@ impl Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
 	> {
-		// Verify the build is local.
+		// Verify the process is local.
 		if !self.get_process_exists_local(id).await? {
 			return Ok(None);
 		}
@@ -140,11 +140,11 @@ impl Server {
 		let mut read = 0;
 
 		loop {
-			// Get the build's status.
+			// Get the process's status.
 			let status = self
 				.try_get_current_process_status_local(id)
 				.await?
-				.ok_or_else(|| tg::error!(%build = id, "build does not exist"))?;
+				.ok_or_else(|| tg::error!(%process = id, "process does not exist"))?;
 
 			// Send as many data events as possible.
 			loop {
@@ -223,7 +223,7 @@ impl Server {
 				}
 			}
 
-			// If the build was finished or the length was reached, then send the end event and break.
+			// If the process was finished or the length was reached, then send the end event and break.
 			let end = if let Some(length) = arg.length {
 				let position = reader
 					.stream_position()
@@ -291,7 +291,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
 	) -> tg::Result<tg::process::log::post::Output> {
-		// Verify the build is local and started.
+		// Verify the process is local and started.
 		if self.get_current_process_status_local(id).await? != tg::process::Status::Started {
 			return Ok(tg::process::log::post::Output { added: false });
 		}
@@ -336,15 +336,15 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into build_logs (build, position, bytes)
+				insert into process_logs (process, position, bytes)
 				values (
 					{p}1,
 					(
 						select coalesce(
 							(
 								select position + length(bytes)
-								from build_logs
-								where build = {p}1
+								from process_logs
+								where process = {p}1
 								order by position desc
 								limit 1
 							),
@@ -396,7 +396,7 @@ impl Reader {
 		let output = server
 			.try_get_process_local(id)
 			.await?
-			.ok_or_else(|| tg::error!("expected the build to exist"))?;
+			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 		if let Some(log) = output.log {
 			let blob = tg::Blob::with_id(log);
 			let reader = crate::blob::Reader::new(server, blob).await?;
@@ -558,8 +558,8 @@ async fn poll_read_inner(
 	let statement = formatdoc!(
 		"
 			select position, bytes
-			from build_logs
-			where build = {p}1 and (
+			from process_logs
+			where process = {p}1 and (
 				({p}2 < position and {p}2 + {p}3 > position) or
 				({p}2 >= position and {p}2 < position + length(bytes))
 			)
@@ -652,11 +652,11 @@ async fn poll_seek_inner(
 			select coalesce(
 				(
 					select position + length(bytes)
-					from build_logs
-					where build = {p}1 and position = (
+					from process_logs
+					where process = {p}1 and position = (
 						select max(position)
-						from build_logs
-						where build = {p}1
+						from process_logs
+						where process = {p}1
 					)
 				),
 				0

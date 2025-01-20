@@ -33,13 +33,13 @@ impl Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 	> {
-		// Verify the build is local.
+		// Verify the process is local.
 		if !self.get_process_exists_local(id).await? {
 			return Ok(None);
 		}
 
 		// Subscribe to status events.
-		let subject = format!("builds.{id}.status");
+		let subject = format!("processes.{id}.status");
 		let status = self
 			.messenger
 			.subscribe(subject, None)
@@ -94,14 +94,14 @@ impl Server {
 	) -> tg::Result<tg::process::Status> {
 		self.try_get_current_process_status_local(id)
 			.await?
-			.ok_or_else(|| tg::error!("failed to find the build"))
+			.ok_or_else(|| tg::error!("failed to find the process"))
 	}
 
 	pub(crate) async fn try_get_current_process_status_local(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Status>> {
-		// Verify the build is local.
+		// Verify the process is local.
 		if !self.get_process_exists_local(id).await? {
 			return Ok(None);
 		}
@@ -128,7 +128,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				select status
-				from builds
+				from processes
 				where id = {p}1;
 			"
 		);

@@ -124,10 +124,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index processes_command_created_at_index on processes (command, created_at desc);
 
-			create table build_children (
-				build text not null,
+			create table process_children (
+				process text not null,
 				position integer not null,
-				child text not null
+				child text not null,
+				token text not null
 			);
 
 			create unique index process_children_index on process_children (process, position);

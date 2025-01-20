@@ -119,14 +119,17 @@ impl Server {
 			.map(|process| {
 				let server = self.clone();
 				async move {
-					let arg = tg::process::finish::Arg {
-						error: Some(tg::error!("the build's heartbeat expired")),
-						output: None,
-						remote: None,
-						status: tg::process::Status::Canceled,
-						token: todo!(),
-					};
-					todo!()
+					let error = tg::error!("the build's heartbeat expired");
+					server
+						.try_finish_process_local(
+							process,
+							Some(error),
+							None,
+							tg::process::Status::Canceled,
+						)
+						.await
+						.inspect_err(|error| tracing::error!(?error, "failed to cancel build"))
+						.ok();
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -147,7 +150,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let arg = request.json().await?; 
+		let arg = request.json().await?;
 		let output = handle.heartbeat_process(&id, arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)

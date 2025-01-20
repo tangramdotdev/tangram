@@ -6,11 +6,11 @@ use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 impl Server {
 	pub async fn pull_process(
 		&self,
-		build: &tg::process::Id,
+		process: &tg::process::Id,
 		arg: tg::process::pull::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let client = self.get_remote_client(arg.remote.clone()).await?;
-		Self::push_or_pull_process(&client, self, build, arg).await
+		Self::push_or_pull_process(&client, self, process, arg).await
 	}
 }
 

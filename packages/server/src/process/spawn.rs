@@ -153,7 +153,7 @@ impl Server {
 		};
 
 		// Finish the process.
-		todo!();
+		self.try_finish_process_local(&process, error, output, status).await?;
 
 		Ok::<_, tg::Error>(())
 	}
