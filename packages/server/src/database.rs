@@ -87,81 +87,12 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 async fn migration_0000(database: &Database) -> tg::Result<()> {
 	let sql = indoc!(
 		r#"
-			create table processes (
+			create table blobs (
 				id text primary key,
-				complete integer not null default 0,
-				count integer,
-				depth integer not null,
-				error text,
-				heartbeat_at text,
-				host text not null,
-				log text,
-				logs_complete integer not null default 0,
-				logs_count integer,
-				logs_depth integer,
-				logs_weight integer,
-				output text,
-				outputs_complete integer not null default 0,
-				outputs_count integer,
-				outputs_depth integer,
-				outputs_weight integer,
-				retry text not null,
-				status text not null,
-				command text not null,
-				commands_complete integer not null default 0,
-				commands_count integer,
-				commands_depth integer,
-				commands_weight integer,
-				touched_at text,
-				created_at text not null,
-				enqueued_at text,
-				dequeued_at text,
-				started_at text,
-				finished_at text
-			);
-
-			create index processes_status_created_at_index on processes (status, created_at);
-
-			create index processes_command_created_at_index on processes (command, created_at desc);
-
-			create table process_children (
-				process text not null,
+				entry text not null,
 				position integer not null,
-				child text not null,
-				token text not null
+				length integer not null
 			);
-
-			create unique index process_children_index on process_children (process, position);
-
-			create unique index process_children_process_child_index on process_children (process, child);
-
-			create unique index process_children_process_parent_index on process_children (child, process);
-
-			create index process_children_child_index on process_children (child);
-
-			create table process_tokens (
-				token text primary key,
-				process text not null
-			);
-
-			create index process_token_process_index on process_tokens (process);
-
-			create table process_logs (
-				process text not null,
-				position integer not null,
-				bytes blob not null
-			);
-
-			create unique index process_logs_index on process_logs (process, position);
-
-			create table process_objects (
-				process text not null,
-				object text not null
-			);
-
-			create unique index process_objects_index on process_objects (process, object);
-
-			create index process_objects_object_index on process_objects (object);
 
 			create table objects (
 				id text primary key,
@@ -215,12 +146,84 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index object_children_child_index on object_children (child);
 
-			create table blobs (
+			create table processes (
 				id text primary key,
-				entry text not null,
-				position integer not null,
-				length integer not null
+				complete integer not null default 0,
+				count integer,
+				depth integer not null,
+				error text,
+				exit text,
+				heartbeat_at text,
+				host text not null,
+				logs text,
+				logs_complete integer not null default 0,
+				logs_count integer,
+				logs_depth integer,
+				logs_weight integer,
+				output text,
+				outputs_complete integer not null default 0,
+				outputs_count integer,
+				outputs_depth integer,
+				outputs_weight integer,
+				retry text not null,
+				status text not null,
+				command text not null,
+				commands_complete integer not null default 0,
+				commands_count integer,
+				commands_depth integer,
+				commands_weight integer,
+				touched_at text,
+				created_at text not null,
+				enqueued_at text,
+				dequeued_at text,
+				started_at text,
+				finished_at text
 			);
+
+			create index processes_status_created_at_index on processes (status, created_at);
+
+			create index processes_command_created_at_index on processes (command, created_at desc);
+
+			create table process_children (
+				process text not null,
+				position integer not null,
+				child text not null,
+				token text not null
+			);
+
+			create unique index process_children_index on process_children (process, position);
+
+			create unique index process_children_process_child_index on process_children (process, child);
+
+			create unique index process_children_process_parent_index on process_children (child, process);
+
+			create index process_children_child_index on process_children (child);
+
+			create table process_tokens (
+				token text primary key,
+				process text not null
+			);
+
+			create index process_token_process_index on process_tokens (process);
+
+			create table process_logs (
+				process text not null,
+				position integer not null,
+				kind integer not null,
+				bytes blob not null,
+				timestamp text
+			);
+
+			create unique index process_logs_index on process_logs (process, kind, position);
+
+			create table process_objects (
+				process text not null,
+				object text not null
+			);
+
+			create unique index process_objects_index on process_objects (process, object);
+
+			create index process_objects_object_index on process_objects (object);
 
 			create table remotes (
 				name text primary key,
