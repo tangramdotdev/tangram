@@ -46,7 +46,7 @@ impl Runtime {
 
 		// Try to reuse a build whose checksum is `None` or `Unsafe`.
 		if let Ok(value) =
-			super::util::try_reuse_build(server, build.id(), &target, checksum.as_ref())
+			super::util::try_reuse_process(server, build.id(), &target, checksum.as_ref())
 				.boxed()
 				.await
 		{
@@ -440,7 +440,7 @@ impl Runtime {
 						return Ok::<_, tg::Error>(());
 					}
 					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_build_logs_to_stderr {
+					if server.config.advanced.write_process_logs_to_stderr {
 						tokio::io::stderr()
 							.write_all(&bytes)
 							.await

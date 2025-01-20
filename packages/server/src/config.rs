@@ -9,7 +9,7 @@ use url::Url;
 pub struct Config {
 	pub advanced: Advanced,
 	pub authentication: Option<Authentication>,
-	pub process: Option<Build>,
+	pub process: Option<Process>,
 	pub process_heartbeat_monitor: Option<ProcessHeartbeatMonitor>,
 	pub process_indexer: Option<ProcessIndexer>,
 	pub database: Database,
@@ -54,7 +54,7 @@ pub struct Oauth {
 }
 
 #[derive(Clone, Debug)]
-pub struct Build {
+pub struct Process {
 	pub concurrency: usize,
 	pub heartbeat_interval: Duration,
 	pub max_depth: u64,
@@ -135,9 +135,9 @@ impl Config {
 	pub fn with_path(path: PathBuf) -> Self {
 		let advanced = Advanced::default();
 		let authentication = None;
-		let build = None;
-		let build_heartbeat_monitor = None;
-		let build_indexer = None;
+		let process = None;
+		let process_heartbeat_monitor = None;
+		let process_indexer = None;
 		let database = Database::Sqlite(SqliteDatabase::with_path(path.join("database")));
 		let messenger = Messenger::default();
 		let object_indexer = None;
@@ -148,9 +148,9 @@ impl Config {
 		Self {
 			advanced,
 			authentication,
-			process: build,
-			process_heartbeat_monitor: build_heartbeat_monitor,
-			process_indexer: build_indexer,
+			process,
+			process_heartbeat_monitor,
+			process_indexer,
 			database,
 			messenger,
 			object_indexer,
@@ -187,7 +187,7 @@ impl Default for Advanced {
 	}
 }
 
-impl Default for Build {
+impl Default for Process {
 	fn default() -> Self {
 		let n = std::thread::available_parallelism().unwrap();
 		Self {
