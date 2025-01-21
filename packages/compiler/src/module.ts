@@ -23,5 +23,5 @@ export namespace Module {
 		| "file"
 		| "symlink"
 		| "graph"
-		| "target";
+		| "command";
 }

@@ -69,7 +69,7 @@ impl Runtime {
 		Ok(Self { server, env, sh })
 	}
 
-	pub async fn spawn(
+	pub async fn run(
 		&self,
 		process: &tg::process::Id,
 		command: &tg::Command,
@@ -80,7 +80,7 @@ impl Runtime {
 		// Get the checksum.
 		let checksum = command.checksum(server).await?;
 
-		// Try to reuse a build whose checksum is `None` or `Unsafe`.
+		// Try to reuse a process whose checksum is `None` or `Unsafe`.
 		if let Ok(value) =
 			super::util::try_reuse_process(server, process, &command, checksum.as_ref())
 				.boxed()
@@ -532,24 +532,24 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to create stdout socket"))?;
 		let stdout = stdout_send
 			.into_std()
-			.map_err(|source| tg::error!(!source, "failed to convert the log sender"))?;
+			.map_err(|source| tg::error!(!source, "failed to convert the stdout sender"))?;
 		stdout.set_nonblocking(false).map_err(|error| {
 			tg::error!(
 				source = error,
-				"failed to set the log socket as non-blocking"
+				"failed to set the stdout socket as non-blocking"
 			)
 		})?;
 
 		// Create the stderr socket pair.
 		let (stderr_send, stderr_recv) = tokio::net::UnixStream::pair()
-			.map_err(|source| tg::error!(!source, "failed to create stdout socket"))?;
+			.map_err(|source| tg::error!(!source, "failed to create stderr socket"))?;
 		let stderr = stderr_send
 			.into_std()
-			.map_err(|source| tg::error!(!source, "failed to convert the log sender"))?;
+			.map_err(|source| tg::error!(!source, "failed to convert the stderr sender"))?;
 		stderr.set_nonblocking(false).map_err(|error| {
 			tg::error!(
 				source = error,
-				"failed to set the log socket as non-blocking"
+				"failed to set the stderr socket as non-blocking"
 			)
 		})?;
 
@@ -645,7 +645,7 @@ impl Runtime {
 					let size = reader
 						.read(&mut buffer)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+						.map_err(|source| tg::error!(!source, "failed to read from stdout"))?;
 					if size == 0 {
 						return Ok::<_, tg::Error>(());
 					}
@@ -655,10 +655,7 @@ impl Runtime {
 							.write_all(&bytes)
 							.await
 							.inspect_err(|error| {
-								tracing::error!(
-									?error,
-									"failed to write the process log to stderr"
-								);
+								tracing::error!(?error, "failed to write to stderr");
 							})
 							.ok();
 					}
@@ -668,7 +665,7 @@ impl Runtime {
 						remote: remote.clone(),
 					};
 					if let Err(error) = server.try_add_process_log(&process, arg).await {
-						tracing::error!(?error, "failed to write the process log");
+						tracing::error!(?error, "failed to add the process log");
 					}
 				}
 			}
@@ -686,7 +683,7 @@ impl Runtime {
 					let size = reader
 						.read(&mut buffer)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+						.map_err(|source| tg::error!(!source, "failed to read from stderr"))?;
 					if size == 0 {
 						return Ok::<_, tg::Error>(());
 					}
@@ -696,10 +693,7 @@ impl Runtime {
 							.write_all(&bytes)
 							.await
 							.inspect_err(|error| {
-								tracing::error!(
-									?error,
-									"failed to write the process log to stderr"
-								);
+								tracing::error!(?error, "failed to write to stderr");
 							})
 							.ok();
 					}
@@ -709,7 +703,7 @@ impl Runtime {
 						remote: remote.clone(),
 					};
 					if let Err(error) = server.try_add_process_log(&process, arg).await {
-						tracing::error!(?error, "failed to write the process log");
+						tracing::error!(?error, "failed to add the process log");
 					}
 				}
 			}
@@ -818,23 +812,14 @@ impl Runtime {
 		.map_err(|source| tg::error!(!source, "the root process did not exit successfully"))?;
 
 		// Wait for the log tasks to complete.
-		let stdout = stdout_task
-			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))
-			.and_then(|result| {
-				future::ready(
-					result.map_err(|source| tg::error!(!source, "the stdout task failed")),
-				)
-			});
-		let stderr = stderr_task
-			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))
-			.and_then(|result| {
-				future::ready(
-					result.map_err(|source| tg::error!(!source, "the stdout task failed")),
-				)
-			});
-		let (stdout, stderr) = future::join(stdout, stderr).await;
-		stdout?;
-		stderr?;
+		stdout_task
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))?
+			.map_err(|source| tg::error!(!source, "the stdout task panicked"))?;
+		stderr_task
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))?
+			.map_err(|source| tg::error!(!source, "the stderr task panicked"))?;
 
 		// Handle the guest process's exit status.
 		match exit_status {

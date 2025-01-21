@@ -19,7 +19,7 @@ impl Runtime {
 	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
-		// Ensure the target has a checksum.
+		// Ensure the command has a checksum.
 		if command.checksum(server).await?.is_none() {
 			return Err(tg::error!("a download must have a checksum"));
 		}

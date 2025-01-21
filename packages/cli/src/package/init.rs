@@ -56,8 +56,8 @@ impl Cli {
 					import * as autobuild from "{autobuild_reference}";
 					import * as std from "std";
 					import source from "." with {{ type: "directory" }};
-					export default tg.target(() => autobuild.build({{ env: env(), source }}));
-					export const env = tg.target(() => std.env(autobuild.env({{ source }})));
+					export default () => autobuild.build({{ env: env(), source }});
+					export const env = () => std.env(autobuild.env({{ source }}));
 				"#,
 			),
 		));

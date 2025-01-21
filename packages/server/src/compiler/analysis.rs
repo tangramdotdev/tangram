@@ -324,7 +324,7 @@ mod tests {
 			import * as namespaceImport from "tg:namespace_import";
 			let dynamicImport = import("./dynamic_import.tg.ts");
 			let include = import("./include.txt");
-			export let nested = tg.target(() => {
+			export let nested = tg.command(() => {
 				let nestedDynamicImport = import("tg:nested_dynamic_import");
 				let nestedInclude = import("./nested_include.txt");
 			});

@@ -3,7 +3,7 @@ use futures::TryStreamExt as _;
 use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
 
-/// Get a build's children.
+/// Get a process's children.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

@@ -22,7 +22,7 @@ impl Runtime {
 		}
 	}
 
-	pub async fn spawn(
+	pub async fn run(
 		&self,
 		process: &tg::process::Id,
 		command: &tg::Command,
@@ -36,9 +36,9 @@ impl Runtime {
 		// Get the checksum.
 		let checksum = command.checksum(server).await?;
 
-		// Try to reuse a build whose checksum is `None` or `Unsafe`.
+		// Try to reuse a process whose checksum is `None` or `Unsafe`.
 		if let Ok(value) =
-			super::util::try_reuse_process(server, process, &command, checksum.as_ref())
+			super::util::try_reuse_process(server, process, command, checksum.as_ref())
 				.boxed()
 				.await
 		{
@@ -54,13 +54,13 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected the first arg to be a string"))?;
 
 		let output = match name.as_str() {
-			"archive" => self.archive(process, &command, remote).boxed(),
-			"bundle" => self.bundle(process, &command, remote).boxed(),
-			"checksum" => self.checksum(process, &command, remote).boxed(),
-			"compress" => self.compress(process, &command, remote).boxed(),
-			"decompress" => self.decompress(process, &command, remote).boxed(),
-			"download" => self.download(process, &command, remote).boxed(),
-			"extract" => self.extract(process, &command, remote).boxed(),
+			"archive" => self.archive(process, command, remote).boxed(),
+			"bundle" => self.bundle(process, command, remote).boxed(),
+			"checksum" => self.checksum(process, command, remote).boxed(),
+			"compress" => self.compress(process, command, remote).boxed(),
+			"decompress" => self.decompress(process, command, remote).boxed(),
+			"download" => self.download(process, command, remote).boxed(),
+			"extract" => self.extract(process, command, remote).boxed(),
 			_ => {
 				return Err(tg::error!("unknown name"));
 			},

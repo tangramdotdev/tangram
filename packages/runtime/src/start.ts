@@ -25,13 +25,18 @@ export let start = async (command: tg.Command): Promise<tg.Value> => {
 	}
 
 	// Get the command.
-	let command_ = namespace[name];
-	if (!(command_ instanceof tg.Command)) {
-		throw new Error(`failed to find the export named "${name}"`);
+	let value = namespace[name];
+	let function_: Function;
+	if (value instanceof tg.Command) {
+		function_ = value.function()!;
+	} else if (typeof value === "function") {
+		function_ = value;
+	} else {
+		throw new Error("invalid export");
 	}
 
 	// Call the function and resolve its output.
-	let output = await tg.resolve(command_.function()!(...args.slice(1)));
+	let output = await tg.resolve(function_!(...args.slice(1)));
 
 	return output;
 };

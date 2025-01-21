@@ -148,9 +148,9 @@ impl Server {
 		}
 
 		// Verify the checksum if one was provided.
-		let target = tg::Command::with_id(process.command);
+		let command = tg::Command::with_id(process.command);
 		if let (Some(output), Some(expected)) =
-			(output.clone(), target.checksum(self).await?.clone())
+			(output.clone(), command.checksum(self).await?.clone())
 		{
 			match expected {
 				tg::Checksum::Unsafe => (),
@@ -298,7 +298,7 @@ impl Server {
 		value: &tg::Value,
 		expected: &tg::Checksum,
 	) -> tg::Result<()> {
-		// Create the target.
+		// Create the command.
 		let host = "builtin";
 		let algorithm = if expected.algorithm() == tg::checksum::Algorithm::None {
 			tg::checksum::Algorithm::Sha256
@@ -313,7 +313,7 @@ impl Server {
 		let command = tg::Command::builder(host).args(args).build();
 		let command_id = command.id(self).await?;
 
-		// Build the command.
+		// Get the command's output.
 		let arg = tg::command::spawn::Arg {
 			create: false,
 			parent: Some(parent_process_id),

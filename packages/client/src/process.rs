@@ -79,19 +79,19 @@ impl Process {
 	{
 		self.try_get_command(handle)
 			.await?
-			.ok_or_else(|| tg::error!("failed to get the build"))
+			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
 
 	pub async fn try_get_command<H>(&self, handle: &H) -> tg::Result<Option<tg::Command>>
 	where
 		H: tg::Handle,
 	{
-		let Some(build) = handle.try_get_process(&self.id).await? else {
+		let Some(process) = handle.try_get_process(&self.id).await? else {
 			return Ok(None);
 		};
-		let id = build.command.clone();
-		let target = tg::Command::with_id(id);
-		Ok(Some(target))
+		let id = process.command.clone();
+		let command = tg::Command::with_id(id);
+		Ok(Some(command))
 	}
 
 	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
@@ -99,10 +99,10 @@ impl Process {
 		H: tg::Handle,
 	{
 		let Some(stream) = handle.try_get_process_status(&self.id).await? else {
-			return Err(tg::error!("failed to get the build status stream"));
+			return Err(tg::error!("failed to get the process status stream"));
 		};
 		let Some(Ok(_)) = pin!(stream).last().await else {
-			return Err(tg::error!("failed to get the last build status"));
+			return Err(tg::error!("failed to get the last process status"));
 		};
 		let output = handle.get_process(&self.id).await?;
 		let output = match output.status {
@@ -117,7 +117,7 @@ impl Process {
 				.ok_or_else(|| tg::error!("expected the output to be set"))?
 				.try_into()?,
 			_ => {
-				return Err(tg::error!("expected the build to be finished"));
+				return Err(tg::error!("expected the process to be finished"));
 			},
 		};
 		Ok(output)

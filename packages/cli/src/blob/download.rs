@@ -10,7 +10,7 @@ pub struct Args {
 	pub checksum: Option<tg::Checksum>,
 
 	#[command(flatten)]
-	pub inner: crate::command::build::InnerArgs,
+	pub inner: crate::command::run::InnerArgs,
 
 	#[arg(index = 1)]
 	pub url: Url,

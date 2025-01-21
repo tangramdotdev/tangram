@@ -2,7 +2,7 @@ use crate::Cli;
 use std::io::IsTerminal as _;
 use tangram_client as tg;
 
-/// Get a build's output.
+/// Get a process's output.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

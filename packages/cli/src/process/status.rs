@@ -3,20 +3,20 @@ use futures::StreamExt as _;
 use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
 
-/// Get a build's status.
+/// Get a process's status.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub build: tg::process::Id,
+	pub process: tg::process::Id,
 }
 
 impl Cli {
 	pub async fn command_process_status(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the status.
-		let stream = handle.get_process_status(&args.build).await?;
+		// Get the stream.
+		let stream = handle.get_process_status(&args.process).await?;
 
 		// Print the status.
 		let mut stream = pin!(stream);

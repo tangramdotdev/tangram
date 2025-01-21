@@ -137,7 +137,7 @@ fn id_kind(input: &mut Input) -> PResult<tg::id::Kind> {
 		alt(("sym", "symlink")).value(tg::id::Kind::Symlink),
 		alt(("gph", "graph")).value(tg::id::Kind::Graph),
 		alt(("cmd", "command")).value(tg::id::Kind::Command),
-		alt(("bld", "build")).value(tg::id::Kind::Process),
+		alt(("pcs", "process")).value(tg::id::Kind::Process),
 		alt(("usr", "user")).value(tg::id::Kind::User),
 		alt(("tok", "token")).value(tg::id::Kind::Token),
 		alt(("req", "request")).value(tg::id::Kind::Request),

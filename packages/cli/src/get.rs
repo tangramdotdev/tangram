@@ -41,7 +41,7 @@ impl Cli {
 			eprintln!("{} tag {tag}", "info".blue().bold());
 		}
 		let item = match referent.item.clone() {
-			Either::Left(build) => Either::Left(build),
+			Either::Left(process) => Either::Left(process),
 			Either::Right(object) => {
 				let object = if let Some(subpath) = &referent.subpath {
 					let directory = object
@@ -56,7 +56,7 @@ impl Cli {
 			},
 		};
 		let item = match item {
-			Either::Left(build) => Either::Left(build.id().clone()),
+			Either::Left(process) => Either::Left(process.id().clone()),
 			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
 		};
 		let Args {
@@ -66,12 +66,9 @@ impl Cli {
 			..
 		} = args;
 		match item {
-			Either::Left(build) => {
-				self.command_process_get(crate::process::get::Args {
-					process: build,
-					pretty,
-				})
-				.await?;
+			Either::Left(process) => {
+				self.command_process_get(crate::process::get::Args { process, pretty })
+					.await?;
 			},
 			Either::Right(object) => {
 				self.command_object_get(crate::object::get::Args {

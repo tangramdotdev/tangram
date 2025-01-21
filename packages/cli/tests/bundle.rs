@@ -9,9 +9,9 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 /// Test bundling a file with no dependencies.
 #[tokio::test]
 async fn file_no_dependencies_js() {
-	let build = temp::directory! {
+	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.target(async () => {
+			export default tg.command(async () => {
 				let file = await tg.file("hello");
 				return tg.bundle(file);
 			});
@@ -26,7 +26,7 @@ async fn file_no_dependencies_js() {
   }
   "#);
 	};
-	test_bundle_js(build, assertions).await;
+	test_bundle_js(directory, assertions).await;
 }
 
 /// Test bundling a file with no dependencies.
@@ -68,9 +68,9 @@ async fn directory_no_dependencies() {
 /// Test bundling an executable file with a dependency.
 #[tokio::test]
 async fn executable_file_with_dependency() {
-	let build = temp::directory! {
+	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.target(async () => {
+			export default tg.command(async () => {
 				let dependency = tg.file("dependency");
 				let file = await tg.file({
 					contents: "f", 
@@ -114,15 +114,15 @@ async fn executable_file_with_dependency() {
   }
   "#);
 	};
-	test_bundle_js(build, assertions).await;
+	test_bundle_js(directory, assertions).await;
 }
 
 /// Test bundling a directory that contains files with dependencies.  #[tokio::test]
 #[tokio::test]
 async fn directory_containing_file_with_file_dependency() {
-	let build = temp::directory! {
+	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.target(async () => {
+			export default tg.command(async () => {
 				let dependency = tg.file("dependency");
 				let file = await tg.file({
 					contents: "f", 
@@ -169,15 +169,15 @@ async fn directory_containing_file_with_file_dependency() {
   }
   "#);
 	};
-	test_bundle_js(build, assertions).await;
+	test_bundle_js(directory, assertions).await;
 }
 
 /// Test bundling dependencies that contain target symlinks.
 #[tokio::test]
 async fn directory_containing_file_with_directory_dependency_target_symlink() {
-	let build = temp::directory! {
+	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.target(async () => {
+			export default tg.command(async () => {
 				let dependency = tg.directory({
 					"dep": tg.file("dependency"),
 					"link": tg.symlink("dep"),
@@ -241,15 +241,15 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
   }
   "#);
 	};
-	test_bundle_js(build, assertions).await;
+	test_bundle_js(directory, assertions).await;
 }
 
 /// Test bundling dependencies that contain artifact/path symlinks.
 #[tokio::test]
 async fn directory_containing_file_with_directory_dependency_artifact_path_symlink() {
-	let build = temp::directory! {
+	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.target(async () => {
+			export default tg.command(async () => {
 				let inner_dir = tg.directory({
 					"a": tg.file("a"),
 				}); 
@@ -329,7 +329,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
   }
   "#);
 	};
-	test_bundle_js(build, assertions).await;
+	test_bundle_js(directory, assertions).await;
 }
 
 async fn test_bundle<F, Fut>(artifact: impl Into<temp::Artifact> + Send + 'static, assertions: F)

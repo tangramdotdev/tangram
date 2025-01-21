@@ -1,7 +1,7 @@
 use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
 
-/// Push a build.
+/// Push a process.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -28,7 +28,7 @@ impl Cli {
 		// Get the remote.
 		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 
-		// Push the build.
+		// Push the process.
 		let arg = tg::process::push::Arg {
 			logs: args.logs,
 			outputs: true,
@@ -38,6 +38,7 @@ impl Cli {
 		};
 		let stream = handle.push_process(&args.process, arg).await?;
 		self.render_progress_stream(stream).await?;
+
 		Ok(())
 	}
 }

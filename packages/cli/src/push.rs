@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client::{self as tg, Handle};
 use tangram_either::Either;
 
-/// Push a build or an object.
+/// Push a process or an object.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -36,7 +36,7 @@ impl Cli {
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
-			Either::Left(build) => Either::Left(build),
+			Either::Left(process) => Either::Left(process),
 			Either::Right(object) => {
 				let object = if let Some(subpath) = &referent.subpath {
 					let directory = object
@@ -51,15 +51,15 @@ impl Cli {
 			},
 		};
 		let item = match item {
-			Either::Left(build) => Either::Left(build.id().clone()),
+			Either::Left(process) => Either::Left(process.id().clone()),
 			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
 		};
 
 		// Push the item.
 		match item.clone() {
-			Either::Left(build) => {
+			Either::Left(process) => {
 				let args = crate::process::push::Args {
-					process: build,
+					process,
 					logs: args.logs,
 					recursive: args.recursive,
 					remote: Some(remote.clone()),

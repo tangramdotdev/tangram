@@ -154,6 +154,83 @@ impl tg::Handle for Proxy {
 		self.server.try_read_blob_stream(id, arg)
 	}
 
+	async fn try_spawn_command(
+		&self,
+		id: &tg::command::Id,
+		mut arg: tg::command::spawn::Arg,
+	) -> tg::Result<Option<tg::command::spawn::Output>> {
+		arg.parent = Some(self.process.clone());
+		arg.remote = self.remote.clone();
+		arg.retry = tg::Process::with_id(self.process.clone())
+			.retry(self)
+			.await?;
+		self.server.try_spawn_command(id, arg).await
+	}
+
+	async fn lsp(
+		&self,
+		_input: impl AsyncBufRead + Send + Unpin + 'static,
+		_output: impl AsyncWrite + Send + Unpin + 'static,
+	) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
+		self.server.try_get_object_metadata(id)
+	}
+
+	fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
+		self.server.try_get_object(id)
+	}
+
+	fn put_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
+		self.server.put_object(id, arg)
+	}
+
+	async fn push_object(
+		&self,
+		_id: &tg::object::Id,
+		_arg: tg::object::push::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+
+	async fn pull_object(
+		&self,
+		_id: &tg::object::Id,
+		_arg: tg::object::pull::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+
+	async fn check_package(
+		&self,
+		_arg: tg::package::check::Arg,
+	) -> tg::Result<tg::package::check::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn document_package(
+		&self,
+		_arg: tg::package::document::Arg,
+	) -> tg::Result<serde_json::Value> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn format_package(&self, _arg: tg::package::format::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -271,70 +348,6 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn lsp(
-		&self,
-		_input: impl AsyncBufRead + Send + Unpin + 'static,
-		_output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
-	fn try_get_object_metadata(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
-		self.server.try_get_object_metadata(id)
-	}
-
-	fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
-		self.server.try_get_object(id)
-	}
-
-	fn put_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
-		self.server.put_object(id, arg)
-	}
-
-	async fn push_object(
-		&self,
-		_id: &tg::object::Id,
-		_arg: tg::object::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
-	async fn pull_object(
-		&self,
-		_id: &tg::object::Id,
-		_arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
-	async fn check_package(
-		&self,
-		_arg: tg::package::check::Arg,
-	) -> tg::Result<tg::package::check::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn document_package(
-		&self,
-		_arg: tg::package::document::Arg,
-	) -> tg::Result<serde_json::Value> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn format_package(&self, _arg: tg::package::format::Arg) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
 	async fn try_get_reference(
 		&self,
 		_reference: &tg::Reference,
@@ -390,19 +403,6 @@ impl tg::Handle for Proxy {
 
 	async fn delete_tag(&self, _tag: &tg::Tag) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
-	}
-
-	async fn try_spawn_command(
-		&self,
-		id: &tg::command::Id,
-		mut arg: tg::command::spawn::Arg,
-	) -> tg::Result<Option<tg::command::spawn::Output>> {
-		arg.parent = Some(self.process.clone());
-		arg.remote = self.remote.clone();
-		arg.retry = tg::Process::with_id(self.process.clone())
-			.retry(self)
-			.await?;
-		self.server.try_spawn_command(id, arg).await
 	}
 
 	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {

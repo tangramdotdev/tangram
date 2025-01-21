@@ -108,7 +108,7 @@ impl Compiler {
 					tg::module::Kind::File => "File",
 					tg::module::Kind::Symlink => "Symlink",
 					tg::module::Kind::Graph => "Graph",
-					tg::module::Kind::Command => "Target",
+					tg::module::Kind::Command => "Command",
 					_ => unreachable!(),
 				};
 				match item {

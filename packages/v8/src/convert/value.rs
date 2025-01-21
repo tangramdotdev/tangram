@@ -54,9 +54,9 @@ impl FromV8 for tg::Value {
 		let graph = tangram.get(scope, graph.into()).unwrap();
 		let graph = v8::Local::<v8::Function>::try_from(graph).unwrap();
 
-		let target = v8::String::new_external_onebyte_static(scope, "Target".as_bytes()).unwrap();
-		let target = tangram.get(scope, target.into()).unwrap();
-		let target = v8::Local::<v8::Function>::try_from(target).unwrap();
+		let command = v8::String::new_external_onebyte_static(scope, "Command".as_bytes()).unwrap();
+		let command = tangram.get(scope, command.into()).unwrap();
+		let command = v8::Local::<v8::Function>::try_from(command).unwrap();
 
 		let mutation =
 			v8::String::new_external_onebyte_static(scope, "Mutation".as_bytes()).unwrap();
@@ -84,7 +84,7 @@ impl FromV8 for tg::Value {
 			|| value.instance_of(scope, file.into()).unwrap()
 			|| value.instance_of(scope, symlink.into()).unwrap()
 			|| value.instance_of(scope, graph.into()).unwrap()
-			|| value.instance_of(scope, target.into()).unwrap()
+			|| value.instance_of(scope, command.into()).unwrap()
 		{
 			Ok(Self::Object(<_>::from_v8(scope, value)?))
 		} else if value.is_uint8_array() {

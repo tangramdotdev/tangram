@@ -12,7 +12,7 @@ pub struct Args {
 	pub format: Option<tg::artifact::archive::Format>,
 
 	#[command(flatten)]
-	pub inner: crate::command::build::InnerArgs,
+	pub inner: crate::command::run::InnerArgs,
 }
 
 impl Cli {

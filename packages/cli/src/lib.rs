@@ -106,7 +106,7 @@ enum Command {
 	Blob(self::blob::Args),
 
 	#[command(alias = "b")]
-	Build(self::process::Args),
+	Build(self::command::build::Args),
 
 	Cat(self::cat::Args),
 
@@ -150,6 +150,8 @@ enum Command {
 
 	Package(self::package::Args),
 
+	Process(self::process::Args),
+
 	Pull(self::pull::Args),
 
 	Push(self::push::Args),
@@ -169,6 +171,7 @@ enum Command {
 
 	Tag(self::tag::Args),
 
+	#[allow(clippy::enum_variant_names)]
 	Command(self::command::Args),
 
 	#[command(hide = true)]
@@ -445,15 +448,15 @@ impl Cli {
 		let mut config = tangram_server::Config {
 			advanced: tangram_server::config::Advanced::default(),
 			authentication: None,
+			database,
+			messenger: tangram_server::config::Messenger::default(),
+			object_indexer: Some(tangram_server::config::ObjectIndexer::default()),
+			path,
 			process: Some(tangram_server::config::Process::default()),
 			process_heartbeat_monitor: Some(
 				tangram_server::config::ProcessHeartbeatMonitor::default(),
 			),
 			process_indexer: None,
-			database,
-			messenger: tangram_server::config::Messenger::default(),
-			object_indexer: Some(tangram_server::config::ObjectIndexer::default()),
-			path,
 			store: None,
 			url,
 			version: None,
@@ -476,8 +479,8 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 		{
-			if let Some(build_dequeue_timeout) = advanced.build_dequeue_timeout {
-				config.advanced.process_dequeue_timeout = build_dequeue_timeout;
+			if let Some(process_dequeue_timeout) = advanced.process_dequeue_timeout {
+				config.advanced.process_dequeue_timeout = process_dequeue_timeout;
 			}
 			if let Some(error_trace_options) = advanced.error_trace_options.clone() {
 				config.advanced.error_trace_options = error_trace_options;
@@ -491,11 +494,11 @@ impl Cli {
 			if let Some(write_blobs_to_blobs_directory) = advanced.write_blobs_to_blobs_directory {
 				config.advanced.write_blobs_to_blobs_directory = write_blobs_to_blobs_directory;
 			}
-			if let Some(write_build_logs_to_database) = advanced.write_build_logs_to_database {
-				config.advanced.write_process_logs_to_database = write_build_logs_to_database;
+			if let Some(write_process_logs_to_database) = advanced.write_process_logs_to_database {
+				config.advanced.write_process_logs_to_database = write_process_logs_to_database;
 			}
-			if let Some(write_build_logs_to_stderr) = advanced.write_build_logs_to_stderr {
-				config.advanced.write_process_logs_to_stderr = write_build_logs_to_stderr;
+			if let Some(write_process_logs_to_stderr) = advanced.write_process_logs_to_stderr {
+				config.advanced.write_process_logs_to_stderr = write_process_logs_to_stderr;
 			}
 		}
 
@@ -526,69 +529,73 @@ impl Cli {
 			},
 		}
 
-		// Set the build options.
-		match self.config.as_ref().and_then(|config| config.build.clone()) {
+		// Set the process options.
+		match self
+			.config
+			.as_ref()
+			.and_then(|config| config.process.clone())
+		{
 			None => (),
 			Some(None) => {
 				config.process = None;
 			},
-			Some(Some(build)) => {
-				let mut build_ = tangram_server::config::Process::default();
-				if let Some(concurrency) = build.concurrency {
-					build_.concurrency = concurrency;
+			Some(Some(process)) => {
+				let mut process_ = tangram_server::config::Process::default();
+				if let Some(concurrency) = process.concurrency {
+					process_.concurrency = concurrency;
 				}
-				if let Some(heartbeat_interval) = build.heartbeat_interval {
-					build_.heartbeat_interval = heartbeat_interval;
+				if let Some(heartbeat_interval) = process.heartbeat_interval {
+					process_.heartbeat_interval = heartbeat_interval;
 				}
-				if let Some(max_depth) = build.max_depth {
-					build_.max_depth = max_depth;
+				if let Some(max_depth) = process.max_depth {
+					process_.max_depth = max_depth;
 				}
-				if let Some(remotes) = build.remotes.clone() {
-					build_.remotes = remotes;
+				if let Some(remotes) = process.remotes.clone() {
+					process_.remotes = remotes;
 				}
-				config.process = Some(build_);
+				config.process = Some(process_);
 			},
 		}
 
-		// Set the build heartbeat monitor options.
+		// Set the process heartbeat monitor options.
 		match self
 			.config
 			.as_ref()
-			.and_then(|config| config.build_heartbeat_monitor.clone())
+			.and_then(|config| config.process_heartbeat_monitor.clone())
 		{
 			None => (),
 			Some(None) => {
 				config.process_heartbeat_monitor = None;
 			},
-			Some(Some(build_heartbeat_monitor)) => {
-				let mut build_heartbeat_monitor_ =
+			Some(Some(process_heartbeat_monitor)) => {
+				let mut process_heartbeat_monitor_ =
 					tangram_server::config::ProcessHeartbeatMonitor::default();
-				if let Some(interval) = build_heartbeat_monitor.interval {
-					build_heartbeat_monitor_.interval = interval;
+				if let Some(interval) = process_heartbeat_monitor.interval {
+					process_heartbeat_monitor_.interval = interval;
 				}
-				if let Some(limit) = build_heartbeat_monitor.limit {
-					build_heartbeat_monitor_.limit = limit;
+				if let Some(limit) = process_heartbeat_monitor.limit {
+					process_heartbeat_monitor_.limit = limit;
 				}
-				if let Some(timeout) = build_heartbeat_monitor.timeout {
-					build_heartbeat_monitor_.timeout = timeout;
+				if let Some(timeout) = process_heartbeat_monitor.timeout {
+					process_heartbeat_monitor_.timeout = timeout;
 				}
-				config.process_heartbeat_monitor = Some(build_heartbeat_monitor_);
+				config.process_heartbeat_monitor = Some(process_heartbeat_monitor_);
 			},
 		}
 
-		// Set the build indexer options.
+		// Set the process indexer options.
 		match self
 			.config
 			.as_ref()
-			.and_then(|config| config.build_indexer.clone())
+			.and_then(|config| config.process_indexer.clone())
 		{
 			None => (),
 			Some(None) => {
 				config.process_indexer = None;
 			},
-			Some(Some(_build_indexer)) => {
-				let build_indexer_ = tangram_server::config::ProcessIndexer::default();
-				config.process_indexer = Some(build_indexer_);
+			Some(Some(_)) => {
+				let process_indexer_ = tangram_server::config::ProcessIndexer::default();
+				config.process_indexer = Some(process_indexer_);
 			},
 		}
 
@@ -831,7 +838,7 @@ impl Cli {
 		match command {
 			Command::Artifact(args) => self.command_artifact(args).boxed(),
 			Command::Blob(args) => self.command_blob(args).boxed(),
-			Command::Build(args) => self.command_build(args).boxed(),
+			Command::Build(args) => self.command_command_build(args).boxed(),
 			Command::Cat(args) => self.command_cat(args).boxed(),
 			Command::Check(args) => self.command_package_check(args).boxed(),
 			Command::Checkin(args) => self.command_artifact_checkin(args).boxed(),
@@ -852,6 +859,7 @@ impl Cli {
 			Command::Object(args) => self.command_object(args).boxed(),
 			Command::Outdated(args) => self.command_package_outdated(args).boxed(),
 			Command::Package(args) => self.command_package(args).boxed(),
+			Command::Process(args) => self.command_process(args).boxed(),
 			Command::Pull(args) => self.command_pull(args).boxed(),
 			Command::Push(args) => self.command_push(args).boxed(),
 			Command::Put(args) => self.command_object_put(args).boxed(),

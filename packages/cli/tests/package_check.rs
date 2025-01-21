@@ -16,7 +16,7 @@ async fn hello_world() {
 		let temp = Temp::new();
 		let package = temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export default tg.target(() => "Hello, World!");
+				export default () => "Hello, World!";
 			"#),
 		};
 		package.to_path(temp.as_ref()).await.unwrap();
@@ -46,7 +46,7 @@ async fn nonexistent_function() {
 		let temp = Temp::new();
 		let package = temp::directory! {
 			"tangram.ts" => indoc!(r"
-				export default tg.target(() => foo());
+				export default () => foo();
 			"),
 		};
 		package.to_path(temp.as_ref()).await.unwrap();

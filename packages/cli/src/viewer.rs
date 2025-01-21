@@ -36,7 +36,7 @@ pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewe
 
 #[derive(Clone, Debug)]
 pub enum Item {
-	Build(tg::Process),
+	Process(tg::Process),
 	Value(tg::Value),
 }
 

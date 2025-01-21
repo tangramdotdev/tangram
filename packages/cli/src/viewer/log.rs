@@ -14,9 +14,6 @@ use tangram_client as tg;
 mod scroll;
 
 pub struct Log<H> {
-	// The build.
-	build: tg::Process,
-
 	// A buffer of log chunks.
 	chunks: tokio::sync::Mutex<Vec<tg::process::log::get::Chunk>>,
 
@@ -37,6 +34,9 @@ pub struct Log<H> {
 
 	// The maximum position of the log seen so far.
 	max_position: AtomicU64,
+
+	// The process.
+	process: tg::Process,
 
 	// The current state of the log's scrolling position.
 	scroll: tokio::sync::Mutex<Option<scroll::Scroll>>,
@@ -59,15 +59,15 @@ impl<H> Log<H>
 where
 	H: tg::Handle,
 {
-	pub fn new(handle: &H, build: &tg::Process) -> Arc<Self> {
+	pub fn new(handle: &H, process: &tg::Process) -> Arc<Self> {
 		let handle = handle.clone();
-		let build = build.clone();
+		let process = process.clone();
 		let chunks = tokio::sync::Mutex::new(Vec::new());
 		let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let lines = Mutex::new(Vec::new());
 
 		let log = Arc::new(Log {
-			build,
+			process,
 			chunks,
 			handle,
 			eof: AtomicBool::new(false),
@@ -129,7 +129,7 @@ where
 			..Default::default()
 		};
 		let chunk = self
-			.build
+			.process
 			.log(client, arg)
 			.await?
 			.take_until(timeout)
@@ -213,7 +213,7 @@ where
 			};
 			let chunks = self.chunks.lock().await;
 			match scroll_.scroll_down(1, &chunks) {
-				// If the scroll succeeded but we didn't scroll any lines and the build is not yet complete, we need to start tailing.
+				// If the scroll succeeded but we didn't scroll any lines and the process is not yet complete, we need to start tailing.
 				Ok(count) if count != 1 && !self.is_complete() => {
 					drop(chunks);
 					scroll.take();
@@ -316,7 +316,7 @@ where
 
 		// Create the stream.
 		let mut stream = self
-			.build
+			.process
 			.log(
 				&self.handle,
 				tg::process::log::get::Arg {

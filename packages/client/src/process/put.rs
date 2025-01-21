@@ -39,13 +39,13 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub commands_complete: bool,
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub complete: bool,
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub logs_complete: bool,
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs_complete: bool,
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub targets_complete: bool,
 }
 
 impl Arg {

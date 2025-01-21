@@ -64,7 +64,7 @@ impl Runtime {
 		}
 	}
 
-	pub async fn spawn(
+	pub async fn run(
 		&self,
 		process: &tg::process::Id,
 		command: &tg::Command,
@@ -122,9 +122,9 @@ impl Runtime {
 		// Get the checksum.
 		let checksum = command.checksum(server).await?;
 
-		// Try to reuse a build whose checksum is `None` or `Unsafe`.
+		// Try to reuse a process whose checksum is `None` or `Unsafe`.
 		if let Ok(value) =
-			super::util::try_reuse_process(server, process, &command, checksum.as_ref())
+			super::util::try_reuse_process(server, process, command, checksum.as_ref())
 				.boxed()
 				.await
 		{

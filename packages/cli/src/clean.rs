@@ -1,7 +1,7 @@
 use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
 
-/// Remove unused builds and objects.
+/// Remove unused processes and objects.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {}

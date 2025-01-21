@@ -14,7 +14,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
 
-	#[serde_as(as = "i32")]
 	pub kind: tg::process::log::Kind,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -39,7 +38,6 @@ pub enum Event {
 pub struct Chunk {
 	pub position: u64,
 
-	#[serde_as(as = "i32")]
 	pub kind: tg::process::log::Kind,
 
 	#[serde_as(as = "BytesBase64")]
@@ -57,7 +55,7 @@ impl tg::Process {
 	{
 		self.try_get_log(handle, arg)
 			.await?
-			.ok_or_else(|| tg::error!("failed to get the build"))
+			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
 
 	pub async fn try_get_log<H>(

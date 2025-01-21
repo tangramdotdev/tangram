@@ -14,7 +14,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 
-		// Get the build health.
+		// Get the process health.
 		#[derive(serde::Deserialize)]
 		struct Row {
 			created: u64,

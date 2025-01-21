@@ -68,7 +68,7 @@ impl tg::Process {
 	{
 		self.try_get_status(handle)
 			.await?
-			.ok_or_else(|| tg::error!("failed to get the build"))
+			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
 
 	pub async fn try_get_status<H>(

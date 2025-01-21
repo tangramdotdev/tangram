@@ -13,7 +13,7 @@ pub struct Args {
 	pub blob: tg::blob::Id,
 
 	#[command(flatten)]
-	pub inner: crate::command::build::InnerArgs,
+	pub inner: crate::command::run::InnerArgs,
 }
 
 impl Cli {

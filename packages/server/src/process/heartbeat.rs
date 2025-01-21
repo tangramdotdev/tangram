@@ -23,9 +23,9 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Verify the build is local.
+		// Verify the process is local.
 		if !self.get_process_exists_local(id).await? {
-			return Err(tg::error!("failed to find the build"));
+			return Err(tg::error!("failed to find the process"));
 		}
 
 		// Get a database connection.
@@ -119,7 +119,7 @@ impl Server {
 			.map(|process| {
 				let server = self.clone();
 				async move {
-					let error = tg::error!("the build's heartbeat expired");
+					let error = tg::error!("the process's heartbeat expired");
 					server
 						.try_finish_process_local(
 							process,
@@ -128,7 +128,9 @@ impl Server {
 							tg::process::Status::Canceled,
 						)
 						.await
-						.inspect_err(|error| tracing::error!(?error, "failed to cancel build"))
+						.inspect_err(|error| {
+							tracing::error!(?error, "failed to cancel the process")
+						})
 						.ok();
 				}
 			})

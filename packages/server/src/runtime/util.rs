@@ -47,17 +47,17 @@ pub async fn try_reuse_process(
 		return Err(tg::error!("failed to get the checksum"));
 	};
 
-	// Break if the checksum type is `None` or `Unsafe`.
+	// Break if the checksum type is none or unsafe.
 	if let tg::Checksum::None | tg::Checksum::Unsafe = &checksum {
 		return Err(tg::error!("inappropriate checksum type"));
 	}
 
-	// Search for an existing build with a `None` or `Unsafe` checksum.
+	// Search for an existing process with the checksum none or unsafe.
 	let Ok(Some(matching_process)) = find_matching_process(server, command).await else {
-		return Err(tg::error!("failed to find a matching build"));
+		return Err(tg::error!("failed to find a matching process"));
 	};
 
-	// Wait for the build to finish and get its output.
+	// Wait for the process to finish and get its output.
 	let output = tg::Process::with_id(matching_process.clone())
 		.output(server)
 		.boxed()
@@ -68,7 +68,7 @@ pub async fn try_reuse_process(
 		.boxed()
 		.await?;
 
-	// Copy the build children and log.
+	// Copy the process children and log.
 	copy_process_children_and_log(server, &matching_process, process).await?;
 
 	Ok(output)
@@ -76,11 +76,11 @@ pub async fn try_reuse_process(
 
 async fn find_matching_process(
 	server: &Server,
-	target: &tg::Command,
+	command: &tg::Command,
 ) -> tg::Result<Option<tg::process::Id>> {
-	// Attempt to find a build with the checksum set to `None`.
-	let target = target.load(server).await?;
-	let search_target = tg::command::Builder::with_object(&target)
+	// Attempt to find a process with the checksum set to none.
+	let command = command.load(server).await?;
+	let search_target = tg::command::Builder::with_object(&command)
 		.checksum(tg::Checksum::None)
 		.build();
 	let target_id = search_target.id(server).await?;
@@ -92,11 +92,11 @@ async fn find_matching_process(
 		return Ok(Some(output.process));
 	}
 
-	// Attempt to find a build with the checksum set to `Unsafe`.
-	let search_target = tg::command::Builder::with_object(&target)
+	// Attempt to find a process with the checksum set to unsafe.
+	let search_command = tg::command::Builder::with_object(&command)
 		.checksum(tg::Checksum::Unsafe)
 		.build();
-	let target_id = search_target.id(server).await?;
+	let target_id = search_command.id(server).await?;
 	let arg = tg::command::spawn::Arg {
 		create: false,
 		..Default::default()
@@ -118,7 +118,6 @@ async fn copy_process_children_and_log(
 	let mut src_children = pin!(server.get_process_children(src_process, arg).await?);
 	while let Some(chunk) = src_children.try_next().await? {
 		for child in chunk.data {
-			// If we fail to add one child, it means the build is finished and we can't add any of hte other children so break.
 			if !server.try_add_process_child(dst_process, &child).await? {
 				break;
 			}
@@ -170,14 +169,14 @@ pub async fn checksum(
 	};
 	let output = server.spawn_command(&command_id, arg).await?;
 	let Some(stream) = server.try_get_process_status(&output.process).await? else {
-		return Err(tg::error!("failed to get build status"));
+		return Err(tg::error!("failed to get the process status"));
 	};
 	let Some(Ok(status)) = pin!(stream).last().await else {
-		return Err(tg::error!("failed to get the last build status"));
+		return Err(tg::error!("failed to get the last process status"));
 	};
 	if status.is_succeeded() {
 		Ok(())
 	} else {
-		Err(tg::error!("checksum build failed"))
+		Err(tg::error!("the checksum process failed"))
 	}
 }

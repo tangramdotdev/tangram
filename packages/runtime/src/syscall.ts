@@ -57,6 +57,6 @@ declare global {
 
 	function syscall(
 		syscall: "command_output",
-		target: tg.Command,
+		command: tg.Command,
 	): Promise<tg.Value>;
 }

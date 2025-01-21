@@ -31,31 +31,29 @@ impl Runtime {
 		}
 	}
 
-	pub async fn spawn(
+	pub async fn run(
 		&self,
-		build: &tg::Process,
+		process: &tg::process::Id,
+		command: &tg::Command,
 		remote: Option<String>,
 	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
-		// Get the target.
-		let target = build.target(server).await?;
-
 		// Get the checksum.
-		let checksum = target.checksum(server).await?;
+		let checksum = command.checksum(server).await?;
 
-		// Try to reuse a build whose checksum is `None` or `Unsafe`.
+		// Try to reuse a process whose checksum is `None` or `Unsafe`.
 		if let Ok(value) =
-			super::util::try_reuse_process(server, build.id(), &target, checksum.as_ref())
+			super::util::try_reuse_process(server, process, command, checksum.as_ref())
 				.boxed()
 				.await
 		{
 			return Ok(value);
 		};
 
-		// If the VFS is disabled, then check out the target's children.
+		// If the VFS is disabled, then check out the command's children.
 		if server.vfs.lock().unwrap().is_none() {
-			target
+			command
 				.data(server)
 				.await?
 				.children()
@@ -128,20 +126,20 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
 
 		// Start the proxy server.
-		let proxy = Proxy::new(server.clone(), build.id().clone(), remote.clone(), None);
+		let proxy = Proxy::new(server.clone(), process.clone(), remote.clone(), None);
 		let listener = Server::listen(&proxy_server_url).await?;
 		let proxy_task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 
 		// Render the executable.
-		let Some(tg::target::Executable::Artifact(executable)) =
-			target.executable(server).await?.as_ref().cloned()
+		let Some(tg::command::Executable::Artifact(executable)) =
+			command.executable(server).await?.as_ref().cloned()
 		else {
 			return Err(tg::error!("invalid executable"));
 		};
 		let executable = render(server, &executable.into(), &artifacts_directory_path).await?;
 
 		// Render the env.
-		let env = target.env(server).await?;
+		let env = command.env(server).await?;
 		let mut env: BTreeMap<String, String> = env
 			.iter()
 			.map(|(key, value)| async {
@@ -154,7 +152,7 @@ impl Runtime {
 			.await?;
 
 		// Render the args.
-		let args = target.args(server).await?;
+		let args = command.args(server).await?;
 		let args: Vec<String> = args
 			.iter()
 			.map(|value| async {
@@ -359,8 +357,9 @@ impl Runtime {
 		// Set the args.
 		command.args(args);
 
-		// Redirect stdout to a pipe.
+		// Redirect stdout and stderr to a pipe.
 		command.stdout(std::process::Stdio::piped());
+		command.stderr(std::process::Stdio::piped());
 
 		// Set up the sandbox.
 		unsafe {
@@ -423,11 +422,11 @@ impl Runtime {
 			}
 		}
 
-		// Spawn the log task.
+		// Spawn the stdout task.
 		let mut reader = child.stdout.take().unwrap();
-		let log_task = tokio::task::spawn({
+		let stdout_task = tokio::task::spawn({
 			let server = server.clone();
-			let build = build.clone();
+			let process = process.clone();
 			let remote = remote.clone();
 			async move {
 				let mut buffer = vec![0; 4096];
@@ -435,7 +434,7 @@ impl Runtime {
 					let size = reader
 						.read(&mut buffer)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+						.map_err(|source| tg::error!(!source, "failed to read from stdout"))?;
 					if size == 0 {
 						return Ok::<_, tg::Error>(());
 					}
@@ -445,15 +444,56 @@ impl Runtime {
 							.write_all(&bytes)
 							.await
 							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write the build log to stderr");
+								tracing::error!(?error, "failed to write to stderr");
 							})
 							.ok();
 					}
 					let arg = tg::process::log::post::Arg {
 						bytes,
+						kind: tg::process::log::Kind::Stdout,
 						remote: remote.clone(),
 					};
-					build.add_log(&server, arg).await?;
+					if let Err(error) = server.try_add_process_log(&process, arg).await {
+						tracing::error!(?error, "failed to add the process log");
+					}
+				}
+			}
+		});
+
+		// Spawn the stderr task.
+		let mut reader = child.stderr.take().unwrap();
+		let stderr_task = tokio::task::spawn({
+			let server = server.clone();
+			let process = process.clone();
+			let remote = remote.clone();
+			async move {
+				let mut buffer = vec![0; 4096];
+				loop {
+					let size = reader
+						.read(&mut buffer)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to read from stderr"))?;
+					if size == 0 {
+						return Ok::<_, tg::Error>(());
+					}
+					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+					if server.config.advanced.write_process_logs_to_stderr {
+						tokio::io::stderr()
+							.write_all(&bytes)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to write to stderr");
+							})
+							.ok();
+					}
+					let arg = tg::process::log::post::Arg {
+						bytes,
+						kind: tg::process::log::Kind::Stderr,
+						remote: remote.clone(),
+					};
+					if let Err(error) = server.try_add_process_log(&process, arg).await {
+						tracing::error!(?error, "failed to add the process log");
+					}
 				}
 			}
 		});
@@ -464,11 +504,15 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
 
-		// Wait for the log task to complete.
-		log_task
+		// Wait for the log tasks to complete.
+		stdout_task
 			.await
-			.map_err(|source| tg::error!(!source, "failed to join the log task"))?
-			.map_err(|source| tg::error!(!source, "the log task failed"))?;
+			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))?
+			.map_err(|source| tg::error!(!source, "the stdout task panicked"))?;
+		stderr_task
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))?
+			.map_err(|source| tg::error!(!source, "the stderr task panicked"))?;
 
 		// Stop the proxy task.
 		proxy_task.stop();
@@ -508,7 +552,7 @@ impl Runtime {
 
 		// Checksum the output if necessary.
 		if let Some(checksum) = checksum.as_ref() {
-			super::util::checksum(server, build, &value, checksum)
+			super::util::checksum(server, process, &value, checksum)
 				.boxed()
 				.await?;
 		}

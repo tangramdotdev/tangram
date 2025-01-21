@@ -3,7 +3,7 @@ use futures::TryStreamExt as _;
 use tangram_client as tg;
 use tokio::io::AsyncWriteExt as _;
 
-/// Get a build's log.
+/// Get a process's log.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -43,7 +43,7 @@ impl Cli {
 		let mut log = process
 			.log(&handle, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the build log"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the process log"))?;
 
 		// Print the log.
 		let mut stdout = tokio::io::stdout();

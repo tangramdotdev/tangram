@@ -148,6 +148,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create table processes (
 				id text primary key,
+				command text not null,
+				commands_complete integer not null default 0,
+				commands_count integer,
+				commands_depth integer,
+				commands_weight integer,
 				complete integer not null default 0,
 				count integer,
 				depth integer not null,
@@ -167,11 +172,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				outputs_weight integer,
 				retry text not null,
 				status text not null,
-				command text not null,
-				commands_complete integer not null default 0,
-				commands_count integer,
-				commands_depth integer,
-				commands_weight integer,
 				touched_at text,
 				created_at text not null,
 				enqueued_at text,

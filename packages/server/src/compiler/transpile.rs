@@ -44,8 +44,8 @@ impl Compiler {
 				true,
 			));
 
-			// Create the target.
-			let target = swc::ecma::visit::visit_mut_pass(TargetVisitor {
+			// Create the command visitor.
+			let command_visitor = swc::ecma::visit::visit_mut_pass(CommandVisitor {
 				source_map: source_map.clone(),
 				errors: Vec::new(),
 			});
@@ -59,7 +59,7 @@ impl Compiler {
 				swc::ecma::visit::visit_mut_pass(swc::ecma::transforms::base::fixer::fixer(None));
 
 			// Visit the module.
-			(resolver, target, stripper, fixer).process(&mut program);
+			(resolver, command_visitor, stripper, fixer).process(&mut program);
 
 			// Create the writer.
 			let mut transpiled_text = Vec::new();
@@ -132,12 +132,12 @@ impl std::fmt::Display for Error {
 	}
 }
 
-struct TargetVisitor {
+struct CommandVisitor {
 	source_map: Rc<swc::common::SourceMap>,
 	errors: Vec<Error>,
 }
 
-impl swc::ecma::visit::VisitMut for TargetVisitor {
+impl swc::ecma::visit::VisitMut for CommandVisitor {
 	fn visit_mut_expr(&mut self, n: &mut ast::Expr) {
 		// Check that this is a call expression.
 		let Some(expr) = n.as_mut_call() else {
@@ -192,9 +192,9 @@ impl swc::ecma::visit::VisitMut for TargetVisitor {
 	}
 }
 
-impl TargetVisitor {
+impl CommandVisitor {
 	fn visit_call(&mut self, n: &mut ast::CallExpr, export_name: Option<String>) {
-		// Check if this is a call to tg.target.
+		// Check if this is a call to tg.command.
 		let Some(callee) = n.callee.as_expr().and_then(|expr| expr.as_member()) else {
 			n.visit_mut_children_with(self);
 			return;
@@ -207,7 +207,7 @@ impl TargetVisitor {
 			n.visit_mut_children_with(self);
 			return;
 		};
-		if !((&obj.sym == "Tangram" || &obj.sym == "tg") && &prop.sym == "target") {
+		if !((&obj.sym == "Tangram" || &obj.sym == "tg") && &prop.sym == "command") {
 			n.visit_mut_children_with(self);
 			return;
 		}
@@ -221,7 +221,7 @@ impl TargetVisitor {
 			1 => {
 				let Some(name) = export_name else {
 					self.errors.push(Error::new(
-						"targets that are not exported must have a name",
+						"commands that are not exported must have a name",
 						&loc,
 					));
 					n.visit_mut_children_with(self);
@@ -229,7 +229,7 @@ impl TargetVisitor {
 				};
 				let Some(f) = n.args[0].expr.as_arrow() else {
 					self.errors.push(Error::new(
-						"the argument to tg.target must be an arrow function",
+						"the argument to tg.command must be an arrow function",
 						&loc,
 					));
 					n.visit_mut_children_with(self);
@@ -242,7 +242,7 @@ impl TargetVisitor {
 			2 => {
 				let Some(ast::Lit::Str(name)) = n.args[0].expr.as_lit() else {
 					self.errors.push(Error::new(
-						"the first argument to tg.target must be a string",
+						"the first argument to tg.command must be a string",
 						&loc,
 					));
 					n.visit_mut_children_with(self);
@@ -251,7 +251,7 @@ impl TargetVisitor {
 				let name = name.value.to_string();
 				let Some(f) = n.args[1].expr.as_arrow() else {
 					self.errors.push(Error::new(
-						"the second argument to tg.target must be an arrow function",
+						"the second argument to tg.command must be an arrow function",
 						&loc,
 					));
 					n.visit_mut_children_with(self);
@@ -262,8 +262,10 @@ impl TargetVisitor {
 
 			// Any other number of arguments is invalid.
 			_ => {
-				self.errors
-					.push(Error::new("invalid number of arguments to tg.target", &loc));
+				self.errors.push(Error::new(
+					"invalid number of arguments to tg.command",
+					&loc,
+				));
 				n.visit_mut_children_with(self);
 				return;
 			},

@@ -24,10 +24,10 @@ pub async fn output(state: Rc<State>, args: (tg::Command,)) -> tg::Result<tg::Va
 				.output(&server, arg)
 				.boxed()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the target output"))
+				.map_err(|source| tg::error!(!source, "failed to get the command's output"))
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to build the target"))?;
+		.map_err(|source| tg::error!(!source, "failed to get the command's output"))?;
 	Ok(output)
 }

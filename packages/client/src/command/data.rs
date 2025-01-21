@@ -1,5 +1,4 @@
-use crate as tg;
-use crate::util::serde::is_false;
+use crate::{self as tg, util::serde::is_false};
 use bytes::Bytes;
 use std::{
 	collections::{BTreeMap, BTreeSet},

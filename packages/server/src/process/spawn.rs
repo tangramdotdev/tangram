@@ -122,7 +122,7 @@ impl Server {
 			self.process_permits.remove(&process);
 		}
 
-		// Build.
+		// Run.
 		let result = self
 			.process_task_inner(process.clone(), remote.clone())
 			.await;
@@ -182,8 +182,8 @@ impl Server {
 			)?
 			.clone();
 
-		// Build.
-		let result = runtime.spawn(&process, &command, remote.clone()).await;
+		// Run.
+		let result = runtime.run(&process, &command, remote.clone()).await;
 
 		// Log an error if one occurred.
 		if let Err(error) = &result {

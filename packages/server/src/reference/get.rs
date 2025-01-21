@@ -11,8 +11,8 @@ impl Server {
 		reference: &tg::Reference,
 	) -> tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>> {
 		match &reference.item() {
-			tg::reference::Item::Process(build) => {
-				let item = Either::Left(build.clone());
+			tg::reference::Item::Process(process) => {
+				let item = Either::Left(process.clone());
 				let output = tg::Referent {
 					item,
 					path: None,

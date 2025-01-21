@@ -28,9 +28,9 @@ pub struct Reference {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Item {
-	Process(tg::process::Id),
 	Object(tg::object::Id),
 	Path(PathBuf),
+	Process(tg::process::Id),
 	Tag(tg::tag::Pattern),
 }
 
@@ -84,8 +84,8 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn with_process(build: &tg::process::Id) -> Self {
-		Self::with_uri(build.to_string().parse().unwrap()).unwrap()
+	pub fn with_process(process: &tg::process::Id) -> Self {
+		Self::with_uri(process.to_string().parse().unwrap()).unwrap()
 	}
 
 	#[must_use]
@@ -175,9 +175,6 @@ impl std::str::FromStr for Reference {
 impl std::fmt::Display for Item {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Item::Process(build) => {
-				write!(f, "{build}")?;
-			},
 			Item::Object(object) => {
 				write!(f, "{object}")?;
 			},
@@ -191,6 +188,9 @@ impl std::fmt::Display for Item {
 				}
 				write!(f, "{}", path.display())?;
 			},
+			Item::Process(process) => {
+				write!(f, "{process}")?;
+			},
 			Item::Tag(tag) => {
 				write!(f, "{tag}")?;
 			},
@@ -203,15 +203,15 @@ impl std::str::FromStr for Item {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if let Ok(build) = s.parse() {
-			return Ok(Self::Process(build));
-		}
 		if let Ok(object) = s.parse() {
 			return Ok(Self::Object(object));
 		}
 		if s.starts_with('.') || s.starts_with('/') {
 			let path = s.strip_prefix("./").unwrap_or(s).into();
 			return Ok(Self::Path(path));
+		}
+		if let Ok(process) = s.parse() {
+			return Ok(Self::Process(process));
 		}
 		if let Ok(tag) = s.parse() {
 			return Ok(Self::Tag(tag));

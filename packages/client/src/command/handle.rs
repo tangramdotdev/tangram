@@ -235,9 +235,8 @@ impl Command {
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let has_side_effects =
-			(object.checksum.is_none() && object.network) || object.cwd.is_some();
-		Ok(!has_side_effects)
+		let cacheable = object.checksum.is_some() || (!object.network && object.cwd.is_none());
+		Ok(cacheable)
 	}
 }
 

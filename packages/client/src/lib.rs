@@ -617,6 +617,89 @@ impl tg::Handle for Client {
 		self.try_read_blob_stream(id, arg)
 	}
 
+	fn try_spawn_command(
+		&self,
+		id: &tg::command::Id,
+		arg: tg::command::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
+		self.try_spawn_command(id, arg)
+	}
+
+	fn lsp(
+		&self,
+		input: impl AsyncBufRead + Send + Unpin + 'static,
+		output: impl AsyncWrite + Send + Unpin + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.lsp(input, output)
+	}
+
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
+		self.try_get_object_metadata(id)
+	}
+
+	fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
+		self.try_get_object(id)
+	}
+
+	fn put_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
+		self.put_object(id, arg)
+	}
+
+	fn push_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push_object(id, arg)
+	}
+
+	fn pull_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull_object(id, arg)
+	}
+
+	fn check_package(
+		&self,
+		arg: tg::package::check::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
+		self.check_package(arg)
+	}
+
+	fn document_package(
+		&self,
+		arg: tg::package::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		self.document_package(arg)
+	}
+
+	fn format_package(
+		&self,
+		arg: tg::package::format::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.format_package(arg)
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -738,81 +821,6 @@ impl tg::Handle for Client {
 		self.touch_process(id, arg)
 	}
 
-	fn lsp(
-		&self,
-		input: impl AsyncBufRead + Send + Unpin + 'static,
-		output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.lsp(input, output)
-	}
-
-	fn try_get_object_metadata(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
-		self.try_get_object_metadata(id)
-	}
-
-	fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
-		self.try_get_object(id)
-	}
-
-	fn put_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
-		self.put_object(id, arg)
-	}
-
-	fn push_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.push_object(id, arg)
-	}
-
-	fn pull_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.pull_object(id, arg)
-	}
-
-	fn check_package(
-		&self,
-		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
-		self.check_package(arg)
-	}
-
-	fn document_package(
-		&self,
-		arg: tg::package::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> {
-		self.document_package(arg)
-	}
-
-	fn format_package(
-		&self,
-		arg: tg::package::format::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.format_package(arg)
-	}
-
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
@@ -884,14 +892,6 @@ impl tg::Handle for Client {
 
 	fn delete_tag(&self, tag: &tg::Tag) -> impl Future<Output = tg::Result<()>> {
 		self.delete_tag(tag)
-	}
-
-	fn try_spawn_command(
-		&self,
-		id: &tg::command::Id,
-		arg: tg::command::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
-		self.try_spawn_command(id, arg)
 	}
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {

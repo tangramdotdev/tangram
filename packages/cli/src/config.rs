@@ -19,32 +19,32 @@ pub struct Config {
 	)]
 	pub authentication: Option<Option<Authentication>>,
 
-	/// Configure builds.
+	/// Configure processes.
 	#[allow(clippy::option_option)]
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
 		with = "serde_with::rust::double_option"
 	)]
-	pub build: Option<Option<Build>>,
+	pub process: Option<Option<Process>>,
 
-	/// Configure the build heartbeat monitor.
+	/// Configure the process heartbeat monitor.
 	#[allow(clippy::option_option)]
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
 		with = "serde_with::rust::double_option"
 	)]
-	pub build_heartbeat_monitor: Option<Option<BuildHeartbeatMonitor>>,
+	pub process_heartbeat_monitor: Option<Option<ProcessHeartbeatMonitor>>,
 
-	/// Configure the build indexer.
+	/// Configure the process indexer.
 	#[allow(clippy::option_option)]
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
 		with = "serde_with::rust::double_option"
 	)]
-	pub build_indexer: Option<Option<BuildIndexer>>,
+	pub process_indexer: Option<Option<ProcessIndexer>>,
 
 	/// Configure the database.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -98,10 +98,10 @@ pub struct Config {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Advanced {
-	/// The duration after which a build that is dequeued but not started may be dequeued again.
+	/// The duration after which a process that is dequeued but not started may be dequeued again.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub build_dequeue_timeout: Option<Duration>,
+	pub process_dequeue_timeout: Option<Duration>,
 
 	/// Options for rendering error traces.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,13 +127,13 @@ pub struct Advanced {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_console: bool,
 
-	/// Whether to write build logs to the database instead of files.
+	/// Whether to write process logs to the database instead of files.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_build_logs_to_database: Option<bool>,
+	pub write_process_logs_to_database: Option<bool>,
 
-	/// Whether to write build logs to the server's stderr.
+	/// Whether to write process logs to the server's stderr.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_build_logs_to_stderr: Option<bool>,
+	pub write_process_logs_to_stderr: Option<bool>,
 
 	/// Whether to write blobs to the server's cache directory.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -143,17 +143,17 @@ pub struct Advanced {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct BuildHeartbeatMonitor {
-	/// The duration to pause when there are no builds that need to be canceled.
+pub struct ProcessHeartbeatMonitor {
+	/// The duration to pause when there are no processes that need to be canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub interval: Option<Duration>,
 
-	/// The maximum number of builds that will be canceled at a time.
+	/// The maximum number of processes that will be canceled at a time.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub limit: Option<usize>,
 
-	/// The duration without a heartbeat before a build is canceled.
+	/// The duration without a heartbeat before a process is canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
@@ -161,7 +161,7 @@ pub struct BuildHeartbeatMonitor {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct BuildIndexer {}
+pub struct ProcessIndexer {}
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -189,8 +189,8 @@ pub struct Oauth {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Build {
-	/// The maximum number of concurrent builds.
+pub struct Process {
+	/// The maximum number of concurrent processes.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
 
@@ -198,11 +198,11 @@ pub struct Build {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub heartbeat_interval: Option<Duration>,
 
-	/// The maximum build depth.
+	/// The maximum process depth.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_depth: Option<u64>,
 
-	/// The remotes to build for.
+	/// The remotes to run processes for.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<Vec<String>>,
 }

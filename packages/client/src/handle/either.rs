@@ -84,6 +84,131 @@ where
 		}
 	}
 
+	fn try_spawn_command(
+		&self,
+		id: &tg::command::Id,
+		arg: tg::command::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
+		match self {
+			Either::Left(s) => s.try_spawn_command(id, arg).left_future(),
+			Either::Right(s) => s.try_spawn_command(id, arg).right_future(),
+		}
+	}
+
+	fn lsp(
+		&self,
+		input: impl AsyncBufRead + Send + Unpin + 'static,
+		output: impl AsyncWrite + Send + Unpin + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.lsp(input, output).left_future(),
+			Either::Right(s) => s.lsp(input, output).right_future(),
+		}
+	}
+
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
+		match self {
+			Either::Left(s) => s.try_get_object_metadata(id).left_future(),
+			Either::Right(s) => s.try_get_object_metadata(id).right_future(),
+		}
+	}
+
+	fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
+		match self {
+			Either::Left(s) => s.try_get_object(id).left_future(),
+			Either::Right(s) => s.try_get_object(id).right_future(),
+		}
+	}
+
+	fn put_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
+		match self {
+			Either::Left(s) => s.put_object(id, arg).left_future(),
+			Either::Right(s) => s.put_object(id, arg).right_future(),
+		}
+	}
+
+	fn push_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
+		match self {
+			Either::Left(s) => s
+				.push_object(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.push_object(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
+	fn pull_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
+		match self {
+			Either::Left(s) => s
+				.pull_object(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.pull_object(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
+	fn check_package(
+		&self,
+		arg: tg::package::check::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> + Send {
+		match self {
+			Either::Left(s) => s.check_package(arg).left_future(),
+			Either::Right(s) => s.check_package(arg).right_future(),
+		}
+	}
+
+	fn document_package(
+		&self,
+		arg: tg::package::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send {
+		match self {
+			Either::Left(s) => s.document_package(arg).left_future(),
+			Either::Right(s) => s.document_package(arg).right_future(),
+		}
+	}
+
+	fn format_package(
+		&self,
+		arg: tg::package::format::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.format_package(arg).left_future(),
+			Either::Right(s) => s.format_package(arg).right_future(),
+		}
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -274,120 +399,6 @@ where
 		}
 	}
 
-	fn lsp(
-		&self,
-		input: impl AsyncBufRead + Send + Unpin + 'static,
-		output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			Either::Left(s) => s.lsp(input, output).left_future(),
-			Either::Right(s) => s.lsp(input, output).right_future(),
-		}
-	}
-
-	fn try_get_object_metadata(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
-		match self {
-			Either::Left(s) => s.try_get_object_metadata(id).left_future(),
-			Either::Right(s) => s.try_get_object_metadata(id).right_future(),
-		}
-	}
-
-	fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
-		match self {
-			Either::Left(s) => s.try_get_object(id).left_future(),
-			Either::Right(s) => s.try_get_object(id).right_future(),
-		}
-	}
-
-	fn put_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
-		match self {
-			Either::Left(s) => s.put_object(id, arg).left_future(),
-			Either::Right(s) => s.put_object(id, arg).right_future(),
-		}
-	}
-
-	fn push_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send {
-		match self {
-			Either::Left(s) => s
-				.push_object(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.push_object(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn pull_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send {
-		match self {
-			Either::Left(s) => s
-				.pull_object(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.pull_object(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn check_package(
-		&self,
-		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::check::Output>> + Send {
-		match self {
-			Either::Left(s) => s.check_package(arg).left_future(),
-			Either::Right(s) => s.check_package(arg).right_future(),
-		}
-	}
-
-	fn document_package(
-		&self,
-		arg: tg::package::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send {
-		match self {
-			Either::Left(s) => s.document_package(arg).left_future(),
-			Either::Right(s) => s.document_package(arg).right_future(),
-		}
-	}
-
-	fn format_package(
-		&self,
-		arg: tg::package::format::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		match self {
-			Either::Left(s) => s.format_package(arg).left_future(),
-			Either::Right(s) => s.format_package(arg).right_future(),
-		}
-	}
-
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
@@ -494,17 +505,6 @@ where
 		match self {
 			Either::Left(s) => s.delete_tag(tag).left_future(),
 			Either::Right(s) => s.delete_tag(tag).right_future(),
-		}
-	}
-
-	fn try_spawn_command(
-		&self,
-		id: &tg::command::Id,
-		arg: tg::command::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
-		match self {
-			Either::Left(s) => s.try_spawn_command(id, arg).left_future(),
-			Either::Right(s) => s.try_spawn_command(id, arg).right_future(),
 		}
 	}
 

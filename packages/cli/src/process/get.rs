@@ -1,7 +1,7 @@
 use crate::Cli;
 use tangram_client::{self as tg, handle::Ext as _};
 
-/// Get a build.
+/// Get a process.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

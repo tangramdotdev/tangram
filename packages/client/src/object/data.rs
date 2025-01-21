@@ -61,7 +61,7 @@ impl Object {
 			Self::File(file) => file.children(),
 			Self::Symlink(symlink) => symlink.children(),
 			Self::Graph(graph) => graph.children(),
-			Self::Command(target) => target.children(),
+			Self::Command(command) => command.children(),
 		}
 	}
 }

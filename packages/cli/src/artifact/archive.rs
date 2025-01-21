@@ -12,7 +12,7 @@ pub struct Args {
 	pub format: tg::artifact::archive::Format,
 
 	#[command(flatten)]
-	pub inner: crate::command::build::InnerArgs,
+	pub inner: crate::command::run::InnerArgs,
 }
 
 impl Cli {
@@ -21,9 +21,9 @@ impl Cli {
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let format = args.format;
 		let command = artifact.archive_command(format);
-		let target = command.id(&handle).await?;
+		let command = command.id(&handle).await?;
 		let args = crate::command::build::Args {
-			reference: Some(tg::Reference::with_object(&target.into())),
+			reference: Some(tg::Reference::with_object(&command.into())),
 			inner: args.inner,
 		};
 		self.command_command_build(args).await?;

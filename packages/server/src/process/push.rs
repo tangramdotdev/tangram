@@ -165,8 +165,11 @@ impl Server {
 		// Update the progress.
 		progress.increment("processes", 1);
 
-		// Handle the log, output, and target.
+		// Handle the command, log, and output.
 		let mut objects: Vec<tg::object::Id> = Vec::new();
+		if arg.commands {
+			objects.push(output.command.clone().into());
+		}
 		if arg.logs {
 			if let Some(_logs) = output.logs.clone() {
 				todo!()
@@ -176,9 +179,6 @@ impl Server {
 			if let Some(output_objects) = output.output.as_ref().map(tg::value::Data::children) {
 				objects.extend(output_objects);
 			}
-		}
-		if arg.commands {
-			objects.push(output.command.clone().into());
 		}
 		let self_object_count_and_weight = objects
 			.iter()

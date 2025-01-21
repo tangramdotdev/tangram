@@ -31,16 +31,17 @@ impl Server {
 		#[allow(clippy::struct_excessive_bools)]
 		#[derive(serde::Deserialize)]
 		struct Row {
+			commands_complete: bool,
 			complete: bool,
 			logs_complete: bool,
 			outputs_complete: bool,
-			targets_complete: bool,
 		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				insert into processes (
 					id,
+					command,
 					depth,
 					error,
 					host,
@@ -48,7 +49,6 @@ impl Server {
 					output,
 					retry,
 					status,
-					target,
 					touched_at,
 					created_at,
 					enqueued_at,
@@ -74,14 +74,14 @@ impl Server {
 					{p}15
 				)
 				on conflict (id) do update set
-					depth = {p}2,
-					error = {p}3,
-					host = {p}4,
-					log = {p}5,
-					output = {p}6,
-					retry = {p}7,
-					status = {p}8,
-					command = {p}9,
+					command = {p}2,
+					depth = {p}3,
+					error = {p}4,
+					host = {p}5,
+					log = {p}6,
+					output = {p}7,
+					retry = {p}8,
+					status = {p}9,
 					touched_at = {p}10,
 					created_at = {p}11,
 					enqueued_at = {p}12,
@@ -89,14 +89,15 @@ impl Server {
 					started_at = {p}14,
 					finished_at = {p}15
 				returning
+					commands_complete,
 					complete,
 					logs_complete,
-					outputs_complete,
-					targets_complete;
+					outputs_complete;
 			"
 		);
 		let params = db::params![
 			id,
+			arg.command,
 			arg.depth,
 			arg.error,
 			arg.host,
@@ -104,7 +105,6 @@ impl Server {
 			arg.output.as_ref().map(db::value::Json),
 			arg.retry,
 			arg.status,
-			arg.command,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 			arg.created_at.format(&Rfc3339).unwrap(),
 			arg.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
@@ -185,7 +185,6 @@ impl Server {
 			.logs
 			.into_iter()
 			.flat_map(|objects| objects.into_iter().map(|object| object.unwrap_object()))
-			.into_iter()
 			.chain(
 				arg.output
 					.as_ref()
@@ -223,10 +222,10 @@ impl Server {
 
 		// Create the output.
 		let output = tg::process::put::Output {
+			commands_complete: row.commands_complete,
 			complete: row.complete,
 			logs_complete: row.logs_complete,
 			outputs_complete: row.outputs_complete,
-			targets_complete: row.targets_complete,
 		};
 
 		Ok(output)

@@ -75,7 +75,7 @@ where
 			return;
 		};
 		let contents = match item {
-			Item::Build(process) => process.id().to_string(),
+			Item::Process(process) => process.id().to_string(),
 			Item::Value(value) => {
 				let options = tg::value::print::Options {
 					recursive: true,
@@ -153,7 +153,7 @@ where
 		let task = Task::spawn_local(|_| async move {
 			// Update the log view if the selected item is a process.
 			let process = node.borrow().item.as_ref().and_then(|item| match item {
-				Item::Build(process) => Some(process.clone()),
+				Item::Process(process) => Some(process.clone()),
 				Item::Value(_) => None,
 			});
 			{
@@ -171,7 +171,7 @@ where
 
 			// Update the data view.
 			let result = match item {
-				Item::Build(process) => {
+				Item::Process(process) => {
 					handle
 						.try_get_process(process.id())
 						.await
@@ -241,7 +241,7 @@ where
 
 		let expanded = match item {
 			Some(
-				Item::Build(_)
+				Item::Process(_)
 				| Item::Value(
 					tg::Value::Array(_)
 					| tg::Value::Map(_)
@@ -639,7 +639,7 @@ where
 				};
 
 				// Create the child.
-				let item = Item::Build(process.clone());
+				let item = Item::Process(process.clone());
 				let child = Self::create_node(&handle, &parent, None, Some(&item));
 
 				// Create the update task.
@@ -1265,7 +1265,7 @@ where
 
 	fn item_title(item: &Item) -> String {
 		match item {
-			Item::Build(process) => process.id().to_string(),
+			Item::Process(process) => process.id().to_string(),
 			Item::Value(value) => match value {
 				tg::Value::Null => "null".to_owned(),
 				tg::Value::Bool(bool) => {
@@ -1359,7 +1359,7 @@ where
 			None
 		};
 
-		let update_task = if let Item::Build(process) = &item {
+		let update_task = if let Item::Process(process) = &item {
 			// Create the update task.
 			let update_task = Task::spawn_local({
 				let process = process.clone();
@@ -1519,7 +1519,7 @@ where
 
 	async fn expand_task(handle: &H, item: Item, update_sender: NodeUpdateSender) {
 		let result = match item {
-			Item::Build(process) => {
+			Item::Process(process) => {
 				Self::expand_process(handle, process, update_sender.clone()).await
 			},
 			Item::Value(value) => Self::expand_value(handle, value, update_sender.clone()).await,

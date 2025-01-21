@@ -6,8 +6,7 @@ impl Server {
 		&self,
 		_process: &tg::process::Id,
 	) -> tg::Result<Option<String>> {
-		// TODO
-		return Ok(Some("token".into()));
+		todo!()
 	}
 
 	pub(crate) async fn check_process_token(
@@ -15,7 +14,6 @@ impl Server {
 		_process: &tg::process::Id,
 		_token: &str,
 	) -> tg::Result<bool> {
-		// TODO
-		return Ok(true);
+		todo!()
 	}
 }

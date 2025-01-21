@@ -584,7 +584,7 @@ async fn package_with_nested_dependencies() {
 async fn package() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
-			"tangram.ts" => "export default tg.target(() => {})",
+			"tangram.ts" => "export default tg.command(() => {})",
 		}
 	};
 	let path = "directory";
@@ -610,7 +610,7 @@ async fn package() {
 		assert_snapshot!(object, @r#"
   tg.directory({
     "tangram.ts": tg.file({
-      "contents": tg.leaf("export default tg.target(() => {})"),
+      "contents": tg.leaf("export default tg.command(() => {})"),
     }),
   })
   "#);
@@ -1561,14 +1561,14 @@ async fn tagged_package() {
 		"a".into(),
 		temp::directory! {
 			"tangram.ts" => indoc::indoc!(r#"
-				export default tg.target(() => "a");
+				export default tg.command(() => "a");
 			"#),
 		},
 	)];
 	let directory = temp::directory! {
 		"tangram.ts" => indoc::indoc!(r#"
 			import a from "a";
-			export default tg.target(async () => {
+			export default tg.command(async () => {
 				return await a();
 			});
 		"#)
@@ -1612,12 +1612,12 @@ async fn tagged_package() {
 		assert_snapshot!(object, @r#"
   tg.directory({
     "tangram.ts": tg.file({
-      "contents": tg.leaf("import a from \"a\";\nexport default tg.target(async () => {\n\treturn await a();\n});\n"),
+      "contents": tg.leaf("import a from \"a\";\nexport default tg.command(async () => {\n\treturn await a();\n});\n"),
       "dependencies": {
         "a": {
           "item": tg.directory({
             "tangram.ts": tg.file({
-              "contents": tg.leaf("export default tg.target(() => \"a\");\n"),
+              "contents": tg.leaf("export default tg.command(() => \"a\");\n"),
             }),
           }),
           "subpath": "tangram.ts",
@@ -2014,7 +2014,7 @@ async fn diamond_dependency() {
 			"a/1.0.0".into(),
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
-					export default tg.target(() => "a/1.0.0");
+					export default tg.command(() => "a/1.0.0");
 				"#),
 			},
 		),
@@ -2022,7 +2022,7 @@ async fn diamond_dependency() {
 			"a/1.1.0".into(),
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
-					export default tg.target(() => "a/1.1.0");
+					export default tg.command(() => "a/1.1.0");
 				"#),
 			},
 		),
@@ -2031,7 +2031,7 @@ async fn diamond_dependency() {
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
 					import a from "a/^1";
-					export default tg.target(() => "b");
+					export default tg.command(() => "b");
 				"#),
 			},
 		),
@@ -2040,7 +2040,7 @@ async fn diamond_dependency() {
 			temp::directory! {
 				"tangram.ts" => indoc::indoc!(r#"
 					import a from "a/^1.0";
-					export default tg.target(() => "c");
+					export default tg.command(() => "c");
 				"#),
 			},
 		),
@@ -2136,12 +2136,12 @@ async fn diamond_dependency() {
         "b": {
           "item": tg.directory({
             "tangram.ts": tg.file({
-              "contents": tg.leaf("import a from \"a/^1\";\nexport default tg.target(() => \"b\");\n"),
+              "contents": tg.leaf("import a from \"a/^1\";\nexport default tg.command(() => \"b\");\n"),
               "dependencies": {
                 "a/^1": {
                   "item": tg.directory({
                     "tangram.ts": tg.file({
-                      "contents": tg.leaf("export default tg.target(() => \"a/1.1.0\");\n"),
+                      "contents": tg.leaf("export default tg.command(() => \"a/1.1.0\");\n"),
                     }),
                   }),
                   "subpath": "tangram.ts",
@@ -2154,12 +2154,12 @@ async fn diamond_dependency() {
         "c": {
           "item": tg.directory({
             "tangram.ts": tg.file({
-              "contents": tg.leaf("import a from \"a/^1.0\";\nexport default tg.target(() => \"c\");\n"),
+              "contents": tg.leaf("import a from \"a/^1.0\";\nexport default tg.command(() => \"c\");\n"),
               "dependencies": {
                 "a/^1.0": {
                   "item": tg.directory({
                     "tangram.ts": tg.file({
-                      "contents": tg.leaf("export default tg.target(() => \"a/1.1.0\");\n"),
+                      "contents": tg.leaf("export default tg.command(() => \"a/1.1.0\");\n"),
                     }),
                   }),
                   "subpath": "tangram.ts",
@@ -2279,7 +2279,7 @@ async fn tag_dependencies_after_clean() {
 		// Publish the referent to server 1.
 		let referent = temp::directory! {
 			"tangram.ts" => indoc::indoc!(r#"
-				export default tg.target(() => "foo")
+				export default tg.command(() => "foo")
 			"#)
 		};
 		let artifact: temp::Artifact = referent.into();
@@ -2300,7 +2300,7 @@ async fn tag_dependencies_after_clean() {
 		let referrer = temp::directory! {
 			"tangram.ts" => indoc::indoc!(r#"
 				import foo from "foo";
-				export default tg.target(() => foo())
+				export default tg.command(() => foo())
 			"#)
 		};
 		let path = "";

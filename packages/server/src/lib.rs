@@ -189,7 +189,7 @@ impl Server {
 		let permits = config
 			.process
 			.as_ref()
-			.map(|build| build.concurrency)
+			.map(|process| process.concurrency)
 			.unwrap_or_default();
 		let process_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
@@ -532,7 +532,7 @@ impl Server {
 					}
 				}
 
-				// Abort the build heartbeat monitor task.
+				// Abort the process heartbeat monitor task.
 				if let Some(task) = process_heartbeat_monitor_task {
 					task.abort();
 					let result = task.await;
@@ -543,7 +543,7 @@ impl Server {
 					}
 				}
 
-				// Abort the build tasks.
+				// Abort the process tasks.
 				server.processes.abort_all();
 				let results = server.processes.wait().await;
 				for result in results {
@@ -809,7 +809,38 @@ impl Server {
 				Self::handle_read_blob_request(handle, request, blob).boxed()
 			},
 
-			// Builds.
+			// Compiler.
+			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
+
+			// Objects.
+			(http::Method::HEAD, ["objects", object]) => {
+				Self::handle_head_object_request(handle, request, object).boxed()
+			},
+			(http::Method::GET, ["objects", object]) => {
+				Self::handle_get_object_request(handle, request, object).boxed()
+			},
+			(http::Method::PUT, ["objects", object]) => {
+				Self::handle_put_object_request(handle, request, object).boxed()
+			},
+			(http::Method::POST, ["objects", object, "push"]) => {
+				Self::handle_push_object_request(handle, request, object).boxed()
+			},
+			(http::Method::POST, ["objects", object, "pull"]) => {
+				Self::handle_pull_object_request(handle, request, object).boxed()
+			},
+
+			// Packages.
+			(http::Method::POST, ["packages", "check"]) => {
+				Self::handle_check_package_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["packages", "document"]) => {
+				Self::handle_document_package_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["packages", "format"]) => {
+				Self::handle_format_package_request(handle, request).boxed()
+			},
+
+			// Processes.
 			(http::Method::GET, ["processes", process]) => {
 				Self::handle_get_process_request(handle, request, process).boxed()
 			},
@@ -848,37 +879,6 @@ impl Server {
 			},
 			(http::Method::POST, ["processes", process, "heartbeat"]) => {
 				Self::handle_heartbeat_process_request(handle, request, process).boxed()
-			},
-
-			// Compiler.
-			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
-
-			// Objects.
-			(http::Method::HEAD, ["objects", object]) => {
-				Self::handle_head_object_request(handle, request, object).boxed()
-			},
-			(http::Method::GET, ["objects", object]) => {
-				Self::handle_get_object_request(handle, request, object).boxed()
-			},
-			(http::Method::PUT, ["objects", object]) => {
-				Self::handle_put_object_request(handle, request, object).boxed()
-			},
-			(http::Method::POST, ["objects", object, "push"]) => {
-				Self::handle_push_object_request(handle, request, object).boxed()
-			},
-			(http::Method::POST, ["objects", object, "pull"]) => {
-				Self::handle_pull_object_request(handle, request, object).boxed()
-			},
-
-			// Packages.
-			(http::Method::POST, ["packages", "check"]) => {
-				Self::handle_check_package_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["packages", "document"]) => {
-				Self::handle_document_package_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["packages", "format"]) => {
-				Self::handle_format_package_request(handle, request).boxed()
 			},
 
 			// References.
@@ -1020,6 +1020,89 @@ impl tg::Handle for Server {
 		self.try_read_blob_stream(id, arg)
 	}
 
+	fn try_spawn_command(
+		&self,
+		id: &tg::command::Id,
+		arg: tg::command::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
+		self.try_spawn_command(id, arg)
+	}
+
+	fn lsp(
+		&self,
+		input: impl AsyncBufRead + Send + Unpin + 'static,
+		output: impl AsyncWrite + Send + Unpin + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.lsp(input, output)
+	}
+
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
+		self.try_get_object_metadata(id)
+	}
+
+	fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
+		self.try_get_object(id)
+	}
+
+	fn put_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
+		self.put_object(id, arg)
+	}
+
+	fn push_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push_object(id, arg)
+	}
+
+	fn pull_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull_object(id, arg)
+	}
+
+	fn check_package(
+		&self,
+		arg: tg::package::check::Arg,
+	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
+		self.check_package(arg)
+	}
+
+	fn document_package(
+		&self,
+		arg: tg::package::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		self.document_package(arg)
+	}
+
+	fn format_package(
+		&self,
+		arg: tg::package::format::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.format_package(arg)
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -1143,81 +1226,6 @@ impl tg::Handle for Server {
 		self.heartbeat_process(id, arg)
 	}
 
-	fn lsp(
-		&self,
-		input: impl AsyncBufRead + Send + Unpin + 'static,
-		output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.lsp(input, output)
-	}
-
-	fn try_get_object_metadata(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
-		self.try_get_object_metadata(id)
-	}
-
-	fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
-		self.try_get_object(id)
-	}
-
-	fn put_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
-		self.put_object(id, arg)
-	}
-
-	fn push_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.push_object(id, arg)
-	}
-
-	fn pull_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.pull_object(id, arg)
-	}
-
-	fn check_package(
-		&self,
-		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
-		self.check_package(arg)
-	}
-
-	fn document_package(
-		&self,
-		arg: tg::package::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> {
-		self.document_package(arg)
-	}
-
-	fn format_package(
-		&self,
-		arg: tg::package::format::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.format_package(arg)
-	}
-
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
@@ -1288,14 +1296,6 @@ impl tg::Handle for Server {
 
 	fn delete_tag(&self, tag: &tg::Tag) -> impl Future<Output = tg::Result<()>> {
 		self.delete_tag(tag)
-	}
-
-	fn try_spawn_command(
-		&self,
-		id: &tg::command::Id,
-		arg: tg::command::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
-		self.try_spawn_command(id, arg)
 	}
 
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::user::User>>> {

@@ -15,7 +15,7 @@ impl Server {
 		id: &tg::command::Id,
 		arg: tg::command::spawn::Arg,
 	) -> tg::Result<Option<tg::command::spawn::Output>> {
-		// If the remote arg was set, then process the target remotely.
+		// If the remote arg was set, then spawn the command remotely.
 		if let Some(name) = arg.remote.as_ref() {
 			let remote = self.get_remote_client(name.clone()).await?;
 			let arg = tg::command::spawn::Arg {
@@ -63,7 +63,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// Attempt to get a process for the target.
+			// Attempt to get a process for the command.
 			#[derive(serde::Deserialize)]
 			struct Row {
 				id: tg::process::Id,
@@ -75,7 +75,7 @@ impl Server {
 					select id, status
 					from processes
 					where
-						target = {p}1
+						command = {p}1
 					order by enqueued_at desc
 					limit 1;
 				"
@@ -192,8 +192,8 @@ impl Server {
 		let process_id = tg::process::Id::new();
 
 		// Get the host.
-		let target = tg::Command::with_id(id.clone());
-		let host = target.host(self).await?;
+		let command = tg::Command::with_id(id.clone());
+		let host = command.host(self).await?;
 
 		// Put the process.
 		let put_arg = tg::process::put::Arg {
@@ -287,7 +287,7 @@ impl Server {
 	async fn detect_process_cycle(
 		&self,
 		parent: &tg::process::Id,
-		target: &tg::command::Id,
+		command: &tg::command::Id,
 	) -> tg::Result<bool> {
 		let connection = self
 			.database
@@ -301,12 +301,12 @@ impl Server {
 			"
 				select exists (
 					select 1 from processes
-					where id = {p}1 and target = {p}2
+					where id = {p}1 and command = {p}2
 				);
 			"
 		);
 
-		let params = db::params![parent, target];
+		let params = db::params![parent, command];
 		let cycle = connection
 			.query_one_value_into(statement.into(), params)
 			.await
@@ -319,14 +319,14 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				with recursive ancestors as (
-					select b.id, b.target
+					select b.id, b.command
 					from processes b
 					join process_children c on b.id = c.child
 					where c.child = {p}1
 
 					union all
 
-					select b.id, b.target
+					select b.id, b.command
 					from ancestors a
 					join process_children c on a.id = c.child
 					join processes b on c.process = b.id
@@ -334,11 +334,11 @@ impl Server {
 				select exists (
 					select 1
 					from ancestors
-					where target = {p}2
+					where command = {p}2
 				);
 			"
 		);
-		let params = db::params![parent, target];
+		let params = db::params![parent, command];
 		let cycle = connection
 			.query_one_value_into(statement.into(), params)
 			.await

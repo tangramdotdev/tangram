@@ -9,7 +9,7 @@ pub struct Args {
 	pub artifact: tg::artifact::Id,
 
 	#[command(flatten)]
-	pub inner: crate::command::build::InnerArgs,
+	pub inner: crate::command::run::InnerArgs,
 }
 
 impl Cli {

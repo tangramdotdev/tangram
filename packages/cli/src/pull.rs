@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
-/// Pull a build or an object.
+/// Pull a process or an object.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -29,7 +29,7 @@ impl Cli {
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
-			Either::Left(build) => Either::Left(build),
+			Either::Left(process) => Either::Left(process),
 			Either::Right(object) => {
 				let object = if let Some(subpath) = &referent.subpath {
 					let directory = object
@@ -44,15 +44,15 @@ impl Cli {
 			},
 		};
 		let item = match item {
-			Either::Left(build) => Either::Left(build.id().clone()),
+			Either::Left(process) => Either::Left(process.id().clone()),
 			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
 		};
 
 		// Pull the item.
 		match item.clone() {
-			Either::Left(build) => {
+			Either::Left(process) => {
 				self.command_process_pull(crate::process::pull::Args {
-					process: build,
+					process,
 					logs: args.logs,
 					recursive: args.recursive,
 					remote: args.remote,

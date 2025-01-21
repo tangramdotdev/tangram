@@ -9,9 +9,9 @@ use tangram_temp::{self as temp, Temp};
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
-async fn builds() {
+async fn processes() {
 	test(TG, move |context| async move {
-		let build = temp::directory! {
+		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
 				export let e = tg.command(() => "e");
 				export let d = tg.command(() => "d");
@@ -31,7 +31,7 @@ async fn builds() {
 		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
 
-		let artifact: temp::Artifact = build.into();
+		let artifact: temp::Artifact = directory.into();
 		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
 
@@ -41,7 +41,7 @@ async fn builds() {
 		let d = build_command_get_process_id("d", &server, artifact_temp.path()).await;
 		let e = build_command_get_process_id("e", &server, artifact_temp.path()).await;
 
-		// Tag the builds.
+		// Tag the processes.
 		for (pattern, id) in [("b", &b), ("d", &d)] {
 			let output = server
 				.tg()
@@ -58,10 +58,10 @@ async fn builds() {
 		let output = server.tg().arg("clean").output().await.unwrap();
 		assert_success!(output);
 
-		// Confirm presence/absence of builds.
+		// Confirm presence/absence of processes.
 		let a_output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(a)
 			.output()
@@ -71,7 +71,7 @@ async fn builds() {
 
 		let output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(b)
 			.output()
@@ -81,7 +81,7 @@ async fn builds() {
 
 		let output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(c)
 			.output()
@@ -91,7 +91,7 @@ async fn builds() {
 
 		let output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(d)
 			.output()
@@ -101,7 +101,7 @@ async fn builds() {
 
 		let output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(e)
 			.output()
@@ -115,22 +115,22 @@ async fn builds() {
 #[tokio::test]
 async fn objects() {
 	test(TG, move |context| async move {
-		let build = temp::directory! {
+		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export let h = tg.target(() => tg.file("h"));
-				export let g = tg.target(() => tg.file("g"));
-				export let f = tg.target(() => tg.file("f"));
-				export let e = tg.target(() => tg.file("e"));
-				export let d = tg.target(() => tg.directory({
+				export let h = tg.command(() => tg.file("h"));
+				export let g = tg.command(() => tg.file("g"));
+				export let f = tg.command(() => tg.file("f"));
+				export let e = tg.command(() => tg.file("e"));
+				export let d = tg.command(() => tg.directory({
 					"h": h(),
 				}));
-				export let c = tg.target(() => tg.directory({
+				export let c = tg.command(() => tg.directory({
 					"g": g(),
 				}));
-				export let b = tg.target(() => tg.directory({
+				export let b = tg.command(() => tg.directory({
 					"f": f(),
 				}));
-				export let a = tg.target(() => tg.directory({
+				export let a = tg.command(() => tg.directory({
 					"b": b(),
 					"c": c(),
 					"d": d(),
@@ -142,7 +142,7 @@ async fn objects() {
 		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
 
-		let artifact: temp::Artifact = build.into();
+		let artifact: temp::Artifact = directory.into();
 		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
 
@@ -268,30 +268,30 @@ async fn objects() {
 async fn build_command_get_process_id(name: &str, server: &Server, path: &Path) -> String {
 	let output = server
 		.tg()
-		.arg("build")
+		.arg("process")
 		.arg("--detach")
 		.arg(format!("{}#{}", path.display(), name))
 		.output()
 		.await
 		.unwrap();
 	assert_success!(output);
-	let build_id = std::str::from_utf8(&output.stdout).unwrap().trim();
+	let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 	let output = server
 		.tg()
-		.arg("build")
+		.arg("process")
 		.arg("output")
-		.arg(build_id)
+		.arg(id)
 		.output()
 		.await
 		.unwrap();
 	assert_success!(output);
-	build_id.to_owned()
+	id.to_owned()
 }
 
 async fn build_command_get_object_id(name: &str, server: &Server, path: &Path) -> String {
 	let output = server
 		.tg()
-		.arg("build")
+		.arg("process")
 		.arg(format!("{}#{}", path.display(), name))
 		.output()
 		.await

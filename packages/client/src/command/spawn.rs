@@ -54,8 +54,8 @@ impl tg::Command {
 	where
 		H: tg::Handle,
 	{
-		let build = self.spawn(handle, arg).await?;
-		let output = build.output(handle).await?;
+		let process = self.spawn(handle, arg).await?;
+		let output = process.output(handle).await?;
 		Ok(output)
 	}
 }

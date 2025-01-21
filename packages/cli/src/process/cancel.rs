@@ -1,7 +1,7 @@
 use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
 
-/// Cancel a build.
+/// Cancel a process.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -14,7 +14,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_cancel_process(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_cancel(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Get the remote.
@@ -22,9 +22,9 @@ impl Cli {
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
-		// Cancel the build.
+		// Cancel the process.
 		let arg = tg::process::finish::Arg {
-			error: Some(tg::error!("the build was explicitly canceled")),
+			error: Some(tg::error!("the process was explicitly canceled")),
 			output: None,
 			remote,
 			status: tg::process::Status::Canceled,

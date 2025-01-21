@@ -11,20 +11,12 @@ pub mod push;
 pub mod put;
 pub mod status;
 
-/// Build a target or manage builds.
+/// Manage processes.
 #[derive(Clone, Debug, clap::Args)]
-#[command(
-	args_conflicts_with_subcommands = true,
-	subcommand_negates_reqs = true,
-	subcommand_precedence_over_arg = true
-)]
 #[group(skip)]
 pub struct Args {
-	#[command(flatten)]
-	pub args: crate::command::build::Args,
-
 	#[command(subcommand)]
-	pub command: Option<Command>,
+	pub command: Command,
 }
 
 #[derive(Clone, Debug, clap::Subcommand)]
@@ -41,36 +33,33 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_build(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process(&self, args: Args) -> tg::Result<()> {
 		match args.command {
-			None => {
-				self.command_command_build(args.args).await?;
+			Command::Cancel(args) => {
+				self.command_process_cancel(args).await?;
 			},
-			Some(Command::Cancel(args)) => {
-				self.command_cancel_process(args).await?;
-			},
-			Some(Command::Children(args)) => {
+			Command::Children(args) => {
 				self.command_process_children(args).await?;
 			},
-			Some(Command::Get(args)) => {
+			Command::Get(args) => {
 				self.command_process_get(args).await?;
 			},
-			Some(Command::Log(args)) => {
+			Command::Log(args) => {
 				self.command_process_log(args).await?;
 			},
-			Some(Command::Output(args)) => {
+			Command::Output(args) => {
 				self.command_process_output(args).await?;
 			},
-			Some(Command::Pull(args)) => {
+			Command::Pull(args) => {
 				self.command_process_pull(args).await?;
 			},
-			Some(Command::Push(args)) => {
+			Command::Push(args) => {
 				self.command_process_push(args).await?;
 			},
-			Some(Command::Put(args)) => {
+			Command::Put(args) => {
 				self.command_process_put(args).await?;
 			},
-			Some(Command::Status(args)) => {
+			Command::Status(args) => {
 				self.command_process_status(args).await?;
 			},
 		}
