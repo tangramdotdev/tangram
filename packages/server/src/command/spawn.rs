@@ -93,14 +93,14 @@ impl Server {
 			// Drop the connection.
 			drop(connection);
 
-			// If the process is finished, then verify that the process's output satisfies the retry constraint.
-			if status.is_finished() {
-				let output = self.get_process(&id).await?;
-				if let Some(retry) = output.status.retry() {
-					if retry && arg.retry {
-						break 'a;
-					}
-				}
+			// If the process is canceled, then break.
+			if status.is_canceled() {
+				break 'a;
+			}
+
+			// If the process is failed and the retry flag is set, then break.
+			if status.is_failed() && arg.retry {
+				break 'a;
 			}
 
 			// Attempt to add the process as a child of the parent.
@@ -200,7 +200,7 @@ impl Server {
 			depth: 1,
 			error: None,
 			host: host.clone(),
-			logs: None,
+			log: None,
 			output: None,
 			retry: arg.retry,
 			status: tg::process::Status::Enqueued,

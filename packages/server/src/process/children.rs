@@ -301,12 +301,6 @@ impl Server {
 			return Ok(false);
 		}
 
-		// Get a token for the child.
-		let token = self
-			.try_create_process_token(child)
-			.await?
-			.ok_or_else(|| tg::error!("failed to create a token for the process"))?;
-
 		// Get a database connection.
 		let connection = self
 			.database
@@ -318,12 +312,12 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into process_children (process, position, child, token)
-				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3)
+				insert into process_children (process, position, child)
+				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2)
 				on conflict (process, child) do nothing;
 			"
 		);
-		let params = db::params![parent, child, token];
+		let params = db::params![parent, child];
 		connection
 			.execute(statement.into(), params)
 			.await

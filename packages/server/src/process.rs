@@ -15,7 +15,6 @@ mod put;
 mod spawn;
 mod start;
 mod status;
-mod token;
 mod touch;
 
 impl Server {

@@ -160,7 +160,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				exit text,
 				heartbeat_at text,
 				host text not null,
-				logs text,
+				log text,
 				logs_complete integer not null default 0,
 				logs_count integer,
 				logs_depth integer,
@@ -170,7 +170,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				outputs_count integer,
 				outputs_depth integer,
 				outputs_weight integer,
-				retry text not null,
+				retry integer not null,
 				status text not null,
 				touched_at text,
 				created_at text not null,
@@ -200,11 +200,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index process_children_child_index on process_children (child);
 
 			create table process_tokens (
-				token text primary key,
-				process text not null
+				process text not null,
+				token text not null
 			);
 
-			create index process_token_process_index on process_tokens (process);
+			create unique index process_tokens_process_token_index on process_tokens (process, token);
 
 			create table process_logs (
 				process text not null,

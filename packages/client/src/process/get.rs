@@ -1,4 +1,5 @@
 use crate as tg;
+use itertools::Itertools as _;
 use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 use time::format_description::well_known::Rfc3339;
@@ -19,7 +20,7 @@ pub struct Output {
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub logs: Option<tg::value::data::Array>,
+	pub log: Option<tg::blob::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub logs_count: Option<u64>,
@@ -83,10 +84,7 @@ pub struct Output {
 
 impl Output {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
-		let logs = self
-			.logs
-			.iter()
-			.flat_map(|item| item.iter().map(|object| object.unwrap_object_ref().clone()));
+		let logs = self.log.iter().cloned().map_into();
 		let output = self
 			.output
 			.as_ref()

@@ -606,6 +606,9 @@ declare namespace tg {
 		/** Get this command's host. */
 		host(): Promise<string>;
 
+		/** Get this command's sandbox. */
+		sandbox(): Promise<tg.Command.Sandbox | undefined>;
+
 		/** Build this command and return the build's output. */
 		output(): Promise<R>;
 	}
@@ -625,7 +628,7 @@ declare namespace tg {
 			/** The command's command line arguments. */
 			args?: Array<tg.Value> | undefined;
 
-			/** If a checksum of the command's output is provided, then the command will have access to the network. */
+			/** If a checksum of the command's output is provided, then the command can be cached even if it is not sandboxed. */
 			checksum?: tg.Checksum | undefined;
 
 			/** The command's environment variables. */
@@ -636,11 +639,24 @@ declare namespace tg {
 
 			/** The system to build the command on. */
 			host?: string | undefined;
+
+			/** Configure the sandbox the command will run in. **/
+			sandbox?: tg.Command.SandboxArg | undefined;
 		};
 
 		export type ExecutableArg = tg.Artifact | tg.Module;
 
 		export type Executable = tg.Artifact | tg.Module;
+
+		export type SandboxArg = {
+			filesystem?: boolean | undefined;
+			network?: boolean | undefined;
+		};
+
+		export type Sandbox = {
+			filesystem: boolean;
+			network: boolean;
+		};
 	}
 
 	export namespace path {

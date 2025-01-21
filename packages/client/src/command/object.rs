@@ -27,7 +27,7 @@ pub struct Module {
 	pub referent: tg::Referent<tg::Object>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Sandbox {
 	pub filesystem: bool,
 	pub network: bool,

@@ -1,4 +1,5 @@
 use crate::{self as tg, util::serde::is_false};
+use itertools::Itertools as _;
 use serde_with::serde_as;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 use time::format_description::well_known::Rfc3339;
@@ -7,29 +8,44 @@ use time::format_description::well_known::Rfc3339;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub id: tg::process::Id,
+
 	pub children: Vec<tg::process::Id>,
+
 	pub depth: u64,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
+
 	pub host: String,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub logs: Option<tg::value::data::Array>,
+	pub log: Option<tg::blob::Id>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub output: Option<tg::value::Data>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
+
 	pub status: tg::process::Status,
+
 	pub command: tg::command::Id,
+
 	#[serde_as(as = "Rfc3339")]
 	pub created_at: time::OffsetDateTime,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub enqueued_at: Option<time::OffsetDateTime>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub dequeued_at: Option<time::OffsetDateTime>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub started_at: Option<time::OffsetDateTime>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub finished_at: Option<time::OffsetDateTime>,
@@ -40,20 +56,20 @@ pub struct Arg {
 pub struct Output {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub commands_complete: bool,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub complete: bool,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub logs_complete: bool,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs_complete: bool,
 }
 
 impl Arg {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
-		let logs = self
-			.logs
-			.iter()
-			.flat_map(|id| id.iter().map(|object| object.unwrap_object_ref().clone()));
+		let log = self.log.iter().cloned().map_into();
 		let output = self
 			.output
 			.as_ref()
@@ -61,7 +77,7 @@ impl Arg {
 			.into_iter()
 			.flatten();
 		let command = std::iter::once(self.command.clone().into());
-		logs.chain(output).chain(command).collect()
+		log.chain(output).chain(command).collect()
 	}
 }
 

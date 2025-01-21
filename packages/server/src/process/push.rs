@@ -146,7 +146,7 @@ impl Server {
 			depth: output.depth,
 			error: output.error,
 			host: output.host,
-			logs: output.logs.clone(),
+			log: output.log.clone(),
 			output: output.output.clone(),
 			retry: output.retry,
 			status: output.status,
@@ -171,8 +171,8 @@ impl Server {
 			objects.push(output.command.clone().into());
 		}
 		if arg.logs {
-			if let Some(_logs) = output.logs.clone() {
-				todo!()
+			if let Some(log) = output.log.clone() {
+				objects.push(log.clone().into());
 			}
 		}
 		if arg.outputs {
@@ -321,8 +321,13 @@ impl Server {
 		} else {
 			// If the push is not recursive, then use the count, depth, and weight of the log, output, and command.
 			let (log_count, log_depth, log_weight) = if arg.logs {
-				if let Some(_logs) = output.logs.as_ref() {
-					todo!()
+				if let Some(log) = output.log.as_ref() {
+					if let Some(metadata) = src.try_get_object_metadata(&log.clone().into()).await?
+					{
+						(metadata.count, metadata.depth, metadata.weight)
+					} else {
+						(Some(0), Some(0), Some(0))
+					}
 				} else {
 					(Some(0), Some(0), Some(0))
 				}

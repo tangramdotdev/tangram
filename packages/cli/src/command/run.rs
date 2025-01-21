@@ -318,13 +318,13 @@ impl Cli {
 			let host = "js";
 
 			// Choose the cwd and network.
-			let (cwd, network) = match kind {
-				InnerKind::Build => (None, false),
+			let (cwd, sandbox) = match kind {
+				InnerKind::Build => (None, Some(tg::command::Sandbox::default())),
 				InnerKind::Run => {
 					let cwd = std::env::current_dir().map_err(|source| {
 						tg::error!(!source, "failed to get the working directory")
 					})?;
-					(Some(cwd), true)
+					(Some(cwd), None)
 				},
 			};
 
@@ -334,6 +334,7 @@ impl Cli {
 				.executable(Some(executable))
 				.args(args_)
 				.env(env)
+				.sandbox(sandbox)
 				.build()
 		};
 

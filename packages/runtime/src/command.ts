@@ -55,7 +55,7 @@ export function command<
 				tag: arg.module.referent.tag,
 			},
 		};
-		let network = false;
+		let sandbox = undefined;
 		const env = currentCommand.state.object!.env;
 		let object = {
 			args: args_,
@@ -64,7 +64,7 @@ export function command<
 			env,
 			executable,
 			host: "js",
-			network,
+			sandbox,
 		};
 		let state = { object };
 		return new Command(state, arg.function);
@@ -130,7 +130,13 @@ export class Command<
 		let env = await tg.Args.applyMutations(flatten(arg.env ?? []));
 		let executable = arg.executable;
 		let host = arg.host;
-		let network = arg.network ?? false;
+		let sandbox =
+			arg.sandbox !== undefined
+				? {
+						filesystem: arg.sandbox.filesystem ?? false,
+						network: arg.sandbox.network ?? false,
+					}
+				: undefined;
 		if (!host) {
 			throw new Error("cannot create a command without a host");
 		}
@@ -141,7 +147,7 @@ export class Command<
 			env,
 			executable,
 			host,
-			network,
+			sandbox,
 		};
 		return new Command({ object });
 	}
@@ -242,8 +248,8 @@ export class Command<
 		return (await this.object()).host;
 	}
 
-	async network(): Promise<boolean> {
-		return (await this.object()).network;
+	async sandbox(): Promise<tg.Command.Sandbox | undefined> {
+		return (await this.object()).sandbox;
 	}
 
 	async output(): Promise<R> {
@@ -271,7 +277,7 @@ export namespace Command {
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		network?: boolean | undefined;
+		sandbox?: tg.Command.SandboxArg | undefined;
 	};
 
 	export type Executable = tg.Artifact | tg.Command.Executable.Module;
@@ -294,6 +300,16 @@ export namespace Command {
 		env: { [key: string]: tg.Value };
 		executable: tg.Command.Executable | undefined;
 		host: string;
+		sandbox: tg.Command.Sandbox | undefined;
+	};
+
+	export type SandboxArg = {
+		filesystem?: boolean | undefined;
+		network?: boolean | undefined;
+	};
+
+	export type Sandbox = {
+		filesystem: boolean;
 		network: boolean;
 	};
 

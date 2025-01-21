@@ -401,11 +401,10 @@ impl Server {
 		kind: tg::process::log::Kind,
 	) -> tg::Result<tg::blob::Id> {
 		let log_path = self.logs_path().join(format!("{id}.{kind}"));
-
-		let tg::blob::create::Output { blob, .. } = if tokio::fs::try_exists(&log_path)
+		let exists = tokio::fs::try_exists(&log_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?
-		{
+			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
+		let tg::blob::create::Output { blob, .. } = if exists {
 			let output = self
 				.create_blob_with_path(&log_path)
 				.await
@@ -423,7 +422,6 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?
 		};
-
 		Ok(blob)
 	}
 }
@@ -439,8 +437,10 @@ impl Reader {
 			.try_get_process_local(id)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
-		if let Some(_logs) = output.logs {
-			todo!()
+		if let Some(log) = output.log {
+			let blob = tg::Blob::with_id(log);
+			let reader = crate::blob::Reader::new(server, blob).await?;
+			return Ok(Self::Blob(reader));
 		}
 
 		// Attempt to create a file reader.

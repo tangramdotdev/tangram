@@ -1,6 +1,7 @@
 use crate::Server;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
+use itertools::Itertools as _;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -101,7 +102,7 @@ impl Server {
 			arg.depth,
 			arg.error,
 			arg.host,
-			arg.logs,
+			arg.log,
 			arg.output.as_ref().map(db::value::Json),
 			arg.retry,
 			arg.status,
@@ -182,9 +183,9 @@ impl Server {
 			"
 		);
 		let objects = arg
-			.logs
+			.log
 			.into_iter()
-			.flat_map(|objects| objects.into_iter().map(|object| object.unwrap_object()))
+			.map_into()
 			.chain(
 				arg.output
 					.as_ref()

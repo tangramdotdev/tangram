@@ -42,20 +42,6 @@ impl Status {
 	pub fn is_finished(&self) -> bool {
 		matches!(self, Status::Canceled | Status::Failed | Status::Succeeded)
 	}
-
-	#[must_use]
-	pub fn retry(&self) -> Option<bool> {
-		match self {
-			Status::Created
-			| Status::Enqueued
-			| Status::Dequeued
-			| Status::Started
-			| Status::Finishing => None,
-			Status::Canceled => Some(true),
-			Status::Failed => Some(true),
-			Status::Succeeded => Some(false),
-		}
-	}
 }
 
 impl tg::Process {
