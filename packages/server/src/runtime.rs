@@ -29,7 +29,7 @@ impl Runtime {
 		process: &tg::process::Id,
 		command: &tg::Command,
 		remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
 		match self {
 			Runtime::Builtin(runtime) => runtime.run(process, command, remote).boxed().await,
 			#[cfg(target_os = "macos")]

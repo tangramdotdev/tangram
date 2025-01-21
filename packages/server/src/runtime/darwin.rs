@@ -36,7 +36,7 @@ impl Runtime {
 		process: &tg::process::Id,
 		command: &tg::Command,
 		remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
 		let server = &self.server;
 
 		// Get the checksum.
@@ -48,7 +48,7 @@ impl Runtime {
 				.boxed()
 				.await
 		{
-			return Ok(value);
+			return Ok((value, None));
 		};
 
 		// If the VFS is disabled, then check out the command's children.
@@ -557,7 +557,7 @@ impl Runtime {
 				.await?;
 		}
 
-		Ok(value)
+		Ok((value, None))
 	}
 }
 

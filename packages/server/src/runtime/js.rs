@@ -69,7 +69,7 @@ impl Runtime {
 		process: &tg::process::Id,
 		command: &tg::Command,
 		remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
 		let server = &self.server;
 
 		// Create a handle to the main runtime.
@@ -107,7 +107,7 @@ impl Runtime {
 			}
 		};
 
-		task.await.unwrap()
+		task.await.unwrap().map(|value| (value, None))
 	}
 
 	async fn run_inner(

@@ -42,6 +42,7 @@ impl Server {
 			pub count: Option<u64>,
 			pub depth: u64,
 			pub error: Option<db::value::Json<tg::Error>>,
+			pub exit: Option<db::value::Json<tg::process::Exit>>,
 			pub host: String,
 			#[serde(default)]
 			pub log: Option<tg::blob::Id>,
@@ -91,6 +92,7 @@ impl Server {
 					count,
 					depth,
 					error,
+					exit,
 					host,
 					logs,
 					logs_complete,
@@ -125,6 +127,7 @@ impl Server {
 			count: row.count,
 			depth: row.depth,
 			error: row.error.map(|error| error.0),
+			exit: row.exit.map(|exit| exit.0),
 			host: row.host,
 			log: row.log,
 			logs_count: row.logs_count,

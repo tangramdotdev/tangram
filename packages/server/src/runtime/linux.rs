@@ -5,21 +5,23 @@ use super::{
 use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use futures::{
-	future,
 	stream::{FuturesOrdered, FuturesUnordered},
-	FutureExt as _, TryFutureExt, TryStreamExt as _,
+	FutureExt as _, TryStreamExt as _,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use std::{
 	collections::BTreeMap,
 	ffi::CString,
-	os::{fd::AsRawFd, unix::ffi::OsStrExt as _},
+	os::{
+		fd::AsRawFd,
+		unix::{ffi::OsStrExt as _, process::ExitStatusExt},
+	},
 	path::{Path, PathBuf},
 };
 use tangram_client as tg;
 use tangram_futures::task::Task;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
 /// The home directory guest path.
@@ -74,25 +76,21 @@ impl Runtime {
 		process: &tg::process::Id,
 		command: &tg::Command,
 		remote: Option<String>,
-	) -> tg::Result<tg::Value> {
-		let server = &self.server;
-
-		// Get the checksum.
-		let checksum = command.checksum(server).await?;
-
+	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
 		// Try to reuse a process whose checksum is `None` or `Unsafe`.
+		let checksum = command.checksum(&self.server).await?;
 		if let Ok(value) =
-			super::util::try_reuse_process(server, process, &command, checksum.as_ref())
+			super::util::try_reuse_process(&self.server, process, &command, checksum.as_ref())
 				.boxed()
 				.await
 		{
-			return Ok(value);
+			return Ok((value, None));
 		};
 
 		// If the VFS is disabled, then check out the target's children.
-		if server.vfs.lock().unwrap().is_none() {
+		if self.server.vfs.lock().unwrap().is_none() {
 			command
-				.data(server)
+				.data(&self.server)
 				.await?
 				.children()
 				.into_iter()
@@ -101,13 +99,213 @@ impl Runtime {
 				.chain([self.env.clone().into(), self.sh.clone().into()])
 				.map(|artifact| async move {
 					let arg = tg::artifact::checkout::Arg::default();
-					artifact.check_out(server, arg).await?;
+					artifact.check_out(&self.server, arg).await?;
 					Ok::<_, tg::Error>(())
 				})
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?;
 		}
+
+		// Create the parent directory for the output.
+		let output_parent = Temp::new(&self.server);
+		tokio::fs::create_dir_all(output_parent.path())
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to create the output parent directory")
+			})?;
+
+		// Get the sandbox parameters
+		let sandbox = command.sandbox(&self.server).await?;
+
+		// Run with or without the sandbox.
+		let exit = if let Some(sandbox) = sandbox.as_ref() {
+			if sandbox.filesystem {
+				if !sandbox.network {
+					return Err(tg::error!(
+						"cannot run a process with sandbox.filesystem and !sandbox.network"
+					));
+				}
+				// TODO: Granular permissions on Linux.
+				self.run_unsandboxed(process, command, remote, output_parent.path())
+					.await?
+			} else {
+				// Error if cwd is set.
+				if command.cwd(&self.server).await?.is_some() {
+					return Err(
+						tg::error!(%process, "cannot run a process with cwd set and sandbox.filesystem = false"),
+					);
+				}
+				self.run_sandboxed(
+					process,
+					command,
+					remote,
+					sandbox.network,
+					output_parent.path(),
+				)
+				.await?
+			}
+		} else {
+			self.run_unsandboxed(process, command, remote, output_parent.path())
+				.await?
+		};
+
+		// Create the output.
+		let output = output_parent.path().join("output");
+		let value = if tokio::fs::try_exists(&output)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to determine in the path exists"))?
+		{
+			let arg = tg::artifact::checkin::Arg {
+				cache: true,
+				destructive: true,
+				deterministic: true,
+				ignore: false,
+				path: output.clone(),
+				locked: true,
+				lockfile: false,
+			};
+			tg::Artifact::check_in(&self.server, arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
+				.into()
+		} else {
+			tg::Value::Null
+		};
+
+		// Checksum the output if necessary.
+		if let Some(checksum) = checksum.as_ref() {
+			super::util::checksum(&self.server, process, &value, checksum)
+				.boxed()
+				.await?;
+		}
+
+		// Return the value.
+		Ok((value, Some(exit)))
+	}
+
+	async fn run_unsandboxed(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		remote: Option<String>,
+		output_parent: &Path,
+	) -> tg::Result<tg::process::Exit> {
+		// Render the executable.
+		let Some(tg::command::Executable::Artifact(executable)) =
+			command.executable(&self.server).await?.as_ref().cloned()
+		else {
+			return Err(tg::error!("invalid executable"));
+		};
+		let executable = render(
+			&self.server,
+			&executable.into(),
+			&self.server.artifacts_path(),
+		)
+		.await?;
+
+		// Get or create the current working directory.
+		let cwd = Temp::new(&self.server);
+		let cwd = if let Some(cwd) = command.cwd(&self.server).await?.as_ref() {
+			cwd.clone()
+		} else {
+			tokio::fs::create_dir_all(cwd.path()).await.map_err(
+				|source| tg::error!(!source, %process, "failed to create working directory for process"),
+			)?;
+			cwd.path().to_owned()
+		};
+
+		// Render the args.
+		let args = command.args(&self.server).await?;
+		let args: Vec<String> = args
+			.iter()
+			.map(|value| async {
+				let value = render(&self.server, value, &self.server.artifacts_path()).await?;
+				Ok::<_, tg::Error>(value)
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+
+		// Render the env.
+		let env = command.env(&self.server).await?;
+		let env: BTreeMap<String, String> = env
+			.iter()
+			.map(|(key, value)| async {
+				let key = key.clone();
+				let value = render(&self.server, value, &self.server.artifacts_path()).await?;
+				Ok::<_, tg::Error>((key, value))
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+
+		// Spawn the child process.
+		let mut child = tokio::process::Command::new(executable)
+			.kill_on_drop(true)
+			.env_clear()
+			.current_dir(cwd)
+			.args(args)
+			.envs(env)
+			.env("OUTPUT", output_parent.join("output"))
+			.stdin(std::process::Stdio::null())
+			.stdout(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::piped())
+			.spawn()
+			.map_err(|source| tg::error!(!source, "failed to spawn process"))?;
+
+		// Spawn the log tasks
+		let stdout_task = tokio::task::spawn(log_task(
+			self.server.clone(),
+			process.clone(),
+			remote.clone(),
+			tg::process::log::Kind::Stdout,
+			child.stdout.take().unwrap(),
+		));
+		let stderr_task = tokio::task::spawn(log_task(
+			self.server.clone(),
+			process.clone(),
+			remote.clone(),
+			tg::process::log::Kind::Stderr,
+			child.stderr.take().unwrap(),
+		));
+
+		// Wait for the child to complete.
+		let exit = child
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for the child process"))?;
+		let exit = if let Some(code) = exit.code() {
+			tg::process::Exit::Code { code }
+		} else if let Some(signal) = exit.signal() {
+			tg::process::Exit::Signal { signal }
+		} else {
+			return Err(tg::error!(%process, "expected an exit code or signal"));
+		};
+
+		// Join the log tasks.
+		stdout_task
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))?
+			.map_err(|source| tg::error!(!source, "the stdout task panicked"))?;
+		stderr_task
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))?
+			.map_err(|source| tg::error!(!source, "the stderr task panicked"))?;
+
+		// Return the exit status.
+		Ok(exit)
+	}
+
+	async fn run_sandboxed(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		remote: Option<String>,
+		network_enabled: bool,
+		output_parent: &Path,
+	) -> tg::Result<tg::process::Exit> {
+		let server = &self.server;
 
 		// Get the server directory path.
 		let server_directory_host_path = server.config.path.clone();
@@ -122,21 +320,12 @@ impl Runtime {
 			})?;
 		let root_directory_host_path = PathBuf::from(root_directory_temp.as_ref());
 
-		// Create a tempdir for the output.
-		let output_parent_directory_temp = Temp::new(server);
-		tokio::fs::create_dir_all(&output_parent_directory_temp)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to create the output parent directory")
-			})?;
-
 		// Create the host and guest paths for the output parent directory.
-		let output_parent_directory_host_path =
-			PathBuf::from(output_parent_directory_temp.as_ref());
+		let output_parent_directory_host_path = PathBuf::from(output_parent);
 		let output_parent_directory_guest_path = PathBuf::from(OUTPUT_PARENT_DIRECTORY_GUEST_PATH);
 
 		// Create the host and guest paths for the output.
-		let output_host_path = output_parent_directory_host_path.join("output");
+		let _output_host_path = output_parent_directory_host_path.join("output");
 		let output_guest_path = output_parent_directory_guest_path.join("output");
 
 		// Create the host and guest paths for the artifacts directory.
@@ -249,9 +438,6 @@ impl Runtime {
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
-
-		// Enable the network if a checksum was provided.
-		let network_enabled = checksum.is_some();
 
 		// Set `$HOME`.
 		env.insert(
@@ -633,81 +819,21 @@ impl Runtime {
 			});
 		};
 
-		// Spawn the stdout task.
-		let mut reader = stdout_recv;
-		let stdout_task = tokio::task::spawn({
-			let server = server.clone();
-			let process = process.clone();
-			let remote = remote.clone();
-			async move {
-				let mut buffer = vec![0; 4096];
-				loop {
-					let size = reader
-						.read(&mut buffer)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to read from stdout"))?;
-					if size == 0 {
-						return Ok::<_, tg::Error>(());
-					}
-					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(&bytes)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write to stderr");
-							})
-							.ok();
-					}
-					let arg = tg::process::log::post::Arg {
-						bytes,
-						kind: tg::process::log::Kind::Stdout,
-						remote: remote.clone(),
-					};
-					if let Err(error) = server.try_add_process_log(&process, arg).await {
-						tracing::error!(?error, "failed to add the process log");
-					}
-				}
-			}
-		});
-
-		// Spawn the stdout task.
-		let mut reader = stderr_recv;
-		let stderr_task = tokio::task::spawn({
-			let server = server.clone();
-			let process = process.clone();
-			let remote = remote.clone();
-			async move {
-				let mut buffer = vec![0; 4096];
-				loop {
-					let size = reader
-						.read(&mut buffer)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to read from stderr"))?;
-					if size == 0 {
-						return Ok::<_, tg::Error>(());
-					}
-					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(&bytes)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write to stderr");
-							})
-							.ok();
-					}
-					let arg = tg::process::log::post::Arg {
-						bytes,
-						kind: tg::process::log::Kind::Stderr,
-						remote: remote.clone(),
-					};
-					if let Err(error) = server.try_add_process_log(&process, arg).await {
-						tracing::error!(?error, "failed to add the process log");
-					}
-				}
-			}
-		});
+		// Spawn the log tasks
+		let stdout_task = tokio::task::spawn(log_task(
+			server.clone(),
+			process.clone(),
+			remote.clone(),
+			tg::process::log::Kind::Stdout,
+			stdout_recv,
+		));
+		let stderr_task = tokio::task::spawn(log_task(
+			server.clone(),
+			process.clone(),
+			remote.clone(),
+			tg::process::log::Kind::Stderr,
+			stderr_recv,
+		));
 
 		// Receive the guest process's PID from the socket.
 		let guest_process_pid: libc::pid_t = host_socket.read_i32_le().await.map_err(|error| {
@@ -761,9 +887,9 @@ impl Runtime {
 				"failed to receive the exit status value from the root process"
 			)
 		})?;
-		let exit_status = match kind {
-			0 => ExitStatus::Code(value),
-			1 => ExitStatus::Signal(value),
+		let exit = match kind {
+			0 => tg::process::Exit::Code { code: value },
+			1 => tg::process::Exit::Signal { signal: value },
 			_ => unreachable!(),
 		};
 
@@ -785,25 +911,18 @@ impl Runtime {
 					)
 				});
 			}
-			let exit_status = if libc::WIFEXITED(status) {
-				let status = libc::WEXITSTATUS(status);
-				ExitStatus::Code(status)
+			if libc::WIFEXITED(status) {
+				let code = libc::WEXITSTATUS(status);
+				if code != 0 {
+					return Err(tg::error!(%code, "root process exited with nonzero exit code"));
+				}
 			} else if libc::WIFSIGNALED(status) {
 				let signal = libc::WTERMSIG(status);
-				ExitStatus::Signal(signal)
+				if signal != 0 {
+					return Err(tg::error!(%signal, "root process exited with signal"));
+				}
 			} else {
 				unreachable!();
-			};
-			match exit_status {
-				ExitStatus::Code(0) => (),
-				ExitStatus::Code(code) => {
-					return Err(tg::error!(r#"the root process exited with code "{code}""#));
-				},
-				ExitStatus::Signal(signal) => {
-					return Err(tg::error!(
-						r#"the root process was terminated with signal "{signal}""#
-					));
-				},
 			};
 			Ok(())
 		})
@@ -821,51 +940,11 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))?
 			.map_err(|source| tg::error!(!source, "the stderr task panicked"))?;
 
-		// Handle the guest process's exit status.
-		match exit_status {
-			ExitStatus::Code(0) => (),
-			ExitStatus::Code(code) => {
-				return Err(tg::error!(%code, "the process did not exit successfully"));
-			},
-			ExitStatus::Signal(signal) => {
-				return Err(tg::error!(%signal, "the process did not exit successfully"));
-			},
-		};
-
 		// Stop the proxy task.
 		proxy_task.stop();
 		proxy_task.wait().await.unwrap();
 
-		// Create the output.
-		let value = if tokio::fs::try_exists(&output_host_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to determine in the path exists"))?
-		{
-			let arg = tg::artifact::checkin::Arg {
-				cache: true,
-				destructive: true,
-				deterministic: true,
-				ignore: false,
-				path: output_host_path.clone(),
-				locked: true,
-				lockfile: false,
-			};
-			tg::Artifact::check_in(server, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
-				.into()
-		} else {
-			tg::Value::Null
-		};
-
-		// Checksum the output if necessary.
-		if let Some(checksum) = checksum.as_ref() {
-			super::util::checksum(server, process, &value, checksum)
-				.boxed()
-				.await?;
-		}
-
-		Ok(value)
+		Ok(exit)
 	}
 }
 
@@ -1152,6 +1231,57 @@ fn guest(context: &Context) {
 			context.envp.as_ptr().cast(),
 		);
 		abort_errno!(r#"failed to call execve"#);
+	}
+}
+
+async fn log_task(
+	server: Server,
+	process: tg::process::Id,
+	remote: Option<String>,
+	kind: tg::process::log::Kind,
+	reader: impl AsyncRead,
+) -> tg::Result<()> {
+	let mut reader = std::pin::pin!(reader);
+	let mut buffer = vec![0; 4096];
+	loop {
+		let size = reader
+			.read(&mut buffer)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read from stdout"))?;
+		if size == 0 {
+			return Ok::<_, tg::Error>(());
+		}
+		let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+		if server.config.advanced.write_process_logs_to_stderr {
+			match kind {
+				tg::process::log::Kind::Stdout => {
+					tokio::io::stdout()
+						.write_all(&bytes)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error, "failed to write to stdout");
+						})
+						.ok();
+				},
+				tg::process::log::Kind::Stderr => {
+					tokio::io::stderr()
+						.write_all(&bytes)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error, "failed to write to stderr");
+						})
+						.ok();
+				},
+			}
+		}
+		let arg = tg::process::log::post::Arg {
+			bytes,
+			kind,
+			remote: remote.clone(),
+		};
+		if let Err(error) = server.try_add_process_log(&process, arg).await {
+			tracing::error!(?error, "failed to add the process log");
+		}
 	}
 }
 

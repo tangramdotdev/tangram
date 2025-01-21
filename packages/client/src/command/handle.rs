@@ -233,6 +233,16 @@ impl Command {
 	{
 		Ok(self.object(handle).await?.map(|object| &object.host))
 	}
+
+	pub async fn sandbox<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::command::Sandbox>>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object(handle).await?.map(|object| &object.sandbox))
+	}
 }
 
 impl Command {

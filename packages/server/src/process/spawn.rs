@@ -126,9 +126,9 @@ impl Server {
 		let result = self
 			.process_task_inner(process.clone(), remote.clone())
 			.await;
-		let (output, status, error) = match result {
-			Ok(output) => (Some(output), tg::process::Status::Succeeded, None),
-			Err(error) => (None, tg::process::Status::Failed, Some(error)),
+		let (output, exit, status, error) = match result {
+			Ok((output, exit)) => (Some(output), exit, tg::process::Status::Succeeded, None),
+			Err(error) => (None, None, tg::process::Status::Failed, Some(error)),
 		};
 
 		// Push the output if the process is remote.
@@ -153,7 +153,7 @@ impl Server {
 		};
 
 		// Finish the process.
-		self.try_finish_process_local(&process, error, output, status)
+		self.try_finish_process_local(&process, error, output, exit, status)
 			.await?;
 
 		Ok::<_, tg::Error>(())
@@ -163,7 +163,7 @@ impl Server {
 		&self,
 		process: tg::process::Id,
 		remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
 		// Get the runtime.
 		let command = self
 			.try_get_process_local(&process)

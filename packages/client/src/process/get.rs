@@ -17,6 +17,9 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub exit: Option<tg::process::Exit>,
+
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

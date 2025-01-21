@@ -31,7 +31,7 @@ impl Server {
 		self.processes.abort(id);
 
 		// Finish the process.
-		self.try_finish_process_local(id, arg.error, arg.output, arg.status)
+		self.try_finish_process_local(id, arg.error, arg.output, None, arg.status)
 			.await
 	}
 
@@ -40,6 +40,7 @@ impl Server {
 		id: &tg::process::Id,
 		mut error: Option<tg::Error>,
 		output: Option<tg::value::Data>,
+		exit: Option<tg::process::Exit>,
 		mut status: tg::process::Status,
 	) -> tg::Result<tg::process::finish::Output> {
 		// Attempt to set the process's status to finishing.
@@ -247,8 +248,9 @@ impl Server {
 					heartbeat_at = null,
 					logs = {p}3,
 					output = {p}4,
-					status = {p}5
-				where id = {p}6;
+					exit = {p}5,
+					status = {p}6
+				where id = {p}7;
 			"
 		);
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -257,6 +259,7 @@ impl Server {
 			finished_at,
 			logs,
 			output.map(db::value::Json),
+			exit.map(db::value::Json),
 			status,
 			id
 		];
