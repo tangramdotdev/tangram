@@ -1,8 +1,9 @@
 use crate as tg;
+use bytes::Bytes;
 use futures::{
 	future,
 	stream::{self, BoxStream},
-	Future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt, TryStreamExt as _,
 };
 use num::ToPrimitive as _;
 use std::{
@@ -378,6 +379,36 @@ pub trait Ext: tg::Handle {
 	> + Send {
 		self.try_get_process_log(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
+		})
+	}
+
+	fn get_process_stdout(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>> + Send
+	{
+		let arg = tg::process::log::get::Arg {
+			kind: tg::process::log::Kind::Stdout,
+			..tg::process::log::get::Arg::default()
+		};
+		self.get_process_log(id, arg).and_then(|stream| {
+			let stream = stream.map(|result| result.map(|chunk| chunk.bytes));
+			future::ready(Ok(stream))
+		})
+	}
+
+	fn get_process_stderr(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>> + Send
+	{
+		let arg = tg::process::log::get::Arg {
+			kind: tg::process::log::Kind::Stderr,
+			..tg::process::log::get::Arg::default()
+		};
+		self.get_process_log(id, arg).and_then(|stream| {
+			let stream = stream.map(|result| result.map(|chunk| chunk.bytes));
+			future::ready(Ok(stream))
 		})
 	}
 
