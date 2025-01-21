@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
 pub enum Event {
-    Bytes(Bytes),
-    End,
+	Bytes(Bytes),
+	End,
 }

@@ -12,11 +12,11 @@ use std::{
 	ffi::{CStr, CString},
 	fmt::Write as _,
 	os::unix::{ffi::OsStrExt as _, process::ExitStatusExt as _},
-	path::PathBuf,
+	path::{Path, PathBuf},
 };
 use tangram_client as tg;
 use tangram_futures::task::Task;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
 #[derive(Clone)]
@@ -37,14 +37,10 @@ impl Runtime {
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
-		let server = &self.server;
-
-		// Get the checksum.
-		let checksum = command.checksum(server).await?;
-
 		// Try to reuse a process whose checksum is `None` or `Unsafe`.
+		let checksum = command.checksum(&self.server).await?;
 		if let Ok(value) =
-			super::util::try_reuse_process(server, process, command, checksum.as_ref())
+			super::util::try_reuse_process(&self.server, process, command, checksum.as_ref())
 				.boxed()
 				.await
 		{
@@ -52,9 +48,9 @@ impl Runtime {
 		};
 
 		// If the VFS is disabled, then check out the command's children.
-		if server.vfs.lock().unwrap().is_none() {
+		if self.server.vfs.lock().unwrap().is_none() {
 			command
-				.data(server)
+				.data(&self.server)
 				.await?
 				.children()
 				.into_iter()
@@ -62,7 +58,7 @@ impl Runtime {
 				.map(|id| async move {
 					let artifact = tg::Artifact::with_id(id);
 					let arg = tg::artifact::checkout::Arg::default();
-					artifact.check_out(server, arg).await?;
+					artifact.check_out(&self.server, arg).await?;
 					Ok::<_, tg::Error>(())
 				})
 				.collect::<FuturesUnordered<_>>()
@@ -70,9 +66,187 @@ impl Runtime {
 				.await?;
 		}
 
+		// Create a temp for the output.
+		let output_parent = Temp::new(&self.server);
+
+		// Run with or without the sandbox.
+		let sandbox = command.sandbox(&self.server).await?;
+		let exit = if let Some(sandbox) = sandbox.as_ref() {
+			self.run_sandboxed(process, command, sandbox, remote, output_parent.path())
+				.await?
+		} else {
+			self.run_unsandboxed(process, command, remote, output_parent.path())
+				.await?
+		};
+
+		// Create the output.
+		let value = if tokio::fs::try_exists(output_parent.path().join("output"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?
+		{
+			let arg = tg::artifact::checkin::Arg {
+				cache: true,
+				destructive: true,
+				deterministic: true,
+				ignore: false,
+				path: output_parent.path().join("output"),
+				locked: true,
+				lockfile: false,
+			};
+			tg::Artifact::check_in(&self.server, arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
+				.into()
+		} else {
+			tg::Value::Null
+		};
+
+		// Checksum the output if necessary.
+		if let Some(checksum) = checksum.as_ref() {
+			super::util::checksum(&self.server, process, &value, checksum)
+				.boxed()
+				.await?;
+		}
+
+		Ok((value, Some(exit)))
+	}
+
+	async fn run_unsandboxed(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		remote: Option<String>,
+		output_parent: &Path,
+	) -> tg::Result<tg::process::Exit> {
+		// Render the executable.
+		let Some(tg::command::Executable::Artifact(executable)) =
+			command.executable(&self.server).await?.as_ref().cloned()
+		else {
+			return Err(tg::error!("invalid executable"));
+		};
+		let executable = render(
+			&self.server,
+			&executable.into(),
+			&self.server.artifacts_path(),
+		)
+		.await?;
+
+		// Get or create the current working directory.
+		let cwd = Temp::new(&self.server);
+		let cwd = if let Some(cwd) = command.cwd(&self.server).await?.as_ref() {
+			cwd.clone()
+		} else {
+			tokio::fs::create_dir_all(cwd.path()).await.map_err(
+				|source| tg::error!(!source, %process, "failed to create working directory for process"),
+			)?;
+			cwd.path().to_owned()
+		};
+
+		// Render the args.
+		let args = command.args(&self.server).await?;
+		let args: Vec<String> = args
+			.iter()
+			.map(|value| async {
+				let value = render(&self.server, value, &self.server.artifacts_path()).await?;
+				Ok::<_, tg::Error>(value)
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+
+		// Render the env.
+		let env = command.env(&self.server).await?;
+		let env: BTreeMap<String, String> = env
+			.iter()
+			.map(|(key, value)| async {
+				let key = key.clone();
+				let value = render(&self.server, value, &self.server.artifacts_path()).await?;
+				Ok::<_, tg::Error>((key, value))
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+
+		// Spawn the child process.
+		let mut child = tokio::process::Command::new(executable)
+			.kill_on_drop(true)
+			.env_clear()
+			.current_dir(cwd)
+			.args(args)
+			.envs(env)
+			.env("OUTPUT", output_parent.join("output"))
+			.stdin(std::process::Stdio::null())
+			.stdout(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::piped())
+			.spawn()
+			.map_err(|source| tg::error!(!source, "failed to spawn process"))?;
+
+		// If this future is dropped, then kill its process tree.
+		let pid = child.id().unwrap();
+		scopeguard::defer! {
+			kill_process_tree(pid);
+		}
+
+		// Spawn the log tasks.
+		let stdout_task = tokio::task::spawn(log_task(
+			self.server.clone(),
+			process.clone(),
+			remote.clone(),
+			tg::process::log::Kind::Stdout,
+			child.stdout.take().unwrap(),
+		));
+		let stderr_task = tokio::task::spawn(log_task(
+			self.server.clone(),
+			process.clone(),
+			remote.clone(),
+			tg::process::log::Kind::Stderr,
+			child.stderr.take().unwrap(),
+		));
+
+		// Wait for the child to complete.
+		let exit = child
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for the child process"))?;
+		let exit = if let Some(code) = exit.code() {
+			tg::process::Exit::Code { code }
+		} else if let Some(signal) = exit.signal() {
+			tg::process::Exit::Signal { signal }
+		} else {
+			return Err(tg::error!(%process, "expected an exit code or signal"));
+		};
+
+		// Join the log tasks.
+		stdout_task
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))?
+			.map_err(|source| tg::error!(!source, "the stdout task panicked"))?;
+		stderr_task
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))?
+			.map_err(|source| tg::error!(!source, "the stderr task panicked"))?;
+
+		// Return the exit status.
+		Ok(exit)
+	}
+
+	async fn run_sandboxed(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		sandbox: &tg::command::Sandbox,
+		remote: Option<String>,
+		output_parent: &Path,
+	) -> tg::Result<tg::process::Exit> {
+		let server = &self.server;
+
 		// Get the artifacts directory path.
 		let artifacts_directory_path = server.artifacts_path();
 
+		// Create the output path.
+		let output_path = output_parent.join("output");
+
+		// Create the home directory.
 		let root_directory_temp = Temp::new(server);
 		tokio::fs::create_dir_all(&root_directory_temp)
 			.await
@@ -83,23 +257,6 @@ impl Runtime {
 				)
 			})?;
 		let root_directory_path = PathBuf::from(root_directory_temp.as_ref());
-
-		// Create a tempdir for the output.
-		let output_parent_directory_temp = Temp::new(server);
-		tokio::fs::create_dir_all(&output_parent_directory_temp)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					source = error,
-					"failed to create the output parent directory"
-				)
-			})?;
-		let output_parent_directory_path = PathBuf::from(output_parent_directory_temp.as_ref());
-
-		// Create the output path.
-		let output_path = output_parent_directory_path.join("output");
-
-		// Create the home directory.
 		let home_directory_path = root_directory_path.join("Users/tangram");
 		tokio::fs::create_dir_all(&home_directory_path)
 			.await
@@ -112,10 +269,20 @@ impl Runtime {
 			.map_err(|error| tg::error!(source = error, "failed to create the server directory"))?;
 
 		// Create the working directory.
-		let working_directory_path = root_directory_path.join("Users/tangram/work");
-		tokio::fs::create_dir_all(&working_directory_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
+		let working_directory = if let Some(cwd) = command.cwd(&self.server).await?.as_ref() {
+			if !sandbox.filesystem {
+				return Err(
+					tg::error!(%process, "cannot run a process with cwd set and sandbox.filesystem = false"),
+				);
+			};
+			cwd.clone()
+		} else {
+			let working_directory = root_directory_path.join("Users/tangram/work");
+			tokio::fs::create_dir_all(&working_directory)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
+			working_directory
+		};
 
 		// Create the proxy server URL.
 		let proxy_server_socket_path = home_directory_path.join(".tangram/socket");
@@ -163,9 +330,6 @@ impl Runtime {
 			.try_collect()
 			.await?;
 
-		// Enable the network if a checksum was provided.
-		let network_enabled = checksum.is_some();
-
 		// Set `$HOME`.
 		env.insert(
 			"HOME".to_owned(),
@@ -182,10 +346,174 @@ impl Runtime {
 		env.insert("TANGRAM_URL".to_owned(), proxy_server_url.to_string());
 
 		// Create the sandbox profile.
-		let mut profile = String::new();
+		let profile = create_sandbox_profile(
+			sandbox,
+			&server.artifacts_path(),
+			&home_directory_path,
+			output_parent,
+		);
 
-		// Write the default profile.
-		writedoc!(
+		// Create the command.
+		let mut command = tokio::process::Command::new(&executable);
+
+		// Set the working directory.
+		command.current_dir(&working_directory);
+
+		// Set the envs.
+		command.env_clear();
+		command.envs(env);
+
+		// Set the args.
+		command.args(args);
+
+		// Redirect stdout and stderr to a pipe.
+		command.stdin(std::process::Stdio::null());
+		command.stdout(std::process::Stdio::piped());
+		command.stderr(std::process::Stdio::piped());
+
+		// Set up the sandbox.
+		unsafe {
+			command.pre_exec(move || {
+				// Call `sandbox_init`.
+				let error = std::ptr::null_mut::<*const libc::c_char>();
+				let ret = sandbox_init(profile.as_ptr(), 0, error);
+
+				// Handle an error from `sandbox_init`.
+				if ret != 0 {
+					let error = *error;
+					let _message = CStr::from_ptr(error);
+					sandbox_free_error(error);
+					return Err(std::io::Error::last_os_error());
+				}
+
+				// Redirect stderr to stdout.
+				if libc::dup2(libc::STDOUT_FILENO, libc::STDERR_FILENO) < 0 {
+					return Err(std::io::Error::last_os_error());
+				}
+
+				Ok(())
+			})
+		};
+
+		// Spawn the child.
+		let mut child = command
+			.spawn()
+			.map_err(|source| tg::error!(!source, %executable, "failed to spawn the process"))?;
+
+		// If this future is dropped, then kill its process tree.
+		let pid = child.id().unwrap();
+		scopeguard::defer! {
+			kill_process_tree(pid);
+		}
+
+		// Spawn the log tasks.
+		let stdout_task = tokio::task::spawn(log_task(
+			self.server.clone(),
+			process.clone(),
+			remote.clone(),
+			tg::process::log::Kind::Stdout,
+			child.stdout.take().unwrap(),
+		));
+		let stderr_task = tokio::task::spawn(log_task(
+			self.server.clone(),
+			process.clone(),
+			remote.clone(),
+			tg::process::log::Kind::Stderr,
+			child.stderr.take().unwrap(),
+		));
+
+		// Wait for the process to exit.
+		let exit = child
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
+		let exit = if let Some(code) = exit.code() {
+			tg::process::Exit::Code { code }
+		} else if let Some(signal) = exit.signal() {
+			tg::process::Exit::Signal { signal }
+		} else {
+			return Err(tg::error!(%process, "expected an exit code or signal"));
+		};
+
+		// Join the log tasks.
+		stdout_task
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))?
+			.map_err(|source| tg::error!(!source, "the stdout task panicked"))?;
+		stderr_task
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))?
+			.map_err(|source| tg::error!(!source, "the stderr task panicked"))?;
+
+		// Stop the proxy task.
+		proxy_task.stop();
+		proxy_task.wait().await.unwrap();
+
+		Ok(exit)
+	}
+}
+
+unsafe extern "C" {
+	fn sandbox_init(
+		profile: *const libc::c_char,
+		flags: u64,
+		errorbuf: *mut *const libc::c_char,
+	) -> libc::c_int;
+	fn sandbox_free_error(errorbuf: *const libc::c_char) -> libc::c_void;
+}
+
+/// Escape a string using the string literal syntax rules for `TinyScheme`. See <https://github.com/dchest/tinyscheme/blob/master/Manual.txt#L130>.
+fn escape(bytes: impl AsRef<[u8]>) -> String {
+	let bytes = bytes.as_ref();
+	let mut output = String::new();
+	output.push('"');
+	for byte in bytes {
+		let byte = *byte;
+		match byte {
+			b'"' => {
+				output.push('\\');
+				output.push('"');
+			},
+			b'\\' => {
+				output.push('\\');
+				output.push('\\');
+			},
+			b'\t' => {
+				output.push('\\');
+				output.push('t');
+			},
+			b'\n' => {
+				output.push('\\');
+				output.push('n');
+			},
+			b'\r' => {
+				output.push('\\');
+				output.push('r');
+			},
+			byte if char::from(byte).is_ascii_alphanumeric()
+				|| char::from(byte).is_ascii_punctuation()
+				|| byte == b' ' =>
+			{
+				output.push(byte.into());
+			},
+			byte => {
+				write!(output, "\\x{byte:02X}").unwrap();
+			},
+		}
+	}
+	output.push('"');
+	output
+}
+
+fn create_sandbox_profile(
+	sandbox: &tg::command::Sandbox,
+	artifacts_path: &Path,
+	home_directory: &Path,
+	output_parent: &Path,
+) -> CString {
+	// Write the default profile.
+	let mut profile = String::new();
+	writedoc!(
 		profile,
 			r#"
 				(version 1)
@@ -268,13 +596,34 @@ impl Runtime {
 					(subpath "/dev/fd")
 				)
 			"#
-	).unwrap();
+		).unwrap();
 
-		// Write the network profile.
-		if network_enabled {
-			writedoc!(
-				profile,
-				r#"
+	// Write the filesystem profile.
+	if sandbox.filesystem {
+		let home = std::env::var_os("HOME").unwrap();
+		writedoc!(
+			profile,
+			r#"
+					;; Allow full read access of the file system.
+					(allow file-read*
+						(subpath "/")
+					)
+
+					;; Allow write access under the current user's home directory
+					(allow file-write*
+						(subpath "{0}")
+					)
+				"#,
+			escape(home.as_bytes())
+		)
+		.unwrap();
+	}
+
+	// Write the network profile.
+	if sandbox.network {
+		writedoc!(
+			profile,
+			r#"
 					;; Allow network access.
 					(allow network*)
 
@@ -286,12 +635,12 @@ impl Runtime {
 					)
 					(allow user-preference-read (preference-domain "com.apple.CFNetwork"))
 				"#
-			)
-			.unwrap();
-		} else {
-			writedoc!(
-				profile,
-				r#"
+		)
+		.unwrap();
+	} else {
+		writedoc!(
+			profile,
+			r#"
 					;; Disable global network access.
 					(deny network*)
 
@@ -299,318 +648,128 @@ impl Runtime {
 					(allow network* (remote ip "localhost:*"))
 					(allow network* (remote unix-socket))
 				"#
-			)
-			.unwrap();
-		}
+		)
+		.unwrap();
+	}
 
-		// Allow read access to the artifacts directory.
-		writedoc!(
-			profile,
-			r"
+	// Allow read access to the artifacts directory.
+	writedoc!(
+		profile,
+		r"
 				(allow process-exec* (subpath {0}))
 				(allow file-read* (path-ancestors {0}))
 				(allow file-read* (subpath {0}))
 			",
-			escape(artifacts_directory_path.as_os_str().as_bytes())
-		)
-		.unwrap();
+		escape(artifacts_path.as_os_str().as_bytes())
+	)
+	.unwrap();
 
-		// Allow write access to the home directory.
-		writedoc!(
-			profile,
-			r"
+	// Allow write access to the home directory.
+	writedoc!(
+		profile,
+		r"
 				(allow process-exec* (subpath {0}))
 				(allow file-read* (path-ancestors {0}))
 				(allow file-read* (subpath {0}))
 				(allow file-write* (subpath {0}))
 			",
-			escape(home_directory_path.as_os_str().as_bytes())
-		)
-		.unwrap();
+		escape(home_directory.as_os_str().as_bytes())
+	)
+	.unwrap();
 
-		// Allow write access to the output parent directory.
-		writedoc!(
-			profile,
-			r"
+	// Allow write access to the output parent directory.
+	writedoc!(
+		profile,
+		r"
 				(allow process-exec* (subpath {0}))
 				(allow file-read* (path-ancestors {0}))
 				(allow file-read* (subpath {0}))
 				(allow file-write* (subpath {0}))
 			",
-			escape(output_parent_directory_path.as_os_str().as_bytes())
-		)
-		.unwrap();
+		escape(output_parent.as_os_str().as_bytes())
+	)
+	.unwrap();
 
-		// Make the profile a C string.
-		let profile = CString::new(profile).unwrap();
+	CString::new(profile).unwrap()
+}
 
-		// Create the command.
-		let mut command = tokio::process::Command::new(&executable);
-
-		// Set the working directory.
-		command.current_dir(&working_directory_path);
-
-		// Set the envs.
-		command.env_clear();
-		command.envs(env);
-
-		// Set the args.
-		command.args(args);
-
-		// Redirect stdout and stderr to a pipe.
-		command.stdout(std::process::Stdio::piped());
-		command.stderr(std::process::Stdio::piped());
-
-		// Set up the sandbox.
-		unsafe {
-			command.pre_exec(move || {
-				// Call `sandbox_init`.
-				let error = std::ptr::null_mut::<*const libc::c_char>();
-				let ret = sandbox_init(profile.as_ptr(), 0, error);
-
-				// Handle an error from `sandbox_init`.
-				if ret != 0 {
-					let error = *error;
-					let _message = CStr::from_ptr(error);
-					sandbox_free_error(error);
-					return Err(std::io::Error::last_os_error());
-				}
-
-				// Redirect stderr to stdout.
-				if libc::dup2(libc::STDOUT_FILENO, libc::STDERR_FILENO) < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-
-				Ok(())
-			})
-		};
-
-		// Spawn the child.
-		let mut child = command
-			.spawn()
-			.map_err(|source| tg::error!(!source, %executable, "failed to spawn the process"))?;
-
-		// If this future is dropped, then kill its process tree.
-		let pid = child.id().unwrap();
-		scopeguard::defer! {
-			let mut pids = vec![pid.to_i32().unwrap()];
-			let mut i = 0;
-			while i < pids.len() {
-				let ppid = pids[i];
-				let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
-				if n < 0 {
-					let error = std::io::Error::last_os_error();
-					tracing::error!(?pid, ?error);
-					return;
-				}
-				pids.resize(i + n.to_usize().unwrap() + 1, 0);
-				let n = unsafe {
-					libc::proc_listchildpids(ppid, pids[(i + 1)..].as_mut_ptr().cast(), n)
-				};
-				if n < 0 {
-					let error = std::io::Error::last_os_error();
-					tracing::error!(?pid, ?error);
-					return;
-				}
-				pids.truncate(i + n.to_usize().unwrap() + 1);
-				i += 1;
-			}
-			for pid in pids.iter().rev() {
-				unsafe { libc::kill(*pid, libc::SIGKILL) };
-				let mut status = 0;
-				unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
-			}
+fn kill_process_tree(pid: u32) {
+	let mut pids = vec![pid.to_i32().unwrap()];
+	let mut i = 0;
+	while i < pids.len() {
+		let ppid = pids[i];
+		let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
+		if n < 0 {
+			let error = std::io::Error::last_os_error();
+			tracing::error!(?pid, ?error);
+			return;
 		}
-
-		// Spawn the stdout task.
-		let mut reader = child.stdout.take().unwrap();
-		let stdout_task = tokio::task::spawn({
-			let server = server.clone();
-			let process = process.clone();
-			let remote = remote.clone();
-			async move {
-				let mut buffer = vec![0; 4096];
-				loop {
-					let size = reader
-						.read(&mut buffer)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to read from stdout"))?;
-					if size == 0 {
-						return Ok::<_, tg::Error>(());
-					}
-					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(&bytes)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write to stderr");
-							})
-							.ok();
-					}
-					let arg = tg::process::log::post::Arg {
-						bytes,
-						kind: tg::process::log::Kind::Stdout,
-						remote: remote.clone(),
-					};
-					if let Err(error) = server.try_add_process_log(&process, arg).await {
-						tracing::error!(?error, "failed to add the process log");
-					}
-				}
-			}
-		});
-
-		// Spawn the stderr task.
-		let mut reader = child.stderr.take().unwrap();
-		let stderr_task = tokio::task::spawn({
-			let server = server.clone();
-			let process = process.clone();
-			let remote = remote.clone();
-			async move {
-				let mut buffer = vec![0; 4096];
-				loop {
-					let size = reader
-						.read(&mut buffer)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to read from stderr"))?;
-					if size == 0 {
-						return Ok::<_, tg::Error>(());
-					}
-					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(&bytes)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write to stderr");
-							})
-							.ok();
-					}
-					let arg = tg::process::log::post::Arg {
-						bytes,
-						kind: tg::process::log::Kind::Stderr,
-						remote: remote.clone(),
-					};
-					if let Err(error) = server.try_add_process_log(&process, arg).await {
-						tracing::error!(?error, "failed to add the process log");
-					}
-				}
-			}
-		});
-
-		// Wait for the process to exit.
-		let exit_status = child
-			.wait()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
-
-		// Wait for the log tasks to complete.
-		stdout_task
-			.await
-			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))?
-			.map_err(|source| tg::error!(!source, "the stdout task panicked"))?;
-		stderr_task
-			.await
-			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))?
-			.map_err(|source| tg::error!(!source, "the stderr task panicked"))?;
-
-		// Stop the proxy task.
-		proxy_task.stop();
-		proxy_task.wait().await.unwrap();
-
-		// Return an error if the process did not exit successfully.
-		if !exit_status.success() {
-			if let Some(code) = exit_status.code() {
-				return Err(tg::error!(%code, "the process did not exit successfully"));
-			} else if let Some(signal) = exit_status.signal() {
-				return Err(tg::error!(%signal, "the process did not exit successfully"));
-			}
-			return Err(tg::error!("the process did not exit successfully"));
+		pids.resize(i + n.to_usize().unwrap() + 1, 0);
+		let n = unsafe { libc::proc_listchildpids(ppid, pids[(i + 1)..].as_mut_ptr().cast(), n) };
+		if n < 0 {
+			let error = std::io::Error::last_os_error();
+			tracing::error!(?pid, ?error);
+			return;
 		}
-
-		// Create the output.
-		let value = if tokio::fs::try_exists(&output_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?
-		{
-			let arg = tg::artifact::checkin::Arg {
-				cache: true,
-				destructive: true,
-				deterministic: true,
-				ignore: false,
-				path: output_path.clone(),
-				locked: true,
-				lockfile: false,
-			};
-			tg::Artifact::check_in(server, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
-				.into()
-		} else {
-			tg::Value::Null
-		};
-
-		// Checksum the output if necessary.
-		if let Some(checksum) = checksum.as_ref() {
-			super::util::checksum(server, process, &value, checksum)
-				.boxed()
-				.await?;
-		}
-
-		Ok((value, None))
+		pids.truncate(i + n.to_usize().unwrap() + 1);
+		i += 1;
+	}
+	for pid in pids.iter().rev() {
+		unsafe { libc::kill(*pid, libc::SIGKILL) };
+		let mut status = 0;
+		unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
 	}
 }
 
-unsafe extern "C" {
-	fn sandbox_init(
-		profile: *const libc::c_char,
-		flags: u64,
-		errorbuf: *mut *const libc::c_char,
-	) -> libc::c_int;
-	fn sandbox_free_error(errorbuf: *const libc::c_char) -> libc::c_void;
-}
-
-/// Escape a string using the string literal syntax rules for `TinyScheme`. See <https://github.com/dchest/tinyscheme/blob/master/Manual.txt#L130>.
-fn escape(bytes: impl AsRef<[u8]>) -> String {
-	let bytes = bytes.as_ref();
-	let mut output = String::new();
-	output.push('"');
-	for byte in bytes {
-		let byte = *byte;
-		match byte {
-			b'"' => {
-				output.push('\\');
-				output.push('"');
-			},
-			b'\\' => {
-				output.push('\\');
-				output.push('\\');
-			},
-			b'\t' => {
-				output.push('\\');
-				output.push('t');
-			},
-			b'\n' => {
-				output.push('\\');
-				output.push('n');
-			},
-			b'\r' => {
-				output.push('\\');
-				output.push('r');
-			},
-			byte if char::from(byte).is_ascii_alphanumeric()
-				|| char::from(byte).is_ascii_punctuation()
-				|| byte == b' ' =>
-			{
-				output.push(byte.into());
-			},
-			byte => {
-				write!(output, "\\x{byte:02X}").unwrap();
-			},
+async fn log_task(
+	server: Server,
+	process: tg::process::Id,
+	remote: Option<String>,
+	kind: tg::process::log::Kind,
+	reader: impl AsyncRead,
+) -> tg::Result<()> {
+	let mut reader = std::pin::pin!(reader);
+	let mut buffer = vec![0; 4096];
+	loop {
+		let size = reader
+			.read(&mut buffer)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read from stdout"))?;
+		if size == 0 {
+			return Ok::<_, tg::Error>(());
+		}
+		let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+		if server.config.advanced.write_process_logs_to_stderr {
+			match kind {
+				tg::process::log::Kind::Stdout => {
+					tokio::io::stdout()
+						.write_all(&bytes)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error, "failed to write to stdout");
+						})
+						.ok();
+				},
+				tg::process::log::Kind::Stderr => {
+					tokio::io::stderr()
+						.write_all(&bytes)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error, "failed to write to stderr");
+						})
+						.ok();
+				},
+			}
+		}
+		let arg = tg::process::log::post::Arg {
+			bytes,
+			kind,
+			remote: remote.clone(),
+		};
+		if let Err(error) = server.try_add_process_log(&process, arg).await {
+			tracing::error!(?error, "failed to add the process log");
 		}
 	}
-	output.push('"');
-	output
 }
 
 #[cfg(test)]
