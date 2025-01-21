@@ -157,7 +157,13 @@ impl Command {
 			None
 		};
 		let host = object.host.clone();
-		let network = object.network;
+		let sandbox = object
+			.sandbox
+			.as_ref()
+			.map(|sandbox| tg::command::data::Sandbox {
+				filesystem: sandbox.filesystem,
+				network: sandbox.network,
+			});
 		Ok(Data {
 			args,
 			checksum,
@@ -165,7 +171,7 @@ impl Command {
 			env,
 			executable,
 			host,
-			network,
+			sandbox,
 		})
 	}
 }
@@ -235,7 +241,11 @@ impl Command {
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let cacheable = object.checksum.is_some() || (!object.network && object.cwd.is_none());
+		let cacheable = object.checksum.is_some()
+			|| object
+				.sandbox
+				.as_ref()
+				.is_some_and(|sandbox| !sandbox.filesystem && !sandbox.network);
 		Ok(cacheable)
 	}
 }

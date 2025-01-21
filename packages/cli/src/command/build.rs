@@ -22,8 +22,9 @@ impl Cli {
 			.clone()
 			.unwrap_or_else(|| ".".parse().unwrap());
 
-		// Run.
-		let output = self.command_run_inner(reference, args.inner).await?;
+		// Run the command.
+		let kind = crate::command::run::InnerKind::Build;
+		let output = self.command_run_inner(reference, kind, args.inner).await?;
 
 		// Print the output.
 		match output {
@@ -34,17 +35,19 @@ impl Cli {
 				println!("{}", path.display());
 			},
 			crate::command::run::InnerOutput::Value(value) => {
-				let stdout = std::io::stdout();
-				let value = if stdout.is_terminal() {
-					let options = tg::value::print::Options {
-						recursive: false,
-						style: tg::value::print::Style::Pretty { indentation: "  " },
+				if !value.is_null() {
+					let stdout = std::io::stdout();
+					let value = if stdout.is_terminal() {
+						let options = tg::value::print::Options {
+							recursive: false,
+							style: tg::value::print::Style::Pretty { indentation: "  " },
+						};
+						value.print(options)
+					} else {
+						value.to_string()
 					};
-					value.print(options)
-				} else {
-					value.to_string()
-				};
-				println!("{value}");
+					println!("{value}");
+				}
 			},
 		}
 

@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::{
 	self as tg,
 	handle::Ext as _,
@@ -20,19 +18,12 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
-
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub volumes: Vec<PathBuf>,
-
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub ports: Vec<(u16, u16)>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub process: tg::process::Id,
 	pub remote: Option<String>,
-	pub token: Option<String>,
 }
 
 impl tg::Command {
@@ -93,8 +84,6 @@ impl Default for Arg {
 			parent: None,
 			remote: None,
 			retry: false,
-			volumes: Vec::new(),
-			ports: Vec::new(),
 		}
 	}
 }

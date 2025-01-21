@@ -1,6 +1,6 @@
 #[derive(Copy, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-    pub signal: i32,
+	pub signal: i32,
 }
 
 // Define a subset of common signals from POSIX using ARM/x86 convention.

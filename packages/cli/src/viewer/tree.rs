@@ -1169,8 +1169,15 @@ where
 			children.push(("executable".to_owned(), value));
 		}
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		if object.network {
-			children.push(("network".to_owned(), tg::Value::Bool(true)));
+		if let Some(sandbox) = &object.sandbox {
+			let mut map = BTreeMap::new();
+			if sandbox.filesystem {
+				map.insert("filesystem".to_owned(), true.into());
+			}
+			if sandbox.network {
+				map.insert("network".to_owned(), true.into());
+			}
+			children.push(("sandbox".to_owned(), tg::Value::Map(map)));
 		}
 		command.unload();
 

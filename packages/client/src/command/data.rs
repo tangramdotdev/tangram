@@ -1,4 +1,4 @@
-use crate::{self as tg, util::serde::is_false};
+use crate::{self as tg};
 use bytes::Bytes;
 use std::{
 	collections::{BTreeMap, BTreeSet},
@@ -24,8 +24,8 @@ pub struct Command {
 
 	pub host: String,
 
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub network: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<Sandbox>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -39,6 +39,12 @@ pub enum Executable {
 pub struct Module {
 	pub kind: tg::module::Kind,
 	pub referent: tg::Referent<tg::object::Id>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Sandbox {
+	pub filesystem: bool,
+	pub network: bool,
 }
 
 impl Command {

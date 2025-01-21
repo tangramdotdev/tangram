@@ -36,11 +36,13 @@ import type {
 import { Value } from "./value.ts";
 
 let archive = Artifact.archive;
+// let build = Command.build;
 let bundle = Artifact.bundle;
 let compress = Blob.compress;
 let decompress = Blob.decompress;
 let download = Blob.download;
 let extract = Artifact.extract;
+// let run = Command.run;
 
 export {
 	Args,
@@ -54,21 +56,19 @@ export {
 	File,
 	Graph,
 	Leaf,
-	type Module,
 	Mutation,
 	Object_ as Object,
-	type Reference,
-	type Referent,
 	Symlink,
-	type Tag,
 	Template,
 	Value,
 	archive,
 	assert,
 	blob,
 	branch,
+	// build,
 	bundle,
 	checksum,
+	command,
 	compress,
 	decompress,
 	directory,
@@ -82,17 +82,21 @@ export {
 	mutation,
 	path,
 	resolve,
+	// run,
 	sleep,
 	start,
 	symlink,
-	command,
 	template,
 	type MaybeMutation,
 	type MaybeMutationMap,
 	type MaybeNestedArray,
 	type MaybePromise,
+	type Module,
 	type MutationMap,
+	type Reference,
+	type Referent,
 	type Resolved,
+	type Tag,
 	type Unresolved,
 	type ValueOrMaybeMutationMap,
 	unimplemented,

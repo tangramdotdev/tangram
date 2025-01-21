@@ -2,7 +2,7 @@ use crate::Cli;
 use std::{os::unix::process::CommandExt as _, path::PathBuf};
 use tangram_client as tg;
 
-/// Build a target and exec an executable from its output.
+/// Build a command and exec an executable from its output.
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -13,7 +13,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub inner: crate::command::run::InnerArgs,
 
-	/// The reference to the target to build.
+	/// The reference to the command to build.
 	#[arg(index = 1)]
 	pub reference: Option<tg::Reference>,
 
@@ -32,8 +32,9 @@ impl Cli {
 			.clone()
 			.unwrap_or_else(|| ".".parse().unwrap());
 
-		// Build.
-		let output = self.command_run_inner(reference, args.inner).await?;
+		// Run the command.
+		let kind = crate::command::run::InnerKind::Build;
+		let output = self.command_run_inner(reference, kind, args.inner).await?;
 
 		// Get the path to the artifact.
 		let mut artifact_path = match output {

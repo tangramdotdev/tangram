@@ -1,9 +1,8 @@
-use std::pin::pin;
-
 use crate::Server;
 use bytes::Bytes;
 use futures::{future, stream::FuturesUnordered, FutureExt as _, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
+use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
@@ -28,12 +27,7 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Validate the token.
-		if !self.check_process_token(id, &arg.token).await? {
-			return Err(tg::error!("invalid token"));
-		}
-
-		// Abort any running process.
+		// If the process is running locally then abort it.
 		self.processes.abort(id);
 
 		// Finish the process.
@@ -88,12 +82,11 @@ impl Server {
 		#[derive(Clone, serde::Deserialize)]
 		struct Row {
 			child: tg::process::Id,
-			token: String,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select child, token
+				select child
 				from process_children
 				where process = {p}1
 				order by position;
@@ -115,10 +108,10 @@ impl Server {
 			.map(|row| async move {
 				let arg = tg::process::finish::Arg {
 					error: Some(tg::error!("the parent was finished")),
+					exit: None,
 					output: None,
 					remote: None,
 					status: tg::process::Status::Canceled,
-					token: row.token.clone(),
 				};
 				self.try_finish_process(&row.child, arg).await?;
 				Ok::<_, tg::Error>(())

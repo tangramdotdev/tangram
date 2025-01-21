@@ -6,6 +6,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
 
+	pub exit: Option<tg::process::Exit>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub output: Option<tg::value::Data>,
 
@@ -13,8 +15,6 @@ pub struct Arg {
 	pub remote: Option<String>,
 
 	pub status: tg::process::Status,
-
-	pub token: String,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

@@ -1,7 +1,11 @@
 use crate::Cli;
 use crossterm::style::Stylize as _;
 use futures::TryStreamExt as _;
-use std::path::{Path, PathBuf};
+use itertools::Itertools as _;
+use std::{
+	io::IsTerminal as _,
+	path::{Path, PathBuf},
+};
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_either::Either;
 use tangram_futures::task::Task;
@@ -20,6 +24,11 @@ pub struct Args {
 	/// Arguments to pass to the executable.
 	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
+}
+
+pub enum InnerKind {
+	Build,
+	Run,
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -90,13 +99,49 @@ pub enum InnerOutput {
 }
 
 impl Cli {
-	pub async fn command_command_run(&self, mut args: Args) -> tg::Result<()> {
-		todo!()
+	pub async fn command_command_run(&self, args: Args) -> tg::Result<()> {
+		// Get the reference.
+		let reference = args
+			.reference
+			.clone()
+			.unwrap_or_else(|| ".".parse().unwrap());
+
+		// Run the command.
+		let kind = InnerKind::Run;
+		let output = self.command_run_inner(reference, kind, args.inner).await?;
+
+		// Print the output.
+		match output {
+			crate::command::run::InnerOutput::Detached(process) => {
+				println!("{process}");
+			},
+			crate::command::run::InnerOutput::Path(path) => {
+				println!("{}", path.display());
+			},
+			crate::command::run::InnerOutput::Value(value) => {
+				if !value.is_null() {
+					let stdout = std::io::stdout();
+					let value = if stdout.is_terminal() {
+						let options = tg::value::print::Options {
+							recursive: false,
+							style: tg::value::print::Style::Pretty { indentation: "  " },
+						};
+						value.print(options)
+					} else {
+						value.to_string()
+					};
+					println!("{value}");
+				}
+			},
+		}
+
+		Ok(())
 	}
 
 	pub(crate) async fn command_run_inner(
 		&self,
 		reference: tg::Reference,
+		kind: InnerKind,
 		args: InnerArgs,
 	) -> tg::Result<InnerOutput> {
 		let handle = self.handle().await?;
@@ -272,8 +317,20 @@ impl Cli {
 			// Choose the host.
 			let host = "js";
 
+			// Choose the cwd and network.
+			let (cwd, network) = match kind {
+				InnerKind::Build => (None, false),
+				InnerKind::Run => {
+					let cwd = std::env::current_dir().map_err(|source| {
+						tg::error!(!source, "failed to get the working directory")
+					})?;
+					(Some(cwd), true)
+				},
+			};
+
 			// Create the command.
 			tg::command::Builder::new(host)
+				.cwd(cwd)
 				.executable(Some(executable))
 				.args(args_)
 				.env(env)
@@ -305,8 +362,6 @@ impl Cli {
 			parent: None,
 			remote: remote.clone(),
 			retry,
-			volumes: vec![],
-			ports: vec![],
 		};
 		let output = handle.spawn_command(&id, arg).await?;
 		let process = tg::Process::with_id(output.process);
@@ -397,11 +452,11 @@ impl Cli {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
 						let arg = tg::process::finish::Arg {
-							remote,
 							error: Some(tg::error!("the process was explicitly canceled")),
+							exit: None,
 							output: None,
+							remote,
 							status: tg::process::Status::Canceled,
-							token: todo!(),
 						};
 						process
 							.finish(&handle, arg)

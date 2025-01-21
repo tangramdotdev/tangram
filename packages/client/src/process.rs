@@ -19,6 +19,7 @@ pub mod signal;
 pub mod start;
 pub mod status;
 pub mod touch;
+pub mod wait;
 
 #[derive(
 	Clone,
@@ -40,6 +41,13 @@ pub struct Process {
 	id: Id,
 	token: Option<String>,
 	remote: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum Exit {
+	Code { code: i32 },
+	Signal { signal: i32 },
 }
 
 impl Id {

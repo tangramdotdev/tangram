@@ -1,5 +1,4 @@
 use crate as tg;
-use bytes::Bytes;
 use futures::{Future, Stream};
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -161,40 +160,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 		>,
 	> + Send;
-
-	fn try_get_process_stdin(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::input::get::Event>> + Send + 'static,
-			>,
-		>,
-	> + Send;
-
-	fn try_add_process_stdin(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::input::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn try_get_process_signal_stream(
-		&self,
-		id: &tg::process::Id,
-		) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
-			>,
-		>,
-	> + Send;
-
-	fn try_send_process_signal(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::signal::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_process_children_stream(
 		&self,

@@ -25,10 +25,10 @@ impl Cli {
 		// Cancel the process.
 		let arg = tg::process::finish::Arg {
 			error: Some(tg::error!("the process was explicitly canceled")),
+			exit: None,
 			output: None,
 			remote,
 			status: tg::process::Status::Canceled,
-			token: todo!(),
 		};
 		handle.try_finish_process(&args.process, arg).await?;
 

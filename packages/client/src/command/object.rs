@@ -1,8 +1,7 @@
-use std::path::PathBuf;
-
 use super::Data;
 use crate as tg;
 use itertools::Itertools as _;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Command {
@@ -12,7 +11,7 @@ pub struct Command {
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: String,
-	pub network: bool,
+	pub sandbox: Option<Sandbox>,
 }
 
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
@@ -26,6 +25,12 @@ pub enum Executable {
 pub struct Module {
 	pub kind: tg::module::Kind,
 	pub referent: tg::Referent<tg::Object>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Sandbox {
+	pub filesystem: bool,
+	pub network: bool,
 }
 
 impl Command {
@@ -93,7 +98,7 @@ impl TryFrom<Data> for Command {
 			.try_collect()?;
 		let executable = data.executable.map(TryInto::try_into).transpose()?;
 		let host = data.host;
-		let network = data.network;
+		let sandbox = data.sandbox.map(TryInto::try_into).transpose()?;
 		Ok(Self {
 			args,
 			checksum,
@@ -101,7 +106,7 @@ impl TryFrom<Data> for Command {
 			env,
 			executable,
 			host,
-			network,
+			sandbox,
 		})
 	}
 }
@@ -157,5 +162,16 @@ impl std::fmt::Display for Module {
 			write!(f, ":{}", subpath.display())?;
 		}
 		Ok(())
+	}
+}
+
+impl TryFrom<tg::command::data::Sandbox> for Sandbox {
+	type Error = tg::Error;
+
+	fn try_from(data: tg::command::data::Sandbox) -> std::result::Result<Self, Self::Error> {
+		Ok(Sandbox {
+			filesystem: data.filesystem,
+			network: data.network,
+		})
 	}
 }

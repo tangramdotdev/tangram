@@ -121,11 +121,9 @@ impl Server {
 			});
 
 			// Create the output.
-			let token = self.try_create_process_token(&id).await?;
 			let output = tg::command::spawn::Output {
 				process: process.id().clone(),
 				remote: None,
-				token,
 			};
 
 			return Ok(Some(output));
@@ -272,14 +270,10 @@ impl Server {
 				.ok();
 		});
 
-		// Create a token for the process.
-		let token = self.try_create_process_token(&process_id).await?;
-
 		// Return the output.
 		let output = tg::command::spawn::Output {
 			process: process_id,
 			remote: None,
-			token,
 		};
 		Ok(Some(output))
 	}

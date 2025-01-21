@@ -9,7 +9,7 @@ pub struct Builder {
 	env: BTreeMap<String, tg::Value>,
 	executable: Option<tg::command::Executable>,
 	host: String,
-	network: bool,
+	sandbox: Option<tg::command::Sandbox>,
 }
 
 impl Builder {
@@ -22,7 +22,7 @@ impl Builder {
 			env: BTreeMap::new(),
 			executable: None,
 			host: host.into(),
-			network: false,
+			sandbox: None,
 		}
 	}
 
@@ -35,7 +35,7 @@ impl Builder {
 			env: object.env.clone(),
 			executable: object.executable.clone(),
 			host: object.host.clone(),
-			network: object.network,
+			sandbox: object.sandbox.clone(),
 		}
 	}
 
@@ -76,8 +76,8 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn network(mut self, network: bool) -> Self {
-		self.network = network;
+	pub fn sandbox(mut self, sandbox: impl Into<Option<tg::command::Sandbox>>) -> Self {
+		self.sandbox = sandbox.into();
 		self
 	}
 
@@ -90,7 +90,7 @@ impl Builder {
 			env: self.env,
 			executable: self.executable,
 			host: self.host,
-			network: self.network,
+			sandbox: self.sandbox,
 		})
 	}
 }
