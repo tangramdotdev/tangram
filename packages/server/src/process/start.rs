@@ -71,9 +71,7 @@ impl Server {
 			}
 		});
 
-		Ok(tg::process::start::Output {
-			started,
-		})
+		Ok(tg::process::start::Output { started })
 	}
 }
 

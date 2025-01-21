@@ -122,7 +122,7 @@ impl Server {
 		let mut events = stream::select_all([log, status, interval]).boxed();
 
 		// Create the reader.
-		let mut reader = Reader::new(self, id).await?;
+		let mut reader = Reader::new(self, id, arg.kind).await?;
 
 		// Seek the reader.
 		let seek = if let Some(position) = arg.position {
@@ -196,6 +196,7 @@ impl Server {
 				data.truncate(n);
 				let chunk = tg::process::log::get::Chunk {
 					position,
+					kind: arg.kind,
 					bytes: data.into(),
 				};
 
@@ -298,9 +299,11 @@ impl Server {
 
 		// Log.
 		if self.config.advanced.write_process_logs_to_database {
-			self.try_add_process_log_to_database(id, arg.bytes).await?;
+			self.try_add_process_log_to_database(id, arg.kind, arg.bytes)
+				.await?;
 		} else {
-			self.try_add_process_log_to_file(id, arg.bytes).await?;
+			self.try_add_process_log_to_file(id, arg.kind, arg.bytes)
+				.await?;
 		}
 
 		// Publish the message.
@@ -323,6 +326,7 @@ impl Server {
 	async fn try_add_process_log_to_database(
 		&self,
 		id: &tg::process::Id,
+		kind: tg::process::log::Kind,
 		bytes: Bytes,
 	) -> tg::Result<()> {
 		// Get a database connection.
@@ -336,7 +340,7 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into process_logs (process, position, bytes)
+				insert into process_logs (process, position, kind, bytes)
 				values (
 					{p}1,
 					(
@@ -351,11 +355,12 @@ impl Server {
 							0
 						)
 					),
-					{p}2
+					{p}2,
+					{p}3
 				);
 			"
 		);
-		let params = db::params![id, bytes];
+		let params = db::params![id, kind, bytes];
 		connection
 			.execute(statement.into(), params)
 			.await
@@ -370,10 +375,11 @@ impl Server {
 	async fn try_add_process_log_to_file(
 		&self,
 		id: &tg::process::Id,
+		kind: tg::process::log::Kind,
 		bytes: Bytes,
 	) -> tg::Result<()> {
 		// Write to the log file.
-		let path = self.logs_path().join(id.to_string());
+		let path = self.logs_path().join(format!("{id}.{kind}"));
 		let mut file = tokio::fs::File::options()
 			.create(true)
 			.append(true)
@@ -388,23 +394,57 @@ impl Server {
 
 		Ok(())
 	}
+
+	pub(super) async fn try_create_process_log_blob(
+		&self,
+		id: &tg::process::Id,
+		kind: tg::process::log::Kind,
+	) -> tg::Result<tg::blob::Id> {
+		let log_path = self.logs_path().join(format!("{id}.{kind}"));
+
+		let tg::blob::create::Output { blob, .. } = if tokio::fs::try_exists(&log_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?
+		{
+			let output = self
+				.create_blob_with_path(&log_path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?;
+			tokio::fs::remove_file(&log_path)
+				.await
+				.inspect_err(|error| tracing::error!(?error, "failed to remove the log file"))
+				.ok();
+			output
+		} else {
+			let reader = Reader::new(self, id, kind).await.map_err(|source| {
+				tg::error!(!source, "failed to create the blob reader for the log")
+			})?;
+			self.create_blob_with_reader(reader)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?
+		};
+
+		Ok(blob)
+	}
 }
 
 impl Reader {
-	pub async fn new(server: &Server, id: &tg::process::Id) -> tg::Result<Self> {
+	pub async fn new(
+		server: &Server,
+		id: &tg::process::Id,
+		kind: tg::process::log::Kind,
+	) -> tg::Result<Self> {
 		// Attempt to create a blob reader.
 		let output = server
 			.try_get_process_local(id)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
-		if let Some(log) = output.log {
-			let blob = tg::Blob::with_id(log);
-			let reader = crate::blob::Reader::new(server, blob).await?;
-			return Ok(Self::Blob(reader));
+		if let Some(_logs) = output.logs {
+			todo!()
 		}
 
 		// Attempt to create a file reader.
-		let path = server.logs_path().join(id.to_string());
+		let path = server.logs_path().join(format!("{id}.{kind}"));
 		match tokio::fs::File::open(&path).await {
 			Ok(file) => {
 				return Ok(Self::File(file));

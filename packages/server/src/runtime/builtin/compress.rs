@@ -61,9 +61,14 @@ impl Runtime {
 					let message = indicator.to_string();
 					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
+						kind: tg::process::log::Kind::Stderr,
 						remote: remote.clone(),
 					};
-					if !server.try_add_process_log(&process, arg).await.map_or(true, |ok| ok.added) {
+					if !server
+						.try_add_process_log(&process, arg)
+						.await
+						.map_or(true, |ok| ok.added)
+					{
 						break;
 					}
 					tokio::time::sleep(Duration::from_secs(1)).await;
@@ -98,6 +103,7 @@ impl Runtime {
 		let message = "finished compressing\n";
 		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
+			kind: tg::process::log::Kind::Stderr,
 			remote: remote.clone(),
 		};
 		server.try_add_process_log(process, arg).await.ok();

@@ -58,7 +58,10 @@ pub async fn try_reuse_process(
 	};
 
 	// Wait for the build to finish and get its output.
-	let output = tg::Process::with_id(matching_process.clone()).output(server).boxed().await?;
+	let output = tg::Process::with_id(matching_process.clone())
+		.output(server)
+		.boxed()
+		.await?;
 
 	// Checksum the output.
 	super::util::checksum(server, &matching_process, &output, checksum)
@@ -128,6 +131,7 @@ async fn copy_process_children_and_log(
 	while let Some(chunk) = src_log.try_next().await? {
 		let arg = tg::process::log::post::Arg {
 			bytes: chunk.bytes,
+			kind: chunk.kind,
 			remote: None,
 		};
 		server.try_add_process_log(dst_process, arg).await?;

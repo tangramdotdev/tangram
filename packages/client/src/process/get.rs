@@ -19,7 +19,7 @@ pub struct Output {
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub log: Option<tg::blob::Id>,
+	pub logs: Option<tg::value::data::Array>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub logs_count: Option<u64>,
@@ -83,7 +83,10 @@ pub struct Output {
 
 impl Output {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
-		let log = self.log.iter().map(|id| id.clone().into());
+		let logs = self
+			.logs
+			.iter()
+			.flat_map(|item| item.iter().map(|object| object.unwrap_object_ref().clone()));
 		let output = self
 			.output
 			.as_ref()
@@ -92,7 +95,7 @@ impl Output {
 			.flatten();
 		let command = std::iter::once(self.command.clone().into());
 		std::iter::empty()
-			.chain(log)
+			.chain(logs)
 			.chain(output)
 			.chain(command)
 			.collect()

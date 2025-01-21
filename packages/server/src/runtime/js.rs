@@ -171,6 +171,7 @@ impl Runtime {
 					}
 					let arg = tg::process::log::post::Arg {
 						bytes: string.into(),
+						kind: tg::process::log::Kind::Stdout,
 						remote: remote.clone(),
 					};
 					server.try_add_process_log(&process, arg).await.ok();

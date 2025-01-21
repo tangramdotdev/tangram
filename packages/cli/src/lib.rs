@@ -445,7 +445,7 @@ impl Cli {
 		let mut config = tangram_server::Config {
 			advanced: tangram_server::config::Advanced::default(),
 			authentication: None,
-			process: Some(tangram_server::config::Build::default()),
+			process: Some(tangram_server::config::Process::default()),
 			process_heartbeat_monitor: Some(
 				tangram_server::config::ProcessHeartbeatMonitor::default(),
 			),
@@ -533,7 +533,7 @@ impl Cli {
 				config.process = None;
 			},
 			Some(Some(build)) => {
-				let mut build_ = tangram_server::config::Build::default();
+				let mut build_ = tangram_server::config::Process::default();
 				if let Some(concurrency) = build.concurrency {
 					build_.concurrency = concurrency;
 				}

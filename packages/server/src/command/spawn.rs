@@ -125,7 +125,7 @@ impl Server {
 			let output = tg::command::spawn::Output {
 				process: process.id().clone(),
 				remote: None,
-				token,			
+				token,
 			};
 
 			return Ok(Some(output));
@@ -146,8 +146,7 @@ impl Server {
 							remote: None,
 							..arg.clone()
 						};
-						let mut output =
-							client.spawn_command(id, arg).await?;
+						let mut output = client.spawn_command(id, arg).await?;
 						output.remote.replace(name);
 						Ok::<_, tg::Error>(Some((output, client)))
 					})
@@ -203,7 +202,7 @@ impl Server {
 			depth: 1,
 			error: None,
 			host: host.clone(),
-			log: None,
+			logs: None,
 			output: None,
 			retry: arg.retry,
 			status: tg::process::Status::Enqueued,

@@ -5,8 +5,9 @@ use super::{
 use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use futures::{
+	future,
 	stream::{FuturesOrdered, FuturesUnordered},
-	FutureExt as _, TryStreamExt as _,
+	FutureExt as _, TryFutureExt, TryStreamExt as _,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -526,13 +527,26 @@ impl Runtime {
 				)
 			})?;
 
-		// Create the log socket pair.
-		let (log_send, log_recv) = tokio::net::UnixStream::pair()
+		// Create the stdout socket pair.
+		let (stdout_send, stdout_recv) = tokio::net::UnixStream::pair()
 			.map_err(|source| tg::error!(!source, "failed to create stdout socket"))?;
-		let log = log_send
+		let stdout = stdout_send
 			.into_std()
 			.map_err(|source| tg::error!(!source, "failed to convert the log sender"))?;
-		log.set_nonblocking(false).map_err(|error| {
+		stdout.set_nonblocking(false).map_err(|error| {
+			tg::error!(
+				source = error,
+				"failed to set the log socket as non-blocking"
+			)
+		})?;
+
+		// Create the stderr socket pair.
+		let (stderr_send, stderr_recv) = tokio::net::UnixStream::pair()
+			.map_err(|source| tg::error!(!source, "failed to create stdout socket"))?;
+		let stderr = stderr_send
+			.into_std()
+			.map_err(|source| tg::error!(!source, "failed to convert the log sender"))?;
+		stderr.set_nonblocking(false).map_err(|error| {
 			tg::error!(
 				source = error,
 				"failed to set the log socket as non-blocking"
@@ -549,7 +563,8 @@ impl Runtime {
 			network_enabled,
 			root_directory_host_path,
 			working_directory_guest_path,
-			log,
+			stdout,
+			stderr,
 		};
 
 		// Spawn the root process.
@@ -618,9 +633,9 @@ impl Runtime {
 			});
 		};
 
-		// Spawn the log task.
-		let mut reader = log_recv;
-		let log_task = tokio::task::spawn({
+		// Spawn the stdout task.
+		let mut reader = stdout_recv;
+		let stdout_task = tokio::task::spawn({
 			let server = server.clone();
 			let process = process.clone();
 			let remote = remote.clone();
@@ -640,12 +655,57 @@ impl Runtime {
 							.write_all(&bytes)
 							.await
 							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write the process log to stderr");
+								tracing::error!(
+									?error,
+									"failed to write the process log to stderr"
+								);
 							})
 							.ok();
 					}
 					let arg = tg::process::log::post::Arg {
 						bytes,
+						kind: tg::process::log::Kind::Stdout,
+						remote: remote.clone(),
+					};
+					if let Err(error) = server.try_add_process_log(&process, arg).await {
+						tracing::error!(?error, "failed to write the process log");
+					}
+				}
+			}
+		});
+
+		// Spawn the stdout task.
+		let mut reader = stderr_recv;
+		let stderr_task = tokio::task::spawn({
+			let server = server.clone();
+			let process = process.clone();
+			let remote = remote.clone();
+			async move {
+				let mut buffer = vec![0; 4096];
+				loop {
+					let size = reader
+						.read(&mut buffer)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+					if size == 0 {
+						return Ok::<_, tg::Error>(());
+					}
+					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+					if server.config.advanced.write_process_logs_to_stderr {
+						tokio::io::stderr()
+							.write_all(&bytes)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(
+									?error,
+									"failed to write the process log to stderr"
+								);
+							})
+							.ok();
+					}
+					let arg = tg::process::log::post::Arg {
+						bytes,
+						kind: tg::process::log::Kind::Stderr,
 						remote: remote.clone(),
 					};
 					if let Err(error) = server.try_add_process_log(&process, arg).await {
@@ -757,11 +817,24 @@ impl Runtime {
 		.map_err(|source| tg::error!(!source, "failed to join the root process exit task"))?
 		.map_err(|source| tg::error!(!source, "the root process did not exit successfully"))?;
 
-		// Wait for the log task to complete.
-		log_task
-			.await
-			.map_err(|source| tg::error!(!source, "failed to join the log task"))?
-			.map_err(|source| tg::error!(!source, "the log task failed"))?;
+		// Wait for the log tasks to complete.
+		let stdout = stdout_task
+			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))
+			.and_then(|result| {
+				future::ready(
+					result.map_err(|source| tg::error!(!source, "the stdout task failed")),
+				)
+			});
+		let stderr = stderr_task
+			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))
+			.and_then(|result| {
+				future::ready(
+					result.map_err(|source| tg::error!(!source, "the stdout task failed")),
+				)
+			});
+		let (stdout, stderr) = future::join(stdout, stderr).await;
+		stdout?;
+		stderr?;
 
 		// Handle the guest process's exit status.
 		match exit_status {
@@ -837,8 +910,11 @@ struct Context {
 	/// The guest path to the working directory.
 	working_directory_guest_path: CString,
 
-	/// The file descriptor for streaming to the log.
-	log: std::os::unix::net::UnixStream,
+	/// The file descriptor for streaming stdout.
+	stdout: std::os::unix::net::UnixStream,
+
+	/// The file descriptor for streaming stderr.
+	stderr: std::os::unix::net::UnixStream,
 }
 
 unsafe impl Send for Context {}
@@ -861,11 +937,11 @@ fn root(context: &Context) {
 		}
 
 		// Duplicate stdout and stderr to the log.
-		let ret = libc::dup2(context.log.as_raw_fd(), libc::STDOUT_FILENO);
+		let ret = libc::dup2(context.stdout.as_raw_fd(), libc::STDOUT_FILENO);
 		if ret == -1 {
 			abort_errno!("failed to duplicate stdout to the log");
 		}
-		let ret = libc::dup2(context.log.as_raw_fd(), libc::STDERR_FILENO);
+		let ret = libc::dup2(context.stdout.as_raw_fd(), libc::STDERR_FILENO);
 		if ret == -1 {
 			abort_errno!("failed to duplicate stderr to the log");
 		}

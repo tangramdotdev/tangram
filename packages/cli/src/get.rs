@@ -26,7 +26,7 @@ impl Cli {
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match &referent.item {
 			Either::Left(process) => process.id().to_string(),
-			Either::Right(item)  => item.to_string(),
+			Either::Right(item) => item.to_string(),
 		};
 		eprintln!("{} item {item}", "info".blue().bold());
 		if let Some(path) = &referent.path {

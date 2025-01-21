@@ -100,7 +100,7 @@ impl Server {
 			arg.depth,
 			arg.error,
 			arg.host,
-			arg.log,
+			arg.logs,
 			arg.output.as_ref().map(db::value::Json),
 			arg.retry,
 			arg.status,
@@ -182,9 +182,9 @@ impl Server {
 			"
 		);
 		let objects = arg
-			.log
-			.clone()
-			.map(Into::into)
+			.logs
+			.into_iter()
+			.flat_map(|objects| objects.into_iter().map(|object| object.unwrap_object()))
 			.into_iter()
 			.chain(
 				arg.output

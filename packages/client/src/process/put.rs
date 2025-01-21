@@ -13,7 +13,7 @@ pub struct Arg {
 	pub error: Option<tg::Error>,
 	pub host: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub log: Option<tg::blob::Id>,
+	pub logs: Option<tg::value::data::Array>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub output: Option<tg::value::Data>,
 	pub retry: bool,
@@ -50,7 +50,10 @@ pub struct Output {
 
 impl Arg {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
-		let log = self.log.iter().map(|id| id.clone().into());
+		let logs = self
+			.logs
+			.iter()
+			.flat_map(|id| id.iter().map(|object| object.unwrap_object_ref().clone()));
 		let output = self
 			.output
 			.as_ref()
@@ -58,7 +61,7 @@ impl Arg {
 			.into_iter()
 			.flatten();
 		let command = std::iter::once(self.command.clone().into());
-		log.chain(output).chain(command).collect()
+		logs.chain(output).chain(command).collect()
 	}
 }
 

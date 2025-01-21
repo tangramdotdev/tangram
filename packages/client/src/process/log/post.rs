@@ -9,9 +9,13 @@ pub struct Arg {
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
 
+	#[serde_as(as = "i32")]
+	pub kind: tg::process::log::Kind,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 }
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub added: bool,

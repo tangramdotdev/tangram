@@ -153,7 +153,8 @@ impl Server {
 		};
 
 		// Finish the process.
-		self.try_finish_process_local(&process, error, output, status).await?;
+		self.try_finish_process_local(&process, error, output, status)
+			.await?;
 
 		Ok::<_, tg::Error>(())
 	}
@@ -191,6 +192,7 @@ impl Server {
 			let bytes = trace.to_string().into();
 			let arg = tg::process::log::post::Arg {
 				bytes,
+				kind: tg::process::log::Kind::Stderr,
 				remote: remote.clone(),
 			};
 			if !self.try_add_process_log(&process, arg).await?.added {
@@ -201,7 +203,11 @@ impl Server {
 		result
 	}
 
-	async fn heartbeat_task(&self, process: tg::process::Id, remote: Option<String>) -> tg::Result<()> {
+	async fn heartbeat_task(
+		&self,
+		process: tg::process::Id,
+		remote: Option<String>,
+	) -> tg::Result<()> {
 		let interval = self.config.process.as_ref().unwrap().heartbeat_interval;
 		loop {
 			let arg = tg::process::heartbeat::Arg {

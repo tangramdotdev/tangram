@@ -35,6 +35,7 @@ impl Cli {
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::process::log::get::Arg {
 			length: args.length,
+			kind: tg::process::log::kind::Kind::Stdout,
 			position: args.position.map(std::io::SeekFrom::Start),
 			remote,
 			size: args.size,

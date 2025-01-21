@@ -146,7 +146,7 @@ impl Server {
 			depth: output.depth,
 			error: output.error,
 			host: output.host,
-			log: output.log.clone(),
+			logs: output.logs.clone(),
 			output: output.output.clone(),
 			retry: output.retry,
 			status: output.status,
@@ -168,8 +168,8 @@ impl Server {
 		// Handle the log, output, and target.
 		let mut objects: Vec<tg::object::Id> = Vec::new();
 		if arg.logs {
-			if let Some(log) = output.log.clone() {
-				objects.push(log.clone().into());
+			if let Some(_logs) = output.logs.clone() {
+				todo!()
 			}
 		}
 		if arg.outputs {
@@ -212,7 +212,9 @@ impl Server {
 		} else {
 			let outputs = children
 				.iter()
-				.map(|child| Self::push_or_pull_process_inner(src, dst, child, arg.clone(), progress))
+				.map(|child| {
+					Self::push_or_pull_process_inner(src, dst, child, arg.clone(), progress)
+				})
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?;
@@ -319,13 +321,8 @@ impl Server {
 		} else {
 			// If the push is not recursive, then use the count, depth, and weight of the log, output, and command.
 			let (log_count, log_depth, log_weight) = if arg.logs {
-				if let Some(log) = output.log.as_ref() {
-					if let Some(metadata) = src.try_get_object_metadata(&log.clone().into()).await?
-					{
-						(metadata.count, metadata.depth, metadata.weight)
-					} else {
-						(Some(0), Some(0), Some(0))
-					}
+				if let Some(_logs) = output.logs.as_ref() {
+					todo!()
 				} else {
 					(Some(0), Some(0), Some(0))
 				}

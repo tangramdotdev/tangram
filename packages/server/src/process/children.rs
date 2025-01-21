@@ -302,7 +302,10 @@ impl Server {
 		}
 
 		// Get a token for the child.
-		let token = self.try_create_process_token(child).await?.ok_or_else(|| tg::error!("failed to create a token for the process"))?;
+		let token = self
+			.try_create_process_token(child)
+			.await?
+			.ok_or_else(|| tg::error!("failed to create a token for the process"))?;
 
 		// Get a database connection.
 		let connection = self
