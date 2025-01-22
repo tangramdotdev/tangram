@@ -1,8 +1,10 @@
 use crate::Server;
+use bytes::Bytes;
 use futures::TryStreamExt as _;
 use std::{path::Path, pin::pin};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::Ext as _;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 use super::Runtime;
 
@@ -36,6 +38,46 @@ pub async fn render(
 	} else {
 		Ok("<tangram value>".to_owned())
 	}
+}
+
+// Post process logs.
+pub fn post_log_task(
+	server: &Server,
+	process: &tg::process::Id,
+	remote: Option<&String>,
+	reader: impl AsyncRead + Send + 'static,
+) -> tokio::task::JoinHandle<tg::Result<()>> {
+	let server = server.clone();
+	let process = tg::Process::with_id(process.clone());
+	let remote = remote.cloned();
+	tokio::spawn(async move {
+		let mut reader = pin!(reader);
+		let mut buffer = vec![0; 4096];
+		loop {
+			let size = reader
+				.read(&mut buffer)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+			if size == 0 {
+				return Ok::<_, tg::Error>(());
+			}
+			let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+			if server.config.advanced.write_process_logs_to_stderr {
+				tokio::io::stderr()
+					.write_all(&bytes)
+					.await
+					.inspect_err(|error| {
+						tracing::error!(?error, "failed to write the build log to stderr");
+					})
+					.ok();
+			}
+			let arg = tg::process::log::post::Arg {
+				bytes,
+				remote: remote.clone(),
+			};
+			process.post_log(&server, arg).await?;
+		}
+	})
 }
 
 impl Runtime {

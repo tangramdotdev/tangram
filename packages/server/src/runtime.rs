@@ -23,6 +23,7 @@ pub enum Runtime {
 	Linux(linux::Runtime),
 }
 
+#[derive(Debug)]
 pub struct Output {
 	pub error: Option<tg::Error>,
 	pub exit: Option<tg::process::Exit>,

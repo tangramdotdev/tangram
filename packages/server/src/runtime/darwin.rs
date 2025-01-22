@@ -1,9 +1,8 @@
 use super::{proxy::Proxy, util::render};
 use crate::{temp::Temp, Server};
-use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	FutureExt as _, TryStreamExt as _,
+	TryStreamExt as _,
 };
 use indoc::writedoc;
 use num::ToPrimitive as _;
@@ -16,12 +15,11 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::Task;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
 #[derive(Clone)]
 pub struct Runtime {
-	server: Server,
+	pub(crate) server: Server,
 }
 
 impl Runtime {
@@ -36,17 +34,24 @@ impl Runtime {
 		process: &tg::process::Id,
 		command: &tg::Command,
 		remote: Option<String>,
-	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
-		// Try to reuse a process whose checksum is none or any.
-		let checksum = command.checksum(&self.server).await?;
-		if let Ok(value) =
-			super::util::try_reuse_process(&self.server, process, command, checksum.as_ref())
-				.boxed()
-				.await
-		{
-			return Ok((value, None));
+	) -> super::Output {
+		let (error, exit, value) = match self.run_inner(process, command, remote).await {
+			Ok((exit, value)) => (None, exit, value),
+			Err(error) => (Some(error), None, None),
 		};
+		super::Output {
+			error,
+			exit,
+			value,
+		}
+	}
 
+	pub async fn run_inner(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		remote: Option<String>,
+	) -> tg::Result<(Option<tg::process::Exit>, Option<tg::Value>)> {
 		// If the VFS is disabled, then check out the command's children.
 		if self.server.vfs.lock().unwrap().is_none() {
 			command
@@ -68,6 +73,7 @@ impl Runtime {
 
 		// Create a temp for the output.
 		let output_parent = Temp::new(&self.server);
+		tokio::fs::create_dir_all(output_parent.path()).await.map_err(|source| tg::error!(!source, "failed to create parent directory for output"))?;
 
 		// Run with or without the sandbox.
 		let sandbox = command.sandbox(&self.server).await?;
@@ -93,22 +99,15 @@ impl Runtime {
 				locked: true,
 				lockfile: false,
 			};
-			tg::Artifact::check_in(&self.server, arg)
+			let artifact = tg::Artifact::check_in(&self.server, arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
-				.into()
+				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
+			Some(tg::Value::from(artifact))
 		} else {
-			tg::Value::Null
+			None
 		};
 
-		// Checksum the output if necessary.
-		if let Some(checksum) = checksum.as_ref() {
-			super::util::checksum(&self.server, process, &value, checksum)
-				.boxed()
-				.await?;
-		}
-
-		Ok((value, Some(exit)))
+		Ok((Some(exit), value))
 	}
 
 	async fn run_unsandboxed(
@@ -118,8 +117,6 @@ impl Runtime {
 		remote: Option<String>,
 		output_parent: &Path,
 	) -> tg::Result<tg::process::Exit> {
-		let server = &self.server;
-
 		// Render the executable.
 		let Some(tg::command::Executable::Artifact(executable)) =
 			command.executable(&self.server).await?.as_ref().cloned()
@@ -190,39 +187,7 @@ impl Runtime {
 		}
 
 		// Spawn the log task.
-		let mut reader = child.stdout.take().unwrap();
-		let log_task = tokio::task::spawn({
-			let server = server.clone();
-			let process = tg::Process::with_id(process.clone());
-			let remote = remote.clone();
-			async move {
-				let mut buffer = vec![0; 4096];
-				loop {
-					let size = reader
-						.read(&mut buffer)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
-					if size == 0 {
-						return Ok::<_, tg::Error>(());
-					}
-					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(&bytes)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write the build log to stderr");
-							})
-							.ok();
-					}
-					let arg = tg::process::log::post::Arg {
-						bytes,
-						remote: remote.clone(),
-					};
-					process.post_log(&server, arg).await?;
-				}
-			}
-		});
+		let log_task = super::util::post_log_task(&self.server, process, remote.as_ref(), child.stdout.take().unwrap());
 
 		// Wait for the child to complete.
 		let exit = child
@@ -391,6 +356,11 @@ impl Runtime {
 		// Set up the sandbox.
 		unsafe {
 			command.pre_exec(move || {
+				// Redirect stderr to stdout.
+				if libc::dup2(libc::STDOUT_FILENO, libc::STDERR_FILENO) < 0 {
+					return Err(std::io::Error::last_os_error());
+				}
+
 				// Call `sandbox_init`.
 				let error = std::ptr::null_mut::<*const libc::c_char>();
 				let ret = sandbox_init(profile.as_ptr(), 0, error);
@@ -400,11 +370,6 @@ impl Runtime {
 					let error = *error;
 					let _message = CStr::from_ptr(error);
 					sandbox_free_error(error);
-					return Err(std::io::Error::last_os_error());
-				}
-
-				// Redirect stderr to stdout.
-				if libc::dup2(libc::STDOUT_FILENO, libc::STDERR_FILENO) < 0 {
 					return Err(std::io::Error::last_os_error());
 				}
 
@@ -424,39 +389,7 @@ impl Runtime {
 		}
 
 		// Spawn the log task.
-		let mut reader = child.stdout.take().unwrap();
-		let log_task = tokio::task::spawn({
-			let server = server.clone();
-			let process = tg::Process::with_id(process.clone());
-			let remote = remote.clone();
-			async move {
-				let mut buffer = vec![0; 4096];
-				loop {
-					let size = reader
-						.read(&mut buffer)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
-					if size == 0 {
-						return Ok::<_, tg::Error>(());
-					}
-					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(&bytes)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write the build log to stderr");
-							})
-							.ok();
-					}
-					let arg = tg::process::log::post::Arg {
-						bytes,
-						remote: remote.clone(),
-					};
-					process.post_log(&server, arg).await?;
-				}
-			}
-		});
+		let log_task = super::util::post_log_task(&self.server, process, remote.as_ref(), child.stdout.take().unwrap());
 
 		// Wait for the process to exit.
 		let exit = child

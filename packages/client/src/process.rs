@@ -131,10 +131,16 @@ impl Process {
 		let output = handle.get_process(&self.id).await?;
 		let output = match output.status {
 			Status::Canceled | Status::Failed => {
-				let error = output
-					.error
-					.ok_or_else(|| tg::error!("expected the error to be set"))?;
-				return Err(error);
+				if let Some(error) = output.error {
+					return Err(error);
+				}
+				if let Some(exit) = output.exit {
+					match exit {
+						tg::process::Exit::Code { code } => return Err(tg::error!("the process exited with code {code}")),
+						tg::process::Exit::Signal { signal } => return Err(tg::error!("the process exited with signal {signal} and no output")),
+					}
+				}
+				return Err(tg::error!("expected an error or exit status"));
 			},
 			Status::Succeeded => output
 				.output
