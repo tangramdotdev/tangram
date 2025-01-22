@@ -23,21 +23,73 @@ pub enum Runtime {
 	Linux(linux::Runtime),
 }
 
+pub struct Output {
+	pub error: Option<tg::Error>,
+	pub exit: Option<tg::process::Exit>,
+	pub value: Option<tg::Value>,
+}
+
 impl Runtime {
+	pub fn server(&self) -> &Server {
+		match self {
+			Self::Builtin(s) => &s.server,
+			Self::Js(s) => &s.server,
+			#[cfg(target_os = "linux")]
+			Self::Linux(s) => &s.server,
+			#[cfg(target_os = "macos")]
+			Self::Darwin(s) => &s.server,
+		}
+	}
+
 	pub async fn run(
 		&self,
 		process: &tg::process::Id,
 		command: &tg::Command,
-		remote: Option<String>,
-	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
-		match self {
-			Runtime::Builtin(runtime) => runtime.run(process, command, remote).boxed().await,
+		remote: Option<&String>,
+	) -> Output {
+		// Try to reuse a process whose checksum is `None` or `Unsafe`.
+		if let Ok(Some(output)) = self.try_reuse_process(process, &command).boxed().await {
+			return output;
+		};
+
+		// Run the command.
+		let mut output = match self {
+			Runtime::Builtin(runtime) => {
+				runtime.run(process, command, remote.cloned()).boxed().await
+			},
 			#[cfg(target_os = "macos")]
-			Runtime::Darwin(runtime) => runtime.run(process, command, remote).boxed().await,
-			Runtime::Js(runtime) => runtime.run(process, command, remote).boxed().await,
+			Runtime::Darwin(runtime) => runtime.run(process, command, remote.cloned()).boxed().await,
+			Runtime::Js(runtime) => runtime.run(process, command, remote.cloned()).boxed().await,
 			#[cfg(target_os = "linux")]
-			Runtime::Linux(runtime) => runtime.run(process, command, remote).boxed().await,
+			Runtime::Linux(runtime) => runtime.run(process, command, remote.cloned()).boxed().await,
+		};
+
+		// Get the checksum or add an error in the unlikely event that we were able to run the command but not get its object.
+		let checksum = match command.checksum(self.server()).await {
+			Ok(checksum) => checksum.clone(),
+			Err(source) => {
+				output
+					.error
+					.replace(tg::error!(!source, %process, "failed to get checksum of process"));
+				None
+			},
+		};
+
+		// Validate the checksum.
+		if let (Some(value), None, Some(checksum)) = (&output.value, &output.error, checksum) {
+			output.error = self.checksum(process, &value, &checksum).await.err();
 		}
+
+		// If there is an error, add it to the process's log.
+		if let Some(error) = &output.error {
+			let arg = tg::process::log::post::Arg {
+				bytes: error.to_string().into(),
+				remote: remote.cloned(),
+			};
+			self.server().try_post_process_log(process, arg).await.ok();
+		}
+
+		output
 	}
 }
 

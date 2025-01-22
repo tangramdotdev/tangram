@@ -6,7 +6,7 @@ use crate::{temp::Temp, Server};
 use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
-	FutureExt as _, TryStreamExt as _,
+	TryStreamExt as _,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -56,7 +56,7 @@ const ENV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/env_x86_64_linux"))
 
 #[derive(Clone)]
 pub struct Runtime {
-	server: Server,
+	pub(super) server: Server,
 	env: tg::File,
 	sh: tg::File,
 }
@@ -76,17 +76,20 @@ impl Runtime {
 		process: &tg::process::Id,
 		command: &tg::Command,
 		remote: Option<String>,
-	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
-		// Try to reuse a process whose checksum is none or any.
-		let checksum = command.checksum(&self.server).await?;
-		if let Ok(value) =
-			super::util::try_reuse_process(&self.server, process, &command, checksum.as_ref())
-				.boxed()
-				.await
-		{
-			return Ok((value, None));
+	) -> super::Output {
+		let (error, exit, value) = match self.run_inner(process, command, remote).await {
+			Ok((exit, value)) => (None, exit, value),
+			Err(error) => (Some(error), None, None),
 		};
+		super::Output { error, exit, value }
+	}
 
+	async fn run_inner(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		remote: Option<String>,
+	) -> tg::Result<(Option<tg::process::Exit>, Option<tg::Value>)> {
 		// If the VFS is disabled, then check out the target's children.
 		if self.server.vfs.lock().unwrap().is_none() {
 			command
@@ -163,23 +166,16 @@ impl Runtime {
 				locked: true,
 				lockfile: false,
 			};
-			tg::Artifact::check_in(&self.server, arg)
+			let artifact = tg::Artifact::check_in(&self.server, arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
-				.into()
+				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
+			Some(tg::Value::from(artifact))
 		} else {
-			tg::Value::Null
+			None
 		};
 
-		// Checksum the output if necessary.
-		if let Some(checksum) = checksum.as_ref() {
-			super::util::checksum(&self.server, process, &value, checksum)
-				.boxed()
-				.await?;
-		}
-
 		// Return the value.
-		Ok((value, Some(exit)))
+		Ok((Some(exit), value))
 	}
 
 	async fn run_unsandboxed(
@@ -1003,7 +999,7 @@ fn root(context: &Context) {
 		if ret == -1 {
 			abort_errno!("failed to duplicate stdout to the log");
 		}
-		let ret = libc::dup2(context.stdout.as_raw_fd(), libc::STDERR_FILENO);
+		let ret = libc::dup2(context.stderr.as_raw_fd(), libc::STDERR_FILENO);
 		if ret == -1 {
 			abort_errno!("failed to duplicate stderr to the log");
 		}

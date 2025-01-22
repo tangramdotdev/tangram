@@ -1,8 +1,10 @@
 use crate::Server;
-use futures::{FutureExt as _, TryStreamExt as _};
+use futures::TryStreamExt as _;
 use std::{path::Path, pin::pin};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::Ext as _;
+
+use super::Runtime;
 
 /// Render a value.
 pub async fn render(
@@ -36,146 +38,187 @@ pub async fn render(
 	}
 }
 
-pub async fn try_reuse_process(
-	server: &Server,
-	process: &tg::process::Id,
-	command: &tg::Command,
-	checksum: Option<&tg::Checksum>,
-) -> tg::Result<tg::Value> {
-	// Unwrap the checksum.
-	let Some(checksum) = checksum else {
-		return Err(tg::error!("failed to get the checksum"));
-	};
+impl Runtime {
+	pub async fn try_reuse_process(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+	) -> tg::Result<Option<super::Output>> {
+		// Get the checksum if set.
+		let Some(checksum) = command.checksum(self.server()).await?.clone() else {
+			return Ok(None);
+		};
 
-	// Break if the checksum type is none or unsafe.
-	if let tg::Checksum::None | tg::Checksum::Unsafe = &checksum {
-		return Err(tg::error!("inappropriate checksum type"));
+		// Break if the checksum type is none or unsafe.
+		if let tg::Checksum::None | tg::Checksum::Unsafe = &checksum {
+			return Ok(None);
+		}
+
+		// Search for an existing process with the checksum none or unsafe.
+		let Ok(Some(matching_process)) = self.find_matching_process(command).await else {
+			return Err(tg::error!("failed to find a matching process"));
+		};
+
+		// Wait for the process to finish.
+		let Some(stream) = self
+			.server()
+			.try_get_process_status(&matching_process)
+			.await?
+		else {
+			return Err(tg::error!("failed to get the process status stream"));
+		};
+		let Some(Ok(_)) = pin!(stream).last().await else {
+			return Err(
+				tg::error!(%process = matching_process, "failed to wait for the original process"),
+			)?;
+		};
+
+		// Get the original process.
+		let (error, exit, value) = self
+			.server()
+			.get_process(&matching_process)
+			.await
+			.map(|output| (output.error, output.exit, output.output))?;
+
+		// Return early if the original process has no output value.
+		let Some(value) = value else {
+			return Ok(None);
+		};
+
+		// Get the output value.
+		let value: tg::Value = value
+			.try_into()
+			.map_err(|_| tg::error!("failed to get matching process output"))?;
+
+		// Validate the checksum of the value.
+		self.checksum(process, &value, &checksum).await?;
+
+		// Copy the process children and log.
+		self.copy_process_children_and_log(&matching_process, process)
+			.await?;
+
+		// Return the output.
+		let output = super::Output {
+			error,
+			exit,
+			value: Some(value),
+		};
+		Ok(Some(output))
 	}
 
-	// Search for an existing process with the checksum none or unsafe.
-	let Ok(Some(matching_process)) = find_matching_process(server, command).await else {
-		return Err(tg::error!("failed to find a matching process"));
-	};
+	async fn find_matching_process(
+		&self,
+		command: &tg::Command,
+	) -> tg::Result<Option<tg::process::Id>> {
+		// Attempt to find a process with the checksum set to none.
+		let command = command.load(self.server()).await?;
+		let search_target = tg::command::Builder::with_object(&command)
+			.checksum(tg::Checksum::None)
+			.build();
+		let target_id = search_target.id(self.server()).await?;
+		let arg = tg::command::spawn::Arg {
+			create: false,
+			..Default::default()
+		};
+		if let Some(output) = self.server().try_spawn_command(&target_id, arg).await? {
+			return Ok(Some(output.process));
+		}
 
-	// Wait for the process to finish and get its output.
-	let output = tg::Process::with_id(matching_process.clone())
-		.output(server)
-		.boxed()
-		.await?;
+		// Attempt to find a process with the checksum set to unsafe.
+		let search_command = tg::command::Builder::with_object(&command)
+			.checksum(tg::Checksum::Unsafe)
+			.build();
+		let target_id = search_command.id(self.server()).await?;
+		let arg = tg::command::spawn::Arg {
+			create: false,
+			..Default::default()
+		};
+		if let Some(output) = self.server().try_spawn_command(&target_id, arg).await? {
+			return Ok(Some(output.process));
+		}
 
-	// Checksum the output.
-	super::util::checksum(server, &matching_process, &output, checksum)
-		.boxed()
-		.await?;
-
-	// Copy the process children and log.
-	copy_process_children_and_log(server, &matching_process, process).await?;
-
-	Ok(output)
-}
-
-async fn find_matching_process(
-	server: &Server,
-	command: &tg::Command,
-) -> tg::Result<Option<tg::process::Id>> {
-	// Attempt to find a process with the checksum set to none.
-	let command = command.load(server).await?;
-	let search_target = tg::command::Builder::with_object(&command)
-		.checksum(tg::Checksum::None)
-		.build();
-	let target_id = search_target.id(server).await?;
-	let arg = tg::command::spawn::Arg {
-		create: false,
-		..Default::default()
-	};
-	if let Some(output) = server.try_spawn_command(&target_id, arg).await? {
-		return Ok(Some(output.process));
+		Ok(None)
 	}
 
-	// Attempt to find a process with the checksum set to unsafe.
-	let search_command = tg::command::Builder::with_object(&command)
-		.checksum(tg::Checksum::Unsafe)
-		.build();
-	let target_id = search_command.id(server).await?;
-	let arg = tg::command::spawn::Arg {
-		create: false,
-		..Default::default()
-	};
-	if let Some(output) = server.try_spawn_command(&target_id, arg).await? {
-		return Ok(Some(output.process));
-	}
+	pub(super) async fn checksum(
+		&self,
+		process: &tg::process::Id,
+		value: &tg::Value,
+		checksum: &tg::Checksum,
+	) -> tg::Result<()> {
+		let algorithm = checksum.algorithm();
+		let algorithm = if algorithm == tg::checksum::Algorithm::None {
+			tg::checksum::Algorithm::Sha256
+		} else {
+			algorithm
+		};
 
-	Ok(None)
-}
+		// checksum = unsafe implies there is no checksum, so return Ok
+		if algorithm == tg::checksum::Algorithm::Unsafe {
+			return Ok(());
+		}
 
-async fn copy_process_children_and_log(
-	server: &Server,
-	src_process: &tg::process::Id,
-	dst_process: &tg::process::Id,
-) -> tg::Result<()> {
-	// Copy the children.
-	let arg = tg::process::children::get::Arg::default();
-	let mut src_children = pin!(server.get_process_children(src_process, arg).await?);
-	while let Some(chunk) = src_children.try_next().await? {
-		for child in chunk.data {
-			if !server.try_add_process_child(dst_process, &child).await? {
-				break;
-			}
+		// Create the checksum command.
+		let host = "builtin";
+		let args = vec![
+			"checksum".into(),
+			value.clone(),
+			algorithm.to_string().into(),
+		];
+		let command = tg::Command::builder(host).args(args).build();
+		let command_id = command.id(self.server()).await?;
+		let arg = tg::command::spawn::Arg {
+			create: true,
+			parent: Some(process.clone()),
+			..Default::default()
+		};
+
+		// Spawn the checksum process.
+		let process = self.server().spawn_command(&command_id, arg).await?.process;
+		let Some(stream) = self.server().try_get_process_status(&process).await? else {
+			return Err(tg::error!("failed to get the process status"));
+		};
+		let Some(Ok(status)) = pin!(stream).last().await else {
+			return Err(tg::error!("failed to get the last process status"));
+		};
+		if status.is_succeeded() {
+			Ok(())
+		} else {
+			Err(tg::error!("the checksum process failed"))
 		}
 	}
 
-	// Copy the log.
-	let arg = tg::process::log::get::Arg::default();
-	let mut src_log = pin!(server.get_process_log(src_process, arg).await?);
-	while let Some(chunk) = src_log.try_next().await? {
-		let arg = tg::process::log::post::Arg {
-			bytes: chunk.bytes,
-			remote: None,
-		};
-		server.try_post_process_log(dst_process, arg).await?;
-	}
+	async fn copy_process_children_and_log(
+		&self,
+		src_process: &tg::process::Id,
+		dst_process: &tg::process::Id,
+	) -> tg::Result<()> {
+		// Copy the children.
+		let arg = tg::process::children::get::Arg::default();
+		let mut src_children = pin!(self.server().get_process_children(src_process, arg).await?);
+		while let Some(chunk) = src_children.try_next().await? {
+			for child in chunk.data {
+				if !self
+					.server()
+					.try_add_process_child(dst_process, &child)
+					.await?
+				{
+					break;
+				}
+			}
+		}
 
-	Ok(())
-}
+		// Copy the log.
+		let arg = tg::process::log::get::Arg::default();
+		let mut src_log = pin!(server.get_process_log(src_process, arg).await?);
+		while let Some(chunk) = src_log.try_next().await? {
+			let arg = tg::process::log::post::Arg {
+				bytes: chunk.bytes,
+				remote: None,
+			};
+			server.try_post_process_log(dst_process, arg).await?;
+		}
 
-pub async fn checksum(
-	server: &Server,
-	process: &tg::process::Id,
-	value: &tg::Value,
-	checksum: &tg::Checksum,
-) -> tg::Result<()> {
-	let algorithm = checksum.algorithm();
-	let algorithm = if algorithm == tg::checksum::Algorithm::None {
-		tg::checksum::Algorithm::Sha256
-	} else {
-		algorithm
-	};
-	if algorithm == tg::checksum::Algorithm::Unsafe {
-		return Ok(());
-	}
-	let host = "builtin";
-	let args = vec![
-		"checksum".into(),
-		value.clone(),
-		algorithm.to_string().into(),
-	];
-	let command = tg::Command::builder(host).args(args).build();
-	let command_id = command.id(server).await?;
-	let arg = tg::command::spawn::Arg {
-		create: true,
-		parent: Some(process.clone()),
-		..Default::default()
-	};
-	let output = server.spawn_command(&command_id, arg).await?;
-	let Some(stream) = server.try_get_process_status(&output.process).await? else {
-		return Err(tg::error!("failed to get the process status"));
-	};
-	let Some(Ok(status)) = pin!(stream).last().await else {
-		return Err(tg::error!("failed to get the last process status"));
-	};
-	if status.is_succeeded() {
 		Ok(())
-	} else {
-		Err(tg::error!("the checksum process failed"))
 	}
 }

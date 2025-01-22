@@ -21,7 +21,7 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.js.m
 
 #[derive(Clone)]
 pub struct Runtime {
-	server: Server,
+	pub(super) server: Server,
 }
 
 struct State {
@@ -69,9 +69,7 @@ impl Runtime {
 		process: &tg::process::Id,
 		command: &tg::Command,
 		remote: Option<String>,
-	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
-		let server = &self.server;
-
+	) -> super::Output {
 		// Create a handle to the main runtime.
 		let main_runtime_handle = tokio::runtime::Handle::current();
 
@@ -79,15 +77,13 @@ impl Runtime {
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
 
 		// Spawn the task.
-		let task = server.local_pool_handle.spawn_pinned({
+		let task = self.server.local_pool_handle.spawn_pinned({
 			let runtime = self.clone();
-			let server = server.clone();
 			let process = process.clone();
 			let command = command.clone();
 			move || async move {
 				runtime
 					.run_inner(
-						&server,
 						&process,
 						&command,
 						remote,
@@ -107,40 +103,31 @@ impl Runtime {
 			}
 		};
 
-		task.await.unwrap().map(|value| (value, None))
+		let (error, exit, value) = match task.await.unwrap() {
+			Ok(value) => (None, None::<tg::process::Exit>, Some(value)),
+			Err(error) => (Some(error), None, None),
+		};
+		super::Output { error, exit, value }
 	}
 
 	async fn run_inner(
 		&self,
-		server: &Server,
 		process: &tg::process::Id,
 		command: &tg::Command,
 		remote: Option<String>,
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<tg::Value> {
-		// Get the checksum.
-		let checksum = command.checksum(server).await?;
-
-		// Try to reuse a process whose checksum is none or any.
-		if let Ok(value) =
-			super::util::try_reuse_process(server, process, command, checksum.as_ref())
-				.boxed()
-				.await
-		{
-			return Ok(value);
-		};
-
 		// Get the root module.
 		let root = command
-			.executable(server)
+			.executable(&self.server)
 			.await?
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the command to have an executable"))?
 			.try_unwrap_module_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected the executable to be a module"))?
-			.data(server)
+			.data(&self.server)
 			.await?;
 		let root = tg::Module {
 			kind: root.kind,
@@ -155,7 +142,7 @@ impl Runtime {
 		// Start the log task.
 		let (log_sender, mut log_receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
 		let log_task = main_runtime_handle.spawn({
-			let server = server.clone();
+			let server = self.server.clone();
 			let process = process.clone();
 			let remote = remote.clone();
 			async move {
@@ -187,14 +174,14 @@ impl Runtime {
 			process: process.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-			compiler: Compiler::new(server, main_runtime_handle.clone()),
+			compiler: Compiler::new(&self.server, main_runtime_handle.clone()),
 			log_sender: RefCell::new(Some(log_sender)),
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
 			rejection: tokio::sync::watch::channel(None).0,
 			remote: remote.clone(),
 			root,
-			server: server.clone(),
+			server: self.server.clone(),
 		});
 		scopeguard::defer! {
 			state.futures.borrow_mut().clear();
@@ -404,15 +391,6 @@ impl Runtime {
 		// Stop and await the compiler.
 		state.compiler.stop();
 		state.compiler.wait().await;
-
-		// Checksum the output if necessary.
-		if let Ok(value) = &result {
-			if let Some(checksum) = checksum.as_ref() {
-				super::util::checksum(server, process, value, checksum)
-					.boxed()
-					.await?;
-			}
-		}
 
 		result
 	}

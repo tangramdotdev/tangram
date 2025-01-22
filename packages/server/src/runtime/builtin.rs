@@ -12,7 +12,7 @@ mod extract;
 
 #[derive(Clone)]
 pub struct Runtime {
-	server: Server,
+	pub(super) server: Server,
 }
 
 impl Runtime {
@@ -27,23 +27,24 @@ impl Runtime {
 		process: &tg::process::Id,
 		command: &tg::Command,
 		remote: Option<String>,
-	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
+	) -> super::Output {
+		let (error, exit, value) = match self.run_inner(process, command, remote).await {
+			Ok(value) => (None, None::<tg::process::Exit>, Some(value)),
+			Err(error) => (Some(error), None, None),
+		};
+		super::Output { error, exit, value }
+	}
+
+	async fn run_inner(
+		&self,
+		process: &tg::process::Id,
+		command: &tg::Command,
+		remote: Option<String>,
+	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Get the args.
 		let args = command.args(server).await?;
-
-		// Get the checksum.
-		let checksum = command.checksum(server).await?;
-
-		// Try to reuse a process whose checksum is none or any.
-		if let Ok(value) =
-			super::util::try_reuse_process(server, process, command, checksum.as_ref())
-				.boxed()
-				.await
-		{
-			return Ok((value, None));
-		};
 
 		// Get the name.
 		let name = args
@@ -53,7 +54,7 @@ impl Runtime {
 			.ok()
 			.ok_or_else(|| tg::error!("expected the first arg to be a string"))?;
 
-		let output = match name.as_str() {
+		let value = match name.as_str() {
 			"archive" => self.archive(process, command, remote).boxed(),
 			"bundle" => self.bundle(process, command, remote).boxed(),
 			"checksum" => self.checksum(process, command, remote).boxed(),
@@ -67,13 +68,6 @@ impl Runtime {
 		}
 		.await?;
 
-		// Checksum the output if necessary.
-		if let Some(checksum) = checksum.as_ref() {
-			super::util::checksum(server, process, &output, checksum)
-				.boxed()
-				.await?;
-		}
-
-		Ok((output, None))
+		Ok(value)
 	}
 }

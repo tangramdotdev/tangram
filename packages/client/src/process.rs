@@ -104,6 +104,20 @@ impl Process {
 		Ok(Some(command))
 	}
 
+	pub async fn exit<H>(&self, handle: &H) -> tg::Result<Option<tg::process::Exit>>
+	where
+		H: tg::Handle,
+	{
+		let Some(stream) = handle.try_get_process_status(&self.id).await? else {
+			return Err(tg::error!("failed to get the process status stream"));
+		};
+		let Some(Ok(_)) = pin!(stream).last().await else {
+			return Err(tg::error!("failed to get the last process status"));
+		};
+		let output = handle.get_process(&self.id).await?;
+		Ok(output.exit)
+	}
+
 	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,

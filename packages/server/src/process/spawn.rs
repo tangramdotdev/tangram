@@ -1,7 +1,5 @@
-use crate::{BuildPermit, Server};
-use futures::{
-	future, stream::FuturesUnordered, Future, FutureExt as _, TryFutureExt as _, TryStreamExt as _,
-};
+use crate::{runtime, BuildPermit, Server};
+use futures::{future, Future, FutureExt as _, TryFutureExt as _};
 use std::{sync::Arc, time::Duration};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;
@@ -123,37 +121,31 @@ impl Server {
 		}
 
 		// Run.
-		let result = self
+		let output = self
 			.process_task_inner(process.clone(), remote.clone())
-			.await;
-		let (output, exit, status, error) = match result {
-			Ok((output, exit)) => (Some(output), exit, tg::process::Status::Succeeded, None),
-			Err(error) => (None, None, tg::process::Status::Failed, Some(error)),
+			.await?;
+
+		// Compute the status.
+		let status = match (&output.value, &output.exit, &output.error) {
+			(_, _, Some(_)) | (_, Some(tg::process::Exit::Signal { signal: _ }), _) => {
+				tg::process::Status::Failed
+			},
+			(_, Some(tg::process::Exit::Code { code }), _) if *code != 0 => {
+				tg::process::Status::Failed
+			},
+			_ => tg::process::Status::Succeeded,
 		};
 
-		// Push the output if the process is remote.
-		if let Some(remote) = remote.clone() {
-			if status.is_succeeded() {
-				let value = output.clone().unwrap();
-				let arg = tg::object::push::Arg { remote };
-				value
-					.objects()
-					.iter()
-					.map(|object| object.push(self, arg.clone()))
-					.collect::<FuturesUnordered<_>>()
-					.try_collect::<Vec<_>>()
-					.await?;
-			}
-		}
-
 		// Get the output data.
-		let output = match &output {
+		let value = match &output.value {
 			Some(output) => Some(output.data(self).await?),
+			// If the process succeeded but had no output, mark it as having the value "null"
+			None if status == tg::process::Status::Succeeded => Some(tg::value::Data::Null),
 			None => None,
 		};
 
 		// Finish the process.
-		self.try_finish_process_local(&process, error, output, exit, status)
+		self.try_finish_process_local(&process, output.error, value, output.exit, status)
 			.await?;
 
 		Ok::<_, tg::Error>(())
@@ -163,7 +155,7 @@ impl Server {
 		&self,
 		process: tg::process::Id,
 		remote: Option<String>,
-	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
+	) -> tg::Result<runtime::Output> {
 		// Get the runtime.
 		let command = self
 			.try_get_process_local(&process)
@@ -181,25 +173,7 @@ impl Server {
 				|| tg::error!(?id = process, ?host = &*host, "failed to find a runtime for the process"),
 			)?
 			.clone();
-
-		// Run.
-		let result = runtime.run(&process, &command, remote.clone()).await;
-
-		// Log an error if one occurred.
-		if let Err(error) = &result {
-			let options = &self.config.advanced.error_trace_options;
-			let trace = error.trace(options);
-			let bytes = trace.to_string().into();
-			let arg = tg::process::log::post::Arg {
-				bytes,
-				remote: remote.clone(),
-			};
-			if !self.try_post_process_log(&process, arg).await?.added {
-				return Err(tg::error!("failed to add error to process log"));
-			}
-		}
-
-		result
+		Ok(runtime.run(&process, &command, remote.as_ref()).await)
 	}
 
 	async fn heartbeat_task(
