@@ -43,7 +43,7 @@ pub fn syscall<'s>(
 		"object_load" => async_(scope, &args, self::object::load),
 		"object_store" => async_(scope, &args, self::object::store),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
-		"target_output" => async_(scope, &args, self::command::output),
+		"command_output" => async_(scope, &args, self::command::output),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 

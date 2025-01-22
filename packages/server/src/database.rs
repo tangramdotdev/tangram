@@ -113,7 +113,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			for each row
 			when (new.incomplete_children is null)
 			begin
-				update objects 
+				update objects
 				set incomplete_children = (
 					select count(*)
 					from object_children
@@ -128,11 +128,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			for each row
 			when (old.complete = 0 and new.complete = 1)
 			begin
-				update objects 
+				update objects
 				set incomplete_children = incomplete_children - 1
 				where id in (
-					select object 
-					from object_children 
+					select object
+					from object_children
 					where child = new.id
 				);
 			end;
@@ -187,8 +187,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create table process_children (
 				process text not null,
 				child text not null,
-				position integer not null,
-				token text not null
+				position integer not null
 			);
 
 			create unique index process_children_process_child_index on process_children (process, child);

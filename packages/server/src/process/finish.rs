@@ -80,10 +80,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the children.
-		#[derive(Clone, serde::Deserialize)]
-		struct Row {
-			child: tg::process::Id,
-		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -95,7 +91,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let children = connection
-			.query_all_value_into::<Row>(statement.into(), params)
+			.query_all_value_into::<tg::process::Id>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -106,7 +102,7 @@ impl Server {
 		children
 			.clone()
 			.into_iter()
-			.map(|row| async move {
+			.map(|child| async move {
 				let arg = tg::process::finish::Arg {
 					error: Some(tg::error!("the parent was finished")),
 					exit: None,
@@ -114,7 +110,7 @@ impl Server {
 					remote: None,
 					status: tg::process::Status::Canceled,
 				};
-				self.try_finish_process(&row.child, arg).await?;
+				self.try_finish_process(&child, arg).await?;
 				Ok::<_, tg::Error>(())
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -125,8 +121,8 @@ impl Server {
 		if status != tg::process::status::Status::Canceled
 			&& children
 				.iter()
-				.map(|row| async move {
-					pin!(self.get_process_status(&row.child).await?)
+				.map(|child| async move {
+					pin!(self.get_process_status(child).await?)
 						.try_next()
 						.await?
 						.ok_or_else(|| tg::error!("failed to get the process status"))
