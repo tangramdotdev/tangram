@@ -39,11 +39,7 @@ impl Runtime {
 			Ok((exit, value)) => (None, exit, value),
 			Err(error) => (Some(error), None, None),
 		};
-		super::Output {
-			error,
-			exit,
-			value,
-		}
+		super::Output { error, exit, value }
 	}
 
 	pub async fn run_inner(
@@ -73,7 +69,11 @@ impl Runtime {
 
 		// Create a temp for the output.
 		let output_parent = Temp::new(&self.server);
-		tokio::fs::create_dir_all(output_parent.path()).await.map_err(|source| tg::error!(!source, "failed to create parent directory for output"))?;
+		tokio::fs::create_dir_all(output_parent.path())
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to create parent directory for output")
+			})?;
 
 		// Run with or without the sandbox.
 		let sandbox = command.sandbox(&self.server).await?;
@@ -187,7 +187,12 @@ impl Runtime {
 		}
 
 		// Spawn the log task.
-		let log_task = super::util::post_log_task(&self.server, process, remote.as_ref(), child.stdout.take().unwrap());
+		let log_task = super::util::post_log_task(
+			&self.server,
+			process,
+			remote.as_ref(),
+			child.stdout.take().unwrap(),
+		);
 
 		// Wait for the child to complete.
 		let exit = child
@@ -389,7 +394,12 @@ impl Runtime {
 		}
 
 		// Spawn the log task.
-		let log_task = super::util::post_log_task(&self.server, process, remote.as_ref(), child.stdout.take().unwrap());
+		let log_task = super::util::post_log_task(
+			&self.server,
+			process,
+			remote.as_ref(),
+			child.stdout.take().unwrap(),
+		);
 
 		// Wait for the process to exit.
 		let exit = child

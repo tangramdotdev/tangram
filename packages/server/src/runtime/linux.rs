@@ -3,7 +3,6 @@ use super::{
 	util::render,
 };
 use crate::{temp::Temp, Server};
-use bytes::Bytes;
 use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
@@ -235,7 +234,8 @@ impl Runtime {
 			.await?;
 
 		// Spawn the child process.
-		let mut child = tokio::process::Command::new(executable)
+		let mut command = tokio::process::Command::new(executable);
+		command
 			.kill_on_drop(true)
 			.env_clear()
 			.current_dir(cwd)
@@ -244,44 +244,27 @@ impl Runtime {
 			.env("OUTPUT", output_parent.join("output"))
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::piped())
-			.stderr(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::piped());
+		unsafe {
+			command.pre_exec(move || {
+				// Redirect stderr to stdout.
+				if libc::dup2(libc::STDOUT_FILENO, libc::STDERR_FILENO) < 0 {
+					return Err(std::io::Error::last_os_error());
+				}
+				Ok(())
+			});
+		}
+		let mut child = command
 			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+			.map_err(|source| tg::error!(!source, "failed to spawn the child process"))?;
 
 		// Spawn the log task.
-		let mut reader = child.stdout.take().unwrap();
-		let log_task = tokio::task::spawn({
-			let server = self.server.clone();
-			let process = tg::Process::with_id(process.clone());
-			let remote = remote.clone();
-			async move {
-				let mut buffer = vec![0; 4096];
-				loop {
-					let size = reader
-						.read(&mut buffer)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
-					if size == 0 {
-						return Ok::<_, tg::Error>(());
-					}
-					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(&bytes)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write the build log to stderr");
-							})
-							.ok();
-					}
-					let arg = tg::process::log::post::Arg {
-						bytes,
-						remote: remote.clone(),
-					};
-					process.post_log(&server, arg).await?;
-				}
-			}
-		});
+		let log_task = super::util::post_log_task(
+			&self.server,
+			process,
+			remote.as_ref(),
+			child.stdout.take().unwrap(),
+		);
 
 		// Wait for the child to complete.
 		let exit = child
@@ -815,39 +798,8 @@ impl Runtime {
 		};
 
 		// Spawn the log task.
-		let mut reader = stdout_recv;
-		let log_task = tokio::task::spawn({
-			let server = server.clone();
-			let process = tg::Process::with_id(process.clone());
-			let remote = remote.clone();
-			async move {
-				let mut buffer = vec![0; 4096];
-				loop {
-					let size = reader
-						.read(&mut buffer)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
-					if size == 0 {
-						return Ok::<_, tg::Error>(());
-					}
-					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(&bytes)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write the build log to stderr");
-							})
-							.ok();
-					}
-					let arg = tg::process::log::post::Arg {
-						bytes,
-						remote: remote.clone(),
-					};
-					process.post_log(&server, arg).await?;
-				}
-			}
-		});
+		let log_task =
+			super::util::post_log_task(&self.server, process, remote.as_ref(), stdout_recv);
 
 		// Receive the guest process's PID from the socket.
 		let guest_process_pid: libc::pid_t = host_socket.read_i32_le().await.map_err(|error| {

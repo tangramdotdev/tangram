@@ -45,9 +45,9 @@ impl Server {
 		}
 
 		// Open the file.
-		let file = tokio::fs::File::open(path)
-			.await
-			.map_err(|source| tg::error!(!source, %path = path.display(), "failed to open the file"))?;
+		let file = tokio::fs::File::open(path).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
+		)?;
 
 		// Get a database connection.
 		let mut connection = self
