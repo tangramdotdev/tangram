@@ -5,11 +5,11 @@ use tangram_client::{self as tg, handle::Ext as _};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
-	pub process: tg::process::Id,
-
 	#[arg(long)]
 	pub pretty: Option<bool>,
+
+	#[arg(index = 1)]
+	pub process: tg::process::Id,
 }
 
 impl Cli {

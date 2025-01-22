@@ -67,7 +67,7 @@ impl Cli {
 		} = args;
 		match item {
 			Either::Left(process) => {
-				self.command_process_get(crate::process::get::Args { process, pretty })
+				self.command_process_get(crate::process::get::Args { pretty, process })
 					.await?;
 			},
 			Either::Right(object) => {

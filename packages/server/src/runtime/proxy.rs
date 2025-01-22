@@ -316,7 +316,7 @@ impl tg::Handle for Proxy {
 		self.server.try_get_process_log_stream(id, arg)
 	}
 
-	async fn try_add_process_log(
+	async fn try_post_process_log(
 		&self,
 		_id: &tg::process::Id,
 		_arg: tg::process::log::post::Arg,

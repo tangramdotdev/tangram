@@ -130,10 +130,9 @@ async fn copy_process_children_and_log(
 	while let Some(chunk) = src_log.try_next().await? {
 		let arg = tg::process::log::post::Arg {
 			bytes: chunk.bytes,
-			kind: chunk.kind,
 			remote: None,
 		};
-		server.try_add_process_log(dst_process, arg).await?;
+		server.try_post_process_log(dst_process, arg).await?;
 	}
 
 	Ok(())

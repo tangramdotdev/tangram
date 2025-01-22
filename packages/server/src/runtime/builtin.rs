@@ -36,7 +36,7 @@ impl Runtime {
 		// Get the checksum.
 		let checksum = command.checksum(server).await?;
 
-		// Try to reuse a process whose checksum is `None` or `Unsafe`.
+		// Try to reuse a process whose checksum is none or any.
 		if let Ok(value) =
 			super::util::try_reuse_process(server, process, command, checksum.as_ref())
 				.boxed()

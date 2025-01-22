@@ -183,7 +183,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn try_add_process_log(
+	fn try_post_process_log(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,

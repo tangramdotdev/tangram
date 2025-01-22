@@ -122,7 +122,7 @@ impl Runtime {
 		// Get the checksum.
 		let checksum = command.checksum(server).await?;
 
-		// Try to reuse a process whose checksum is `None` or `Unsafe`.
+		// Try to reuse a process whose checksum is none or any.
 		if let Ok(value) =
 			super::util::try_reuse_process(server, process, command, checksum.as_ref())
 				.boxed()
@@ -171,10 +171,9 @@ impl Runtime {
 					}
 					let arg = tg::process::log::post::Arg {
 						bytes: string.into(),
-						kind: tg::process::log::Kind::Stdout,
 						remote: remote.clone(),
 					};
-					server.try_add_process_log(&process, arg).await.ok();
+					server.try_post_process_log(&process, arg).await.ok();
 				}
 			}
 		});

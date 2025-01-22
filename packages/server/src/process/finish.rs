@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{future, stream::FuturesUnordered, FutureExt as _, StreamExt, TryStreamExt as _};
+use futures::{stream::FuturesUnordered, FutureExt as _, StreamExt, TryStreamExt as _};
 use indoc::formatdoc;
 use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext};
@@ -146,36 +146,42 @@ impl Server {
 		if let (Some(output), Some(expected)) =
 			(output.clone(), command.checksum(self).await?.clone())
 		{
-			match expected {
-				tg::Checksum::Unsafe => (),
-				tg::Checksum::Blake3(_)
-				| tg::Checksum::Sha256(_)
-				| tg::Checksum::Sha512(_)
-				| tg::Checksum::None => {
-					let value: tg::Value = output.try_into()?;
-					if let Err(checksum_error) = self
-						.verify_checksum(id.clone(), &value, &expected)
-						.boxed()
-						.await
-					{
-						status = tg::process::status::Status::Failed;
-						error = Some(checksum_error);
-					};
-				},
-			};
+			let value: tg::Value = output.try_into()?;
+			if let Err(checksum_error) = self
+				.verify_checksum(id.clone(), &value, &expected)
+				.boxed()
+				.await
+			{
+				status = tg::process::status::Status::Failed;
+				error = Some(checksum_error);
+			}
 		}
 
-		// Create blobs for the log.
-		let stdout = self.try_create_process_log_blob(id, tg::process::log::Kind::Stdout);
-		let stderr = self.try_create_process_log_blob(id, tg::process::log::Kind::Stderr);
-		let (stdout, stderr) = future::join(stdout, stderr).await;
-		let stdout = stdout?;
-		let stderr = stderr?;
-
-		let logs = tg::value::Data::Array(vec![
-			tg::value::Data::Object(stdout.clone().into()),
-			tg::value::Data::Object(stderr.clone().into()),
-		]);
+		// Create a blob from the log.
+		let log_path = self.logs_path().join(id.to_string());
+		let exists = tokio::fs::try_exists(&log_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
+		let tg::blob::create::Output { blob: log, .. } = if exists {
+			let output = self
+				.create_blob_with_path(&log_path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?;
+			tokio::fs::remove_file(&log_path)
+				.await
+				.inspect_err(|error| tracing::error!(?error, "failed to remove the log file"))
+				.ok();
+			output
+		} else {
+			let reader = crate::process::log::Reader::new(self, id)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the blob reader for the log")
+				})?;
+			self.create_blob_with_reader(reader)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?
+		};
 
 		// Get a database connection.
 		let connection = self
@@ -198,22 +204,20 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Add the log objects to the process objects.
-		for object in [stdout, stderr] {
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					insert into process_objects (process, object)
-					values ({p}1, {p}2)
-					on conflict (process, object) do nothing;
-				"
-			);
-			let params = db::params![id, object];
-			connection
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
+		// Add the log to the process objects.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into process_objects (process, object)
+				values ({p}1, {p}2)
+				on conflict (process, object) do nothing;
+			"
+		);
+		let params = db::params![id, log];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Add the output's children to the process objects.
 		let objects = output
@@ -246,7 +250,7 @@ impl Server {
 					error = {p}1,
 					finished_at = {p}2,
 					heartbeat_at = null,
-					logs = {p}3,
+					log = {p}3,
 					output = {p}4,
 					exit = {p}5,
 					status = {p}6
@@ -257,7 +261,7 @@ impl Server {
 		let params = db::params![
 			error.map(db::value::Json),
 			finished_at,
-			logs,
+			log,
 			output.map(db::value::Json),
 			exit.map(db::value::Json),
 			status,
@@ -285,7 +289,9 @@ impl Server {
 			}
 		});
 
-		Ok(tg::process::finish::Output { finished: true })
+		let output = tg::process::finish::Output { finished: true };
+
+		Ok(output)
 	}
 
 	async fn verify_checksum(
@@ -294,6 +300,10 @@ impl Server {
 		value: &tg::Value,
 		expected: &tg::Checksum,
 	) -> tg::Result<()> {
+		if matches!(expected, tg::Checksum::Unsafe) {
+			return Ok(());
+		}
+
 		// Create the command.
 		let host = "builtin";
 		let algorithm = if expected.algorithm() == tg::checksum::Algorithm::None {

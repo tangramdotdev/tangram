@@ -16,7 +16,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::Task;
-use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use url::Url;
 
 #[derive(Clone)]
@@ -37,7 +37,7 @@ impl Runtime {
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
-		// Try to reuse a process whose checksum is `None` or `Unsafe`.
+		// Try to reuse a process whose checksum is none or any.
 		let checksum = command.checksum(&self.server).await?;
 		if let Ok(value) =
 			super::util::try_reuse_process(&self.server, process, command, checksum.as_ref())
@@ -118,6 +118,8 @@ impl Runtime {
 		remote: Option<String>,
 		output_parent: &Path,
 	) -> tg::Result<tg::process::Exit> {
+		let server = &self.server;
+
 		// Render the executable.
 		let Some(tg::command::Executable::Artifact(executable)) =
 			command.executable(&self.server).await?.as_ref().cloned()
@@ -179,7 +181,7 @@ impl Runtime {
 			.stdout(std::process::Stdio::piped())
 			.stderr(std::process::Stdio::piped())
 			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn process"))?;
+			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 
 		// If this future is dropped, then kill its process tree.
 		let pid = child.id().unwrap();
@@ -187,21 +189,40 @@ impl Runtime {
 			kill_process_tree(pid);
 		}
 
-		// Spawn the log tasks.
-		let stdout_task = tokio::task::spawn(log_task(
-			self.server.clone(),
-			process.clone(),
-			remote.clone(),
-			tg::process::log::Kind::Stdout,
-			child.stdout.take().unwrap(),
-		));
-		let stderr_task = tokio::task::spawn(log_task(
-			self.server.clone(),
-			process.clone(),
-			remote.clone(),
-			tg::process::log::Kind::Stderr,
-			child.stderr.take().unwrap(),
-		));
+		// Spawn the log task.
+		let mut reader = child.stdout.take().unwrap();
+		let log_task = tokio::task::spawn({
+			let server = server.clone();
+			let process = tg::Process::with_id(process.clone());
+			let remote = remote.clone();
+			async move {
+				let mut buffer = vec![0; 4096];
+				loop {
+					let size = reader
+						.read(&mut buffer)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+					if size == 0 {
+						return Ok::<_, tg::Error>(());
+					}
+					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+					if server.config.advanced.write_process_logs_to_stderr {
+						tokio::io::stderr()
+							.write_all(&bytes)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to write the build log to stderr");
+							})
+							.ok();
+					}
+					let arg = tg::process::log::post::Arg {
+						bytes,
+						remote: remote.clone(),
+					};
+					process.post_log(&server, arg).await?;
+				}
+			}
+		});
 
 		// Wait for the child to complete.
 		let exit = child
@@ -216,15 +237,11 @@ impl Runtime {
 			return Err(tg::error!(%process, "expected an exit code or signal"));
 		};
 
-		// Join the log tasks.
-		stdout_task
+		// Wait for the log task to complete.
+		log_task
 			.await
-			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))?
-			.map_err(|source| tg::error!(!source, "the stdout task panicked"))?;
-		stderr_task
-			.await
-			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))?
-			.map_err(|source| tg::error!(!source, "the stderr task panicked"))?;
+			.map_err(|source| tg::error!(!source, "failed to join the log task"))?
+			.map_err(|source| tg::error!(!source, "the log task panicked"))?;
 
 		// Return the exit status.
 		Ok(exit)
@@ -406,21 +423,40 @@ impl Runtime {
 			kill_process_tree(pid);
 		}
 
-		// Spawn the log tasks.
-		let stdout_task = tokio::task::spawn(log_task(
-			self.server.clone(),
-			process.clone(),
-			remote.clone(),
-			tg::process::log::Kind::Stdout,
-			child.stdout.take().unwrap(),
-		));
-		let stderr_task = tokio::task::spawn(log_task(
-			self.server.clone(),
-			process.clone(),
-			remote.clone(),
-			tg::process::log::Kind::Stderr,
-			child.stderr.take().unwrap(),
-		));
+		// Spawn the log task.
+		let mut reader = child.stdout.take().unwrap();
+		let log_task = tokio::task::spawn({
+			let server = server.clone();
+			let process = tg::Process::with_id(process.clone());
+			let remote = remote.clone();
+			async move {
+				let mut buffer = vec![0; 4096];
+				loop {
+					let size = reader
+						.read(&mut buffer)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+					if size == 0 {
+						return Ok::<_, tg::Error>(());
+					}
+					let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+					if server.config.advanced.write_process_logs_to_stderr {
+						tokio::io::stderr()
+							.write_all(&bytes)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to write the build log to stderr");
+							})
+							.ok();
+					}
+					let arg = tg::process::log::post::Arg {
+						bytes,
+						remote: remote.clone(),
+					};
+					process.post_log(&server, arg).await?;
+				}
+			}
+		});
 
 		// Wait for the process to exit.
 		let exit = child
@@ -435,15 +471,11 @@ impl Runtime {
 			return Err(tg::error!(%process, "expected an exit code or signal"));
 		};
 
-		// Join the log tasks.
-		stdout_task
+		// Wait for the log task to complete.
+		log_task
 			.await
-			.map_err(|source| tg::error!(!source, "failed to join the stdout task"))?
-			.map_err(|source| tg::error!(!source, "the stdout task panicked"))?;
-		stderr_task
-			.await
-			.map_err(|source| tg::error!(!source, "failed to join the stderr task"))?
-			.map_err(|source| tg::error!(!source, "the stderr task panicked"))?;
+			.map_err(|source| tg::error!(!source, "failed to join the log task"))?
+			.map_err(|source| tg::error!(!source, "the log task panicked"))?;
 
 		// Stop the proxy task.
 		proxy_task.stop();
@@ -718,57 +750,6 @@ fn kill_process_tree(pid: u32) {
 		unsafe { libc::kill(*pid, libc::SIGKILL) };
 		let mut status = 0;
 		unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
-	}
-}
-
-async fn log_task(
-	server: Server,
-	process: tg::process::Id,
-	remote: Option<String>,
-	kind: tg::process::log::Kind,
-	reader: impl AsyncRead,
-) -> tg::Result<()> {
-	let mut reader = std::pin::pin!(reader);
-	let mut buffer = vec![0; 4096];
-	loop {
-		let size = reader
-			.read(&mut buffer)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read from stdout"))?;
-		if size == 0 {
-			return Ok::<_, tg::Error>(());
-		}
-		let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-		if server.config.advanced.write_process_logs_to_stderr {
-			match kind {
-				tg::process::log::Kind::Stdout => {
-					tokio::io::stdout()
-						.write_all(&bytes)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(?error, "failed to write to stdout");
-						})
-						.ok();
-				},
-				tg::process::log::Kind::Stderr => {
-					tokio::io::stderr()
-						.write_all(&bytes)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(?error, "failed to write to stderr");
-						})
-						.ok();
-				},
-			}
-		}
-		let arg = tg::process::log::post::Arg {
-			bytes,
-			kind,
-			remote: remote.clone(),
-		};
-		if let Err(error) = server.try_add_process_log(&process, arg).await {
-			tracing::error!(?error, "failed to add the process log");
-		}
 	}
 }
 

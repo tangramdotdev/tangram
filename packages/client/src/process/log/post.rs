@@ -9,8 +9,6 @@ pub struct Arg {
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
 
-	pub kind: tg::process::log::Kind,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 }
@@ -21,18 +19,22 @@ pub struct Output {
 }
 
 impl tg::Process {
-	pub async fn add_log<H>(&self, handle: &H, arg: tg::process::log::post::Arg) -> tg::Result<bool>
+	pub async fn post_log<H>(
+		&self,
+		handle: &H,
+		arg: tg::process::log::post::Arg,
+	) -> tg::Result<bool>
 	where
 		H: tg::Handle,
 	{
 		let id = self.id();
-		let output = handle.try_add_process_log(id, arg).await?;
+		let output = handle.try_post_process_log(id, arg).await?;
 		Ok(output.added)
 	}
 }
 
 impl tg::Client {
-	pub async fn try_add_process_log(
+	pub async fn try_post_process_log(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,

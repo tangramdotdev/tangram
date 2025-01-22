@@ -77,7 +77,7 @@ impl Runtime {
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> tg::Result<(tg::Value, Option<tg::process::Exit>)> {
-		// Try to reuse a process whose checksum is `None` or `Unsafe`.
+		// Try to reuse a process whose checksum is none or any.
 		let checksum = command.checksum(&self.server).await?;
 		if let Ok(value) =
 			super::util::try_reuse_process(&self.server, process, &command, checksum.as_ref())
@@ -115,7 +115,7 @@ impl Runtime {
 				tg::error!(!source, "failed to create the output parent directory")
 			})?;
 
-		// Get the sandbox parameters
+		// Get the sandbox.
 		let sandbox = command.sandbox(&self.server).await?;
 
 		// Run with or without the sandbox.
@@ -126,11 +126,9 @@ impl Runtime {
 						"cannot run a process with sandbox.filesystem and !sandbox.network"
 					));
 				}
-				// TODO: Granular permissions on Linux.
 				self.run_unsandboxed(process, command, remote, output_parent.path())
 					.await?
 			} else {
-				// Error if cwd is set.
 				if command.cwd(&self.server).await?.is_some() {
 					return Err(
 						tg::error!(%process, "cannot run a process with cwd set and sandbox.filesystem = false"),
@@ -152,10 +150,10 @@ impl Runtime {
 
 		// Create the output.
 		let output = output_parent.path().join("output");
-		let value = if tokio::fs::try_exists(&output)
+		let exists = tokio::fs::try_exists(&output)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to determine in the path exists"))?
-		{
+			.map_err(|source| tg::error!(!source, "failed to determine in the path exists"))?;
+		let value = if exists {
 			let arg = tg::artifact::checkin::Arg {
 				cache: true,
 				destructive: true,
@@ -252,21 +250,21 @@ impl Runtime {
 			.stdout(std::process::Stdio::piped())
 			.stderr(std::process::Stdio::piped())
 			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn process"))?;
+			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 
 		// Spawn the log tasks
 		let stdout_task = tokio::task::spawn(log_task(
 			self.server.clone(),
 			process.clone(),
 			remote.clone(),
-			tg::process::log::Kind::Stdout,
+			tg::process::log::Stream::Stdout,
 			child.stdout.take().unwrap(),
 		));
 		let stderr_task = tokio::task::spawn(log_task(
 			self.server.clone(),
 			process.clone(),
 			remote.clone(),
-			tg::process::log::Kind::Stderr,
+			tg::process::log::Stream::Stderr,
 			child.stderr.take().unwrap(),
 		));
 
@@ -824,14 +822,14 @@ impl Runtime {
 			server.clone(),
 			process.clone(),
 			remote.clone(),
-			tg::process::log::Kind::Stdout,
+			tg::process::log::Stream::Stdout,
 			stdout_recv,
 		));
 		let stderr_task = tokio::task::spawn(log_task(
 			server.clone(),
 			process.clone(),
 			remote.clone(),
-			tg::process::log::Kind::Stderr,
+			tg::process::log::Stream::Stderr,
 			stderr_recv,
 		));
 
@@ -1238,7 +1236,7 @@ async fn log_task(
 	server: Server,
 	process: tg::process::Id,
 	remote: Option<String>,
-	kind: tg::process::log::Kind,
+	stream: tg::process::log::Stream,
 	reader: impl AsyncRead,
 ) -> tg::Result<()> {
 	let mut reader = std::pin::pin!(reader);
@@ -1253,8 +1251,8 @@ async fn log_task(
 		}
 		let bytes = Bytes::copy_from_slice(&buffer[0..size]);
 		if server.config.advanced.write_process_logs_to_stderr {
-			match kind {
-				tg::process::log::Kind::Stdout => {
+			match stream {
+				tg::process::log::Stream::Stdout => {
 					tokio::io::stdout()
 						.write_all(&bytes)
 						.await
@@ -1263,7 +1261,7 @@ async fn log_task(
 						})
 						.ok();
 				},
-				tg::process::log::Kind::Stderr => {
+				tg::process::log::Stream::Stderr => {
 					tokio::io::stderr()
 						.write_all(&bytes)
 						.await
@@ -1276,10 +1274,10 @@ async fn log_task(
 		}
 		let arg = tg::process::log::post::Arg {
 			bytes,
-			kind,
+			stream,
 			remote: remote.clone(),
 		};
-		if let Err(error) = server.try_add_process_log(&process, arg).await {
+		if let Err(error) = server.try_post_process_log(&process, arg).await {
 			tracing::error!(?error, "failed to add the process log");
 		}
 	}

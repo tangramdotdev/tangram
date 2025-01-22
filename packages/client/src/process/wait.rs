@@ -1,8 +1,8 @@
 use crate as tg;
 
 pub struct Output {
-	error: Option<tg::Error>,
-	exit: Option<tg::process::Exit>,
-	output: Option<tg::Value>,
-	status: tg::process::Status,
+	pub error: Option<tg::Error>,
+	pub exit: Option<tg::process::Exit>,
+	pub output: Option<tg::Value>,
+	pub status: tg::process::Status,
 }

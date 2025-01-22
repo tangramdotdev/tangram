@@ -6,7 +6,7 @@ use winnow::{
 	token::{any, none_of, one_of, take, take_while},
 };
 
-type Input<'a> = winnow::stream::Located<&'a str>;
+type Input<'a> = winnow::stream::LocatingSlice<&'a str>;
 
 pub fn parse(input: &str) -> tg::Result<tg::Value> {
 	value(&mut Input::new(input))

@@ -61,11 +61,10 @@ impl Runtime {
 					let message = indicator.to_string();
 					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
-						kind: tg::process::log::Kind::Stderr,
 						remote: remote.clone(),
 					};
 					if !server
-						.try_add_process_log(&process, arg)
+						.try_post_process_log(&process, arg)
 						.await
 						.map_or(true, |ok| ok.added)
 					{
@@ -104,10 +103,9 @@ impl Runtime {
 		let message = "finished decompressing\n";
 		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
-			kind: tg::process::log::Kind::Stderr,
 			remote: remote.clone(),
 		};
-		server.try_add_process_log(process, arg).await.ok();
+		server.try_post_process_log(process, arg).await.ok();
 
 		Ok(blob.into())
 	}

@@ -14,8 +14,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
 
-	pub kind: tg::process::log::Kind,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<SeekFromString>")]
 	pub position: Option<std::io::SeekFrom>,
@@ -36,12 +34,10 @@ pub enum Event {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Chunk {
-	pub position: u64,
-
-	pub kind: tg::process::log::Kind,
-
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
+
+	pub position: u64,
 }
 
 impl tg::Process {

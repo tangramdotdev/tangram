@@ -205,7 +205,7 @@ impl Compiler {
 		self.serve_task.lock().await.replace(task.clone());
 		task.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the compiler serve task failed"))?;
+			.map_err(|source| tg::error!(!source, "the compiler serve task panicked"))?;
 		Ok(())
 	}
 

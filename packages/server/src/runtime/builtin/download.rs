@@ -57,11 +57,10 @@ impl Runtime {
 				let first_message = format!("downloading from \"{url}\"\n");
 				let arg = tg::process::log::post::Arg {
 					bytes: first_message.into(),
-					kind: tg::process::log::Kind::Stderr,
 					remote: remote.clone(),
 				};
 				if !server
-					.try_add_process_log(&process, arg)
+					.try_post_process_log(&process, arg)
 					.await
 					.map_or(true, |ok| ok.added)
 				{
@@ -80,11 +79,10 @@ impl Runtime {
 					message.push('\n');
 					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
-						kind: tg::process::log::Kind::Stderr,
 						remote: remote.clone(),
 					};
 					if !server
-						.try_add_process_log(&process, arg)
+						.try_post_process_log(&process, arg)
 						.await
 						.map_or(true, |ok| ok.added)
 					{
@@ -145,10 +143,9 @@ impl Runtime {
 		let message = format!("finished download from \"{url}\"\n");
 		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
-			kind: tg::process::log::Kind::Stderr,
 			remote: remote.clone(),
 		};
-		server.try_add_process_log(process, arg).await.ok();
+		server.try_post_process_log(process, arg).await.ok();
 
 		Ok(blob.into())
 	}

@@ -130,7 +130,7 @@ impl Server {
 						)
 						.await
 						.inspect_err(|error| {
-							tracing::error!(?error, "failed to cancel the process")
+							tracing::error!(?error, "failed to cancel the process");
 						})
 						.ok();
 				}

@@ -122,7 +122,7 @@ impl Server {
 		let mut events = stream::select_all([log, status, interval]).boxed();
 
 		// Create the reader.
-		let mut reader = Reader::new(self, id, arg.kind).await?;
+		let mut reader = Reader::new(self, id).await?;
 
 		// Seek the reader.
 		let seek = if let Some(position) = arg.position {
@@ -196,7 +196,6 @@ impl Server {
 				data.truncate(n);
 				let chunk = tg::process::log::get::Chunk {
 					position,
-					kind: arg.kind,
 					bytes: data.into(),
 				};
 
@@ -287,7 +286,7 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub async fn try_add_process_log(
+	pub async fn try_post_process_log(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
@@ -299,11 +298,9 @@ impl Server {
 
 		// Log.
 		if self.config.advanced.write_process_logs_to_database {
-			self.try_add_process_log_to_database(id, arg.kind, arg.bytes)
-				.await?;
+			self.try_add_process_log_to_database(id, arg.bytes).await?;
 		} else {
-			self.try_add_process_log_to_file(id, arg.kind, arg.bytes)
-				.await?;
+			self.try_add_process_log_to_file(id, arg.bytes).await?;
 		}
 
 		// Publish the message.
@@ -326,7 +323,6 @@ impl Server {
 	async fn try_add_process_log_to_database(
 		&self,
 		id: &tg::process::Id,
-		kind: tg::process::log::Kind,
 		bytes: Bytes,
 	) -> tg::Result<()> {
 		// Get a database connection.
@@ -340,9 +336,10 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into process_logs (process, position, kind, bytes)
+				insert into process_logs (process, bytes, position)
 				values (
 					{p}1,
+					{p}2,
 					(
 						select coalesce(
 							(
@@ -354,13 +351,11 @@ impl Server {
 							),
 							0
 						)
-					),
-					{p}2,
-					{p}3
+					)
 				);
 			"
 		);
-		let params = db::params![id, kind, bytes];
+		let params = db::params![id, bytes];
 		connection
 			.execute(statement.into(), params)
 			.await
@@ -375,11 +370,9 @@ impl Server {
 	async fn try_add_process_log_to_file(
 		&self,
 		id: &tg::process::Id,
-		kind: tg::process::log::Kind,
 		bytes: Bytes,
 	) -> tg::Result<()> {
-		// Write to the log file.
-		let path = self.logs_path().join(format!("{id}.{kind}"));
+		let path = self.logs_path().join(format!("{id}"));
 		let mut file = tokio::fs::File::options()
 			.create(true)
 			.append(true)
@@ -391,47 +384,12 @@ impl Server {
 		file.write_all(&bytes).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to write to the log file"),
 		)?;
-
 		Ok(())
-	}
-
-	pub(super) async fn try_create_process_log_blob(
-		&self,
-		id: &tg::process::Id,
-		kind: tg::process::log::Kind,
-	) -> tg::Result<tg::blob::Id> {
-		let log_path = self.logs_path().join(format!("{id}.{kind}"));
-		let exists = tokio::fs::try_exists(&log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
-		let tg::blob::create::Output { blob, .. } = if exists {
-			let output = self
-				.create_blob_with_path(&log_path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?;
-			tokio::fs::remove_file(&log_path)
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to remove the log file"))
-				.ok();
-			output
-		} else {
-			let reader = Reader::new(self, id, kind).await.map_err(|source| {
-				tg::error!(!source, "failed to create the blob reader for the log")
-			})?;
-			self.create_blob_with_reader(reader)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?
-		};
-		Ok(blob)
 	}
 }
 
 impl Reader {
-	pub async fn new(
-		server: &Server,
-		id: &tg::process::Id,
-		kind: tg::process::log::Kind,
-	) -> tg::Result<Self> {
+	pub async fn new(server: &Server, id: &tg::process::Id) -> tg::Result<Self> {
 		// Attempt to create a blob reader.
 		let output = server
 			.try_get_process_local(id)
@@ -444,7 +402,7 @@ impl Reader {
 		}
 
 		// Attempt to create a file reader.
-		let path = server.logs_path().join(format!("{id}.{kind}"));
+		let path = server.logs_path().join(format!("{id}"));
 		match tokio::fs::File::open(&path).await {
 			Ok(file) => {
 				return Ok(Self::File(file));
@@ -625,6 +583,7 @@ async fn poll_read_inner(
 		}
 	}
 	let cursor = Cursor::new(bytes.into());
+
 	Ok(Some(cursor))
 }
 
@@ -785,7 +744,7 @@ impl Server {
 		Ok(response)
 	}
 
-	pub(crate) async fn handle_add_process_log_request<H>(
+	pub(crate) async fn handle_post_process_log_request<H>(
 		handle: &H,
 		request: http::Request<Incoming>,
 		id: &str,
@@ -795,7 +754,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.try_add_process_log(&id, arg).await?;
+		handle.try_post_process_log(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

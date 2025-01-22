@@ -797,12 +797,12 @@ impl tg::Handle for Client {
 		self.try_get_process_log_stream(id, arg)
 	}
 
-	fn try_add_process_log(
+	fn try_post_process_log(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
-		self.try_add_process_log(id, arg)
+		self.try_post_process_log(id, arg)
 	}
 
 	fn try_finish_process(

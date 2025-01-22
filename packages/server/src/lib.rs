@@ -869,7 +869,7 @@ impl Server {
 				Self::handle_get_process_log_request(handle, request, process).boxed()
 			},
 			(http::Method::POST, ["processes", process, "log"]) => {
-				Self::handle_add_process_log_request(handle, request, process).boxed()
+				Self::handle_post_process_log_request(handle, request, process).boxed()
 			},
 			(http::Method::POST, ["processes", process, "finish"]) => {
 				Self::handle_finish_process_request(handle, request, process).boxed()
@@ -1194,12 +1194,12 @@ impl tg::Handle for Server {
 		self.try_get_process_log_stream(id, arg)
 	}
 
-	fn try_add_process_log(
+	fn try_post_process_log(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
-		self.try_add_process_log(id, arg)
+		self.try_post_process_log(id, arg)
 	}
 
 	fn try_finish_process(

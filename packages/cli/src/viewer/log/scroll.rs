@@ -485,7 +485,6 @@ mod tests {
 	fn scroll_up_and_down() {
 		let chunks = [tg::process::log::get::Chunk {
 			position: 0,
-			kind: tg::process::log::Kind::Stdout,
 			bytes: b"1 abcdef\n2 abcdef\n3 abcdef\n".to_vec().into(),
 		}];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 20, 1), &chunks).unwrap();
@@ -506,17 +505,14 @@ mod tests {
 		let chunks = vec![
 			tg::process::log::get::Chunk {
 				position: 0,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: b"a".to_vec().into(),
 			},
 			tg::process::log::get::Chunk {
 				position: 1,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: vec![0b1010_1010].into(),
 			},
 			tg::process::log::get::Chunk {
 				position: 2,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: b"b".to_vec().into(),
 			},
 		];
@@ -548,17 +544,14 @@ mod tests {
 		let chunks = vec![
 			tg::process::log::get::Chunk {
 				position: 0,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: "1——👍👌👉👈——\n".as_bytes().to_vec().into(),
 			},
 			tg::process::log::get::Chunk {
 				position: 30,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: "2——👍👌👉👈——\n".as_bytes().to_vec().into(),
 			},
 			tg::process::log::get::Chunk {
 				position: 60,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: "3——👍👌👉👈——\n".as_bytes().to_vec().into(),
 			},
 		];
@@ -579,7 +572,6 @@ mod tests {
 		let chunks = vec![
 			tg::process::log::get::Chunk {
 				position: 0,
-				kind: tg::process::log::Kind::Stdout,
 				bytes:
 					"\"0——👍👌👉👈——\"\n\"1——👍👌👉👈——\"\n\"2——👍👌👉👈——\"\n\"3——👍👌👉👈——\"\n"
 						.as_bytes()
@@ -588,7 +580,6 @@ mod tests {
 			},
 			tg::process::log::get::Chunk {
 				position: 128,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: "\"4——👍👌👉👈——\"\n".as_bytes().to_vec().into(),
 			},
 		];
@@ -611,7 +602,6 @@ mod tests {
 	fn word_wrap_emoji() {
 		let chunks = vec![tg::process::log::get::Chunk {
 			position: 0,
-			kind: tg::process::log::Kind::Stdout,
 			bytes: "😀😀".as_bytes().to_vec().into(),
 		}];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 2, 4), &chunks).unwrap();
@@ -626,11 +616,7 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..24 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::process::log::get::Chunk {
-				position,
-				kind: tg::process::log::Kind::Stdout,
-				bytes,
-			};
+			let chunk = tg::process::log::get::Chunk { position, bytes };
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
 		}
@@ -648,11 +634,7 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..8 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::process::log::get::Chunk {
-				position,
-				kind: tg::process::log::Kind::Stdout,
-				bytes,
-			};
+			let chunk = tg::process::log::get::Chunk { position, bytes };
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
 		}
@@ -679,11 +661,7 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..8 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::process::log::get::Chunk {
-				position,
-				kind: tg::process::log::Kind::Stdout,
-				bytes,
-			};
+			let chunk = tg::process::log::get::Chunk { position, bytes };
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
 		}
@@ -720,27 +698,22 @@ mod tests {
 		let chunks = [
 			tg::process::log::get::Chunk {
 				position: 114,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: b"\"doing stuff 6...\"\n".to_vec().into(),
 			},
 			tg::process::log::get::Chunk {
 				position: 133,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: b"\"doing stuff 7...\"\n".to_vec().into(),
 			},
 			tg::process::log::get::Chunk {
 				position: 152,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: b"\"doing stuff 8...\"\n".to_vec().into(),
 			},
 			tg::process::log::get::Chunk {
 				position: 171,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: b"\"doing stuff 9...\"\n".to_vec().into(),
 			},
 			tg::process::log::get::Chunk {
 				position: 190,
-				kind: tg::process::log::Kind::Stdout,
 				bytes: b"\"doing stuff 10...\"\n".to_vec().into(),
 			},
 		];

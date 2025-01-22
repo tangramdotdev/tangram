@@ -186,16 +186,16 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create table process_children (
 				process text not null,
-				position integer not null,
 				child text not null,
+				position integer not null,
 				token text not null
 			);
 
-			create unique index process_children_index on process_children (process, position);
-
 			create unique index process_children_process_child_index on process_children (process, child);
 
-			create unique index process_children_process_parent_index on process_children (child, process);
+			create index process_children_index on process_children (process, position);
+
+			create index process_children_process_parent_index on process_children (child, process);
 
 			create index process_children_child_index on process_children (child);
 
@@ -208,13 +208,15 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create table process_logs (
 				process text not null,
-				position integer not null,
-				kind integer not null,
 				bytes blob not null,
-				timestamp text
+				position integer not null,
+				stream text not null,
+				stream_position integer not null
 			);
 
-			create unique index process_logs_index on process_logs (process, kind, position);
+			create index process_logs_process_position_index on process_logs (process, position);
+
+			create index process_logs_process_stream_stream_position_index on process_logs (process, stream, stream_position);
 
 			create table process_objects (
 				process text not null,

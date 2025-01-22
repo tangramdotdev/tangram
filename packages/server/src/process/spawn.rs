@@ -192,10 +192,9 @@ impl Server {
 			let bytes = trace.to_string().into();
 			let arg = tg::process::log::post::Arg {
 				bytes,
-				kind: tg::process::log::Kind::Stderr,
 				remote: remote.clone(),
 			};
-			if !self.try_add_process_log(&process, arg).await?.added {
+			if !self.try_post_process_log(&process, arg).await?.added {
 				return Err(tg::error!("failed to add error to process log"));
 			}
 		}

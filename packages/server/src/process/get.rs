@@ -94,7 +94,7 @@ impl Server {
 					error,
 					exit,
 					host,
-					logs,
+					log,
 					logs_complete,
 					logs_count,
 					logs_weight,

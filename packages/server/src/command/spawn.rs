@@ -213,14 +213,6 @@ impl Server {
 		};
 		self.put_process(&process_id, put_arg).await?;
 
-		// Create the process's log if necessary.
-		if !self.config.advanced.write_process_logs_to_database {
-			let path = self.logs_path().join(process_id.to_string());
-			tokio::fs::File::create(&path).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to create the log file"),
-			)?;
-		}
-
 		// Add the process to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
 			self.try_add_process_child(parent, &process_id)

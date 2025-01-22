@@ -10,6 +10,7 @@ pub mod pull;
 pub mod push;
 pub mod put;
 pub mod status;
+pub mod wait;
 
 /// Manage processes.
 #[derive(Clone, Debug, clap::Args)]
@@ -30,6 +31,7 @@ pub enum Command {
 	Push(self::push::Args),
 	Put(self::put::Args),
 	Status(self::status::Args),
+	Wait(self::wait::Args),
 }
 
 impl Cli {
@@ -61,6 +63,9 @@ impl Cli {
 			},
 			Command::Status(args) => {
 				self.command_process_status(args).await?;
+			},
+			Command::Wait(args) => {
+				self.command_process_wait(args).await?;
 			},
 		}
 		Ok(())
