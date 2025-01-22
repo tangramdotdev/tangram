@@ -210,13 +210,13 @@ impl Runtime {
 
 		// Copy the log.
 		let arg = tg::process::log::get::Arg::default();
-		let mut src_log = pin!(server.get_process_log(src_process, arg).await?);
+		let mut src_log = pin!(self.server().get_process_log(src_process, arg).await?);
 		while let Some(chunk) = src_log.try_next().await? {
 			let arg = tg::process::log::post::Arg {
 				bytes: chunk.bytes,
 				remote: None,
 			};
-			server.try_post_process_log(dst_process, arg).await?;
+			self.server().try_post_process_log(dst_process, arg).await?;
 		}
 
 		Ok(())
