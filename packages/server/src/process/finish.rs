@@ -327,9 +327,9 @@ impl Server {
 
 		// Compare the checksum from the process.
 		let checksum = output
+			.ok_or_else(|| tg::error!("expected an output"))?
 			.try_unwrap_string()
-			.ok()
-			.ok_or_else(|| tg::error!("expected a string"))?;
+			.map_err(|_| tg::error!("expected a string"))?;
 		let checksum = checksum.parse::<tg::Checksum>()?;
 		if *expected == tg::Checksum::None {
 			return Err(tg::error!("no checksum provided, actual {checksum}"));

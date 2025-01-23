@@ -862,6 +862,9 @@ impl Server {
 			(http::Method::GET, ["processes", process, "status"]) => {
 				Self::handle_get_process_status_request(handle, request, process).boxed()
 			},
+			(http::Method::GET, ["processes", process, "wait"]) => {
+				Self::handle_get_process_wait_request(handle, request, process).boxed()
+			},
 			(http::Method::GET, ["processes", process, "children"]) => {
 				Self::handle_get_process_children_request(handle, request, process).boxed()
 			},
@@ -1166,6 +1169,17 @@ impl tg::Handle for Server {
 		>,
 	> {
 		self.try_get_process_status_stream(id)
+	}
+
+	fn try_get_process_wait_stream(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static>,
+		>,
+	> + Send {
+		self.try_get_process_wait_stream(id)
 	}
 
 	fn try_get_process_children_stream(

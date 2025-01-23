@@ -1,4 +1,5 @@
 use crate::{self as tg, handle::Ext as _};
+use futures::TryFutureExt;
 use std::pin::pin;
 use tangram_futures::stream::Ext;
 
@@ -104,53 +105,44 @@ impl Process {
 		Ok(Some(command))
 	}
 
+	pub async fn wait<H>(&self, handle: &H) -> tg::Result<tg::process::wait::Output>
+	where
+		H: tg::Handle,
+	{
+		let stream = handle.get_process_wait(&self.id).await?;
+		let Some(tg::process::wait::Event::Output(output)) =
+			pin!(stream).last().await.transpose()?
+		else {
+			return Err(tg::error!("failed to get the last process event"));
+		};
+		let output = tg::process::wait::Output {
+			error: output.error,
+			exit: output.exit,
+			output: output.output.map(tg::Value::try_from).transpose()?,
+			status: output.status,
+		};
+		Ok(output)
+	}
+
 	pub async fn exit<H>(&self, handle: &H) -> tg::Result<Option<tg::process::Exit>>
 	where
 		H: tg::Handle,
 	{
-		let Some(stream) = handle.try_get_process_status(&self.id).await? else {
-			return Err(tg::error!("failed to get the process status stream"));
-		};
-		let Some(Ok(_)) = pin!(stream).last().await else {
-			return Err(tg::error!("failed to get the last process status"));
-		};
-		let output = handle.get_process(&self.id).await?;
-		Ok(output.exit)
+		self.wait(handle).map_ok(|output| output.exit).await
 	}
 
-	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
+	pub async fn output<H>(&self, handle: &H) -> tg::Result<Option<tg::Value>>
 	where
 		H: tg::Handle,
 	{
-		let Some(stream) = handle.try_get_process_status(&self.id).await? else {
-			return Err(tg::error!("failed to get the process status stream"));
-		};
-		let Some(Ok(_)) = pin!(stream).last().await else {
-			return Err(tg::error!("failed to get the last process status"));
-		};
-		let output = handle.get_process(&self.id).await?;
-		let output = match output.status {
-			Status::Canceled | Status::Failed => {
-				if let Some(error) = output.error {
-					return Err(error);
-				}
-				if let Some(exit) = output.exit {
-					match exit {
-						tg::process::Exit::Code { code } => return Err(tg::error!("the process exited with code {code}")),
-						tg::process::Exit::Signal { signal } => return Err(tg::error!("the process exited with signal {signal} and no output")),
-					}
-				}
-				return Err(tg::error!("expected an error or exit status"));
-			},
-			Status::Succeeded => output
-				.output
-				.ok_or_else(|| tg::error!("expected the output to be set"))?
-				.try_into()?,
-			_ => {
-				return Err(tg::error!("expected the process to be finished"));
-			},
-		};
-		Ok(output)
+		self.wait(handle).map_ok(|output| output.output).await
+	}
+
+	pub async fn error<H>(&self, handle: &H) -> tg::Result<Option<tg::Error>>
+	where
+		H: tg::Handle,
+	{
+		self.wait(handle).map_ok(|output| output.error).await
 	}
 }
 

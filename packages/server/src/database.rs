@@ -209,7 +209,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				process text not null,
 				bytes blob not null,
 				position integer not null,
-				stream text not null,
 				stream_position integer not null
 			);
 

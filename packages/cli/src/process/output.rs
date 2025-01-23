@@ -14,7 +14,7 @@ impl Cli {
 	pub async fn command_process_output(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let process = tg::Process::with_id(args.process);
-		let output = process.output(&handle).await?;
+		let output = process.output(&handle).await?.unwrap_or(tg::Value::Null);
 		let stdout = std::io::stdout();
 		let output = if stdout.is_terminal() {
 			let options = tg::value::print::Options {

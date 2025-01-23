@@ -313,6 +313,26 @@ where
 		}
 	}
 
+	fn try_get_process_wait_stream(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static>,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.try_get_process_wait_stream(id)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			Either::Right(s) => s
+				.try_get_process_wait_stream(id)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
 	fn try_get_process_children_stream(
 		&self,
 		id: &tg::process::Id,

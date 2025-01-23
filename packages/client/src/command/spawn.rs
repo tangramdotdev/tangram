@@ -46,7 +46,7 @@ impl tg::Command {
 		H: tg::Handle,
 	{
 		let process = self.spawn(handle, arg).await?;
-		let output = process.output(handle).await?;
+		let output = process.output(handle).await?.unwrap_or(tg::Value::Null);
 		Ok(output)
 	}
 }

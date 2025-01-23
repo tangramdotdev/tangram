@@ -397,7 +397,7 @@ impl Cli {
 		// If the process is finished, then get the process's output.
 		let output = if status.is_finished() {
 			let output = process
-				.output(&handle)
+				.wait(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the output"))?;
 			Some(output)
@@ -473,7 +473,7 @@ impl Cli {
 			});
 
 			// Wait for the process's output.
-			let result = process.output(&handle).await;
+			let result = process.wait(&handle).await;
 
 			// Abort the cancel task.
 			cancel_task.abort();
@@ -487,13 +487,35 @@ impl Cli {
 			result
 		};
 
-		let output = result?;
+		// Get the output or return an error if we failed to wait for the process.
+		let output =
+			result.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
+
+		// Return an error if appropriate.
+		if let Some(source) = output.error {
+			return Err(tg::error!(!source, "the process failed"));
+		}
+		if matches!(output.status, tg::process::Status::Canceled) {
+			return Err(tg::error!("the process was canceled"));
+		}
+		match &output.exit {
+			Some(tg::process::Exit::Code { code }) if *code != 0 => {
+				return Err(tg::error!("the process exited with code {code}"));
+			},
+			Some(tg::process::Exit::Signal { signal }) => {
+				return Err(tg::error!("the process exited with signal {signal}"));
+			},
+			_ => (),
+		}
 
 		// Check out the output if requested.
 		if let Some(path) = args.checkout {
 			// Get the artifact.
-			let artifact = tg::Artifact::try_from(output)
-				.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
+			let artifact: tg::Artifact = output
+				.output
+				.ok_or_else(|| tg::error!("expected an output value"))?
+				.try_into()
+				.map_err(|_| tg::error!("expected an artifact"))?;
 
 			// Get the path.
 			let path = if let Some(path) = path {
@@ -522,7 +544,7 @@ impl Cli {
 			return Ok(InnerOutput::Path(output.path));
 		}
 
-		Ok(InnerOutput::Value(output))
+		Ok(InnerOutput::Value(output.output.unwrap_or(tg::Value::Null)))
 	}
 }
 

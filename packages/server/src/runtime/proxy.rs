@@ -288,6 +288,17 @@ impl tg::Handle for Proxy {
 		self.server.try_get_process_status_stream(id)
 	}
 
+	fn try_get_process_wait_stream(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static>,
+		>,
+	> + Send {
+		self.server.try_get_process_wait_stream(id)
+	}
+
 	fn try_get_process_children_stream(
 		&self,
 		id: &tg::process::Id,

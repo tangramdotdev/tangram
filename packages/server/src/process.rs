@@ -16,6 +16,7 @@ mod spawn;
 mod start;
 mod status;
 mod touch;
+mod wait;
 
 impl Server {
 	pub(crate) async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
