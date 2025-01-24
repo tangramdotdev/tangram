@@ -208,13 +208,10 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create table process_logs (
 				process text not null,
 				bytes blob not null,
-				position integer not null,
-				stream_position integer not null
+				position integer not null
 			);
 
 			create index process_logs_process_position_index on process_logs (process, position);
-
-			create index process_logs_process_stream_stream_position_index on process_logs (process, stream, stream_position);
 
 			create table process_objects (
 				process text not null,
