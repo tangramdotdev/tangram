@@ -19,7 +19,7 @@ impl Id {
 	#[allow(clippy::new_without_default)]
 	#[must_use]
 	pub fn new() -> Self {
-		Self(crate::Id::new_uuidv7(tg::id::Kind::Process))
+		Self(crate::Id::new_uuidv7(tg::id::Kind::Pipe))
 	}
 }
 

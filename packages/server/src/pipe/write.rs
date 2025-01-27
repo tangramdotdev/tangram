@@ -2,15 +2,20 @@ use crate::Server;
 use bytes::Bytes;
 use tangram_client as tg;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
-use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub async fn write_pipe(&self, id: &tg::pipe::Id, bytes: Bytes) -> tg::Result<()> {
-		let subject = format!("pipes.{id}");
-		self.messenger
-			.publish(subject, bytes)
+		let sender = self
+			.pipes
+			.get(id)
+			.ok_or_else(|| tg::error!("failed to find the pipe"))?
+			.value()
+			.sender
+			.clone();
+		sender
+			.send(tg::pipe::read::Event::Chunk(bytes))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
 		Ok(())
 	}
 }

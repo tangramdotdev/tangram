@@ -4,29 +4,21 @@ use http_body_util::StreamBody;
 use tangram_client as tg;
 use tangram_futures::task::Stop;
 use tangram_http::{Incoming, Outgoing};
-use tangram_messenger::Messenger as _;
+use tokio_stream::wrappers::ReceiverStream;
 
 impl Server {
 	pub async fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>> + Send + 'static> {
-		let subject = format!("pipes.{id}");
-		let stream = self
-			.messenger
-			.subscribe(subject, None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.boxed();
-		let stream = stream
-			.map(|message| {
-				if message.payload.is_empty() {
-					tg::pipe::read::Event::End
-				} else {
-					tg::pipe::read::Event::Chunk(message.payload)
-				}
-			})
-			.map(Ok);
+		let receiver = self
+			.pipes
+			.get_mut(id)
+			.ok_or_else(|| tg::error!("failed to find the pipe"))?
+			.receiver
+			.take()
+			.ok_or_else(|| tg::error!("failed to get the pipe"))?;
+		let stream = ReceiverStream::new(receiver).map(Ok);
 		Ok(stream)
 	}
 }

@@ -210,6 +210,20 @@ where
 		}
 	}
 
+	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		match self {
+			Either::Left(s) => s.open_pipe().left_future(),
+			Either::Right(s) => s.open_pipe().right_future(),
+		}
+	}
+
+	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.close_pipe(id).left_future(),
+			Either::Right(s) => s.close_pipe(id).right_future(),
+		}
+	}
+
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,

@@ -14,7 +14,7 @@ impl Client {
 		&self,
 		id: &tg::pipe::Id,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>>> {
-		let method = http::Method::GET;
+		let method = http::Method::POST;
 		let uri = format!("/pipes/{id}/read");
 		let request = http::request::Builder::default()
 			.method(method)

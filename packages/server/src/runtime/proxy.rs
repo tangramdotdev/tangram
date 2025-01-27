@@ -232,6 +232,14 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	async fn open_pipe(&self) -> tg::Result<tg::pipe::open::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn close_pipe(&self, id: &tg::pipe::Id) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,

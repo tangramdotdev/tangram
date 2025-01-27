@@ -703,6 +703,14 @@ impl tg::Handle for Client {
 		self.format_package(arg)
 	}
 
+	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		self.open_pipe()
+	}
+
+	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
+		self.close_pipe(id)
+	}
+
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,

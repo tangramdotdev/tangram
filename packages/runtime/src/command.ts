@@ -226,7 +226,7 @@ export class Command<
 		return (await this.object()).host;
 	}
 
-	async output(arg: tg.Command.SpawnArg): Promise<R> {
+	async output(arg?: tg.Command.SpawnArg): Promise<R> {
 		return (await syscall("command_output", this as Command<[], R>, arg)) as R;
 	}
 

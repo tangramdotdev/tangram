@@ -1,6 +1,6 @@
 use crate::Cli;
 use crossterm::style::Stylize as _;
-use futures::TryStreamExt as _;
+use futures::{TryFutureExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{
 	io::IsTerminal as _,
@@ -363,9 +363,11 @@ impl Cli {
 					tg::error!(!source, "failed to get the working directory")
 				})?);
 				let sandbox = None;
-				let stdin = Some(tg::pipe::Id::new());
-				let stdout = Some(tg::pipe::Id::new());
-				let stderr = Some(tg::pipe::Id::new());
+				let (stdin, stdout, stderr) = futures::try_join!(
+					handle.open_pipe().map_ok(|output| Some(output.id)),
+					handle.open_pipe().map_ok(|output| Some(output.id)),
+					handle.open_pipe().map_ok(|output| Some(output.id)),
+				)?;
 				// let stdio_task = Some(tokio::spawn({
 				// 	let stdin = stdin.clone();
 				// 	let stdout = stdout.clone();
@@ -516,7 +518,6 @@ impl Cli {
 		// Get the output or return an error if we failed to wait for the process.
 		let output =
 			result.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
-		eprintln!("output: {output:#?}");
 
 		// // Await the stdio task.
 		// if let Some(stdio_task) = stdio_task {

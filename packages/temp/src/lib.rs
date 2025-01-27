@@ -1,5 +1,5 @@
 use futures::TryFutureExt as _;
-use rand::{distributions::Alphanumeric, Rng as _};
+use rand::{distr::Alphanumeric, Rng as _};
 use std::{
 	ops::Deref,
 	path::{Path, PathBuf},
@@ -23,7 +23,7 @@ impl Temp {
 		} else {
 			unreachable!()
 		};
-		let name = rand::thread_rng()
+		let name = rand::rng()
 			.sample_iter(&Alphanumeric)
 			.take(16)
 			.map(char::from)

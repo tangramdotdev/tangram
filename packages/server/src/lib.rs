@@ -67,9 +67,6 @@ pub struct Server(pub Arc<Inner>);
 
 pub struct Inner {
 	artifact_cache_task_map: ArtifactCacheTaskMap,
-	process_permits: ProcessPermits,
-	process_semaphore: Arc<tokio::sync::Semaphore>,
-	processes: BuildTaskMap,
 	compilers: RwLock<Vec<Compiler>>,
 	config: Config,
 	database: Database,
@@ -78,12 +75,21 @@ pub struct Inner {
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
+	process_permits: ProcessPermits,
+	process_semaphore: Arc<tokio::sync::Semaphore>,
+	processes: BuildTaskMap,
+	pipes: DashMap<tg::pipe::Id, Pipe, fnv::FnvBuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Option<Arc<Store>>,
 	task: Mutex<Option<Task<()>>>,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	vfs: Mutex<Option<self::vfs::Server>>,
+}
+
+struct Pipe {
+	sender: tokio::sync::mpsc::Sender<tg::pipe::read::Event>,
+	receiver: Option<tokio::sync::mpsc::Receiver<tg::pipe::read::Event>>,
 }
 
 type ProcessPermits =
@@ -259,6 +265,9 @@ impl Server {
 			},
 		};
 
+		// Create the pipes.
+		let pipes = DashMap::default();
+
 		// Create the remotes.
 		let remotes = DashMap::default();
 
@@ -283,9 +292,6 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			artifact_cache_task_map,
-			process_permits,
-			process_semaphore,
-			processes,
 			compilers,
 			config,
 			database,
@@ -294,6 +300,10 @@ impl Server {
 			lock_file,
 			messenger,
 			path,
+			process_permits,
+			process_semaphore,
+			processes,
+			pipes,
 			remotes,
 			runtimes,
 			store,
@@ -844,7 +854,13 @@ impl Server {
 			},
 
 			// Pipes.
-			(http::Method::GET, ["pipes", pipe, "read"]) => {
+			(http::Method::POST, ["pipes"]) => {
+				Self::handle_open_pipe_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["pipes", pipe, "close"]) => {
+				Self::handle_close_pipe_request(handle, request, pipe).boxed()
+			},
+			(http::Method::POST, ["pipes", pipe, "read"]) => {
 				Self::handle_read_pipe_request(handle, request, pipe).boxed()
 			},
 			(http::Method::POST, ["pipes", pipe, "write"]) => {
@@ -1115,6 +1131,14 @@ impl tg::Handle for Server {
 		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.format_package(arg)
+	}
+
+	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		self.open_pipe()
+	}
+
+	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
+		self.close_pipe(id)
 	}
 
 	fn read_pipe(

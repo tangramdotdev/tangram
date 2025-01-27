@@ -111,6 +111,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> + Send;
+
+	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,

@@ -594,9 +594,6 @@ declare namespace tg {
 		/** Get this command's arguments. */
 		args(): Promise<Array<tg.Value>>;
 
-		/** Get this command's checksum. */
-		checksum(): Promise<tg.Checksum | undefined>;
-
 		/** Get this command's environment. */
 		env(): Promise<{ [key: string]: tg.Value }>;
 
@@ -605,9 +602,6 @@ declare namespace tg {
 
 		/** Get this command's host. */
 		host(): Promise<string>;
-
-		/** Get this command's sandbox. */
-		sandbox(): Promise<tg.Command.Sandbox | undefined>;
 
 		/** Build this command and return the build's output. */
 		output(): Promise<R>;
@@ -628,9 +622,6 @@ declare namespace tg {
 			/** The command's command line arguments. */
 			args?: Array<tg.Value> | undefined;
 
-			/** If a checksum of the command's output is provided, then the command can be cached even if it is not sandboxed. */
-			checksum?: tg.Checksum | undefined;
-
 			/** The command's environment variables. */
 			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 
@@ -639,23 +630,26 @@ declare namespace tg {
 
 			/** The system to build the command on. */
 			host?: string | undefined;
-
-			/** Configure the sandbox the command will run in. **/
-			sandbox?: tg.Command.SandboxArg | undefined;
 		};
 
 		export type ExecutableArg = tg.Artifact | tg.Module;
 
 		export type Executable = tg.Artifact | tg.Module;
 
+		export type SpawnArg = {
+			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
+			checksum?: tg.Checksum | undefined;
+
+			/** Set the current working directory for the process. **/
+			cwd?: string | undefined;
+
+			/** Configure the sandbox the process will run in. **/
+			sandbox?: tg.Command.SandboxArg | undefined;
+		};
+
 		export type SandboxArg = {
 			filesystem?: boolean | undefined;
 			network?: boolean | undefined;
-		};
-
-		export type Sandbox = {
-			filesystem: boolean;
-			network: boolean;
 		};
 	}
 
