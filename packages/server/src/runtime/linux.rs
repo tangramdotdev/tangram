@@ -72,7 +72,7 @@ impl Runtime {
 
 	pub async fn run(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> super::Output {
@@ -85,7 +85,7 @@ impl Runtime {
 
 	async fn run_inner(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> tg::Result<(Option<tg::process::Exit>, Option<tg::Value>)> {
@@ -117,11 +117,8 @@ impl Runtime {
 				tg::error!(!source, "failed to create the output parent directory")
 			})?;
 
-		// Get the sandbox.
-		let sandbox = command.sandbox(&self.server).await?;
-
 		// Run with or without the sandbox.
-		let exit = if let Some(sandbox) = sandbox.as_ref() {
+		let exit = if let Some(sandbox) = process.sandbox.as_ref() {
 			if sandbox.filesystem {
 				if !sandbox.network {
 					return Err(tg::error!(
@@ -131,9 +128,9 @@ impl Runtime {
 				self.run_unsandboxed(process, command, remote, output_parent.path())
 					.await?
 			} else {
-				if command.cwd(&self.server).await?.is_some() {
+				if process.cwd.is_some() {
 					return Err(
-						tg::error!(%process, "cannot run a process with cwd set and sandbox.filesystem = false"),
+						tg::error!(%process = process.id, "cannot run a process with cwd set and sandbox.filesystem = false"),
 					);
 				}
 				self.run_sandboxed(
@@ -179,7 +176,7 @@ impl Runtime {
 
 	async fn run_unsandboxed(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 		output_parent: &Path,
@@ -199,11 +196,11 @@ impl Runtime {
 
 		// Get or create the current working directory.
 		let cwd = Temp::new(&self.server);
-		let cwd = if let Some(cwd) = command.cwd(&self.server).await?.as_ref() {
+		let cwd = if let Some(cwd) = process.cwd.as_ref() {
 			cwd.clone()
 		} else {
 			tokio::fs::create_dir_all(cwd.path()).await.map_err(
-				|source| tg::error!(!source, %process, "failed to create working directory for process"),
+				|source| tg::error!(!source, %process = process.id, "failed to create working directory for process"),
 			)?;
 			cwd.path().to_owned()
 		};
@@ -261,7 +258,7 @@ impl Runtime {
 		// Spawn the log task.
 		let log_task = super::util::post_log_task(
 			&self.server,
-			process,
+			&process.id,
 			remote.as_ref(),
 			child.stdout.take().unwrap(),
 		);
@@ -276,7 +273,7 @@ impl Runtime {
 		} else if let Some(signal) = exit.signal() {
 			tg::process::Exit::Signal { signal }
 		} else {
-			return Err(tg::error!(%process, "expected an exit code or signal"));
+			return Err(tg::error!(%process = process.id, "expected an exit code or signal"));
 		};
 
 		// Join the log task.
@@ -291,7 +288,7 @@ impl Runtime {
 
 	async fn run_sandboxed(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 		network_enabled: bool,
@@ -390,7 +387,7 @@ impl Runtime {
 		// Start the proxy server.
 		let proxy = Proxy::new(
 			server.clone(),
-			process.clone(),
+			process.id.clone(),
 			remote.clone(),
 			Some(path_map),
 		);
@@ -799,7 +796,7 @@ impl Runtime {
 
 		// Spawn the log task.
 		let log_task =
-			super::util::post_log_task(&self.server, process, remote.as_ref(), stdout_recv);
+			super::util::post_log_task(&self.server, &process.id, remote.as_ref(), stdout_recv);
 
 		// Receive the guest process's PID from the socket.
 		let guest_process_pid: libc::pid_t = host_socket.read_i32_le().await.map_err(|error| {

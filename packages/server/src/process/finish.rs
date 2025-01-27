@@ -149,6 +149,8 @@ impl Server {
 				error = Some(checksum_error);
 			}
 		}
+		let status = status;
+		let error = error;
 
 		// Create a blob from the log.
 		let log_path = self.logs_path().join(id.to_string());
@@ -247,7 +249,8 @@ impl Server {
 					output = {p}4,
 					exit = {p}5,
 					status = {p}6
-				where id = {p}7;
+				where id = {p}7
+				returning error;
 			"
 		);
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -320,17 +323,24 @@ impl Server {
 		};
 		let output = self.spawn_command(&command_id, arg).await?;
 		let output = self.get_process(&output.process).await?;
-		let output = tg::Process::with_id(output.id).output(self).boxed().await?;
+		let output = tg::Process::with_id(output.id)
+			.output(self)
+			.boxed()
+			.await?
+			.ok_or_else(|| tg::error!("expected an output"))?;
 
-		// Compare the checksum from the process.
+		// Parse the checksum.
 		let checksum = output
-			.ok_or_else(|| tg::error!("expected an output"))?
 			.try_unwrap_string()
 			.map_err(|_| tg::error!("expected a string"))?;
-		let checksum = checksum.parse::<tg::Checksum>()?;
-		if *expected == tg::Checksum::None {
+		let checksum = checksum
+			.parse::<tg::Checksum>()
+			.map_err(|_| tg::error!(%checksum, "failed to parse checksum string"))?;
+
+		// Compare the checksums.
+		if matches!(expected, tg::Checksum::None) {
 			return Err(tg::error!("no checksum provided, actual {checksum}"));
-		} else if checksum != *expected {
+		} else if &checksum != expected {
 			return Err(tg::error!(
 				"checksums do not match, expected {expected}, actual {checksum}"
 			));

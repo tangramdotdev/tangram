@@ -544,13 +544,15 @@ async fn test_artifact_checkout<F, Fut>(
 		assert_success!(output);
 
 		let id = std::str::from_utf8(&output.stdout).unwrap().trim();
-
 		let temp = Temp::new();
 		let path = temp.path().to_owned();
 
 		// Check out the artifact.
 		let mut command = server.tg();
-		command.arg("checkout").arg(id).arg(path);
+		command
+			.arg("checkout")
+			.arg(id)
+			.arg(path);
 		if let Some(checkout_dependencies) = checkout_dependencies {
 			command
 				.arg("--dependencies")
@@ -558,9 +560,8 @@ async fn test_artifact_checkout<F, Fut>(
 		}
 		let output = command.output().await.unwrap();
 		assert_success!(output);
-
+		
 		let artifact = temp::Artifact::with_path(temp.path()).await.unwrap();
-
 		assertions(artifact).await;
 	})
 	.await;

@@ -3,6 +3,7 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 use crate as tg;
 
+#[derive(Debug)]
 pub enum Event {
 	Output(Output),
 }
@@ -94,6 +95,7 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
 				tangram_http::sse::Event {
 					data,
+					event: Some("output".into()),
 					..Default::default()
 				}
 			},
@@ -117,7 +119,7 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
 				Err(error)
 			},
-			_ => Err(tg::error!("invalid event")),
+			value => Err(tg::error!(?value, "invalid event")),
 		}
 	}
 }

@@ -1,7 +1,7 @@
 use crate::{self as tg, handle::Ext as _};
-use futures::TryFutureExt;
+use futures::TryFutureExt as _;
 use std::pin::pin;
-use tangram_futures::stream::Ext;
+use tangram_futures::stream::TryExt as _;
 
 pub use self::{id::Id, status::Status};
 
@@ -95,7 +95,7 @@ impl Process {
 	{
 		let stream = handle.get_process_wait(&self.id).await?;
 		let Some(tg::process::wait::Event::Output(output)) =
-			pin!(stream).last().await.transpose()?
+			pin!(stream).try_last().await?
 		else {
 			return Err(tg::error!("failed to get the last process event"));
 		};

@@ -516,6 +516,7 @@ impl Cli {
 		// Get the output or return an error if we failed to wait for the process.
 		let output =
 			result.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
+		eprintln!("output: {output:#?}");
 
 		// // Await the stdio task.
 		// if let Some(stdio_task) = stdio_task {

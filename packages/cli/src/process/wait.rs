@@ -1,7 +1,7 @@
 use crate::Cli;
 use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_futures::stream::Ext as _;
+use tangram_futures::stream::TryExt as _;
 
 /// Wait for a process to finish.
 #[derive(Clone, Debug, clap::Args)]
@@ -19,7 +19,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		let stream = handle.get_process_wait(&args.process).await?;
 		let Some(tg::process::wait::Event::Output(output)) =
-			pin!(stream).last().await.transpose()?
+			pin!(stream).try_last().await?
 		else {
 			return Err(tg::error!("failed to wait for the process"));
 		};
