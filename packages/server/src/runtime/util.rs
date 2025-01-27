@@ -117,13 +117,10 @@ pub async fn compute_checksum(
 		.spawn_command(&command_id, arg)
 		.await?
 		.process;
-	let Some(stream) = runtime.server().try_get_process_status(&process).await? else {
-		return Err(tg::error!("failed to get the process status"));
-	};
-	let Some(Ok(status)) = pin!(stream).last().await else {
-		return Err(tg::error!("failed to get the last process status"));
-	};
-	if status.is_succeeded() {
+	let output = tg::Process::with_id(process)
+		.wait(runtime.server())
+		.await?;
+	if output.status.is_succeeded() {
 		Ok(())
 	} else {
 		Err(tg::error!("the checksum process failed"))

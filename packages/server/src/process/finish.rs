@@ -33,6 +33,7 @@ impl Server {
 		// Finish the process.
 		self.try_finish_process_local(id, arg.error, arg.output, None, arg.status)
 			.await
+			.inspect(|result| eprintln!("finish try_finish_process_local: {result:?}"))
 	}
 
 	pub async fn try_finish_process_local(
@@ -66,6 +67,7 @@ impl Server {
 		if n == 0 {
 			return Ok(tg::process::finish::Output { finished: false });
 		}
+		eprintln!("finishing {id}");
 
 		// Get the process.
 		let Some(process) = self.try_get_process_local(id).await? else {
@@ -138,10 +140,12 @@ impl Server {
 		}
 
 		// Verify the checksum if one was provided.
-		if let (Some(output), Some(expected)) = (output.clone(), &process.checksum) {
+		let checksum = Some("none".parse::<tg::Checksum>().unwrap());
+		if let (Some(output), Some(expected)) = (output.clone(), &checksum) {
 			let value: tg::Value = output.try_into()?;
 			if let Err(checksum_error) = self
 				.verify_checksum(id.clone(), &value, expected)
+				.inspect(|result| eprintln!("verify checksum: {result:?}"))
 				.boxed()
 				.await
 			{
@@ -149,8 +153,7 @@ impl Server {
 				error = Some(checksum_error);
 			}
 		}
-		let status = status;
-		let error = error;
+		// let error = dbg!(error);
 
 		// Create a blob from the log.
 		let log_path = self.logs_path().join(id.to_string());
@@ -262,8 +265,8 @@ impl Server {
 			status,
 			id
 		];
-		connection
-			.execute(statement.into(), params)
+		let error = connection
+			.query_optional_into::<tg::Error>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -285,6 +288,7 @@ impl Server {
 		});
 
 		let output = tg::process::finish::Output { finished: true };
+		eprintln!("finished {id}");
 
 		Ok(output)
 	}
@@ -320,21 +324,25 @@ impl Server {
 			parent: Some(parent_process_id),
 			..Default::default()
 		};
-		let output = self.spawn_command(&command_id, arg).await?;
-		let output = self.get_process(&output.process).await?;
-		let output = tg::Process::with_id(output.id)
-			.output(self)
-			.boxed()
-			.await?
-			.ok_or_else(|| tg::error!("expected an output"))?;
+		let output = self
+			.spawn_command(&command_id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to spawn checksum process"))?;
+		let output = tg::Process::with_id(output.process.clone())
+			.wait(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for checksum process"))?;
 
 		// Parse the checksum.
 		let checksum = output
+			.output
+			.ok_or_else(|| tg::error!("expected a value"))?
 			.try_unwrap_string()
 			.map_err(|_| tg::error!("expected a string"))?;
 		let checksum = checksum
 			.parse::<tg::Checksum>()
 			.map_err(|_| tg::error!(%checksum, "failed to parse checksum string"))?;
+		eprintln!("expected: {expected}, actual: {checksum}");
 
 		// Compare the checksums.
 		if matches!(expected, tg::Checksum::None) {

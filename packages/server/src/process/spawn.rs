@@ -146,7 +146,8 @@ impl Server {
 
 		// Finish the process.
 		self.try_finish_process_local(&process, output.error, value, output.exit, status)
-			.await?;
+			.await
+			.inspect(|result| eprintln!("spawn try_finish_process_local: {result:?}"))?;
 
 		Ok::<_, tg::Error>(())
 	}
