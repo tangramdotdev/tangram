@@ -3,6 +3,7 @@ use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _}
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use serde_with::serde_as;
+use std::path::PathBuf;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
@@ -34,66 +35,99 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the process.
+		#[allow(clippy::struct_excessive_bools)]
 		#[serde_as]
 		#[derive(serde::Deserialize)]
-		pub struct Row {
-			pub id: tg::process::Id,
+		struct Row {
+			cwd: Option<PathBuf>,
+			checksum: Option<tg::Checksum>,
+			command: tg::command::Id,
+			commands_complete: bool,
 			#[serde(default)]
-			pub count: Option<u64>,
-			pub depth: u64,
-			pub error: Option<db::value::Json<tg::Error>>,
-			pub exit: Option<db::value::Json<tg::process::Exit>>,
-			pub host: String,
+			commands_count: Option<u64>,
 			#[serde(default)]
-			pub log: Option<tg::blob::Id>,
+			commands_depth: Option<u64>,
 			#[serde(default)]
-			pub logs_count: Option<u64>,
+			commands_weight: Option<u64>,
+			complete: bool,
 			#[serde(default)]
-			pub logs_depth: Option<u64>,
-			#[serde(default)]
-			pub logs_weight: Option<u64>,
-			#[serde(default)]
-			pub output: Option<db::value::Json<tg::value::Data>>,
-			#[serde(default)]
-			pub outputs_count: Option<u64>,
-			#[serde(default)]
-			pub outputs_depth: Option<u64>,
-			#[serde(default)]
-			pub outputs_weight: Option<u64>,
-			pub retry: bool,
-			pub status: tg::process::Status,
-			pub command: tg::command::Id,
-			#[serde(default)]
-			pub commands_count: Option<u64>,
-			#[serde(default)]
-			pub commands_depth: Option<u64>,
-			#[serde(default)]
-			pub commands_weight: Option<u64>,
+			count: Option<u64>,
 			#[serde_as(as = "Rfc3339")]
-			pub created_at: time::OffsetDateTime,
+			created_at: time::OffsetDateTime,
+			depth: u64,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
-			pub enqueued_at: Option<time::OffsetDateTime>,
+			dequeued_at: Option<time::OffsetDateTime>,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
-			pub dequeued_at: Option<time::OffsetDateTime>,
+			enqueued_at: Option<time::OffsetDateTime>,
+			error: Option<db::value::Json<tg::Error>>,
+			exit: Option<db::value::Json<tg::process::Exit>>,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
-			pub started_at: Option<time::OffsetDateTime>,
+			finished_at: Option<time::OffsetDateTime>,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
-			pub finished_at: Option<time::OffsetDateTime>,
+			heartbeat_at: Option<time::OffsetDateTime>,
+			host: String,
+			id: tg::process::Id,
+			#[serde(default)]
+			log: Option<tg::blob::Id>,
+			logs_complete: bool,
+			#[serde(default)]
+			logs_count: Option<u64>,
+			#[serde(default)]
+			logs_depth: Option<u64>,
+			#[serde(default)]
+			logs_weight: Option<u64>,
+			#[serde(default)]
+			output: Option<db::value::Json<tg::value::Data>>,
+			outputs_complete: bool,
+			#[serde(default)]
+			outputs_count: Option<u64>,
+			#[serde(default)]
+			outputs_depth: Option<u64>,
+			#[serde(default)]
+			outputs_weight: Option<u64>,
+			retry: bool,
+			#[serde(default)]
+			sandbox: Option<db::value::Json<tg::process::Sandbox>>,
+			#[serde(default)]
+			#[serde_as(as = "Option<Rfc3339>")]
+			started_at: Option<time::OffsetDateTime>,
+			status: tg::process::Status,
+			#[serde(default)]
+			stderr: Option<tg::pipe::Id>,
+			#[serde(default)]
+			stdin: Option<tg::pipe::Id>,
+			#[serde(default)]
+			stdout: Option<tg::pipe::Id>,
+			#[serde(default)]
+			#[serde_as(as = "Option<Rfc3339>")]
+			touched_at: Option<time::OffsetDateTime>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				select
-					id,
+					checksum,
+					command,
+					commands_complete,
+					commands_count,
+					commands_weight,
+					complete,
 					count,
+					created_at,
+					cwd,
 					depth,
+					dequeued_at,
+					enqueued_at,
 					error,
 					exit,
+					finished_at,
+					heartbeat_at,
 					host,
+					id,
 					log,
 					logs_complete,
 					logs_count,
@@ -103,16 +137,13 @@ impl Server {
 					outputs_count,
 					outputs_weight,
 					retry,
-					status,
-					command,
-					commands_complete,
-					commands_count,
-					commands_weight,
-					created_at,
-					enqueued_at,
-					dequeued_at,
+					sandbox,
 					started_at,
-					finished_at
+					status,
+					stderr,
+					stdin,
+					stdout,
+					touched_at
 				from processes
 				where id = {p}1;
 			"
@@ -123,31 +154,43 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let output = row.map(|row| tg::process::get::Output {
-			id: row.id,
+			checksum: row.checksum,
+			command: row.command,
+			commands_complete: row.commands_complete,
+			commands_count: row.commands_count,
+			commands_depth: row.commands_depth,
+			commands_weight: row.commands_weight,
+			complete: row.complete,
 			count: row.count,
+			created_at: row.created_at,
+			cwd: row.cwd,
 			depth: row.depth,
+			dequeued_at: row.dequeued_at,
+			enqueued_at: row.enqueued_at,
 			error: row.error.map(|error| error.0),
 			exit: row.exit.map(|exit| exit.0),
+			finished_at: row.finished_at,
+			heartbeat_at: row.heartbeat_at,
 			host: row.host,
+			id: row.id,
 			log: row.log,
+			logs_complete: row.logs_complete,
 			logs_count: row.logs_count,
 			logs_depth: row.logs_depth,
 			logs_weight: row.logs_weight,
 			output: row.output.map(|output| output.0),
+			outputs_complete: row.outputs_complete,
 			outputs_count: row.outputs_count,
 			outputs_depth: row.outputs_depth,
 			outputs_weight: row.outputs_weight,
 			retry: row.retry,
-			status: row.status,
-			command: row.command,
-			commands_count: row.commands_count,
-			commands_depth: row.commands_depth,
-			commands_weight: row.commands_weight,
-			created_at: row.created_at,
-			enqueued_at: row.enqueued_at,
-			dequeued_at: row.dequeued_at,
+			sandbox: row.sandbox.map(|sandbox| sandbox.0),
 			started_at: row.started_at,
-			finished_at: row.finished_at,
+			status: row.status,
+			stderr: row.stderr,
+			stdin: row.stdin,
+			stdout: row.stdout,
+			touched_at: row.touched_at,
 		});
 
 		// Drop the database connection.

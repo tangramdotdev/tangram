@@ -18,7 +18,6 @@ impl Server {
 		let stream = stream
 			.try_filter_map(move |status| {
 				let server = server.clone();
-				let status = status.clone();
 				let id = id.clone();
 				async move {
 					let status = match status {

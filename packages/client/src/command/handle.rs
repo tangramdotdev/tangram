@@ -128,8 +128,6 @@ impl Command {
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
-		let checksum = object.checksum.clone();
-		let cwd = object.cwd.clone();
 		let env = object
 			.env
 			.iter()
@@ -157,21 +155,17 @@ impl Command {
 			None
 		};
 		let host = object.host.clone();
-		let sandbox = object
-			.sandbox
-			.as_ref()
-			.map(|sandbox| tg::command::data::Sandbox {
-				filesystem: sandbox.filesystem,
-				network: sandbox.network,
-			});
+		let stdin = if let Some(stdin) = &object.stdin {
+			Some(stdin.id(handle).await?)
+		} else {
+			None
+		};
 		Ok(Data {
 			args,
-			checksum,
-			cwd,
 			env,
 			executable,
 			host,
-			sandbox,
+			stdin,
 		})
 	}
 }
@@ -185,26 +179,6 @@ impl Command {
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.args))
-	}
-
-	pub async fn checksum<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Checksum>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.checksum))
-	}
-
-	pub async fn cwd<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::PathBuf>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.cwd))
 	}
 
 	pub async fn env<H>(
@@ -234,29 +208,14 @@ impl Command {
 		Ok(self.object(handle).await?.map(|object| &object.host))
 	}
 
-	pub async fn sandbox<H>(
+	pub async fn stdin<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::command::Sandbox>>>
+	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Blob>>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.map(|object| &object.sandbox))
-	}
-}
-
-impl Command {
-	pub async fn cacheable<H>(&self, handle: &H) -> tg::Result<bool>
-	where
-		H: tg::Handle,
-	{
-		let object = self.object(handle).await?;
-		let cacheable = object.checksum.is_some()
-			|| object
-				.sandbox
-				.as_ref()
-				.is_some_and(|sandbox| !sandbox.filesystem && !sandbox.network);
-		Ok(cacheable)
+		Ok(self.object(handle).await?.map(|object| &object.stdin))
 	}
 }
 

@@ -27,6 +27,7 @@ pub fn syscall<'s>(
 	let result = match name.as_str() {
 		"blob_read" => async_(scope, &args, self::blob::read),
 		"checksum" => async_(scope, &args, self::checksum::checksum),
+		"command_output" => async_(scope, &args, self::command::output),
 		"encoding_base64_decode" => sync(scope, &args, self::encoding::base64_decode),
 		"encoding_base64_encode" => sync(scope, &args, self::encoding::base64_encode),
 		"encoding_hex_decode" => sync(scope, &args, self::encoding::hex_decode),
@@ -43,7 +44,6 @@ pub fn syscall<'s>(
 		"object_load" => async_(scope, &args, self::object::load),
 		"object_store" => async_(scope, &args, self::object::store),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
-		"command_output" => async_(scope, &args, self::command::output),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 

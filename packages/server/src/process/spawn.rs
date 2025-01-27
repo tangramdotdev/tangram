@@ -157,12 +157,11 @@ impl Server {
 		remote: Option<String>,
 	) -> tg::Result<runtime::Output> {
 		// Get the runtime.
-		let command = self
+		let process = self
 			.try_get_process_local(&process)
 			.await?
-			.ok_or_else(|| tg::error!("expected a local process"))?
-			.command;
-		let command = tg::Command::with_id(command);
+			.ok_or_else(|| tg::error!("expected a local process"))?;
+		let command = tg::Command::with_id(process.command.clone());
 		let host = command.host(self).await?;
 		let runtime = self
 			.runtimes

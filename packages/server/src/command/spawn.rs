@@ -30,29 +30,16 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Perform cycle detection.
-		if let Some(parent) = arg.parent.as_ref() {
-			let cycle = self.detect_process_cycle(parent, id).await?;
-			if cycle {
-				return Err(tg::error!("cycle detected"));
-			}
-		}
-
-		// Perform overflow detection.
-		if let Some(parent) = arg.parent.as_ref() {
-			let overflow = self.detect_process_overflow(parent).await?;
-			if overflow {
-				return Err(tg::error!("overflow detected"));
-			}
-		}
+		// Determine if the process is cacheable.
+		let cacheable = todo!();
 
 		// Get the command.
 		let command = tg::Command::with_id(id.clone());
 
-		// Get a local process if one exists that satisfies the retry constraint.
+		// If the process is cacheable, then get a matching local process if one exists.
 		'a: {
-			// Don't look for cache hits if the command is not cacheable.
-			if command.cacheable(self).await? {
+			// Do not look for cache hits if the process is not cacheable.
+			if cacheable {
 				break 'a;
 			}
 
@@ -268,133 +255,6 @@ impl Server {
 			remote: None,
 		};
 		Ok(Some(output))
-	}
-
-	async fn detect_process_cycle(
-		&self,
-		parent: &tg::process::Id,
-		command: &tg::command::Id,
-	) -> tg::Result<bool> {
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
-
-		// First check for a self-cycle.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select exists (
-					select 1 from processes
-					where id = {p}1 and command = {p}2
-				);
-			"
-		);
-
-		let params = db::params![parent, command];
-		let cycle = connection
-			.query_one_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		if cycle {
-			return Ok(true);
-		}
-
-		// Otherwise, recurse.
-		let statement = formatdoc!(
-			"
-				with recursive ancestors as (
-					select b.id, b.command
-					from processes b
-					join process_children c on b.id = c.child
-					where c.child = {p}1
-
-					union all
-
-					select b.id, b.command
-					from ancestors a
-					join process_children c on a.id = c.child
-					join processes b on c.process = b.id
-				)
-				select exists (
-					select 1
-					from ancestors
-					where command = {p}2
-				);
-			"
-		);
-		let params = db::params![parent, command];
-		let cycle = connection
-			.query_one_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute statement"))?;
-
-		Ok(cycle)
-	}
-
-	async fn detect_process_overflow(&self, parent: &tg::process::Id) -> tg::Result<bool> {
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
-		let p = connection.p();
-
-		#[derive(serde::Deserialize, serde::Serialize)]
-		struct Row {
-			id: tg::process::Id,
-			depth: u64,
-		}
-		let statement = formatdoc!(
-			"
-				with recursive ancestors as (
-					select b.id, b.depth
-					from processes b
-					join process_children c on b.id = c.child
-					where c.child = {p}1
-
-					union all
-
-					select b.id, b.depth
-					from ancestors a
-					join process_children c on a.id = c.child
-					join processes b on c.process = b.id
-				)
-				select id, depth from ancestors;
-			"
-		);
-		let params = db::params![parent];
-		let ancestors = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		let max_depth = ancestors.iter().map(|row| row.depth).max();
-		let ancestors = ancestors.iter().map(|row| row.id.clone()).collect_vec();
-		let ancestors = serde_json::to_string(&ancestors).unwrap();
-		if let Some(max_depth) = max_depth {
-			if max_depth >= self.config.process.as_ref().unwrap().max_depth {
-				return Ok(true);
-			}
-			let statement = formatdoc!(
-				"
-					update processes
-					set depth = depth + 1
-					where id in (select value from json_each({p}1));
-				"
-			);
-			let params = db::params![ancestors];
-			connection
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		// Drop the connection.
-		drop(connection);
-
-		Ok(false)
 	}
 }
 

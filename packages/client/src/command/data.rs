@@ -1,20 +1,11 @@
 use crate::{self as tg};
 use bytes::Bytes;
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	path::PathBuf,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Command {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub args: tg::value::data::Array,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub checksum: Option<tg::Checksum>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cwd: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub env: tg::value::data::Map,
@@ -24,8 +15,7 @@ pub struct Command {
 
 	pub host: String,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub sandbox: Option<Sandbox>,
+	pub stdin: Option<tg::blob::Id>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -39,12 +29,6 @@ pub enum Executable {
 pub struct Module {
 	pub kind: tg::module::Kind,
 	pub referent: tg::Referent<tg::object::Id>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Sandbox {
-	pub filesystem: bool,
-	pub network: bool,
 }
 
 impl Command {

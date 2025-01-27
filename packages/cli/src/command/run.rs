@@ -26,11 +26,6 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-pub enum InnerKind {
-	Build,
-	Run,
-}
-
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -43,6 +38,10 @@ pub struct InnerArgs {
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
 	pub checkout: Option<Option<PathBuf>>,
+
+	/// Whether to check out the output. The output must be an artifact. A path to check out to may be provided.
+	#[arg(long)]
+	pub checksum: Option<tg::Checksum>,
 
 	/// If false, don't create a new process.
 	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
@@ -80,6 +79,11 @@ pub struct InnerArgs {
 	/// Choose the view.
 	#[arg(long, default_value = "inline")]
 	pub view: View,
+}
+
+pub enum InnerKind {
+	Build,
+	Run,
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
@@ -272,8 +276,8 @@ impl Cli {
 				},
 			};
 
-			// Get the command.
-			let command = reference
+			// Get the target.
+			let target = reference
 				.uri()
 				.fragment()
 				.map_or("default", |fragment| fragment);
@@ -284,7 +288,7 @@ impl Cli {
 				.into_iter()
 				.map(|arg| arg.parse())
 				.try_collect::<tg::Value, _, _>()?;
-			args_.insert(0, command.into());
+			args_.insert(0, target.into());
 
 			// Get the env.
 			let mut env: tg::value::Map = args
@@ -317,24 +321,11 @@ impl Cli {
 			// Choose the host.
 			let host = "js";
 
-			// Choose the cwd and network.
-			let (cwd, sandbox) = match kind {
-				InnerKind::Build => (None, Some(tg::command::Sandbox::default())),
-				InnerKind::Run => {
-					let cwd = std::env::current_dir().map_err(|source| {
-						tg::error!(!source, "failed to get the working directory")
-					})?;
-					(Some(cwd), None)
-				},
-			};
-
 			// Create the command.
 			tg::command::Builder::new(host)
-				.cwd(cwd)
 				.executable(Some(executable))
 				.args(args_)
 				.env(env)
-				.sandbox(sandbox)
 				.build()
 		};
 
@@ -356,13 +347,49 @@ impl Cli {
 			self.render_progress_stream(stream).await?;
 		}
 
+		// Handle build vs run.
+		let (cwd, sandbox, stdin, stdout, stderr, stdio_task) = match kind {
+			InnerKind::Build => {
+				let cwd = None;
+				let sandbox = Some(tg::process::Sandbox::default());
+				let stdin = None;
+				let stdout = None;
+				let stderr = None;
+				let stdio_task = None::<()>;
+				(cwd, sandbox, stdin, stdout, stderr, stdio_task)
+			},
+			InnerKind::Run => {
+				let cwd = Some(std::env::current_dir().map_err(|source| {
+					tg::error!(!source, "failed to get the working directory")
+				})?);
+				let sandbox = None;
+				let stdin = Some(tg::pipe::Id::new());
+				let stdout = Some(tg::pipe::Id::new());
+				let stderr = Some(tg::pipe::Id::new());
+				// let stdio_task = Some(tokio::spawn({
+				// 	let stdin = stdin.clone();
+				// 	let stdout = stdout.clone();
+				// 	let stderr = stderr.clone();
+				// 	async move { futures::try_join!(async move {}) }
+				// }));
+				let stdio_task = None;
+				(cwd, sandbox, stdin, stdout, stderr, stdio_task)
+			},
+		};
+
 		// Spawn the process.
 		let id = command.id(&handle).await?;
 		let arg = tg::command::spawn::Arg {
+			checksum: args.checksum,
 			create: args.create,
+			cwd,
 			parent: None,
 			remote: remote.clone(),
 			retry,
+			sandbox,
+			stderr,
+			stdin,
+			stdout,
 		};
 		let output = handle.spawn_command(&id, arg).await?;
 		let process = tg::Process::with_id(output.process);
@@ -428,7 +455,6 @@ impl Cli {
 							};
 							let item = crate::viewer::Item::Process(process);
 							let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
-
 							match args.view {
 								View::None => (),
 								View::Inline => {
@@ -490,6 +516,11 @@ impl Cli {
 		// Get the output or return an error if we failed to wait for the process.
 		let output =
 			result.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
+
+		// // Await the stdio task.
+		// if let Some(stdio_task) = stdio_task {
+		// 	stdio_task.await.unwrap();
+		// }
 
 		// Return an error if appropriate.
 		if let Some(source) = output.error {
@@ -553,6 +584,7 @@ impl Default for InnerArgs {
 		Self {
 			arg: vec![],
 			checkout: None,
+			checksum: None,
 			create: true,
 			detach: false,
 			env: vec![],

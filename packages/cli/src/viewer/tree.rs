@@ -1121,18 +1121,6 @@ where
 		let object = command.object(handle).await?;
 		let mut children = Vec::new();
 		children.push(("args".to_owned(), tg::Value::Array(object.args.clone())));
-		if let Some(checksum) = &object.checksum {
-			children.push((
-				"checksum".to_owned(),
-				tg::Value::String(checksum.to_string()),
-			));
-		}
-		if let Some(cwd) = &object.cwd {
-			children.push((
-				"cwd".to_owned(),
-				tg::Value::String(cwd.display().to_string()),
-			));
-		}
 		children.push(("env".to_owned(), tg::Value::Map(object.env.clone())));
 		if let Some(executable) = &object.executable {
 			let value = match executable {
@@ -1169,16 +1157,6 @@ where
 			children.push(("executable".to_owned(), value));
 		}
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		if let Some(sandbox) = &object.sandbox {
-			let mut map = BTreeMap::new();
-			if sandbox.filesystem {
-				map.insert("filesystem".to_owned(), true.into());
-			}
-			if sandbox.network {
-				map.insert("network".to_owned(), true.into());
-			}
-			children.push(("sandbox".to_owned(), tg::Value::Map(map)));
-		}
 		command.unload();
 
 		// Send the update.

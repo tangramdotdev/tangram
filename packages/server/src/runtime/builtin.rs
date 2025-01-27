@@ -24,7 +24,7 @@ impl Runtime {
 
 	pub async fn run(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> super::Output {
@@ -37,7 +37,7 @@ impl Runtime {
 
 	async fn run_inner(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> tg::Result<tg::Value> {

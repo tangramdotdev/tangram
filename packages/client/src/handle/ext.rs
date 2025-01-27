@@ -225,7 +225,8 @@ pub trait Ext: tg::Handle {
 			.inspect_ok({
 				let state = state.clone();
 				move |event| {
-					state.lock().unwrap().end = matches!(event, tg::process::wait::Event::Output(_))
+					state.lock().unwrap().end =
+						matches!(event, tg::process::wait::Event::Output(_));
 				}
 			});
 			Ok(Some(stream))

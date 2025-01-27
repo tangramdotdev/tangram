@@ -1,4 +1,5 @@
 use crate as tg;
+use bytes::Bytes;
 use futures::{Future, FutureExt as _, Stream};
 use std::{
 	collections::VecDeque,
@@ -71,6 +72,7 @@ pub mod module;
 pub mod mutation;
 pub mod object;
 pub mod package;
+pub mod pipe;
 pub mod position;
 pub mod process;
 pub mod progress;
@@ -566,6 +568,7 @@ impl Client {
 			.await?
 			.send_request(request)
 			.await
+			.map(|response| response.map(Into::into))
 			.map_err(|source| tg::error!(!source, "failed to send the request"))
 	}
 }
@@ -698,6 +701,19 @@ impl tg::Handle for Client {
 		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.format_package(arg)
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>> + Send + 'static>,
+	> {
+		self.read_pipe(id)
+	}
+
+	fn write_pipe(&self, id: &tg::pipe::Id, bytes: Bytes) -> impl Future<Output = tg::Result<()>> {
+		self.write_pipe(id, bytes)
 	}
 
 	fn try_get_process(

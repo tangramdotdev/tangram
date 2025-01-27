@@ -13,14 +13,14 @@ use url::Url;
 impl Runtime {
 	pub async fn download(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Ensure the command has a checksum.
-		if command.checksum(server).await?.is_none() {
+		if process.checksum.is_none() {
 			return Err(tg::error!("a download must have a checksum"));
 		}
 
@@ -60,7 +60,7 @@ impl Runtime {
 					remote: remote.clone(),
 				};
 				if !server
-					.try_post_process_log(&process, arg)
+					.try_post_process_log(&process.id, arg)
 					.await
 					.map_or(true, |ok| ok.added)
 				{
@@ -82,7 +82,7 @@ impl Runtime {
 						remote: remote.clone(),
 					};
 					if !server
-						.try_post_process_log(&process, arg)
+						.try_post_process_log(&process.id, arg)
 						.await
 						.map_or(true, |ok| ok.added)
 					{
@@ -145,7 +145,7 @@ impl Runtime {
 			bytes: message.into(),
 			remote: remote.clone(),
 		};
-		server.try_post_process_log(process, arg).await.ok();
+		server.try_post_process_log(&process.id, arg).await.ok();
 
 		Ok(blob.into())
 	}

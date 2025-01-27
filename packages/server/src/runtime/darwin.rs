@@ -31,7 +31,7 @@ impl Runtime {
 
 	pub async fn run(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> super::Output {
@@ -44,7 +44,7 @@ impl Runtime {
 
 	pub async fn run_inner(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> tg::Result<(Option<tg::process::Exit>, Option<tg::Value>)> {
@@ -76,8 +76,7 @@ impl Runtime {
 			})?;
 
 		// Run with or without the sandbox.
-		let sandbox = command.sandbox(&self.server).await?;
-		let exit = if let Some(sandbox) = sandbox.as_ref() {
+		let exit = if let Some(sandbox) = &process.sandbox {
 			self.run_sandboxed(process, command, sandbox, remote, output_parent.path())
 				.await?
 		} else {
@@ -112,7 +111,7 @@ impl Runtime {
 
 	async fn run_unsandboxed(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 		output_parent: &Path,
@@ -132,11 +131,11 @@ impl Runtime {
 
 		// Get or create the current working directory.
 		let cwd = Temp::new(&self.server);
-		let cwd = if let Some(cwd) = command.cwd(&self.server).await?.as_ref() {
+		let cwd = if let Some(cwd) = &process.cwd {
 			cwd.clone()
 		} else {
 			tokio::fs::create_dir_all(cwd.path()).await.map_err(
-				|source| tg::error!(!source, %process, "failed to create working directory for process"),
+				|source| tg::error!(!source, %process = process.id, "failed to create working directory for process"),
 			)?;
 			cwd.path().to_owned()
 		};
@@ -189,7 +188,7 @@ impl Runtime {
 		// Spawn the log task.
 		let log_task = super::util::post_log_task(
 			&self.server,
-			process,
+			&process.id,
 			remote.as_ref(),
 			child.stdout.take().unwrap(),
 		);
@@ -204,7 +203,7 @@ impl Runtime {
 		} else if let Some(signal) = exit.signal() {
 			tg::process::Exit::Signal { signal }
 		} else {
-			return Err(tg::error!(%process, "expected an exit code or signal"));
+			return Err(tg::error!(%process = process.id, "expected an exit code or signal"));
 		};
 
 		// Wait for the log task to complete.
@@ -219,9 +218,9 @@ impl Runtime {
 
 	async fn run_sandboxed(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
-		sandbox: &tg::command::Sandbox,
+		sandbox: &tg::process::Sandbox,
 		remote: Option<String>,
 		output_parent: &Path,
 	) -> tg::Result<tg::process::Exit> {
@@ -256,10 +255,10 @@ impl Runtime {
 			.map_err(|error| tg::error!(source = error, "failed to create the server directory"))?;
 
 		// Create the working directory.
-		let working_directory = if let Some(cwd) = command.cwd(&self.server).await?.as_ref() {
+		let working_directory = if let Some(cwd) = &process.cwd {
 			if !sandbox.filesystem {
 				return Err(
-					tg::error!(%process, "cannot run a process with cwd set and sandbox.filesystem = false"),
+					tg::error!(%process = process.id, "cannot run a process with cwd set and sandbox.filesystem = false"),
 				);
 			};
 			cwd.clone()
@@ -280,7 +279,7 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to parse the proxy server url"))?;
 
 		// Start the proxy server.
-		let proxy = Proxy::new(server.clone(), process.clone(), remote.clone(), None);
+		let proxy = Proxy::new(server.clone(), process.id.clone(), remote.clone(), None);
 		let listener = Server::listen(&proxy_server_url).await?;
 		let proxy_task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 
@@ -396,7 +395,7 @@ impl Runtime {
 		// Spawn the log task.
 		let log_task = super::util::post_log_task(
 			&self.server,
-			process,
+			&process.id,
 			remote.as_ref(),
 			child.stdout.take().unwrap(),
 		);
@@ -411,7 +410,7 @@ impl Runtime {
 		} else if let Some(signal) = exit.signal() {
 			tg::process::Exit::Signal { signal }
 		} else {
-			return Err(tg::error!(%process, "expected an exit code or signal"));
+			return Err(tg::error!(%process = process.id, "expected an exit code or signal"));
 		};
 
 		// Wait for the log task to complete.
@@ -481,7 +480,7 @@ fn escape(bytes: impl AsRef<[u8]>) -> String {
 }
 
 fn create_sandbox_profile(
-	sandbox: &tg::command::Sandbox,
+	sandbox: &tg::process::Sandbox,
 	artifacts_path: &Path,
 	home_directory: &Path,
 	output_parent: &Path,
@@ -490,88 +489,88 @@ fn create_sandbox_profile(
 	let mut profile = String::new();
 	writedoc!(
 		profile,
-			r#"
-				(version 1)
+		r#"
+			(version 1)
 
-				;; Deny everything by default.
-				(deny default)
+			;; Deny everything by default.
+			(deny default)
 
-				;; Allow most system operations.
-				(allow syscall*)
-				(allow system-socket)
-				(allow mach*)
-				(allow ipc*)
-				(allow sysctl*)
+			;; Allow most system operations.
+			(allow syscall*)
+			(allow system-socket)
+			(allow mach*)
+			(allow ipc*)
+			(allow sysctl*)
 
-				;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
-				(allow process-fork process-info*)
+			;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
+			(allow process-fork process-info*)
 
-				;; Allow limited exploration of the root.
-				(allow file-read-data (literal "/"))
-				(allow file-read-metadata
-					(literal "/Library")
-					(literal "/System")
-					(literal "/Users")
-					(literal "/Volumes")
-					(literal "/etc")
-				)
+			;; Allow limited exploration of the root.
+			(allow file-read-data (literal "/"))
+			(allow file-read-metadata
+				(literal "/Library")
+				(literal "/System")
+				(literal "/Users")
+				(literal "/Volumes")
+				(literal "/etc")
+			)
 
-				;; Allow writing to common devices.
-				(allow file-read* file-write-data file-ioctl
-					(literal "/dev/null")
-					(literal "/dev/zero")
-					(literal "/dev/dtracehelper")
-				)
+			;; Allow writing to common devices.
+			(allow file-read* file-write-data file-ioctl
+				(literal "/dev/null")
+				(literal "/dev/zero")
+				(literal "/dev/dtracehelper")
+			)
 
-				;; Allow reading and writing temporary files.
-				(allow file-write* file-read*
-					(subpath "/tmp")
-					(subpath "/private/tmp")
-					(subpath "/private/var")
-					(subpath "/var")
-				)
+			;; Allow reading and writing temporary files.
+			(allow file-write* file-read*
+				(subpath "/tmp")
+				(subpath "/private/tmp")
+				(subpath "/private/var")
+				(subpath "/var")
+			)
 
-				;; Allow reading some system devices and files.
-				(allow file-read*
-					(literal "/dev/autofs_nowait")
-					(literal "/dev/random")
-					(literal "/dev/urandom")
-					(literal "/private/etc/localtime")
-					(literal "/private/etc/protocols")
-					(literal "/private/etc/services")
-					(subpath "/private/etc/ssl")
-				)
+			;; Allow reading some system devices and files.
+			(allow file-read*
+				(literal "/dev/autofs_nowait")
+				(literal "/dev/random")
+				(literal "/dev/urandom")
+				(literal "/private/etc/localtime")
+				(literal "/private/etc/protocols")
+				(literal "/private/etc/services")
+				(subpath "/private/etc/ssl")
+			)
 
-				;; Allow executing /usr/bin/env and /bin/sh.
-				(allow file-read* process-exec
-					(literal "/usr/bin/env")
-					(literal "/bin/sh")
-					(literal "/bin/bash")
-				)
+			;; Allow executing /usr/bin/env and /bin/sh.
+			(allow file-read* process-exec
+				(literal "/usr/bin/env")
+				(literal "/bin/sh")
+				(literal "/bin/bash")
+			)
 
-				;; Support Rosetta.
-				(allow file-read* file-test-existence
-					(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
-				)
+			;; Support Rosetta.
+			(allow file-read* file-test-existence
+				(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
+			)
 
-				;; Allow accessing the dyld shared cache.
-				(allow file-read* process-exec
-					(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
-					(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
-				)
+			;; Allow accessing the dyld shared cache.
+			(allow file-read* process-exec
+				(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
+				(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
+			)
 
-				;; Allow querying the macOS system version metadata.
-				(allow file-read* file-test-existence
-					(literal "/System/Library/CoreServices/SystemVersion.plist")
-				)
+			;; Allow querying the macOS system version metadata.
+			(allow file-read* file-test-existence
+				(literal "/System/Library/CoreServices/SystemVersion.plist")
+			)
 
-				;; Allow bash to create and use file descriptors for pipes.
-				(allow file-read* file-write* file-ioctl process-exec
-					(literal "/dev/fd")
-					(subpath "/dev/fd")
-				)
-			"#
-		).unwrap();
+			;; Allow bash to create and use file descriptors for pipes.
+			(allow file-read* file-write* file-ioctl process-exec
+				(literal "/dev/fd")
+				(subpath "/dev/fd")
+			)
+		"#
+	).unwrap();
 
 	// Write the filesystem profile.
 	if sandbox.filesystem {

@@ -37,7 +37,9 @@ impl Server {
 			let statement = formatdoc!(
 				"
 					update processes
-					set status = 'dequeued', dequeued_at = {p}1
+					set
+						status = 'dequeued',
+						dequeued_at = {p}1
 					where id in (
 						select id
 						from processes

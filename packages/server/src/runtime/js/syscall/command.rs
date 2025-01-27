@@ -17,6 +17,7 @@ pub async fn output(state: Rc<State>, args: (tg::Command,)) -> tg::Result<tg::Va
 				parent: Some(parent.clone()),
 				remote,
 				retry,
+				..Default::default()
 			};
 			command
 				.output(&server, arg)

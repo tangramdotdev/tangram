@@ -1,18 +1,50 @@
-use crate as tg;
+use crate::{self as tg, util::serde::is_false};
 use itertools::Itertools as _;
 use serde_with::serde_as;
+use std::path::PathBuf;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 use time::format_description::well_known::Rfc3339;
 
+#[allow(clippy::struct_excessive_bools)]
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub id: tg::process::Id,
+	pub checksum: Option<tg::Checksum>,
+
+	pub command: tg::command::Id,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub commands_complete: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub commands_count: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub commands_depth: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub commands_weight: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub complete: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub count: Option<u64>,
 
+	#[serde_as(as = "Rfc3339")]
+	pub created_at: time::OffsetDateTime,
+
+	pub cwd: Option<PathBuf>,
+
 	pub depth: u64,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Rfc3339>")]
+	pub dequeued_at: Option<time::OffsetDateTime>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Rfc3339>")]
+	pub enqueued_at: Option<time::OffsetDateTime>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
@@ -20,10 +52,23 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub exit: Option<tg::process::Exit>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Rfc3339>")]
+	pub finished_at: Option<time::OffsetDateTime>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Rfc3339>")]
+	pub heartbeat_at: Option<time::OffsetDateTime>,
+
 	pub host: String,
+
+	pub id: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub logs_complete: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub logs_count: Option<u64>,
@@ -41,6 +86,9 @@ pub struct Output {
 	)]
 	pub output: Option<tg::value::Data>,
 
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub outputs_complete: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub outputs_count: Option<u64>,
 
@@ -52,37 +100,27 @@ pub struct Output {
 
 	pub retry: bool,
 
-	pub status: tg::process::Status,
-
-	pub command: tg::command::Id,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub commands_count: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub commands_depth: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub commands_weight: Option<u64>,
-
-	#[serde_as(as = "Rfc3339")]
-	pub created_at: time::OffsetDateTime,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Rfc3339>")]
-	pub enqueued_at: Option<time::OffsetDateTime>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Rfc3339>")]
-	pub dequeued_at: Option<time::OffsetDateTime>,
+	pub sandbox: Option<tg::process::Sandbox>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub started_at: Option<time::OffsetDateTime>,
 
+	pub status: tg::process::Status,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stderr: Option<tg::pipe::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdin: Option<tg::pipe::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdout: Option<tg::pipe::Id>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
-	pub finished_at: Option<time::OffsetDateTime>,
+	pub touched_at: Option<time::OffsetDateTime>,
 }
 
 impl Output {

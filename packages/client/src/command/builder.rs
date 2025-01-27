@@ -1,15 +1,13 @@
 use crate as tg;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub struct Builder {
 	args: Vec<tg::Value>,
-	checksum: Option<tg::Checksum>,
-	cwd: Option<PathBuf>,
 	env: BTreeMap<String, tg::Value>,
 	executable: Option<tg::command::Executable>,
 	host: String,
-	sandbox: Option<tg::command::Sandbox>,
+	stdin: Option<tg::Blob>,
 }
 
 impl Builder {
@@ -17,12 +15,10 @@ impl Builder {
 	pub fn new(host: impl Into<String>) -> Self {
 		Self {
 			args: Vec::new(),
-			checksum: None,
-			cwd: None,
 			env: BTreeMap::new(),
 			executable: None,
 			host: host.into(),
-			sandbox: None,
+			stdin: None,
 		}
 	}
 
@@ -30,30 +26,16 @@ impl Builder {
 	pub fn with_object(object: &tg::command::Object) -> Self {
 		Self {
 			args: object.args.clone(),
-			checksum: object.checksum.clone(),
-			cwd: object.cwd.clone(),
 			env: object.env.clone(),
 			executable: object.executable.clone(),
 			host: object.host.clone(),
-			sandbox: object.sandbox.clone(),
+			stdin: object.stdin.clone(),
 		}
 	}
 
 	#[must_use]
 	pub fn args(mut self, args: Vec<tg::Value>) -> Self {
 		self.args = args;
-		self
-	}
-
-	#[must_use]
-	pub fn checksum(mut self, checksum: impl Into<Option<tg::Checksum>>) -> Self {
-		self.checksum = checksum.into();
-		self
-	}
-
-	#[must_use]
-	pub fn cwd(mut self, cwd: impl Into<Option<PathBuf>>) -> Self {
-		self.cwd = cwd.into();
 		self
 	}
 
@@ -76,8 +58,8 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn sandbox(mut self, sandbox: impl Into<Option<tg::command::Sandbox>>) -> Self {
-		self.sandbox = sandbox.into();
+	pub fn stdin(mut self, stdin: impl Into<Option<tg::Blob>>) -> Self {
+		self.stdin = stdin.into();
 		self
 	}
 
@@ -85,12 +67,10 @@ impl Builder {
 	pub fn build(self) -> tg::Command {
 		tg::Command::with_object(tg::command::Object {
 			args: self.args,
-			checksum: self.checksum,
-			cwd: self.cwd,
 			env: self.env,
 			executable: self.executable,
 			host: self.host,
-			sandbox: self.sandbox,
+			stdin: self.stdin,
 		})
 	}
 }

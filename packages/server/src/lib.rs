@@ -2,6 +2,7 @@ use self::{
 	database::Database, messenger::Messenger, runtime::Runtime, store::Store, util::fs::remove,
 };
 use async_nats as nats;
+use bytes::Bytes;
 use compiler::Compiler;
 use dashmap::{DashMap, DashSet};
 use futures::{future, stream::FuturesUnordered, Future, FutureExt as _, Stream, StreamExt as _};
@@ -42,6 +43,7 @@ mod messenger;
 mod module;
 mod object;
 mod package;
+mod pipe;
 mod process;
 mod progress;
 mod reference;
@@ -732,8 +734,9 @@ impl Server {
 				let handle = handle.clone();
 				let idle = idle.clone();
 				let stop = stop.clone();
-				move |mut request| {
+				move |request| {
 					let handle = handle.clone();
+					let mut request = request.map(Incoming::from);
 					let idle = idle.token();
 					let stop = stop.clone();
 					async move {
@@ -838,6 +841,14 @@ impl Server {
 			},
 			(http::Method::POST, ["packages", "format"]) => {
 				Self::handle_format_package_request(handle, request).boxed()
+			},
+
+			// Pipes.
+			(http::Method::GET, ["pipes", pipe, "read"]) => {
+				Self::handle_read_pipe_request(handle, request, pipe).boxed()
+			},
+			(http::Method::POST, ["pipes", pipe, "write"]) => {
+				Self::handle_write_pipe_request(handle, request, pipe).boxed()
 			},
 
 			// Processes.
@@ -1104,6 +1115,19 @@ impl tg::Handle for Server {
 		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.format_package(arg)
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>> + Send + 'static>,
+	> {
+		self.read_pipe(id)
+	}
+
+	fn write_pipe(&self, id: &tg::pipe::Id, bytes: Bytes) -> impl Future<Output = tg::Result<()>> {
+		self.write_pipe(id, bytes)
 	}
 
 	fn try_get_process(

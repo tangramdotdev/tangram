@@ -1,17 +1,14 @@
 use super::Data;
 use crate as tg;
 use itertools::Itertools as _;
-use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Command {
 	pub args: tg::value::Array,
-	pub checksum: Option<tg::Checksum>,
-	pub cwd: Option<PathBuf>,
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: String,
-	pub sandbox: Option<Sandbox>,
+	pub stdin: Option<tg::Blob>,
 }
 
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
@@ -25,12 +22,6 @@ pub enum Executable {
 pub struct Module {
 	pub kind: tg::module::Kind,
 	pub referent: tg::Referent<tg::Object>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Sandbox {
-	pub filesystem: bool,
-	pub network: bool,
 }
 
 impl Command {
@@ -89,8 +80,6 @@ impl TryFrom<Data> for Command {
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		let args = data.args.into_iter().map(TryInto::try_into).try_collect()?;
-		let checksum = data.checksum;
-		let cwd = data.cwd;
 		let env = data
 			.env
 			.into_iter()
@@ -98,15 +87,13 @@ impl TryFrom<Data> for Command {
 			.try_collect()?;
 		let executable = data.executable.map(TryInto::try_into).transpose()?;
 		let host = data.host;
-		let sandbox = data.sandbox.map(TryInto::try_into).transpose()?;
+		let stdin = data.stdin.map(tg::Blob::with_id);
 		Ok(Self {
 			args,
-			checksum,
-			cwd,
 			env,
 			executable,
 			host,
-			sandbox,
+			stdin,
 		})
 	}
 }
@@ -162,16 +149,5 @@ impl std::fmt::Display for Module {
 			write!(f, ":{}", subpath.display())?;
 		}
 		Ok(())
-	}
-}
-
-impl TryFrom<tg::command::data::Sandbox> for Sandbox {
-	type Error = tg::Error;
-
-	fn try_from(data: tg::command::data::Sandbox) -> std::result::Result<Self, Self::Error> {
-		Ok(Sandbox {
-			filesystem: data.filesystem,
-			network: data.network,
-		})
 	}
 }

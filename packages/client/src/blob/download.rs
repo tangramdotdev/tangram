@@ -6,8 +6,13 @@ impl tg::Blob {
 	where
 		H: tg::Handle,
 	{
-		let command = Self::download_command(url, checksum);
-		let arg = tg::command::spawn::Arg::default();
+		let host = "builtin";
+		let args = vec!["download".into(), url.to_string().into()];
+		let command = tg::Command::builder(host).args(args).build();
+		let arg = tg::command::spawn::Arg {
+			checksum: Some(checksum.clone()),
+			..Default::default()
+		};
 		let output = command.output(handle, arg).await?;
 		let blob = output
 			.try_unwrap_object()
@@ -15,15 +20,5 @@ impl tg::Blob {
 			.ok_or_else(|| tg::error!("expected an object"))?
 			.try_into()?;
 		Ok(blob)
-	}
-
-	#[must_use]
-	pub fn download_command(url: &Url, checksum: &tg::Checksum) -> tg::Command {
-		let host = "builtin";
-		let args = vec!["download".into(), url.to_string().into()];
-		tg::Command::builder(host)
-			.args(args)
-			.checksum(checksum.clone())
-			.build()
 	}
 }

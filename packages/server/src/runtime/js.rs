@@ -66,7 +66,7 @@ impl Runtime {
 
 	pub async fn run(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> super::Output {
@@ -112,7 +112,7 @@ impl Runtime {
 
 	async fn run_inner(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 		main_runtime_handle: tokio::runtime::Handle,
@@ -160,7 +160,7 @@ impl Runtime {
 						bytes: string.into(),
 						remote: remote.clone(),
 					};
-					server.try_post_process_log(&process, arg).await.ok();
+					server.try_post_process_log(&process.id, arg).await.ok();
 				}
 			}
 		});
@@ -171,7 +171,7 @@ impl Runtime {
 
 		// Create the state.
 		let state = Rc::new(State {
-			process: process.clone(),
+			process: process.id.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
 			compiler: Compiler::new(&self.server, main_runtime_handle.clone()),

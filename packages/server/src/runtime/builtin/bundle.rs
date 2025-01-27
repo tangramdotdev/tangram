@@ -11,7 +11,7 @@ static TANGRAM_RUN_PATH: &str = ".tangram/run";
 impl Runtime {
 	pub async fn bundle(
 		&self,
-		_process: &tg::process::Id,
+		_process: &tg::process::get::Output,
 		command: &tg::Command,
 		_remote: Option<String>,
 	) -> tg::Result<tg::Value> {

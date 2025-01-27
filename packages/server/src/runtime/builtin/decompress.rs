@@ -7,7 +7,7 @@ use tokio::io::AsyncRead;
 impl Runtime {
 	pub async fn decompress(
 		&self,
-		process: &tg::process::Id,
+		process: &tg::process::get::Output,
 		command: &tg::Command,
 		remote: Option<String>,
 	) -> tg::Result<tg::Value> {
@@ -64,7 +64,7 @@ impl Runtime {
 						remote: remote.clone(),
 					};
 					if !server
-						.try_post_process_log(&process, arg)
+						.try_post_process_log(&process.id, arg)
 						.await
 						.map_or(true, |ok| ok.added)
 					{
@@ -105,7 +105,7 @@ impl Runtime {
 			bytes: message.into(),
 			remote: remote.clone(),
 		};
-		server.try_post_process_log(process, arg).await.ok();
+		server.try_post_process_log(&process.id, arg).await.ok();
 
 		Ok(blob.into())
 	}

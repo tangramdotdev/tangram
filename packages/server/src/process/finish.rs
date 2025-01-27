@@ -138,13 +138,10 @@ impl Server {
 		}
 
 		// Verify the checksum if one was provided.
-		let command = tg::Command::with_id(process.command);
-		if let (Some(output), Some(expected)) =
-			(output.clone(), command.checksum(self).await?.clone())
-		{
+		if let (Some(output), Some(expected)) = (output.clone(), &process.checksum) {
 			let value: tg::Value = output.try_into()?;
 			if let Err(checksum_error) = self
-				.verify_checksum(id.clone(), &value, &expected)
+				.verify_checksum(id.clone(), &value, expected)
 				.boxed()
 				.await
 			{

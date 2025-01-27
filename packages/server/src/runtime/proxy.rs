@@ -1,4 +1,5 @@
 use crate::Server;
+use bytes::Bytes;
 use futures::{stream, Future, Stream, TryStreamExt as _};
 use std::{path::PathBuf, sync::Arc};
 use tangram_client as tg;
@@ -229,6 +230,19 @@ impl tg::Handle for Proxy {
 
 	async fn format_package(&self, _arg: tg::package::format::Arg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>> + Send + 'static>,
+	> {
+		self.server.read_pipe(id)
+	}
+
+	fn write_pipe(&self, id: &tg::pipe::Id, bytes: Bytes) -> impl Future<Output = tg::Result<()>> {
+		self.server.write_pipe(id, bytes)
 	}
 
 	fn try_get_process(

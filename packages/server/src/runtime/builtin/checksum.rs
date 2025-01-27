@@ -4,7 +4,7 @@ use tangram_client as tg;
 impl Runtime {
 	pub async fn checksum(
 		&self,
-		_process: &tg::process::Id,
+		_process: &tg::process::get::Output,
 		command: &tg::Command,
 		_remote: Option<String>,
 	) -> tg::Result<tg::Value> {

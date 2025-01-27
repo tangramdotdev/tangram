@@ -531,9 +531,6 @@ where
 		if !object.args.is_empty() {
 			self.map_entry("args", |s| s.array(&object.args))?;
 		}
-		if let Some(checksum) = &object.checksum {
-			self.map_entry("checksum", |s| write!(s.writer, "\"{checksum}\""))?;
-		}
 		if !object.env.is_empty() {
 			self.map_entry("env", |s| s.map(&object.env))?;
 		}
@@ -544,6 +541,9 @@ where
 			})?;
 		}
 		self.map_entry("host", |s| s.string(&object.host))?;
+		if let Some(stdin) = &object.stdin {
+			self.map_entry("stdin", |s| s.blob(stdin))?;
+		}
 		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())

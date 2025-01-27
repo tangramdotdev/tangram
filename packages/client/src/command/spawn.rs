@@ -3,12 +3,19 @@ use crate::{
 	handle::Ext as _,
 	util::serde::{is_false, is_true, return_true},
 };
+use std::path::PathBuf;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checksum: Option<tg::Checksum>,
+
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub create: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
@@ -18,6 +25,18 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<tg::process::Sandbox>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stderr: Option<tg::pipe::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdin: Option<tg::pipe::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdout: Option<tg::pipe::Id>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -80,10 +99,16 @@ impl tg::Client {
 impl Default for Arg {
 	fn default() -> Self {
 		Self {
+			checksum: None,
 			create: true,
+			cwd: None,
 			parent: None,
 			remote: None,
 			retry: false,
+			sandbox: None,
+			stderr: None,
+			stdin: None,
+			stdout: None,
 		}
 	}
 }

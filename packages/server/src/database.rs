@@ -147,7 +147,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index object_children_child_index on object_children (child);
 
 			create table processes (
-				id text primary key,
+				checksum text,
 				command text not null,
 				commands_complete integer not null default 0,
 				commands_count integer,
@@ -155,11 +155,17 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				commands_weight integer,
 				complete integer not null default 0,
 				count integer,
+				created_at text not null,
+				cwd text,
 				depth integer not null,
+				dequeued_at text,
+				enqueued_at text,
 				error text,
 				exit text,
+				finished_at text,
 				heartbeat_at text,
 				host text not null,
+				id text primary key,
 				log text,
 				logs_complete integer not null default 0,
 				logs_count integer,
@@ -171,18 +177,16 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				outputs_depth integer,
 				outputs_weight integer,
 				retry integer not null,
-				status text not null,
-				touched_at text,
-				created_at text not null,
-				enqueued_at text,
-				dequeued_at text,
+				sandbox text,
 				started_at text,
-				finished_at text
+				status text not null,
+				stderr text,
+				stdin text,
+				stdout text,
+				touched_at text
 			);
 
-			create index processes_status_created_at_index on processes (status, created_at);
-
-			create index processes_command_created_at_index on processes (command, created_at desc);
+			create index processes_status_index on processes (status);
 
 			create table process_children (
 				process text not null,
@@ -194,9 +198,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index process_children_index on process_children (process, position);
 
-			create index process_children_process_parent_index on process_children (child, process);
-
-			create index process_children_child_index on process_children (child);
+			create index process_children_child_process_index on process_children (child, process);
 
 			create table process_tokens (
 				process text not null,

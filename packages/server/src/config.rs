@@ -135,12 +135,12 @@ impl Config {
 	pub fn with_path(path: PathBuf) -> Self {
 		let advanced = Advanced::default();
 		let authentication = None;
-		let process = None;
-		let process_heartbeat_monitor = None;
-		let process_indexer = None;
 		let database = Database::Sqlite(SqliteDatabase::with_path(path.join("database")));
 		let messenger = Messenger::default();
 		let object_indexer = None;
+		let process = None;
+		let process_heartbeat_monitor = None;
+		let process_indexer = None;
 		let store = None;
 		let url = Self::default_url_for_path(&path);
 		let version = None;
@@ -148,13 +148,13 @@ impl Config {
 		Self {
 			advanced,
 			authentication,
-			process,
-			process_heartbeat_monitor,
-			process_indexer,
 			database,
 			messenger,
 			object_indexer,
 			path,
+			process,
+			process_heartbeat_monitor,
+			process_indexer,
 			store,
 			url,
 			version,

@@ -6,9 +6,6 @@ use url::Url;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long)]
-	pub checksum: Option<tg::Checksum>,
-
 	#[command(flatten)]
 	pub inner: crate::command::run::InnerArgs,
 
@@ -21,10 +18,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		let host = "builtin";
 		let command_args = vec!["download".into(), args.url.to_string().into()];
-		let command = tg::Command::builder(host)
-			.args(command_args)
-			.checksum(args.checksum)
-			.build();
+		let command = tg::Command::builder(host).args(command_args).build();
 		let command = command.id(&handle).await?;
 		let args = crate::command::build::Args {
 			reference: Some(tg::Reference::with_object(&command.into())),
