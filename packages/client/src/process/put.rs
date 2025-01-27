@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::{self as tg, util::serde::is_false};
 use itertools::Itertools as _;
 use serde_with::serde_as;
@@ -30,6 +32,21 @@ pub struct Arg {
 	pub status: tg::process::Status,
 
 	pub command: tg::command::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<tg::process::Sandbox>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stderr: Option<tg::pipe::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdin: Option<tg::pipe::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdout: Option<tg::pipe::Id>,
 
 	#[serde_as(as = "Rfc3339")]
 	pub created_at: time::OffsetDateTime,

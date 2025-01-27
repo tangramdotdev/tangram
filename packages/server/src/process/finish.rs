@@ -249,8 +249,7 @@ impl Server {
 					output = {p}4,
 					exit = {p}5,
 					status = {p}6
-				where id = {p}7
-				returning error;
+				where id = {p}7;
 			"
 		);
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();

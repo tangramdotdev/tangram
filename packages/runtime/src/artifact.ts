@@ -47,7 +47,7 @@ export namespace Artifact {
 				args: ["archive", artifact, format],
 				env: undefined,
 			})
-		).output();
+		).output({});
 		tg.assert(tg.Blob.is(value));
 		return value;
 	};
@@ -62,7 +62,7 @@ export namespace Artifact {
 				args: ["extract", blob, format],
 				env: undefined,
 			})
-		).output();
+		).output({});
 		tg.assert(Artifact.is(value));
 		return value;
 	};
@@ -74,7 +74,7 @@ export namespace Artifact {
 				args: ["bundle", artifact],
 				env: undefined,
 			})
-		).output();
+		).output({});
 		tg.assert(Artifact.is(value));
 		return value;
 	};
@@ -89,7 +89,7 @@ export namespace Artifact {
 				args: ["checksum", artifact, algorithm],
 				env: undefined,
 			})
-		).output();
+		).output({});
 		return value as tg.Checksum;
 	};
 }

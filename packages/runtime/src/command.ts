@@ -44,8 +44,6 @@ export function command<
 
 		// Create the command.
 		let args_ = [arg.name];
-		let checksum = undefined;
-		let cwd = undefined;
 		let executable = {
 			kind: arg.module.kind,
 			referent: {
@@ -55,16 +53,14 @@ export function command<
 				tag: arg.module.referent.tag,
 			},
 		};
-		let sandbox = undefined;
+		let stdin = undefined;
 		const env = currentCommand.state.object!.env;
 		let object = {
 			args: args_,
-			checksum,
-			cwd,
 			env,
 			executable,
 			host: "js",
-			sandbox,
+			stdin,
 		};
 		let state = { object };
 		return new Command(state, arg.function);
@@ -103,7 +99,7 @@ export class Command<
 				}
 			},
 			apply: async (command, _, args) => {
-				return await (await Command.new(command, { args })).output();
+				return await (await Command.new(command, { args })).output({});
 			},
 			getPrototypeOf: (_command) => {
 				return Object.getPrototypeOf(this_);
@@ -125,29 +121,19 @@ export class Command<
 	>(...args: tg.Args<Command.Arg>): Promise<Command<A, R>> {
 		let arg = await Command.arg(...args);
 		let args_ = arg.args ?? [];
-		let checksum = arg.checksum;
-		let cwd = arg.cwd;
 		let env = await tg.Args.applyMutations(flatten(arg.env ?? []));
 		let executable = arg.executable;
 		let host = arg.host;
-		let sandbox =
-			arg.sandbox !== undefined
-				? {
-						filesystem: arg.sandbox.filesystem ?? false,
-						network: arg.sandbox.network ?? false,
-					}
-				: undefined;
+		let stdin = undefined;
 		if (!host) {
 			throw new Error("cannot create a command without a host");
 		}
 		let object = {
 			args: args_,
-			checksum,
-			cwd,
 			env,
 			executable,
 			host,
-			sandbox,
+			stdin,
 		};
 		return new Command({ object });
 	}
@@ -228,14 +214,6 @@ export class Command<
 		return (await this.object()).args;
 	}
 
-	async checksum(): Promise<tg.Checksum | undefined> {
-		return (await this.object()).checksum;
-	}
-
-	async cwd(): Promise<string | undefined> {
-		return (await this.object()).cwd;
-	}
-
 	async env(): Promise<{ [key: string]: tg.Value }> {
 		return (await this.object()).env;
 	}
@@ -248,12 +226,8 @@ export class Command<
 		return (await this.object()).host;
 	}
 
-	async sandbox(): Promise<tg.Command.Sandbox | undefined> {
-		return (await this.object()).sandbox;
-	}
-
-	async output(): Promise<R> {
-		return (await syscall("command_output", this as Command<[], R>)) as R;
+	async output(arg: tg.Command.SpawnArg): Promise<R> {
+		return (await syscall("command_output", this as Command<[], R>, arg)) as R;
 	}
 
 	function(): Function | undefined {
@@ -272,12 +246,10 @@ export namespace Command {
 
 	export type ArgObject = {
 		args?: Array<tg.Value> | undefined;
-		checksum?: tg.Checksum | undefined;
-		cwd?: string | undefined;
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		sandbox?: tg.Command.SandboxArg | undefined;
+		stdin?: tg.Blob.Id | undefined;
 	};
 
 	export type Executable = tg.Artifact | tg.Command.Executable.Module;
@@ -295,12 +267,16 @@ export namespace Command {
 
 	export type Object = {
 		args: Array<tg.Value>;
-		checksum: tg.Checksum | undefined;
-		cwd: string | undefined;
 		env: { [key: string]: tg.Value };
 		executable: tg.Command.Executable | undefined;
 		host: string;
-		sandbox: tg.Command.Sandbox | undefined;
+		stdin: tg.Blob.Id | undefined;
+	};
+
+	export type SpawnArg = {
+		checksum?: tg.Checksum | undefined;
+		cwd?: string | undefined;
+		sandbox?: SandboxArg | undefined;
 	};
 
 	export type SandboxArg = {

@@ -3,8 +3,11 @@ use futures::FutureExt as _;
 use std::rc::Rc;
 use tangram_client::{self as tg, handle::Ext};
 
-pub async fn output(state: Rc<State>, args: (tg::Command,)) -> tg::Result<tg::Value> {
-	let (command,) = args;
+pub async fn output(
+	state: Rc<State>,
+	args: (tg::Command, tg::command::spawn::Arg),
+) -> tg::Result<tg::Value> {
+	let (command, spawn_arg) = args;
 	let server = state.server.clone();
 	let parent = state.process.clone();
 	let remote = state.remote.clone();
@@ -17,6 +20,9 @@ pub async fn output(state: Rc<State>, args: (tg::Command,)) -> tg::Result<tg::Va
 				parent: Some(parent.clone()),
 				remote,
 				retry,
+				checksum: spawn_arg.checksum,
+				cwd: spawn_arg.cwd,
+				sandbox: spawn_arg.sandbox,
 				..Default::default()
 			};
 			command

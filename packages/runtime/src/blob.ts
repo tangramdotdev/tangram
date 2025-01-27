@@ -81,7 +81,7 @@ export namespace Blob {
 				args: ["compress", blob, format],
 				env: undefined,
 			})
-		).output();
+		).output({});
 		tg.assert(tg.Blob.is(value));
 		return value;
 	};
@@ -96,7 +96,7 @@ export namespace Blob {
 				args: ["decompress", blob, format],
 				env: undefined,
 			})
-		).output();
+		).output({});
 		tg.assert(tg.Blob.is(value));
 		return value;
 	};
@@ -109,10 +109,9 @@ export namespace Blob {
 			await tg.command({
 				host: "builtin",
 				args: ["download", url],
-				checksum: checksum,
 				env: undefined,
 			})
-		).output();
+		).output({ checksum: checksum });
 		tg.assert(tg.Blob.is(value));
 		return value;
 	};
@@ -127,7 +126,7 @@ export namespace Blob {
 				args: ["checksum", blob, algorithm],
 				env: undefined,
 			})
-		).output();
+		).output({});
 		return value as tg.Checksum;
 	};
 }

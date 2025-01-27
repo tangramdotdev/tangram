@@ -234,21 +234,26 @@ impl Server {
 						.try_collect()
 						.await?;
 					let arg = tg::process::put::Arg {
-						id: output.id.clone(),
 						children,
+						command: output.command.clone(),
+						created_at: output.created_at,
+						cwd: output.cwd,
 						depth: output.depth,
+						dequeued_at: output.dequeued_at,
+						enqueued_at: output.enqueued_at,
 						error: output.error,
+						finished_at: output.finished_at,
 						host: output.host.clone(),
+						id: output.id.clone(),
 						log: output.log.clone(),
 						output: output.output,
 						retry: output.retry,
-						status: output.status,
-						command: output.command.clone(),
-						created_at: output.created_at,
-						enqueued_at: output.enqueued_at,
-						dequeued_at: output.dequeued_at,
+						sandbox: output.sandbox,
 						started_at: output.started_at,
-						finished_at: output.finished_at,
+						status: output.status,
+						stderr: output.stderr,
+						stdin: output.stdin,
+						stdout: output.stdout,
 					};
 					server.put_process(&id, arg).await?;
 					Ok::<_, tg::Error>(())

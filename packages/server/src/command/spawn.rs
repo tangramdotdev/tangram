@@ -31,15 +31,12 @@ impl Server {
 		}
 
 		// Determine if the process is cacheable.
-		let cacheable = todo!();
-
-		// Get the command.
-		let command = tg::Command::with_id(id.clone());
+		let cacheable = is_cacheable(&arg);
 
 		// If the process is cacheable, then get a matching local process if one exists.
 		'a: {
 			// Do not look for cache hits if the process is not cacheable.
-			if cacheable {
+			if !cacheable {
 				break 'a;
 			}
 
@@ -67,6 +64,7 @@ impl Server {
 					limit 1;
 				"
 			);
+			//TODO: determine cache hits based on cwd, checksum, and sandbox.
 			let params = db::params![id];
 			let Some(Row { id, status }) = connection
 				.query_optional_into::<Row>(statement.into(), params)
@@ -184,6 +182,11 @@ impl Server {
 		let put_arg = tg::process::put::Arg {
 			id: process_id.clone(),
 			children: Vec::new(),
+			cwd: arg.cwd,
+			sandbox: arg.sandbox,
+			stderr: arg.stderr,
+			stdin: arg.stdin,
+			stdout: arg.stdout,
 			depth: 1,
 			error: None,
 			host: host.clone(),
@@ -273,4 +276,27 @@ impl Server {
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
+}
+
+/// Determine if the process is cacheable.
+pub(crate) fn is_cacheable(arg: &tg::command::spawn::Arg) -> bool {
+	// Anything with stdio is currently not cacheable.
+	if arg.stdin.is_some() || arg.stdout.is_some() || arg.stderr.is_some() {
+		return false;
+	}
+	// Anything with a checksum is always cacheable.
+	if arg.checksum.is_some() {
+		return true;
+	}
+	// Because checksum is false, if the sandbox has filesystem or network, then it is not cacheable.
+	if let Some(sandbox) = &arg.sandbox {
+		if sandbox.filesystem || sandbox.network {
+			return false;
+		}
+	}
+	// Because checksum is false, if the cwd is set, then it is not cacheable.
+	if arg.cwd.is_some() {
+		return false;
+	}
+	true
 }
