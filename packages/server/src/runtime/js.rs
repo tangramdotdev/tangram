@@ -1,5 +1,6 @@
 use self::syscall::syscall;
 use crate::{compiler::Compiler, Server};
+use bytes::Bytes;
 use futures::{
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
@@ -29,7 +30,7 @@ struct State {
 	futures: RefCell<FuturesUnordered<LocalBoxFuture<'static, FutureOutput>>>,
 	global_source_map: Option<SourceMap>,
 	compiler: Compiler,
-	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
+	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<syscall::log::Message>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
@@ -140,26 +141,41 @@ impl Runtime {
 		};
 
 		// Start the log task.
-		let (log_sender, mut log_receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
+		let (log_sender, mut log_receiver) =
+			tokio::sync::mpsc::unbounded_channel::<syscall::log::Message>();
 		let log_task = main_runtime_handle.spawn({
 			let server = self.server.clone();
 			let process = process.clone();
 			let remote = remote.clone();
 			async move {
-				while let Some(string) = log_receiver.recv().await {
+				while let Some(message) = log_receiver.recv().await {
+					let syscall::log::Message { contents, level } = message;
 					if server.config.advanced.write_process_logs_to_stderr {
 						tokio::io::stderr()
-							.write_all(string.as_bytes())
+							.write_all(contents.as_bytes())
 							.await
 							.inspect_err(|e| {
 								tracing::error!(?e, "failed to write process log to stderr");
 							})
 							.ok();
 					}
+					let bytes = Bytes::from(contents);
 					let arg = tg::process::log::post::Arg {
-						bytes: string.into(),
+						bytes: bytes.clone(),
 						remote: remote.clone(),
 					};
+					match level {
+						syscall::log::Level::Log => {
+							if let Some(pipe) = &process.stdout {
+								server.write_pipe_chunk(pipe, bytes.clone()).await.ok();
+							}
+						},
+						syscall::log::Level::Error => {
+							if let Some(pipe) = &process.stderr {
+								server.write_pipe_chunk(pipe, bytes.clone()).await.ok();
+							}
+						},
+					}
 					server.try_post_process_log(&process.id, arg).await.ok();
 				}
 			}

@@ -128,7 +128,6 @@ impl Server {
 							tg::process::Status::Canceled,
 						)
 						.await
-						.inspect(|result| eprintln!("heartbeat try_finish_process_local: {result:?}"))
 						.inspect_err(|error| {
 							tracing::error!(?error, "failed to cancel the process");
 						})

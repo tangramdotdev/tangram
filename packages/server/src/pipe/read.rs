@@ -10,7 +10,7 @@ impl Server {
 	pub async fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
 		let receiver = self
 			.pipes
 			.get_mut(id)
@@ -46,8 +46,8 @@ impl Server {
 		// Create the body.
 		let body = Outgoing::body(StreamBody::new(stream.map(|result| match result {
 			Ok(event) => match event {
-				tg::pipe::read::Event::Chunk(bytes) => Ok(hyper::body::Frame::data(bytes)),
-				tg::pipe::read::Event::End => {
+				tg::pipe::Event::Chunk(bytes) => Ok(hyper::body::Frame::data(bytes)),
+				tg::pipe::Event::End => {
 					let mut trailers = http::HeaderMap::new();
 					trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
 					Ok(hyper::body::Frame::trailers(trailers))

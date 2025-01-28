@@ -11,9 +11,10 @@ mod blob;
 mod checksum;
 mod command;
 mod encoding;
-mod log;
 mod object;
 mod sleep;
+
+pub mod log;
 
 pub fn syscall<'s>(
 	scope: &mut v8::HandleScope<'s>,

@@ -1,19 +1,13 @@
 use crate::{self as tg, Client};
-use bytes::Bytes;
 use futures::{Stream, TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
-
-pub enum Event {
-	Chunk(Bytes),
-	End,
-}
 
 impl Client {
 	pub async fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>>> {
 		let method = http::Method::POST;
 		let uri = format!("/pipes/{id}/read");
 		let request = http::request::Builder::default()
@@ -31,7 +25,7 @@ impl Client {
 			.map_err(|source| tg::error!(!source, "failed to read the body"));
 		let stream = BodyStream::new(body).and_then(|frame| async {
 			match frame.into_data() {
-				Ok(bytes) => Ok(tg::pipe::read::Event::Chunk(bytes)),
+				Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
 				Err(frame) => {
 					let trailers = frame.into_trailers().unwrap();
 					let event = trailers
@@ -40,7 +34,7 @@ impl Client {
 						.to_str()
 						.map_err(|source| tg::error!(!source, "invalid event"))?;
 					match event {
-						"end" => Ok(tg::pipe::read::Event::End),
+						"end" => Ok(tg::pipe::Event::End),
 						"error" => {
 							let data = trailers
 								.get("x-tg-data")

@@ -94,9 +94,7 @@ impl Process {
 		H: tg::Handle,
 	{
 		let stream = handle.get_process_wait(&self.id).await?;
-		let Some(tg::process::wait::Event::Output(output)) =
-			pin!(stream).try_last().await?
-		else {
+		let Some(tg::process::wait::Event::Output(output)) = pin!(stream).try_last().await? else {
 			return Err(tg::error!("failed to get the last process event"));
 		};
 		let output = tg::process::wait::Output {

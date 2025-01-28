@@ -2,7 +2,6 @@ use self::{
 	database::Database, messenger::Messenger, runtime::Runtime, store::Store, util::fs::remove,
 };
 use async_nats as nats;
-use bytes::Bytes;
 use compiler::Compiler;
 use dashmap::{DashMap, DashSet};
 use futures::{future, stream::FuturesUnordered, Future, FutureExt as _, Stream, StreamExt as _};
@@ -88,8 +87,8 @@ pub struct Inner {
 }
 
 struct Pipe {
-	sender: tokio::sync::mpsc::Sender<tg::pipe::read::Event>,
-	receiver: Option<tokio::sync::mpsc::Receiver<tg::pipe::read::Event>>,
+	sender: tokio::sync::mpsc::Sender<tg::pipe::Event>,
+	receiver: Option<tokio::sync::mpsc::Receiver<tg::pipe::Event>>,
 }
 
 type ProcessPermits =
@@ -1144,14 +1143,17 @@ impl tg::Handle for Server {
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>> + Send + 'static>,
-	> {
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
 		self.read_pipe(id)
 	}
 
-	fn write_pipe(&self, id: &tg::pipe::Id, bytes: Bytes) -> impl Future<Output = tg::Result<()>> {
-		self.write_pipe(id, bytes)
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.write_pipe(id, stream)
 	}
 
 	fn try_get_process(

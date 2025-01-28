@@ -33,7 +33,6 @@ impl Server {
 		// Finish the process.
 		self.try_finish_process_local(id, arg.error, arg.output, None, arg.status)
 			.await
-			.inspect(|result| eprintln!("finish try_finish_process_local: {result:?}"))
 	}
 
 	pub async fn try_finish_process_local(
@@ -67,7 +66,6 @@ impl Server {
 		if n == 0 {
 			return Ok(tg::process::finish::Output { finished: false });
 		}
-		eprintln!("finishing {id}");
 
 		// Get the process.
 		let Some(process) = self.try_get_process_local(id).await? else {
@@ -140,12 +138,10 @@ impl Server {
 		}
 
 		// Verify the checksum if one was provided.
-		let checksum = Some("none".parse::<tg::Checksum>().unwrap());
-		if let (Some(output), Some(expected)) = (output.clone(), &checksum) {
+		if let (Some(output), Some(expected)) = (output.clone(), process.checksum.as_ref()) {
 			let value: tg::Value = output.try_into()?;
 			if let Err(checksum_error) = self
 				.verify_checksum(id.clone(), &value, expected)
-				.inspect(|result| eprintln!("verify checksum: {result:?}"))
 				.boxed()
 				.await
 			{
@@ -153,7 +149,6 @@ impl Server {
 				error = Some(checksum_error);
 			}
 		}
-		// let error = dbg!(error);
 
 		// Create a blob from the log.
 		let log_path = self.logs_path().join(id.to_string());
@@ -288,8 +283,6 @@ impl Server {
 		});
 
 		let output = tg::process::finish::Output { finished: true };
-		eprintln!("finished {id}");
-
 		Ok(output)
 	}
 
@@ -342,7 +335,6 @@ impl Server {
 		let checksum = checksum
 			.parse::<tg::Checksum>()
 			.map_err(|_| tg::error!(%checksum, "failed to parse checksum string"))?;
-		eprintln!("expected: {expected}, actual: {checksum}");
 
 		// Compare the checksums.
 		if matches!(expected, tg::Checksum::None) {

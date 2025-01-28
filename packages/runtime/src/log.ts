@@ -2,7 +2,12 @@ import * as tg from "./index.ts";
 
 export let log = (...args: Array<unknown>) => {
 	let string = args.map((arg) => stringify(arg)).join(" ");
-	syscall("log", `${string}\n`);
+	syscall("log", `${string}\n`, "log");
+};
+
+export let error = (...args: Array<unknown>) => {
+	let string = args.map((arg) => stringify(arg)).join(" ");
+	syscall("log", `${string}\n`, "error");
 };
 
 let stringify = (value: unknown): string => {

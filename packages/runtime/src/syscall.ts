@@ -51,7 +51,7 @@ declare global {
 		object: tg.Object.Object,
 	): Promise<tg.Object.Id>;
 
-	function syscall(syscall: "log", value: string): void;
+	function syscall(syscall: "log", contents: string, level: string): void;
 
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
 

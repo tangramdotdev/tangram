@@ -8,7 +8,7 @@ impl Server {
 			.pipes
 			.remove(id)
 			.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-		pipe.sender.send(tg::pipe::read::Event::End).await.ok();
+		pipe.sender.send(tg::pipe::Event::End).await.ok();
 		Ok(())
 	}
 }

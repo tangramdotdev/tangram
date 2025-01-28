@@ -1,5 +1,4 @@
 use crate as tg;
-use bytes::Bytes;
 use futures::{Future, FutureExt, Stream};
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -227,9 +226,8 @@ where
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>> + Send + 'static>,
-	> {
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
 		match self {
 			Either::Left(s) => s
 				.read_pipe(id)
@@ -242,10 +240,14 @@ where
 		}
 	}
 
-	fn write_pipe(&self, id: &tg::pipe::Id, bytes: Bytes) -> impl Future<Output = tg::Result<()>> {
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.write_pipe(id, bytes).left_future(),
-			Either::Right(s) => s.write_pipe(id, bytes).right_future(),
+			Either::Left(s) => s.write_pipe(id, stream).left_future(),
+			Either::Right(s) => s.write_pipe(id, stream).right_future(),
 		}
 	}
 

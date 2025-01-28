@@ -117,9 +117,7 @@ pub async fn compute_checksum(
 		.spawn_command(&command_id, arg)
 		.await?
 		.process;
-	let output = tg::Process::with_id(process)
-		.wait(runtime.server())
-		.await?;
+	let output = tg::Process::with_id(process).wait(runtime.server()).await?;
 	if output.status.is_succeeded() {
 		Ok(())
 	} else {

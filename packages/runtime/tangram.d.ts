@@ -12,8 +12,11 @@ interface ImportMeta {
 
 // @ts-ignore
 declare let console: {
-	/** Write to the log. */
+	/** Write to stdout. */
 	log: (...args: Array<unknown>) => void;
+
+	/** Write to stderr. */
+	error: (...args: Array<unknown>) => void;
 };
 
 declare function tg(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
@@ -911,8 +914,11 @@ declare namespace tg {
 		}
 	}
 
-	/** Write to the log. */
+	/** Write to stdout. */
 	export let log: (...args: Array<unknown>) => void;
+
+	/** Write to stderr. */
+	export let error: (...args: Array<unknown>) => void;
 
 	export type Module = {
 		kind: tg.Module.Kind;

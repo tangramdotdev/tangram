@@ -18,9 +18,7 @@ impl Cli {
 	pub async fn command_process_wait(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let stream = handle.get_process_wait(&args.process).await?;
-		let Some(tg::process::wait::Event::Output(output)) =
-			pin!(stream).try_last().await?
-		else {
+		let Some(tg::process::wait::Event::Output(output)) = pin!(stream).try_last().await? else {
 			return Err(tg::error!("failed to wait for the process"));
 		};
 		Self::output_json(&output, args.pretty).await?;

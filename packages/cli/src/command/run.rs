@@ -1,6 +1,6 @@
 use crate::Cli;
 use crossterm::style::Stylize as _;
-use futures::{TryFutureExt as _, TryStreamExt as _};
+use futures::{future, stream, Stream, StreamExt, TryFutureExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{
 	io::IsTerminal as _,
@@ -9,6 +9,7 @@ use std::{
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_either::Either;
 use tangram_futures::task::Task;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Run a command.
 #[derive(Clone, Debug, clap::Args)]
@@ -276,8 +277,8 @@ impl Cli {
 				},
 			};
 
-			// Get the target.
-			let target = reference
+			// Get the command.
+			let command = reference
 				.uri()
 				.fragment()
 				.map_or("default", |fragment| fragment);
@@ -288,7 +289,7 @@ impl Cli {
 				.into_iter()
 				.map(|arg| arg.parse())
 				.try_collect::<tg::Value, _, _>()?;
-			args_.insert(0, target.into());
+			args_.insert(0, command.into());
 
 			// Get the env.
 			let mut env: tg::value::Map = args
@@ -355,7 +356,7 @@ impl Cli {
 				let stdin = None;
 				let stdout = None;
 				let stderr = None;
-				let stdio_task = None::<()>;
+				let stdio_task = None;
 				(cwd, sandbox, stdin, stdout, stderr, stdio_task)
 			},
 			InnerKind::Run => {
@@ -368,13 +369,74 @@ impl Cli {
 					handle.open_pipe().map_ok(|output| Some(output.id)),
 					handle.open_pipe().map_ok(|output| Some(output.id)),
 				)?;
-				// let stdio_task = Some(tokio::spawn({
-				// 	let stdin = stdin.clone();
-				// 	let stdout = stdout.clone();
-				// 	let stderr = stderr.clone();
-				// 	async move { futures::try_join!(async move {}) }
-				// }));
-				let stdio_task = None;
+				let stdio_task = Some(Task::spawn(|stop| {
+					let handle = handle.clone();
+					let stdin = stdin.clone();
+					let stdout = stdout.clone();
+					let stderr = stderr.clone();
+
+					let handle_ = handle.clone();
+					let stdin = async move {
+						let Some(pipe) = stdin else {
+							return Ok::<_, tg::Error>(());
+						};
+						let stream = create_stdin_stream();
+						handle_.write_pipe(&pipe, stream).await
+					};
+
+					let handle_ = handle.clone();
+					let stdout = async move {
+						let Some(pipe) = stdout else {
+							return Ok::<_, tg::Error>(());
+						};
+						let mut stdout = tokio::io::stdout();
+						let mut stream = handle_.read_pipe(&pipe).await?;
+						let mut stream = std::pin::pin!(stream);
+						while let Some(event) = stream.try_next().await? {
+							match event {
+								tg::pipe::Event::Chunk(chunk) => {
+									stdout.write_all(&chunk).await.map_err(|source| {
+										tg::error!(!source, "failed to write stdout")
+									})?;
+								},
+								tg::pipe::Event::End => break,
+							}
+						}
+						Ok(())
+					};
+
+					let stderr = async move {
+						let Some(pipe) = stderr else {
+							return Ok::<_, tg::Error>(());
+						};
+						let mut stderr = tokio::io::stderr();
+						let mut stream = handle.read_pipe(&pipe).await?;
+						let mut stream = std::pin::pin!(stream);
+						while let Some(event) = stream.try_next().await? {
+							match event {
+								tg::pipe::Event::Chunk(chunk) => {
+									stderr.write_all(&chunk).await.map_err(|source| {
+										tg::error!(!source, "failed to write stdout")
+									})?;
+								},
+								tg::pipe::Event::End => break,
+							}
+						}
+						Ok(())
+					};
+
+					async move {
+						let io = future::try_join3(stdin, stdout, stderr);
+						let stop = stop.wait();
+						match future::select(std::pin::pin!(io), std::pin::pin!(stop)).await {
+							future::Either::Left((Err(error), ..)) => {
+								eprintln!("error: {error}");
+							},
+							_ => return,
+						}
+					}
+				}));
+
 				(cwd, sandbox, stdin, stdout, stderr, stdio_task)
 			},
 		};
@@ -519,10 +581,11 @@ impl Cli {
 		let output =
 			result.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
 
-		// // Await the stdio task.
-		// if let Some(stdio_task) = stdio_task {
-		// 	stdio_task.await.unwrap();
-		// }
+		// Await the stdio task.
+		if let Some(stdio_task) = stdio_task {
+			stdio_task.stop();
+			stdio_task.wait().await.unwrap();
+		}
 
 		// Return an error if appropriate.
 		if let Some(source) = output.error {
@@ -598,4 +661,21 @@ impl Default for InnerArgs {
 			view: View::default(),
 		}
 	}
+}
+
+fn create_stdin_stream() -> impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static {
+	stream::unfold(tokio::io::stdin(), |mut stdin| async move {
+		let mut buffer = vec![0u8; 4096];
+		let result = match stdin.read(&mut buffer).await {
+			Ok(0) => return None,
+			Ok(len) => {
+				buffer.truncate(len);
+				Ok(tg::pipe::Event::Chunk(buffer.into()))
+			},
+			Err(source) => Err(tg::error!(!source, "failed to read stdin")),
+		};
+		Some((result, stdin))
+		// None
+	})
+	.chain(stream::once(future::ready(Ok(tg::pipe::Event::End))))
 }

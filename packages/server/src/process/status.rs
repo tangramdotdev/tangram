@@ -60,9 +60,7 @@ impl Server {
 			.then(move |()| {
 				let server = server.clone();
 				let id = id.clone();
-				async move { 
-					server.try_get_process_status_local_inner(&id).await
-				}
+				async move { server.try_get_process_status_local_inner(&id).await }
 			})
 			.try_filter(move |status| {
 				future::ready(match (previous.as_mut(), *status) {

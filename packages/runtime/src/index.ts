@@ -11,7 +11,7 @@ import { Error_ } from "./error.ts";
 import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";
 import { Leaf, leaf } from "./leaf.ts";
-import { log } from "./log.ts";
+import { error, log } from "./log.ts";
 import type { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { Object as Object_ } from "./object.ts";
@@ -79,6 +79,7 @@ export {
 	graph,
 	leaf,
 	log,
+	error,
 	mutation,
 	path,
 	resolve,

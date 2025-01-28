@@ -1,5 +1,4 @@
 use crate as tg;
-use bytes::Bytes;
 use futures::{Future, FutureExt as _, Stream};
 use std::{
 	collections::VecDeque,
@@ -714,14 +713,17 @@ impl tg::Handle for Client {
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::read::Event>> + Send + 'static>,
-	> {
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
 		self.read_pipe(id)
 	}
 
-	fn write_pipe(&self, id: &tg::pipe::Id, bytes: Bytes) -> impl Future<Output = tg::Result<()>> {
-		self.write_pipe(id, bytes)
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.write_pipe(id, stream)
 	}
 
 	fn try_get_process(
