@@ -1,5 +1,6 @@
 use crate as tg;
 use futures::{Future, Stream};
+use std::pin::Pin;
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
@@ -124,7 +125,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_process(

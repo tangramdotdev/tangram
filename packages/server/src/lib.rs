@@ -14,7 +14,7 @@ use std::{
 	convert::Infallible,
 	os::fd::AsRawFd as _,
 	path::{Path, PathBuf},
-	pin::pin,
+	pin::{pin, Pin},
 	sync::{Arc, Mutex, RwLock},
 	time::Duration,
 };
@@ -1151,7 +1151,7 @@ impl tg::Handle for Server {
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.write_pipe(id, stream)
 	}

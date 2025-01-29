@@ -6394,6 +6394,7 @@ name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
  "byte-unit",
+ "bytes",
  "clap",
  "console-subscriber",
  "copypasta",

@@ -1,13 +1,14 @@
 use crate::{self as tg, Client};
 use futures::{Stream, StreamExt as _};
 use http_body_util::StreamBody;
+use std::pin::Pin;
 use tangram_http::{incoming::response::Ext as _, Outgoing};
 
 impl Client {
 	pub async fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/pipes/{id}/write");

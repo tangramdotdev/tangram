@@ -188,9 +188,10 @@ impl Runtime {
 		// Spawn the log task.
 		let log_task = super::util::post_log_task(
 			&self.server,
-			&process.id,
+			&process,
 			remote.as_ref(),
 			child.stdout.take().unwrap(),
+			child.stderr.take().unwrap(),
 		);
 
 		// Wait for the child to complete.
@@ -395,9 +396,10 @@ impl Runtime {
 		// Spawn the log task.
 		let log_task = super::util::post_log_task(
 			&self.server,
-			&process.id,
+			&process,
 			remote.as_ref(),
 			child.stdout.take().unwrap(),
+			child.stderr.take().unwrap(),
 		);
 
 		// Wait for the process to exit.

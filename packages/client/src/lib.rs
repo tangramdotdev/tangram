@@ -3,6 +3,7 @@ use futures::{Future, FutureExt as _, Stream};
 use std::{
 	collections::VecDeque,
 	path::{Path, PathBuf},
+	pin::Pin,
 	sync::Arc,
 	time::Duration,
 };
@@ -721,7 +722,7 @@ impl tg::Handle for Client {
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.write_pipe(id, stream)
 	}

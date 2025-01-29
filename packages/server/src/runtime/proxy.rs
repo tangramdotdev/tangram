@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{stream, Future, Stream, TryStreamExt as _};
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, pin::Pin, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -250,7 +250,7 @@ impl tg::Handle for Proxy {
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.write_pipe(id, stream)
 	}
