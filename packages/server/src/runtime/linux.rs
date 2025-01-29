@@ -242,15 +242,6 @@ impl Runtime {
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::piped())
 			.stderr(std::process::Stdio::piped());
-		unsafe {
-			command.pre_exec(move || {
-				// Redirect stderr to stdout.
-				if libc::dup2(libc::STDOUT_FILENO, libc::STDERR_FILENO) < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-				Ok(())
-			});
-		}
 		let mut child = command
 			.spawn()
 			.map_err(|source| tg::error!(!source, "failed to spawn the child process"))?;
@@ -258,9 +249,10 @@ impl Runtime {
 		// Spawn the log task.
 		let log_task = super::util::post_log_task(
 			&self.server,
-			&process.id,
+			&process,
 			remote.as_ref(),
 			child.stdout.take().unwrap(),
+			child.stderr.take().unwrap(),
 		);
 
 		// Wait for the child to complete.
@@ -715,6 +707,19 @@ impl Runtime {
 			)
 		})?;
 
+		// Create the stdout socket pair.
+		let (stderr_send, stderr_recv) = tokio::net::UnixStream::pair()
+			.map_err(|source| tg::error!(!source, "failed to create stdout socket"))?;
+		let stderr = stderr_send
+			.into_std()
+			.map_err(|source| tg::error!(!source, "failed to convert the stderr sender"))?;
+		stdout.set_nonblocking(false).map_err(|error| {
+			tg::error!(
+				source = error,
+				"failed to set the stderr socket as non-blocking"
+			)
+		})?;
+
 		// Create the context.
 		let context = Context {
 			argv,
@@ -726,6 +731,7 @@ impl Runtime {
 			root_directory_host_path,
 			working_directory_guest_path,
 			stdout,
+			stderr,
 		};
 
 		// Spawn the root process.
@@ -795,8 +801,13 @@ impl Runtime {
 		};
 
 		// Spawn the log task.
-		let log_task =
-			super::util::post_log_task(&self.server, &process.id, remote.as_ref(), stdout_recv);
+		let log_task = super::util::post_log_task(
+			&self.server,
+			&process,
+			remote.as_ref(),
+			stdout_recv,
+			stderr_recv,
+		);
 
 		// Receive the guest process's PID from the socket.
 		let guest_process_pid: libc::pid_t = host_socket.read_i32_le().await.map_err(|error| {
@@ -935,6 +946,9 @@ struct Context {
 
 	/// The file descriptor for streaming stdout.
 	stdout: std::os::unix::net::UnixStream,
+
+	/// The file descriptor for streaming stdout.
+	stderr: std::os::unix::net::UnixStream,
 }
 
 unsafe impl Send for Context {}
@@ -961,7 +975,7 @@ fn root(context: &Context) {
 		if ret == -1 {
 			abort_errno!("failed to duplicate stdout to the log");
 		}
-		let ret = libc::dup2(context.stdout.as_raw_fd(), libc::STDERR_FILENO);
+		let ret = libc::dup2(context.stderr.as_raw_fd(), libc::STDERR_FILENO);
 		if ret == -1 {
 			abort_errno!("failed to duplicate stderr to the log");
 		}

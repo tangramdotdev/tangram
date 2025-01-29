@@ -3,7 +3,6 @@ use crate::Server;
 use bytes::Bytes;
 use std::{path::Path, pin::pin};
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_futures::stream::Ext as _;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 /// Render a value.
@@ -41,17 +40,23 @@ pub async fn render(
 // Post process logs.
 pub fn post_log_task(
 	server: &Server,
-	process: &tg::process::Id,
+	process: &tg::process::get::Output,
 	remote: Option<&String>,
-	reader: impl AsyncRead + Send + 'static,
+	stdout: impl AsyncRead + Send + 'static,
+	stderr: impl AsyncRead + Send + 'static,
 ) -> tokio::task::JoinHandle<tg::Result<()>> {
-	let server = server.clone();
-	let process = tg::Process::with_id(process.clone());
-	let remote = remote.cloned();
-	tokio::spawn(async move {
+	async fn inner(
+		server: Server,
+		process: tg::process::Id,
+		remote: Option<String>,
+		reader: impl AsyncRead + Send + 'static,
+		pipe: Option<tg::pipe::Id>,
+	) -> tg::Result<()> {
+		let process = tg::Process::with_id(process);
 		let mut reader = pin!(reader);
 		let mut buffer = vec![0; 4096];
 		loop {
+			// Read from the reader.
 			let size = reader
 				.read(&mut buffer)
 				.await
@@ -60,6 +65,8 @@ pub fn post_log_task(
 				return Ok::<_, tg::Error>(());
 			}
 			let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+
+			// Write to stderr if configured.
 			if server.config.advanced.write_process_logs_to_stderr {
 				tokio::io::stderr()
 					.write_all(&bytes)
@@ -69,12 +76,41 @@ pub fn post_log_task(
 					})
 					.ok();
 			}
+
+			// Write to the pipe.
+			if let Some(pipe) = &pipe {
+				server.write_pipe_chunk(pipe, bytes.clone()).await.ok();
+			}
+
+			// Write the log.
 			let arg = tg::process::log::post::Arg {
-				bytes,
+				bytes: bytes.clone(),
 				remote: remote.clone(),
 			};
 			process.post_log(&server, arg).await?;
 		}
+	}
+
+	// Create the futures for stdout/stderr readers.
+	let stdout = inner(
+		server.clone(),
+		process.id.clone(),
+		remote.cloned(),
+		stdout,
+		process.stdout.clone(),
+	);
+	let stderr = inner(
+		server.clone(),
+		process.id.clone(),
+		remote.cloned(),
+		stderr,
+		process.stderr.clone(),
+	);
+
+	// Spawn the task
+	tokio::spawn(async move {
+		futures::try_join!(stderr, stdout)?;
+		Ok(())
 	})
 }
 

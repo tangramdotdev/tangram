@@ -1,15 +1,16 @@
 use crate::Cli;
+use bytes::Bytes;
 use crossterm::style::Stylize as _;
 use futures::{future, stream, Stream, StreamExt, TryFutureExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{
-	io::IsTerminal as _,
+	io::{IsTerminal as _, Read},
 	path::{Path, PathBuf},
 };
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_either::Either;
 use tangram_futures::task::Task;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 /// Run a command.
 #[derive(Clone, Debug, clap::Args)]
@@ -375,22 +376,30 @@ impl Cli {
 					let stdout = stdout.clone();
 					let stderr = stderr.clone();
 
+					// Create the stdin stream.
 					let handle_ = handle.clone();
 					let stdin = async move {
 						let Some(pipe) = stdin else {
 							return Ok::<_, tg::Error>(());
 						};
-						let stream = create_stdin_stream();
-						handle_.write_pipe(&pipe, stream).await
+						// let stream = create_stdin_stream();
+						// handle_
+						// 	.write_pipe(&pipe, stream)
+						// 	.await
+						// 	.inspect_err(|error| eprintln!("stdin: {error:?}"))
+						Ok::<_, tg::Error>(())
 					};
 
+					// Create the stdout stream.
 					let handle_ = handle.clone();
 					let stdout = async move {
 						let Some(pipe) = stdout else {
 							return Ok::<_, tg::Error>(());
 						};
 						let mut stdout = tokio::io::stdout();
-						let mut stream = handle_.read_pipe(&pipe).await?;
+						let mut stream = handle_
+							.read_pipe(&pipe)
+							.await?
 						let mut stream = std::pin::pin!(stream);
 						while let Some(event) = stream.try_next().await? {
 							match event {
@@ -405,12 +414,16 @@ impl Cli {
 						Ok(())
 					};
 
+					// Create the stderr stream.
 					let stderr = async move {
 						let Some(pipe) = stderr else {
 							return Ok::<_, tg::Error>(());
 						};
 						let mut stderr = tokio::io::stderr();
-						let mut stream = handle.read_pipe(&pipe).await?;
+						let mut stream = handle
+							.read_pipe(&pipe)
+							.await?;
+							
 						let mut stream = std::pin::pin!(stream);
 						while let Some(event) = stream.try_next().await? {
 							match event {
@@ -451,9 +464,9 @@ impl Cli {
 			remote: remote.clone(),
 			retry,
 			sandbox,
-			stderr,
-			stdin,
-			stdout,
+			stderr: stderr.clone(),
+			stdin: stdin.clone(),
+			stdout: stdout.clone(),
 		};
 		let output = handle.spawn_command(&id, arg).await?;
 		let process = tg::Process::with_id(output.process);
@@ -577,11 +590,16 @@ impl Cli {
 			result
 		};
 
+		// Close the pipes.
+		for pipe in [stderr, stdin, stdout].into_iter().flatten() {
+			handle.close_pipe(&pipe).await.ok();
+		}
+
 		// Get the output or return an error if we failed to wait for the process.
 		let output =
 			result.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
 
-		// Await the stdio task.
+		// Wait for the stdio task.
 		if let Some(stdio_task) = stdio_task {
 			stdio_task.stop();
 			stdio_task.wait().await.unwrap();
@@ -664,18 +682,32 @@ impl Default for InnerArgs {
 }
 
 fn create_stdin_stream() -> impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static {
-	stream::unfold(tokio::io::stdin(), |mut stdin| async move {
-		let mut buffer = vec![0u8; 4096];
-		let result = match stdin.read(&mut buffer).await {
-			Ok(0) => return None,
-			Ok(len) => {
-				buffer.truncate(len);
-				Ok(tg::pipe::Event::Chunk(buffer.into()))
-			},
+	// Create a send/receive pair for sending stdin chunks. The channel is bounded to 1 to avoid buffering stdin messages.
+	let (send, recv) = tokio::sync::mpsc::channel(1);
+
+	// Spawn the stdin thread and detach it. This is necessary because the read from stdin cannot be interrupted or canceled.
+	std::thread::spawn(move || {
+		let mut stdin = std::io::stdin();
+		loop {
+			let mut buf = vec![0u8; 4096];
+			let result = stdin.read(&mut buf).map(|n| {
+				buf.truncate(n);
+				Bytes::from(buf)
+			});
+			if let Err(_error) = send.blocking_send(result) {
+				break;
+			}
+		}
+	});
+
+	// Create a stream that pulls events from the receiver.
+	stream::unfold(recv, move |mut recv| async move {
+		let result = match recv.recv().await? {
+			Ok(ref buf) if buf.len() == 0 => return None,
+			Ok(buf) => Ok(tg::pipe::Event::Chunk(buf)),
 			Err(source) => Err(tg::error!(!source, "failed to read stdin")),
 		};
-		Some((result, stdin))
-		// None
+		Some((result, recv))
 	})
 	.chain(stream::once(future::ready(Ok(tg::pipe::Event::End))))
 }

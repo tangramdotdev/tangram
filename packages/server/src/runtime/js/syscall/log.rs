@@ -2,11 +2,13 @@ use super::State;
 use std::{rc::Rc, str::FromStr};
 use tangram_client as tg;
 
+#[derive(Debug)]
 pub struct Message {
 	pub contents: String,
 	pub level: Level,
 }
 
+#[derive(Debug)]
 pub enum Level {
 	Log,
 	Error,

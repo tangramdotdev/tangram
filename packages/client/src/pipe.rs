@@ -8,6 +8,7 @@ pub mod open;
 pub mod read;
 pub mod write;
 
+#[derive(Debug)]
 pub enum Event {
 	Chunk(Bytes),
 	End,

@@ -44,7 +44,7 @@ impl Server {
 		let stream = stream.take_until(stop);
 
 		// Create the body.
-		let body = Outgoing::body(StreamBody::new(stream.map(|result| match result {
+		let body = Outgoing::body(StreamBody::new(stream.map(move |result| match result {
 			Ok(event) => match event {
 				tg::pipe::Event::Chunk(bytes) => Ok(hyper::body::Frame::data(bytes)),
 				tg::pipe::Event::End => {

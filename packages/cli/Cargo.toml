@@ -22,6 +22,7 @@ insta = { workspace = true }
 
 [dependencies]
 byte-unit = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
 copypasta = { workspace = true }

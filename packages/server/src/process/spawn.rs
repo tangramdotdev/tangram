@@ -147,7 +147,7 @@ impl Server {
 		// Finish the process.
 		self.try_finish_process_local(&process, output.error, value, output.exit, status)
 			.await?;
-			
+
 		Ok::<_, tg::Error>(())
 	}
 
