@@ -6418,6 +6418,7 @@ dependencies = [
  "tangram_server",
  "tangram_temp",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
