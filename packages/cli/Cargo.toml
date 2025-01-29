@@ -46,6 +46,7 @@ tangram_server = { workspace = true }
 tangram_temp = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+tokio-stream = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-tree = { workspace = true }
