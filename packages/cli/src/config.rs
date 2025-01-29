@@ -202,6 +202,10 @@ pub struct Build {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_depth: Option<u64>,
 
+	/// Configure if path and tag are set for builds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub set_path_and_tag: Option<bool>,
+
 	/// The remotes to build for.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<Vec<String>>,

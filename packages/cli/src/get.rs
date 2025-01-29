@@ -23,7 +23,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_get(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let referent = self.get_reference(&args.reference).await?;
+		let (referent, _) = self.get_reference(&args.reference).await?;
 		eprintln!("{} item {}", "info".blue().bold(), referent.item);
 		if let Some(path) = &referent.path {
 			let path = path.display();

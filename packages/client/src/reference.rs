@@ -140,10 +140,9 @@ impl Reference {
 	where
 		H: tg::Handle,
 	{
-		handle
-			.get_reference(self)
-			.await
-			.map(|referent| tg::Referent {
+		handle.get_reference(self).await.map(|output| {
+			let referent = output.referent;
+			tg::Referent {
 				item: referent
 					.item
 					.map_left(tg::Build::with_id)
@@ -151,7 +150,8 @@ impl Reference {
 				path: referent.path,
 				subpath: referent.subpath,
 				tag: referent.tag,
-			})
+			}
+		})
 	}
 }
 

@@ -27,7 +27,7 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let referent = self.get_reference(&args.reference).await?;
+		let (referent, _) = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
 			Either::Left(build) => Either::Left(build),
 			Either::Right(object) => {

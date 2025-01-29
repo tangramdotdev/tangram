@@ -78,7 +78,11 @@ impl Server {
 				.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
 				.parse()?;
 			if path.components().count() == 1 {
-				let output = tg::artifact::checkin::Output { artifact: id };
+				let lockfile = None;
+				let output = tg::artifact::checkin::Output {
+					artifact: id,
+					lockfile,
+				};
 				return Ok(output);
 			}
 			let path = path.components().skip(1).collect::<PathBuf>();
@@ -89,7 +93,11 @@ impl Server {
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let artifact = directory.get(self, path).await?;
 			let id = artifact.id(self).await?;
-			let output = tg::artifact::checkin::Output { artifact: id };
+			let lockfile = None;
+			let output = tg::artifact::checkin::Output {
+				artifact: id,
+				lockfile,
+			};
 			return Ok(output);
 		}
 
@@ -135,14 +143,16 @@ impl Server {
 		let artifact = output_graph.nodes[0].id.clone();
 
 		// If this is a non-destructive checkin, then attempt to write a lockfile.
-		if arg.lockfile && !arg.destructive && artifact.is_directory() {
+		let lockfile = if arg.lockfile && !arg.destructive && artifact.is_directory() {
 			self.try_write_lockfile(&input_graph, &object_graph)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
-		}
+				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?
+		} else {
+			None
+		};
 
 		// Create the output.
-		let output = tg::artifact::checkin::Output { artifact };
+		let output = tg::artifact::checkin::Output { artifact, lockfile };
 
 		Ok(output)
 	}

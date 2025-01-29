@@ -9,8 +9,8 @@ impl Server {
 	pub async fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>> {
-		match &reference.item() {
+	) -> tg::Result<Option<tg::reference::get::Output>> {
+		let (referent, lockfile) = match &reference.item() {
 			tg::reference::Item::Build(build) => {
 				let item = Either::Left(build.clone());
 				let output = tg::Referent {
@@ -19,7 +19,7 @@ impl Server {
 					subpath: None,
 					tag: None,
 				};
-				Ok(Some(output))
+				(output, None)
 			},
 			tg::reference::Item::Object(object) => {
 				let item = Either::Right(object.clone());
@@ -32,7 +32,7 @@ impl Server {
 					subpath,
 					tag: None,
 				};
-				Ok(Some(output))
+				(output, None)
 			},
 			tg::reference::Item::Path(path) => {
 				let arg = tg::artifact::checkin::Arg {
@@ -54,13 +54,13 @@ impl Server {
 				let subpath = reference
 					.options()
 					.and_then(|options| options.subpath.clone());
-				let output = tg::Referent {
+				let referent = tg::Referent {
 					item,
 					path: None,
 					subpath,
 					tag: None,
 				};
-				Ok(Some(output))
+				(referent, output.lockfile)
 			},
 			tg::reference::Item::Tag(tag) => {
 				let Some(tg::tag::get::Output { item, .. }) = self.try_get_tag(tag).await? else {
@@ -75,9 +75,11 @@ impl Server {
 					subpath,
 					tag: None,
 				};
-				Ok(Some(output))
+				(output, None)
 			},
-		}
+		};
+
+		Ok(Some(tg::reference::get::Output { lockfile, referent }))
 	}
 }
 

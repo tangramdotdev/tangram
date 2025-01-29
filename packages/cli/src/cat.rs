@@ -14,7 +14,7 @@ impl Cli {
 	pub async fn command_cat(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		for reference in &args.references {
-			let referent = self.get_reference(reference).await?;
+			let (referent, _) = self.get_reference(reference).await?;
 			let Either::Right(object) = referent.item else {
 				return Err(tg::error!("expected an object"));
 			};

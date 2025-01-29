@@ -34,6 +34,7 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub artifact: tg::artifact::Id,
+	pub lockfile: Option<PathBuf>,
 }
 
 impl tg::Artifact {

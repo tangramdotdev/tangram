@@ -13,7 +13,7 @@ impl Server {
 		&self,
 		input: &input::Graph,
 		object: &object::Graph,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<PathBuf>> {
 		// Create the lockfile.
 		let lockfile = self
 			.create_lockfile(object, &input.nodes[0].arg.path)
@@ -22,7 +22,7 @@ impl Server {
 
 		// Skip empty lockfiles.
 		if lockfile.nodes.is_empty() {
-			return Ok(());
+			return Ok(None);
 		};
 
 		// Get the path to the root of the input graph.
@@ -57,7 +57,7 @@ impl Server {
 			},
 		}
 
-		Ok(())
+		Ok(Some(lockfile_path))
 	}
 
 	async fn create_lockfile(

@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;
 use tangram_futures::task::Task;
 
@@ -41,7 +41,7 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let referent = self.get_reference(&args.reference).await?;
+		let (referent, lockfile) = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
 			Either::Left(build) => Either::Left(build),
 			Either::Right(object) => {
@@ -57,9 +57,37 @@ impl Cli {
 				Either::Right(object)
 			},
 		};
-		let item = match item {
-			Either::Left(build) => crate::viewer::Item::Build(build),
-			Either::Right(object) => crate::viewer::Item::Value(object.into()),
+		let (item, source_map) = match item {
+			Either::Left(build) => {
+				let source_map = if let Some(lockfile) = handle.get_build(build.id()).await?.lock {
+					// Only attempt to load the target if the lock is set.
+					if let Some(executable) =
+						&*build.target(&handle).await?.executable(&handle).await?
+					{
+						let object = executable.object()[0].clone();
+						let source_map = tg::SourceMap::new(&handle, &lockfile, object).await?;
+						Some(source_map)
+					} else {
+						None
+					}
+				} else {
+					None
+				};
+				(crate::viewer::Item::Build(build), source_map)
+			},
+			Either::Right(object) => {
+				// Get the source map.
+				let source_map = if let Some(lockfile) = lockfile {
+					let lockfile = tg::Lockfile::try_read(&lockfile).await?.ok_or_else(
+						|| tg::error!(%path = lockfile.display(), "failed to read lockfile"),
+					)?;
+					let source_map = tg::SourceMap::new(&handle, &lockfile, object.clone()).await?;
+					Some(source_map)
+				} else {
+					None
+				};
+				(crate::viewer::Item::Value(object.into()), source_map)
+			},
 		};
 
 		// Run the view.
@@ -78,7 +106,7 @@ impl Cli {
 						condensed_builds: false,
 						expand_on_create: matches!(kind, Kind::Inline),
 					};
-					let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
+					let mut viewer = crate::viewer::Viewer::new(&handle, item, options, source_map);
 					match kind {
 						Kind::Inline => {
 							viewer.run_inline(stop).await?;

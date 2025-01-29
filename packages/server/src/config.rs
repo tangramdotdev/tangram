@@ -58,6 +58,7 @@ pub struct Build {
 	pub concurrency: usize,
 	pub heartbeat_interval: Duration,
 	pub max_depth: u64,
+	pub set_path_and_tag: bool,
 	pub remotes: Vec<String>,
 }
 
@@ -194,6 +195,7 @@ impl Default for Build {
 			concurrency: n.into(),
 			heartbeat_interval: Duration::from_secs(1),
 			max_depth: 4096,
+			set_path_and_tag: false,
 			remotes: Vec::new(),
 		}
 	}

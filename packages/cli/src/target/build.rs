@@ -178,7 +178,7 @@ impl Cli {
 		}
 
 		// Get the reference.
-		let referent = self.get_reference(&reference).await?;
+		let (referent, lockfile) = self.get_reference(&reference).await?;
 		let Either::Right(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
 		};
@@ -190,6 +190,17 @@ impl Cli {
 			directory.get(&handle, subpath).await?.into()
 		} else {
 			object
+		};
+
+		// Get the source map.
+		let (source_map, lock) = if let Some(lockfile) = lockfile {
+			let lockfile = tg::Lockfile::try_read(&lockfile)
+				.await?
+				.ok_or_else(|| tg::error!(%path = lockfile.display(), "failed to read lockfile"))?;
+			let source_map = tg::SourceMap::new(&handle, &lockfile, object.clone()).await?;
+			(Some(source_map), Some(lockfile))
+		} else {
+			(None, None)
 		};
 
 		// Create the target.
@@ -341,6 +352,7 @@ impl Cli {
 		let id = target.id(&handle).await?;
 		let arg = tg::target::build::Arg {
 			create: args.create,
+			lock,
 			parent: None,
 			remote: remote.clone(),
 			retry,
@@ -408,7 +420,8 @@ impl Cli {
 								expand_on_create: true,
 							};
 							let item = crate::viewer::Item::Build(build);
-							let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
+							let mut viewer =
+								crate::viewer::Viewer::new(&handle, item, options, source_map);
 
 							match args.view {
 								View::None => (),
