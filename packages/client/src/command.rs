@@ -11,4 +11,3 @@ pub mod data;
 pub mod handle;
 pub mod id;
 pub mod object;
-pub mod spawn;

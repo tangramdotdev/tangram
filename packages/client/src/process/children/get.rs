@@ -60,7 +60,13 @@ impl tg::Process {
 			.map(|stream| {
 				stream
 					.map_ok(|chunk| {
-						stream::iter(chunk.data.into_iter().map(tg::Process::with_id).map(Ok))
+						stream::iter(
+							chunk
+								.data
+								.into_iter()
+								.map(|id| tg::Process::new(id, None, None))
+								.map(Ok),
+						)
 					})
 					.try_flatten()
 					.boxed()

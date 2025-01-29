@@ -10,8 +10,11 @@ impl tg::Artifact {
 		H: tg::Handle,
 	{
 		let command = Self::extract_command(blob, format);
-		let arg = tg::command::spawn::Arg::default();
-		let output = command.output(handle, arg).await?;
+		let arg = tg::process::spawn::Arg {
+			command: Some(command.id(handle).await?),
+			..Default::default()
+		};
+		let output = tg::Process::build(handle, arg).await?;
 		let artifact = output.try_into()?;
 		Ok(artifact)
 	}

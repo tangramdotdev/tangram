@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{stream, Future, Stream, TryStreamExt as _};
-use std::{path::PathBuf, pin::Pin, sync::Arc};
+use std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -154,17 +154,16 @@ impl tg::Handle for Proxy {
 		self.server.try_read_blob_stream(id, arg)
 	}
 
-	async fn try_spawn_command(
+	async fn try_spawn_process(
 		&self,
-		id: &tg::command::Id,
-		mut arg: tg::command::spawn::Arg,
-	) -> tg::Result<Option<tg::command::spawn::Output>> {
+		mut arg: tg::process::spawn::Arg,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		arg.parent = Some(self.process.clone());
 		arg.remote = self.remote.clone();
 		arg.retry = tg::Process::with_id(self.process.clone())
 			.retry(self)
 			.await?;
-		self.server.try_spawn_command(id, arg).await
+		self.server.try_spawn_process(arg).await
 	}
 
 	async fn lsp(
@@ -312,7 +311,7 @@ impl tg::Handle for Proxy {
 		self.server.try_get_process_status_stream(id)
 	}
 
-	fn try_get_process_wait_stream(
+	fn wait_process(
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<
@@ -445,7 +444,7 @@ impl tg::Handle for Proxy {
 	}
 }
 
-impl std::ops::Deref for Proxy {
+impl Deref for Proxy {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

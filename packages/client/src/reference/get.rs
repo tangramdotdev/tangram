@@ -2,6 +2,10 @@ use crate as tg;
 use tangram_either::Either;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
+pub struct Output {
+	pub referent: tg::Referent<Either<tg::process::Id, tg::object::Id>>,
+}
+
 impl tg::Client {
 	pub async fn try_get_reference(
 		&self,

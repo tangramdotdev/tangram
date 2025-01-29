@@ -61,6 +61,7 @@ impl Server {
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			enqueued_at: Option<time::OffsetDateTime>,
+			env: bool,
 			error: Option<db::value::Json<tg::Error>>,
 			exit: Option<db::value::Json<tg::process::Exit>>,
 			#[serde(default)]
@@ -91,7 +92,7 @@ impl Server {
 			outputs_weight: Option<u64>,
 			retry: bool,
 			#[serde(default)]
-			sandbox: Option<db::value::Json<tg::process::Sandbox>>,
+			network: bool,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			started_at: Option<time::OffsetDateTime>,
@@ -122,6 +123,7 @@ impl Server {
 					depth,
 					dequeued_at,
 					enqueued_at,
+					env,
 					error,
 					exit,
 					finished_at,
@@ -137,7 +139,7 @@ impl Server {
 					outputs_count,
 					outputs_weight,
 					retry,
-					sandbox,
+					network,
 					started_at,
 					status,
 					stderr,
@@ -167,6 +169,7 @@ impl Server {
 			depth: row.depth,
 			dequeued_at: row.dequeued_at,
 			enqueued_at: row.enqueued_at,
+			env: row.env,
 			error: row.error.map(|error| error.0),
 			exit: row.exit.map(|exit| exit.0),
 			finished_at: row.finished_at,
@@ -184,7 +187,7 @@ impl Server {
 			outputs_depth: row.outputs_depth,
 			outputs_weight: row.outputs_weight,
 			retry: row.retry,
-			sandbox: row.sandbox.map(|sandbox| sandbox.0),
+			network: row.network,
 			started_at: row.started_at,
 			status: row.status,
 			stderr: row.stderr,
@@ -248,7 +251,7 @@ impl Server {
 						log: output.log.clone(),
 						output: output.output,
 						retry: output.retry,
-						sandbox: output.sandbox,
+						network: output.network,
 						started_at: output.started_at,
 						status: output.status,
 						stderr: output.stderr,

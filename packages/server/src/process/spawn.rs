@@ -1,199 +1,292 @@
-use crate::{runtime, BuildPermit, Server};
-use futures::{future, Future, FutureExt as _, TryFutureExt as _};
-use std::{sync::Arc, time::Duration};
+use crate::{BuildPermit, Server};
+use bytes::Bytes;
+use futures::{future, FutureExt as _};
+use indoc::formatdoc;
+use itertools::Itertools as _;
 use tangram_client::{self as tg, handle::Ext as _};
+use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-use tangram_futures::task::Task;
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_messenger::Messenger as _;
 
 impl Server {
-	pub(crate) async fn process_spawn_task(&self) {
-		loop {
-			// Wait for a permit.
-			let permit = self
-				.process_semaphore
-				.clone()
-				.acquire_owned()
-				.await
-				.unwrap();
-			let permit = BuildPermit(Either::Left(permit));
-
-			// Try to dequeue a process locally or from one of the remotes.
-			let arg = tg::process::dequeue::Arg::default();
-			let futures = std::iter::once(
-				self.dequeue_process(arg)
-					.map_ok(|output| (output, None))
-					.boxed(),
-			)
-			.chain(
-				self.config
-					.process
-					.as_ref()
-					.unwrap()
-					.remotes
-					.iter()
-					.map(|name| {
-						let server = self.clone();
-						let remote = name.to_owned();
-						async move {
-							let client = server.get_remote_client(remote).await?;
-							let arg = tg::process::dequeue::Arg::default();
-							let process = client.dequeue_process(arg).await?;
-							let output = (process, Some(name.to_owned()));
-							Ok::<_, tg::Error>(output)
-						}
-						.boxed()
-					}),
-			);
-			let (output, remote) = match future::select_ok(futures).await {
-				Ok(((output, remote), _)) => (output, remote),
-				Err(error) => {
-					tracing::error!(?error, "failed to dequeue a process");
-					tokio::time::sleep(Duration::from_secs(1)).await;
-					continue;
-				},
-			};
-
-			// Spawn the process.
-			self.spawn_process(output.process, permit, remote)
-				.await
-				.ok();
-		}
-	}
-
-	pub(crate) fn spawn_process(
+	pub async fn try_spawn_process(
 		&self,
-		process: tg::process::Id,
-		permit: BuildPermit,
-		remote: Option<String>,
-	) -> impl Future<Output = tg::Result<()>> + Send + 'static {
-		let server = self.clone();
-		async move {
-			// Attempt to start the process.
-			let arg = tg::process::start::Arg {
-				remote: remote.clone(),
+		arg: tg::process::spawn::Arg,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		// If the remote arg was set, then spawn the command remotely.
+		if let Some(name) = arg.remote.as_ref() {
+			let remote = self.get_remote_client(name.clone()).await?;
+			let arg = tg::process::spawn::Arg {
+				remote: None,
+				..arg
 			};
-			let started = server.try_start_process(&process, arg).await?.started;
-			if !started {
-				return Ok(());
+			let output = remote.try_spawn_process(arg).await?;
+			let output = output.map(|mut output| {
+				output.remote.replace(name.to_owned());
+				output
+			});
+			return Ok(output);
+		}
+
+		// Determine if the process is cacheable.
+		let cacheable = arg.checksum.is_some()
+			|| (arg.cwd.is_none()
+				&& arg.stdin.is_none()
+				&& arg.stdout.is_none()
+				&& arg.stderr.is_none()
+				&& arg
+					.sandbox
+					.is_some_and(|sandbox| !sandbox.filesystem && !sandbox.network));
+
+		// If the process is cacheable, then get a matching local process if one exists.
+		'a: {
+			// Do not look for cache hits if the process is not cacheable.
+			if !cacheable {
+				break 'a;
 			}
 
-			// Spawn the process task.
-			server.processes.spawn(
-				process.clone(),
-				Task::spawn(|_| {
-					let server = server.clone();
-					let process = process.clone();
-					let remote = remote.clone();
-					async move { server.process_task(process, permit, remote).await }
-						.inspect_err(|error| {
-							tracing::error!(?error, "the process task failed");
-						})
-						.map(|_| ())
-				}),
-			);
+			// Get a database connection.
+			let connection = self
+				.database
+				.connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// Spawn the heartbeat task.
+			// Attempt to get a process for the command.
+			#[derive(serde::Deserialize)]
+			struct Row {
+				id: tg::process::Id,
+				status: tg::process::Status,
+			}
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					select id, status
+					from processes
+					where
+						command = {p}1
+					order by enqueued_at desc
+					limit 1;
+				"
+			);
+			let params = db::params![arg.command];
+			let Some(Row { id, status }) = connection
+				.query_optional_into::<Row>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			else {
+				break 'a;
+			};
+			let process = tg::Process::with_id(id.clone());
+
+			// Drop the connection.
+			drop(connection);
+
+			// If the process is canceled, then break.
+			if status.is_canceled() {
+				break 'a;
+			}
+
+			// If the process is failed and the retry flag is set, then break.
+			if status.is_failed() && arg.retry {
+				break 'a;
+			}
+
+			// Attempt to add the process as a child of the parent.
+			if let Some(parent) = arg.parent.as_ref() {
+				self.try_add_process_child(parent, process.id()).await.map_err(
+					|source| tg::error!(!source, %parent, %child = process.id(), "failed to add the process as a child"),
+				)?;
+			}
+
+			// Touch the process.
 			tokio::spawn({
-				let server = server.clone();
-				let remote = remote.clone();
-				async move { server.heartbeat_task(process, remote).await }
-					.inspect_err(|error| {
-						tracing::error!(?error, "the heartbeat task failed");
-					})
-					.map(|_| ())
+				let server = self.clone();
+				let process = process.clone();
+				async move {
+					let arg = tg::process::touch::Arg { remote: None };
+					server.touch_process(process.id(), arg).await.ok();
+				}
 			});
 
-			Ok(())
-		}
-	}
-
-	async fn process_task(
-		&self,
-		process: tg::process::Id,
-		permit: BuildPermit,
-		remote: Option<String>,
-	) -> tg::Result<()> {
-		// Set the process's permit.
-		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
-		self.process_permits.insert(process.clone(), permit);
-		scopeguard::defer! {
-			self.process_permits.remove(&process);
-		}
-
-		// Run.
-		let output = self
-			.process_task_inner(process.clone(), remote.clone())
-			.await?;
-
-		// Compute the status.
-		let status = match (&output.value, &output.exit, &output.error) {
-			(_, _, Some(_)) | (_, Some(tg::process::Exit::Signal { signal: _ }), _) => {
-				tg::process::Status::Failed
-			},
-			(_, Some(tg::process::Exit::Code { code }), _) if *code != 0 => {
-				tg::process::Status::Failed
-			},
-			_ => tg::process::Status::Succeeded,
-		};
-
-		// Get the output data.
-		let value = match &output.value {
-			Some(output) => Some(output.data(self).await?),
-			// If the process succeeded but had no output, mark it as having the value "null"
-			None if status == tg::process::Status::Succeeded => Some(tg::value::Data::Null),
-			None => None,
-		};
-
-		// Finish the process.
-		self.try_finish_process_local(&process, output.error, value, output.exit, status)
-			.await?;
-
-		Ok::<_, tg::Error>(())
-	}
-
-	async fn process_task_inner(
-		&self,
-		process: tg::process::Id,
-		remote: Option<String>,
-	) -> tg::Result<runtime::Output> {
-		// Get the runtime.
-		let process = self
-			.try_get_process_local(&process)
-			.await?
-			.ok_or_else(|| tg::error!("expected a local process"))?;
-		let command = tg::Command::with_id(process.command.clone());
-		let host = command.host(self).await?;
-		let runtime = self
-			.runtimes
-			.read()
-			.unwrap()
-			.get(&*host)
-			.ok_or_else(
-				|| tg::error!(?id = process, ?host = &*host, "failed to find a runtime for the process"),
-			)?
-			.clone();
-		Ok(runtime.run(&process, &command, remote.as_ref()).await)
-	}
-
-	async fn heartbeat_task(
-		&self,
-		process: tg::process::Id,
-		remote: Option<String>,
-	) -> tg::Result<()> {
-		let interval = self.config.process.as_ref().unwrap().heartbeat_interval;
-		loop {
-			let arg = tg::process::heartbeat::Arg {
-				remote: remote.clone(),
+			// Create the output.
+			let output = tg::process::spawn::Output {
+				process: process.id().clone(),
+				remote: None,
 			};
-			let result = self.heartbeat_process(&process, arg).await;
-			if let Ok(output) = result {
-				if output.status.is_finished() {
-					self.processes.abort(&process);
-					break;
-				}
-			}
-			tokio::time::sleep(interval).await;
+
+			return Ok(Some(output));
 		}
-		Ok(())
+
+		// If the process is cacheable, then get a remote process if one exists that satisfies the retry constraint.
+		'a: {
+			if !cacheable {
+				break 'a;
+			}
+
+			// Find a process.
+			let futures = self
+				.get_remote_clients()
+				.await?
+				.into_iter()
+				.map(|(name, client)| {
+					let arg = arg.clone();
+					Box::pin(async move {
+						let arg = tg::process::spawn::Arg {
+							create: false,
+							remote: None,
+							..arg.clone()
+						};
+						let mut output = client.spawn_process(arg).await?;
+						output.remote.replace(name);
+						Ok::<_, tg::Error>(Some((output, client)))
+					})
+				})
+				.collect_vec();
+
+			// Wait for the first process.
+			if futures.is_empty() {
+				break 'a;
+			}
+			let Ok((Some((output, _remote)), _)) = future::select_ok(futures).await else {
+				break 'a;
+			};
+
+			// Add the process as a child of the parent.
+			if let Some(parent) = arg.parent.as_ref() {
+				self.try_add_process_child(parent, &output.process)
+					.await
+					.map_err(
+						|source| tg::error!(!source, %parent, %child = output.process, "failed to add process as a child"),
+					)?;
+			}
+
+			// Touch the process.
+			tokio::spawn({
+				let server = self.clone();
+				let output = output.clone();
+				async move {
+					let arg = tg::process::touch::Arg { remote: None };
+					server.touch_process(&output.process, arg).await.ok();
+				}
+			});
+
+			return Ok(Some(output));
+		};
+
+		// If the create arg is false, then return `None`.
+		if !arg.create {
+			return Ok(None);
+		}
+
+		// Otherwise, create a new process.
+		let id = tg::process::Id::new();
+
+		// Create the command.
+
+		// Get the host.
+		let host = if let Some(host) = &arg.host {
+			host.clone()
+		} else if let Some(command) = &arg.command {
+			let command = tg::Command::with_id(command.clone());
+			command.host(self).await?.to_owned()
+		} else {
+			return Err(tg::error!("the host must be set"));
+		};
+
+		// Put the process.
+		let put_arg = tg::process::put::Arg {
+			id: id.clone(),
+			children: Vec::new(),
+			cwd: arg.cwd,
+			sandbox: arg.sandbox,
+			stderr: arg.stderr,
+			stdin: arg.stdin,
+			stdout: arg.stdout,
+			depth: 1,
+			error: None,
+			host: host.clone(),
+			log: None,
+			output: None,
+			retry: arg.retry,
+			status: tg::process::Status::Enqueued,
+			command: id.clone(),
+			created_at: time::OffsetDateTime::now_utc(),
+			enqueued_at: Some(time::OffsetDateTime::now_utc()),
+			dequeued_at: None,
+			started_at: None,
+			finished_at: None,
+		};
+		self.put_process(&id, put_arg).await?;
+
+		// Add the process to the parent.
+		if let Some(parent) = arg.parent.as_ref() {
+			self.try_add_process_child(parent, &id).await.map_err(
+				|source| tg::error!(!source, %parent, %child = id, "failed to add process as a child"),
+			)?;
+		}
+
+		// Publish the message.
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish("processes.created".to_owned(), Bytes::new())
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.ok();
+			}
+		});
+
+		// Spawn a task to spawn the process when the parent's permit is available.
+		let server = self.clone();
+		let parent = arg.parent.clone();
+		let process = id.clone();
+		tokio::spawn(async move {
+			// Acquire the parent's permit.
+			let Some(permit) = parent.as_ref().and_then(|parent| {
+				server
+					.process_permits
+					.get(parent)
+					.map(|permit| permit.clone())
+			}) else {
+				return;
+			};
+			let permit = permit
+				.lock_owned()
+				.map(|guard| BuildPermit(Either::Right(guard)))
+				.await;
+
+			// Attempt to spawn the process.
+			server
+				.run_process(process, permit, None)
+				.await
+				.inspect_err(|error| tracing::error!(?error, "failed to spawn the process"))
+				.ok();
+		});
+
+		// Return the output.
+		let output = tg::process::spawn::Output {
+			process: id,
+			remote: None,
+		};
+		Ok(Some(output))
+	}
+}
+
+impl Server {
+	pub(crate) async fn handle_spawn_process_request<H>(
+		handle: &H,
+		request: http::Request<Incoming>,
+	) -> tg::Result<http::Response<Outgoing>>
+	where
+		H: tg::Handle,
+	{
+		let arg = request.json().await?;
+		let output = handle.try_spawn_process(arg).await?;
+		let response = http::Response::builder().json(output).unwrap();
+		Ok(response)
 	}
 }

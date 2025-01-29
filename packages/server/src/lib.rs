@@ -12,6 +12,7 @@ use rusqlite as sqlite;
 use std::{
 	collections::HashMap,
 	convert::Infallible,
+	ops::Deref,
 	os::fd::AsRawFd as _,
 	path::{Path, PathBuf},
 	pin::{pin, Pin},
@@ -33,7 +34,6 @@ mod artifact;
 mod blob;
 mod checksum;
 mod clean;
-mod command;
 mod compiler;
 mod database;
 mod health;
@@ -474,12 +474,12 @@ impl Server {
 			None
 		};
 
-		// Spawn the process spawn task.
+		// Spawn the process queue task.
 		let process_spawn_task = if server.config.process.is_some() {
 			Some(tokio::spawn({
 				let server = server.clone();
 				async move {
-					server.process_spawn_task().await;
+					server.process_queue_task().await;
 				}
 			}))
 		} else {
@@ -867,6 +867,9 @@ impl Server {
 			},
 
 			// Processes.
+			(http::Method::POST, ["processes", "spawn"]) => {
+				Self::handle_spawn_process_request(handle, request).boxed()
+			},
 			(http::Method::GET, ["processes", process]) => {
 				Self::handle_get_process_request(handle, request, process).boxed()
 			},
@@ -888,9 +891,6 @@ impl Server {
 			(http::Method::GET, ["processes", process, "status"]) => {
 				Self::handle_get_process_status_request(handle, request, process).boxed()
 			},
-			(http::Method::GET, ["processes", process, "wait"]) => {
-				Self::handle_get_process_wait_request(handle, request, process).boxed()
-			},
 			(http::Method::GET, ["processes", process, "children"]) => {
 				Self::handle_get_process_children_request(handle, request, process).boxed()
 			},
@@ -908,6 +908,9 @@ impl Server {
 			},
 			(http::Method::POST, ["processes", process, "heartbeat"]) => {
 				Self::handle_heartbeat_process_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "wait"]) => {
+				Self::handle_post_process_wait_request(handle, request, process).boxed()
 			},
 
 			// References.
@@ -954,11 +957,6 @@ impl Server {
 			},
 			(http::Method::DELETE, ["tags", tag @ ..]) => {
 				Self::handle_delete_tag_request(handle, request, tag).boxed()
-			},
-
-			// Targets.
-			(http::Method::POST, ["commands", command, "spawn"]) => {
-				Self::handle_spawn_command_request(handle, request, command).boxed()
 			},
 
 			// Users.
@@ -1049,12 +1047,18 @@ impl tg::Handle for Server {
 		self.try_read_blob_stream(id, arg)
 	}
 
-	fn try_spawn_command(
+	fn try_spawn_process(
 		&self,
-		id: &tg::command::Id,
-		arg: tg::command::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
-		self.try_spawn_command(id, arg)
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+		self.try_spawn_process(arg)
+	}
+
+	fn wait_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::wait::Output>> {
+		self.wait_process(id)
 	}
 
 	fn lsp(
@@ -1221,17 +1225,6 @@ impl tg::Handle for Server {
 		self.try_get_process_status_stream(id)
 	}
 
-	fn try_get_process_wait_stream(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static>,
-		>,
-	> + Send {
-		self.try_get_process_wait_stream(id)
-	}
-
 	fn try_get_process_children_stream(
 		&self,
 		id: &tg::process::Id,
@@ -1367,7 +1360,7 @@ impl tg::Handle for Server {
 	}
 }
 
-impl std::ops::Deref for Server {
+impl Deref for Server {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

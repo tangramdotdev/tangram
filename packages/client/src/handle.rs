@@ -48,12 +48,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn try_spawn_command(
-		&self,
-		id: &tg::command::Id,
-		arg: tg::command::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> + Send;
-
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -128,6 +122,16 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> + Send;
+
+	fn wait_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::wait::Output>> + Send;
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -176,15 +180,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
-		>,
-	> + Send;
-
-	fn try_get_process_wait_stream(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static>,
 		>,
 	> + Send;
 

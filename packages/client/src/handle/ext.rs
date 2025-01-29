@@ -105,6 +105,17 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
+	fn get_process_status(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>,
+	> + Send {
+		self.try_get_process_status(id).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
+		})
+	}
+
 	fn try_get_process_status(
 		&self,
 		id: &tg::process::Id,
@@ -167,81 +178,16 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
-	fn get_process_status(
+	fn get_process_children(
 		&self,
 		id: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>,
-	> + Send {
-		self.try_get_process_status(id).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
-		})
-	}
-
-	fn try_get_process_wait(
-		&self,
-		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static>,
+			impl Stream<Item = tg::Result<tg::process::children::get::Chunk>> + Send + 'static,
 		>,
 	> + Send {
-		async move {
-			let handle = self.clone();
-			let id = id.clone();
-			let Some(stream) = handle.try_get_process_wait_stream(&id).await? else {
-				return Ok(None);
-			};
-			let stream = stream.boxed();
-			struct State {
-				stream: Option<stream::BoxStream<'static, tg::Result<tg::process::wait::Event>>>,
-				end: bool,
-			}
-			let state = Arc::new(Mutex::new(State {
-				stream: Some(stream),
-				end: false,
-			}));
-			let stream = stream::try_unfold(state.clone(), move |state| {
-				let handle = handle.clone();
-				let id = id.clone();
-				async move {
-					if state.lock().unwrap().end {
-						return Ok(None);
-					}
-					let stream = state.lock().unwrap().stream.take();
-					let stream = if let Some(stream) = stream {
-						stream
-					} else {
-						handle
-							.try_get_process_wait_stream(&id)
-							.await?
-							.unwrap()
-							.boxed()
-					};
-					Ok::<_, tg::Error>(Some((stream, state)))
-				}
-			})
-			.try_flatten()
-			.inspect_ok({
-				let state = state.clone();
-				move |event| {
-					state.lock().unwrap().end =
-						matches!(event, tg::process::wait::Event::Output(_));
-				}
-			});
-			Ok(Some(stream))
-		}
-	}
-
-	fn get_process_wait(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static,
-		>,
-	> + Send {
-		self.try_get_process_wait(id).map(|result| {
+		self.try_get_process_children(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
 		})
 	}
@@ -332,20 +278,6 @@ pub trait Ext: tg::Handle {
 			});
 			Ok(Some(stream))
 		}
-	}
-
-	fn get_process_children(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::process::children::get::Chunk>> + Send + 'static,
-		>,
-	> + Send {
-		self.try_get_process_children(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
-		})
 	}
 
 	fn try_get_process_log(
@@ -469,6 +401,15 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
+	fn spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::spawn::Output>> + Send {
+		self.try_spawn_process(arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("expected a process")))
+		})
+	}
+
 	fn get_reference(
 		&self,
 		reference: &tg::Reference,
@@ -486,16 +427,6 @@ pub trait Ext: tg::Handle {
 	) -> impl Future<Output = tg::Result<tg::tag::get::Output>> + Send {
 		self.try_get_tag(tag).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the tag")))
-		})
-	}
-
-	fn spawn_command(
-		&self,
-		id: &tg::command::Id,
-		arg: tg::command::spawn::Arg,
-	) -> impl Future<Output = tg::Result<tg::command::spawn::Output>> + Send {
-		self.try_spawn_command(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("expected a process")))
 		})
 	}
 }

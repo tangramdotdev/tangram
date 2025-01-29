@@ -16,6 +16,7 @@ import type { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { Object as Object_ } from "./object.ts";
 import { path } from "./path.ts";
+import { Process, process } from "./process.ts";
 import type { Reference } from "./reference.ts";
 import type { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
@@ -36,13 +37,13 @@ import type {
 import { Value } from "./value.ts";
 
 let archive = Artifact.archive;
-// let build = Command.build;
+let build = Process.build;
 let bundle = Artifact.bundle;
 let compress = Blob.compress;
 let decompress = Blob.decompress;
 let download = Blob.download;
 let extract = Artifact.extract;
-// let run = Command.run;
+let run = Process.run;
 
 export {
 	Args,
@@ -58,6 +59,7 @@ export {
 	Leaf,
 	Mutation,
 	Object_ as Object,
+	Process,
 	Symlink,
 	Template,
 	Value,
@@ -65,7 +67,7 @@ export {
 	assert,
 	blob,
 	branch,
-	// build,
+	build,
 	bundle,
 	checksum,
 	command,
@@ -82,8 +84,9 @@ export {
 	error,
 	mutation,
 	path,
+	process,
 	resolve,
-	// run,
+	run,
 	sleep,
 	start,
 	symlink,

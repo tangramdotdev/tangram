@@ -2,7 +2,8 @@ use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
 use std::{path::Path, pin::pin};
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client as tg;
+use tangram_futures::stream::Ext as _;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 /// Render a value.
@@ -127,12 +128,10 @@ pub async fn compute_checksum(
 		algorithm
 	};
 
-	// checksum = unsafe implies there is no checksum, so return Ok
-	if algorithm == tg::checksum::Algorithm::Unsafe {
+	if algorithm == tg::checksum::Algorithm::Any {
 		return Ok(());
 	}
 
-	// Create the checksum command.
 	let host = "builtin";
 	let args = vec![
 		"checksum".into(),
@@ -140,23 +139,13 @@ pub async fn compute_checksum(
 		algorithm.to_string().into(),
 	];
 	let command = tg::Command::builder(host).args(args).build();
-	let command_id = command.id(runtime.server()).await?;
-	let arg = tg::command::spawn::Arg {
+	let arg = tg::process::spawn::Arg {
+		command: Some(command.id(runtime.server()).await?),
 		create: true,
 		parent: Some(process.clone()),
 		..Default::default()
 	};
+	tg::Process::build(runtime.server(), arg).await?;
 
-	// Spawn the checksum process.
-	let process = runtime
-		.server()
-		.spawn_command(&command_id, arg)
-		.await?
-		.process;
-	let output = tg::Process::with_id(process).wait(runtime.server()).await?;
-	if output.status.is_succeeded() {
-		Ok(())
-	} else {
-		Err(tg::error!("the checksum process failed"))
-	}
+	Ok(())
 }

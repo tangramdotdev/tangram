@@ -1,16 +1,11 @@
 import * as tg from "./index.ts";
+import { process } from "./process.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
 	type MaybePromise,
 	flatten,
 } from "./util.ts";
-
-let currentCommand: Command;
-
-export let setCurrentCommand = (command: Command) => {
-	currentCommand = command;
-};
 
 type FunctionArg<
 	A extends Array<tg.Value> = Array<tg.Value>,
@@ -41,8 +36,6 @@ export function command<
 		"function" in args[0]
 	) {
 		let arg = args[0];
-
-		// Create the command.
 		let args_ = [arg.name];
 		let executable = {
 			kind: arg.module.kind,
@@ -54,7 +47,7 @@ export function command<
 			},
 		};
 		let stdin = undefined;
-		const env = currentCommand.state.object!.env;
+		let env = process.env;
 		let object = {
 			args: args_,
 			env,
@@ -99,7 +92,7 @@ export class Command<
 				}
 			},
 			apply: async (command, _, args) => {
-				return await (await Command.new(command, { args })).output({});
+				return await tg.run(command, { args });
 			},
 			getPrototypeOf: (_command) => {
 				return Object.getPrototypeOf(this_);
@@ -138,10 +131,6 @@ export class Command<
 		return new Command({ object });
 	}
 
-	static get current(): Command {
-		return currentCommand;
-	}
-
 	static async arg(...args: tg.Args<Command.Arg>): Promise<Command.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let flattened = flatten(resolved);
@@ -157,7 +146,7 @@ export class Command<
 					return {
 						args: ["-c", arg],
 						executable: await tg.symlink("/bin/sh"),
-						host: (await currentCommand.env()).TANGRAM_HOST as string,
+						host: process.env.TANGRAM_HOST,
 					};
 				} else if (arg instanceof Command) {
 					return await arg.object();
@@ -226,10 +215,6 @@ export class Command<
 		return (await this.object()).host;
 	}
 
-	async output(arg?: tg.Command.SpawnArg): Promise<R> {
-		return (await syscall("command_output", this as Command<[], R>, arg)) as R;
-	}
-
 	function(): Function | undefined {
 		return this.#f;
 	}
@@ -270,23 +255,6 @@ export namespace Command {
 		env: { [key: string]: tg.Value };
 		executable: tg.Command.Executable | undefined;
 		host: string;
-		stdin: tg.Blob.Id | undefined;
-	};
-
-	export type SpawnArg = {
-		checksum?: tg.Checksum | undefined;
-		cwd?: string | undefined;
-		sandbox?: SandboxArg | undefined;
-	};
-
-	export type SandboxArg = {
-		filesystem?: boolean | undefined;
-		network?: boolean | undefined;
-	};
-
-	export type Sandbox = {
-		filesystem: boolean;
-		network: boolean;
 	};
 
 	export type State = tg.Object.State<Command.Id, Command.Object>;

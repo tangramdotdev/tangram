@@ -1,9 +1,11 @@
-use crate::{self as tg, handle::Ext as _};
-use futures::TryFutureExt as _;
-use std::pin::pin;
-use tangram_futures::stream::TryExt as _;
+use crate::{self as tg, handle::Ext as _, util::arc::Ext as _};
+use std::{
+	ops::Deref,
+	path::PathBuf,
+	sync::{Arc, RwLock},
+};
 
-pub use self::{id::Id, status::Status};
+pub use self::{id::Id, status::Status, wait::Exit};
 
 pub mod children;
 pub mod dequeue;
@@ -11,46 +13,79 @@ pub mod finish;
 pub mod get;
 pub mod heartbeat;
 pub mod id;
-pub mod input;
 pub mod log;
 pub mod pull;
 pub mod push;
 pub mod put;
 pub mod retry;
-pub mod signal;
+pub mod spawn;
 pub mod start;
 pub mod status;
 pub mod touch;
 pub mod wait;
 
 #[derive(Clone, Debug)]
-pub struct Process {
+pub struct Process(Arc<Inner>);
+
+#[derive(Debug)]
+pub struct Inner {
 	id: Id,
-	token: Option<String>,
 	remote: Option<String>,
+	state: RwLock<Option<Arc<State>>>,
+	token: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Sandbox {
-	pub filesystem: bool,
-	pub network: bool,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(untagged)]
-pub enum Exit {
-	Code { code: i32 },
-	Signal { signal: i32 },
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone, Debug)]
+struct State {
+	pub checksum: Option<tg::Checksum>,
+	pub command: tg::Command,
+	pub commands_complete: bool,
+	pub commands_count: Option<u64>,
+	pub commands_depth: Option<u64>,
+	pub commands_weight: Option<u64>,
+	pub complete: bool,
+	pub count: Option<u64>,
+	pub created_at: time::OffsetDateTime,
+	pub cwd: Option<PathBuf>,
+	pub depth: u64,
+	pub dequeued_at: Option<time::OffsetDateTime>,
+	pub enqueued_at: Option<time::OffsetDateTime>,
+	pub error: Option<tg::Error>,
+	pub exit: Option<tg::process::Exit>,
+	pub finished_at: Option<time::OffsetDateTime>,
+	pub heartbeat_at: Option<time::OffsetDateTime>,
+	pub host: String,
+	pub id: tg::process::Id,
+	pub log: Option<tg::blob::Id>,
+	pub logs_complete: bool,
+	pub logs_count: Option<u64>,
+	pub logs_depth: Option<u64>,
+	pub logs_weight: Option<u64>,
+	pub output: Option<tg::value::Data>,
+	pub outputs_complete: bool,
+	pub outputs_count: Option<u64>,
+	pub outputs_depth: Option<u64>,
+	pub outputs_weight: Option<u64>,
+	pub retry: bool,
+	pub started_at: Option<time::OffsetDateTime>,
+	pub status: tg::process::Status,
+	pub stderr: Option<tg::pipe::Id>,
+	pub stdin: Option<tg::pipe::Id>,
+	pub stdout: Option<tg::pipe::Id>,
+	pub touched_at: Option<time::OffsetDateTime>,
 }
 
 impl Process {
 	#[must_use]
-	pub fn with_id(id: Id) -> Self {
-		Self {
+	pub fn new(id: Id, remote: Option<String>, token: Option<String>) -> Self {
+		let state = RwLock::new(None);
+		Self(Arc::new(Inner {
 			id,
-			remote: None,
-			token: None,
-		}
+			remote,
+			state,
+			token,
+		}))
 	}
 
 	#[must_use]
@@ -59,71 +94,119 @@ impl Process {
 	}
 
 	#[must_use]
-	pub fn remote(&self) -> Option<&str> {
-		self.remote.as_deref()
+	pub fn remote(&self) -> Option<&String> {
+		self.remote.as_ref()
 	}
 
 	#[must_use]
-	pub fn token(&self) -> Option<&str> {
-		self.token.as_deref()
+	pub fn token(&self) -> Option<&String> {
+		self.token.as_ref()
 	}
 
-	pub async fn command<H>(&self, handle: &H) -> tg::Result<tg::Command>
+	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<tg::process::State>>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_command(handle)
+		self.try_load(handle)
 			.await?
-			.ok_or_else(|| tg::error!("failed to get the process"))
+			.ok_or_else(|| tg::error!("failed to load the process"))
 	}
 
-	pub async fn try_get_command<H>(&self, handle: &H) -> tg::Result<Option<tg::Command>>
+	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<tg::process::State>>>
 	where
 		H: tg::Handle,
 	{
-		let Some(process) = handle.try_get_process(&self.id).await? else {
+		if let Some(state) = self.state.read().unwrap().clone() {
+			return Ok(Some(state));
+		}
+		let Some(output) = handle.try_get_process(self.id()).await? else {
 			return Ok(None);
 		};
-		let id = process.command.clone();
-		let command = tg::Command::with_id(id);
-		Ok(Some(command))
+		let state = State {
+			checksum: output.checksum,
+			command: tg::Command::with_id(output.command),
+			commands_complete: output.commands_complete,
+			commands_count: output.commands_count,
+			commands_depth: output.commands_depth,
+			commands_weight: output.commands_weight,
+			complete: output.complete,
+			count: output.count,
+			created_at: output.created_at,
+			cwd: output.cwd,
+			depth: output.depth,
+			dequeued_at: output.dequeued_at,
+			enqueued_at: output.enqueued_at,
+			error: output.error,
+			exit: output.exit,
+			finished_at: output.finished_at,
+			heartbeat_at: output.heartbeat_at,
+			host: output.host,
+			id: output.id,
+			log: output.log,
+			logs_complete: output.logs_complete,
+			logs_count: output.logs_count,
+			logs_depth: output.logs_depth,
+			logs_weight: output.logs_weight,
+			output: output.output,
+			outputs_complete: output.outputs_complete,
+			outputs_count: output.outputs_count,
+			outputs_depth: output.outputs_depth,
+			outputs_weight: output.outputs_weight,
+			retry: output.retry,
+			started_at: output.started_at,
+			status: output.status,
+			stderr: output.stderr,
+			stdin: output.stdin,
+			stdout: output.stdout,
+			touched_at: output.touched_at,
+		};
+		let state = Arc::new(state);
+		self.state.write().unwrap().replace(state.clone());
+		Ok(Some(state))
+	}
+
+	pub async fn command<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = tg::Command>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.load(handle).await?.map(|state| &state.command))
+	}
+
+	pub async fn spawn<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Process>
+	where
+		H: tg::Handle,
+	{
+		let output = handle.spawn_process(arg).await?;
+		let process = tg::Process::new(output.process, output.remote, None);
+		Ok(process)
 	}
 
 	pub async fn wait<H>(&self, handle: &H) -> tg::Result<tg::process::wait::Output>
 	where
 		H: tg::Handle,
 	{
-		let stream = handle.get_process_wait(&self.id).await?;
-		let Some(tg::process::wait::Event::Output(output)) = pin!(stream).try_last().await? else {
-			return Err(tg::error!("failed to get the last process event"));
-		};
-		let output = tg::process::wait::Output {
-			error: output.error,
-			exit: output.exit,
-			output: output.output.map(tg::Value::try_from).transpose()?,
-			status: output.status,
-		};
-		Ok(output)
+		handle.wait_process(&self.id).await
 	}
 
-	pub async fn exit<H>(&self, handle: &H) -> tg::Result<Option<tg::process::Exit>>
+	pub async fn build<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,
 	{
-		self.wait(handle).map_ok(|output| output.exit).await
+		todo!()
 	}
 
-	pub async fn output<H>(&self, handle: &H) -> tg::Result<Option<tg::Value>>
+	pub async fn run<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,
 	{
-		self.wait(handle).map_ok(|output| output.output).await
+		todo!()
 	}
+}
 
-	pub async fn error<H>(&self, handle: &H) -> tg::Result<Option<tg::Error>>
-	where
-		H: tg::Handle,
-	{
-		self.wait(handle).map_ok(|output| output.error).await
+impl Deref for Process {
+	type Target = Inner;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }

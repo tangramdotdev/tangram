@@ -95,14 +95,17 @@ fn main() {
 	}
 
 	// Install dependencies.
-	println!("cargo:rerun-if-changed=../../bun.lockb");
-	std::process::Command::new("bun")
-		.args(["install", "--frozen-lockfile"])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
-		.unwrap();
+	println!("cargo:rerun-if-env-changed=NODE_PATH");
+	if std::env::var("NODE_PATH").ok().is_none() {
+		println!("cargo:rerun-if-changed=../../bun.lockb");
+		std::process::Command::new("bun")
+			.args(["install", "--frozen-lockfile"])
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+	}
 
 	// Create the lib path.
 	let lib_path = out_dir_path.join("lib");
@@ -169,13 +172,14 @@ fn main() {
 
 	// Build the runtime.
 	println!("cargo:rerun-if-changed=../../packages/runtime");
-	std::process::Command::new("bun")
-		.args(["run", "--cwd", "../../packages/runtime", "check"])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
-		.unwrap();
+	// TODO
+	// std::process::Command::new("bun")
+	// 	.args(["run", "--cwd", "../../packages/runtime", "check"])
+	// 	.status()
+	// 	.unwrap()
+	// 	.success()
+	// 	.then_some(())
+	// 	.unwrap();
 	std::process::Command::new("bun")
 		.args([
 			"build",

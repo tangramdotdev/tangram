@@ -582,9 +582,6 @@ declare namespace tg {
 			R extends tg.Value = tg.Value,
 		>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
 
-		/** The currently building command. */
-		static get current(): tg.Command;
-
 		/** Expect that a value is a `tg.Command`. */
 		static expect(value: unknown): tg.Command;
 
@@ -606,8 +603,11 @@ declare namespace tg {
 		/** Get this command's host. */
 		host(): Promise<string>;
 
-		/** Build this command and return the build's output. */
-		output(): Promise<R>;
+		/** Build this command and return the process's output. */
+		build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
+
+		/** Run this command and return the process's output. */
+		run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
 	}
 
 	export namespace Command {
@@ -638,22 +638,6 @@ declare namespace tg {
 		export type ExecutableArg = tg.Artifact | tg.Module;
 
 		export type Executable = tg.Artifact | tg.Module;
-
-		export type SpawnArg = {
-			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
-			checksum?: tg.Checksum | undefined;
-
-			/** Set the current working directory for the process. **/
-			cwd?: string | undefined;
-
-			/** Configure the sandbox the process will run in. **/
-			sandbox?: tg.Command.SandboxArg | undefined;
-		};
-
-		export type SandboxArg = {
-			filesystem?: boolean | undefined;
-			network?: boolean | undefined;
-		};
 	}
 
 	export namespace path {
@@ -940,6 +924,104 @@ declare namespace tg {
 			| "symlink"
 			| "graph"
 			| "command";
+	}
+
+	export let build: (
+		...args: tg.Args<tg.Process.SpawnArg>
+	) => Promise<tg.Value>;
+
+	export let run: (...args: tg.Args<tg.Process.SpawnArg>) => Promise<tg.Value>;
+
+	export let process: {
+		checksum: tg.Checksum | undefined;
+		command: {
+			args: Array<tg.Value>;
+			env: { [key: string]: tg.Value };
+			executable: tg.Command.Executable | undefined;
+			host: string;
+		};
+		cwd: string | undefined;
+		env: { [key: string]: string };
+		network: boolean | undefined;
+	};
+
+	export class Process {
+		/** Build a process and return its output. */
+		static build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
+
+		/** Run a process and return its output. */
+		static run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
+
+		/** Get a process with an ID. */
+		static withId(id: tg.Process.Id): tg.Process;
+
+		/** Expect that a value is a `tg.Process`. */
+		static expect(value: unknown): tg.Process;
+
+		/** Assert that a value is a `tg.Process`. */
+		static assert(value: unknown): asserts value is tg.Process;
+
+		/** Load the process. */
+		load(): Promise<void>;
+
+		/** Reload the process. */
+		reload(): Promise<void>;
+
+		/** Get this process's ID. */
+		id(): tg.Process.Id;
+
+		/** Get this process's checksum. */
+		checksum(): Promise<tg.Checksum | undefined>;
+
+		/** Get this process's command. */
+		command(): Promise<tg.Command>;
+
+		/** Get this process's cwd. */
+		cwd(): Promise<string | undefined>;
+
+		/** Get this process's environment. */
+		env(): Promise<{ [name: string]: string }>;
+
+		/** Get whether this process has the network enabled. */
+		network(): Promise<boolean | undefined>;
+	}
+
+	export namespace Process {
+		export type Id = string;
+
+		export type SpawnArg =
+			| undefined
+			| string
+			| tg.Artifact
+			| tg.Template
+			| tg.Command
+			| SpawnArgObject;
+
+		export type SpawnArgObject = {
+			/** The command's command line arguments. */
+			args?: Array<tg.Value> | undefined;
+
+			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
+			checksum?: tg.Checksum | undefined;
+
+			/** The command to spawn. **/
+			command?: tg.Command.Arg | undefined;
+
+			/** Set the current working directory for the process. **/
+			cwd?: string | undefined;
+
+			/** The command's environment variables. */
+			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
+
+			/** The command's executable. */
+			executable?: tg.Command.ExecutableArg | undefined;
+
+			/** The system to build the command on. */
+			host?: string | undefined;
+
+			/** Configure whether the process has access to the network. **/
+			network?: boolean | undefined;
+		};
 	}
 
 	export type Reference = string;

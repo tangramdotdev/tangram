@@ -26,7 +26,7 @@ pub struct Runtime {
 }
 
 struct State {
-	process: tg::process::Id,
+	process: tg::Process,
 	futures: RefCell<FuturesUnordered<LocalBoxFuture<'static, FutureOutput>>>,
 	global_source_map: Option<SourceMap>,
 	compiler: Compiler,
@@ -34,7 +34,6 @@ struct State {
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
-	remote: Option<String>,
 	root: tg::Module,
 	server: Server,
 }
@@ -65,12 +64,7 @@ impl Runtime {
 		}
 	}
 
-	pub async fn run(
-		&self,
-		process: &tg::process::get::Output,
-		command: &tg::Command,
-		remote: Option<String>,
-	) -> super::Output {
+	pub async fn run(&self, process: &tg::Process) -> super::Output {
 		// Create a handle to the main runtime.
 		let main_runtime_handle = tokio::runtime::Handle::current();
 
@@ -84,13 +78,7 @@ impl Runtime {
 			let command = command.clone();
 			move || async move {
 				runtime
-					.run_inner(
-						&process,
-						&command,
-						remote,
-						main_runtime_handle.clone(),
-						isolate_handle_sender,
-					)
+					.run_inner(&process, main_runtime_handle.clone(), isolate_handle_sender)
 					.boxed_local()
 					.await
 			}
@@ -113,9 +101,7 @@ impl Runtime {
 
 	async fn run_inner(
 		&self,
-		process: &tg::process::get::Output,
-		command: &tg::Command,
-		remote: Option<String>,
+		process: &tg::Process,
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<tg::Value> {
@@ -146,7 +132,6 @@ impl Runtime {
 		let log_task = main_runtime_handle.spawn({
 			let server = self.server.clone();
 			let process = process.clone();
-			let remote = remote.clone();
 			async move {
 				while let Some(message) = log_receiver.recv().await {
 					let syscall::log::Message { contents, level } = message;
@@ -162,7 +147,7 @@ impl Runtime {
 					let bytes = Bytes::from(contents);
 					let arg = tg::process::log::post::Arg {
 						bytes: bytes.clone(),
-						remote: remote.clone(),
+						remote: process.remote().map(ToOwned::to_owned),
 					};
 					match level {
 						syscall::log::Level::Log => {
@@ -176,7 +161,7 @@ impl Runtime {
 							}
 						},
 					}
-					server.try_post_process_log(&process.id, arg).await.ok();
+					server.try_post_process_log(process.id(), arg).await.ok();
 				}
 			}
 		});

@@ -55,7 +55,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		// Parse the ID.
-		let id: tg::pipe::Id = id.parse()?;
+		let id = id.parse()?;
 
 		// Create the stream.
 		let body = request
@@ -95,8 +95,9 @@ impl Server {
 		// Write.
 		handle.write_pipe(&id, stream).await?;
 
-		// Return a response.
+		// Create the response.
 		let response = http::Response::builder().empty().unwrap();
+
 		Ok(response)
 	}
 }

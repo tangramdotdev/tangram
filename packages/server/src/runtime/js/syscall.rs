@@ -9,9 +9,9 @@ use tangram_v8::convert::{FromV8, ToV8};
 
 mod blob;
 mod checksum;
-mod command;
 mod encoding;
 mod object;
+mod process;
 mod sleep;
 
 pub mod log;
@@ -28,7 +28,6 @@ pub fn syscall<'s>(
 	let result = match name.as_str() {
 		"blob_read" => async_(scope, &args, self::blob::read),
 		"checksum" => async_(scope, &args, self::checksum::checksum),
-		"command_output" => async_(scope, &args, self::command::output),
 		"encoding_base64_decode" => sync(scope, &args, self::encoding::base64_decode),
 		"encoding_base64_encode" => sync(scope, &args, self::encoding::base64_encode),
 		"encoding_hex_decode" => sync(scope, &args, self::encoding::hex_decode),
@@ -44,6 +43,8 @@ pub fn syscall<'s>(
 		"log" => sync(scope, &args, self::log::log),
 		"object_load" => async_(scope, &args, self::object::load),
 		"object_store" => async_(scope, &args, self::object::store),
+		"process_spawn" => async_(scope, &args, self::process::spawn),
+		"process_wait" => async_(scope, &args, self::process::wait),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};

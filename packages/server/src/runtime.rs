@@ -50,14 +50,12 @@ impl Runtime {
 	) -> Output {
 		// Run the command.
 		let mut output = match self {
-			Runtime::Builtin(runtime) => {
-				runtime.run(process, command, remote.cloned()).boxed().await
-			},
+			Runtime::Builtin(runtime) => runtime.run(process).boxed().await,
 			#[cfg(target_os = "macos")]
-			Runtime::Darwin(runtime) => runtime.run(process, command, remote.cloned()).boxed().await,
-			Runtime::Js(runtime) => runtime.run(process, command, remote.cloned()).boxed().await,
+			Runtime::Darwin(runtime) => runtime.run(process).boxed().await,
+			Runtime::Js(runtime) => runtime.run(process).boxed().await,
 			#[cfg(target_os = "linux")]
-			Runtime::Linux(runtime) => runtime.run(process, command, remote.cloned()).boxed().await,
+			Runtime::Linux(runtime) => runtime.run(process).boxed().await,
 		};
 
 		// If the process has a checksum, then compute the checksum of the output.

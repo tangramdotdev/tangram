@@ -2,6 +2,7 @@ use crate as tg;
 use futures::{Future, FutureExt as _, Stream};
 use std::{
 	collections::VecDeque,
+	ops::Deref,
 	path::{Path, PathBuf},
 	pin::Pin,
 	sync::Arc,
@@ -620,14 +621,6 @@ impl tg::Handle for Client {
 		self.try_read_blob_stream(id, arg)
 	}
 
-	fn try_spawn_command(
-		&self,
-		id: &tg::command::Id,
-		arg: tg::command::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
-		self.try_spawn_command(id, arg)
-	}
-
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -727,6 +720,20 @@ impl tg::Handle for Client {
 		self.write_pipe(id, stream)
 	}
 
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+		self.try_spawn_process(arg)
+	}
+
+	fn wait_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::wait::Output>> {
+		self.wait_process(id)
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -798,17 +805,6 @@ impl tg::Handle for Client {
 		>,
 	> {
 		self.try_get_process_status_stream(id)
-	}
-
-	fn try_get_process_wait_stream(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static>,
-		>,
-	> + Send {
-		self.try_get_process_wait_stream(id)
 	}
 
 	fn try_get_process_children_stream(
@@ -937,7 +933,7 @@ impl tg::Handle for Client {
 	}
 }
 
-impl std::ops::Deref for Client {
+impl Deref for Client {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

@@ -85,17 +85,6 @@ where
 		}
 	}
 
-	fn try_spawn_command(
-		&self,
-		id: &tg::command::Id,
-		arg: tg::command::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::command::spawn::Output>>> {
-		match self {
-			Either::Left(s) => s.try_spawn_command(id, arg).left_future(),
-			Either::Right(s) => s.try_spawn_command(id, arg).right_future(),
-		}
-	}
-
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -252,6 +241,26 @@ where
 		}
 	}
 
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+		match self {
+			Either::Left(s) => s.try_spawn_process(arg).left_future(),
+			Either::Right(s) => s.try_spawn_process(arg).right_future(),
+		}
+	}
+
+	fn wait_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::wait::Output>> {
+		match self {
+			Either::Left(s) => s.wait_process(id).left_future(),
+			Either::Right(s) => s.wait_process(id).right_future(),
+		}
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -351,26 +360,6 @@ where
 				.left_future(),
 			Either::Right(s) => s
 				.try_get_process_status_stream(id)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
-				.right_future(),
-		}
-	}
-
-	fn try_get_process_wait_stream(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static>,
-		>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.try_get_process_wait_stream(id)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
-				.left_future(),
-			Either::Right(s) => s
-				.try_get_process_wait_stream(id)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}

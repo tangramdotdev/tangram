@@ -1,25 +1,19 @@
-import { setCurrentCommand } from "./command.ts";
 import * as tg from "./index.ts";
+import { setProcess } from "./process.ts";
 
-export let start = async (command: tg.Command): Promise<tg.Value> => {
-	// Load the command.
-	await command.load();
-
-	// Set the current command.
-	setCurrentCommand(command);
+export let start = async (process: tg.Process): Promise<tg.Value> => {
+	// Set the process.
+	await setProcess(process);
 
 	// @ts-ignore
 	// biome-ignore lint/security/noGlobalEval: special import
 	let namespace = await eval(`import("!")`);
 
-	// Get the args.
-	let args = await command.args();
-
 	// Get the command name.
-	if (args.length < 1) {
+	if (tg.process.args.length < 1) {
 		throw new Error("the command must have at least one argument");
 	}
-	let name = args.at(0);
+	let name = tg.process.args.at(0);
 	if (typeof name !== "string") {
 		throw new Error("the command's first argument must be a string");
 	}
@@ -36,7 +30,7 @@ export let start = async (command: tg.Command): Promise<tg.Value> => {
 	}
 
 	// Call the function and resolve its output.
-	let output = await tg.resolve(function_!(...args.slice(1)));
+	let output = await tg.resolve(function_!(...tg.process.args.slice(1)));
 
 	return output;
 };

@@ -177,7 +177,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				outputs_depth integer,
 				outputs_weight integer,
 				retry integer not null,
-				sandbox text,
+				network integer not null,
 				started_at text,
 				status text not null,
 				stderr text,

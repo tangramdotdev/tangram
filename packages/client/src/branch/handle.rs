@@ -1,7 +1,7 @@
 use super::{Data, Id, Object};
 use crate::{self as tg, util::arc::Ext as _};
 use futures::{stream::FuturesOrdered, TryStreamExt as _};
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 #[derive(Clone, Debug)]
 pub struct Branch {
@@ -139,7 +139,7 @@ impl Branch {
 	pub async fn children<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::branch::Child>>>
+	) -> tg::Result<impl Deref<Target = Vec<tg::branch::Child>>>
 	where
 		H: tg::Handle,
 	{

@@ -292,11 +292,11 @@ impl Server {
 		value: &tg::Value,
 		expected: &tg::Checksum,
 	) -> tg::Result<()> {
-		if matches!(expected, tg::Checksum::Unsafe) {
+		if matches!(expected, tg::Checksum::Any) {
 			return Ok(());
 		}
 
-		// Create the command.
+		// Get the checksum.
 		let host = "builtin";
 		let algorithm = if expected.algorithm() == tg::checksum::Algorithm::None {
 			tg::checksum::Algorithm::Sha256
@@ -309,27 +309,18 @@ impl Server {
 			algorithm.to_string().into(),
 		];
 		let command = tg::Command::builder(host).args(args).build();
-		let command_id = command.id(self).await?;
-
-		// Get the command's output.
-		let arg = tg::command::spawn::Arg {
+		let arg = tg::process::spawn::Arg {
 			create: false,
+			command: Some(command.id(self).await?),
 			parent: Some(parent_process_id),
 			..Default::default()
 		};
-		let output = self
-			.spawn_command(&command_id, arg)
+		let output = tg::Process::build(self, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to spawn checksum process"))?;
-		let output = tg::Process::with_id(output.process.clone())
-			.wait(self)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for checksum process"))?;
+			.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
 
 		// Parse the checksum.
 		let checksum = output
-			.output
-			.ok_or_else(|| tg::error!("expected a value"))?
 			.try_unwrap_string()
 			.map_err(|_| tg::error!("expected a string"))?;
 		let checksum = checksum

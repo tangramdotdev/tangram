@@ -49,14 +49,20 @@ pub struct Cli {
 #[command(
 	about = "Tangram is a build system and package manager.",
 	arg_required_else_help = true,
+	args_conflicts_with_subcommands = true,
 	before_help = before_help(),
 	disable_help_subcommand = true,
 	name = "tangram",
+	subcommand_negates_reqs = true,
+	subcommand_precedence_over_arg = true,
 	version = version(),
 )]
 struct Args {
+	#[command(flatten)]
+	args: crate::command::run::Args,
+
 	#[command(subcommand)]
-	command: Command,
+	command: Option<Command>,
 
 	/// The path to the config file.
 	#[arg(long)]
@@ -106,7 +112,7 @@ enum Command {
 	Blob(self::blob::Args),
 
 	#[command(alias = "b")]
-	Build(self::command::build::Args),
+	Build(self::process::build::Args),
 
 	Cat(self::cat::Args),
 
@@ -160,7 +166,8 @@ enum Command {
 
 	Remote(self::remote::Args),
 
-	Run(self::command::run::Args),
+	#[command(alias = "r")]
+	Run(self::process::run::Args),
 
 	#[command(name = "self")]
 	Tangram(self::tangram::Args),
@@ -256,7 +263,7 @@ impl Cli {
 		let runtime = builder.build().unwrap();
 
 		// Run the command.
-		let result = runtime.block_on(cli.command(cli.args.command.clone()).boxed());
+		let result = runtime.block_on(cli.command(cli.args.clone()).boxed());
 
 		// Drop the handle.
 		runtime.block_on(async {
@@ -834,44 +841,45 @@ impl Cli {
 	}
 
 	// Run the command.
-	async fn command(&self, command: Command) -> tg::Result<()> {
-		match command {
-			Command::Artifact(args) => self.command_artifact(args).boxed(),
-			Command::Blob(args) => self.command_blob(args).boxed(),
-			Command::Build(args) => self.command_command_build(args).boxed(),
-			Command::Cat(args) => self.command_cat(args).boxed(),
-			Command::Check(args) => self.command_package_check(args).boxed(),
-			Command::Checkin(args) => self.command_artifact_checkin(args).boxed(),
-			Command::Checkout(args) => self.command_artifact_checkout(args).boxed(),
-			Command::Checksum(args) => self.command_checksum(args).boxed(),
-			Command::Clean(args) => self.command_clean(args).boxed(),
-			Command::Command(args) => self.command_command(args).boxed(),
-			Command::Document(args) => self.command_package_document(args).boxed(),
-			Command::Download(args) => self.command_blob_download(args).boxed(),
-			Command::Format(args) => self.command_package_format(args).boxed(),
-			Command::Get(args) => self.command_get(args).boxed(),
-			Command::Health(args) => self.command_health(args).boxed(),
-			Command::Init(args) => self.command_package_init(args).boxed(),
-			Command::List(args) => self.command_tag_list(args).boxed(),
-			Command::Log(args) => self.command_process_log(args).boxed(),
-			Command::Lsp(args) => self.command_lsp(args).boxed(),
-			Command::New(args) => self.command_package_new(args).boxed(),
-			Command::Object(args) => self.command_object(args).boxed(),
-			Command::Outdated(args) => self.command_package_outdated(args).boxed(),
-			Command::Package(args) => self.command_package(args).boxed(),
-			Command::Process(args) => self.command_process(args).boxed(),
-			Command::Pull(args) => self.command_pull(args).boxed(),
-			Command::Push(args) => self.command_push(args).boxed(),
-			Command::Put(args) => self.command_object_put(args).boxed(),
-			Command::Remote(args) => self.command_remote(args).boxed(),
-			Command::Run(args) => self.command_command_run(args).boxed(),
-			Command::Tangram(args) => self.command_tangram(args).boxed(),
-			Command::Serve(args) => self.command_server_run(args).boxed(),
-			Command::Server(args) => self.command_server(args).boxed(),
-			Command::Tag(args) => self.command_tag(args).boxed(),
-			Command::Tree(args) => self.command_tree(args).boxed(),
-			Command::Update(args) => self.command_package_update(args).boxed(),
-			Command::View(args) => self.command_view(args).boxed(),
+	async fn command(&self, args: Args) -> tg::Result<()> {
+		match args.command {
+			None => self.command_process_run(args.args).boxed(),
+			Some(Command::Artifact(args)) => self.command_artifact(args).boxed(),
+			Some(Command::Blob(args)) => self.command_blob(args).boxed(),
+			Some(Command::Build(args)) => self.command_command_build(args).boxed(),
+			Some(Command::Cat(args)) => self.command_cat(args).boxed(),
+			Some(Command::Check(args)) => self.command_package_check(args).boxed(),
+			Some(Command::Checkin(args)) => self.command_artifact_checkin(args).boxed(),
+			Some(Command::Checkout(args)) => self.command_artifact_checkout(args).boxed(),
+			Some(Command::Checksum(args)) => self.command_checksum(args).boxed(),
+			Some(Command::Clean(args)) => self.command_clean(args).boxed(),
+			Some(Command::Command(args)) => self.command_command(args).boxed(),
+			Some(Command::Document(args)) => self.command_package_document(args).boxed(),
+			Some(Command::Download(args)) => self.command_blob_download(args).boxed(),
+			Some(Command::Format(args)) => self.command_package_format(args).boxed(),
+			Some(Command::Get(args)) => self.command_get(args).boxed(),
+			Some(Command::Health(args)) => self.command_health(args).boxed(),
+			Some(Command::Init(args)) => self.command_package_init(args).boxed(),
+			Some(Command::List(args)) => self.command_tag_list(args).boxed(),
+			Some(Command::Log(args)) => self.command_process_log(args).boxed(),
+			Some(Command::Lsp(args)) => self.command_lsp(args).boxed(),
+			Some(Command::New(args)) => self.command_package_new(args).boxed(),
+			Some(Command::Object(args)) => self.command_object(args).boxed(),
+			Some(Command::Outdated(args)) => self.command_package_outdated(args).boxed(),
+			Some(Command::Package(args)) => self.command_package(args).boxed(),
+			Some(Command::Process(args)) => self.command_process(args).boxed(),
+			Some(Command::Pull(args)) => self.command_pull(args).boxed(),
+			Some(Command::Push(args)) => self.command_push(args).boxed(),
+			Some(Command::Put(args)) => self.command_object_put(args).boxed(),
+			Some(Command::Remote(args)) => self.command_remote(args).boxed(),
+			Some(Command::Run(args)) => self.command_command_run(args).boxed(),
+			Some(Command::Tangram(args)) => self.command_tangram(args).boxed(),
+			Some(Command::Serve(args)) => self.command_server_run(args).boxed(),
+			Some(Command::Server(args)) => self.command_server(args).boxed(),
+			Some(Command::Tag(args)) => self.command_tag(args).boxed(),
+			Some(Command::Tree(args)) => self.command_tree(args).boxed(),
+			Some(Command::Update(args)) => self.command_package_update(args).boxed(),
+			Some(Command::View(args)) => self.command_view(args).boxed(),
 		}
 		.await
 	}

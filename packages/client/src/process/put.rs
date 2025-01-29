@@ -36,8 +36,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cwd: Option<PathBuf>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub sandbox: Option<tg::process::Sandbox>,
+	pub network: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stderr: Option<tg::pipe::Id>,

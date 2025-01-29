@@ -1,6 +1,7 @@
 use crate::Cli;
 use tangram_client as tg;
 
+pub mod build;
 pub mod cancel;
 pub mod children;
 pub mod get;
@@ -9,6 +10,8 @@ pub mod output;
 pub mod pull;
 pub mod push;
 pub mod put;
+pub mod run;
+pub mod spawn;
 pub mod status;
 pub mod wait;
 

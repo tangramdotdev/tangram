@@ -1,9 +1,8 @@
 use crate::{
 	self as tg,
-	handle::Ext as _,
 	util::serde::{is_false, is_true, return_true},
 };
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -11,11 +10,19 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
+	pub command: Option<tg::command::Id>,
+
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub create: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cwd: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub env: Option<BTreeMap<String, String>>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub network: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
@@ -25,9 +32,6 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub sandbox: Option<tg::process::Sandbox>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stderr: Option<tg::pipe::Id>,
@@ -45,39 +49,13 @@ pub struct Output {
 	pub remote: Option<String>,
 }
 
-impl tg::Command {
-	pub async fn spawn<H>(
-		&self,
-		handle: &H,
-		arg: tg::command::spawn::Arg,
-	) -> tg::Result<tg::Process>
-	where
-		H: tg::Handle,
-	{
-		let id = self.id(handle).await?;
-		let output = handle.spawn_command(&id, arg).await?;
-		let process = tg::Process::with_id(output.process);
-		Ok(process)
-	}
-
-	pub async fn output<H>(&self, handle: &H, arg: tg::command::spawn::Arg) -> tg::Result<tg::Value>
-	where
-		H: tg::Handle,
-	{
-		let process = self.spawn(handle, arg).await?;
-		let output = process.output(handle).await?.unwrap_or(tg::Value::Null);
-		Ok(output)
-	}
-}
-
 impl tg::Client {
-	pub async fn try_spawn_command(
+	pub async fn try_spawn_process(
 		&self,
-		id: &tg::command::Id,
-		arg: tg::command::spawn::Arg,
-	) -> tg::Result<Option<tg::command::spawn::Output>> {
+		arg: tg::process::spawn::Arg,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let method = http::Method::POST;
-		let uri = format!("/commands/{id}/spawn");
+		let uri = "/processes/spawn";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -100,12 +78,14 @@ impl Default for Arg {
 	fn default() -> Self {
 		Self {
 			checksum: None,
+			command: None,
 			create: true,
 			cwd: None,
+			env: None,
+			network: false,
 			parent: None,
 			remote: None,
 			retry: false,
-			sandbox: None,
 			stderr: None,
 			stdin: None,
 			stdout: None,

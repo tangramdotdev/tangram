@@ -4,7 +4,7 @@ use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 #[derive(Clone, Debug)]
 pub struct Command {
@@ -171,10 +171,7 @@ impl Command {
 }
 
 impl Command {
-	pub async fn args<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Vec<tg::Value>>>
+	pub async fn args<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = Vec<tg::Value>>>
 	where
 		H: tg::Handle,
 	{
@@ -184,7 +181,7 @@ impl Command {
 	pub async fn env<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = BTreeMap<String, tg::Value>>>
+	) -> tg::Result<impl Deref<Target = BTreeMap<String, tg::Value>>>
 	where
 		H: tg::Handle,
 	{
@@ -194,24 +191,21 @@ impl Command {
 	pub async fn executable<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::command::Executable>>>
+	) -> tg::Result<impl Deref<Target = Option<tg::command::Executable>>>
 	where
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.executable))
 	}
 
-	pub async fn host<H>(&self, handle: &H) -> tg::Result<impl std::ops::Deref<Target = String>>
+	pub async fn host<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = String>>
 	where
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.host))
 	}
 
-	pub async fn stdin<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl std::ops::Deref<Target = Option<tg::Blob>>>
+	pub async fn stdin<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = Option<tg::Blob>>>
 	where
 		H: tg::Handle,
 	{

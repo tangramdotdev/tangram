@@ -45,14 +45,16 @@ impl Command {
 
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		let executable = self
+			.executable
+			.iter()
+			.flat_map(tg::command::data::Executable::children);
+		let args = self.args.iter().flat_map(tg::value::Data::children);
+		let env = self.env.values().flat_map(tg::value::Data::children);
 		std::iter::empty()
-			.chain(
-				self.executable
-					.iter()
-					.flat_map(tg::command::data::Executable::children),
-			)
-			.chain(self.args.iter().flat_map(tg::value::Data::children))
-			.chain(self.env.values().flat_map(tg::value::Data::children))
+			.chain(executable)
+			.chain(args)
+			.chain(env)
 			.collect()
 	}
 }

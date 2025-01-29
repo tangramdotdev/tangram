@@ -53,11 +53,20 @@ declare global {
 
 	function syscall(syscall: "log", contents: string, level: string): void;
 
-	function syscall(syscall: "sleep", duration: number): Promise<void>;
+	function syscall(
+		syscall: "process_load",
+		arg: tg.Process.Id,
+	): Promise<tg.Process.State>;
 
 	function syscall(
-		syscall: "command_output",
-		command: tg.Command,
-		arg: tg.Command.SpawnArg | undefined,
+		syscall: "process_spawn",
+		arg: tg.Process.SpawnArg,
+	): Promise<tg.Process.Id>;
+
+	function syscall(
+		syscall: "process_wait",
+		arg: tg.Process.Id,
 	): Promise<tg.Value>;
+
+	function syscall(syscall: "sleep", duration: number): Promise<void>;
 }

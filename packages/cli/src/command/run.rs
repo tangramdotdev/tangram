@@ -384,7 +384,7 @@ impl Cli {
 
 		// Spawn the process.
 		let id = command.id(&handle).await?;
-		let arg = tg::command::spawn::Arg {
+		let arg = tg::process::spawn::Arg {
 			checksum: args.checksum,
 			create: args.create,
 			cwd,
