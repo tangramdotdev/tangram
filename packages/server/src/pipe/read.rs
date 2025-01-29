@@ -18,7 +18,9 @@ impl Server {
 			.receiver
 			.take()
 			.ok_or_else(|| tg::error!("failed to get the pipe"))?;
-		let stream = ReceiverStream::new(receiver).map(Ok);
+		let id = id.clone();
+		let stream = ReceiverStream::new(receiver)
+			.map(Ok);
 		Ok(stream)
 	}
 }

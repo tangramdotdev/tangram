@@ -399,7 +399,7 @@ impl Cli {
 						let mut stdout = tokio::io::stdout();
 						let mut stream = handle_
 							.read_pipe(&pipe)
-							.await?
+							.await?;
 						let mut stream = std::pin::pin!(stream);
 						while let Some(event) = stream.try_next().await? {
 							match event {
