@@ -4,7 +4,7 @@ use crossterm::style::Stylize as _;
 use futures::{future, stream, Stream, StreamExt, TryFutureExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{
-	io::{IsTerminal as _, Read},
+	io::{IsTerminal as _, Read as _},
 	path::{Path, PathBuf},
 };
 use tangram_client::{self as tg, handle::Ext as _, Handle as _};
@@ -397,9 +397,7 @@ impl Cli {
 							return Ok::<_, tg::Error>(());
 						};
 						let mut stdout = tokio::io::stdout();
-						let mut stream = handle_
-							.read_pipe(&pipe)
-							.await?;
+						let mut stream = handle_.read_pipe(&pipe).await?;
 						let mut stream = std::pin::pin!(stream);
 						while let Some(event) = stream.try_next().await? {
 							match event {
@@ -407,6 +405,7 @@ impl Cli {
 									stdout.write_all(&chunk).await.map_err(|source| {
 										tg::error!(!source, "failed to write stdout")
 									})?;
+									stdout.flush().await.ok();
 								},
 								tg::pipe::Event::End => break,
 							}
@@ -419,17 +418,20 @@ impl Cli {
 						let Some(pipe) = stderr else {
 							return Ok::<_, tg::Error>(());
 						};
+
+						let mut stream = handle.read_pipe(&pipe).await?;
+
 						let mut stderr = tokio::io::stderr();
-						let mut stream = handle
-							.read_pipe(&pipe)
-							.await?;
-							
 						let mut stream = std::pin::pin!(stream);
 						while let Some(event) = stream.try_next().await? {
 							match event {
 								tg::pipe::Event::Chunk(chunk) => {
 									stderr.write_all(&chunk).await.map_err(|source| {
-										tg::error!(!source, "failed to write stdout")
+										tg::error!(!source, "failed to write stderr")
+									})?;
+									// We need to flush to force tokio::io::stderr to actually write.
+									stderr.flush().await.map_err(|source| {
+										tg::error!(!source, "failed to flush stderr")
 									})?;
 								},
 								tg::pipe::Event::End => break,
@@ -443,7 +445,7 @@ impl Cli {
 						let stop = stop.wait();
 						match future::select(std::pin::pin!(io), std::pin::pin!(stop)).await {
 							future::Either::Left((Err(error), ..)) => {
-								eprintln!("error: {error}");
+								eprintln!("io error: {error}");
 							},
 							_ => return,
 						}
