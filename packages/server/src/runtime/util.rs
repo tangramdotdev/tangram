@@ -43,7 +43,7 @@ pub fn read_stdin_task(
 	server: &Server,
 	process: &tg::process::State,
 	remote: Option<String>,
-	stdin: impl AsyncWrite + Send + 'static
+	stdin: impl AsyncWrite + Send + 'static,
 ) -> tokio::task::JoinHandle<tg::Result<()>> {
 	let server = server.clone();
 	let pipe = process.stdin.clone();
@@ -54,7 +54,7 @@ pub fn read_stdin_task(
 			return Ok(());
 		};
 		let mut stdin = pin!(stdin);
-		
+
 		// Create the stream.
 		let stream = if let Some(remote) = remote {
 			let remote = server.get_remote_client(remote).await?;
@@ -68,7 +68,10 @@ pub fn read_stdin_task(
 		while let Some(event) = stream.try_next().await? {
 			match event {
 				tg::pipe::Event::Chunk(chunk) => {
-					stdin.write_all(&chunk).await.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
+					stdin
+						.write_all(&chunk)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
 				},
 				tg::pipe::Event::End => break,
 			}

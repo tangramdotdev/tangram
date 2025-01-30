@@ -15,6 +15,8 @@ use std::{
 	path::Path,
 };
 use tangram_client as tg;
+use tangram_futures::task::Task;
+use url::Url;
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -28,25 +30,26 @@ impl Runtime {
 		}
 	}
 
-	pub async fn run(
-		&self,
-		process: &tg::process::State,
-		command: &tg::Command,
-		remote: Option<String>,
-	) -> super::Output {
-		let (error, exit, value) = match self.run_inner(process, command, remote).await {
+	pub async fn run(&self, process: &tg::Process) -> super::Output {
+		let (error, exit, value) = match self.run_inner(process).await {
 			Ok((exit, value)) => (None, exit, value),
 			Err(error) => (Some(error), None, None),
 		};
-		super::Output { error, exit, output: value }
+		super::Output {
+			error,
+			exit,
+			output: value,
+		}
 	}
 
 	pub async fn run_inner(
 		&self,
-		process: &tg::process::State,
-		command: &tg::Command,
-		remote: Option<String>,
+		process: &tg::Process,
 	) -> tg::Result<(Option<tg::process::Exit>, Option<tg::Value>)> {
+		let state = process.load(&self.server).await?;
+		let command = process.command(&self.server).await?;
+		let remote = process.remote();
+
 		// If the VFS is disabled, then check out the command's children.
 		if self.server.vfs.lock().unwrap().is_none() {
 			command
@@ -78,7 +81,7 @@ impl Runtime {
 
 		// Get or create the home/working directory.
 		let root = Temp::new(&self.server);
-		let (home, cwd) = if let Some(cwd) = process.cwd.as_ref() {
+		let (home, cwd) = if let Some(cwd) = state.cwd.as_ref() {
 			(None, cwd.clone())
 		} else {
 			let home = root.path().join("Users/tangram");
@@ -98,12 +101,7 @@ impl Runtime {
 			tokio::fs::create_dir_all(&path)
 				.await
 				.map_err(|source| tg::error!(!source, %path = path.display(), "failed to create the proxy server directory"))?;
-			let proxy = Proxy::new(
-				self.server.clone(),
-				process.id.clone(),
-				remote.clone(),
-				None,
-			);
+			let proxy = Proxy::new(self.server.clone(), process, remote.cloned(), None);
 
 			let socket = path.join("socket").display().to_string();
 			let path = urlencoding::encode(&socket);
@@ -169,7 +167,7 @@ impl Runtime {
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 		// Create the sandbox profile.
-		let profile = create_sandbox_profile(process, &artifacts_path, home.as_deref(), &output);
+		let profile = create_sandbox_profile(&state, &artifacts_path, home.as_deref(), &output);
 
 		// Create the command.
 		let mut command = tokio::process::Command::new(executable);
@@ -214,16 +212,16 @@ impl Runtime {
 		// Spawn the input task.
 		let input_task = super::util::read_stdin_task(
 			&self.server,
-			process,
-			remote.clone(),
+			&state,
+			remote.cloned(),
 			child.stdin.take().unwrap(),
 		);
 
 		// Spawn the log task.
 		let log_task = super::util::post_log_task(
 			&self.server,
-			&process,
-			remote.as_ref(),
+			&state,
+			remote,
 			child.stdout.take().unwrap(),
 			child.stderr.take().unwrap(),
 		);
@@ -238,7 +236,7 @@ impl Runtime {
 		} else if let Some(signal) = exit.signal() {
 			tg::process::Exit::Signal { signal }
 		} else {
-			return Err(tg::error!(%process = process.id, "expected an exit code or signal"));
+			return Err(tg::error!(%process = process.id(), "expected an exit code or signal"));
 		};
 
 		// Stop the proxy task.
