@@ -32,20 +32,23 @@ export class Process {
 			},
 		);
 		let cwd = "cwd" in arg ? arg.cwd : await tg.process.cwd();
-		let env = "env" in arg ? arg.env : undefined;
 		let network = "network" in arg ? arg.network : await tg.process.network();
 		let stdin = "stdin" in arg ? arg.stdin : await tg.process.stdin();
 		let stdout = "stdout" in arg ? arg.stdout : await tg.process.stdout();
 		let stderr = "stderr" in arg ? arg.stderr : await tg.process.stderr();
 		let id = await syscall("process_spawn", {
 			checksum,
-			command,
+			command: await command.id(),
+			create: false,
 			cwd,
-			env,
+			env: arg.process_env,
 			network,
+			parent: undefined,
+			remote: undefined,
+			retry: false,
+			stderr,
 			stdin,
 			stdout,
-			stderr,
 		});
 		return new tg.Process({ id, state: undefined });
 	}
@@ -60,6 +63,7 @@ export class Process {
 			{
 				cwd: undefined,
 				env: undefined,
+				process_env: {},
 				network: false,
 				stdin: undefined,
 				stdout: undefined,
@@ -128,7 +132,7 @@ export class Process {
 					return {
 						args: ["-c", arg],
 						executable: await tg.symlink("/bin/sh"),
-						host: (await process.env()).TANGRAM_HOST,
+						host: (await process.env())!.TANGRAM_HOST,
 					};
 				} else if (arg instanceof tg.Command) {
 					return { command: await arg.object() };
@@ -170,6 +174,11 @@ export class Process {
 		return this.#state!.network;
 	}
 
+	async stderr(): Promise<string | undefined> {
+		await this.load();
+		return this.#state!.stderr;
+	}
+
 	async stdin(): Promise<string | undefined> {
 		await this.load();
 		return this.#state!.stdin;
@@ -178,11 +187,6 @@ export class Process {
 	async stdout(): Promise<string | undefined> {
 		await this.load();
 		return this.#state!.stdout;
-	}
-
-	async stderr(): Promise<string | undefined> {
-		await this.load();
-		return this.#state!.stderr;
 	}
 }
 
@@ -209,13 +213,14 @@ export namespace Process {
 		checksum?: tg.Checksum | undefined;
 		command?: tg.Command.Arg | undefined;
 		cwd?: string | undefined;
+		process_env?: { [key: string]: string } | undefined;
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
 		network?: boolean | undefined;
-		stderr: string | undefined;
-		stdin: string | undefined;
-		stdout: string | undefined;
+		stderr?: string | undefined;
+		stdin?: string | undefined;
+		stdout?: string | undefined;
 	};
 
 	export type State = {
