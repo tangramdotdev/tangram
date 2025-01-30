@@ -4,7 +4,6 @@ use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt};
 use std::{path::Path, pin::pin};
 use tangram_client as tg;
-use tangram_futures::stream::Ext as _;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Render a value.
