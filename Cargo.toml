@@ -41,6 +41,7 @@ missing_safety_doc = "allow"
 pedantic = { level = "warn", priority = -1 }
 same_functions_in_if_condition = "allow"
 similar_names = "allow"
+struct_excessive_bools = "allow"
 too_many_lines = "allow"
 unused_async = "allow"
 

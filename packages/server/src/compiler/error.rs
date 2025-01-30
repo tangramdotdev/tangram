@@ -11,7 +11,6 @@ struct StackTrace {
 	call_sites: Vec<CallSite>,
 }
 
-#[allow(dead_code, clippy::struct_excessive_bools)]
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CallSite {

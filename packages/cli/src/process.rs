@@ -4,7 +4,6 @@ use tangram_client as tg;
 pub mod build;
 pub mod cancel;
 pub mod children;
-pub mod exec;
 pub mod get;
 pub mod log;
 pub mod output;
@@ -29,7 +28,6 @@ pub enum Command {
 	Build(self::build::Args),
 	Cancel(self::cancel::Args),
 	Children(self::children::Args),
-	Exec(self::exec::Args),
 	Get(self::get::Args),
 	Log(self::log::Args),
 	Output(self::output::Args),
@@ -53,9 +51,6 @@ impl Cli {
 			},
 			Command::Children(args) => {
 				self.command_process_children(args).await?;
-			},
-			Command::Exec(args) => {
-				self.command_command_exec(args).await?;
 			},
 			Command::Get(args) => {
 				self.command_process_get(args).await?;

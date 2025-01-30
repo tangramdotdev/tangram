@@ -35,7 +35,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the process.
-		#[allow(clippy::struct_excessive_bools)]
 		#[serde_as]
 		#[derive(serde::Deserialize)]
 		struct Row {

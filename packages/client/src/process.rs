@@ -35,7 +35,6 @@ pub struct Inner {
 	token: Option<String>,
 }
 
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug)]
 pub struct State {
 	pub checksum: Option<tg::Checksum>,

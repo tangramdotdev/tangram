@@ -2,7 +2,6 @@ use crate as tg;
 use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub logs: bool,

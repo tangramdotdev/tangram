@@ -16,26 +16,47 @@ impl FromV8 for tg::process::Id {
 	}
 }
 
+impl ToV8 for tg::process::spawn::Arg {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		todo!()
+	}
+}
+
+impl FromV8 for tg::process::spawn::Arg {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		todo!()
+	}
+}
+
 impl ToV8 for tg::process::get::Output {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let object = v8::Object::new(scope);
+		todo!()
+	}
+}
 
-		let key = v8::String::new_external_onebyte_static(scope, "checksum".as_bytes()).unwrap();
-		let value = self.checksum.to_v8(scope)?;
-		object.set(scope, key.into(), value);
+impl FromV8 for tg::process::get::Output {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		todo!()
+	}
+}
 
-		let key = v8::String::new_external_onebyte_static(scope, "command".as_bytes()).unwrap();
-		let value = self.command.to_v8(scope)?;
-		object.set(scope, key.into(), value);
+impl ToV8 for tg::process::wait::Output {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		todo!()
+	}
+}
 
-		let key = v8::String::new_external_onebyte_static(scope, "cwd".as_bytes()).unwrap();
-		let value = self.cwd.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "network".as_bytes()).unwrap();
-		let value = self.network.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		Ok(object.into())
+impl FromV8 for tg::process::wait::Output {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		todo!()
 	}
 }

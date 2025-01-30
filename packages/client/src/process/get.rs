@@ -5,7 +5,6 @@ use std::{collections::BTreeMap, path::PathBuf};
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 use time::format_description::well_known::Rfc3339;
 
-#[allow(clippy::struct_excessive_bools)]
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {

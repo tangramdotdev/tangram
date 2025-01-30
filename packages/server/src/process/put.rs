@@ -31,7 +31,6 @@ impl Server {
 		// Insert the process.
 		let command = tg::Command::with_id(arg.command.clone());
 		let host = &*command.host(self).await?;
-		#[allow(clippy::struct_excessive_bools)]
 		#[derive(serde::Deserialize)]
 		struct Row {
 			commands_complete: bool,

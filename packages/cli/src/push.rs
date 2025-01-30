@@ -3,7 +3,6 @@ use tangram_client::{self as tg, Handle};
 use tangram_either::Either;
 
 /// Push a process or an object.
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

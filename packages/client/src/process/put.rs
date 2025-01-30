@@ -66,7 +66,6 @@ pub struct Arg {
 	pub stdout: Option<tg::pipe::Id>,
 }
 
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "is_false")]

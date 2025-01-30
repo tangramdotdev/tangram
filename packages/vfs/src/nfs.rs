@@ -1177,7 +1177,6 @@ pub const ALL_SUPPORTED_ATTRS: &[u32] = &[
 	FATTR4_MOUNTED_ON_FILEID,
 ];
 
-#[allow(clippy::struct_excessive_bools)]
 pub struct FileAttrData {
 	supported_attrs: bitmap4,
 	file_type: nfs_ftype4,

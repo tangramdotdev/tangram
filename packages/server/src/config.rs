@@ -22,7 +22,6 @@ pub struct Config {
 	pub vfs: Option<Vfs>,
 }
 
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug)]
 pub struct Advanced {
 	pub process_dequeue_timeout: Duration,

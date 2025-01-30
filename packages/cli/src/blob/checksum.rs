@@ -13,7 +13,7 @@ pub struct Args {
 	pub blob: tg::blob::Id,
 
 	#[command(flatten)]
-	pub inner: crate::process::run::InnerArgs,
+	pub inner: crate::process::build::InnerArgs,
 }
 
 impl Cli {
@@ -23,11 +23,9 @@ impl Cli {
 		let algorithm = args.algorithm;
 		let command = blob.checksum_command(algorithm);
 		let command = command.id(&handle).await?;
-		let args = crate::process::build::Args {
-			reference: Some(tg::Reference::with_object(&command.into())),
-			inner: args.inner,
-		};
-		self.command_process_build(args).await?;
+		let reference = tg::Reference::with_object(&command.into());
+		self.command_process_build_inner(args.inner, reference)
+			.await?;
 		Ok(())
 	}
 }
