@@ -13,8 +13,20 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_output(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let process = tg::Process::with_id(args.process);
-		let output = process.output(&handle).await?.unwrap_or(tg::Value::Null);
+		let process = tg::Process::new(args.process, None, None);
+		let output = process.wait(&handle).await?;
+		let output = if output.status.is_succeeded() {
+			tg::Value::try_from(
+				output
+					.output
+					.ok_or_else(|| tg::error!("expected the output to be set"))?,
+			)
+			.map_err(|source| tg::error!(!source, "failed to get the output"))?
+		} else if let Some(error) = output.error {
+			return Err(tg::error!(!error, "the process failed"));
+		} else {
+			return Err(tg::error!("the process failed"));
+		};
 		let stdout = std::io::stdout();
 		let output = if stdout.is_terminal() {
 			let options = tg::value::print::Options {

@@ -21,7 +21,7 @@ impl Server {
 			let arg = tg::process::dequeue::Arg::default();
 			let futures = std::iter::once(
 				self.dequeue_process(arg)
-					.map_ok(|output| (output, None))
+					.map_ok(|output| tg::Process::new(output.process, None, None))
 					.boxed(),
 			)
 			.chain(
@@ -37,15 +37,16 @@ impl Server {
 						async move {
 							let client = server.get_remote_client(remote).await?;
 							let arg = tg::process::dequeue::Arg::default();
-							let process = client.dequeue_process(arg).await?;
-							let output = (process, Some(name.to_owned()));
-							Ok::<_, tg::Error>(output)
+							let output = client.dequeue_process(arg).await?;
+							let process =
+								tg::Process::new(output.process, Some(name.clone()), None);
+							Ok::<_, tg::Error>(process)
 						}
 						.boxed()
 					}),
 			);
 			let process = match future::select_ok(futures).await {
-				Ok(((output, remote), _)) => (output, remote),
+				Ok((process, _)) => process,
 				Err(error) => {
 					tracing::error!(?error, "failed to dequeue a process");
 					tokio::time::sleep(Duration::from_secs(1)).await;
@@ -54,34 +55,34 @@ impl Server {
 			};
 
 			// Run the process.
-			self.run_process(process, permit).await.ok();
+			self.spawn_process_task(&process, permit).await.ok();
 		}
 	}
 
-	pub(crate) fn run_process(
+	pub(crate) fn spawn_process_task(
 		&self,
-		process: tg::process::Id,
+		process: &tg::Process,
 		permit: BuildPermit,
 	) -> impl Future<Output = tg::Result<()>> + Send + 'static {
 		let server = self.clone();
+		let process = process.clone();
 		async move {
 			// Attempt to start the process.
 			let arg = tg::process::start::Arg {
-				remote: remote.clone(),
+				remote: process.remote().cloned(),
 			};
-			let started = server.try_start_process(&process, arg).await?.started;
+			let started = server.try_start_process(process.id(), arg).await?.started;
 			if !started {
 				return Ok(());
 			}
 
 			// Spawn the process task.
 			server.processes.spawn(
-				process.clone(),
+				process.id().clone(),
 				Task::spawn(|_| {
 					let server = server.clone();
 					let process = process.clone();
-					let remote = remote.clone();
-					async move { server.process_task(process, permit).await }
+					async move { server.process_task(&process, permit).await }
 						.inspect_err(|error| {
 							tracing::error!(?error, "the process task failed");
 						})
@@ -92,8 +93,8 @@ impl Server {
 			// Spawn the heartbeat task.
 			tokio::spawn({
 				let server = server.clone();
-				let remote = remote.clone();
-				async move { server.heartbeat_task(process, remote).await }
+				let process = process.clone();
+				async move { server.heartbeat_task(&process).await }
 					.inspect_err(|error| {
 						tracing::error!(?error, "the heartbeat task failed");
 					})
@@ -104,19 +105,19 @@ impl Server {
 		}
 	}
 
-	async fn process_task(&self, process: tg::process::Id, permit: BuildPermit) -> tg::Result<()> {
+	async fn process_task(&self, process: &tg::Process, permit: BuildPermit) -> tg::Result<()> {
 		// Set the process's permit.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
-		self.process_permits.insert(process.clone(), permit);
+		self.process_permits.insert(process.id().clone(), permit);
 		scopeguard::defer! {
-			self.process_permits.remove(&process);
+			self.process_permits.remove(process.id());
 		}
 
 		// Run.
-		let output = self.process_task_inner(process.clone()).await?;
+		let output = self.process_task_inner(process).await?;
 
 		// Compute the status.
-		let status = match (&output.value, &output.exit, &output.error) {
+		let status = match (&output.output, &output.exit, &output.error) {
 			(_, _, Some(_)) | (_, Some(tg::process::Exit::Signal { signal: _ }), _) => {
 				tg::process::Status::Failed
 			},
@@ -127,7 +128,7 @@ impl Server {
 		};
 
 		// Get the output data.
-		let value = match &output.value {
+		let value = match &output.output {
 			Some(output) => Some(output.data(self).await?),
 			// If the process succeeded but had no output, mark it as having the value "null"
 			None if status == tg::process::Status::Succeeded => Some(tg::value::Data::Null),
@@ -135,19 +136,14 @@ impl Server {
 		};
 
 		// Finish the process.
-		self.try_finish_process_local(&process, output.error, value, output.exit, status)
+		self.try_finish_process_local(process.id(), output.error, value, output.exit, status)
 			.await?;
 
 		Ok::<_, tg::Error>(())
 	}
 
-	async fn process_task_inner(&self, process: tg::process::Id) -> tg::Result<runtime::Output> {
-		// Get the runtime.
-		let process = self
-			.try_get_process_local(&process)
-			.await?
-			.ok_or_else(|| tg::error!("expected a local process"))?;
-		let command = tg::Command::with_id(process.command.clone());
+	async fn process_task_inner(&self, process: &tg::Process) -> tg::Result<runtime::Output> {
+		let command = process.command(self).await?;
 		let host = command.host(self).await?;
 		let runtime = self
 			.runtimes
@@ -158,23 +154,19 @@ impl Server {
 				|| tg::error!(?id = process, ?host = &*host, "failed to find a runtime for the process"),
 			)?
 			.clone();
-		Ok(runtime.run(&process, &command).await)
+		Ok(runtime.run(&process).await)
 	}
 
-	async fn heartbeat_task(
-		&self,
-		process: tg::process::Id,
-		remote: Option<String>,
-	) -> tg::Result<()> {
+	async fn heartbeat_task(&self, process: &tg::Process) -> tg::Result<()> {
 		let interval = self.config.process.as_ref().unwrap().heartbeat_interval;
 		loop {
 			let arg = tg::process::heartbeat::Arg {
-				remote: remote.clone(),
+				remote: process.remote().cloned(),
 			};
-			let result = self.heartbeat_process(&process, arg).await;
+			let result = self.heartbeat_process(process.id(), arg).await;
 			if let Ok(output) = result {
 				if output.status.is_finished() {
-					self.processes.abort(&process);
+					self.processes.abort(process.id());
 					break;
 				}
 			}

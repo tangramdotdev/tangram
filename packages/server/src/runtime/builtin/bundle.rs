@@ -9,13 +9,9 @@ static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 static TANGRAM_RUN_PATH: &str = ".tangram/run";
 
 impl Runtime {
-	pub async fn bundle(
-		&self,
-		_process: &tg::process::get::Output,
-		command: &tg::Command,
-		_remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	pub async fn bundle(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
+		let command = process.command(server).await?;
 
 		// Get the args.
 		let args = command.args(server).await?;

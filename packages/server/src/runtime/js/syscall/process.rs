@@ -1,6 +1,6 @@
 use super::State;
 use std::rc::Rc;
-use tangram_client::{self as tg, handle::Ext};
+use tangram_client as tg;
 
 pub async fn spawn(
 	state: Rc<State>,
@@ -38,15 +38,4 @@ pub async fn wait(state: Rc<State>, args: (tg::process::Id)) -> tg::Result<tg::V
 	// };
 	// Ok(output)
 	todo!()
-}
-
-pub async fn load(
-	state: Rc<State>,
-	args: (tg::process::Id),
-) -> tg::Result<tg::process::get::Output> {
-	let server = state.server.clone();
-	let parent = state.process.clone();
-	let remote = state.remote.clone();
-	let output = server.get_process(id).await?;
-	Ok(output)
 }

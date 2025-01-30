@@ -15,7 +15,6 @@ mod blob;
 mod cat;
 mod checksum;
 mod clean;
-mod command;
 mod get;
 mod health;
 mod lsp;
@@ -59,7 +58,7 @@ pub struct Cli {
 )]
 struct Args {
 	#[command(flatten)]
-	args: crate::command::run::Args,
+	args: crate::process::run::Args,
 
 	#[command(subcommand)]
 	command: Option<Command>,
@@ -176,10 +175,9 @@ enum Command {
 
 	Server(self::server::Args),
 
-	Tag(self::tag::Args),
+	Spawn(self::process::spawn::Args),
 
-	#[allow(clippy::enum_variant_names)]
-	Command(self::command::Args),
+	Tag(self::tag::Args),
 
 	#[command(hide = true)]
 	Tree(self::tree::Args),
@@ -213,17 +211,19 @@ impl Cli {
 			// If the command is `tg serve` or `tg server run`, then set the mode to `server`.
 			Args {
 				command:
-					Command::Serve(_)
-					| Command::Server(self::server::Args {
-						command: self::server::Command::Run(_),
-						..
-					}),
+					Some(
+						Command::Serve(_)
+						| Command::Server(self::server::Args {
+							command: self::server::Command::Run(_),
+							..
+						}),
+					),
 				..
 			} => Mode::Server,
 
 			// If the command is anything else under `tg server`, then set the mode to `client`.
 			Args {
-				command: Command::Server(_),
+				command: Some(Command::Server(_)),
 				..
 			} => Mode::Client,
 
@@ -846,14 +846,13 @@ impl Cli {
 			None => self.command_process_run(args.args).boxed(),
 			Some(Command::Artifact(args)) => self.command_artifact(args).boxed(),
 			Some(Command::Blob(args)) => self.command_blob(args).boxed(),
-			Some(Command::Build(args)) => self.command_command_build(args).boxed(),
+			Some(Command::Build(args)) => self.command_process_build(args).boxed(),
 			Some(Command::Cat(args)) => self.command_cat(args).boxed(),
 			Some(Command::Check(args)) => self.command_package_check(args).boxed(),
 			Some(Command::Checkin(args)) => self.command_artifact_checkin(args).boxed(),
 			Some(Command::Checkout(args)) => self.command_artifact_checkout(args).boxed(),
 			Some(Command::Checksum(args)) => self.command_checksum(args).boxed(),
 			Some(Command::Clean(args)) => self.command_clean(args).boxed(),
-			Some(Command::Command(args)) => self.command_command(args).boxed(),
 			Some(Command::Document(args)) => self.command_package_document(args).boxed(),
 			Some(Command::Download(args)) => self.command_blob_download(args).boxed(),
 			Some(Command::Format(args)) => self.command_package_format(args).boxed(),
@@ -872,10 +871,11 @@ impl Cli {
 			Some(Command::Push(args)) => self.command_push(args).boxed(),
 			Some(Command::Put(args)) => self.command_object_put(args).boxed(),
 			Some(Command::Remote(args)) => self.command_remote(args).boxed(),
-			Some(Command::Run(args)) => self.command_command_run(args).boxed(),
+			Some(Command::Run(args)) => self.command_process_run(args).boxed(),
 			Some(Command::Tangram(args)) => self.command_tangram(args).boxed(),
 			Some(Command::Serve(args)) => self.command_server_run(args).boxed(),
 			Some(Command::Server(args)) => self.command_server(args).boxed(),
+			Some(Command::Spawn(args)) => self.command_process_spawn(args).boxed(),
 			Some(Command::Tag(args)) => self.command_tag(args).boxed(),
 			Some(Command::Tree(args)) => self.command_tree(args).boxed(),
 			Some(Command::Update(args)) => self.command_package_update(args).boxed(),

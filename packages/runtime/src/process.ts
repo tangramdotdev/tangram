@@ -1,40 +1,10 @@
 import * as tg from "./index.ts";
 import { flatten } from "./util.ts";
 
-export let process: {
-	checksum: tg.Checksum | undefined;
-	command: {
-		args: Array<tg.Value>;
-		env: { [key: string]: tg.Value };
-		executable: tg.Command.Executable | undefined;
-		host: string;
-		stdin: tg.Blob.Id | undefined;
-	};
-	cwd: string | undefined;
-	env: { [key: string]: string };
-	network: boolean | undefined;
-};
+export let process: tg.Process;
 
 export let setProcess = async (process_: Process) => {
-	let checksum = await process_.checksum();
-	let command_ = await process_.command();
-	let command = {
-		args: await command_.args(),
-		env: await command_.env(),
-		executable: await command_.executable(),
-		host: await command_.host(),
-		stdin: undefined,
-	};
-	let cwd = await process_.cwd();
-	let network = await process_.network();
-	let env = await process_.env();
-	process = {
-		env,
-		checksum,
-		command,
-		cwd,
-		network,
-	};
+	process = process_;
 };
 
 export class Process {
@@ -50,55 +20,69 @@ export class Process {
 		...args: tg.Args<tg.Process.SpawnArg>
 	): Promise<tg.Process> {
 		let arg = await Process.arg(...args);
-		let id = await syscall("process_spawn", arg);
+		let checksum = arg.checksum;
+		let command = await tg.command(
+			{ env: tg.process.command().then((command) => command.env()) },
+			arg.command,
+			{
+				host: arg.host,
+				executable: arg.executable,
+				env: arg.env,
+				args: arg.args,
+			},
+		);
+		let cwd = "cwd" in arg ? arg.cwd : await tg.process.cwd();
+		let env = "env" in arg ? arg.env : undefined;
+		let network = "network" in arg ? arg.network : await tg.process.network();
+		let stdin = "stdin" in arg ? arg.stdin : await tg.process.stdin();
+		let stdout = "stdout" in arg ? arg.stdout : await tg.process.stdout();
+		let stderr = "stderr" in arg ? arg.stderr : await tg.process.stderr();
+		let id = await syscall("process_spawn", {
+			checksum,
+			command,
+			cwd,
+			env,
+			network,
+			stdin,
+			stdout,
+			stderr,
+		});
 		return new tg.Process({ id, state: undefined });
 	}
 
-	async wait(): Promise<tg.Value> {
+	async wait(): Promise<tg.Process.WaitOutput> {
 		let output = await syscall("process_wait", this.#id);
 		return output;
 	}
 
 	static async build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value> {
-		let arg = await Process.arg(...args);
-		let checksum = arg.checksum;
-		let command = await tg.command(arg.command, {
-			host: arg.host,
-			executable: arg.executable,
-			env: arg.env,
-			args: arg.args,
-		});
-		let cwd = arg.cwd ?? undefined;
-		let network = arg.network ?? false;
-		let process = await Process.spawn({
-			checksum,
-			command,
-			cwd,
-			network,
-		});
-		let output = await process.wait();
+		let process = await Process.spawn(
+			{
+				cwd: undefined,
+				env: undefined,
+				network: false,
+				stdin: undefined,
+				stdout: undefined,
+				stderr: undefined,
+			},
+			...args,
+		);
+		let output = await process.output();
 		return output;
 	}
 
 	static async run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value> {
-		let arg = await Process.arg(...args);
-		let checksum = arg.checksum;
-		let cwd = arg.cwd ?? tg.process.cwd;
-		let command = await tg.command({ env: tg.process.env }, arg.command, {
-			host: arg.host,
-			executable: arg.executable,
-			env: arg.env,
-			args: arg.args,
-		});
-		let network = arg.network ?? tg.process.network;
-		let process = await Process.spawn({
-			checksum,
-			command,
-			cwd,
-			network,
-		});
-		let output = await process.wait();
+		let process = await Process.spawn(...args);
+		let output = await process.output();
 		return output;
+	}
+
+	async output(): Promise<tg.Value> {
+		let output = await this.wait();
+		if (output.status !== "succeeded") {
+			throw output.error;
+		}
+		return output.output;
 	}
 
 	static withId(id: tg.Process.Id): tg.Process {
@@ -144,7 +128,7 @@ export class Process {
 					return {
 						args: ["-c", arg],
 						executable: await tg.symlink("/bin/sh"),
-						host: process.env.TANGRAM_HOST,
+						host: (await process.env()).TANGRAM_HOST,
 					};
 				} else if (arg instanceof tg.Command) {
 					return { command: await arg.object() };
@@ -176,14 +160,29 @@ export class Process {
 		return this.#state!.cwd;
 	}
 
-	async env(): Promise<{ [name: string]: string }> {
+	async env(): Promise<{ [name: string]: string } | undefined> {
 		await this.load();
 		return this.#state!.env;
 	}
 
-	async network(): Promise<boolean | undefined> {
+	async network(): Promise<boolean> {
 		await this.load();
 		return this.#state!.network;
+	}
+
+	async stdin(): Promise<string | undefined> {
+		await this.load();
+		return this.#state!.stdin;
+	}
+
+	async stdout(): Promise<string | undefined> {
+		await this.load();
+		return this.#state!.stdout;
+	}
+
+	async stderr(): Promise<string | undefined> {
+		await this.load();
+		return this.#state!.stderr;
 	}
 }
 
@@ -192,6 +191,8 @@ export namespace Process {
 		id: tg.Process.Id;
 		state: State | undefined;
 	};
+
+	export type Exit = { code: number } | { signal: number };
 
 	export type Id = string;
 
@@ -204,36 +205,48 @@ export namespace Process {
 		| SpawnArgObject;
 
 	export type SpawnArgObject = {
-		/** The command's command line arguments. */
 		args?: Array<tg.Value> | undefined;
-
-		/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
 		checksum?: tg.Checksum | undefined;
-
-		/** The command to spawn. **/
 		command?: tg.Command.Arg | undefined;
-
-		/** Set the current working directory for the process. **/
 		cwd?: string | undefined;
-
-		/** The process's command's environment variables. */
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
-
-		/** The command's executable. */
 		executable?: tg.Command.ExecutableArg | undefined;
-
-		/** The system to build the command on. */
 		host?: string | undefined;
-
-		/** Configure whether the process has network access. **/
 		network?: boolean | undefined;
+		stderr: string | undefined;
+		stdin: string | undefined;
+		stdout: string | undefined;
 	};
 
 	export type State = {
 		checksum: tg.Checksum | undefined;
 		command: tg.Command;
 		cwd: string | undefined;
-		env: { [key: string]: string };
-		network: boolean | undefined;
+		env: { [key: string]: string } | undefined;
+		error: tg.Error | undefined;
+		exit: tg.Process.Exit | undefined;
+		network: boolean;
+		output: tg.Value | undefined;
+		status: tg.Process.Status;
+		stderr: string | undefined;
+		stdin: string | undefined;
+		stdout: string | undefined;
+	};
+
+	export type Status =
+		| "created"
+		| "enqueued"
+		| "dequeued"
+		| "started"
+		| "finishing"
+		| "canceled"
+		| "failed"
+		| "succeeded";
+
+	export type WaitOutput = {
+		error: tg.Error | undefined;
+		exit: tg.Process.Exit | undefined;
+		output: tg.Value | undefined;
+		status: tg.Process.Status;
 	};
 }

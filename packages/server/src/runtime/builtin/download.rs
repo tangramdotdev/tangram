@@ -11,16 +11,12 @@ use tokio_util::io::StreamReader;
 use url::Url;
 
 impl Runtime {
-	pub async fn download(
-		&self,
-		process: &tg::process::get::Output,
-		command: &tg::Command,
-		remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	pub async fn download(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
+		let command = process.command(server).await?;
 
 		// Ensure the command has a checksum.
-		if process.checksum.is_none() {
+		if process.load(server).await?.checksum.is_none() {
 			return Err(tg::error!("a download must have a checksum"));
 		}
 
@@ -50,17 +46,16 @@ impl Runtime {
 		let log_task = tokio::spawn({
 			let server = server.clone();
 			let process = process.clone();
-			let remote = remote.clone();
 			let url = url.clone();
 			let downloaded = downloaded.clone();
 			async move {
 				let first_message = format!("downloading from \"{url}\"\n");
 				let arg = tg::process::log::post::Arg {
 					bytes: first_message.into(),
-					remote: remote.clone(),
+					remote: process.remote().cloned(),
 				};
 				if !server
-					.try_post_process_log(&process.id, arg)
+					.try_post_process_log(process.id(), arg)
 					.await
 					.map_or(true, |ok| ok.added)
 				{
@@ -79,10 +74,10 @@ impl Runtime {
 					message.push('\n');
 					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
-						remote: remote.clone(),
+						remote: process.remote().cloned(),
 					};
 					if !server
-						.try_post_process_log(&process.id, arg)
+						.try_post_process_log(process.id(), arg)
 						.await
 						.map_or(true, |ok| ok.added)
 					{
@@ -143,9 +138,9 @@ impl Runtime {
 		let message = format!("finished download from \"{url}\"\n");
 		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
-			remote: remote.clone(),
+			remote: process.remote().cloned(),
 		};
-		server.try_post_process_log(&process.id, arg).await.ok();
+		server.try_post_process_log(process.id(), arg).await.ok();
 
 		Ok(blob.into())
 	}

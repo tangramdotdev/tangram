@@ -1,5 +1,6 @@
 use crate::{self as tg, handle::Ext as _, util::arc::Ext as _};
 use std::{
+	collections::BTreeMap,
 	ops::Deref,
 	path::PathBuf,
 	sync::{Arc, RwLock},
@@ -17,7 +18,6 @@ pub mod log;
 pub mod pull;
 pub mod push;
 pub mod put;
-pub mod retry;
 pub mod spawn;
 pub mod start;
 pub mod status;
@@ -37,7 +37,7 @@ pub struct Inner {
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug)]
-struct State {
+pub struct State {
 	pub checksum: Option<tg::Checksum>,
 	pub command: tg::Command,
 	pub commands_complete: bool,
@@ -51,17 +51,18 @@ struct State {
 	pub depth: u64,
 	pub dequeued_at: Option<time::OffsetDateTime>,
 	pub enqueued_at: Option<time::OffsetDateTime>,
+	pub env: Option<BTreeMap<String, String>>,
 	pub error: Option<tg::Error>,
 	pub exit: Option<tg::process::Exit>,
 	pub finished_at: Option<time::OffsetDateTime>,
 	pub heartbeat_at: Option<time::OffsetDateTime>,
-	pub host: String,
 	pub id: tg::process::Id,
 	pub log: Option<tg::blob::Id>,
 	pub logs_complete: bool,
 	pub logs_count: Option<u64>,
 	pub logs_depth: Option<u64>,
 	pub logs_weight: Option<u64>,
+	pub network: bool,
 	pub output: Option<tg::value::Data>,
 	pub outputs_complete: bool,
 	pub outputs_count: Option<u64>,
@@ -136,17 +137,18 @@ impl Process {
 			depth: output.depth,
 			dequeued_at: output.dequeued_at,
 			enqueued_at: output.enqueued_at,
+			env: output.env,
 			error: output.error,
 			exit: output.exit,
 			finished_at: output.finished_at,
 			heartbeat_at: output.heartbeat_at,
-			host: output.host,
 			id: output.id,
 			log: output.log,
 			logs_complete: output.logs_complete,
 			logs_count: output.logs_count,
 			logs_depth: output.logs_depth,
 			logs_weight: output.logs_weight,
+			network: output.network,
 			output: output.output,
 			outputs_complete: output.outputs_complete,
 			outputs_count: output.outputs_count,
@@ -170,6 +172,13 @@ impl Process {
 		H: tg::Handle,
 	{
 		Ok(self.load(handle).await?.map(|state| &state.command))
+	}
+
+	pub async fn retry<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = bool>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.load(handle).await?.map(|state| &state.retry))
 	}
 
 	pub async fn spawn<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Process>

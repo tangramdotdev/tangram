@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { process } from "./process.ts";
 import {
 	type MaybeMutationMap,
 	type MaybeNestedArray,
@@ -47,7 +46,7 @@ export function command<
 			},
 		};
 		let stdin = undefined;
-		let env = process.env;
+		let env = tg.process.env;
 		let object = {
 			args: args_,
 			env,
@@ -146,7 +145,7 @@ export class Command<
 					return {
 						args: ["-c", arg],
 						executable: await tg.symlink("/bin/sh"),
-						host: process.env.TANGRAM_HOST,
+						host: (await tg.process.env())!.TANGRAM_HOST,
 					};
 				} else if (arg instanceof Command) {
 					return await arg.object();
@@ -217,6 +216,20 @@ export class Command<
 
 	function(): Function | undefined {
 		return this.#f;
+	}
+
+	async build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value> {
+		return await tg.Process.build(
+			this as Command<Array<tg.Value>, tg.Value>,
+			...args,
+		);
+	}
+
+	async run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value> {
+		return await tg.Process.run(
+			this as Command<Array<tg.Value>, tg.Value>,
+			...args,
+		);
 	}
 }
 

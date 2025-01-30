@@ -11,13 +11,9 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
 use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
 
 impl Runtime {
-	pub async fn extract(
-		&self,
-		process: &tg::process::get::Output,
-		command: &tg::Command,
-		remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	pub async fn extract(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
+		let command = process.command(server).await?;
 
 		// Get the args.
 		let args = command.args(server).await?;
@@ -56,7 +52,6 @@ impl Runtime {
 		let log_task = tokio::spawn({
 			let server = server.clone();
 			let process = process.clone();
-			let remote = remote.clone();
 			async move {
 				loop {
 					let position = position.load(std::sync::atomic::Ordering::Relaxed);
@@ -70,10 +65,10 @@ impl Runtime {
 					let message = indicator.to_string();
 					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
-						remote: remote.clone(),
+						remote: process.remote().cloned(),
 					};
 					if !server
-						.try_post_process_log(&process.id, arg)
+						.try_post_process_log(process.id(), arg)
 						.await
 						.map_or(true, |ok| ok.added)
 					{
@@ -110,9 +105,9 @@ impl Runtime {
 		let message = "finished extracting\n";
 		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
-			remote: remote.clone(),
+			remote: process.remote().cloned(),
 		};
-		server.try_post_process_log(&process.id, arg).await.ok();
+		server.try_post_process_log(process.id(), arg).await.ok();
 
 		Ok(artifact.into())
 	}

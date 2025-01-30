@@ -22,19 +22,23 @@ impl Runtime {
 		}
 	}
 
-	pub async fn run(&self, process: &tg::process::get::Output) -> super::Output {
+	pub async fn run(&self, process: &tg::Process) -> super::Output {
 		let (error, exit, value) = match self.run_inner(process).await {
 			Ok(value) => (None, None::<tg::process::Exit>, Some(value)),
 			Err(error) => (Some(error), None, None),
 		};
-		super::Output { error, exit, value }
+		super::Output {
+			error,
+			exit,
+			output: value,
+		}
 	}
 
-	async fn run_inner(&self, process: &tg::process::get::Output) -> tg::Result<tg::Value> {
+	async fn run_inner(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
 		// Get the args.
-		let args = process.args(server).await?;
+		let args = process.command(server).await?.args(server).await?;
 
 		// Get the name.
 		let name = args
@@ -46,7 +50,7 @@ impl Runtime {
 
 		let value = match name.as_str() {
 			"archive" => self.archive(process).boxed(),
-			"bundle" => self.bundle(process, command).boxed(),
+			"bundle" => self.bundle(process).boxed(),
 			"checksum" => self.checksum(process).boxed(),
 			"compress" => self.compress(process).boxed(),
 			"decompress" => self.decompress(process).boxed(),

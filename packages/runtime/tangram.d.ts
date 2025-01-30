@@ -595,7 +595,7 @@ declare namespace tg {
 		args(): Promise<Array<tg.Value>>;
 
 		/** Get this command's environment. */
-		env(): Promise<{ [key: string]: tg.Value }>;
+		env(): Promise<tg.Mutation>;
 
 		/** Get this command's executable. */
 		executable(): Promise<tg.Command.Executable | undefined>;
@@ -622,16 +622,16 @@ declare namespace tg {
 			| ArgObject;
 
 		type ArgObject = {
-			/** The command's command line arguments. */
+			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
 
-			/** The command's environment variables. */
+			/** The command's environment. */
 			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 
 			/** The command's executable. */
 			executable?: tg.Command.ExecutableArg | undefined;
 
-			/** The system to build the command on. */
+			/** The command's host. */
 			host?: string | undefined;
 		};
 
@@ -932,26 +932,10 @@ declare namespace tg {
 
 	export let run: (...args: tg.Args<tg.Process.SpawnArg>) => Promise<tg.Value>;
 
-	export let process: {
-		checksum: tg.Checksum | undefined;
-		command: {
-			args: Array<tg.Value>;
-			env: { [key: string]: tg.Value };
-			executable: tg.Command.Executable | undefined;
-			host: string;
-		};
-		cwd: string | undefined;
-		env: { [key: string]: string };
-		network: boolean | undefined;
-	};
+	/** The current process. */
+	export let process: tg.Process;
 
 	export class Process {
-		/** Build a process and return its output. */
-		static build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
-
-		/** Run a process and return its output. */
-		static run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
-
 		/** Get a process with an ID. */
 		static withId(id: tg.Process.Id): tg.Process;
 
@@ -961,10 +945,10 @@ declare namespace tg {
 		/** Assert that a value is a `tg.Process`. */
 		static assert(value: unknown): asserts value is tg.Process;
 
-		/** Load the process. */
+		/** Load the process's state. */
 		load(): Promise<void>;
 
-		/** Reload the process. */
+		/** Reload the process's state. */
 		reload(): Promise<void>;
 
 		/** Get this process's ID. */
@@ -980,10 +964,10 @@ declare namespace tg {
 		cwd(): Promise<string | undefined>;
 
 		/** Get this process's environment. */
-		env(): Promise<{ [name: string]: string }>;
+		env(): Promise<{ [name: string]: string } | undefined>;
 
 		/** Get whether this process has the network enabled. */
-		network(): Promise<boolean | undefined>;
+		network(): Promise<boolean>;
 	}
 
 	export namespace Process {
@@ -998,7 +982,7 @@ declare namespace tg {
 			| SpawnArgObject;
 
 		export type SpawnArgObject = {
-			/** The command's command line arguments. */
+			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
 
 			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
@@ -1010,13 +994,13 @@ declare namespace tg {
 			/** Set the current working directory for the process. **/
 			cwd?: string | undefined;
 
-			/** The command's environment variables. */
+			/** The command's environment. */
 			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 
 			/** The command's executable. */
 			executable?: tg.Command.ExecutableArg | undefined;
 
-			/** The system to build the command on. */
+			/** The command's host. */
 			host?: string | undefined;
 
 			/** Configure whether the process has access to the network. **/

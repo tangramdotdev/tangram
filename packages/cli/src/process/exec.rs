@@ -11,7 +11,7 @@ pub struct Args {
 	pub executable: Option<std::path::PathBuf>,
 
 	#[command(flatten)]
-	pub inner: crate::command::run::InnerArgs,
+	pub inner: crate::process::run::InnerArgs,
 
 	/// The reference to the command to build.
 	#[arg(index = 1)]
@@ -33,14 +33,14 @@ impl Cli {
 			.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Run the command.
-		let kind = crate::command::run::InnerKind::Build;
+		let kind = crate::process::run::InnerKind::Build;
 		let output = self.command_run_inner(reference, kind, args.inner).await?;
 
 		// Get the path to the artifact.
 		let mut artifact_path = match output {
-			crate::command::run::InnerOutput::Detached(_) => unreachable!(),
-			crate::command::run::InnerOutput::Path(path) => path,
-			crate::command::run::InnerOutput::Value(value) => {
+			crate::process::run::InnerOutput::Detached(_) => unreachable!(),
+			crate::process::run::InnerOutput::Path(path) => path,
+			crate::process::run::InnerOutput::Value(value) => {
 				let artifact: tg::Artifact = value.try_into().map_err(|source| {
 					tg::error!(!source, "expected the output to be an artifact")
 				})?;

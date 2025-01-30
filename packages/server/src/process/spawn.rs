@@ -30,14 +30,13 @@ impl Server {
 		}
 
 		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some()
-			|| (arg.cwd.is_none()
-				&& arg.stdin.is_none()
-				&& arg.stdout.is_none()
-				&& arg.stderr.is_none()
-				&& arg
-					.sandbox
-					.is_some_and(|sandbox| !sandbox.filesystem && !sandbox.network));
+		let sandboxed = arg.cwd.is_none()
+			&& arg.env.is_none()
+			&& !arg.network
+			&& arg.stdin.is_none()
+			&& arg.stdout.is_none()
+			&& arg.stderr.is_none();
+		let cacheable = arg.checksum.is_some() || sandboxed;
 
 		// If the process is cacheable, then get a matching local process if one exists.
 		'a: {
@@ -78,7 +77,6 @@ impl Server {
 			else {
 				break 'a;
 			};
-			let process = tg::Process::with_id(id.clone());
 
 			// Drop the connection.
 			drop(connection);
@@ -95,24 +93,24 @@ impl Server {
 
 			// Attempt to add the process as a child of the parent.
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, process.id()).await.map_err(
-					|source| tg::error!(!source, %parent, %child = process.id(), "failed to add the process as a child"),
+				self.try_add_process_child(parent, &id).await.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 				)?;
 			}
 
 			// Touch the process.
 			tokio::spawn({
 				let server = self.clone();
-				let process = process.clone();
+				let id = id.clone();
 				async move {
 					let arg = tg::process::touch::Arg { remote: None };
-					server.touch_process(process.id(), arg).await.ok();
+					server.touch_process(&id, arg).await.ok();
 				}
 			});
 
 			// Create the output.
 			let output = tg::process::spawn::Output {
-				process: process.id().clone(),
+				process: id,
 				remote: None,
 			};
 
@@ -183,40 +181,27 @@ impl Server {
 		// Otherwise, create a new process.
 		let id = tg::process::Id::new();
 
-		// Create the command.
-
-		// Get the host.
-		let host = if let Some(host) = &arg.host {
-			host.clone()
-		} else if let Some(command) = &arg.command {
-			let command = tg::Command::with_id(command.clone());
-			command.host(self).await?.to_owned()
-		} else {
-			return Err(tg::error!("the host must be set"));
-		};
-
 		// Put the process.
 		let put_arg = tg::process::put::Arg {
-			id: id.clone(),
 			children: Vec::new(),
+			command: arg.command.unwrap(),
+			created_at: time::OffsetDateTime::now_utc(),
 			cwd: arg.cwd,
-			sandbox: arg.sandbox,
+			dequeued_at: None,
+			enqueued_at: Some(time::OffsetDateTime::now_utc()),
+			env: arg.env,
+			error: None,
+			finished_at: None,
+			id: id.clone(),
+			log: None,
+			network: arg.network,
+			output: None,
+			retry: arg.retry,
+			started_at: None,
+			status: tg::process::Status::Enqueued,
 			stderr: arg.stderr,
 			stdin: arg.stdin,
 			stdout: arg.stdout,
-			depth: 1,
-			error: None,
-			host: host.clone(),
-			log: None,
-			output: None,
-			retry: arg.retry,
-			status: tg::process::Status::Enqueued,
-			command: id.clone(),
-			created_at: time::OffsetDateTime::now_utc(),
-			enqueued_at: Some(time::OffsetDateTime::now_utc()),
-			dequeued_at: None,
-			started_at: None,
-			finished_at: None,
 		};
 		self.put_process(&id, put_arg).await?;
 
@@ -243,7 +228,7 @@ impl Server {
 		// Spawn a task to spawn the process when the parent's permit is available.
 		let server = self.clone();
 		let parent = arg.parent.clone();
-		let process = id.clone();
+		let process = tg::Process::new(id.clone(), None, None);
 		tokio::spawn(async move {
 			// Acquire the parent's permit.
 			let Some(permit) = parent.as_ref().and_then(|parent| {
@@ -261,17 +246,18 @@ impl Server {
 
 			// Attempt to spawn the process.
 			server
-				.run_process(process, permit, None)
+				.spawn_process_task(&process, permit)
 				.await
 				.inspect_err(|error| tracing::error!(?error, "failed to spawn the process"))
 				.ok();
 		});
 
-		// Return the output.
+		// Create the output.
 		let output = tg::process::spawn::Output {
 			process: id,
 			remote: None,
 		};
+
 		Ok(Some(output))
 	}
 }

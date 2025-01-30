@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 pub struct Proxy(Arc<Inner>);
 
 pub struct Inner {
-	process: tg::process::Id,
+	process: tg::Process,
 	path_map: Option<PathMap>,
 	remote: Option<String>,
 	server: Server,
@@ -25,17 +25,16 @@ pub struct PathMap {
 impl Proxy {
 	pub fn new(
 		server: crate::Server,
-		process: tg::process::Id,
+		process: &tg::Process,
 		remote: Option<String>,
 		path_map: Option<PathMap>,
 	) -> Self {
-		let inner = Inner {
-			process,
+		Self(Arc::new(Inner {
+			process: process.clone(),
 			path_map,
 			remote,
 			server,
-		};
-		Self(Arc::new(inner))
+		}))
 	}
 
 	fn host_path_for_guest_path(&self, path: PathBuf) -> PathBuf {
@@ -158,12 +157,17 @@ impl tg::Handle for Proxy {
 		&self,
 		mut arg: tg::process::spawn::Arg,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		arg.parent = Some(self.process.clone());
+		arg.parent = Some(self.process.id().clone());
 		arg.remote = self.remote.clone();
-		arg.retry = tg::Process::with_id(self.process.clone())
-			.retry(self)
-			.await?;
+		arg.retry = *self.process.retry(self).await?;
 		self.server.try_spawn_process(arg).await
+	}
+
+	fn wait_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::wait::Output>> {
+		self.server.wait_process(id)
 	}
 
 	async fn lsp(
@@ -309,17 +313,6 @@ impl tg::Handle for Proxy {
 		>,
 	> {
 		self.server.try_get_process_status_stream(id)
-	}
-
-	fn wait_process(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::wait::Event>> + Send + 'static>,
-		>,
-	> + Send {
-		self.server.try_get_process_wait_stream(id)
 	}
 
 	fn try_get_process_children_stream(

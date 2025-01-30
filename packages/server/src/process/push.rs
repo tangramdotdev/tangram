@@ -139,28 +139,27 @@ impl Server {
 			.flat_map(|chunk| chunk.data)
 			.collect_vec();
 
-		// Put the object.
+		// Put the process.
 		let put_arg = tg::process::put::Arg {
-			id: process.clone(),
 			children: children.clone(),
-			depth: output.depth,
+			command: output.command.clone(),
+			created_at: output.created_at,
+			cwd: output.cwd,
+			dequeued_at: output.dequeued_at,
+			enqueued_at: output.enqueued_at,
+			env: output.env,
 			error: output.error,
-			host: output.host,
+			finished_at: output.finished_at,
+			id: process.clone(),
 			log: output.log.clone(),
+			network: output.network,
 			output: output.output.clone(),
 			retry: output.retry,
+			started_at: output.started_at,
 			status: output.status,
-			command: output.command.clone(),
-			cwd: output.cwd,
-			sandbox: output.sandbox,
 			stderr: output.stderr,
 			stdin: output.stdin,
 			stdout: output.stdout,
-			created_at: output.created_at,
-			enqueued_at: output.enqueued_at,
-			dequeued_at: output.dequeued_at,
-			started_at: output.started_at,
-			finished_at: output.finished_at,
 		};
 		let put_output = dst
 			.put_process(process, put_arg)

@@ -2,13 +2,9 @@ use super::Runtime;
 use tangram_client as tg;
 
 impl Runtime {
-	pub async fn checksum(
-		&self,
-		_process: &tg::process::get::Output,
-		command: &tg::Command,
-		_remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	pub async fn checksum(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
+		let command = process.command(server).await?;
 
 		// Get the args.
 		let args = command.args(server).await?;

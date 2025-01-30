@@ -19,7 +19,7 @@ use tokio_stream::wrappers::ReceiverStream;
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub inner: crate::command::run::InnerArgs,
+	pub inner: crate::process::run::InnerArgs,
 
 	/// The reference to the command to run.
 	#[arg(index = 1)]
@@ -107,7 +107,7 @@ pub enum InnerOutput {
 }
 
 impl Cli {
-	pub async fn command_command_run(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_run(&self, args: Args) -> tg::Result<()> {
 		// Get the reference.
 		let reference = args
 			.reference
@@ -120,13 +120,13 @@ impl Cli {
 
 		// Print the output.
 		match output {
-			crate::command::run::InnerOutput::Detached(process) => {
+			crate::process::run::InnerOutput::Detached(process) => {
 				println!("{process}");
 			},
-			crate::command::run::InnerOutput::Path(path) => {
+			crate::process::run::InnerOutput::Path(path) => {
 				println!("{}", path.display());
 			},
-			crate::command::run::InnerOutput::Value(value) => {
+			crate::process::run::InnerOutput::Value(value) => {
 				if !value.is_null() {
 					let stdout = std::io::stdout();
 					let value = if stdout.is_terminal() {
@@ -352,21 +352,23 @@ impl Cli {
 		}
 
 		// Handle build vs run.
-		let (cwd, sandbox, stdin, stdout, stderr, stdio_task) = match kind {
+		let (cwd, env, network, stdin, stdout, stderr, stdio_task) = match kind {
 			InnerKind::Build => {
 				let cwd = None;
-				let sandbox = Some(tg::process::Sandbox::default());
+				let env = None;
+				let network = false;
 				let stdin = None;
 				let stdout = None;
 				let stderr = None;
 				let stdio_task = None;
-				(cwd, sandbox, stdin, stdout, stderr, stdio_task)
+				(cwd, env, network, stdin, stdout, stderr, stdio_task)
 			},
 			InnerKind::Run => {
 				let cwd = Some(std::env::current_dir().map_err(|source| {
 					tg::error!(!source, "failed to get the working directory")
 				})?);
-				let sandbox = None;
+				let env = Some(std::env::vars().collect());
+				let network = true;
 				let (stdin, stdout, stderr) = futures::try_join!(
 					handle.open_pipe().map_ok(|output| Some(output.id)),
 					handle.open_pipe().map_ok(|output| Some(output.id)),
@@ -378,7 +380,7 @@ impl Cli {
 					stdout.clone(),
 					stderr.clone(),
 				));
-				(cwd, sandbox, stdin, stdout, stderr, stdio_task)
+				(cwd, env, network, stdin, stdout, stderr, stdio_task)
 			},
 		};
 
@@ -386,18 +388,19 @@ impl Cli {
 		let id = command.id(&handle).await?;
 		let arg = tg::process::spawn::Arg {
 			checksum: args.checksum,
+			command: Some(command.id(&handle).await?.clone()),
 			create: args.create,
 			cwd,
+			env,
+			network,
 			parent: None,
 			remote: remote.clone(),
 			retry,
-			sandbox,
 			stderr: stderr.clone(),
 			stdin: stdin.clone(),
 			stdout: stdout.clone(),
 		};
-		let output = handle.spawn_command(&id, arg).await?;
-		let process = tg::Process::with_id(output.process);
+		let process = tg::Process::spawn(&handle, arg).await?;
 
 		// Tag the process if requested.
 		if let Some(tag) = args.tag {
@@ -549,13 +552,15 @@ impl Cli {
 			},
 			_ => (),
 		}
+		let output: tg::Value = output
+			.output
+			.ok_or_else(|| tg::error!("expected an output"))?
+			.try_into()?;
 
 		// Check out the output if requested.
 		if let Some(path) = args.checkout {
 			// Get the artifact.
 			let artifact: tg::Artifact = output
-				.output
-				.ok_or_else(|| tg::error!("expected an output value"))?
 				.try_into()
 				.map_err(|_| tg::error!("expected an artifact"))?;
 
@@ -586,7 +591,7 @@ impl Cli {
 			return Ok(InnerOutput::Path(output.path));
 		}
 
-		Ok(InnerOutput::Value(output.output.unwrap_or(tg::Value::Null)))
+		Ok(InnerOutput::Value(output))
 	}
 }
 
@@ -692,8 +697,9 @@ where
 	});
 
 	// Create a stream.
-	let stream =
-		ReceiverStream::new(recv).chain(stream::once(future::ready(Ok(tg::pipe::Event::End))));
+	let stream = ReceiverStream::new(recv)
+		.chain(stream::once(future::ready(Ok(tg::pipe::Event::End))))
+		.boxed();
 
 	// Write.
 	handle
@@ -734,26 +740,12 @@ where
 					.flush()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to flush"))?;
-				eprintln!("wrote to {pipe}: {chunk:?}");
 			},
 			tg::pipe::Event::End => {
-				flog(format!("end"));
 				break;
-			}
+			},
 		}
 	}
-	eprintln!("done");
-	Ok(())
-}
 
-fn flog(msg: String) {
-	let mut log = std::fs::OpenOptions::new()
-		.write(true)
-		.append(true)
-		.create(true)
-		.open("log.txt")
-		.unwrap();
-	log.write_all(msg.as_bytes()).unwrap();
-	log.write_all(b"\n").unwrap();
-	log.flush().unwrap();
+	Ok(())
 }

@@ -578,7 +578,7 @@ where
 		update_sender.send(Box::new(update)).unwrap();
 
 		let command = process.command(handle).await?;
-		let value = tg::Value::Object(command.into());
+		let value = tg::Value::Object(command.clone().into());
 		update_sender
 			.send({
 				let handle = handle.clone();

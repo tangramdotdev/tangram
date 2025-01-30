@@ -12,7 +12,7 @@ pub struct Args {
 	pub artifact: tg::artifact::Id,
 
 	#[command(flatten)]
-	pub inner: crate::command::run::InnerArgs,
+	pub inner: crate::process::run::InnerArgs,
 }
 
 impl Cli {
@@ -22,11 +22,11 @@ impl Cli {
 		let algorithm = args.algorithm;
 		let command = artifact.checksum_command(algorithm);
 		let command = command.id(&handle).await?;
-		let args = crate::command::build::Args {
+		let args = crate::process::build::Args {
 			reference: Some(tg::Reference::with_object(&command.into())),
 			inner: args.inner,
 		};
-		self.command_command_build(args).await?;
+		self.command_process_build(args).await?;
 		Ok(())
 	}
 }

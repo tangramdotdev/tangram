@@ -7,13 +7,9 @@ use tokio_util::compat::{
 };
 
 impl Runtime {
-	pub async fn archive(
-		&self,
-		_process: &tg::process::get::Output,
-		command: &tg::Command,
-		_remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	pub async fn archive(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
+		let command = process.command(server).await?;
 
 		// Get the args.
 		let args = command.args(server).await?;

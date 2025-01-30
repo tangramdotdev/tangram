@@ -3,7 +3,7 @@ use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _}
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use serde_with::serde_as;
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
@@ -61,7 +61,7 @@ impl Server {
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			enqueued_at: Option<time::OffsetDateTime>,
-			env: bool,
+			env: Option<db::value::Json<BTreeMap<String, String>>>,
 			error: Option<db::value::Json<tg::Error>>,
 			exit: Option<db::value::Json<tg::process::Exit>>,
 			#[serde(default)]
@@ -70,7 +70,6 @@ impl Server {
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			heartbeat_at: Option<time::OffsetDateTime>,
-			host: String,
 			id: tg::process::Id,
 			#[serde(default)]
 			log: Option<tg::blob::Id>,
@@ -128,7 +127,6 @@ impl Server {
 					exit,
 					finished_at,
 					heartbeat_at,
-					host,
 					id,
 					log,
 					logs_complete,
@@ -169,12 +167,11 @@ impl Server {
 			depth: row.depth,
 			dequeued_at: row.dequeued_at,
 			enqueued_at: row.enqueued_at,
-			env: row.env,
+			env: row.env.map(|env| env.0),
 			error: row.error.map(|error| error.0),
 			exit: row.exit.map(|exit| exit.0),
 			finished_at: row.finished_at,
 			heartbeat_at: row.heartbeat_at,
-			host: row.host,
 			id: row.id,
 			log: row.log,
 			logs_complete: row.logs_complete,
@@ -241,17 +238,16 @@ impl Server {
 						command: output.command.clone(),
 						created_at: output.created_at,
 						cwd: output.cwd,
-						depth: output.depth,
 						dequeued_at: output.dequeued_at,
 						enqueued_at: output.enqueued_at,
+						env: output.env,
 						error: output.error,
 						finished_at: output.finished_at,
-						host: output.host.clone(),
 						id: output.id.clone(),
 						log: output.log.clone(),
+						network: output.network,
 						output: output.output,
 						retry: output.retry,
-						network: output.network,
 						started_at: output.started_at,
 						status: output.status,
 						stderr: output.stderr,

@@ -75,7 +75,6 @@ impl Runtime {
 		let task = self.server.local_pool_handle.spawn_pinned({
 			let runtime = self.clone();
 			let process = process.clone();
-			let command = command.clone();
 			move || async move {
 				runtime
 					.run_inner(&process, main_runtime_handle.clone(), isolate_handle_sender)
@@ -92,11 +91,16 @@ impl Runtime {
 			}
 		};
 
-		let (error, exit, value) = match task.await.unwrap() {
-			Ok(value) => (None, None::<tg::process::Exit>, Some(value)),
+		let (error, exit, output) = match task.await.unwrap() {
+			Ok(output) => (None, None::<tg::process::Exit>, Some(output)),
 			Err(error) => (Some(error), None, None),
 		};
-		super::Output { error, exit, value }
+
+		super::Output {
+			error,
+			exit,
+			output,
+		}
 	}
 
 	async fn run_inner(
@@ -105,6 +109,8 @@ impl Runtime {
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<tg::Value> {
+		let command = process.command(&self.server).await?;
+
 		// Get the root module.
 		let root = command
 			.executable(&self.server)
@@ -129,6 +135,7 @@ impl Runtime {
 		// Start the log task.
 		let (log_sender, mut log_receiver) =
 			tokio::sync::mpsc::unbounded_channel::<syscall::log::Message>();
+		let state = process.load(&self.server).await?;
 		let log_task = main_runtime_handle.spawn({
 			let server = self.server.clone();
 			let process = process.clone();
@@ -139,8 +146,8 @@ impl Runtime {
 						tokio::io::stderr()
 							.write_all(contents.as_bytes())
 							.await
-							.inspect_err(|e| {
-								tracing::error!(?e, "failed to write process log to stderr");
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to write process log to stderr");
 							})
 							.ok();
 					}
@@ -151,12 +158,12 @@ impl Runtime {
 					};
 					match level {
 						syscall::log::Level::Log => {
-							if let Some(pipe) = &process.stdout {
+							if let Some(pipe) = &state.stdout {
 								server.write_pipe_chunk(pipe, bytes.clone()).await.ok();
 							}
 						},
 						syscall::log::Level::Error => {
-							if let Some(pipe) = &process.stderr {
+							if let Some(pipe) = &state.stderr {
 								server.write_pipe_chunk(pipe, bytes.clone()).await.ok();
 							}
 						},
@@ -172,7 +179,7 @@ impl Runtime {
 
 		// Create the state.
 		let state = Rc::new(State {
-			process: process.id.clone(),
+			process: process.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
 			compiler: Compiler::new(&self.server, main_runtime_handle.clone()),
@@ -180,7 +187,6 @@ impl Runtime {
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
 			rejection: tokio::sync::watch::channel(None).0,
-			remote: remote.clone(),
 			root,
 			server: self.server.clone(),
 		});

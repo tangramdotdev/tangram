@@ -260,8 +260,8 @@ impl Server {
 			status,
 			id
 		];
-		let error = connection
-			.query_optional_into::<tg::Error>(statement.into(), params)
+		connection
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
