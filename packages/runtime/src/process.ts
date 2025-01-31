@@ -18,6 +18,10 @@ export class Process {
 		this.#state = arg.state;
 	}
 
+	get state(): tg.Process.State | undefined {
+		return this.#state;
+	}
+
 	static async spawn(
 		...args: tg.Args<tg.Process.SpawnArg>
 	): Promise<tg.Process> {

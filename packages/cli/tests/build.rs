@@ -101,10 +101,8 @@ async fn host_target_hello_world() {
 	let directory = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export default tg.command(async () => {
-					let target = await tg.command("echo 'Hello, World!' > $OUTPUT");
-					let output = await target.output();
-					return output;
+				export default tg.command(() => {
+					return tg.run("echo 'Hello, World!' > $OUTPUT");
 				});
 			"#),
 		}

@@ -48,7 +48,7 @@ export function command<
 		let stdin = undefined;
 		let object = {
 			args: args_,
-			env: {},
+			env: tg.process.state!.command.state.object!.env,
 			executable,
 			host: "js",
 			stdin,

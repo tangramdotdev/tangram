@@ -2,6 +2,11 @@ import * as tg from "./index.ts";
 import { setProcess } from "./process.ts";
 
 export let start = async (process: tg.Process): Promise<tg.Value> => {
+	// Load the process and command.
+	await process.load();
+	const command = await process.command();
+	await command.load();
+
 	// Set the process.
 	await setProcess(process);
 
@@ -10,7 +15,6 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 	let namespace = await eval(`import("!")`);
 
 	// Get the target.
-	const command = await tg.process.command();
 	const args = await command.args();
 	if (args.length < 1) {
 		throw new Error("the command must have at least one argument");
