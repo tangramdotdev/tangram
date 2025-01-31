@@ -174,6 +174,7 @@ impl Runtime {
 		command
 			.args(args)
 			.current_dir(cwd)
+			.env_clear()
 			.envs(env)
 			.stdin(std::process::Stdio::piped())
 			.stdout(std::process::Stdio::piped())
@@ -286,7 +287,13 @@ fn create_sandbox_profile(
 ) -> CString {
 	// Write the default profile.
 	let mut profile = String::new();
-
+	writedoc!(
+		profile,
+		r#"
+			(version 1)
+		"#
+	)
+	.unwrap();
 	if process.cwd.is_some() {
 		writedoc!(
 			profile,
@@ -302,17 +309,17 @@ fn create_sandbox_profile(
 			r#"
 				;; Deny everything by default.
 				(deny default)
-	
+
 				;; Allow most system operations.
 				(allow syscall*)
 				(allow system-socket)
 				(allow mach*)
 				(allow ipc*)
 				(allow sysctl*)
-	
+
 				;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
 				(allow process-fork process-info*)
-	
+
 				;; Allow limited exploration of the root.
 				(allow file-read-data (literal "/"))
 				(allow file-read-metadata
@@ -322,14 +329,14 @@ fn create_sandbox_profile(
 					(literal "/Volumes")
 					(literal "/etc")
 				)
-	
+
 				;; Allow writing to common devices.
 				(allow file-read* file-write-data file-ioctl
 					(literal "/dev/null")
 					(literal "/dev/zero")
 					(literal "/dev/dtracehelper")
 				)
-	
+
 				;; Allow reading and writing temporary files.
 				(allow file-write* file-read*
 					(subpath "/tmp")
@@ -337,7 +344,7 @@ fn create_sandbox_profile(
 					(subpath "/private/var")
 					(subpath "/var")
 				)
-	
+
 				;; Allow reading some system devices and files.
 				(allow file-read*
 					(literal "/dev/autofs_nowait")
@@ -348,30 +355,30 @@ fn create_sandbox_profile(
 					(literal "/private/etc/services")
 					(subpath "/private/etc/ssl")
 				)
-	
+
 				;; Allow executing /usr/bin/env and /bin/sh.
 				(allow file-read* process-exec
 					(literal "/usr/bin/env")
 					(literal "/bin/sh")
 					(literal "/bin/bash")
 				)
-	
+
 				;; Support Rosetta.
 				(allow file-read* file-test-existence
 					(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
 				)
-	
+
 				;; Allow accessing the dyld shared cache.
 				(allow file-read* process-exec
 					(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
 					(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
 				)
-	
+
 				;; Allow querying the macOS system version metadata.
 				(allow file-read* file-test-existence
 					(literal "/System/Library/CoreServices/SystemVersion.plist")
 				)
-	
+
 				;; Allow bash to create and use file descriptors for pipes.
 				(allow file-read* file-write* file-ioctl process-exec
 					(literal "/dev/fd")
@@ -386,30 +393,30 @@ fn create_sandbox_profile(
 		writedoc!(
 			profile,
 			r#"
-					;; Allow network access.
-					(allow network*)
+				;; Allow network access.
+				(allow network*)
 
-					;; Allow reading network preference files.
-					(allow file-read*
-						(literal "/Library/Preferences/com.apple.networkd.plist")
-						(literal "/private/var/db/com.apple.networkextension.tracker-info")
-						(literal "/private/var/db/nsurlstoraged/dafsaData.bin")
-					)
-					(allow user-preference-read (preference-domain "com.apple.CFNetwork"))
-				"#
+				;; Allow reading network preference files.
+				(allow file-read*
+					(literal "/Library/Preferences/com.apple.networkd.plist")
+					(literal "/private/var/db/com.apple.networkextension.tracker-info")
+					(literal "/private/var/db/nsurlstoraged/dafsaData.bin")
+				)
+				(allow user-preference-read (preference-domain "com.apple.CFNetwork"))
+			"#
 		)
 		.unwrap();
 	} else {
 		writedoc!(
 			profile,
 			r#"
-					;; Disable global network access.
-					(deny network*)
+				;; Disable global network access.
+				(deny network*)
 
-					;; Allow network access to localhost and Unix sockets.
-					(allow network* (remote ip "localhost:*"))
-					(allow network* (remote unix-socket))
-				"#
+				;; Allow network access to localhost and Unix sockets.
+				(allow network* (remote ip "localhost:*"))
+				(allow network* (remote unix-socket))
+			"#
 		)
 		.unwrap();
 	}
@@ -418,10 +425,10 @@ fn create_sandbox_profile(
 	writedoc!(
 		profile,
 		r"
-				(allow process-exec* (subpath {0}))
-				(allow file-read* (path-ancestors {0}))
-				(allow file-read* (subpath {0}))
-			",
+			(allow process-exec* (subpath {0}))
+			(allow file-read* (path-ancestors {0}))
+			(allow file-read* (subpath {0}))
+		",
 		escape(artifacts.as_os_str().as_bytes())
 	)
 	.unwrap();
@@ -431,11 +438,11 @@ fn create_sandbox_profile(
 		writedoc!(
 			profile,
 			r"
-					(allow process-exec* (subpath {0}))
-					(allow file-read* (path-ancestors {0}))
-					(allow file-read* (subpath {0}))
-					(allow file-write* (subpath {0}))
-				",
+				(allow process-exec* (subpath {0}))
+				(allow file-read* (path-ancestors {0}))
+				(allow file-read* (subpath {0}))
+				(allow file-write* (subpath {0}))
+			",
 			escape(home.as_os_str().as_bytes())
 		)
 		.unwrap();
@@ -445,11 +452,11 @@ fn create_sandbox_profile(
 	writedoc!(
 		profile,
 		r"
-				(allow process-exec* (subpath {0}))
-				(allow file-read* (path-ancestors {0}))
-				(allow file-read* (subpath {0}))
-				(allow file-write* (subpath {0}))
-			",
+			(allow process-exec* (subpath {0}))
+			(allow file-read* (path-ancestors {0}))
+			(allow file-read* (subpath {0}))
+			(allow file-write* (subpath {0}))
+		",
 		escape(output.as_os_str().as_bytes())
 	)
 	.unwrap();
