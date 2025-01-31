@@ -53,7 +53,8 @@ impl Server {
 			count: Option<u64>,
 			#[serde_as(as = "Rfc3339")]
 			created_at: time::OffsetDateTime,
-			depth: u64,
+			#[serde(default)]
+			depth: Option<u64>,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			dequeued_at: Option<time::OffsetDateTime>,
@@ -95,12 +96,12 @@ impl Server {
 			#[serde_as(as = "Option<Rfc3339>")]
 			started_at: Option<time::OffsetDateTime>,
 			status: tg::process::Status,
-			#[serde(default)]
-			stderr: Option<tg::pipe::Id>,
-			#[serde(default)]
-			stdin: Option<tg::pipe::Id>,
-			#[serde(default)]
-			stdout: Option<tg::pipe::Id>,
+			// #[serde(default)]
+			// stderr: Option<tg::pipe::Id>,
+			// #[serde(default)]
+			// stdin: Option<tg::pipe::Id>,
+			// #[serde(default)]
+			// stdout: Option<tg::pipe::Id>,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			touched_at: Option<time::OffsetDateTime>,
@@ -139,9 +140,6 @@ impl Server {
 					network,
 					started_at,
 					status,
-					stderr,
-					stdin,
-					stdout,
 					touched_at
 				from processes
 				where id = {p}1;
@@ -186,9 +184,12 @@ impl Server {
 			network: row.network,
 			started_at: row.started_at,
 			status: row.status,
-			stderr: row.stderr,
-			stdin: row.stdin,
-			stdout: row.stdout,
+			stderr: None,
+			stdin: None,
+			stdout: None,
+			// stderr: row.stderr,
+			// stdin: row.stdin,
+			// stdout: row.stdout,
 			touched_at: row.touched_at,
 		});
 

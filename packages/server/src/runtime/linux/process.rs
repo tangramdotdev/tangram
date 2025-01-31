@@ -103,7 +103,7 @@ pub fn spawn(
 	};
 
 	// Spawn the root process.
-	let flags = libc::CLONE_NEWUSER.to_u64().unwrap();
+	let flags = libc::CLONE_NEWUSER.try_into().unwrap();
 	let mut clone_args = libc::clone_args {
 		flags,
 		stack: 0,
@@ -133,7 +133,7 @@ pub fn spawn(
 	}
 
 	// Run the root process.
-	if pid != 0 {
+	if pid == 0 {
 		unsafe { root(&context) };
 	}
 
@@ -208,13 +208,13 @@ impl Child {
 			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to set the GID map"))?;
-
-			// Notify the guest that it may continue.
-			self.socket
-				.write_u8(1)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to resume guest process"))?;
 		}
+
+		// Notify the guest that it may continue.
+		self.socket
+			.write_u8(1)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resume guest process"))?;
 
 		// Read the exit status from the host socket.
 		let kind = self.socket.read_u8().await.map_err(|error| {
@@ -297,17 +297,18 @@ unsafe fn root(context: &Context) -> ! {
 	}
 
 	// Get the clone flags.
-	let mut flags = libc::CLONE_NEWUSER.to_u64().unwrap();
+	let mut flags = 0;
 	if context.chroot.is_some() {
-		flags |= libc::CLONE_NEWPID.to_u64().unwrap();
+		flags |= libc::CLONE_NEWNS;
+		flags |= libc::CLONE_NEWPID;
 	}
-	if context.network {
-		flags |= libc::CLONE_NEWNET.to_u64().unwrap();
+	if !context.network {
+		flags |= libc::CLONE_NEWNET;
 	}
 
 	// Fork.
 	let mut clone_args = libc::clone_args {
-		flags,
+		flags: dbg!(flags.try_into().unwrap()),
 		stack: 0,
 		stack_size: 0,
 		pidfd: 0,
@@ -327,6 +328,7 @@ unsafe fn root(context: &Context) -> ! {
 	let pid = pid.to_i32().unwrap();
 
 	if pid == -1 {
+		libc::close(context.socket.as_raw_fd());
 		abort_errno!("failed to spawn the guest process");
 	}
 
@@ -336,17 +338,18 @@ unsafe fn root(context: &Context) -> ! {
 	}
 
 	// Send the guest process's PID to the host process, so the host process can write the UID and GID maps.
-	let ret = libc::send(
-		context.socket.as_raw_fd(),
-		std::ptr::addr_of!(pid).cast(),
-		std::mem::size_of_val(&pid),
-		0,
-	);
-	if ret == -1 {
-		abort_errno!("failed to send the PID of guest process");
+	if context.chroot.is_some() {
+		let ret = libc::send(
+			context.socket.as_raw_fd(),
+			std::ptr::addr_of!(pid).cast(),
+			std::mem::size_of_val(&pid),
+			0,
+		);
+		if ret == -1 {
+			abort_errno!("failed to send the PID of guest process");
+		}
 	}
 
-	// Wait for the guest process.
 	let mut status: libc::c_int = 0;
 	let ret = libc::waitpid(pid, &mut status, libc::__WALL);
 	if ret == -1 {
