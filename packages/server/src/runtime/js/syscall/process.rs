@@ -43,16 +43,13 @@ pub async fn spawn(
 	Ok(output)
 }
 
-pub async fn wait(
-	state: Rc<State>,
-	args: (tg::process::Id,),
-) -> tg::Result<tg::process::wait::Output> {
+pub async fn wait(state: Rc<State>, args: (tg::process::Id,)) -> tg::Result<tg::process::Wait> {
 	let (id,) = args;
 	let server = state.server.clone();
 	let output = state
 		.main_runtime_handle
 		.spawn(async move {
-			let output = server.wait_process(&id).await?;
+			let output = server.wait_process(&id).await?.try_into()?;
 			Ok::<_, tg::Error>(output)
 		})
 		.await

@@ -26,6 +26,14 @@ pub struct Output {
 	pub status: tg::process::Status,
 }
 
+#[derive(Clone, Debug)]
+pub struct Wait {
+	pub error: Option<tg::Error>,
+	pub exit: Option<tg::process::Exit>,
+	pub output: Option<tg::Value>,
+	pub status: tg::process::Status,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Exit {
@@ -86,6 +94,19 @@ impl tg::Client {
 			})
 		});
 		Ok(future)
+	}
+}
+
+impl TryFrom<Output> for Wait {
+	type Error = tg::Error;
+
+	fn try_from(value: Output) -> Result<Self, Self::Error> {
+		Ok(Self {
+			error: value.error,
+			exit: value.exit,
+			output: value.output.map(tg::Value::try_from).transpose()?,
+			status: value.status,
+		})
 	}
 }
 

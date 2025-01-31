@@ -16,12 +16,9 @@ impl Cli {
 		let process = tg::Process::new(args.process, None, None, None);
 		let output = process.wait(&handle).await?;
 		let output = if output.status.is_succeeded() {
-			tg::Value::try_from(
-				output
-					.output
-					.ok_or_else(|| tg::error!("expected the output to be set"))?,
-			)
-			.map_err(|source| tg::error!(!source, "failed to get the output"))?
+			output
+				.output
+				.ok_or_else(|| tg::error!("expected the output to be set"))?
 		} else if let Some(error) = output.error {
 			return Err(tg::error!(!error, "the process failed"));
 		} else {

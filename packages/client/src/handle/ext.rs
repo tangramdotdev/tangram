@@ -431,8 +431,9 @@ pub trait Ext: tg::Handle {
 	) -> impl Future<Output = tg::Result<tg::Referent<Either<tg::process::Id, tg::object::Id>>>> + Send
 	{
 		self.try_get_reference(reference).map(|result| {
-			result
-				.and_then(|option| option.ok_or_else(|| tg::error!(%reference, "failed to get the reference")))
+			result.and_then(|option| {
+				option.ok_or_else(|| tg::error!(%reference, "failed to get the reference"))
+			})
 		})
 	}
 

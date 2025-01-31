@@ -205,8 +205,7 @@ impl Cli {
 		}
 		let output: tg::Value = output
 			.output
-			.ok_or_else(|| tg::error!("expected an output"))?
-			.try_into()?;
+			.ok_or_else(|| tg::error!("expected an output"))?;
 
 		// Check out the output if requested.
 		if let Some(path) = args.checkout {

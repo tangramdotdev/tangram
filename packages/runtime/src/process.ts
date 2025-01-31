@@ -33,12 +33,7 @@ export class Process {
 		let command = await tg.command(
 			{ env: tg.process.command().then((command) => command.env()) },
 			arg.command,
-			{
-				host: arg.host,
-				executable: arg.executable,
-				env: arg.env,
-				args: arg.args,
-			},
+			arg,
 		);
 		let cwd = "cwd" in arg ? arg.cwd : tg.process.#state!.cwd;
 		let processEnv =

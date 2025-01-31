@@ -521,21 +521,63 @@ impl FromV8 for tg::process::Status {
 	}
 }
 
-impl ToV8 for tg::process::wait::Output {
+impl ToV8 for tg::process::Wait {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let value = Serde::new(self);
-		let value = value.to_v8(scope)?;
-		Ok(value)
+		let object = v8::Object::new(scope);
+
+		let key = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
+		let value = self.error.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "exit".as_bytes()).unwrap();
+		let value = self.exit.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "output".as_bytes()).unwrap();
+		let value = self.output.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "status".as_bytes()).unwrap();
+		let value = self.status.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		Ok(object.into())
 	}
 }
 
-impl FromV8 for tg::process::wait::Output {
+impl FromV8 for tg::process::Wait {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		let value = Serde::from_v8(scope, value)?.into_inner();
-		Ok(value)
+		let value = value.to_object(scope).unwrap();
+
+		let error = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
+		let error = value.get(scope, error.into()).unwrap();
+		let error = <_>::from_v8(scope, error)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+
+		let exit = v8::String::new_external_onebyte_static(scope, "exit".as_bytes()).unwrap();
+		let exit = value.get(scope, exit.into()).unwrap();
+		let exit = <_>::from_v8(scope, exit)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the exit"))?;
+
+		let output = v8::String::new_external_onebyte_static(scope, "output".as_bytes()).unwrap();
+		let output = value.get(scope, output.into()).unwrap();
+		let output = <_>::from_v8(scope, output)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the output"))?;
+
+		let status = v8::String::new_external_onebyte_static(scope, "status".as_bytes()).unwrap();
+		let status = value.get(scope, status.into()).unwrap();
+		let status = <_>::from_v8(scope, status)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the status"))?;
+
+		Ok(Self {
+			error,
+			exit,
+			output,
+			status,
+		})
 	}
 }
 

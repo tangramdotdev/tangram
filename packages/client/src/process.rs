@@ -6,7 +6,11 @@ use std::{
 	sync::{Arc, RwLock},
 };
 
-pub use self::{id::Id, status::Status, wait::Exit};
+pub use self::{
+	id::Id,
+	status::Status,
+	wait::{Exit, Wait},
+};
 
 pub mod children;
 pub mod dequeue;
@@ -157,11 +161,11 @@ impl Process {
 		Ok(process)
 	}
 
-	pub async fn wait<H>(&self, handle: &H) -> tg::Result<tg::process::wait::Output>
+	pub async fn wait<H>(&self, handle: &H) -> tg::Result<tg::process::Wait>
 	where
 		H: tg::Handle,
 	{
-		handle.wait_process(&self.id).await
+		handle.wait_process(&self.id).await?.try_into()
 	}
 
 	pub async fn run<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Value>
@@ -174,7 +178,6 @@ impl Process {
 			return Err(error);
 		}
 		if let Some(output) = output.output {
-			let output = output.try_into()?;
 			return Ok(output);
 		}
 		Err(tg::error!("invalid output"))
