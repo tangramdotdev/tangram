@@ -243,18 +243,10 @@ impl Runtime {
 		// Spawn the child.
 		let mut child = process::spawn(args, cwd, env, executable, chroot, state.network)?;
 
-		// Spawn the input task.
-		let input_task = super::util::read_stdin_task(
-			&self.server,
-			&state,
-			remote.cloned(),
-			child.stdin.take().unwrap(),
-		);
-
 		// Spawn the log task.
 		let log_task = super::util::post_log_task(
 			&self.server,
-			&state,
+			process,
 			remote,
 			child.stdout.take().unwrap(),
 			child.stderr.take().unwrap(),
@@ -273,7 +265,7 @@ impl Runtime {
 		}
 
 		// Join the i/o tasks.
-		let (input, output) = future::try_join(input_task, log_task)
+		let (input, output) = future::try_join(future::ok(Ok::<_, tg::Error>(())), log_task)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to join the i/o tasks"))?;
 		input.map_err(|source| tg::error!(!source, "the stdin task failed"))?;
