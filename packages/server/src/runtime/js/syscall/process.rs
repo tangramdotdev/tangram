@@ -1,6 +1,6 @@
 use super::State;
 use std::{rc::Rc, sync::Arc};
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext};
 
 pub async fn load(
 	state: Rc<State>,
@@ -20,11 +20,11 @@ pub async fn load(
 pub async fn spawn(
 	state: Rc<State>,
 	args: (tg::process::spawn::Arg,),
-) -> tg::Result<tg::process::Id> {
+) -> tg::Result<tg::process::spawn::Output> {
 	let (arg,) = args;
 	let server = state.server.clone();
 	let parent = state.process.clone();
-	let process = state
+	let output = state
 		.main_runtime_handle
 		.spawn(async move {
 			let retry = *parent.retry(&server).await?;
@@ -35,12 +35,12 @@ pub async fn spawn(
 				retry,
 				..arg
 			};
-			let process = tg::Process::spawn(&server, arg).await?;
-			Ok::<_, tg::Error>(process)
+			let output = server.spawn_process(arg).await?;
+			Ok::<_, tg::Error>(output)
 		})
 		.await
 		.unwrap()?;
-	Ok(process.id().clone())
+	Ok(output)
 }
 
 pub async fn wait(
@@ -49,13 +49,10 @@ pub async fn wait(
 ) -> tg::Result<tg::process::wait::Output> {
 	let (id,) = args;
 	let server = state.server.clone();
-	let parent = state.process.clone();
 	let output = state
 		.main_runtime_handle
 		.spawn(async move {
-			let output = tg::Process::new(id, parent.remote().cloned(), None, None)
-				.wait(&server)
-				.await?;
+			let output = server.wait_process(&id).await?;
 			Ok::<_, tg::Error>(output)
 		})
 		.await

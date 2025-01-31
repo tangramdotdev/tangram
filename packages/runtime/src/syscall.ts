@@ -72,7 +72,7 @@ declare global {
 			remote: string | undefined;
 			retry: boolean;
 		},
-	): Promise<tg.Process.Id>;
+	): Promise<{ process: tg.Process.Id; remote: string | undefined }>;
 
 	function syscall(
 		syscall: "process_wait",

@@ -983,7 +983,7 @@ async fn test_build<F, Fut>(
 		let path = temp.path().join(path);
 		let target = format!("{path}#{target}", path = path.display());
 
-		// Build the module.
+		// Build.
 		let mut command = server.tg();
 		command.arg("build").arg(target);
 		for arg in args {

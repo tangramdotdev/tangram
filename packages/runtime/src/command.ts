@@ -144,7 +144,7 @@ export class Command<
 					return {
 						args: ["-c", arg],
 						executable: await tg.symlink("/bin/sh"),
-						host: (await tg.process.env())!.TANGRAM_HOST,
+						host: (await (await tg.process.command()).env())!.TANGRAM_HOST,
 					};
 				} else if (arg instanceof Command) {
 					return await arg.object();

@@ -43,7 +43,6 @@ export namespace Artifact {
 	): Promise<tg.Blob> => {
 		let value = await tg.build({
 			args: ["archive", artifact, format],
-			env: undefined,
 			host: "builtin",
 		});
 		tg.assert(tg.Blob.is(value));

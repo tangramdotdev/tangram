@@ -34,21 +34,23 @@ export class Process {
 			},
 		);
 		let cwd = "cwd" in arg ? arg.cwd : await tg.process.cwd();
+		let processEnv =
+			"processEnv" in arg ? arg.processEnv : await tg.process.env();
 		let network = "network" in arg ? arg.network : await tg.process.network();
-		let id = await syscall("process_spawn", {
+		let output = await syscall("process_spawn", {
 			checksum,
 			command: await command.id(),
 			create: false,
 			cwd,
-			env: arg.processEnv,
+			env: processEnv,
 			network,
 			parent: undefined,
 			remote: undefined,
 			retry: false,
 		});
 		return new tg.Process({
-			id,
-			remote: undefined,
+			id: output.process,
+			remote: output.remote,
 			state: undefined,
 		});
 	}
@@ -62,7 +64,6 @@ export class Process {
 		let process = await Process.spawn(
 			{
 				cwd: undefined,
-				env: undefined,
 				processEnv: {},
 				network: false,
 			},
@@ -125,7 +126,7 @@ export class Process {
 					return {
 						args: ["-c", arg],
 						executable: await tg.symlink("/bin/sh"),
-						host: (await process.env())!.TANGRAM_HOST,
+						host: (await (await tg.process.command()).env())!.TANGRAM_HOST,
 					};
 				} else if (arg instanceof tg.Command) {
 					return { command: await arg.object() };

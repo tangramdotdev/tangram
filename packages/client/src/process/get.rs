@@ -8,6 +8,7 @@ use time::format_description::well_known::Rfc3339;
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
 	pub command: tg::command::Id,
@@ -33,8 +34,10 @@ pub struct Output {
 	#[serde_as(as = "Rfc3339")]
 	pub created_at: time::OffsetDateTime,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cwd: Option<PathBuf>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub depth: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,6 +82,7 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub logs_weight: Option<u64>,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub network: bool,
 
 	#[serde(

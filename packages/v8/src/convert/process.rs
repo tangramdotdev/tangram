@@ -488,6 +488,24 @@ impl FromV8 for tg::process::spawn::Arg {
 	}
 }
 
+impl ToV8 for tg::process::spawn::Output {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let value = Serde::new(self);
+		let value = value.to_v8(scope)?;
+		Ok(value)
+	}
+}
+
+impl FromV8 for tg::process::spawn::Output {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		let value = Serde::from_v8(scope, value)?.into_inner();
+		Ok(value)
+	}
+}
+
 impl ToV8 for tg::process::Status {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.to_string().to_v8(scope)
