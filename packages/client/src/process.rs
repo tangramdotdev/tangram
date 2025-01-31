@@ -47,7 +47,7 @@ pub struct State {
 	pub count: Option<u64>,
 	pub created_at: time::OffsetDateTime,
 	pub cwd: Option<PathBuf>,
-	pub depth: u64,
+	pub depth: Option<u64>,
 	pub dequeued_at: Option<time::OffsetDateTime>,
 	pub enqueued_at: Option<time::OffsetDateTime>,
 	pub env: Option<BTreeMap<String, String>>,

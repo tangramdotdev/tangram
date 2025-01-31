@@ -35,7 +35,7 @@ pub struct Output {
 
 	pub cwd: Option<PathBuf>,
 
-	pub depth: u64,
+	pub depth: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]

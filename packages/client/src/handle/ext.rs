@@ -432,7 +432,7 @@ pub trait Ext: tg::Handle {
 	{
 		self.try_get_reference(reference).map(|result| {
 			result
-				.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the reference")))
+				.and_then(|option| option.ok_or_else(|| tg::error!(%reference, "failed to get the reference")))
 		})
 	}
 
