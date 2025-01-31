@@ -36,7 +36,7 @@ impl FromStr for Level {
 		match s {
 			"log" => Ok(Level::Log),
 			"error" => Ok(Level::Error),
-			level => return Err(tg::error!(%level, "expected a log level")),
+			level => Err(tg::error!(%level, "expected a log level")),
 		}
 	}
 }

@@ -27,6 +27,7 @@ pub enum Runtime {
 pub struct Output {
 	pub error: Option<tg::Error>,
 	pub exit: Option<tg::process::Exit>,
+	#[allow(clippy::struct_field_names)]
 	pub output: Option<tg::Value>,
 }
 

@@ -43,6 +43,7 @@ pub fn syscall<'s>(
 		"log" => sync(scope, &args, self::log::log),
 		"object_load" => async_(scope, &args, self::object::load),
 		"object_store" => async_(scope, &args, self::object::store),
+		"process_load" => async_(scope, &args, self::process::load),
 		"process_spawn" => async_(scope, &args, self::process::spawn),
 		"process_wait" => async_(scope, &args, self::process::wait),
 		"sleep" => async_(scope, &args, self::sleep::sleep),

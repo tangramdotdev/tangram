@@ -1,6 +1,21 @@
 use super::State;
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 use tangram_client as tg;
+
+pub async fn load(
+	state: Rc<State>,
+	args: (tg::process::Id, Option<String>),
+) -> tg::Result<Arc<tg::process::State>> {
+	let (id, remote) = args;
+	let server = state.server.clone();
+	let state = state
+		.main_runtime_handle
+		.spawn(async move { tg::Process::new(id, remote, None, None).load(&server).await })
+		.await
+		.unwrap()
+		.map_err(|source| tg::error!(!source, "failed to load the process"))?;
+	Ok(state)
+}
 
 pub async fn spawn(
 	state: Rc<State>,
@@ -38,7 +53,7 @@ pub async fn wait(
 	let output = state
 		.main_runtime_handle
 		.spawn(async move {
-			let output = tg::Process::new(id, parent.remote().cloned(), None)
+			let output = tg::Process::new(id, parent.remote().cloned(), None, None)
 				.wait(&server)
 				.await?;
 			Ok::<_, tg::Error>(output)

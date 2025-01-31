@@ -936,9 +936,6 @@ declare namespace tg {
 	export let process: tg.Process;
 
 	export class Process {
-		/** Get a process with an ID. */
-		static withId(id: tg.Process.Id): tg.Process;
-
 		/** Expect that a value is a `tg.Process`. */
 		static expect(value: unknown): tg.Process;
 
@@ -968,15 +965,6 @@ declare namespace tg {
 
 		/** Get whether this process has the network enabled. */
 		network(): Promise<boolean>;
-
-		/** Get this process's stderr. */
-		stderr(): Promise<string | undefined>;
-
-		/** Get this process's stdin. */
-		stdin(): Promise<string | undefined>;
-
-		/** Get this process's stdout. */
-		stdout(): Promise<string | undefined>;
 	}
 
 	export namespace Process {
@@ -1014,15 +1002,6 @@ declare namespace tg {
 
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
-
-			/** The process's stderr. */
-			stderr?: string | undefined;
-
-			/** The process's stdin. */
-			stdin?: string | undefined;
-
-			/** The process's stdout. */
-			stdout?: string | undefined;
 		};
 	}
 

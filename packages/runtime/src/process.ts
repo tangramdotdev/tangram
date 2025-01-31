@@ -9,10 +9,12 @@ export let setProcess = async (process_: Process) => {
 
 export class Process {
 	#id: tg.Process.Id;
+	#remote: string | undefined;
 	#state: tg.Process.State | undefined;
 
 	constructor(arg: tg.Process.ConstructorArg) {
 		this.#id = arg.id;
+		this.#remote = arg.remote;
 		this.#state = arg.state;
 	}
 
@@ -33,9 +35,6 @@ export class Process {
 		);
 		let cwd = "cwd" in arg ? arg.cwd : await tg.process.cwd();
 		let network = "network" in arg ? arg.network : await tg.process.network();
-		let stdin = "stdin" in arg ? arg.stdin : await tg.process.stdin();
-		let stdout = "stdout" in arg ? arg.stdout : await tg.process.stdout();
-		let stderr = "stderr" in arg ? arg.stderr : await tg.process.stderr();
 		let id = await syscall("process_spawn", {
 			checksum,
 			command: await command.id(),
@@ -46,15 +45,16 @@ export class Process {
 			parent: undefined,
 			remote: undefined,
 			retry: false,
-			stderr,
-			stdin,
-			stdout,
 		});
-		return new tg.Process({ id, state: undefined });
+		return new tg.Process({
+			id,
+			remote: undefined,
+			state: undefined,
+		});
 	}
 
 	async wait(): Promise<tg.Process.WaitOutput> {
-		let output = await syscall("process_wait", this.#id);
+		let output = await syscall("process_wait", this.#id, this.#remote);
 		return output;
 	}
 
@@ -65,9 +65,6 @@ export class Process {
 				env: undefined,
 				processEnv: {},
 				network: false,
-				stdin: undefined,
-				stdout: undefined,
-				stderr: undefined,
 			},
 			...args,
 		);
@@ -89,10 +86,6 @@ export class Process {
 		return output.output;
 	}
 
-	static withId(id: tg.Process.Id): tg.Process {
-		return new Process({ id, state: undefined });
-	}
-
 	static expect(value: unknown): tg.Process {
 		tg.assert(value instanceof Process);
 		return value;
@@ -103,7 +96,7 @@ export class Process {
 	}
 
 	async load(): Promise<void> {
-		let state = await syscall("process_load", this.#id);
+		let state = await syscall("process_load", this.#id, this.#remote);
 		this.#state = state;
 	}
 
@@ -173,26 +166,12 @@ export class Process {
 		await this.load();
 		return this.#state!.network;
 	}
-
-	async stderr(): Promise<string | undefined> {
-		await this.load();
-		return this.#state!.stderr;
-	}
-
-	async stdin(): Promise<string | undefined> {
-		await this.load();
-		return this.#state!.stdin;
-	}
-
-	async stdout(): Promise<string | undefined> {
-		await this.load();
-		return this.#state!.stdout;
-	}
 }
 
 export namespace Process {
 	export type ConstructorArg = {
 		id: tg.Process.Id;
+		remote: string | undefined;
 		state: State | undefined;
 	};
 
@@ -218,9 +197,6 @@ export namespace Process {
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
 		network?: boolean | undefined;
-		stderr?: string | undefined;
-		stdin?: string | undefined;
-		stdout?: string | undefined;
 	};
 
 	export type State = {
@@ -233,9 +209,6 @@ export namespace Process {
 		network: boolean;
 		output: tg.Value | undefined;
 		status: tg.Process.Status;
-		stderr: string | undefined;
-		stdin: string | undefined;
-		stdout: string | undefined;
 	};
 
 	export type Status =

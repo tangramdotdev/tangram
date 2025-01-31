@@ -262,11 +262,11 @@ where
 		match self {
 			Either::Left(s) => s
 				.wait_process_future(id)
-				.map_ok(|future| future.left_future())
+				.map_ok(futures::FutureExt::left_future)
 				.left_future(),
 			Either::Right(s) => s
 				.wait_process_future(id)
-				.map_ok(|future| future.right_future())
+				.map_ok(futures::FutureExt::right_future)
 				.right_future(),
 		}
 	}

@@ -9,17 +9,19 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 	// biome-ignore lint/security/noGlobalEval: special import
 	let namespace = await eval(`import("!")`);
 
-	// Get the command name.
-	if (tg.process.args.length < 1) {
+	// Get the target.
+	const command = await tg.process.command();
+	const args = await command.args();
+	if (args.length < 1) {
 		throw new Error("the command must have at least one argument");
 	}
-	let name = tg.process.args.at(0);
-	if (typeof name !== "string") {
+	let target = args.at(0);
+	if (typeof target !== "string") {
 		throw new Error("the command's first argument must be a string");
 	}
 
 	// Get the command.
-	let value = namespace[name];
+	let value = namespace[target];
 	let function_: Function;
 	if (value instanceof tg.Command) {
 		function_ = value.function()!;
@@ -30,7 +32,7 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 	}
 
 	// Call the function and resolve its output.
-	let output = await tg.resolve(function_!(...tg.process.args.slice(1)));
+	let output = await tg.resolve(function_!(...args.slice(1)));
 
 	return output;
 };

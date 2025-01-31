@@ -55,14 +55,13 @@ pub struct State {
 	pub exit: Option<tg::process::Exit>,
 	pub finished_at: Option<time::OffsetDateTime>,
 	pub heartbeat_at: Option<time::OffsetDateTime>,
-	pub id: tg::process::Id,
-	pub log: Option<tg::blob::Id>,
+	pub log: Option<tg::Blob>,
 	pub logs_complete: bool,
 	pub logs_count: Option<u64>,
 	pub logs_depth: Option<u64>,
 	pub logs_weight: Option<u64>,
 	pub network: bool,
-	pub output: Option<tg::value::Data>,
+	pub output: Option<tg::Value>,
 	pub outputs_complete: bool,
 	pub outputs_count: Option<u64>,
 	pub outputs_depth: Option<u64>,
@@ -70,16 +69,18 @@ pub struct State {
 	pub retry: bool,
 	pub started_at: Option<time::OffsetDateTime>,
 	pub status: tg::process::Status,
-	pub stderr: Option<tg::pipe::Id>,
-	pub stdin: Option<tg::pipe::Id>,
-	pub stdout: Option<tg::pipe::Id>,
 	pub touched_at: Option<time::OffsetDateTime>,
 }
 
 impl Process {
 	#[must_use]
-	pub fn new(id: Id, remote: Option<String>, token: Option<String>) -> Self {
-		let state = RwLock::new(None);
+	pub fn new(
+		id: Id,
+		remote: Option<String>,
+		state: Option<State>,
+		token: Option<String>,
+	) -> Self {
+		let state = RwLock::new(state.map(Arc::new));
 		Self(Arc::new(Inner {
 			id,
 			remote,
@@ -96,6 +97,11 @@ impl Process {
 	#[must_use]
 	pub fn remote(&self) -> Option<&String> {
 		self.remote.as_ref()
+	}
+
+	#[must_use]
+	pub fn state(&self) -> &RwLock<Option<Arc<State>>> {
+		&self.state
 	}
 
 	#[must_use]
@@ -122,45 +128,7 @@ impl Process {
 		let Some(output) = handle.try_get_process(self.id()).await? else {
 			return Ok(None);
 		};
-		let state = State {
-			checksum: output.checksum,
-			command: tg::Command::with_id(output.command),
-			commands_complete: output.commands_complete,
-			commands_count: output.commands_count,
-			commands_depth: output.commands_depth,
-			commands_weight: output.commands_weight,
-			complete: output.complete,
-			count: output.count,
-			created_at: output.created_at,
-			cwd: output.cwd,
-			depth: output.depth,
-			dequeued_at: output.dequeued_at,
-			enqueued_at: output.enqueued_at,
-			env: output.env,
-			error: output.error,
-			exit: output.exit,
-			finished_at: output.finished_at,
-			heartbeat_at: output.heartbeat_at,
-			id: output.id,
-			log: output.log,
-			logs_complete: output.logs_complete,
-			logs_count: output.logs_count,
-			logs_depth: output.logs_depth,
-			logs_weight: output.logs_weight,
-			network: output.network,
-			output: output.output,
-			outputs_complete: output.outputs_complete,
-			outputs_count: output.outputs_count,
-			outputs_depth: output.outputs_depth,
-			outputs_weight: output.outputs_weight,
-			retry: output.retry,
-			started_at: output.started_at,
-			status: output.status,
-			stderr: output.stderr,
-			stdin: output.stdin,
-			stdout: output.stdout,
-			touched_at: output.touched_at,
-		};
+		let state: tg::process::State = output.try_into()?;
 		let state = Arc::new(state);
 		self.state.write().unwrap().replace(state.clone());
 		Ok(Some(state))
@@ -185,7 +153,7 @@ impl Process {
 		H: tg::Handle,
 	{
 		let output = handle.spawn_process(arg).await?;
-		let process = tg::Process::new(output.process, output.remote, None);
+		let process = tg::Process::new(output.process, output.remote, None, None);
 		Ok(process)
 	}
 
@@ -196,18 +164,20 @@ impl Process {
 		handle.wait_process(&self.id).await
 	}
 
-	pub async fn build<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Value>
-	where
-		H: tg::Handle,
-	{
-		todo!()
-	}
-
 	pub async fn run<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,
 	{
-		todo!()
+		let process = Self::spawn(handle, arg).await?;
+		let output = process.wait(handle).await?;
+		if let Some(error) = output.error {
+			return Err(error);
+		}
+		if let Some(output) = output.output {
+			let output = output.try_into()?;
+			return Ok(output);
+		}
+		Err(tg::error!("invalid output"))
 	}
 }
 
@@ -216,5 +186,80 @@ impl Deref for Process {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+impl TryFrom<tg::process::get::Output> for tg::process::State {
+	type Error = tg::Error;
+
+	fn try_from(value: tg::process::get::Output) -> Result<Self, Self::Error> {
+		let checksum = value.checksum;
+		let command = tg::Command::with_id(value.command);
+		let commands_complete = value.commands_complete;
+		let commands_count = value.commands_count;
+		let commands_depth = value.commands_depth;
+		let commands_weight = value.commands_weight;
+		let complete = value.complete;
+		let count = value.count;
+		let created_at = value.created_at;
+		let cwd = value.cwd;
+		let depth = value.depth;
+		let dequeued_at = value.dequeued_at;
+		let enqueued_at = value.enqueued_at;
+		let env = value.env;
+		let error = value.error;
+		let exit = value.exit;
+		let finished_at = value.finished_at;
+		let heartbeat_at = value.heartbeat_at;
+		let log = value.log.map(tg::Blob::with_id);
+		let logs_complete = value.logs_complete;
+		let logs_count = value.logs_count;
+		let logs_depth = value.logs_depth;
+		let logs_weight = value.logs_weight;
+		let network = value.network;
+		let output = value.output.map(tg::Value::try_from).transpose()?;
+		let outputs_complete = value.outputs_complete;
+		let outputs_count = value.outputs_count;
+		let outputs_depth = value.outputs_depth;
+		let outputs_weight = value.outputs_weight;
+		let retry = value.retry;
+		let started_at = value.started_at;
+		let status = value.status;
+		let touched_at = value.touched_at;
+		Ok(State {
+			checksum,
+			command,
+			commands_complete,
+			commands_count,
+			commands_depth,
+			commands_weight,
+			complete,
+			count,
+			created_at,
+			cwd,
+			depth,
+			dequeued_at,
+			enqueued_at,
+			env,
+			error,
+			exit,
+			finished_at,
+			heartbeat_at,
+			log,
+			logs_complete,
+			logs_count,
+			logs_depth,
+			logs_weight,
+			network,
+			output,
+			outputs_complete,
+			outputs_count,
+			outputs_depth,
+			outputs_weight,
+			retry,
+			started_at,
+			status,
+			touched_at,
+		})
 	}
 }

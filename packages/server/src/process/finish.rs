@@ -315,7 +315,7 @@ impl Server {
 			parent: Some(parent_process_id),
 			..Default::default()
 		};
-		let output = tg::Process::build(self, arg)
+		let output = tg::Process::run(self, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
 

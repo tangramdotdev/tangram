@@ -64,7 +64,7 @@ impl tg::Process {
 							chunk
 								.data
 								.into_iter()
-								.map(|id| tg::Process::new(id, None, None))
+								.map(|id| tg::Process::new(id, None, None, None))
 								.map(Ok),
 						)
 					})

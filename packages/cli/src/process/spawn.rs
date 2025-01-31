@@ -1,6 +1,5 @@
 use crate::Cli;
 use crossterm::style::Stylize as _;
-use futures::TryFutureExt as _;
 use itertools::Itertools as _;
 use std::path::Path;
 use tangram_client::{self as tg, Handle as _};

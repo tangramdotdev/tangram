@@ -172,14 +172,13 @@ fn main() {
 
 	// Build the runtime.
 	println!("cargo:rerun-if-changed=../../packages/runtime");
-	// TODO
-	// std::process::Command::new("bun")
-	// 	.args(["run", "--cwd", "../../packages/runtime", "check"])
-	// 	.status()
-	// 	.unwrap()
-	// 	.success()
-	// 	.then_some(())
-	// 	.unwrap();
+	std::process::Command::new("bun")
+		.args(["run", "--cwd", "../../packages/runtime", "check"])
+		.status()
+		.unwrap()
+		.success()
+		.then_some(())
+		.unwrap();
 	std::process::Command::new("bun")
 		.args([
 			"build",

@@ -1,6 +1,5 @@
 use crate as tg;
 use futures::{future, Future, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
-use std::pin::pin;
 use tangram_futures::stream::TryExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 

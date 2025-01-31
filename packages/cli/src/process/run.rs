@@ -182,20 +182,9 @@ impl Cli {
 			result
 		};
 
-		// // Close the pipes.
-		// for pipe in [stderr, stdin, stdout].into_iter().flatten() {
-		// 	handle.close_pipe(&pipe).await.ok();
-		// }
-
 		// Get the output or return an error if we failed to wait for the process.
 		let output =
 			result.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
-
-		// // Wait for the stdio task.
-		// if let Some(stdio_task) = stdio_task {
-		// 	stdio_task.stop();
-		// 	stdio_task.wait().await.unwrap();
-		// }
 
 		// Return an error if appropriate.
 		if let Some(source) = output.error {

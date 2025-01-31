@@ -55,7 +55,8 @@ declare global {
 
 	function syscall(
 		syscall: "process_load",
-		arg: tg.Process.Id,
+		id: tg.Process.Id,
+		remote: string | undefined,
 	): Promise<tg.Process.State>;
 
 	function syscall(
@@ -70,15 +71,13 @@ declare global {
 			parent: tg.Process.Id | undefined;
 			remote: string | undefined;
 			retry: boolean;
-			stderr: string | undefined;
-			stdin: string | undefined;
-			stdout: string | undefined;
 		},
 	): Promise<tg.Process.Id>;
 
 	function syscall(
 		syscall: "process_wait",
-		arg: tg.Process.Id,
+		id: tg.Process.Id,
+		remote: string | undefined,
 	): Promise<tg.Process.WaitOutput>;
 
 	function syscall(syscall: "sleep", duration: number): Promise<void>;

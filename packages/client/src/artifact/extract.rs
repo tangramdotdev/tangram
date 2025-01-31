@@ -14,7 +14,7 @@ impl tg::Artifact {
 			command: Some(command.id(handle).await?),
 			..Default::default()
 		};
-		let output = tg::Process::build(handle, arg).await?;
+		let output = tg::Process::run(handle, arg).await?;
 		let artifact = output.try_into()?;
 		Ok(artifact)
 	}

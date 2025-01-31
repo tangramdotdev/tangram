@@ -156,14 +156,14 @@ impl Runtime {
 		env.insert("OUTPUT".to_owned(), output.display().to_string());
 
 		// Set `$TANGRAM_URL`.
-		let url = proxy
-			.as_ref()
-			.map(|(_, url)| url.to_string())
-			.unwrap_or_else(|| {
+		let url = proxy.as_ref().map_or_else(
+			|| {
 				let path = self.server.path.join("socket").display().to_string();
 				let path = urlencoding::encode(&path);
 				format!("http+unix://{path}")
-			});
+			},
+			|(_, url)| url.to_string(),
+		);
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 		// Create the sandbox profile.
@@ -210,18 +210,10 @@ impl Runtime {
 			kill_process_tree(pid);
 		}
 
-		// Spawn the input task.
-		let input_task = super::util::read_stdin_task(
-			&self.server,
-			&state,
-			remote.cloned(),
-			child.stdin.take().unwrap(),
-		);
-
 		// Spawn the log task.
 		let log_task = super::util::post_log_task(
 			&self.server,
-			&state,
+			process,
 			remote,
 			child.stdout.take().unwrap(),
 			child.stderr.take().unwrap(),
@@ -247,7 +239,7 @@ impl Runtime {
 		}
 
 		// Join the i/o tasks.
-		let (input, output) = future::try_join(input_task, log_task)
+		let (input, output) = future::try_join(future::ok(Ok::<_, tg::Error>(())), log_task)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to join the i/o tasks"))?;
 		input.map_err(|source| tg::error!(!source, "the stdin task failed"))?;
@@ -297,10 +289,10 @@ fn create_sandbox_profile(
 	if process.cwd.is_some() {
 		writedoc!(
 			profile,
-			r#"
+			"
 				;; Allow everything by default.
 				(allow default)
-			"#
+			"
 		)
 		.unwrap();
 	} else {

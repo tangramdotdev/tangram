@@ -109,15 +109,6 @@ pub struct Output {
 	pub status: tg::process::Status,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stderr: Option<tg::pipe::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdin: Option<tg::pipe::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdout: Option<tg::pipe::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub touched_at: Option<time::OffsetDateTime>,
 }

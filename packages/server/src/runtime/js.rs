@@ -109,9 +109,8 @@ impl Runtime {
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<tg::Value> {
-		let command = process.command(&self.server).await?;
-
 		// Get the root module.
+		let command = process.command(&self.server).await?;
 		let root = command
 			.executable(&self.server)
 			.await?
@@ -156,18 +155,6 @@ impl Runtime {
 						bytes: bytes.clone(),
 						remote: process.remote().map(ToOwned::to_owned),
 					};
-					match level {
-						syscall::log::Level::Log => {
-							if let Some(pipe) = &state.stdout {
-								server.write_pipe_chunk(pipe, bytes.clone()).await.ok();
-							}
-						},
-						syscall::log::Level::Error => {
-							if let Some(pipe) = &state.stderr {
-								server.write_pipe_chunk(pipe, bytes.clone()).await.ok();
-							}
-						},
-					}
 					server.try_post_process_log(process.id(), arg).await.ok();
 				}
 			}
@@ -268,10 +255,10 @@ impl Runtime {
 
 			// Call the start function.
 			let undefined = v8::undefined(scope);
-			let command = command
+			let process = process
 				.to_v8(scope)
 				.map_err(|source| tg::error!(!source, "failed to serialize the command"))?;
-			let value = start.call(scope, undefined.into(), &[command]).unwrap();
+			let value = start.call(scope, undefined.into(), &[process]).unwrap();
 
 			// Make the value global.
 			v8::Global::new(scope, value)
