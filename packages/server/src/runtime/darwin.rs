@@ -123,17 +123,13 @@ impl Runtime {
 		let executable = render(&self.server, &executable.into(), &artifacts_path).await?;
 
 		// Render the env.
-		let env = command.env(&self.server).await?;
-		let mut env: BTreeMap<String, String> = env
-			.iter()
-			.map(|(key, value)| async {
-				let key = key.clone();
-				let value = render(&self.server, value, &artifacts_path).await?;
-				Ok::<_, tg::Error>((key, value))
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+		let command_env = command.env(&self.server).await?;
+		let process_env = state.env.as_ref();
+
+		// Merge the environment.
+		let mut env =
+			super::util::merge_env(&self.server, &artifacts_path, process_env, &*command_env)
+				.await?;
 
 		// Render the args.
 		let args = command.args(&self.server).await?;

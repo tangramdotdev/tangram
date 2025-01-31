@@ -8,7 +8,7 @@ use futures::{
 	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
 };
-use std::{collections::BTreeMap, path::Path};
+use std::path::Path;
 use tangram_client as tg;
 use tangram_futures::task::Task;
 use url::Url;
@@ -187,18 +187,16 @@ impl Runtime {
 			WORKING_DIRECTORY_GUEST_PATH.into()
 		};
 
-		// Render the env.
-		let env = command.env(&self.server).await?;
-		let mut env: BTreeMap<String, String> = env
-			.iter()
-			.map(|(key, value)| async {
-				let key = key.clone();
-				let value = render(&self.server, value, &artifacts_path).await?;
-				Ok::<_, tg::Error>((key, value))
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+		// Get the command env.
+		let command_env = command.env(&self.server).await?;
+
+		// Get the process env.
+		let process_env = state.env.as_ref();
+
+		// Merge the environment.
+		let mut env =
+			super::util::merge_env(&self.server, &artifacts_path, process_env, &*command_env)
+				.await?;
 
 		// Render the executable.
 		let Some(tg::command::Executable::Artifact(executable)) =

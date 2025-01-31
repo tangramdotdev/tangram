@@ -1,7 +1,8 @@
 use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
-use std::{path::Path, pin::pin};
+use futures::{stream::FuturesOrdered, TryStreamExt};
+use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 
@@ -128,4 +129,37 @@ pub async fn compute_checksum(
 	tg::Process::run(runtime.server(), arg).await?;
 
 	Ok(())
+}
+
+pub async fn merge_env(
+	server: &Server,
+	artifacts_path: &Path,
+	process: Option<&BTreeMap<String, String>>,
+	command: &tg::value::Map,
+) -> tg::Result<BTreeMap<String, String>> {
+	let mut env = process
+		.iter()
+		.flat_map(|env| env.iter())
+		.map(|(key, value)| (key.to_owned(), tg::Value::String(value.clone())))
+		.collect::<tg::value::Map>();
+
+	for (key, value) in command {
+		let mutation = match value {
+			tg::Value::Mutation(value) => value.clone(),
+			value => tg::Mutation::Set {
+				value: Box::new(value.clone()),
+			},
+		};
+		mutation.apply(key, &mut env)?;
+	}
+
+	env.iter()
+		.map(|(key, value)| async {
+			let key = key.clone();
+			let value = render(server, value, &artifacts_path).await?;
+			Ok::<_, tg::Error>((key, value))
+		})
+		.collect::<FuturesOrdered<_>>()
+		.try_collect()
+		.await
 }
