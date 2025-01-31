@@ -12,7 +12,6 @@ use std::{
 use tangram_client as tg;
 
 pub struct Chroot {
-	pub cwd: PathBuf,
 	pub home: PathBuf,
 	pub temp: Temp,
 	pub mounts: Vec<Mount>,
@@ -285,7 +284,6 @@ impl Chroot {
 		})?;
 
 		Ok(Self {
-			cwd: working_directory_host_path,
 			home: home_directory_guest_path,
 			temp,
 			root,
