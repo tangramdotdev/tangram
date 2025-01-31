@@ -58,9 +58,6 @@ impl Server {
 					retry,
 					started_at,
 					status,
-					stderr,
-					stdin,
-					stdout,
 					touched_at
 				)
 				values (
@@ -80,10 +77,7 @@ impl Server {
 					{p}14,
 					{p}15,
 					{p}16,
-					{p}17,
-					{p}18,
-					{p}19,
-					{p}20
+					{p}17
 				)
 				on conflict (id) do update set
 					command = {p}2,
@@ -101,10 +95,7 @@ impl Server {
 					retry = {p}14,
 					started_at = {p}15,
 					status = {p}16,
-					stderr = {p}17,
-					stdin = {p}18,
-					stdout = {p}19,
-					touched_at = {p}20
+					touched_at = {p}17
 				returning
 					commands_complete,
 					complete,
@@ -129,9 +120,6 @@ impl Server {
 			arg.retry,
 			arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.status,
-			arg.stderr,
-			arg.stdin,
-			arg.stdout,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		let row = transaction

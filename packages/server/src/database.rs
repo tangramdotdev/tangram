@@ -181,9 +181,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				retry integer not null,
 				started_at text,
 				status text not null,
-				stderr text,
-				stdin text,
-				stdout text,
 				touched_at text
 			);
 

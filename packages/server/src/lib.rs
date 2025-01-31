@@ -1054,11 +1054,15 @@ impl tg::Handle for Server {
 		self.try_spawn_process(arg)
 	}
 
-	fn wait_process(
+	fn wait_process_future(
 		&self,
 		id: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<tg::process::wait::Output>> {
-		self.wait_process(id)
+	) -> impl Future<
+		Output = tg::Result<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
+	> {
+		self.wait_process_future(id)
 	}
 
 	fn lsp(

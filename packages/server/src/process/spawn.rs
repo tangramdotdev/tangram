@@ -30,12 +30,7 @@ impl Server {
 		}
 
 		// Determine if the process is cacheable.
-		let sandboxed = arg.cwd.is_none()
-			&& arg.env.is_none()
-			&& !arg.network
-			&& arg.stdin.is_none()
-			&& arg.stdout.is_none()
-			&& arg.stderr.is_none();
+		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
 		let cacheable = arg.checksum.is_some() || sandboxed;
 
 		// If the process is cacheable, then get a matching local process if one exists.
@@ -199,9 +194,6 @@ impl Server {
 			retry: arg.retry,
 			started_at: None,
 			status: tg::process::Status::Enqueued,
-			stderr: arg.stderr,
-			stdin: arg.stdin,
-			stdout: arg.stdout,
 		};
 		self.put_process(&id, put_arg).await?;
 

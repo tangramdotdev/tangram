@@ -41,7 +41,7 @@ export class Process {
 			command: await command.id(),
 			create: false,
 			cwd,
-			env: arg.process_env,
+			env: arg.processEnv,
 			network,
 			parent: undefined,
 			remote: undefined,
@@ -63,7 +63,7 @@ export class Process {
 			{
 				cwd: undefined,
 				env: undefined,
-				process_env: {},
+				processEnv: {},
 				network: false,
 				stdin: undefined,
 				stdout: undefined,
@@ -213,7 +213,7 @@ export namespace Process {
 		checksum?: tg.Checksum | undefined;
 		command?: tg.Command.Arg | undefined;
 		cwd?: string | undefined;
-		process_env?: { [key: string]: string } | undefined;
+		processEnv?: { [key: string]: string } | undefined;
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;

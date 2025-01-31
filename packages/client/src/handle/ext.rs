@@ -381,6 +381,21 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
+	fn wait_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::wait::Output>> + Send {
+		async move {
+			let mut future = self.wait_process_future(id).await?;
+			loop {
+				if let Some(output) = future.await? {
+					return Ok(output);
+				};
+				future = self.wait_process_future(id).await?;
+			}
+		}
+	}
+
 	fn get_object_metadata(
 		&self,
 		id: &tg::object::Id,

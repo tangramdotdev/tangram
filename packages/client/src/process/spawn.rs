@@ -32,15 +32,6 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stderr: Option<tg::pipe::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdin: Option<tg::pipe::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdout: Option<tg::pipe::Id>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -86,9 +77,6 @@ impl Default for Arg {
 			parent: None,
 			remote: None,
 			retry: false,
-			stderr: None,
-			stdin: None,
-			stdout: None,
 		}
 	}
 }

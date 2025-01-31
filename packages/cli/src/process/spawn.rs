@@ -282,15 +282,11 @@ impl Cli {
 		}
 
 		// Handle build vs run.
-		let (cwd, env, network, stdin, stdout, stderr, stdio_task) = if args.sandbox {
+		let (cwd, env, network) = if args.sandbox {
 			let cwd = None;
 			let env = None;
 			let network = false;
-			let stdin = None;
-			let stdout = None;
-			let stderr = None;
-			let stdio_task = None;
-			(cwd, env, network, stdin, stdout, stderr, stdio_task)
+			(cwd, env, network)
 		} else {
 			let cwd =
 				Some(std::env::current_dir().map_err(|source| {
@@ -298,19 +294,7 @@ impl Cli {
 				})?);
 			let env = Some(std::env::vars().collect());
 			let network = true;
-			let (stdin, stdout, stderr) = futures::try_join!(
-				handle.open_pipe().map_ok(|output| Some(output.id)),
-				handle.open_pipe().map_ok(|output| Some(output.id)),
-				handle.open_pipe().map_ok(|output| Some(output.id)),
-			)?;
-			// let stdio_task = Some(spawn_stdio_task(
-			// 	&handle,
-			// 	stdin.clone(),
-			// 	stdout.clone(),
-			// 	stderr.clone(),
-			// ));
-			let stdio_task = Some(());
-			(cwd, env, network, stdin, stdout, stderr, stdio_task)
+			(cwd, env, network)
 		};
 
 		// Spawn the process.
@@ -324,9 +308,6 @@ impl Cli {
 			parent: None,
 			remote: remote.clone(),
 			retry,
-			stderr: stderr.clone(),
-			stdin: stdin.clone(),
-			stdout: stdout.clone(),
 		};
 		let process = tg::Process::spawn(&handle, arg).await?;
 

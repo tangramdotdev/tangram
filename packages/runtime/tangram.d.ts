@@ -1012,17 +1012,17 @@ declare namespace tg {
 			/** The command's host. */
 			host?: string | undefined;
 
-			/** configure whether the process has access to the network. **/
+			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
 
 			/** The process's stderr. */
-			stderr: string | undefined;
+			stderr?: string | undefined;
 
 			/** The process's stdin. */
-			stdin: string | undefined;
+			stdin?: string | undefined;
 
 			/** The process's stdout. */
-			stdout: string | undefined;
+			stdout?: string | undefined;
 		};
 	}
 

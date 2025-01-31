@@ -249,9 +249,6 @@ impl Server {
 						retry: output.retry,
 						started_at: output.started_at,
 						status: output.status,
-						stderr: output.stderr,
-						stdin: output.stdin,
-						stdout: output.stdout,
 					};
 					server.put_process(&id, arg).await?;
 					Ok::<_, tg::Error>(())

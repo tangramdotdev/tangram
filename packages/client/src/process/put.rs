@@ -55,15 +55,6 @@ pub struct Arg {
 	pub started_at: Option<time::OffsetDateTime>,
 
 	pub status: tg::process::Status,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stderr: Option<tg::pipe::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdin: Option<tg::pipe::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdout: Option<tg::pipe::Id>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

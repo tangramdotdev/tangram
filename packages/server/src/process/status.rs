@@ -17,7 +17,7 @@ impl Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 	> {
-		if let Some(status) = self.try_get_process_status_local_stream(id).await? {
+		if let Some(status) = self.try_get_process_status_stream_local(id).await? {
 			Ok(Some(status.left_stream()))
 		} else if let Some(status) = self.try_get_process_status_remote(id).await? {
 			let status = status.right_stream();
@@ -27,7 +27,7 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn try_get_process_status_local_stream(
+	pub(crate) async fn try_get_process_status_stream_local(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<
