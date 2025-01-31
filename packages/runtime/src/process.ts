@@ -1,3 +1,4 @@
+import { mutate } from "./args.ts";
 import * as tg from "./index.ts";
 import { flatten } from "./util.ts";
 
@@ -8,11 +9,13 @@ export let setProcess = async (process_: Process) => {
 };
 
 export class Process {
+	#env: { [name: string]: tg.Value } | undefined;
 	#id: tg.Process.Id;
 	#remote: string | undefined;
 	#state: tg.Process.State | undefined;
 
 	constructor(arg: tg.Process.ConstructorArg) {
+		this.#env = undefined;
 		this.#id = arg.id;
 		this.#remote = arg.remote;
 		this.#state = arg.state;
@@ -37,10 +40,10 @@ export class Process {
 				args: arg.args,
 			},
 		);
-		let cwd = "cwd" in arg ? arg.cwd : await tg.process.cwd();
+		let cwd = "cwd" in arg ? arg.cwd : tg.process.#state!.cwd;
 		let processEnv =
-			"processEnv" in arg ? arg.processEnv : await tg.process.env();
-		let network = "network" in arg ? arg.network : await tg.process.network();
+			"processEnv" in arg ? arg.processEnv : tg.process.#state!.env;
+		let network = "network" in arg ? arg.network : tg.process.#state!.network;
 		let output = await syscall("process_spawn", {
 			checksum,
 			command: await command.id(),
@@ -162,9 +165,25 @@ export class Process {
 		return this.#state!.cwd;
 	}
 
-	async env(): Promise<{ [name: string]: string } | undefined> {
-		await this.load();
-		return this.#state!.env;
+	async env(): Promise<{ [name: string]: tg.Value }>;
+	async env(name: string): Promise<tg.Value | undefined>;
+	async env(
+		name?: string,
+	): Promise<{ [name: string]: tg.Value } | tg.Value | undefined> {
+		if (this.#env === undefined) {
+			await this.load();
+			let processEnv = this.#state!.env;
+			let commandEnv = await (await this.command()).env();
+			this.#env = processEnv ?? {};
+			for (let [name, value] of Object.entries(commandEnv)) {
+				mutate(this.#env, name, value);
+			}
+		}
+		if (name === undefined) {
+			return this.#env!;
+		} else {
+			return this.#env![name];
+		}
 	}
 
 	async network(): Promise<boolean> {

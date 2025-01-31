@@ -961,7 +961,8 @@ declare namespace tg {
 		cwd(): Promise<string | undefined>;
 
 		/** Get this process's environment. */
-		env(): Promise<{ [name: string]: string } | undefined>;
+		env(): Promise<{ [name: string]: tg.Value }>;
+		env(name: string): Promise<tg.Value | undefined>;
 
 		/** Get whether this process has the network enabled. */
 		network(): Promise<boolean>;

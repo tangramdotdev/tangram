@@ -98,7 +98,7 @@ export namespace Args {
 	};
 }
 
-let mutate = async (
+export let mutate = async (
 	object: { [key: string]: tg.Value },
 	key: string,
 	mutation: tg.MaybeMutation,
