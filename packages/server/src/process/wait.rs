@@ -1,6 +1,5 @@
 use crate::Server;
 use futures::{stream, Future, StreamExt as _};
-use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext};
 use tangram_futures::{stream::TryExt as _, task::Stop};
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
@@ -15,8 +14,8 @@ impl Server {
 		let server = self.clone();
 		let id = id.clone();
 		Ok(async move {
-			let stream = server.get_process_status(&id).await?;
-			let status = pin!(stream)
+			let stream = server.get_process_status(&id).await?.boxed();
+			let status = stream
 				.try_last()
 				.await?
 				.ok_or_else(|| tg::error!("failed to get the status"))?;

@@ -1,5 +1,4 @@
 use crate::Server;
-use bytes::Bytes;
 use futures::{stream::TryStreamExt as _, Stream, StreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use tangram_client as tg;
@@ -26,21 +25,6 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
 		}
-		Ok(())
-	}
-
-	pub(crate) async fn write_pipe_chunk(&self, id: &tg::pipe::Id, chunk: Bytes) -> tg::Result<()> {
-		let sender = self
-			.pipes
-			.get(id)
-			.ok_or_else(|| tg::error!("failed to find the pipe"))?
-			.value()
-			.sender
-			.clone();
-		sender
-			.send(tg::pipe::Event::Chunk(chunk))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write the pipe"))?;
 		Ok(())
 	}
 }

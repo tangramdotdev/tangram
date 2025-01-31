@@ -281,9 +281,9 @@ fn create_sandbox_profile(
 	let mut profile = String::new();
 	writedoc!(
 		profile,
-		r#"
+		"
 			(version 1)
-		"#
+		"
 	)
 	.unwrap();
 	if process.cwd.is_some() {

@@ -1,6 +1,6 @@
 use crate::Cli;
 use crossterm::style::Stylize as _;
-use futures::TryStreamExt as _;
+use futures::{FutureExt as _, TryStreamExt as _};
 use std::{io::IsTerminal as _, path::PathBuf};
 use tangram_client::{self as tg, Handle as _};
 use tangram_futures::task::Task;
@@ -71,6 +71,7 @@ impl Cli {
 		// Spawn the process.
 		let process = self
 			.command_process_spawn_inner(args.inner, reference)
+			.boxed()
 			.await?;
 
 		// If the detach flag is set, then return the process.

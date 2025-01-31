@@ -134,13 +134,12 @@ impl Runtime {
 		// Start the log task.
 		let (log_sender, mut log_receiver) =
 			tokio::sync::mpsc::unbounded_channel::<syscall::log::Message>();
-		let state = process.load(&self.server).await?;
 		let log_task = main_runtime_handle.spawn({
 			let server = self.server.clone();
 			let process = process.clone();
 			async move {
 				while let Some(message) = log_receiver.recv().await {
-					let syscall::log::Message { contents, level } = message;
+					let syscall::log::Message { contents, .. } = message;
 					if server.config.advanced.write_process_logs_to_stderr {
 						tokio::io::stderr()
 							.write_all(contents.as_bytes())

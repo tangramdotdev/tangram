@@ -2,8 +2,8 @@ use crate::{
 	self as tg,
 	util::serde::{is_false, is_true, return_true},
 };
-use futures::{future, Stream, TryStreamExt as _};
-use std::{path::PathBuf, pin::pin};
+use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
+use std::path::PathBuf;
 use tangram_futures::stream::TryExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
@@ -34,8 +34,8 @@ impl tg::Artifact {
 		H: tg::Handle,
 	{
 		let id = self.id(handle).await?;
-		let stream = handle.check_out_artifact(&id, arg).await?;
-		let output = pin!(stream)
+		let stream = handle.check_out_artifact(&id, arg).await?.boxed();
+		let output = stream
 			.try_last()
 			.await?
 			.and_then(|event| event.try_unwrap_output().ok())
