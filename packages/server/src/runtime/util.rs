@@ -156,7 +156,7 @@ pub async fn merge_env(
 	env.iter()
 		.map(|(key, value)| async {
 			let key = key.clone();
-			let value = render(server, value, &artifacts_path).await?;
+			let value = render(server, value, artifacts_path).await?;
 			Ok::<_, tg::Error>((key, value))
 		})
 		.collect::<FuturesOrdered<_>>()

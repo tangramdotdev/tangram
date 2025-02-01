@@ -15,7 +15,7 @@ impl Runtime {
 		let server = &self.server;
 		let command = process.command(server).await?;
 
-		// Ensure the command has a checksum.
+		// Ensure the process has a checksum.
 		if process.load(server).await?.checksum.is_none() {
 			return Err(tg::error!("a download must have a checksum"));
 		}

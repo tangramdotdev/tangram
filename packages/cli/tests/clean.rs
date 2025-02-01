@@ -22,8 +22,8 @@ async fn processes() {
 					return "b";
 				});
 				export let a = tg.command(async () => {
-					await b();
 					await c();
+					await b();
 					return "a";
 				});
 			"#),
@@ -35,11 +35,11 @@ async fn processes() {
 		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
 
-		let a = build_command_get_process_id("a", &server, artifact_temp.path()).await;
-		let b = build_command_get_process_id("b", &server, artifact_temp.path()).await;
-		let c = build_command_get_process_id("c", &server, artifact_temp.path()).await;
-		let d = build_command_get_process_id("d", &server, artifact_temp.path()).await;
-		let e = build_command_get_process_id("e", &server, artifact_temp.path()).await;
+		let (a, _) = build(&server, artifact_temp.path(), "a").await;
+		let (b, _) = build(&server, artifact_temp.path(), "b").await;
+		let (c, _) = build(&server, artifact_temp.path(), "c").await;
+		let (d, _) = build(&server, artifact_temp.path(), "d").await;
+		let (e, _) = build(&server, artifact_temp.path(), "e").await;
 
 		// Tag the processes.
 		for (pattern, id) in [("b", &b), ("d", &d)] {
@@ -58,7 +58,7 @@ async fn processes() {
 		let output = server.tg().arg("clean").output().await.unwrap();
 		assert_success!(output);
 
-		// Confirm presence/absence of processes.
+		// Confirm the presence of the processes.
 		let a_output = server
 			.tg()
 			.arg("process")
@@ -146,14 +146,14 @@ async fn objects() {
 		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
 
-		let a = build_command_get_object_id("a", &server, artifact_temp.path()).await;
-		let b = build_command_get_object_id("b", &server, artifact_temp.path()).await;
-		let c = build_command_get_object_id("c", &server, artifact_temp.path()).await;
-		let d = build_command_get_object_id("d", &server, artifact_temp.path()).await;
-		let e = build_command_get_object_id("e", &server, artifact_temp.path()).await;
-		let f = build_command_get_object_id("f", &server, artifact_temp.path()).await;
-		let g = build_command_get_object_id("g", &server, artifact_temp.path()).await;
-		let h = build_command_get_object_id("h", &server, artifact_temp.path()).await;
+		let (_, a) = build(&server, artifact_temp.path(), "a").await;
+		let (_, b) = build(&server, artifact_temp.path(), "b").await;
+		let (_, c) = build(&server, artifact_temp.path(), "c").await;
+		let (_, d) = build(&server, artifact_temp.path(), "d").await;
+		let (_, e) = build(&server, artifact_temp.path(), "e").await;
+		let (_, f) = build(&server, artifact_temp.path(), "f").await;
+		let (_, g) = build(&server, artifact_temp.path(), "g").await;
+		let (_, h) = build(&server, artifact_temp.path(), "h").await;
 
 		// Tag c.
 		let output = server
@@ -181,7 +181,7 @@ async fn objects() {
 		let output = server.tg().arg("clean").output().await.unwrap();
 		assert_success!(output);
 
-		// Confirm presence/absence of objects.
+		// Confirm the presence of the objects.
 		let a_output = server
 			.tg()
 			.arg("object")
@@ -250,7 +250,7 @@ async fn objects() {
 			.output()
 			.await
 			.unwrap();
-		assert_failure!(g_output);
+		assert_success!(g_output);
 
 		let h_output = server
 			.tg()
@@ -265,11 +265,12 @@ async fn objects() {
 	.await;
 }
 
-async fn build_command_get_process_id(name: &str, server: &Server, path: &Path) -> String {
+async fn build(server: &Server, path: &Path, name: &str) -> (String, String) {
 	let output = server
 		.tg()
 		.arg("process")
-		.arg("--detach")
+		.arg("spawn")
+		.arg("--sandbox")
 		.arg(format!("{}#{}", path.display(), name))
 		.output()
 		.await
@@ -285,18 +286,6 @@ async fn build_command_get_process_id(name: &str, server: &Server, path: &Path) 
 		.await
 		.unwrap();
 	assert_success!(output);
-	id.to_owned()
-}
-
-async fn build_command_get_object_id(name: &str, server: &Server, path: &Path) -> String {
-	let output = server
-		.tg()
-		.arg("process")
-		.arg(format!("{}#{}", path.display(), name))
-		.output()
-		.await
-		.unwrap();
-	assert_success!(output);
 	let output = std::str::from_utf8(&output.stdout).unwrap().trim();
-	output.to_owned()
+	(id.to_owned(), output.to_owned())
 }

@@ -541,9 +541,6 @@ where
 			})?;
 		}
 		self.map_entry("host", |s| s.string(&object.host))?;
-		if let Some(stdin) = &object.stdin {
-			self.map_entry("stdin", |s| s.blob(stdin))?;
-		}
 		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())

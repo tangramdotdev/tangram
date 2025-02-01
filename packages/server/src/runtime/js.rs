@@ -72,16 +72,21 @@ impl Runtime {
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
 
 		// Spawn the task.
-		let task = self.server.local_pool_handle.spawn_pinned({
-			let runtime = self.clone();
-			let process = process.clone();
-			move || async move {
-				runtime
-					.run_inner(&process, main_runtime_handle.clone(), isolate_handle_sender)
-					.boxed_local()
-					.await
-			}
-		});
+		let task = self
+			.server
+			.local_pool_handle
+			.as_ref()
+			.unwrap()
+			.spawn_pinned({
+				let runtime = self.clone();
+				let process = process.clone();
+				move || async move {
+					runtime
+						.run_inner(&process, main_runtime_handle.clone(), isolate_handle_sender)
+						.boxed_local()
+						.await
+				}
+			});
 		let abort_handle = task.abort_handle();
 		scopeguard::defer! {
 			abort_handle.abort();

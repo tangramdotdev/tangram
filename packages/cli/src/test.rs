@@ -183,6 +183,10 @@ impl Server {
 			process.wait().await.ok();
 		}
 	}
+
+	pub fn temp(&self) -> Arc<Temp> {
+		self.temp.clone()
+	}
 }
 
 #[macro_export]

@@ -8,7 +8,6 @@ pub struct Command {
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: String,
-	pub stdin: Option<tg::Blob>,
 }
 
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
@@ -87,13 +86,11 @@ impl TryFrom<Data> for Command {
 			.try_collect()?;
 		let executable = data.executable.map(TryInto::try_into).transpose()?;
 		let host = data.host;
-		let stdin = data.stdin.map(tg::Blob::with_id);
 		Ok(Self {
 			args,
 			env,
 			executable,
 			host,
-			stdin,
 		})
 	}
 }

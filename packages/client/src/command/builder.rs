@@ -7,7 +7,6 @@ pub struct Builder {
 	env: BTreeMap<String, tg::Value>,
 	executable: Option<tg::command::Executable>,
 	host: String,
-	stdin: Option<tg::Blob>,
 }
 
 impl Builder {
@@ -18,7 +17,6 @@ impl Builder {
 			env: BTreeMap::new(),
 			executable: None,
 			host: host.into(),
-			stdin: None,
 		}
 	}
 
@@ -29,7 +27,6 @@ impl Builder {
 			env: object.env.clone(),
 			executable: object.executable.clone(),
 			host: object.host.clone(),
-			stdin: object.stdin.clone(),
 		}
 	}
 
@@ -58,19 +55,12 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn stdin(mut self, stdin: impl Into<Option<tg::Blob>>) -> Self {
-		self.stdin = stdin.into();
-		self
-	}
-
-	#[must_use]
 	pub fn build(self) -> tg::Command {
 		tg::Command::with_object(tg::command::Object {
 			args: self.args,
 			env: self.env,
 			executable: self.executable,
 			host: self.host,
-			stdin: self.stdin,
 		})
 	}
 }

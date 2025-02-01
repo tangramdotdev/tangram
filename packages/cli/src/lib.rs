@@ -435,10 +435,18 @@ impl Cli {
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 
 		// Create the default config.
-		let database = tangram_server::config::Database::Sqlite(
-			tangram_server::config::SqliteDatabase::with_path(path.join("database")),
-		);
-		let url = tangram_server::Config::default_url_for_path(&path);
+		let parallelism = std::thread::available_parallelism().unwrap().into();
+		let database =
+			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
+				connections: parallelism,
+				path: path.join("database"),
+			});
+		let process = Some(tangram_server::config::Process {
+			concurrency: parallelism,
+			heartbeat_interval: Duration::from_secs(1),
+			max_depth: 4096,
+			remotes: Vec::new(),
+		});
 		let vfs = if cfg!(target_os = "linux") {
 			Some(tangram_server::config::Vfs::default())
 		} else {
@@ -451,13 +459,13 @@ impl Cli {
 			messenger: tangram_server::config::Messenger::default(),
 			object_indexer: Some(tangram_server::config::ObjectIndexer::default()),
 			path,
-			process: Some(tangram_server::config::Process::default()),
+			process,
 			process_heartbeat_monitor: Some(
 				tangram_server::config::ProcessHeartbeatMonitor::default(),
 			),
 			process_indexer: None,
 			store: None,
-			url,
+			url: None,
 			version: None,
 			vfs,
 		};
@@ -469,7 +477,7 @@ impl Cli {
 			.clone()
 			.or(self.config.as_ref().and_then(|config| config.url.clone()))
 		{
-			config.url = url;
+			config.url = Some(url);
 		}
 
 		// Set the advanced options.
@@ -606,8 +614,10 @@ impl Cli {
 		{
 			config.database = match database {
 				self::config::Database::Sqlite(database) => {
-					let mut database_ =
-						tangram_server::config::SqliteDatabase::with_path(config.path.clone());
+					let mut database_ = tangram_server::config::SqliteDatabase {
+						connections: parallelism,
+						path: config.path.clone(),
+					};
 					if let Some(connections) = database.connections {
 						database_.connections = connections;
 					}
@@ -617,7 +627,10 @@ impl Cli {
 					tangram_server::config::Database::Sqlite(database_)
 				},
 				self::config::Database::Postgres(database) => {
-					let mut database_ = tangram_server::config::PostgresDatabase::default();
+					let mut database_ = tangram_server::config::PostgresDatabase {
+						connections: parallelism,
+						url: "postgres://localhost:5432".parse().unwrap(),
+					};
 					if let Some(connections) = database.connections {
 						database_.connections = connections;
 					}

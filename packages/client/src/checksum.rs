@@ -54,7 +54,7 @@ impl std::fmt::Display for Checksum {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Checksum::None => write!(f, "none")?,
-			Checksum::Any => write!(f, "unsafe")?,
+			Checksum::Any => write!(f, "any")?,
 			Checksum::Blake3(body) | Checksum::Sha256(body) | Checksum::Sha512(body) => {
 				let algorithm = self.algorithm();
 				let body = data_encoding::HEXLOWER.encode(body);
@@ -137,7 +137,7 @@ impl std::fmt::Display for Algorithm {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let system = match self {
 			Algorithm::None => "none",
-			Algorithm::Any => "unsafe",
+			Algorithm::Any => "any",
 			Algorithm::Blake3 => "blake3",
 			Algorithm::Sha256 => "sha256",
 			Algorithm::Sha512 => "sha512",
@@ -153,7 +153,7 @@ impl std::str::FromStr for Algorithm {
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		let system = match s {
 			"none" => Algorithm::None,
-			"unsafe" => Algorithm::Any,
+			"any" => Algorithm::Any,
 			"sha256" => Algorithm::Sha256,
 			"sha512" => Algorithm::Sha512,
 			"blake3" => Algorithm::Blake3,

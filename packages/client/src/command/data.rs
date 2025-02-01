@@ -14,8 +14,6 @@ pub struct Command {
 	pub executable: Option<tg::command::data::Executable>,
 
 	pub host: String,
-
-	pub stdin: Option<tg::blob::Id>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

@@ -42,6 +42,7 @@ bytes = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
+derive_builder = { workspace = true }
 derive_more = { workspace = true }
 fastcdc = { workspace = true }
 filetime = { workspace = true }

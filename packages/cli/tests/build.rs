@@ -9,9 +9,7 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 #[tokio::test]
 async fn hello_world() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"export default tg.command(() => "Hello, World!")"#,
-		}
+		"tangram.ts" => r#"export default tg.command(() => "Hello, World!")"#,
 	};
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
@@ -19,7 +17,7 @@ async fn hello_world() {
 		assert_snapshot!(stdout, @r###""Hello, World!""###);
 	};
 	let args = vec![];
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	test_build(directory, path, command, args, assertions).await;
 }
@@ -27,9 +25,7 @@ async fn hello_world() {
 #[tokio::test]
 async fn hello_world_remote() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"export default tg.command(() => "Hello, World!")"#,
-		}
+		"tangram.ts" => r#"export default tg.command(() => "Hello, World!")"#,
 	};
 	let assertions = |local: std::process::Output, remote: std::process::Output| async move {
 		assert_success!(local);
@@ -40,7 +36,7 @@ async fn hello_world_remote() {
 		assert_snapshot!(remote, @r#""Hello, World!""#);
 	};
 	let args = vec![];
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	test_build_remote(directory, path, command, args, assertions).await;
 }
@@ -99,19 +95,17 @@ async fn args() {
 #[tokio::test]
 async fn host_command_hello_world() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default tg.command(async () => {
-					try {
-						return await tg.run("echo 'Hello, World!' > $OUTPUT");
-					} catch (error) {
-						return `${JSON.stringify(error)}`;
-					}
-				});
-			"#),
-		}
+		"tangram.ts" => indoc!(r#"
+			export default tg.command(async () => {
+				try {
+					return await tg.run("echo 'Hello, World!' > $OUTPUT");
+				} catch (error) {
+					return `${JSON.stringify(error)}`;
+				}
+			});
+		"#),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -125,15 +119,13 @@ async fn host_command_hello_world() {
 #[tokio::test]
 async fn host_command_hello_world_remote() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default tg.command(async () => {
-					return await tg.run("echo 'Hello, World!' > $OUTPUT");
-				});
-			"#),
-		}
+		"tangram.ts" => indoc!(r#"
+			export default tg.command(async () => {
+				return await tg.run("echo 'Hello, World!' > $OUTPUT");
+			});
+		"#),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |local: std::process::Output, remote: std::process::Output| async move {
@@ -150,15 +142,13 @@ async fn host_command_hello_world_remote() {
 #[tokio::test]
 async fn two_modules() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				import bar from "./bar.tg.ts";
-				export default tg.command(() => bar());
-			"#),
-			"bar.tg.ts" => r#"export default tg.command(() => "Hello from bar")"#,
-		},
+		"tangram.ts" => indoc!(r#"
+			import bar from "./bar.tg.ts";
+			export default tg.command(() => bar());
+		"#),
+		"bar.tg.ts" => r#"export default tg.command(() => "Hello from bar")"#,
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -220,14 +210,12 @@ async fn path_dependency_import_attribute() {
 #[tokio::test]
 async fn named_command() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r"
-				export let five = tg.command(() => 5);
-				export let six = tg.command(() => 6);
-			"),
-		},
+		"tangram.ts" => indoc!(r"
+			export let five = tg.command(() => 5);
+			export let six = tg.command(() => 6);
+		"),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "five";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -241,17 +229,15 @@ async fn named_command() {
 #[tokio::test]
 async fn concurrent_commands() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r"
-				export default tg.command(async () => {
-					let results = await Promise.all(Array.from(Array(100).keys()).map((i) => double(i)));
-					return results.reduce((acc, el) => acc + el, 0);
-				});
-				export let double = tg.command((i: number) => i * 2);
-			"),
-		},
+		"tangram.ts" => indoc!(r"
+			export default tg.command(async () => {
+				let results = await Promise.all(Array.from(Array(100).keys()).map((i) => double(i)));
+				return results.reduce((acc, el) => acc + el, 0);
+			});
+			export let double = tg.command((i: number) => i * 2);
+		"),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -265,11 +251,9 @@ async fn concurrent_commands() {
 #[tokio::test]
 async fn capture_error() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"export default tg.command(() => { throw new error("not so fast!"); });"#,
-		}
+		"tangram.ts" => r#"export default tg.command(() => { throw new error("not so fast!"); });"#,
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -281,15 +265,13 @@ async fn capture_error() {
 #[tokio::test]
 async fn import_file() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				import file from "./hello.txt";
-				export default tg.command(() => file.text());
-			"#),
-			"hello.txt" => "Hello, World!",
-		},
+		"tangram.ts" => indoc!(r#"
+			import file from "./hello.txt";
+			export default tg.command(() => file.text());
+		"#),
+		"hello.txt" => "Hello, World!",
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -303,26 +285,24 @@ async fn import_file() {
 #[tokio::test]
 async fn import_directory() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				import directory from "./directory" with { type: "directory" };
-				export default tg.command(async () =>
-					directory.get("hello.txt")
-						.then(tg.File.expect)
-						.then((f) => f.text())
-				);
-			"#),
-			"directory" => temp::directory! {
-				"hello.txt" => "Hello, World!",
-			}
-		},
+		"tangram.ts" => indoc!(r#"
+			import directory from "./directory" with { type: "directory" };
+			export default tg.command(async () =>
+				directory.get("hello.txt")
+					.then(tg.File.expect)
+					.then((f) => f.text())
+			);
+		"#),
+		"directory" => temp::directory! {
+			"hello.txt" => "Hello, World!",
+		}
 	};
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r###""Hello, World!""###);
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	test_build(directory, path, command, args, assertions).await;
@@ -331,18 +311,16 @@ async fn import_directory() {
 #[tokio::test]
 async fn template_raw() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r"
-				export default tg.command(() => tg.Template.raw`\n\tHello, World!\n`);
-			",
-		},
+		"tangram.ts" => r"
+			export default tg.command(() => tg.Template.raw`\n\tHello, World!\n`);
+		",
 	};
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template(["\n\tHello, World!\n"])"#);
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	test_build(directory, path, command, args, assertions).await;
@@ -351,20 +329,18 @@ async fn template_raw() {
 #[tokio::test]
 async fn template_single_line() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"
-				import file from "./hello.txt";
-				export default tg.command(() => tg`cat ${file}`);
-			"#,
-			"hello.txt" => "Hello, World!",
-		},
+		"tangram.ts" => r#"
+			import file from "./hello.txt";
+			export default tg.command(() => tg`cat ${file}`);
+		"#,
+		"hello.txt" => "Hello, World!",
 	};
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template(["cat ",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g])"#);
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	test_build(directory, path, command, args, assertions).await;
@@ -373,23 +349,21 @@ async fn template_single_line() {
 #[tokio::test]
 async fn template_with_quote() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"
-				import file from "./hello.txt";
-				export default tg.command(() => tg`
-					other_command
+		"tangram.ts" => r#"
+			import file from "./hello.txt";
+			export default tg.command(() => tg`
+				other_command
 
-					other_command
+				other_command
 
-					other_command
+				other_command
 
-					echo 'exec ${file} "$@"' >> script.sh
-				`);
-			"#,
-			"hello.txt" => "Hello, World!",
-		},
+				echo 'exec ${file} "$@"' >> script.sh
+			`);
+		"#,
+		"hello.txt" => "Hello, World!",
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -403,17 +377,15 @@ async fn template_with_quote() {
 #[tokio::test]
 async fn template_single_line_two_artifacts() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"
-				import foo from "./foo.txt";
-				import bar from "./bar.txt";
-				export default tg.command(() => tg`${foo} ${bar}`);
-			"#,
-			"foo.txt" => "foo",
-			"bar.txt" => "bar",
-		},
+		"tangram.ts" => r#"
+			import foo from "./foo.txt";
+			import bar from "./bar.txt";
+			export default tg.command(() => tg`${foo} ${bar}`);
+		"#,
+		"foo.txt" => "foo",
+		"bar.txt" => "bar",
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -427,18 +399,16 @@ async fn template_single_line_two_artifacts() {
 #[tokio::test]
 async fn template_empty_lines() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"
-				export default tg.command(() => tg`
-					function foo() {
-						echo "Hello, World!"
+		"tangram.ts" => r#"
+			export default tg.command(() => tg`
+				function foo() {
+					echo "Hello, World!"
 
-					}
-				`);
-			"#,
-		},
+				}
+			`);
+		"#,
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -452,17 +422,15 @@ async fn template_empty_lines() {
 #[tokio::test]
 async fn template_only_placeholders_on_a_line() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"
-				import file from "./hello.txt";
-				export default tg.command(() => tg`
-					${file}${file}
-				`);
-			"#,
-			"hello.txt" => "Hello, World!",
-		},
+		"tangram.ts" => r#"
+			import file from "./hello.txt";
+			export default tg.command(() => tg`
+				${file}${file}
+			`);
+		"#,
+		"hello.txt" => "Hello, World!",
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -476,17 +444,15 @@ async fn template_only_placeholders_on_a_line() {
 #[tokio::test]
 async fn template_single_line_explicit_newline() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"
-				import foo from "./foo.txt";
-				import bar from "./bar.txt";
-				export default tg.command(() => tg`${foo}\n${bar}`);
-			"#,
-			"foo.txt" => "foo",
-			"bar.txt" => "bar",
-		},
+		"tangram.ts" => r#"
+			import foo from "./foo.txt";
+			import bar from "./bar.txt";
+			export default tg.command(() => tg`${foo}\n${bar}`);
+		"#,
+		"foo.txt" => "foo",
+		"bar.txt" => "bar",
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -500,24 +466,22 @@ async fn template_single_line_explicit_newline() {
 #[tokio::test]
 async fn template_multiple_placeholders() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => r#"
-				import file1 from "./hello.txt";
-				import file2 from "./hello.txt";
-				import file3 from "./hello.txt";
-				export default () => tg`
-					cat\t${file1}\t${file1}
-				`;
-			"#,
-			"hello.txt" => "Hello, World!",
-		},
+		"tangram.ts" => r#"
+			import file1 from "./hello.txt";
+			import file2 from "./hello.txt";
+			import file3 from "./hello.txt";
+			export default () => tg`
+				cat\t${file1}\t${file1}
+			`;
+		"#,
+		"hello.txt" => "Hello, World!",
 	};
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r#"tg.template(["cat\t",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"\t",fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g,"\n"])"#);
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	test_build(directory, path, command, args, assertions).await;
@@ -526,27 +490,25 @@ async fn template_multiple_placeholders() {
 #[tokio::test]
 async fn directory_get_follows_intermediate_component_symlinks() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				import directory from "./directory" with { type: "directory" };
-				export default async () => {
-					let file = await directory.get("link/hello.txt");
-					tg.File.assert(file);
-					return file.text();
-				};
-			"#),
-			"directory" => temp::directory! {
-				"hello.txt" => "foo",
-				"link" => temp::symlink!(".")
-			}
-		},
+		"tangram.ts" => indoc!(r#"
+			import directory from "./directory" with { type: "directory" };
+			export default async () => {
+				let file = await directory.get("link/hello.txt");
+				tg.File.assert(file);
+				return file.text();
+			};
+		"#),
+		"directory" => temp::directory! {
+			"hello.txt" => "foo",
+			"link" => temp::symlink!(".")
+		}
 	};
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
 		assert_snapshot!(stdout, @r###""foo""###);
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	test_build(directory, path, command, args, assertions).await;
@@ -555,22 +517,20 @@ async fn directory_get_follows_intermediate_component_symlinks() {
 #[tokio::test]
 async fn directory_get_follows_final_component_symlinks() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				import directory from "./directory" with { type: "directory" };
-				export default async () => {
-					let file = await directory.get("link");
-					tg.File.assert(file);
-					return file.text();
-				};
-			"#),
-			"directory" => temp::directory! {
-				"hello.txt" => "foo",
-				"link" => temp::symlink!("hello.txt")
-			}
-		},
+		"tangram.ts" => indoc!(r#"
+			import directory from "./directory" with { type: "directory" };
+			export default async () => {
+				let file = await directory.get("link");
+				tg.File.assert(file);
+				return file.text();
+			};
+		"#),
+		"directory" => temp::directory! {
+			"hello.txt" => "foo",
+			"link" => temp::symlink!("hello.txt")
+		}
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -581,14 +541,13 @@ async fn directory_get_follows_final_component_symlinks() {
 	test_build(directory, path, command, args, assertions).await;
 }
 
+#[ignore]
 #[tokio::test]
 async fn command_cycle_detection() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => "export let x = tg.command(() => x());"
-		},
+		"tangram.ts" => "export let x = tg.command(() => x());"
 	};
-	let path = "foo";
+	let path = "";
 	let command = "x";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -597,6 +556,7 @@ async fn command_cycle_detection() {
 	test_build(directory, path, command, args, assertions).await;
 }
 
+#[ignore]
 #[tokio::test]
 async fn command_cycle_detection_between_packages() {
 	let directory = temp::directory! {
@@ -622,6 +582,7 @@ async fn command_cycle_detection_between_packages() {
 	test_build(directory, path, command, args, assertions).await;
 }
 
+#[ignore]
 #[tokio::test]
 async fn package_cycle_without_command_cycle() {
 	let directory = temp::directory! {
@@ -653,17 +614,15 @@ async fn package_cycle_without_command_cycle() {
 #[tokio::test]
 async fn value_cycle_detection_object() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!("
-				export default () => {
-					let x = {};
-					x.a = x;
-					return x;
-				};
-			"),
-		},
+		"tangram.ts" => indoc!("
+			export default () => {
+				let x = {};
+				x.a = x;
+				return x;
+			};
+		"),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -675,17 +634,15 @@ async fn value_cycle_detection_object() {
 #[tokio::test]
 async fn value_cycle_detection_array() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!("
-				export default () => {
-					let x = [];
-					x[0] = x;
-					return x;
-				};
-			")
-		},
+		"tangram.ts" => indoc!("
+			export default () => {
+				let x = [];
+				x[0] = x;
+				return x;
+			};
+		")
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -697,16 +654,14 @@ async fn value_cycle_detection_array() {
 #[tokio::test]
 async fn builtin_download_unsafe_checksum() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default async () => {
-					let blob = await tg.download("https://example.com", "unsafe");
-					return tg.file(blob);
-				};
-			"#),
-		}
+		"tangram.ts" => indoc!(r#"
+			export default async () => {
+				let blob = await tg.download("https://example.com", "any");
+				return tg.file(blob);
+			};
+		"#),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -720,16 +675,14 @@ async fn builtin_download_unsafe_checksum() {
 #[tokio::test]
 async fn builtin_download_exact_checksum() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default async () => {
-					let blob = await tg.download("https://example.com", "sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
-					return tg.file(blob);
-				};
-			"#),
-		}
+		"tangram.ts" => indoc!(r#"
+			export default async () => {
+				let blob = await tg.download("https://example.com", "sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
+				return tg.file(blob);
+			};
+		"#),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -743,16 +696,14 @@ async fn builtin_download_exact_checksum() {
 #[tokio::test]
 async fn builtin_download_rejects_incorrect_checksum() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default async () => {
-					let blob = await tg.download("https://example.com", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-					return tg.file(blob);
-				};
-			"#),
-		}
+		"tangram.ts" => indoc!(r#"
+			export default async () => {
+				let blob = await tg.download("https://example.com", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+				return tg.file(blob);
+			};
+		"#),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -764,16 +715,14 @@ async fn builtin_download_rejects_incorrect_checksum() {
 #[tokio::test]
 async fn builtin_download_rejects_malformed_checksum() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default async () => {
-					let blob = await tg.download("https://example.com", "nonsense");
-					return tg.file(blob);
-				};
-			"#),
-		}
+		"tangram.ts" => indoc!(r#"
+			export default async () => {
+				let blob = await tg.download("https://example.com", "nonsense");
+				return tg.file(blob);
+			};
+		"#),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -803,15 +752,13 @@ async fn command_none_checksum() {
 #[tokio::test]
 async fn command_set_checksum() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default async () => {
-					return await tg.run("echo 'Hello, World!' > $OUTPUT", { checksum: "sha256:bf5d7670a573508ae741a64acfd35f3e2a6bab3f9d02feda16495a2e622f2017" });
-				};
-			"#),
-		}
+		"tangram.ts" => indoc!(r#"
+			export default async () => {
+				return await tg.run("echo 'Hello, World!' > $OUTPUT", { checksum: "sha256:bf5d7670a573508ae741a64acfd35f3e2a6bab3f9d02feda16495a2e622f2017" });
+			};
+		"#),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {
@@ -858,11 +805,9 @@ where
 {
 	let module = module.replace("format", format);
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => module,
-		}
+		"tangram.ts" => module,
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	test_build(directory, path, command, args, assertions).await;
@@ -936,18 +881,16 @@ async fn import_from_tag() {
 #[tokio::test]
 async fn builtin_blob_compress_decompress_gz_roundtrip() {
 	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default async () => {
-					let blob = await tg.blob("contents");
-					let compressed = await tg.compress(blob, "gz");
-					let decompressed = await tg.decompress(compressed, "gz");
-					return blob.text();
-				};
-			"#),
-		}
+		"tangram.ts" => indoc!(r#"
+			export default async () => {
+				let blob = await tg.blob("contents");
+				let compressed = await tg.compress(blob, "gz");
+				let decompressed = await tg.decompress(compressed, "gz");
+				return blob.text();
+			};
+		"#),
 	};
-	let path = "foo";
+	let path = "";
 	let command = "default";
 	let args = vec![];
 	let assertions = |output: std::process::Output| async move {

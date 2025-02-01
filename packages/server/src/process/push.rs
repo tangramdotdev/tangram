@@ -141,6 +141,7 @@ impl Server {
 
 		// Put the process.
 		let put_arg = tg::process::put::Arg {
+			checksum: output.checksum,
 			children: children.clone(),
 			command: output.command.clone(),
 			created_at: output.created_at,

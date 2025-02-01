@@ -8,7 +8,6 @@ use futures::{
 use indoc::writedoc;
 use num::ToPrimitive as _;
 use std::{
-	collections::BTreeMap,
 	ffi::{CStr, CString},
 	fmt::Write as _,
 	os::unix::{ffi::OsStrExt as _, process::ExitStatusExt as _},
@@ -125,10 +124,8 @@ impl Runtime {
 		// Render the env.
 		let command_env = command.env(&self.server).await?;
 		let process_env = state.env.as_ref();
-
-		// Merge the environment.
 		let mut env =
-			super::util::merge_env(&self.server, &artifacts_path, process_env, &*command_env)
+			super::util::merge_env(&self.server, &artifacts_path, process_env, &command_env)
 				.await?;
 
 		// Render the args.

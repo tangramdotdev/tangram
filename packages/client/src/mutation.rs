@@ -118,14 +118,11 @@ impl Mutation {
 			(Self::Unset, _) => {
 				map.remove(key);
 			},
-			(Self::Set { value }, _) => {
-				map.insert(key.to_owned(), value.as_ref().clone());
-			},
-			(Self::SetIfUnset { value }, None) => {
+			(Self::Set { value }, _) | (Self::SetIfUnset { value }, None) => {
 				map.insert(key.to_owned(), value.as_ref().clone());
 			},
 			(Self::SetIfUnset { .. }, _) => (),
-			(Self::Prepend { values }, None) | (Self::Append { values }, None) => {
+			(Self::Prepend { values } | Self::Append { values }, None) => {
 				map.insert(key.into(), values.clone().into());
 			},
 			(Self::Prepend { values }, Some(tg::Value::Array(array))) => {
@@ -137,10 +134,10 @@ impl Mutation {
 					.into();
 				map.insert(key.into(), array);
 			},
-			(Self::Append { .. }, Some(_)) | (Self::Prepend { .. }, Some(_)) => {
+			(Self::Append { .. } | Self::Prepend { .. }, Some(_)) => {
 				return Err(tg::error!(%key, "expected an array"));
 			},
-			(Self::Prefix { template, .. }, None) | (Self::Suffix { template, .. }, None) => {
+			(Self::Prefix { template, .. } | Self::Suffix { template, .. }, None) => {
 				map.insert(key.to_owned(), template.clone().into());
 			},
 			(
@@ -173,7 +170,7 @@ impl Mutation {
 						.components
 						.clone()
 						.into_iter()
-						.chain(second.components.clone().into_iter())
+						.chain(second.components.clone())
 						.interleave_shortest(std::iter::from_fn(move || Some(separator.clone())));
 					tg::Template::with_components(components)
 				} else {
@@ -181,7 +178,7 @@ impl Mutation {
 						.components
 						.clone()
 						.into_iter()
-						.chain(second.components.clone().into_iter());
+						.chain(second.components.clone());
 					tg::Template::with_components(components)
 				};
 
@@ -217,7 +214,7 @@ impl Mutation {
 						.components
 						.clone()
 						.into_iter()
-						.chain(second.components.clone().into_iter())
+						.chain(second.components.clone())
 						.interleave_shortest(std::iter::from_fn(move || Some(separator.clone())));
 					tg::Template::with_components(components)
 				} else {
@@ -225,7 +222,7 @@ impl Mutation {
 						.components
 						.clone()
 						.into_iter()
-						.chain(second.components.clone().into_iter());
+						.chain(second.components.clone());
 					tg::Template::with_components(components)
 				};
 

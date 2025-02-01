@@ -1,7 +1,4 @@
-use std::{
-	path::{Path, PathBuf},
-	time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 use tangram_client as tg;
 use url::Url;
 
@@ -17,7 +14,7 @@ pub struct Config {
 	pub process_heartbeat_monitor: Option<ProcessHeartbeatMonitor>,
 	pub process_indexer: Option<ProcessIndexer>,
 	pub store: Option<Store>,
-	pub url: Url,
+	pub url: Option<Url>,
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
 }
@@ -134,14 +131,17 @@ impl Config {
 	pub fn with_path(path: PathBuf) -> Self {
 		let advanced = Advanced::default();
 		let authentication = None;
-		let database = Database::Sqlite(SqliteDatabase::with_path(path.join("database")));
+		let database = Database::Sqlite(SqliteDatabase {
+			connections: 1,
+			path: path.join("database"),
+		});
 		let messenger = Messenger::default();
 		let object_indexer = None;
 		let process = None;
 		let process_heartbeat_monitor = None;
 		let process_indexer = None;
 		let store = None;
-		let url = Self::default_url_for_path(&path);
+		let url = None;
 		let version = None;
 		let vfs = None;
 		Self {
@@ -159,13 +159,6 @@ impl Config {
 			version,
 			vfs,
 		}
-	}
-
-	pub fn default_url_for_path(path: impl AsRef<Path>) -> Url {
-		let path = path.as_ref().join("socket");
-		let path = path.to_str().unwrap();
-		let path = urlencoding::encode(path);
-		format!("http+unix://{path}").parse().unwrap()
 	}
 }
 
@@ -188,9 +181,8 @@ impl Default for Advanced {
 
 impl Default for Process {
 	fn default() -> Self {
-		let n = std::thread::available_parallelism().unwrap();
 		Self {
-			concurrency: n.into(),
+			concurrency: 1,
 			heartbeat_interval: Duration::from_secs(1),
 			max_depth: 4096,
 			remotes: Vec::new(),
@@ -208,27 +200,10 @@ impl Default for ProcessHeartbeatMonitor {
 	}
 }
 
-impl SqliteDatabase {
-	#[must_use]
-	pub fn with_path(path: PathBuf) -> Self {
-		let n = std::thread::available_parallelism().unwrap();
-		Self {
-			connections: n.into(),
-			path,
-		}
-	}
-
-	#[must_use]
-	pub fn with_path_and_connections(path: PathBuf, connections: usize) -> Self {
-		Self { connections, path }
-	}
-}
-
 impl Default for PostgresDatabase {
 	fn default() -> Self {
-		let n = std::thread::available_parallelism().unwrap();
 		Self {
-			connections: n.into(),
+			connections: 1,
 			url: "postgres://localhost:5432".parse().unwrap(),
 		}
 	}

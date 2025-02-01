@@ -47,7 +47,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-			// Attempt to get a process for the command.
+			// Attempt to get a matching process.
 			#[derive(serde::Deserialize)]
 			struct Row {
 				id: tg::process::Id,
@@ -60,7 +60,7 @@ impl Server {
 					from processes
 					where
 						command = {p}1
-					order by enqueued_at desc
+					order by created_at desc
 					limit 1;
 				"
 			);
@@ -178,6 +178,7 @@ impl Server {
 
 		// Put the process.
 		let put_arg = tg::process::put::Arg {
+			checksum: arg.checksum,
 			children: Vec::new(),
 			command: arg.command.unwrap(),
 			created_at: time::OffsetDateTime::now_utc(),

@@ -43,6 +43,7 @@ impl Server {
 			"
 				insert into processes (
 					id,
+					checksum,
 					command,
 					created_at,
 					cwd,
@@ -77,25 +78,27 @@ impl Server {
 					{p}14,
 					{p}15,
 					{p}16,
-					{p}17
+					{p}17,
+					{p}18
 				)
 				on conflict (id) do update set
-					command = {p}2,
-					created_at = {p}3,
-					cwd = {p}4,
-					dequeued_at = {p}5,
-					enqueued_at = {p}6,
-					env = {p}7,
-					error = {p}8,
-					finished_at = {p}9,
-					host = {p}10,
-					log = {p}11,
-					network = {p}12,
-					output = {p}13,
-					retry = {p}14,
-					started_at = {p}15,
-					status = {p}16,
-					touched_at = {p}17
+					checksum = {p}2,
+					command = {p}3,
+					created_at = {p}4,
+					cwd = {p}5,
+					dequeued_at = {p}6,
+					enqueued_at = {p}7,
+					env = {p}8,
+					error = {p}9,
+					finished_at = {p}10,
+					host = {p}11,
+					log = {p}12,
+					network = {p}13,
+					output = {p}14,
+					retry = {p}15,
+					started_at = {p}16,
+					status = {p}17,
+					touched_at = {p}18
 				returning
 					commands_complete,
 					complete,
@@ -105,6 +108,7 @@ impl Server {
 		);
 		let params = db::params![
 			id,
+			arg.checksum,
 			arg.command,
 			arg.created_at.format(&Rfc3339).unwrap(),
 			arg.cwd,

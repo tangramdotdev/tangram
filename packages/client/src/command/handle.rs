@@ -155,17 +155,11 @@ impl Command {
 			None
 		};
 		let host = object.host.clone();
-		let stdin = if let Some(stdin) = &object.stdin {
-			Some(stdin.id(handle).await?)
-		} else {
-			None
-		};
 		Ok(Data {
 			args,
 			env,
 			executable,
 			host,
-			stdin,
 		})
 	}
 }
@@ -203,13 +197,6 @@ impl Command {
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.host))
-	}
-
-	pub async fn stdin<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = Option<tg::Blob>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.stdin))
 	}
 }
 

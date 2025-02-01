@@ -8,6 +8,10 @@ use time::format_description::well_known::Rfc3339;
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checksum: Option<tg::Checksum>,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub children: Vec<tg::process::Id>,
 
 	pub command: tg::command::Id,

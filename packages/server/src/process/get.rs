@@ -222,6 +222,7 @@ impl Server {
 						.try_collect()
 						.await?;
 					let arg = tg::process::put::Arg {
+						checksum: output.checksum,
 						children,
 						command: output.command.clone(),
 						created_at: output.created_at,

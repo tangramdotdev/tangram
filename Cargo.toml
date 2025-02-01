@@ -68,6 +68,7 @@ dashmap = "6"
 data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.74"
+derive_builder = "0.20"
 derive_more = { version = "1", features = ["full"] }
 erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }

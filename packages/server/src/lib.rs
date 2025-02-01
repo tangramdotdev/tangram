@@ -70,7 +70,7 @@ pub struct Inner {
 	config: Config,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	local_pool_handle: tokio_util::task::LocalPoolHandle,
+	local_pool_handle: Option<tokio_util::task::LocalPoolHandle>,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
@@ -83,6 +83,7 @@ pub struct Inner {
 	store: Option<Arc<Store>>,
 	task: Mutex<Option<Task<()>>>,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
+	url: Url,
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
 
@@ -247,9 +248,10 @@ impl Server {
 			tokio::sync::Semaphore::new(config.advanced.file_descriptor_semaphore_size);
 
 		// Create the local pool handle.
-		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
-			std::thread::available_parallelism().unwrap().get(),
-		);
+		let local_pool_handle = config
+			.process
+			.as_ref()
+			.map(|process| tokio_util::task::LocalPoolHandle::new(process.concurrency));
 
 		// Create the messenger.
 		let messenger = match &config.messenger {
@@ -285,6 +287,14 @@ impl Server {
 		// Create the temp paths.
 		let temp_paths = DashSet::default();
 
+		// Get the URL.
+		let url = config.url.clone().unwrap_or_else(|| {
+			let path = path.join("socket");
+			let path = path.to_str().unwrap();
+			let path = urlencoding::encode(path);
+			format!("http+unix://{path}").parse().unwrap()
+		});
+
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
@@ -308,6 +318,7 @@ impl Server {
 			store,
 			task,
 			temp_paths,
+			url,
 			vfs,
 		}));
 
@@ -487,8 +498,8 @@ impl Server {
 		};
 
 		// Listen.
-		let listener = Self::listen(&server.config.url).await?;
-		tracing::trace!("listening on {}", server.config.url);
+		let listener = Self::listen(&server.url).await?;
+		tracing::trace!("listening on {}", server.url);
 
 		// Spawn the HTTP task.
 		let http_task = Some(Task::spawn(|stop| {
@@ -631,7 +642,7 @@ impl Server {
 
 	#[must_use]
 	pub fn url(&self) -> &Url {
-		&self.config.url
+		&self.url
 	}
 
 	#[must_use]

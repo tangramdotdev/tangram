@@ -184,6 +184,8 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				touched_at text
 			);
 
+			create index processes_command_index on processes (command);
+
 			create index processes_status_index on processes (status);
 
 			create table process_children (

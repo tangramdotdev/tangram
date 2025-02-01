@@ -87,10 +87,6 @@ impl ToV8 for tg::command::Object {
 		let value = self.host.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "stdin".as_bytes()).unwrap();
-		let value = self.stdin.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
 		Ok(object.into())
 	}
 }
@@ -123,17 +119,11 @@ impl FromV8 for tg::command::Object {
 		let host = <_>::from_v8(scope, host)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the host"))?;
 
-		let stdin = v8::String::new_external_onebyte_static(scope, "stdin".as_bytes()).unwrap();
-		let stdin = value.get(scope, stdin.into()).unwrap();
-		let stdin = <_>::from_v8(scope, stdin)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the stdin"))?;
-
 		Ok(Self {
 			args,
 			env,
 			executable,
 			host,
-			stdin,
 		})
 	}
 }

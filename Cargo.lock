@@ -6578,6 +6578,7 @@ dependencies = [
  "dashmap 6.1.0",
  "data-encoding",
  "data-encoding-macro",
+ "derive_builder",
  "derive_more",
  "fastcdc",
  "filetime",
