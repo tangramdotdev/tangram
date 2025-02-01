@@ -97,7 +97,7 @@ fn main() {
 	// Install dependencies.
 	println!("cargo:rerun-if-env-changed=NODE_PATH");
 	if std::env::var("NODE_PATH").ok().is_none() {
-		println!("cargo:rerun-if-changed=../../bun.lockb");
+		println!("cargo:rerun-if-changed=../../bun.lock");
 		std::process::Command::new("bun")
 			.args(["install", "--frozen-lockfile"])
 			.status()
