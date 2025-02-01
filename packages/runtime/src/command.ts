@@ -48,7 +48,7 @@ export function command<
 		let stdin = undefined;
 		let object = {
 			args: args_,
-			env: tg.process.state!.command.state.object!.env,
+			env: tg.Process.current.state!.command.state.object!.env,
 			executable,
 			host: "js",
 			stdin,
@@ -145,7 +145,8 @@ export class Command<
 					return {
 						args: ["-c", arg],
 						executable: await tg.symlink("/bin/sh"),
-						host: (await (await tg.process.command()).env())!.TANGRAM_HOST,
+						host: (await (await tg.Process.current.command()).env())!
+							.TANGRAM_HOST,
 					};
 				} else if (arg instanceof Command) {
 					return await arg.object();

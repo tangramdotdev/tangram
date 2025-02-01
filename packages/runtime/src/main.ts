@@ -12,6 +12,7 @@ Object.defineProperties(globalThis, {
 
 let Tangram = tg.template;
 Object.assign(Tangram, tg);
+Object.defineProperty(Tangram, "process", { get: () => tg.Process.current });
 Object.defineProperties(globalThis, {
 	Tangram: { value: Tangram },
 	tg: { value: Tangram },

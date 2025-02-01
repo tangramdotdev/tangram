@@ -16,7 +16,7 @@ import type { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { Object as Object_ } from "./object.ts";
 import { path } from "./path.ts";
-import { Process, process } from "./process.ts";
+import { Process } from "./process.ts";
 import type { Reference } from "./reference.ts";
 import type { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
@@ -84,7 +84,6 @@ export {
 	error,
 	mutation,
 	path,
-	process,
 	resolve,
 	run,
 	sleep,

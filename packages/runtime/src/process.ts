@@ -2,13 +2,9 @@ import { mutate } from "./args.ts";
 import * as tg from "./index.ts";
 import { flatten } from "./util.ts";
 
-export let process: tg.Process;
-
-export let setProcess = async (process_: Process) => {
-	process = process_;
-};
-
 export class Process {
+	static current: tg.Process;
+
 	#env: { [name: string]: tg.Value } | undefined;
 	#id: tg.Process.Id;
 	#remote: string | undefined;
@@ -31,14 +27,15 @@ export class Process {
 		let arg = await Process.arg(...args);
 		let checksum = arg.checksum;
 		let command = await tg.command(
-			{ env: tg.process.command().then((command) => command.env()) },
+			{ env: Process.current.command().then((command) => command.env()) },
 			arg.command,
 			arg,
 		);
-		let cwd = "cwd" in arg ? arg.cwd : tg.process.#state!.cwd;
+		let cwd = "cwd" in arg ? arg.cwd : tg.Process.current.#state!.cwd;
 		let processEnv =
-			"processEnv" in arg ? arg.processEnv : tg.process.#state!.env;
-		let network = "network" in arg ? arg.network : tg.process.#state!.network;
+			"processEnv" in arg ? arg.processEnv : tg.Process.current.#state!.env;
+		let network =
+			"network" in arg ? arg.network : tg.Process.current.#state!.network;
 		let output = await syscall("process_spawn", {
 			checksum,
 			command: await command.id(),
@@ -128,7 +125,8 @@ export class Process {
 					return {
 						args: ["-c", arg],
 						executable: await tg.symlink("/bin/sh"),
-						host: (await (await tg.process.command()).env())!.TANGRAM_HOST,
+						host: (await (await tg.Process.current.command()).env())!
+							.TANGRAM_HOST,
 					};
 				} else if (arg instanceof tg.Command) {
 					return { command: await arg.object() };

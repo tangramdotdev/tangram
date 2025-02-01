@@ -1,14 +1,13 @@
 import * as tg from "./index.ts";
-import { setProcess } from "./process.ts";
 
 export let start = async (process: tg.Process): Promise<tg.Value> => {
-	// Load the process and command.
+	// Load the process and the command.
 	await process.load();
 	const command = await process.command();
 	await command.load();
 
-	// Set the process.
-	await setProcess(process);
+	// Set the current process.
+	tg.Process.current = process;
 
 	// @ts-ignore
 	// biome-ignore lint/security/noGlobalEval: special import
