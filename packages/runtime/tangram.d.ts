@@ -441,8 +441,8 @@ declare namespace tg {
 		/** Resolve this symlink to the artifact it refers to, or return undefined if none is found. */
 		resolve(): Promise<tg.Artifact | undefined>;
 
-		/** Get this symlink's command. */
-		command(): Promise<string | undefined>;
+		/** Get this symlink's target. */
+		target(): Promise<string | undefined>;
 	}
 
 	export namespace Symlink {
