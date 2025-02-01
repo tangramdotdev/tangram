@@ -54,8 +54,6 @@ impl Server {
 			#[serde_as(as = "Rfc3339")]
 			created_at: time::OffsetDateTime,
 			#[serde(default)]
-			depth: Option<u64>,
-			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			dequeued_at: Option<time::OffsetDateTime>,
 			#[serde(default)]
@@ -113,7 +111,6 @@ impl Server {
 					count,
 					created_at,
 					cwd,
-					depth,
 					dequeued_at,
 					enqueued_at,
 					env,
@@ -155,7 +152,6 @@ impl Server {
 			count: row.count,
 			created_at: row.created_at,
 			cwd: row.cwd,
-			depth: row.depth,
 			dequeued_at: row.dequeued_at,
 			enqueued_at: row.enqueued_at,
 			env: row.env.map(|env| env.0),

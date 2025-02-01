@@ -51,7 +51,6 @@ pub struct State {
 	pub count: Option<u64>,
 	pub created_at: time::OffsetDateTime,
 	pub cwd: Option<PathBuf>,
-	pub depth: Option<u64>,
 	pub dequeued_at: Option<time::OffsetDateTime>,
 	pub enqueued_at: Option<time::OffsetDateTime>,
 	pub env: Option<BTreeMap<String, String>>,
@@ -206,7 +205,6 @@ impl TryFrom<tg::process::get::Output> for tg::process::State {
 		let count = value.count;
 		let created_at = value.created_at;
 		let cwd = value.cwd;
-		let depth = value.depth;
 		let dequeued_at = value.dequeued_at;
 		let enqueued_at = value.enqueued_at;
 		let env = value.env;
@@ -240,7 +238,6 @@ impl TryFrom<tg::process::get::Output> for tg::process::State {
 			count,
 			created_at,
 			cwd,
-			depth,
 			dequeued_at,
 			enqueued_at,
 			env,

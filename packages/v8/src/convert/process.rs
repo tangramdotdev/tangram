@@ -137,10 +137,6 @@ impl ToV8 for tg::process::State {
 		let value = self.cwd.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "depth".as_bytes()).unwrap();
-		let value = self.depth.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
 		let key = v8::String::new_external_onebyte_static(scope, "dequeued_at".as_bytes()).unwrap();
 		let value = self.dequeued_at.to_v8(scope)?;
 		object.set(scope, key.into(), value);
@@ -303,11 +299,6 @@ impl FromV8 for tg::process::State {
 		let cwd = <_>::from_v8(scope, cwd)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the cwd"))?;
 
-		let depth = v8::String::new_external_onebyte_static(scope, "depth".as_bytes()).unwrap();
-		let depth = value.get(scope, depth.into()).unwrap();
-		let depth = <_>::from_v8(scope, depth)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the depth"))?;
-
 		let dequeued_at =
 			v8::String::new_external_onebyte_static(scope, "dequeued_at".as_bytes()).unwrap();
 		let dequeued_at = value.get(scope, dequeued_at.into()).unwrap();
@@ -443,7 +434,6 @@ impl FromV8 for tg::process::State {
 			count,
 			created_at,
 			cwd,
-			depth,
 			dequeued_at,
 			enqueued_at,
 			env,

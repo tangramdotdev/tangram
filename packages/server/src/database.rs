@@ -157,7 +157,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				count integer,
 				created_at text not null,
 				cwd text,
-				depth integer,
 				dequeued_at text,
 				enqueued_at text,
 				env text,
