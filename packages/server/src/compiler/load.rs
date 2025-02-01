@@ -94,7 +94,7 @@ impl Compiler {
 					| tg::module::Kind::File
 					| tg::module::Kind::Symlink
 					| tg::module::Kind::Graph
-					| tg::module::Kind::Target,
+					| tg::module::Kind::Command,
 				referent: tg::Referent { item, subpath, .. },
 				..
 			} => {
@@ -108,7 +108,7 @@ impl Compiler {
 					tg::module::Kind::File => "File",
 					tg::module::Kind::Symlink => "Symlink",
 					tg::module::Kind::Graph => "Graph",
-					tg::module::Kind::Target => "Target",
+					tg::module::Kind::Command => "Command",
 					_ => unreachable!(),
 				};
 				match item {

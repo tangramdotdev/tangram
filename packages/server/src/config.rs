@@ -1,7 +1,4 @@
-use std::{
-	path::{Path, PathBuf},
-	time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 use tangram_client as tg;
 use url::Url;
 
@@ -9,29 +6,28 @@ use url::Url;
 pub struct Config {
 	pub advanced: Advanced,
 	pub authentication: Option<Authentication>,
-	pub build: Option<Build>,
-	pub build_heartbeat_monitor: Option<BuildHeartbeatMonitor>,
-	pub build_indexer: Option<BuildIndexer>,
 	pub database: Database,
 	pub messenger: Messenger,
 	pub object_indexer: Option<ObjectIndexer>,
 	pub path: PathBuf,
+	pub process: Option<Process>,
+	pub process_heartbeat_monitor: Option<ProcessHeartbeatMonitor>,
+	pub process_indexer: Option<ProcessIndexer>,
 	pub store: Option<Store>,
-	pub url: Url,
+	pub url: Option<Url>,
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
 }
 
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug)]
 pub struct Advanced {
-	pub build_dequeue_timeout: Duration,
+	pub process_dequeue_timeout: Duration,
 	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
 	pub write_blobs_to_blobs_directory: bool,
-	pub write_build_logs_to_database: bool,
-	pub write_build_logs_to_stderr: bool,
+	pub write_process_logs_to_database: bool,
+	pub write_process_logs_to_stderr: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -54,7 +50,7 @@ pub struct Oauth {
 }
 
 #[derive(Clone, Debug)]
-pub struct Build {
+pub struct Process {
 	pub concurrency: usize,
 	pub heartbeat_interval: Duration,
 	pub max_depth: u64,
@@ -62,14 +58,14 @@ pub struct Build {
 }
 
 #[derive(Clone, Debug)]
-pub struct BuildHeartbeatMonitor {
+pub struct ProcessHeartbeatMonitor {
 	pub interval: Duration,
 	pub limit: usize,
 	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct BuildIndexer {}
+pub struct ProcessIndexer {}
 
 #[derive(Clone, Debug)]
 pub enum Database {
@@ -135,45 +131,41 @@ impl Config {
 	pub fn with_path(path: PathBuf) -> Self {
 		let advanced = Advanced::default();
 		let authentication = None;
-		let build = None;
-		let build_heartbeat_monitor = None;
-		let build_indexer = None;
-		let database = Database::Sqlite(SqliteDatabase::with_path(path.join("database")));
+		let database = Database::Sqlite(SqliteDatabase {
+			connections: 1,
+			path: path.join("database"),
+		});
 		let messenger = Messenger::default();
 		let object_indexer = None;
+		let process = None;
+		let process_heartbeat_monitor = None;
+		let process_indexer = None;
 		let store = None;
-		let url = Self::default_url_for_path(&path);
+		let url = None;
 		let version = None;
 		let vfs = None;
 		Self {
 			advanced,
 			authentication,
-			build,
-			build_heartbeat_monitor,
-			build_indexer,
 			database,
 			messenger,
 			object_indexer,
 			path,
+			process,
+			process_heartbeat_monitor,
+			process_indexer,
 			store,
 			url,
 			version,
 			vfs,
 		}
 	}
-
-	pub fn default_url_for_path(path: impl AsRef<Path>) -> Url {
-		let path = path.as_ref().join("socket");
-		let path = path.to_str().unwrap();
-		let path = urlencoding::encode(path);
-		format!("http+unix://{path}").parse().unwrap()
-	}
 }
 
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
-			build_dequeue_timeout: Duration::from_secs(3600),
+			process_dequeue_timeout: Duration::from_secs(3600),
 			error_trace_options: tg::error::TraceOptions {
 				internal: true,
 				reverse: false,
@@ -181,17 +173,16 @@ impl Default for Advanced {
 			file_descriptor_semaphore_size: 1_000_000_000,
 			preserve_temp_directories: false,
 			write_blobs_to_blobs_directory: true,
-			write_build_logs_to_database: false,
-			write_build_logs_to_stderr: false,
+			write_process_logs_to_database: false,
+			write_process_logs_to_stderr: false,
 		}
 	}
 }
 
-impl Default for Build {
+impl Default for Process {
 	fn default() -> Self {
-		let n = std::thread::available_parallelism().unwrap();
 		Self {
-			concurrency: n.into(),
+			concurrency: 1,
 			heartbeat_interval: Duration::from_secs(1),
 			max_depth: 4096,
 			remotes: Vec::new(),
@@ -199,7 +190,7 @@ impl Default for Build {
 	}
 }
 
-impl Default for BuildHeartbeatMonitor {
+impl Default for ProcessHeartbeatMonitor {
 	fn default() -> Self {
 		Self {
 			interval: Duration::from_secs(1),
@@ -209,27 +200,10 @@ impl Default for BuildHeartbeatMonitor {
 	}
 }
 
-impl SqliteDatabase {
-	#[must_use]
-	pub fn with_path(path: PathBuf) -> Self {
-		let n = std::thread::available_parallelism().unwrap();
-		Self {
-			connections: n.into(),
-			path,
-		}
-	}
-
-	#[must_use]
-	pub fn with_path_and_connections(path: PathBuf, connections: usize) -> Self {
-		Self { connections, path }
-	}
-}
-
 impl Default for PostgresDatabase {
 	fn default() -> Self {
-		let n = std::thread::available_parallelism().unwrap();
 		Self {
-			connections: n.into(),
+			connections: 1,
 			url: "postgres://localhost:5432".parse().unwrap(),
 		}
 	}

@@ -6,14 +6,14 @@ use insta::assert_snapshot;
 fn test_export_default_target() {
 	let text = indoc!(
 		"
-			export default tg.target(() => {});
+			export default tg.command(() => {});
 		"
 	);
 	let output = Compiler::transpile_module(text.to_owned())
 		.unwrap()
 		.transpiled_text;
 	assert_snapshot!(output, @r#"
- export default tg.target({
+ export default tg.command({
  	module: import.meta.module,
  	name: "default",
  	function: ()=>{}
@@ -25,14 +25,14 @@ fn test_export_default_target() {
 fn test_export_named_target() {
 	let text = indoc!(
 		"
-			export let named = tg.target(() => {});
+			export let named = tg.command(() => {});
 		"
 	);
 	let output = Compiler::transpile_module(text.to_owned())
 		.unwrap()
 		.transpiled_text;
 	assert_snapshot!(output, @r#"
- export let named = tg.target({
+ export let named = tg.command({
  	module: import.meta.module,
  	name: "named",
  	function: ()=>{}
@@ -44,14 +44,14 @@ fn test_export_named_target() {
 fn test_named_target() {
 	let text = indoc!(
 		r#"
-			tg.target("named", () => {});
+			tg.command("named", () => {});
 		"#
 	);
 	let output = Compiler::transpile_module(text.to_owned())
 		.unwrap()
 		.transpiled_text;
 	assert_snapshot!(output, @r#"
- tg.target({
+ tg.command({
  	module: import.meta.module,
  	name: "named",
  	function: ()=>{}

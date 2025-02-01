@@ -10,6 +10,7 @@ use num::ToPrimitive as _;
 use std::{
 	ffi::CString,
 	io::Error,
+	ops::Deref,
 	os::{
 		fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
 		unix::ffi::OsStrExt as _,
@@ -825,7 +826,7 @@ impl<P> Clone for Server<P> {
 	}
 }
 
-impl<P> std::ops::Deref for Server<P> {
+impl<P> Deref for Server<P> {
 	type Target = Inner<P>;
 
 	fn deref(&self) -> &Self::Target {

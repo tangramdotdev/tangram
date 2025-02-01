@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 pub trait Ext: Sized {
 	fn map<F, U>(self, f: F) -> Map<Self, F, U>
@@ -35,7 +35,7 @@ where
 	}
 }
 
-impl<T, F, U> std::ops::Deref for Map<T, F, U>
+impl<T, F, U> Deref for Map<T, F, U>
 where
 	F: Fn(&T) -> &U,
 {

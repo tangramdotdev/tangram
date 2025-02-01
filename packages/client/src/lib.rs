@@ -2,7 +2,9 @@ use crate as tg;
 use futures::{Future, FutureExt as _, Stream};
 use std::{
 	collections::VecDeque,
+	ops::Deref,
 	path::{Path, PathBuf},
+	pin::Pin,
 	sync::Arc,
 	time::Duration,
 };
@@ -19,8 +21,8 @@ pub use self::{
 	artifact::Handle as Artifact,
 	blob::Handle as Blob,
 	branch::Handle as Branch,
-	build::Build,
 	checksum::Checksum,
+	command::Handle as Command,
 	diagnostic::Diagnostic,
 	directory::Handle as Directory,
 	error::{ok, Error, Result},
@@ -37,12 +39,12 @@ pub use self::{
 	mutation::Mutation,
 	object::Handle as Object,
 	position::Position,
+	process::Process,
 	range::Range,
 	reference::Reference,
 	referent::Referent,
 	symlink::Handle as Symlink,
 	tag::Tag,
-	target::Handle as Target,
 	template::Template,
 	user::User,
 	value::Value,
@@ -51,9 +53,9 @@ pub use self::{
 pub mod artifact;
 pub mod blob;
 pub mod branch;
-pub mod build;
 pub mod checksum;
 pub mod clean;
+pub mod command;
 pub mod compiler;
 pub mod diagnostic;
 pub mod directory;
@@ -71,7 +73,9 @@ pub mod module;
 pub mod mutation;
 pub mod object;
 pub mod package;
+pub mod pipe;
 pub mod position;
+pub mod process;
 pub mod progress;
 pub mod range;
 pub mod reference;
@@ -80,7 +84,6 @@ pub mod remote;
 pub mod runtime;
 pub mod symlink;
 pub mod tag;
-pub mod target;
 pub mod template;
 pub mod user;
 pub mod util;
@@ -566,6 +569,7 @@ impl Client {
 			.await?
 			.send_request(request)
 			.await
+			.map(|response| response.map(Into::into))
 			.map_err(|source| tg::error!(!source, "failed to send the request"))
 	}
 }
@@ -615,127 +619,6 @@ impl tg::Handle for Client {
 		>,
 	> {
 		self.try_read_blob_stream(id, arg)
-	}
-
-	fn try_get_build(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> {
-		self.try_get_build(id)
-	}
-
-	fn put_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::put::Output>> {
-		self.put_build(id, arg)
-	}
-
-	fn push_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.push_build(id, arg)
-	}
-
-	fn pull_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.pull_build(id, arg)
-	}
-
-	fn try_dequeue_build(
-		&self,
-		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> {
-		self.try_dequeue_build(arg)
-	}
-
-	fn try_start_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::start::Output>> {
-		self.try_start_build(id, arg)
-	}
-
-	fn heartbeat_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> {
-		self.heartbeat_build(id, arg)
-	}
-
-	fn try_get_build_status_stream(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::status::Event>> + Send + 'static>,
-		>,
-	> {
-		self.try_get_build_status_stream(id)
-	}
-
-	fn try_get_build_children_stream(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::children::get::Event>> + Send + 'static>,
-		>,
-	> {
-		self.try_get_build_children_stream(id, arg)
-	}
-
-	fn try_get_build_log_stream(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::build::log::get::Event>> + Send + 'static>,
-		>,
-	> {
-		self.try_get_build_log_stream(id, arg)
-	}
-
-	fn try_add_build_log(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::log::post::Output>> {
-		self.try_add_build_log(id, arg)
-	}
-
-	fn try_finish_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::finish::Output>> {
-		self.try_finish_build(id, arg)
-	}
-
-	fn touch_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.touch_build(id, arg)
 	}
 
 	fn lsp(
@@ -813,11 +696,175 @@ impl tg::Handle for Client {
 		self.format_package(arg)
 	}
 
+	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		self.open_pipe()
+	}
+
+	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
+		self.close_pipe(id)
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
+		self.read_pipe(id)
+	}
+
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.write_pipe(id, stream)
+	}
+
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+		self.try_spawn_process(arg)
+	}
+
+	fn wait_process_future(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
+	> {
+		self.wait_process_future(id)
+	}
+
+	fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
+		self.try_get_process(id)
+	}
+
+	fn put_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::put::Output>> {
+		self.put_process(id, arg)
+	}
+
+	fn push_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push_process(id, arg)
+	}
+
+	fn pull_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull_process(id, arg)
+	}
+
+	fn try_dequeue_process(
+		&self,
+		arg: tg::process::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> {
+		self.try_dequeue_process(arg)
+	}
+
+	fn try_start_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::start::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::start::Output>> {
+		self.try_start_process(id, arg)
+	}
+
+	fn heartbeat_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
+		self.heartbeat_process(id, arg)
+	}
+
+	fn try_get_process_status_stream(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = Result<tg::process::status::Event>> + Send + 'static>,
+		>,
+	> {
+		self.try_get_process_status_stream(id)
+	}
+
+	fn try_get_process_children_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = Result<tg::process::children::get::Event>> + Send + 'static>,
+		>,
+	> {
+		self.try_get_process_children_stream(id, arg)
+	}
+
+	fn try_get_process_log_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::log::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = Result<tg::process::log::get::Event>> + Send + 'static>,
+		>,
+	> {
+		self.try_get_process_log_stream(id, arg)
+	}
+
+	fn try_post_process_log(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::log::post::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
+		self.try_post_process_log(id, arg)
+	}
+
+	fn try_finish_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::finish::Output>> {
+		self.try_finish_process(id, arg)
+	}
+
+	fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.touch_process(id, arg)
+	}
+
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	       + Send {
+	) -> impl Future<
+		Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>,
+	> + Send {
 		self.try_get_reference(reference)
 	}
 
@@ -885,20 +932,12 @@ impl tg::Handle for Client {
 		self.delete_tag(tag)
 	}
 
-	fn try_build_target(
-		&self,
-		id: &tg::target::Id,
-		arg: tg::target::build::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::target::build::Output>>> {
-		self.try_build_target(id, arg)
-	}
-
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		self.get_user(token)
 	}
 }
 
-impl std::ops::Deref for Client {
+impl Deref for Client {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

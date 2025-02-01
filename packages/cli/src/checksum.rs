@@ -11,7 +11,7 @@ pub struct Args {
 	pub algorithm: tg::checksum::Algorithm,
 
 	#[command(flatten)]
-	pub inner: crate::target::build::InnerArgs,
+	pub inner: crate::process::run::InnerArgs,
 
 	/// The artifact, blob, or URL to checksum.
 	#[arg(index = 1, default_value = ".")]

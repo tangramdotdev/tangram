@@ -1,7 +1,7 @@
 use crate::Message;
 use bytes::Bytes;
 use futures::{future, Future, FutureExt as _, Stream, StreamExt as _};
-use std::{convert::Infallible, sync::Arc};
+use std::{convert::Infallible, ops::Deref, sync::Arc};
 
 pub struct Messenger(Arc<Inner>);
 
@@ -61,7 +61,7 @@ impl crate::Messenger for Messenger {
 	}
 }
 
-impl std::ops::Deref for Messenger {
+impl Deref for Messenger {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

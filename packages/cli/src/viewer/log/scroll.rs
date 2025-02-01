@@ -1,6 +1,6 @@
 use num::ToPrimitive as _;
 use ratatui as tui;
-use tangram_client::{self as tg, build::log::get::Chunk};
+use tangram_client::{self as tg, process::log::get::Chunk};
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 use unicode_width::UnicodeWidthStr;
 
@@ -483,7 +483,7 @@ mod tests {
 
 	#[test]
 	fn scroll_up_and_down() {
-		let chunks = [tg::build::log::get::Chunk {
+		let chunks = [tg::process::log::get::Chunk {
 			position: 0,
 			bytes: b"1 abcdef\n2 abcdef\n3 abcdef\n".to_vec().into(),
 		}];
@@ -503,15 +503,15 @@ mod tests {
 	#[test]
 	fn invalid_utf8() {
 		let chunks = vec![
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 0,
 				bytes: b"a".to_vec().into(),
 			},
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 1,
 				bytes: vec![0b1010_1010].into(),
 			},
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 2,
 				bytes: b"b".to_vec().into(),
 			},
@@ -542,15 +542,15 @@ mod tests {
 	fn emoji() {
 		// Non tailing case.
 		let chunks = vec![
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 0,
 				bytes: "1——👍👌👉👈——\n".as_bytes().to_vec().into(),
 			},
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 30,
 				bytes: "2——👍👌👉👈——\n".as_bytes().to_vec().into(),
 			},
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 60,
 				bytes: "3——👍👌👉👈——\n".as_bytes().to_vec().into(),
 			},
@@ -570,7 +570,7 @@ mod tests {
 
 		// Tailing case.
 		let chunks = vec![
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 0,
 				bytes:
 					"\"0——👍👌👉👈——\"\n\"1——👍👌👉👈——\"\n\"2——👍👌👉👈——\"\n\"3——👍👌👉👈——\"\n"
@@ -578,7 +578,7 @@ mod tests {
 						.to_vec()
 						.into(),
 			},
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 128,
 				bytes: "\"4——👍👌👉👈——\"\n".as_bytes().to_vec().into(),
 			},
@@ -600,7 +600,7 @@ mod tests {
 
 	#[test]
 	fn word_wrap_emoji() {
-		let chunks = vec![tg::build::log::get::Chunk {
+		let chunks = vec![tg::process::log::get::Chunk {
 			position: 0,
 			bytes: "😀😀".as_bytes().to_vec().into(),
 		}];
@@ -616,7 +616,7 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..24 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::build::log::get::Chunk { position, bytes };
+			let chunk = tg::process::log::get::Chunk { position, bytes };
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
 		}
@@ -634,7 +634,7 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..8 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::build::log::get::Chunk { position, bytes };
+			let chunk = tg::process::log::get::Chunk { position, bytes };
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
 		}
@@ -661,7 +661,7 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..8 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::build::log::get::Chunk { position, bytes };
+			let chunk = tg::process::log::get::Chunk { position, bytes };
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
 		}
@@ -696,23 +696,23 @@ mod tests {
 		let num_lines = 26;
 
 		let chunks = [
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 114,
 				bytes: b"\"doing stuff 6...\"\n".to_vec().into(),
 			},
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 133,
 				bytes: b"\"doing stuff 7...\"\n".to_vec().into(),
 			},
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 152,
 				bytes: b"\"doing stuff 8...\"\n".to_vec().into(),
 			},
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 171,
 				bytes: b"\"doing stuff 9...\"\n".to_vec().into(),
 			},
-			tg::build::log::get::Chunk {
+			tg::process::log::get::Chunk {
 				position: 190,
 				bytes: b"\"doing stuff 10...\"\n".to_vec().into(),
 			},

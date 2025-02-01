@@ -2,7 +2,12 @@ import * as tg from "./index.ts";
 
 export let log = (...args: Array<unknown>) => {
 	let string = args.map((arg) => stringify(arg)).join(" ");
-	syscall("log", `${string}\n`);
+	syscall("log", `${string}\n`, "log");
+};
+
+export let error = (...args: Array<unknown>) => {
+	let string = args.map((arg) => stringify(arg)).join(" ");
+	syscall("log", `${string}\n`, "error");
 };
 
 let stringify = (value: unknown): string => {
@@ -31,7 +36,7 @@ let stringifyInner = (value: unknown, visited: WeakSet<object>): string => {
 			}
 		}
 		case "function": {
-			if (value instanceof tg.Target) {
+			if (value instanceof tg.Command) {
 				return stringifyObject(value, visited);
 			} else {
 				return `(function "${value.name ?? "(anonymous)"}")`;
@@ -68,8 +73,8 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 		output = stringifyState("symlink", value.state, visited);
 	} else if (value instanceof tg.Graph) {
 		output = stringifyState("graph", value.state, visited);
-	} else if (value instanceof tg.Target) {
-		output = stringifyState("target", value.state, visited);
+	} else if (value instanceof tg.Command) {
+		output = stringifyState("commmand", value.state, visited);
 	} else if (value instanceof Uint8Array) {
 		let bytes = tg.encoding.hex.encode(value);
 		output = `(bytes ${bytes})`;

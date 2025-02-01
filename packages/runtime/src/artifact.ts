@@ -41,13 +41,10 @@ export namespace Artifact {
 		artifact: Artifact,
 		format: ArchiveFormat,
 	): Promise<tg.Blob> => {
-		let value = await (
-			await tg.target({
-				host: "builtin",
-				args: ["archive", artifact, format],
-				env: undefined,
-			})
-		).output();
+		let value = await tg.build({
+			args: ["archive", artifact, format],
+			host: "builtin",
+		});
 		tg.assert(tg.Blob.is(value));
 		return value;
 	};
@@ -56,25 +53,21 @@ export namespace Artifact {
 		blob: tg.Blob,
 		format: ArchiveFormat,
 	): Promise<Artifact> => {
-		let value = await (
-			await tg.target({
-				host: "builtin",
-				args: ["extract", blob, format],
-				env: undefined,
-			})
-		).output();
+		let value = await tg.build({
+			args: ["extract", blob, format],
+			env: undefined,
+			host: "builtin",
+		});
 		tg.assert(Artifact.is(value));
 		return value;
 	};
 
 	export let bundle = async (artifact: Artifact): Promise<Artifact> => {
-		let value = await (
-			await tg.target({
-				host: "builtin",
-				args: ["bundle", artifact],
-				env: undefined,
-			})
-		).output();
+		let value = await tg.build({
+			args: ["bundle", artifact],
+			env: undefined,
+			host: "builtin",
+		});
 		tg.assert(Artifact.is(value));
 		return value;
 	};
@@ -83,13 +76,11 @@ export namespace Artifact {
 		artifact: Artifact,
 		algorithm: tg.Checksum.Algorithm,
 	): Promise<tg.Checksum> => {
-		let value = await (
-			await tg.target({
-				host: "builtin",
-				args: ["checksum", artifact, algorithm],
-				env: undefined,
-			})
-		).output();
+		let value = await tg.build({
+			args: ["checksum", artifact, algorithm],
+			env: undefined,
+			host: "builtin",
+		});
 		return value as tg.Checksum;
 	};
 }

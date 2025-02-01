@@ -1,7 +1,7 @@
 use crate::Cli;
 use tangram_client as tg;
 
-/// Display a tree for a build or object.
+/// Display a tree for a process or an object.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

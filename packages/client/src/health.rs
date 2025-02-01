@@ -3,14 +3,14 @@ use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Health {
-	pub builds: Option<Builds>,
+	pub processes: Option<Processes>,
 	pub database: Option<Database>,
 	pub file_descriptor_semaphore: Option<FileDescriptorSemaphore>,
 	pub version: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Builds {
+pub struct Processes {
 	pub created: u64,
 	pub dequeued: u64,
 	pub started: u64,

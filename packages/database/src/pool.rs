@@ -1,5 +1,6 @@
 use std::{
 	collections::BinaryHeap,
+	ops::{Deref, DerefMut},
 	sync::{Arc, Mutex},
 };
 
@@ -102,7 +103,7 @@ impl<T> Clone for Pool<T> {
 	}
 }
 
-impl<T> std::ops::Deref for Guard<T> {
+impl<T> Deref for Guard<T> {
 	type Target = T;
 
 	fn deref(&self) -> &Self::Target {
@@ -110,7 +111,7 @@ impl<T> std::ops::Deref for Guard<T> {
 	}
 }
 
-impl<T> std::ops::DerefMut for Guard<T> {
+impl<T> DerefMut for Guard<T> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		self.value.as_mut().unwrap()
 	}

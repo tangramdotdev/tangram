@@ -1,5 +1,6 @@
 use self::syscall::syscall;
 use crate::{compiler::Compiler, Server};
+use bytes::Bytes;
 use futures::{
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
@@ -21,19 +22,18 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.js.m
 
 #[derive(Clone)]
 pub struct Runtime {
-	server: Server,
+	pub(super) server: Server,
 }
 
 struct State {
-	build: tg::Build,
+	process: tg::Process,
 	futures: RefCell<FuturesUnordered<LocalBoxFuture<'static, FutureOutput>>>,
 	global_source_map: Option<SourceMap>,
 	compiler: Compiler,
-	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
+	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<syscall::log::Message>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
-	remote: Option<String>,
 	root: tg::Module,
 	server: Server,
 }
@@ -64,9 +64,7 @@ impl Runtime {
 		}
 	}
 
-	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
-		let server = &self.server;
-
+	pub async fn run(&self, process: &tg::Process) -> super::Output {
 		// Create a handle to the main runtime.
 		let main_runtime_handle = tokio::runtime::Handle::current();
 
@@ -74,23 +72,21 @@ impl Runtime {
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
 
 		// Spawn the task.
-		let task = server.local_pool_handle.spawn_pinned({
-			let runtime = self.clone();
-			let server = server.clone();
-			let build = build.clone();
-			move || async move {
-				runtime
-					.run_inner(
-						&server,
-						&build,
-						remote,
-						main_runtime_handle.clone(),
-						isolate_handle_sender,
-					)
-					.boxed_local()
-					.await
-			}
-		});
+		let task = self
+			.server
+			.local_pool_handle
+			.as_ref()
+			.unwrap()
+			.spawn_pinned({
+				let runtime = self.clone();
+				let process = process.clone();
+				move || async move {
+					runtime
+						.run_inner(&process, main_runtime_handle.clone(), isolate_handle_sender)
+						.boxed_local()
+						.await
+				}
+			});
 		let abort_handle = task.abort_handle();
 		scopeguard::defer! {
 			abort_handle.abort();
@@ -100,42 +96,35 @@ impl Runtime {
 			}
 		};
 
-		task.await.unwrap()
+		let (error, exit, output) = match task.await.unwrap() {
+			Ok(output) => (None, None::<tg::process::Exit>, Some(output)),
+			Err(error) => (Some(error), None, None),
+		};
+
+		super::Output {
+			error,
+			exit,
+			output,
+		}
 	}
 
 	async fn run_inner(
 		&self,
-		server: &Server,
-		build: &tg::Build,
-		remote: Option<String>,
+		process: &tg::Process,
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<tg::Value> {
-		// Get the target.
-		let target = build.target(server).await?;
-
-		// Get the checksum.
-		let checksum = target.checksum(server).await?;
-
-		// Try to reuse a build whose checksum is `None` or `Unsafe`.
-		if let Ok(value) =
-			super::util::try_reuse_build(server, build.id(), &target, checksum.as_ref())
-				.boxed()
-				.await
-		{
-			return Ok(value);
-		};
-
 		// Get the root module.
-		let root = target
-			.executable(server)
+		let command = process.command(&self.server).await?;
+		let root = command
+			.executable(&self.server)
 			.await?
 			.as_ref()
-			.ok_or_else(|| tg::error!("expected the target to have an executable"))?
+			.ok_or_else(|| tg::error!("expected the command to have an executable"))?
 			.try_unwrap_module_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected the executable to be a module"))?
-			.data(server)
+			.data(&self.server)
 			.await?;
 		let root = tg::Module {
 			kind: root.kind,
@@ -148,27 +137,29 @@ impl Runtime {
 		};
 
 		// Start the log task.
-		let (log_sender, mut log_receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
+		let (log_sender, mut log_receiver) =
+			tokio::sync::mpsc::unbounded_channel::<syscall::log::Message>();
 		let log_task = main_runtime_handle.spawn({
-			let server = server.clone();
-			let build = build.clone();
-			let remote = remote.clone();
+			let server = self.server.clone();
+			let process = process.clone();
 			async move {
-				while let Some(string) = log_receiver.recv().await {
-					if server.config.advanced.write_build_logs_to_stderr {
+				while let Some(message) = log_receiver.recv().await {
+					let syscall::log::Message { contents, .. } = message;
+					if server.config.advanced.write_process_logs_to_stderr {
 						tokio::io::stderr()
-							.write_all(string.as_bytes())
+							.write_all(contents.as_bytes())
 							.await
-							.inspect_err(|e| {
-								tracing::error!(?e, "failed to write build log to stderr");
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to write process log to stderr");
 							})
 							.ok();
 					}
-					let arg = tg::build::log::post::Arg {
-						bytes: string.into(),
-						remote: remote.clone(),
+					let bytes = Bytes::from(contents);
+					let arg = tg::process::log::post::Arg {
+						bytes: bytes.clone(),
+						remote: process.remote().map(ToOwned::to_owned),
 					};
-					build.add_log(&server, arg).await.ok();
+					server.try_post_process_log(process.id(), arg).await.ok();
 				}
 			}
 		});
@@ -179,17 +170,16 @@ impl Runtime {
 
 		// Create the state.
 		let state = Rc::new(State {
-			build: build.clone(),
+			process: process.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-			compiler: Compiler::new(server, main_runtime_handle.clone()),
+			compiler: Compiler::new(&self.server, main_runtime_handle.clone()),
 			log_sender: RefCell::new(Some(log_sender)),
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
 			rejection: tokio::sync::watch::channel(None).0,
-			remote: remote.clone(),
 			root,
-			server: server.clone(),
+			server: self.server.clone(),
 		});
 		scopeguard::defer! {
 			state.futures.borrow_mut().clear();
@@ -269,10 +259,10 @@ impl Runtime {
 
 			// Call the start function.
 			let undefined = v8::undefined(scope);
-			let target = target
+			let process = process
 				.to_v8(scope)
-				.map_err(|source| tg::error!(!source, "failed to serialize the target"))?;
-			let value = start.call(scope, undefined.into(), &[target]).unwrap();
+				.map_err(|source| tg::error!(!source, "failed to serialize the command"))?;
+			let value = start.call(scope, undefined.into(), &[process]).unwrap();
 
 			// Make the value global.
 			v8::Global::new(scope, value)
@@ -399,15 +389,6 @@ impl Runtime {
 		// Stop and await the compiler.
 		state.compiler.stop();
 		state.compiler.wait().await;
-
-		// Checksum the output if necessary.
-		if let Ok(value) = &result {
-			if let Some(checksum) = checksum.as_ref() {
-				super::util::checksum(server, build, value, checksum)
-					.boxed()
-					.await?;
-			}
-		}
 
 		result
 	}

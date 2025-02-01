@@ -9,7 +9,7 @@ import bunLockb from "./bun.lockb" with { type: "file" };
 import packageJson from "./package.json" with { type: "file" };
 import packages from "./packages" with { type: "directory" };
 
-export const source = tg.target(() =>
+export const source = tg.command(() =>
 	tg.directory({
 		"Cargo.toml": cargoToml,
 		"Cargo.lock": cargoLock,
@@ -20,7 +20,7 @@ export const source = tg.target(() =>
 	}),
 );
 
-export default tg.target(async () => {
+export default tg.command(async () => {
 	const host = std.triple.host();
 	const bunArtifact = bun({ host });
 	const env = std.env.arg(
@@ -39,7 +39,7 @@ export default tg.target(async () => {
 	});
 });
 
-export const librustyv8 = tg.target(
+export const librustyv8 = tg.command(
 	async (lockfile: tg.File, hostArg?: string) => {
 		const host = hostArg ?? (await std.triple.host());
 		let os;
@@ -83,7 +83,7 @@ type CargoLock = {
 	package: Array<{ name: string; version: string }>;
 };
 
-export const linuxRuntimeComponents = tg.target(async () => {
+export const linuxRuntimeComponents = tg.command(async () => {
 	const version = "v2024.10.03";
 	const urlBase = `https://github.com/tangramdotdev/bootstrap/releases/download/${version}`;
 

@@ -2,8 +2,7 @@ use crate::Cli;
 use tangram_client::{self as tg, Handle};
 use tangram_either::Either;
 
-/// Push a build or an object.
-#[allow(clippy::struct_excessive_bools)]
+/// Push a process or an object.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -23,7 +22,7 @@ pub struct Args {
 	pub remote: Option<String>,
 
 	#[arg(long)]
-	pub targets: bool,
+	pub commands: bool,
 }
 
 impl Cli {
@@ -36,7 +35,7 @@ impl Cli {
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
-			Either::Left(build) => Either::Left(build),
+			Either::Left(process) => Either::Left(process),
 			Either::Right(object) => {
 				let object = if let Some(subpath) = &referent.subpath {
 					let directory = object
@@ -51,21 +50,21 @@ impl Cli {
 			},
 		};
 		let item = match item {
-			Either::Left(build) => Either::Left(build.id().clone()),
+			Either::Left(process) => Either::Left(process.id().clone()),
 			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
 		};
 
 		// Push the item.
 		match item.clone() {
-			Either::Left(build) => {
-				let args = crate::build::push::Args {
-					build,
+			Either::Left(process) => {
+				let args = crate::process::push::Args {
+					process,
 					logs: args.logs,
 					recursive: args.recursive,
 					remote: Some(remote.clone()),
-					targets: args.targets,
+					commands: args.commands,
 				};
-				self.command_build_push(args).await?;
+				self.command_process_push(args).await?;
 			},
 			Either::Right(object) => {
 				let args = crate::object::push::Args {

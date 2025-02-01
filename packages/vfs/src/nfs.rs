@@ -39,6 +39,7 @@ use futures::{future, TryFutureExt as _};
 use num::ToPrimitive as _;
 use std::{
 	io::Error,
+	ops::Deref,
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::{atomic::AtomicU64, Arc, Mutex},
@@ -1110,7 +1111,7 @@ impl<P> Clone for Server<P> {
 	}
 }
 
-impl<P> std::ops::Deref for Server<P> {
+impl<P> Deref for Server<P> {
 	type Target = Inner<P>;
 
 	fn deref(&self) -> &Self::Target {
@@ -1176,7 +1177,6 @@ pub const ALL_SUPPORTED_ATTRS: &[u32] = &[
 	FATTR4_MOUNTED_ON_FILEID,
 ];
 
-#[allow(clippy::struct_excessive_bools)]
 pub struct FileAttrData {
 	supported_attrs: bitmap4,
 	file_type: nfs_ftype4,

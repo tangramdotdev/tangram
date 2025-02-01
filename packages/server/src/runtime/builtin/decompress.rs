@@ -5,18 +5,12 @@ use tangram_futures::read::shared_position_reader::SharedPositionReader;
 use tokio::io::AsyncRead;
 
 impl Runtime {
-	pub async fn decompress(
-		&self,
-		build: &tg::Build,
-		remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	pub async fn decompress(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
-
-		// Get the target.
-		let target = build.target(server).await?;
+		let command = process.command(server).await?;
 
 		// Get the args.
-		let args = target.args(server).await?;
+		let args = command.args(server).await?;
 
 		// Get the blob.
 		let blob: tg::Blob = args
@@ -48,8 +42,7 @@ impl Runtime {
 		let size = blob.size(server).await?;
 		let log_task = tokio::spawn({
 			let server = server.clone();
-			let build = build.clone();
-			let remote = remote.clone();
+			let process = process.clone();
 			async move {
 				loop {
 					let position = position.load(std::sync::atomic::Ordering::Relaxed);
@@ -61,12 +54,15 @@ impl Runtime {
 						total: Some(size),
 					};
 					let message = indicator.to_string();
-					let arg = tg::build::log::post::Arg {
+					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
-						remote: remote.clone(),
+						remote: process.remote().cloned(),
 					};
-					let result = build.add_log(&server, arg).await;
-					if result.is_err() {
+					if !server
+						.try_post_process_log(process.id(), arg)
+						.await
+						.map_or(true, |ok| ok.added)
+					{
 						break;
 					}
 					tokio::time::sleep(Duration::from_secs(1)).await;
@@ -100,11 +96,11 @@ impl Runtime {
 
 		// Log that the decompression finished.
 		let message = "finished decompressing\n";
-		let arg = tg::build::log::post::Arg {
+		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
-			remote: remote.clone(),
+			remote: process.remote().cloned(),
 		};
-		build.add_log(server, arg).await.ok();
+		server.try_post_process_log(process.id(), arg).await.ok();
 
 		Ok(blob.into())
 	}

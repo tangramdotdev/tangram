@@ -11,7 +11,7 @@ pub enum Object {
 	File(Arc<tg::file::Object>),
 	Symlink(Arc<tg::symlink::Object>),
 	Graph(Arc<tg::graph::Object>),
-	Target(Arc<tg::target::Object>),
+	Command(Arc<tg::command::Object>),
 }
 
 impl Object {
@@ -24,7 +24,7 @@ impl Object {
 			Self::File(file) => file.children(),
 			Self::Symlink(symlink) => symlink.children(),
 			Self::Graph(graph) => graph.children(),
-			Self::Target(target) => target.children(),
+			Self::Command(command) => command.children(),
 		}
 	}
 }
@@ -42,7 +42,7 @@ impl TryFrom<Data> for Object {
 			Data::File(data) => Self::File(Arc::new(tg::file::Object::try_from(data)?)),
 			Data::Symlink(data) => Self::Symlink(Arc::new(tg::symlink::Object::try_from(data)?)),
 			Data::Graph(data) => Self::Graph(Arc::new(tg::graph::Object::try_from(data)?)),
-			Data::Target(data) => Self::Target(Arc::new(tg::target::Object::try_from(data)?)),
+			Data::Command(data) => Self::Command(Arc::new(tg::command::Object::try_from(data)?)),
 		})
 	}
 }

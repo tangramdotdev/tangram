@@ -12,7 +12,6 @@ use url::Url;
 
 mod artifact;
 mod blob;
-mod build;
 mod cat;
 mod checksum;
 mod clean;
@@ -21,6 +20,7 @@ mod health;
 mod lsp;
 mod object;
 mod package;
+mod process;
 mod progress;
 mod pull;
 mod push;
@@ -28,7 +28,6 @@ mod remote;
 mod server;
 mod tag;
 mod tangram;
-mod target;
 mod tree;
 mod view;
 mod viewer;
@@ -106,7 +105,7 @@ enum Command {
 	Blob(self::blob::Args),
 
 	#[command(alias = "b")]
-	Build(self::build::Args),
+	Build(self::process::build::Args),
 
 	Cat(self::cat::Args),
 
@@ -138,7 +137,7 @@ enum Command {
 	#[command(alias = "ls")]
 	List(self::tag::list::Args),
 
-	Log(self::build::log::Args),
+	Log(self::process::log::Args),
 
 	Lsp(self::lsp::Args),
 
@@ -150,6 +149,8 @@ enum Command {
 
 	Package(self::package::Args),
 
+	Process(self::process::Args),
+
 	Pull(self::pull::Args),
 
 	Push(self::push::Args),
@@ -158,7 +159,8 @@ enum Command {
 
 	Remote(self::remote::Args),
 
-	Run(self::target::run::Args),
+	#[command(alias = "r")]
+	Run(self::process::run::Args),
 
 	#[command(name = "self")]
 	Tangram(self::tangram::Args),
@@ -167,9 +169,9 @@ enum Command {
 
 	Server(self::server::Args),
 
-	Tag(self::tag::Args),
+	Spawn(self::process::spawn::Args),
 
-	Target(self::target::Args),
+	Tag(self::tag::Args),
 
 	#[command(hide = true)]
 	Tree(self::tree::Args),
@@ -253,7 +255,7 @@ impl Cli {
 		let runtime = builder.build().unwrap();
 
 		// Run the command.
-		let result = runtime.block_on(cli.command(cli.args.command.clone()).boxed());
+		let result = runtime.block_on(cli.command(cli.args.clone()).boxed());
 
 		// Drop the handle.
 		runtime.block_on(async {
@@ -433,10 +435,18 @@ impl Cli {
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 
 		// Create the default config.
-		let database = tangram_server::config::Database::Sqlite(
-			tangram_server::config::SqliteDatabase::with_path(path.join("database")),
-		);
-		let url = tangram_server::Config::default_url_for_path(&path);
+		let parallelism = std::thread::available_parallelism().unwrap().into();
+		let database =
+			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
+				connections: parallelism,
+				path: path.join("database"),
+			});
+		let process = Some(tangram_server::config::Process {
+			concurrency: parallelism,
+			heartbeat_interval: Duration::from_secs(1),
+			max_depth: 4096,
+			remotes: Vec::new(),
+		});
 		let vfs = if cfg!(target_os = "linux") {
 			Some(tangram_server::config::Vfs::default())
 		} else {
@@ -445,15 +455,17 @@ impl Cli {
 		let mut config = tangram_server::Config {
 			advanced: tangram_server::config::Advanced::default(),
 			authentication: None,
-			build: Some(tangram_server::config::Build::default()),
-			build_heartbeat_monitor: Some(tangram_server::config::BuildHeartbeatMonitor::default()),
-			build_indexer: None,
 			database,
 			messenger: tangram_server::config::Messenger::default(),
 			object_indexer: Some(tangram_server::config::ObjectIndexer::default()),
 			path,
+			process,
+			process_heartbeat_monitor: Some(
+				tangram_server::config::ProcessHeartbeatMonitor::default(),
+			),
+			process_indexer: None,
 			store: None,
-			url,
+			url: None,
 			version: None,
 			vfs,
 		};
@@ -465,7 +477,7 @@ impl Cli {
 			.clone()
 			.or(self.config.as_ref().and_then(|config| config.url.clone()))
 		{
-			config.url = url;
+			config.url = Some(url);
 		}
 
 		// Set the advanced options.
@@ -474,8 +486,8 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 		{
-			if let Some(build_dequeue_timeout) = advanced.build_dequeue_timeout {
-				config.advanced.build_dequeue_timeout = build_dequeue_timeout;
+			if let Some(process_dequeue_timeout) = advanced.process_dequeue_timeout {
+				config.advanced.process_dequeue_timeout = process_dequeue_timeout;
 			}
 			if let Some(error_trace_options) = advanced.error_trace_options.clone() {
 				config.advanced.error_trace_options = error_trace_options;
@@ -489,11 +501,11 @@ impl Cli {
 			if let Some(write_blobs_to_blobs_directory) = advanced.write_blobs_to_blobs_directory {
 				config.advanced.write_blobs_to_blobs_directory = write_blobs_to_blobs_directory;
 			}
-			if let Some(write_build_logs_to_database) = advanced.write_build_logs_to_database {
-				config.advanced.write_build_logs_to_database = write_build_logs_to_database;
+			if let Some(write_process_logs_to_database) = advanced.write_process_logs_to_database {
+				config.advanced.write_process_logs_to_database = write_process_logs_to_database;
 			}
-			if let Some(write_build_logs_to_stderr) = advanced.write_build_logs_to_stderr {
-				config.advanced.write_build_logs_to_stderr = write_build_logs_to_stderr;
+			if let Some(write_process_logs_to_stderr) = advanced.write_process_logs_to_stderr {
+				config.advanced.write_process_logs_to_stderr = write_process_logs_to_stderr;
 			}
 		}
 
@@ -524,69 +536,73 @@ impl Cli {
 			},
 		}
 
-		// Set the build options.
-		match self.config.as_ref().and_then(|config| config.build.clone()) {
-			None => (),
-			Some(None) => {
-				config.build = None;
-			},
-			Some(Some(build)) => {
-				let mut build_ = tangram_server::config::Build::default();
-				if let Some(concurrency) = build.concurrency {
-					build_.concurrency = concurrency;
-				}
-				if let Some(heartbeat_interval) = build.heartbeat_interval {
-					build_.heartbeat_interval = heartbeat_interval;
-				}
-				if let Some(max_depth) = build.max_depth {
-					build_.max_depth = max_depth;
-				}
-				if let Some(remotes) = build.remotes.clone() {
-					build_.remotes = remotes;
-				}
-				config.build = Some(build_);
-			},
-		}
-
-		// Set the build heartbeat monitor options.
+		// Set the process options.
 		match self
 			.config
 			.as_ref()
-			.and_then(|config| config.build_heartbeat_monitor.clone())
+			.and_then(|config| config.process.clone())
 		{
 			None => (),
 			Some(None) => {
-				config.build_heartbeat_monitor = None;
+				config.process = None;
 			},
-			Some(Some(build_heartbeat_monitor)) => {
-				let mut build_heartbeat_monitor_ =
-					tangram_server::config::BuildHeartbeatMonitor::default();
-				if let Some(interval) = build_heartbeat_monitor.interval {
-					build_heartbeat_monitor_.interval = interval;
+			Some(Some(process)) => {
+				let mut process_ = tangram_server::config::Process::default();
+				if let Some(concurrency) = process.concurrency {
+					process_.concurrency = concurrency;
 				}
-				if let Some(limit) = build_heartbeat_monitor.limit {
-					build_heartbeat_monitor_.limit = limit;
+				if let Some(heartbeat_interval) = process.heartbeat_interval {
+					process_.heartbeat_interval = heartbeat_interval;
 				}
-				if let Some(timeout) = build_heartbeat_monitor.timeout {
-					build_heartbeat_monitor_.timeout = timeout;
+				if let Some(max_depth) = process.max_depth {
+					process_.max_depth = max_depth;
 				}
-				config.build_heartbeat_monitor = Some(build_heartbeat_monitor_);
+				if let Some(remotes) = process.remotes.clone() {
+					process_.remotes = remotes;
+				}
+				config.process = Some(process_);
 			},
 		}
 
-		// Set the build indexer options.
+		// Set the process heartbeat monitor options.
 		match self
 			.config
 			.as_ref()
-			.and_then(|config| config.build_indexer.clone())
+			.and_then(|config| config.process_heartbeat_monitor.clone())
 		{
 			None => (),
 			Some(None) => {
-				config.build_indexer = None;
+				config.process_heartbeat_monitor = None;
 			},
-			Some(Some(_build_indexer)) => {
-				let build_indexer_ = tangram_server::config::BuildIndexer::default();
-				config.build_indexer = Some(build_indexer_);
+			Some(Some(process_heartbeat_monitor)) => {
+				let mut process_heartbeat_monitor_ =
+					tangram_server::config::ProcessHeartbeatMonitor::default();
+				if let Some(interval) = process_heartbeat_monitor.interval {
+					process_heartbeat_monitor_.interval = interval;
+				}
+				if let Some(limit) = process_heartbeat_monitor.limit {
+					process_heartbeat_monitor_.limit = limit;
+				}
+				if let Some(timeout) = process_heartbeat_monitor.timeout {
+					process_heartbeat_monitor_.timeout = timeout;
+				}
+				config.process_heartbeat_monitor = Some(process_heartbeat_monitor_);
+			},
+		}
+
+		// Set the process indexer options.
+		match self
+			.config
+			.as_ref()
+			.and_then(|config| config.process_indexer.clone())
+		{
+			None => (),
+			Some(None) => {
+				config.process_indexer = None;
+			},
+			Some(Some(_)) => {
+				let process_indexer_ = tangram_server::config::ProcessIndexer::default();
+				config.process_indexer = Some(process_indexer_);
 			},
 		}
 
@@ -598,8 +614,10 @@ impl Cli {
 		{
 			config.database = match database {
 				self::config::Database::Sqlite(database) => {
-					let mut database_ =
-						tangram_server::config::SqliteDatabase::with_path(config.path.clone());
+					let mut database_ = tangram_server::config::SqliteDatabase {
+						connections: parallelism,
+						path: config.path.clone(),
+					};
 					if let Some(connections) = database.connections {
 						database_.connections = connections;
 					}
@@ -609,7 +627,10 @@ impl Cli {
 					tangram_server::config::Database::Sqlite(database_)
 				},
 				self::config::Database::Postgres(database) => {
-					let mut database_ = tangram_server::config::PostgresDatabase::default();
+					let mut database_ = tangram_server::config::PostgresDatabase {
+						connections: parallelism,
+						url: "postgres://localhost:5432".parse().unwrap(),
+					};
 					if let Some(connections) = database.connections {
 						database_.connections = connections;
 					}
@@ -825,11 +846,11 @@ impl Cli {
 	}
 
 	// Run the command.
-	async fn command(&self, command: Command) -> tg::Result<()> {
-		match command {
+	async fn command(&self, args: Args) -> tg::Result<()> {
+		match args.command {
 			Command::Artifact(args) => self.command_artifact(args).boxed(),
 			Command::Blob(args) => self.command_blob(args).boxed(),
-			Command::Build(args) => self.command_build(args).boxed(),
+			Command::Build(args) => self.command_process_build(args).boxed(),
 			Command::Cat(args) => self.command_cat(args).boxed(),
 			Command::Check(args) => self.command_package_check(args).boxed(),
 			Command::Checkin(args) => self.command_artifact_checkin(args).boxed(),
@@ -843,22 +864,23 @@ impl Cli {
 			Command::Health(args) => self.command_health(args).boxed(),
 			Command::Init(args) => self.command_package_init(args).boxed(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
-			Command::Log(args) => self.command_build_log(args).boxed(),
+			Command::Log(args) => self.command_process_log(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),
 			Command::New(args) => self.command_package_new(args).boxed(),
 			Command::Object(args) => self.command_object(args).boxed(),
 			Command::Outdated(args) => self.command_package_outdated(args).boxed(),
 			Command::Package(args) => self.command_package(args).boxed(),
+			Command::Process(args) => self.command_process(args).boxed(),
 			Command::Pull(args) => self.command_pull(args).boxed(),
 			Command::Push(args) => self.command_push(args).boxed(),
 			Command::Put(args) => self.command_object_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
-			Command::Run(args) => self.command_target_run(args).boxed(),
+			Command::Run(args) => self.command_process_run(args).boxed(),
 			Command::Tangram(args) => self.command_tangram(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
+			Command::Spawn(args) => self.command_process_spawn(args).boxed(),
 			Command::Tag(args) => self.command_tag(args).boxed(),
-			Command::Target(args) => self.command_target(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),
 			Command::View(args) => self.command_view(args).boxed(),
@@ -1012,7 +1034,7 @@ impl Cli {
 	async fn get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<Either<tg::Build, tg::Object>>> {
+	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>> {
 		let handle = self.handle().await?;
 		let mut item = reference.item().clone();
 		let mut options = reference.options().cloned();

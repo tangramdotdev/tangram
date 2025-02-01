@@ -12,7 +12,7 @@ impl Server {
 	) -> tg::Result<tg::Checksum> {
 		match algorithm {
 			tg::checksum::Algorithm::None => Ok(tg::Checksum::None),
-			tg::checksum::Algorithm::Unsafe => Ok(tg::Checksum::Unsafe),
+			tg::checksum::Algorithm::Any => Ok(tg::Checksum::Any),
 			algorithm => {
 				let mut writer = tg::checksum::Writer::new(algorithm);
 				writer
@@ -111,7 +111,7 @@ impl Server {
 	) -> tg::Result<tg::Checksum> {
 		match algorithm {
 			tg::checksum::Algorithm::None => Ok(tg::Checksum::None),
-			tg::checksum::Algorithm::Unsafe => Ok(tg::Checksum::Unsafe),
+			tg::checksum::Algorithm::Any => Ok(tg::Checksum::Any),
 			algorithm => {
 				let mut writer = tg::checksum::Writer::new(algorithm);
 				let mut reader = blob.read(self, tg::blob::read::Arg::default()).await?;

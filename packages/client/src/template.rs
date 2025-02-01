@@ -258,6 +258,24 @@ impl std::fmt::Display for Template {
 	}
 }
 
+impl From<tg::Directory> for Component {
+	fn from(value: tg::Directory) -> Self {
+		Self::Artifact(value.into())
+	}
+}
+
+impl From<tg::File> for Component {
+	fn from(value: tg::File) -> Self {
+		Self::Artifact(value.into())
+	}
+}
+
+impl From<tg::Symlink> for Component {
+	fn from(value: tg::Symlink) -> Self {
+		Self::Artifact(value.into())
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

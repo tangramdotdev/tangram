@@ -95,14 +95,17 @@ fn main() {
 	}
 
 	// Install dependencies.
-	println!("cargo:rerun-if-changed=../../bun.lockb");
-	std::process::Command::new("bun")
-		.args(["install", "--frozen-lockfile"])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
-		.unwrap();
+	println!("cargo:rerun-if-env-changed=NODE_PATH");
+	if std::env::var("NODE_PATH").ok().is_none() {
+		println!("cargo:rerun-if-changed=../../bun.lockb");
+		std::process::Command::new("bun")
+			.args(["install", "--frozen-lockfile"])
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+	}
 
 	// Create the lib path.
 	let lib_path = out_dir_path.join("lib");

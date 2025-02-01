@@ -6,17 +6,20 @@ impl tg::Artifact {
 	where
 		H: tg::Handle,
 	{
-		let target = self.bundle_target();
-		let arg = tg::target::build::Arg::default();
-		let output = target.output(handle, arg).boxed().await?;
+		let command = self.bundle_command();
+		let arg = tg::process::spawn::Arg {
+			command: Some(command.id(handle).await?),
+			..Default::default()
+		};
+		let output = tg::Process::run(handle, arg).boxed().await?;
 		let artifact = output.try_into()?;
 		Ok(artifact)
 	}
 
 	#[must_use]
-	pub fn bundle_target(&self) -> tg::Target {
+	pub fn bundle_command(&self) -> tg::Command {
 		let host = "builtin";
 		let args = vec!["bundle".into(), self.clone().into()];
-		tg::Target::builder(host).args(args).build()
+		tg::Command::builder(host).args(args).build()
 	}
 }

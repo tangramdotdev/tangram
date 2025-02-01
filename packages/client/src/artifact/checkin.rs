@@ -7,7 +7,6 @@ use std::{path::PathBuf, pin::pin};
 use tangram_futures::stream::TryExt as _;
 use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
 
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]

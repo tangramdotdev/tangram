@@ -11,7 +11,7 @@ impl ToV8 for tg::Object {
 			tg::Object::File(file) => file.to_v8(scope),
 			tg::Object::Symlink(symlink) => symlink.to_v8(scope),
 			tg::Object::Graph(graph) => graph.to_v8(scope),
-			tg::Object::Target(target) => target.to_v8(scope),
+			tg::Object::Command(command) => command.to_v8(scope),
 		}
 	}
 }
@@ -52,9 +52,9 @@ impl FromV8 for tg::Object {
 		let graph = tangram.get(scope, graph.into()).unwrap();
 		let graph = v8::Local::<v8::Function>::try_from(graph).unwrap();
 
-		let target = v8::String::new_external_onebyte_static(scope, "Target".as_bytes()).unwrap();
-		let target = tangram.get(scope, target.into()).unwrap();
-		let target = v8::Local::<v8::Function>::try_from(target).unwrap();
+		let command = v8::String::new_external_onebyte_static(scope, "Command".as_bytes()).unwrap();
+		let command = tangram.get(scope, command.into()).unwrap();
+		let command = v8::Local::<v8::Function>::try_from(command).unwrap();
 
 		if value.instance_of(scope, leaf.into()).unwrap() {
 			Ok(Self::Leaf(<_>::from_v8(scope, value)?))
@@ -68,8 +68,8 @@ impl FromV8 for tg::Object {
 			Ok(Self::Symlink(<_>::from_v8(scope, value)?))
 		} else if value.instance_of(scope, graph.into()).unwrap() {
 			Ok(Self::Graph(<_>::from_v8(scope, value)?))
-		} else if value.instance_of(scope, target.into()).unwrap() {
-			Ok(Self::Target(<_>::from_v8(scope, value)?))
+		} else if value.instance_of(scope, command.into()).unwrap() {
+			Ok(Self::Command(<_>::from_v8(scope, value)?))
 		} else {
 			return Err(tg::error!("invalid object"));
 		}
@@ -100,7 +100,7 @@ impl ToV8 for tg::object::Object {
 			Self::File(file) => ("file", file.to_v8(scope)?),
 			Self::Symlink(symlink) => ("symlink", symlink.to_v8(scope)?),
 			Self::Graph(graph) => ("graph", graph.to_v8(scope)?),
-			Self::Target(target) => ("target", target.to_v8(scope)?),
+			Self::Command(command) => ("command", command.to_v8(scope)?),
 		};
 		let object = v8::Object::new(scope);
 		let key = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
@@ -130,7 +130,7 @@ impl FromV8 for tg::object::Object {
 			"file" => Self::File(<_>::from_v8(scope, value)?),
 			"symlink" => Self::Symlink(<_>::from_v8(scope, value)?),
 			"graph" => Self::Graph(<_>::from_v8(scope, value)?),
-			"target" => Self::Target(<_>::from_v8(scope, value)?),
+			"command" => Self::Command(<_>::from_v8(scope, value)?),
 			_ => unreachable!(),
 		};
 		Ok(value)

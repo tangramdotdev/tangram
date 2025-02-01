@@ -3,10 +3,8 @@ use std::path::PathBuf;
 use tangram_client::{self as tg, Handle as _};
 
 /// Check in an artifact.
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct Args {
 	/// Cache the artifact after checking it in.
 	#[arg(long)]

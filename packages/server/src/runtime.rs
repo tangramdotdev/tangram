@@ -23,16 +23,69 @@ pub enum Runtime {
 	Linux(linux::Runtime),
 }
 
+#[derive(Debug)]
+pub struct Output {
+	pub error: Option<tg::Error>,
+	pub exit: Option<tg::process::Exit>,
+	#[allow(clippy::struct_field_names)]
+	pub output: Option<tg::Value>,
+}
+
 impl Runtime {
-	pub async fn build(&self, build: &tg::Build, remote: Option<String>) -> tg::Result<tg::Value> {
+	pub fn server(&self) -> &Server {
 		match self {
-			Runtime::Builtin(runtime) => runtime.build(build, remote).boxed().await,
-			#[cfg(target_os = "macos")]
-			Runtime::Darwin(runtime) => runtime.build(build, remote).boxed().await,
-			Runtime::Js(runtime) => runtime.build(build, remote).boxed().await,
+			Self::Builtin(s) => &s.server,
+			Self::Js(s) => &s.server,
 			#[cfg(target_os = "linux")]
-			Runtime::Linux(runtime) => runtime.build(build, remote).boxed().await,
+			Self::Linux(s) => &s.server,
+			#[cfg(target_os = "macos")]
+			Self::Darwin(s) => &s.server,
 		}
+	}
+
+	pub async fn run(&self, process: &tg::Process) -> Output {
+		let output = match self.run_inner(process).await {
+			Ok(output) => output,
+			Err(error) => Output {
+				error: Some(error),
+				exit: None,
+				output: None,
+			},
+		};
+
+		// If there is an error, then add it to the process's log.
+		if let Some(error) = &output.error {
+			let arg = tg::process::log::post::Arg {
+				bytes: error.to_string().into(),
+				remote: process.remote().cloned(),
+			};
+			self.server()
+				.try_post_process_log(process.id(), arg)
+				.await
+				.ok();
+		}
+
+		output
+	}
+
+	async fn run_inner(&self, process: &tg::Process) -> tg::Result<Output> {
+		// Run the process.
+		let output = match self {
+			Runtime::Builtin(runtime) => runtime.run(process).boxed().await,
+			#[cfg(target_os = "macos")]
+			Runtime::Darwin(runtime) => runtime.run(process).boxed().await,
+			Runtime::Js(runtime) => runtime.run(process).boxed().await,
+			#[cfg(target_os = "linux")]
+			Runtime::Linux(runtime) => runtime.run(process).boxed().await,
+		};
+
+		// If the process has a checksum, then compute the checksum of the output.
+		let state = process.load(self.server()).await?;
+		if let (Some(value), Some(checksum)) = (&output.output, &state.checksum) {
+			self::util::compute_checksum(self, process, value, checksum).await?;
+		}
+
+		Ok(output)
 	}
 }
 

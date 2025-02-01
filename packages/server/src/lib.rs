@@ -12,9 +12,10 @@ use rusqlite as sqlite;
 use std::{
 	collections::HashMap,
 	convert::Infallible,
+	ops::Deref,
 	os::fd::AsRawFd as _,
 	path::{Path, PathBuf},
-	pin::pin,
+	pin::{pin, Pin},
 	sync::{Arc, Mutex, RwLock},
 	time::Duration,
 };
@@ -31,7 +32,6 @@ use url::Url;
 
 mod artifact;
 mod blob;
-mod build;
 mod checksum;
 mod clean;
 mod compiler;
@@ -42,13 +42,14 @@ mod messenger;
 mod module;
 mod object;
 mod package;
+mod pipe;
+mod process;
 mod progress;
 mod reference;
 mod remote;
 mod runtime;
 mod store;
 mod tag;
-mod target;
 mod temp;
 mod user;
 mod util;
@@ -65,34 +66,41 @@ pub struct Server(pub Arc<Inner>);
 
 pub struct Inner {
 	artifact_cache_task_map: ArtifactCacheTaskMap,
-	build_permits: BuildPermits,
-	build_semaphore: Arc<tokio::sync::Semaphore>,
-	builds: BuildTaskMap,
 	compilers: RwLock<Vec<Compiler>>,
 	config: Config,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
-	local_pool_handle: tokio_util::task::LocalPoolHandle,
+	local_pool_handle: Option<tokio_util::task::LocalPoolHandle>,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
+	process_permits: ProcessPermits,
+	process_semaphore: Arc<tokio::sync::Semaphore>,
+	processes: BuildTaskMap,
+	pipes: DashMap<tg::pipe::Id, Pipe, fnv::FnvBuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Option<Arc<Store>>,
 	task: Mutex<Option<Task<()>>>,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
+	url: Url,
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
 
-type BuildPermits =
-	DashMap<tg::build::Id, Arc<tokio::sync::Mutex<Option<BuildPermit>>>, fnv::FnvBuildHasher>;
+struct Pipe {
+	sender: tokio::sync::mpsc::Sender<tg::pipe::Event>,
+	receiver: Option<tokio::sync::mpsc::Receiver<tg::pipe::Event>>,
+}
+
+type ProcessPermits =
+	DashMap<tg::process::Id, Arc<tokio::sync::Mutex<Option<BuildPermit>>>, fnv::FnvBuildHasher>;
 
 struct BuildPermit(
 	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type BuildTaskMap = TaskMap<tg::build::Id, (), fnv::FnvBuildHasher>;
+type BuildTaskMap = TaskMap<tg::process::Id, (), fnv::FnvBuildHasher>;
 
 type ArtifactCacheTaskMap =
 	TaskMap<tg::artifact::Id, tg::Result<crate::artifact::cache::Output>, fnv::FnvBuildHasher>;
@@ -182,19 +190,19 @@ impl Server {
 		// Create the artifact cache task map.
 		let artifact_cache_task_map = TaskMap::default();
 
-		// Create the build permits.
-		let build_permits = DashMap::default();
+		// Create the process permits.
+		let process_permits = DashMap::default();
 
-		// Create the build semaphore.
+		// Create the process semaphore.
 		let permits = config
-			.build
+			.process
 			.as_ref()
-			.map(|build| build.concurrency)
+			.map(|process| process.concurrency)
 			.unwrap_or_default();
-		let build_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
+		let process_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
-		// Create the build tasks.
-		let builds = TaskMap::default();
+		// Create the process tasks.
+		let processes = TaskMap::default();
 
 		// Create the compilers.
 		let compilers = RwLock::new(Vec::new());
@@ -240,9 +248,10 @@ impl Server {
 			tokio::sync::Semaphore::new(config.advanced.file_descriptor_semaphore_size);
 
 		// Create the local pool handle.
-		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
-			std::thread::available_parallelism().unwrap().get(),
-		);
+		let local_pool_handle = config
+			.process
+			.as_ref()
+			.map(|process| tokio_util::task::LocalPoolHandle::new(process.concurrency));
 
 		// Create the messenger.
 		let messenger = match &config.messenger {
@@ -256,6 +265,9 @@ impl Server {
 				Messenger::Right(tangram_messenger::nats::Messenger::new(client))
 			},
 		};
+
+		// Create the pipes.
+		let pipes = DashMap::default();
 
 		// Create the remotes.
 		let remotes = DashMap::default();
@@ -275,15 +287,20 @@ impl Server {
 		// Create the temp paths.
 		let temp_paths = DashSet::default();
 
+		// Get the URL.
+		let url = config.url.clone().unwrap_or_else(|| {
+			let path = path.join("socket");
+			let path = path.to_str().unwrap();
+			let path = urlencoding::encode(path);
+			format!("http+unix://{path}").parse().unwrap()
+		});
+
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			artifact_cache_task_map,
-			build_permits,
-			build_semaphore,
-			builds,
 			compilers,
 			config,
 			database,
@@ -292,11 +309,16 @@ impl Server {
 			lock_file,
 			messenger,
 			path,
+			process_permits,
+			process_semaphore,
+			processes,
+			pipes,
 			remotes,
 			runtimes,
 			store,
 			task,
 			temp_paths,
+			url,
 			vfs,
 		}));
 
@@ -429,18 +451,18 @@ impl Server {
 			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
-		// Spawn the build heartbeat monitor task.
-		let build_heartbeat_monitor_task =
+		// Spawn the process heartbeat monitor task.
+		let process_heartbeat_monitor_task =
 			server
 				.config
-				.build_heartbeat_monitor
+				.process_heartbeat_monitor
 				.as_ref()
 				.map(|options| {
 					tokio::spawn({
 						let server = server.clone();
 						let options = options.clone();
 						async move {
-							server.build_heartbeat_monitor_task(&options).await;
+							server.process_heartbeat_monitor_task(&options).await;
 						}
 					})
 				});
@@ -463,12 +485,12 @@ impl Server {
 			None
 		};
 
-		// Spawn the build spawn task.
-		let build_spawn_task = if server.config.build.is_some() {
+		// Spawn the process queue task.
+		let process_spawn_task = if server.config.process.is_some() {
 			Some(tokio::spawn({
 				let server = server.clone();
 				async move {
-					server.build_spawn_task().await;
+					server.process_queue_task().await;
 				}
 			}))
 		} else {
@@ -476,8 +498,8 @@ impl Server {
 		};
 
 		// Listen.
-		let listener = Self::listen(&server.config.url).await?;
-		tracing::trace!("listening on {}", server.config.url);
+		let listener = Self::listen(&server.url).await?;
+		tracing::trace!("listening on {}", server.url);
 
 		// Spawn the HTTP task.
 		let http_task = Some(Task::spawn(|stop| {
@@ -510,13 +532,13 @@ impl Server {
 					}
 				}
 
-				// Abort the build spawn task.
-				if let Some(task) = build_spawn_task {
+				// Abort the process spawn task.
+				if let Some(task) = process_spawn_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result {
 						if !error.is_cancelled() {
-							tracing::error!(?error, "the build spawn task panicked");
+							tracing::error!(?error, "the process spawn task panicked");
 						}
 					}
 				}
@@ -532,24 +554,24 @@ impl Server {
 					}
 				}
 
-				// Abort the build heartbeat monitor task.
-				if let Some(task) = build_heartbeat_monitor_task {
+				// Abort the process heartbeat monitor task.
+				if let Some(task) = process_heartbeat_monitor_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result {
 						if !error.is_cancelled() {
-							tracing::error!(?error, "the build heartbeat monitor task panicked");
+							tracing::error!(?error, "the process heartbeat monitor task panicked");
 						}
 					}
 				}
 
-				// Abort the build tasks.
-				server.builds.abort_all();
-				let results = server.builds.wait().await;
+				// Abort the process tasks.
+				server.processes.abort_all();
+				let results = server.processes.wait().await;
 				for result in results {
 					if let Err(error) = result {
 						if !error.is_cancelled() {
-							tracing::error!(?error, "a build task panicked");
+							tracing::error!(?error, "a process task panicked");
 						}
 					}
 				}
@@ -620,7 +642,7 @@ impl Server {
 
 	#[must_use]
 	pub fn url(&self) -> &Url {
-		&self.config.url
+		&self.url
 	}
 
 	#[must_use]
@@ -732,8 +754,9 @@ impl Server {
 				let handle = handle.clone();
 				let idle = idle.clone();
 				let stop = stop.clone();
-				move |mut request| {
+				move |request| {
 					let handle = handle.clone();
+					let mut request = request.map(Incoming::from);
 					let idle = idle.token();
 					let stop = stop.clone();
 					async move {
@@ -809,47 +832,6 @@ impl Server {
 				Self::handle_read_blob_request(handle, request, blob).boxed()
 			},
 
-			// Builds.
-			(http::Method::GET, ["builds", build]) => {
-				Self::handle_get_build_request(handle, request, build).boxed()
-			},
-			(http::Method::PUT, ["builds", build]) => {
-				Self::handle_put_build_request(handle, request, build).boxed()
-			},
-			(http::Method::POST, ["builds", build, "push"]) => {
-				Self::handle_push_build_request(handle, request, build).boxed()
-			},
-			(http::Method::POST, ["builds", build, "pull"]) => {
-				Self::handle_pull_build_request(handle, request, build).boxed()
-			},
-			(http::Method::POST, ["builds", "dequeue"]) => {
-				Self::handle_dequeue_build_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["builds", build, "start"]) => {
-				Self::handle_start_build_request(handle, request, build).boxed()
-			},
-			(http::Method::GET, ["builds", build, "status"]) => {
-				Self::handle_get_build_status_request(handle, request, build).boxed()
-			},
-			(http::Method::GET, ["builds", build, "children"]) => {
-				Self::handle_get_build_children_request(handle, request, build).boxed()
-			},
-			(http::Method::GET, ["builds", build, "log"]) => {
-				Self::handle_get_build_log_request(handle, request, build).boxed()
-			},
-			(http::Method::POST, ["builds", build, "log"]) => {
-				Self::handle_add_build_log_request(handle, request, build).boxed()
-			},
-			(http::Method::POST, ["builds", build, "finish"]) => {
-				Self::handle_finish_build_request(handle, request, build).boxed()
-			},
-			(http::Method::POST, ["builds", build, "touch"]) => {
-				Self::handle_touch_build_request(handle, request, build).boxed()
-			},
-			(http::Method::POST, ["builds", build, "heartbeat"]) => {
-				Self::handle_heartbeat_build_request(handle, request, build).boxed()
-			},
-
 			// Compiler.
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 
@@ -879,6 +861,67 @@ impl Server {
 			},
 			(http::Method::POST, ["packages", "format"]) => {
 				Self::handle_format_package_request(handle, request).boxed()
+			},
+
+			// Pipes.
+			(http::Method::POST, ["pipes"]) => {
+				Self::handle_open_pipe_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["pipes", pipe, "close"]) => {
+				Self::handle_close_pipe_request(handle, request, pipe).boxed()
+			},
+			(http::Method::POST, ["pipes", pipe, "read"]) => {
+				Self::handle_read_pipe_request(handle, request, pipe).boxed()
+			},
+			(http::Method::POST, ["pipes", pipe, "write"]) => {
+				Self::handle_write_pipe_request(handle, request, pipe).boxed()
+			},
+
+			// Processes.
+			(http::Method::POST, ["processes", "spawn"]) => {
+				Self::handle_spawn_process_request(handle, request).boxed()
+			},
+			(http::Method::GET, ["processes", process]) => {
+				Self::handle_get_process_request(handle, request, process).boxed()
+			},
+			(http::Method::PUT, ["processes", process]) => {
+				Self::handle_put_process_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "push"]) => {
+				Self::handle_push_process_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "pull"]) => {
+				Self::handle_pull_process_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", "dequeue"]) => {
+				Self::handle_dequeue_process_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["processes", process, "start"]) => {
+				Self::handle_start_process_request(handle, request, process).boxed()
+			},
+			(http::Method::GET, ["processes", process, "status"]) => {
+				Self::handle_get_process_status_request(handle, request, process).boxed()
+			},
+			(http::Method::GET, ["processes", process, "children"]) => {
+				Self::handle_get_process_children_request(handle, request, process).boxed()
+			},
+			(http::Method::GET, ["processes", process, "log"]) => {
+				Self::handle_get_process_log_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "log"]) => {
+				Self::handle_post_process_log_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "finish"]) => {
+				Self::handle_finish_process_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "touch"]) => {
+				Self::handle_touch_process_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "heartbeat"]) => {
+				Self::handle_heartbeat_process_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "wait"]) => {
+				Self::handle_post_process_wait_request(handle, request, process).boxed()
 			},
 
 			// References.
@@ -925,11 +968,6 @@ impl Server {
 			},
 			(http::Method::DELETE, ["tags", tag @ ..]) => {
 				Self::handle_delete_tag_request(handle, request, tag).boxed()
-			},
-
-			// Targets.
-			(http::Method::POST, ["targets", target, "build"]) => {
-				Self::handle_build_target_request(handle, request, target).boxed()
 			},
 
 			// Users.
@@ -1020,127 +1058,22 @@ impl tg::Handle for Server {
 		self.try_read_blob_stream(id, arg)
 	}
 
-	fn try_get_build(
+	fn try_spawn_process(
 		&self,
-		id: &tg::build::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> {
-		self.try_get_build(id)
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+		self.try_spawn_process(arg)
 	}
 
-	fn put_build(
+	fn wait_process_future(
 		&self,
-		id: &tg::build::Id,
-		arg: tg::build::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::put::Output>> {
-		self.put_build(id, arg)
-	}
-
-	fn push_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::push::Arg,
+		id: &tg::process::Id,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
 		>,
 	> {
-		self.push_build(id, arg)
-	}
-
-	fn pull_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.pull_build(id, arg)
-	}
-
-	fn try_dequeue_build(
-		&self,
-		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> {
-		self.try_dequeue_build(arg)
-	}
-
-	fn try_start_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::start::Output>> {
-		self.try_start_build(id, arg)
-	}
-
-	fn try_get_build_status_stream(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>,
-		>,
-	> {
-		self.try_get_build_status_stream(id)
-	}
-
-	fn try_get_build_children_stream(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static,
-			>,
-		>,
-	> {
-		self.try_get_build_children_stream(id, arg)
-	}
-
-	fn try_get_build_log_stream(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
-		>,
-	> {
-		self.try_get_build_log_stream(id, arg)
-	}
-
-	fn try_add_build_log(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::log::post::Output>> {
-		self.try_add_build_log(id, arg)
-	}
-
-	fn try_finish_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::finish::Output>> {
-		self.try_finish_build(id, arg)
-	}
-
-	fn touch_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.touch_build(id, arg)
-	}
-
-	fn heartbeat_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> {
-		self.heartbeat_build(id, arg)
+		self.wait_process_future(id)
 	}
 
 	fn lsp(
@@ -1218,10 +1151,157 @@ impl tg::Handle for Server {
 		self.format_package(arg)
 	}
 
+	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		self.open_pipe()
+	}
+
+	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
+		self.close_pipe(id)
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
+		self.read_pipe(id)
+	}
+
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.write_pipe(id, stream)
+	}
+
+	fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
+		self.try_get_process(id)
+	}
+
+	fn put_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::put::Output>> {
+		self.put_process(id, arg)
+	}
+
+	fn push_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push_process(id, arg)
+	}
+
+	fn pull_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull_process(id, arg)
+	}
+
+	fn try_dequeue_process(
+		&self,
+		arg: tg::process::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> {
+		self.try_dequeue_process(arg)
+	}
+
+	fn try_start_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::start::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::start::Output>> {
+		self.try_start_process(id, arg)
+	}
+
+	fn try_get_process_status_stream(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+		>,
+	> {
+		self.try_get_process_status_stream(id)
+	}
+
+	fn try_get_process_children_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_get_process_children_stream(id, arg)
+	}
+
+	fn try_get_process_log_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::log::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
+		>,
+	> {
+		self.try_get_process_log_stream(id, arg)
+	}
+
+	fn try_post_process_log(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::log::post::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
+		self.try_post_process_log(id, arg)
+	}
+
+	fn try_finish_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::finish::Output>> {
+		self.try_finish_process(id, arg)
+	}
+
+	fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.touch_process(id, arg)
+	}
+
+	fn heartbeat_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
+		self.heartbeat_process(id, arg)
+	}
+
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
+	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>>
 	{
 		self.try_get_reference(reference)
 	}
@@ -1290,20 +1370,12 @@ impl tg::Handle for Server {
 		self.delete_tag(tag)
 	}
 
-	fn try_build_target(
-		&self,
-		id: &tg::target::Id,
-		arg: tg::target::build::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::target::build::Output>>> {
-		self.try_build_target(id, arg)
-	}
-
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::user::User>>> {
 		self.get_user(token)
 	}
 }
 
-impl std::ops::Deref for Server {
+impl Deref for Server {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

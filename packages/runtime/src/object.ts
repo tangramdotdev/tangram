@@ -7,7 +7,7 @@ export type Object =
 	| tg.File
 	| tg.Symlink
 	| tg.Graph
-	| tg.Target;
+	| tg.Command;
 
 export namespace Object {
 	export type Id =
@@ -17,7 +17,7 @@ export namespace Object {
 		| tg.File.Id
 		| tg.Symlink.Id
 		| tg.Graph.Id
-		| tg.Target.Id;
+		| tg.Command.Id;
 
 	export type Kind =
 		| "leaf"
@@ -26,7 +26,7 @@ export namespace Object {
 		| "file"
 		| "symlink"
 		| "graph"
-		| "target";
+		| "command";
 
 	export type Object =
 		| { kind: "leaf"; value: tg.Leaf.Object }
@@ -35,7 +35,7 @@ export namespace Object {
 		| { kind: "file"; value: tg.File.Object }
 		| { kind: "symlink"; value: tg.Symlink.Object }
 		| { kind: "graph"; value: tg.Graph.Object }
-		| { kind: "target"; value: tg.Target.Object };
+		| { kind: "command"; value: tg.Command.Object };
 
 	export type State<I, O> = {
 		id?: I | undefined;
@@ -57,7 +57,7 @@ export namespace Object {
 		} else if (prefix === "gph") {
 			return tg.Graph.withId(id);
 		} else if (prefix === "tgt") {
-			return tg.Target.withId(id);
+			return tg.Command.withId(id);
 		} else {
 			throw new Error(`invalid object id: ${id}`);
 		}
@@ -71,7 +71,7 @@ export namespace Object {
 			value instanceof tg.File ||
 			value instanceof tg.Symlink ||
 			value instanceof tg.Graph ||
-			value instanceof tg.Target
+			value instanceof tg.Command
 		);
 	};
 

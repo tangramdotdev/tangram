@@ -1,5 +1,6 @@
 use crate as tg;
-use futures::{Future, FutureExt as _, Stream};
+use futures::{Future, FutureExt, Stream, TryFutureExt as _};
+use std::pin::Pin;
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
@@ -81,196 +82,6 @@ where
 				.try_read_blob_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
-		}
-	}
-
-	fn try_get_build(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> {
-		match self {
-			Either::Left(s) => s.try_get_build(id).left_future(),
-			Either::Right(s) => s.try_get_build(id).right_future(),
-		}
-	}
-
-	fn put_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::put::Output>> {
-		match self {
-			Either::Left(s) => s.put_build(id, arg).left_future(),
-			Either::Right(s) => s.put_build(id, arg).right_future(),
-		}
-	}
-
-	fn push_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.push_build(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.push_build(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn pull_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.pull_build(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.pull_build(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn try_dequeue_build(
-		&self,
-		arg: tg::build::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::build::dequeue::Output>>> {
-		match self {
-			Either::Left(s) => s.try_dequeue_build(arg).left_future(),
-			Either::Right(s) => s.try_dequeue_build(arg).right_future(),
-		}
-	}
-
-	fn try_start_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::start::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::start::Output>> + Send {
-		match self {
-			Either::Left(s) => s.try_start_build(id, arg).left_future(),
-			Either::Right(s) => s.try_start_build(id, arg).right_future(),
-		}
-	}
-
-	fn try_get_build_status_stream(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>,
-		>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.try_get_build_status_stream(id)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
-				.left_future(),
-			Either::Right(s) => s
-				.try_get_build_status_stream(id)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
-				.right_future(),
-		}
-	}
-
-	fn try_get_build_children_stream(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::children::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static,
-			>,
-		>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.try_get_build_children_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
-				.left_future(),
-			Either::Right(s) => s
-				.try_get_build_children_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
-				.right_future(),
-		}
-	}
-
-	async fn try_get_build_log_stream(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.try_get_build_log_stream(id, arg)
-				.await
-				.map(|option| option.map(futures::StreamExt::left_stream)),
-			Either::Right(s) => s
-				.try_get_build_log_stream(id, arg)
-				.await
-				.map(|option| option.map(futures::StreamExt::right_stream)),
-		}
-	}
-
-	fn try_add_build_log(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::log::post::Output>> {
-		match self {
-			Either::Left(s) => s.try_add_build_log(id, arg).left_future(),
-			Either::Right(s) => s.try_add_build_log(id, arg).right_future(),
-		}
-	}
-
-	fn try_finish_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::finish::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::finish::Output>> {
-		match self {
-			Either::Left(s) => s.try_finish_build(id, arg).left_future(),
-			Either::Right(s) => s.try_finish_build(id, arg).right_future(),
-		}
-	}
-
-	fn touch_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		match self {
-			Either::Left(s) => s.touch_build(id, arg).left_future(),
-			Either::Right(s) => s.touch_build(id, arg).right_future(),
-		}
-	}
-
-	fn heartbeat_build(
-		&self,
-		id: &tg::build::Id,
-		arg: tg::build::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::build::heartbeat::Output>> + Send {
-		match self {
-			Either::Left(s) => s.heartbeat_build(id, arg).left_future(),
-			Either::Right(s) => s.heartbeat_build(id, arg).right_future(),
 		}
 	}
 
@@ -388,11 +199,274 @@ where
 		}
 	}
 
+	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		match self {
+			Either::Left(s) => s.open_pipe().left_future(),
+			Either::Right(s) => s.open_pipe().right_future(),
+		}
+	}
+
+	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.close_pipe(id).left_future(),
+			Either::Right(s) => s.close_pipe(id).right_future(),
+		}
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
+		match self {
+			Either::Left(s) => s
+				.read_pipe(id)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.read_pipe(id)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.write_pipe(id, stream).left_future(),
+			Either::Right(s) => s.write_pipe(id, stream).right_future(),
+		}
+	}
+
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+		match self {
+			Either::Left(s) => s.try_spawn_process(arg).left_future(),
+			Either::Right(s) => s.try_spawn_process(arg).right_future(),
+		}
+	}
+
+	fn wait_process_future(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.wait_process_future(id)
+				.map_ok(futures::FutureExt::left_future)
+				.left_future(),
+			Either::Right(s) => s
+				.wait_process_future(id)
+				.map_ok(futures::FutureExt::right_future)
+				.right_future(),
+		}
+	}
+
+	fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
+		match self {
+			Either::Left(s) => s.try_get_process(id).left_future(),
+			Either::Right(s) => s.try_get_process(id).right_future(),
+		}
+	}
+
+	fn put_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::put::Output>> {
+		match self {
+			Either::Left(s) => s.put_process(id, arg).left_future(),
+			Either::Right(s) => s.put_process(id, arg).right_future(),
+		}
+	}
+
+	fn push_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.push_process(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.push_process(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
+	fn pull_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.pull_process(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.pull_process(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
+	fn try_dequeue_process(
+		&self,
+		arg: tg::process::dequeue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> {
+		match self {
+			Either::Left(s) => s.try_dequeue_process(arg).left_future(),
+			Either::Right(s) => s.try_dequeue_process(arg).right_future(),
+		}
+	}
+
+	fn try_start_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::start::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::start::Output>> + Send {
+		match self {
+			Either::Left(s) => s.try_start_process(id, arg).left_future(),
+			Either::Right(s) => s.try_start_process(id, arg).right_future(),
+		}
+	}
+
+	fn try_get_process_status_stream(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.try_get_process_status_stream(id)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			Either::Right(s) => s
+				.try_get_process_status_stream(id)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
+	fn try_get_process_children_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.try_get_process_children_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			Either::Right(s) => s
+				.try_get_process_children_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
+	async fn try_get_process_log_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::log::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.try_get_process_log_stream(id, arg)
+				.await
+				.map(|option| option.map(futures::StreamExt::left_stream)),
+			Either::Right(s) => s
+				.try_get_process_log_stream(id, arg)
+				.await
+				.map(|option| option.map(futures::StreamExt::right_stream)),
+		}
+	}
+
+	fn try_post_process_log(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::log::post::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
+		match self {
+			Either::Left(s) => s.try_post_process_log(id, arg).left_future(),
+			Either::Right(s) => s.try_post_process_log(id, arg).right_future(),
+		}
+	}
+
+	fn try_finish_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::finish::Output>> {
+		match self {
+			Either::Left(s) => s.try_finish_process(id, arg).left_future(),
+			Either::Right(s) => s.try_finish_process(id, arg).right_future(),
+		}
+	}
+
+	fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.touch_process(id, arg).left_future(),
+			Either::Right(s) => s.touch_process(id, arg).right_future(),
+		}
+	}
+
+	fn heartbeat_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send {
+		match self {
+			Either::Left(s) => s.heartbeat_process(id, arg).left_future(),
+			Either::Right(s) => s.heartbeat_process(id, arg).right_future(),
+		}
+	}
+
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>>>
-	       + Send {
+	) -> impl Future<
+		Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>,
+	> + Send {
 		match self {
 			Either::Left(s) => s.try_get_reference(reference).left_future(),
 			Either::Right(s) => s.try_get_reference(reference).right_future(),
@@ -493,17 +567,6 @@ where
 		match self {
 			Either::Left(s) => s.delete_tag(tag).left_future(),
 			Either::Right(s) => s.delete_tag(tag).right_future(),
-		}
-	}
-
-	fn try_build_target(
-		&self,
-		id: &tg::target::Id,
-		arg: tg::target::build::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::target::build::Output>>> {
-		match self {
-			Either::Left(s) => s.try_build_target(id, arg).left_future(),
-			Either::Right(s) => s.try_build_target(id, arg).right_future(),
 		}
 	}
 

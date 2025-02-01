@@ -148,7 +148,7 @@ impl Server {
 						tg::object::Id::Branch(_)
 							| tg::object::Id::Graph(_)
 							| tg::object::Id::Leaf(_)
-							| tg::object::Id::Target(_)
+							| tg::object::Id::Command(_)
 					)
 				) {
 				let id = graph.nodes[scc[0]]

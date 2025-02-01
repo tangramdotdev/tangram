@@ -10,10 +10,11 @@ use tangram_v8::convert::{FromV8, ToV8};
 mod blob;
 mod checksum;
 mod encoding;
-mod log;
 mod object;
+mod process;
 mod sleep;
-mod target;
+
+pub mod log;
 
 pub fn syscall<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -42,8 +43,10 @@ pub fn syscall<'s>(
 		"log" => sync(scope, &args, self::log::log),
 		"object_load" => async_(scope, &args, self::object::load),
 		"object_store" => async_(scope, &args, self::object::store),
+		"process_load" => async_(scope, &args, self::process::load),
+		"process_spawn" => async_(scope, &args, self::process::spawn),
+		"process_wait" => async_(scope, &args, self::process::wait),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
-		"target_output" => async_(scope, &args, self::target::output),
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 

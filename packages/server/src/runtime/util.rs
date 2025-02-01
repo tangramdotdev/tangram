@@ -1,8 +1,10 @@
+use super::Runtime;
 use crate::Server;
-use futures::{FutureExt as _, TryStreamExt as _};
-use std::{path::Path, pin::pin};
-use tangram_client::{self as tg, handle::Ext as _};
-use tangram_futures::stream::Ext as _;
+use bytes::Bytes;
+use futures::{stream::FuturesOrdered, TryStreamExt};
+use std::{collections::BTreeMap, path::Path, pin::pin};
+use tangram_client as tg;
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Render a value.
 pub async fn render(
@@ -36,110 +38,67 @@ pub async fn render(
 	}
 }
 
-pub async fn try_reuse_build(
+// Post process logs.
+pub fn post_log_task(
 	server: &Server,
-	build: &tg::build::Id,
-	target: &tg::Target,
-	checksum: Option<&tg::Checksum>,
-) -> tg::Result<tg::Value> {
-	// Unwrap the checksum.
-	let Some(checksum) = checksum else {
-		return Err(tg::error!("failed to get the checksum"));
-	};
-
-	// Break if the checksum type is `None` or `Unsafe`.
-	if let tg::Checksum::None | tg::Checksum::Unsafe = &checksum {
-		return Err(tg::error!("inappropriate checksum type"));
-	}
-
-	// Search for an existing build with a `None` or `Unsafe` checksum.
-	let Ok(Some(matching_build)) = find_matching_build(server, target).await else {
-		return Err(tg::error!("failed to find a matching build"));
-	};
-	let matching_build = tg::Build::with_id(matching_build);
-
-	// Wait for the build to finish and get its output.
-	let output = matching_build.output(server).boxed().await?;
-
-	// Checksum the output.
-	super::util::checksum(server, &matching_build, &output, checksum)
-		.boxed()
-		.await?;
-
-	// Copy the build children and log.
-	copy_build_children_and_log(server, matching_build.id(), build).await?;
-
-	Ok(output)
-}
-
-async fn find_matching_build(
-	server: &Server,
-	target: &tg::Target,
-) -> tg::Result<Option<tg::build::Id>> {
-	// Attempt to find a build with the checksum set to `None`.
-	let target = target.load(server).await?;
-	let search_target = tg::target::Builder::with_object(&target)
-		.checksum(tg::Checksum::None)
-		.build();
-	let target_id = search_target.id(server).await?;
-	let arg = tg::target::build::Arg {
-		create: false,
-		..Default::default()
-	};
-	if let Some(output) = server.try_build_target(&target_id, arg).await? {
-		return Ok(Some(output.build));
-	}
-
-	// Attempt to find a build with the checksum set to `Unsafe`.
-	let search_target = tg::target::Builder::with_object(&target)
-		.checksum(tg::Checksum::Unsafe)
-		.build();
-	let target_id = search_target.id(server).await?;
-	let arg = tg::target::build::Arg {
-		create: false,
-		..Default::default()
-	};
-	if let Some(output) = server.try_build_target(&target_id, arg).await? {
-		return Ok(Some(output.build));
-	}
-
-	Ok(None)
-}
-
-async fn copy_build_children_and_log(
-	server: &Server,
-	src_build: &tg::build::Id,
-	dst_build: &tg::build::Id,
-) -> tg::Result<()> {
-	// Copy the children.
-	let arg = tg::build::children::get::Arg::default();
-	let mut src_children = pin!(server.get_build_children(src_build, arg).await?);
-	while let Some(chunk) = src_children.try_next().await? {
-		for child in chunk.data {
-			// If we fail to add one child, it means the build is finished and we can't add any of hte other children so break.
-			if !server.try_add_build_child(dst_build, &child).await? {
-				break;
+	process: &tg::Process,
+	remote: Option<&String>,
+	stdout: impl AsyncRead + Send + 'static,
+	stderr: impl AsyncRead + Send + 'static,
+) -> tokio::task::JoinHandle<tg::Result<()>> {
+	async fn inner(
+		server: Server,
+		process: tg::Process,
+		remote: Option<String>,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		let mut reader = pin!(reader);
+		let mut buffer = vec![0; 4096];
+		loop {
+			// Read from the reader.
+			let size = reader
+				.read(&mut buffer)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
+			if size == 0 {
+				return Ok::<_, tg::Error>(());
 			}
+			let bytes = Bytes::copy_from_slice(&buffer[0..size]);
+
+			// Write to stderr if configured.
+			if server.config.advanced.write_process_logs_to_stderr {
+				tokio::io::stderr()
+					.write_all(&bytes)
+					.await
+					.inspect_err(|error| {
+						tracing::error!(?error, "failed to write the build log to stderr");
+					})
+					.ok();
+			}
+
+			// Write the log.
+			let arg = tg::process::log::post::Arg {
+				bytes: bytes.clone(),
+				remote: remote.clone(),
+			};
+			process.post_log(&server, arg).await?;
 		}
 	}
 
-	// Copy the log.
-	let arg = tg::build::log::get::Arg::default();
-	let mut src_log = pin!(server.get_build_log(src_build, arg).await?);
-	while let Some(chunk) = src_log.try_next().await? {
-		let arg = tg::build::log::post::Arg {
-			bytes: chunk.bytes,
-			remote: None,
-		};
-		server.try_add_build_log(dst_build, arg).await?;
-	}
+	// Create the futures for stdout/stderr readers.
+	let stdout = inner(server.clone(), process.clone(), remote.cloned(), stdout);
+	let stderr = inner(server.clone(), process.clone(), remote.cloned(), stderr);
 
-	Ok(())
+	// Spawn the task
+	tokio::spawn(async move {
+		futures::try_join!(stderr, stdout)?;
+		Ok(())
+	})
 }
 
-pub async fn checksum(
-	server: &Server,
-	build: &tg::Build,
+pub async fn compute_checksum(
+	runtime: &Runtime,
+	process: &tg::Process,
 	value: &tg::Value,
 	checksum: &tg::Checksum,
 ) -> tg::Result<()> {
@@ -149,32 +108,58 @@ pub async fn checksum(
 	} else {
 		algorithm
 	};
-	if algorithm == tg::checksum::Algorithm::Unsafe {
+
+	if algorithm == tg::checksum::Algorithm::Any {
 		return Ok(());
 	}
+
 	let host = "builtin";
 	let args = vec![
 		"checksum".into(),
 		value.clone(),
 		algorithm.to_string().into(),
 	];
-	let target = tg::Target::builder(host).args(args).build();
-	let target_id = target.id(server).await?;
-	let arg = tg::target::build::Arg {
+	let command = tg::Command::builder(host).args(args).build();
+	let arg = tg::process::spawn::Arg {
+		command: Some(command.id(runtime.server()).await?),
 		create: true,
-		parent: Some(build.id().clone()),
+		parent: Some(process.id().clone()),
 		..Default::default()
 	};
-	let output = server.build_target(&target_id, arg).await?;
-	let Some(stream) = server.try_get_build_status(&output.build).await? else {
-		return Err(tg::error!("failed to get build status"));
-	};
-	let Some(Ok(status)) = pin!(stream).last().await else {
-		return Err(tg::error!("failed to get the last build status"));
-	};
-	if status.is_succeeded() {
-		Ok(())
-	} else {
-		Err(tg::error!("checksum build failed"))
+	tg::Process::run(runtime.server(), arg).await?;
+
+	Ok(())
+}
+
+pub async fn merge_env(
+	server: &Server,
+	artifacts_path: &Path,
+	process: Option<&BTreeMap<String, String>>,
+	command: &tg::value::Map,
+) -> tg::Result<BTreeMap<String, String>> {
+	let mut env = process
+		.iter()
+		.flat_map(|env| env.iter())
+		.map(|(key, value)| (key.to_owned(), tg::Value::String(value.clone())))
+		.collect::<tg::value::Map>();
+
+	for (key, value) in command {
+		let mutation = match value {
+			tg::Value::Mutation(value) => value.clone(),
+			value => tg::Mutation::Set {
+				value: Box::new(value.clone()),
+			},
+		};
+		mutation.apply(key, &mut env)?;
 	}
+
+	env.iter()
+		.map(|(key, value)| async {
+			let key = key.clone();
+			let value = render(server, value, artifacts_path).await?;
+			Ok::<_, tg::Error>((key, value))
+		})
+		.collect::<FuturesOrdered<_>>()
+		.try_collect()
+		.await
 }

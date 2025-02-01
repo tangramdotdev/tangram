@@ -6,21 +6,21 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
 async fn push_file() {
-	let build = temp::directory! {
+	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.target(() => {
+			export default tg.command(() => {
 				return tg.file("Hello, World!")
 			})
 	"#),
 	};
-	test_object_push(build).await;
+	test_object_push(directory).await;
 }
 
 #[tokio::test]
 async fn push_simple_directory() {
-	let build = temp::directory! {
+	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.target(() => {
+			export default tg.command(() => {
 				return tg.directory({
 					"hello.txt": tg.file("Hello, world!"),
 					"subdirectory": tg.directory({
@@ -30,7 +30,7 @@ async fn push_simple_directory() {
 			})
 		"#)
 	};
-	test_object_push(build).await;
+	test_object_push(directory).await;
 }
 
 async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) {

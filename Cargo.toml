@@ -41,6 +41,7 @@ missing_safety_doc = "allow"
 pedantic = { level = "warn", priority = -1 }
 same_functions_in_if_condition = "allow"
 similar_names = "allow"
+struct_excessive_bools = "allow"
 too_many_lines = "allow"
 unused_async = "allow"
 
@@ -67,6 +68,7 @@ dashmap = "6"
 data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.74"
+derive_builder = "0.20"
 derive_more = { version = "1", features = ["full"] }
 erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }
@@ -93,13 +95,13 @@ moka = { version = "0.12", features = ["sync"] }
 notify = "8"
 num = "0.4"
 oauth2 = "5.0.0-rc.1"
-octocrab = "0.42"
+octocrab = "0.43"
 once_cell = "1"
 petgraph = "0.7"
 pin-project = "1"
 pretty_assertions = "1"
 proptest = "1"
-rand = "0.8"
+rand = "0.9"
 ratatui = "0.29"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = [
@@ -108,7 +110,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "stream",
   "rustls-tls",
 ] }
-rusqlite = { version = "0.32", features = ["blob", "bundled"] }
+rusqlite = { version = "0.33", features = ["blob", "bundled"] }
 rustls = "0.23"
 scopeguard = "1"
 serde = { version = "1", features = ["rc", "derive"] }
@@ -119,7 +121,7 @@ serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 sourcemap = "9"
-swc_core = { version = "10", features = [
+swc_core = { version = "11", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",
@@ -156,6 +158,8 @@ tokio-rustls = "0.26"
 tokio-stream = { version = "0.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
 toml = { version = "0.8" }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["compression-zstd", "decompression-zstd"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-tree = "0.4"

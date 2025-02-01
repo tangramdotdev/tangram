@@ -87,73 +87,12 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 async fn migration_0000(database: &Database) -> tg::Result<()> {
 	let sql = indoc!(
 		r#"
-			create table builds (
+			create table blobs (
 				id text primary key,
-				complete integer not null default 0,
-				count integer,
-				depth integer not null,
-				error text,
-				heartbeat_at text,
-				host text not null,
-				log text,
-				logs_complete integer not null default 0,
-				logs_count integer,
-				logs_depth integer,
-				logs_weight integer,
-				output text,
-				outputs_complete integer not null default 0,
-				outputs_count integer,
-				outputs_depth integer,
-				outputs_weight integer,
-				retry text not null,
-				status text not null,
-				target text not null,
-				targets_complete integer not null default 0,
-				targets_count integer,
-				targets_depth integer,
-				targets_weight integer,
-				touched_at text,
-				created_at text not null,
-				enqueued_at text,
-				dequeued_at text,
-				started_at text,
-				finished_at text
-			);
-
-			create index builds_status_created_at_index on builds (status, created_at);
-
-			create index builds_target_created_at_index on builds (target, created_at desc);
-
-			create table build_children (
-				build text not null,
+				entry text not null,
 				position integer not null,
-				child text not null
+				length integer not null
 			);
-
-			create unique index build_children_index on build_children (build, position);
-
-			create unique index build_children_build_child_index on build_children (build, child);
-
-			create unique index build_children_build_parent_index on build_children (child, build);
-
-			create index build_children_child_index on build_children (child);
-
-			create table build_logs (
-				build text not null,
-				position integer not null,
-				bytes blob not null
-			);
-
-			create unique index build_logs_index on build_logs (build, position);
-
-			create table build_objects (
-				build text not null,
-				object text not null
-			);
-
-			create unique index build_objects_index on build_objects (build, object);
-
-			create index build_objects_object_index on build_objects (object);
 
 			create table objects (
 				id text primary key,
@@ -174,7 +113,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			for each row
 			when (new.incomplete_children is null)
 			begin
-				update objects 
+				update objects
 				set incomplete_children = (
 					select count(*)
 					from object_children
@@ -189,11 +128,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			for each row
 			when (old.complete = 0 and new.complete = 1)
 			begin
-				update objects 
+				update objects
 				set incomplete_children = incomplete_children - 1
 				where id in (
-					select object 
-					from object_children 
+					select object
+					from object_children
 					where child = new.id
 				);
 			end;
@@ -207,12 +146,82 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index object_children_child_index on object_children (child);
 
-			create table blobs (
+			create table processes (
+				checksum text,
+				command text not null,
+				commands_complete integer not null default 0,
+				commands_count integer,
+				commands_depth integer,
+				commands_weight integer,
+				complete integer not null default 0,
+				count integer,
+				created_at text not null,
+				cwd text,
+				dequeued_at text,
+				enqueued_at text,
+				env text,
+				error text,
+				exit text,
+				finished_at text,
+				heartbeat_at text,
+				host text not null,
 				id text primary key,
-				entry text not null,
-				position integer not null,
-				length integer not null
+				log text,
+				logs_complete integer not null default 0,
+				logs_count integer,
+				logs_depth integer,
+				logs_weight integer,
+				network integer not null,
+				output text,
+				outputs_complete integer not null default 0,
+				outputs_count integer,
+				outputs_depth integer,
+				outputs_weight integer,
+				retry integer not null,
+				started_at text,
+				status text not null,
+				touched_at text
 			);
+
+			create index processes_command_index on processes (command);
+
+			create index processes_status_index on processes (status);
+
+			create table process_children (
+				process text not null,
+				child text not null,
+				position integer not null
+			);
+
+			create unique index process_children_process_child_index on process_children (process, child);
+
+			create index process_children_index on process_children (process, position);
+
+			create index process_children_child_process_index on process_children (child, process);
+
+			create table process_tokens (
+				process text not null,
+				token text not null
+			);
+
+			create unique index process_tokens_process_token_index on process_tokens (process, token);
+
+			create table process_logs (
+				process text not null,
+				bytes blob not null,
+				position integer not null
+			);
+
+			create index process_logs_process_position_index on process_logs (process, position);
+
+			create table process_objects (
+				process text not null,
+				object text not null
+			);
+
+			create unique index process_objects_index on process_objects (process, object);
+
+			create index process_objects_object_index on process_objects (object);
 
 			create table remotes (
 				name text primary key,

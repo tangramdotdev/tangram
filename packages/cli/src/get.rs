@@ -24,7 +24,11 @@ impl Cli {
 	pub async fn command_get(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let referent = self.get_reference(&args.reference).await?;
-		eprintln!("{} item {}", "info".blue().bold(), referent.item);
+		let item = match &referent.item {
+			Either::Left(process) => process.id().to_string(),
+			Either::Right(item) => item.to_string(),
+		};
+		eprintln!("{} item {item}", "info".blue().bold());
 		if let Some(path) = &referent.path {
 			let path = path.display();
 			eprintln!("{} path {path}", "info".blue().bold());
@@ -37,7 +41,7 @@ impl Cli {
 			eprintln!("{} tag {tag}", "info".blue().bold());
 		}
 		let item = match referent.item.clone() {
-			Either::Left(build) => Either::Left(build),
+			Either::Left(process) => Either::Left(process),
 			Either::Right(object) => {
 				let object = if let Some(subpath) = &referent.subpath {
 					let directory = object
@@ -52,7 +56,7 @@ impl Cli {
 			},
 		};
 		let item = match item {
-			Either::Left(build) => Either::Left(build.id().clone()),
+			Either::Left(process) => Either::Left(process.id().clone()),
 			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
 		};
 		let Args {
@@ -62,8 +66,8 @@ impl Cli {
 			..
 		} = args;
 		match item {
-			Either::Left(build) => {
-				self.command_build_get(crate::build::get::Args { build, pretty })
+			Either::Left(process) => {
+				self.command_process_get(crate::process::get::Args { pretty, process })
 					.await?;
 			},
 			Either::Right(object) => {

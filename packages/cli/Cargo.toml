@@ -22,6 +22,7 @@ insta = { workspace = true }
 
 [dependencies]
 byte-unit = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
 copypasta = { workspace = true }
@@ -45,6 +46,7 @@ tangram_server = { workspace = true }
 tangram_temp = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+tokio-stream = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-tree = { workspace = true }

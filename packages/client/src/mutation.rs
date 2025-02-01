@@ -112,6 +112,125 @@ impl Mutation {
 			},
 		})
 	}
+
+	pub fn apply(&self, key: &str, map: &mut tg::value::Map) -> tg::Result<()> {
+		match (self, map.get(key)) {
+			(Self::Unset, _) => {
+				map.remove(key);
+			},
+			(Self::Set { value }, _) | (Self::SetIfUnset { value }, None) => {
+				map.insert(key.to_owned(), value.as_ref().clone());
+			},
+			(Self::SetIfUnset { .. }, _) => (),
+			(Self::Prepend { values } | Self::Append { values }, None) => {
+				map.insert(key.into(), values.clone().into());
+			},
+			(Self::Prepend { values }, Some(tg::Value::Array(array))) => {
+				let array = values
+					.iter()
+					.chain(array.iter())
+					.cloned()
+					.collect::<Vec<_>>()
+					.into();
+				map.insert(key.into(), array);
+			},
+			(Self::Append { .. } | Self::Prepend { .. }, Some(_)) => {
+				return Err(tg::error!(%key, "expected an array"));
+			},
+			(Self::Prefix { template, .. } | Self::Suffix { template, .. }, None) => {
+				map.insert(key.to_owned(), template.clone().into());
+			},
+			(
+				Self::Prefix {
+					separator,
+					template: first,
+				},
+				Some(value),
+			) => {
+				let second = match value {
+					tg::Value::Template(template) => template.clone(),
+					tg::Value::Object(tg::Object::Directory(directory)) => {
+						tg::Template::with_components([directory.clone().into()])
+					},
+					tg::Value::Object(tg::Object::File(file)) => {
+						tg::Template::with_components([file.clone().into()])
+					},
+					tg::Value::Object(tg::Object::Symlink(symlink)) => {
+						tg::Template::with_components([symlink.clone().into()])
+					},
+					tg::Value::String(string) => {
+						tg::Template::with_components([string.clone().into()])
+					},
+					_ => return Err(tg::error!("expected an artifact, string, or template")),
+				};
+
+				let template = if let Some(separator) = separator {
+					let separator = tg::template::Component::from(separator.clone());
+					let components = first
+						.components
+						.clone()
+						.into_iter()
+						.chain(second.components.clone())
+						.interleave_shortest(std::iter::from_fn(move || Some(separator.clone())));
+					tg::Template::with_components(components)
+				} else {
+					let components = first
+						.components
+						.clone()
+						.into_iter()
+						.chain(second.components.clone());
+					tg::Template::with_components(components)
+				};
+
+				map.insert(key.to_owned(), template.into());
+			},
+			(
+				Self::Suffix {
+					separator,
+					template: second,
+				},
+				Some(value),
+			) => {
+				let first = match value {
+					tg::Value::Template(template) => template.clone(),
+					tg::Value::Object(tg::Object::Directory(directory)) => {
+						tg::Template::with_components([directory.clone().into()])
+					},
+					tg::Value::Object(tg::Object::File(file)) => {
+						tg::Template::with_components([file.clone().into()])
+					},
+					tg::Value::Object(tg::Object::Symlink(symlink)) => {
+						tg::Template::with_components([symlink.clone().into()])
+					},
+					tg::Value::String(string) => {
+						tg::Template::with_components([string.clone().into()])
+					},
+					_ => return Err(tg::error!("expected an artifact, string, or template")),
+				};
+
+				let template = if let Some(separator) = separator {
+					let separator = tg::template::Component::from(separator.clone());
+					let components = first
+						.components
+						.clone()
+						.into_iter()
+						.chain(second.components.clone())
+						.interleave_shortest(std::iter::from_fn(move || Some(separator.clone())));
+					tg::Template::with_components(components)
+				} else {
+					let components = first
+						.components
+						.clone()
+						.into_iter()
+						.chain(second.components.clone());
+					tg::Template::with_components(components)
+				};
+
+				map.insert(key.to_owned(), template.into());
+			},
+		}
+		Ok(())
+	}
 }
 
 impl Data {

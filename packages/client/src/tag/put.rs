@@ -7,7 +7,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
 
-	pub item: Either<tg::build::Id, tg::object::Id>,
+	pub item: Either<tg::process::Id, tg::object::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,

@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{stream, Future, Stream, TryStreamExt as _};
-use std::{path::PathBuf, sync::Arc};
+use std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 pub struct Proxy(Arc<Inner>);
 
 pub struct Inner {
-	build: tg::build::Id,
+	process: tg::Process,
 	path_map: Option<PathMap>,
 	remote: Option<String>,
 	server: Server,
@@ -25,17 +25,16 @@ pub struct PathMap {
 impl Proxy {
 	pub fn new(
 		server: crate::Server,
-		build: tg::build::Id,
+		process: &tg::Process,
 		remote: Option<String>,
 		path_map: Option<PathMap>,
 	) -> Self {
-		let inner = Inner {
-			build,
+		Self(Arc::new(Inner {
+			process: process.clone(),
 			path_map,
 			remote,
 			server,
-		};
-		Self(Arc::new(inner))
+		}))
 	}
 
 	fn host_path_for_guest_path(&self, path: PathBuf) -> PathBuf {
@@ -154,121 +153,25 @@ impl tg::Handle for Proxy {
 		self.server.try_read_blob_stream(id, arg)
 	}
 
-	fn try_get_build(
+	async fn try_spawn_process(
 		&self,
-		id: &tg::build::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::build::get::Output>>> {
-		self.server.try_get_build(id)
-	}
-
-	async fn put_build(
-		&self,
-		_id: &tg::build::Id,
-		_arg: tg::build::put::Arg,
-	) -> tg::Result<tg::build::put::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn push_build(
-		&self,
-		_id: &tg::build::Id,
-		_arg: tg::build::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
-	async fn pull_build(
-		&self,
-		_id: &tg::build::Id,
-		_arg: tg::build::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
-	async fn try_dequeue_build(
-		&self,
-		_arg: tg::build::dequeue::Arg,
-	) -> tg::Result<Option<tg::build::dequeue::Output>> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn try_start_build(
-		&self,
-		_id: &tg::build::Id,
-		_arg: tg::build::start::Arg,
-	) -> tg::Result<tg::build::start::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	fn try_get_build_status_stream(
-		&self,
-		id: &tg::build::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::status::Event>> + Send + 'static>,
-		>,
-	> {
-		self.server.try_get_build_status_stream(id)
-	}
-
-	fn try_get_build_children_stream(
-		&self,
-		id: &tg::build::Id,
-		mut arg: tg::build::children::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::build::children::get::Event>> + Send + 'static,
-			>,
-		>,
-	> {
+		mut arg: tg::process::spawn::Arg,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		arg.parent = Some(self.process.id().clone());
 		arg.remote = self.remote.clone();
-		self.server.try_get_build_children_stream(id, arg)
+		arg.retry = *self.process.retry(self).await?;
+		self.server.try_spawn_process(arg).await
 	}
 
-	fn try_get_build_log_stream(
+	fn wait_process_future(
 		&self,
-		id: &tg::build::Id,
-		mut arg: tg::build::log::get::Arg,
+		id: &tg::process::Id,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::build::log::get::Event>> + Send + 'static>,
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
 		>,
 	> {
-		arg.remote = self.remote.clone();
-		self.server.try_get_build_log_stream(id, arg)
-	}
-
-	async fn try_add_build_log(
-		&self,
-		_id: &tg::build::Id,
-		_arg: tg::build::log::post::Arg,
-	) -> tg::Result<tg::build::log::post::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn try_finish_build(
-		&self,
-		_id: &tg::build::Id,
-		_arg: tg::build::finish::Arg,
-	) -> tg::Result<tg::build::finish::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn touch_build(
-		&self,
-		_id: &tg::build::Id,
-		_arg: tg::build::touch::Arg,
-	) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn heartbeat_build(
-		&self,
-		_id: &tg::build::Id,
-		_arg: tg::build::heartbeat::Arg,
-	) -> tg::Result<tg::build::heartbeat::Output> {
-		Err(tg::error!("forbidden"))
+		self.server.wait_process_future(id)
 	}
 
 	async fn lsp(
@@ -335,10 +238,151 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	async fn open_pipe(&self) -> tg::Result<tg::pipe::open::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn close_pipe(&self, _id: &tg::pipe::Id) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
+		self.server.read_pipe(id)
+	}
+
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.server.write_pipe(id, stream)
+	}
+
+	fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
+		self.server.try_get_process(id)
+	}
+
+	async fn put_process(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::put::Arg,
+	) -> tg::Result<tg::process::put::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn push_process(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::push::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+
+	async fn pull_process(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::pull::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+
+	async fn try_dequeue_process(
+		&self,
+		_arg: tg::process::dequeue::Arg,
+	) -> tg::Result<Option<tg::process::dequeue::Output>> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_start_process(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::start::Arg,
+	) -> tg::Result<tg::process::start::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	fn try_get_process_status_stream(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+		>,
+	> {
+		self.server.try_get_process_status_stream(id)
+	}
+
+	fn try_get_process_children_stream(
+		&self,
+		id: &tg::process::Id,
+		mut arg: tg::process::children::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		arg.remote = self.remote.clone();
+		self.server.try_get_process_children_stream(id, arg)
+	}
+
+	fn try_get_process_log_stream(
+		&self,
+		id: &tg::process::Id,
+		mut arg: tg::process::log::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
+		>,
+	> {
+		arg.remote = self.remote.clone();
+		self.server.try_get_process_log_stream(id, arg)
+	}
+
+	async fn try_post_process_log(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::log::post::Arg,
+	) -> tg::Result<tg::process::log::post::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_finish_process(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::finish::Arg,
+	) -> tg::Result<tg::process::finish::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn touch_process(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::touch::Arg,
+	) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn heartbeat_process(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::heartbeat::Arg,
+	) -> tg::Result<tg::process::heartbeat::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
 	async fn try_get_reference(
 		&self,
 		_reference: &tg::Reference,
-	) -> tg::Result<Option<tg::Referent<Either<tg::build::Id, tg::object::Id>>>> {
+	) -> tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>> {
 		Err(tg::error!("forbidden"))
 	}
 
@@ -392,23 +436,12 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_build_target(
-		&self,
-		id: &tg::target::Id,
-		mut arg: tg::target::build::Arg,
-	) -> tg::Result<Option<tg::target::build::Output>> {
-		arg.parent = Some(self.build.clone());
-		arg.remote = self.remote.clone();
-		arg.retry = tg::Build::with_id(self.build.clone()).retry(self).await?;
-		self.server.try_build_target(id, arg).await
-	}
-
 	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {
 		Err(tg::error!("forbidden"))
 	}
 }
 
-impl std::ops::Deref for Proxy {
+impl Deref for Proxy {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

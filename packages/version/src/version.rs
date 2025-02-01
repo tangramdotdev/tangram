@@ -37,7 +37,7 @@ impl std::str::FromStr for Version {
 	}
 }
 
-fn version(input: &mut &str) -> PResult<Version> {
+fn version(input: &mut &str) -> ModalResult<Version> {
 	let prerelease = opt(preceded("-", dot_separated_identifier));
 	let build = opt(preceded("+", dot_separated_identifier));
 	let (major, _, minor, _, patch, prerelease, build) =
@@ -53,7 +53,7 @@ fn version(input: &mut &str) -> PResult<Version> {
 	})
 }
 
-fn dot_separated_identifier<'a>(input: &mut &'a str) -> PResult<&'a str> {
+fn dot_separated_identifier<'a>(input: &mut &'a str) -> ModalResult<&'a str> {
 	separated::<_, _, Vec<_>, _, _, _, _>(1.., alphanumeric1, ".")
 		.take()
 		.parse_next(input)

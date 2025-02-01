@@ -5,6 +5,7 @@ use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt};
 use lsp_types::{self as lsp, notification::Notification as _, request::Request as _};
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
+	ops::Deref,
 	path::{Path, PathBuf},
 	pin::pin,
 	sync::{Arc, Mutex},
@@ -205,7 +206,7 @@ impl Compiler {
 		self.serve_task.lock().await.replace(task.clone());
 		task.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the compiler serve task failed"))?;
+			.map_err(|source| tg::error!(!source, "the compiler serve task panicked"))?;
 		Ok(())
 	}
 
@@ -984,7 +985,7 @@ impl crate::Server {
 	}
 }
 
-impl std::ops::Deref for Compiler {
+impl Deref for Compiler {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

@@ -11,23 +11,17 @@ use tokio_util::io::StreamReader;
 use url::Url;
 
 impl Runtime {
-	pub async fn download(
-		&self,
-		build: &tg::Build,
-		remote: Option<String>,
-	) -> tg::Result<tg::Value> {
+	pub async fn download(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
+		let command = process.command(server).await?;
 
-		// Get the target.
-		let target = build.target(server).await?;
-
-		// Ensure the target has a checksum.
-		if target.checksum(server).await?.is_none() {
+		// Ensure the process has a checksum.
+		if process.load(server).await?.checksum.is_none() {
 			return Err(tg::error!("a download must have a checksum"));
 		}
 
 		// Get the args.
-		let args = target.args(server).await?;
+		let args = command.args(server).await?;
 
 		// Get the URL.
 		let url = args
@@ -51,18 +45,20 @@ impl Runtime {
 		let content_length = response.content_length();
 		let log_task = tokio::spawn({
 			let server = server.clone();
-			let build = build.clone();
-			let remote = remote.clone();
+			let process = process.clone();
 			let url = url.clone();
 			let downloaded = downloaded.clone();
 			async move {
 				let first_message = format!("downloading from \"{url}\"\n");
-				let arg = tg::build::log::post::Arg {
+				let arg = tg::process::log::post::Arg {
 					bytes: first_message.into(),
-					remote: remote.clone(),
+					remote: process.remote().cloned(),
 				};
-				let result = build.add_log(&server, arg).await;
-				if result.is_err() {
+				if !server
+					.try_post_process_log(process.id(), arg)
+					.await
+					.map_or(true, |ok| ok.added)
+				{
 					return;
 				}
 				loop {
@@ -76,12 +72,15 @@ impl Runtime {
 					};
 					let mut message = indicator.to_string();
 					message.push('\n');
-					let arg = tg::build::log::post::Arg {
+					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
-						remote: remote.clone(),
+						remote: process.remote().cloned(),
 					};
-					let result = build.add_log(&server, arg).await;
-					if result.is_err() {
+					if !server
+						.try_post_process_log(process.id(), arg)
+						.await
+						.map_or(true, |ok| ok.added)
+					{
 						break;
 					}
 					tokio::time::sleep(Duration::from_secs(1)).await;
@@ -137,11 +136,11 @@ impl Runtime {
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");
-		let arg = tg::build::log::post::Arg {
+		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
-			remote: remote.clone(),
+			remote: process.remote().cloned(),
 		};
-		build.add_log(server, arg).await.ok();
+		server.try_post_process_log(process.id(), arg).await.ok();
 
 		Ok(blob.into())
 	}

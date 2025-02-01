@@ -1,13 +1,12 @@
 use crate::Server;
 use bytes::{Buf as _, Bytes};
 use futures::{future::BoxFuture, FutureExt as _, Stream, StreamExt};
-use hyper::body::Incoming;
 use num::ToPrimitive;
 use std::{io::Cursor, pin::pin};
 use sync_wrapper::SyncWrapper;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::{stream::Ext, task::Stop};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
 use tokio_util::task::AbortOnDropHandle;
 

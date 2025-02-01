@@ -39,6 +39,8 @@ declare global {
 
 	function syscall(syscall: "encoding_yaml_encode", value: unknown): string;
 
+	function syscall(syscall: "log", contents: string, level: string): void;
+
 	function syscall(syscall: "module_load", module: tg.Module): Promise<any>;
 
 	function syscall(
@@ -51,12 +53,32 @@ declare global {
 		object: tg.Object.Object,
 	): Promise<tg.Object.Id>;
 
-	function syscall(syscall: "log", value: string): void;
-
-	function syscall(syscall: "sleep", duration: number): Promise<void>;
+	function syscall(
+		syscall: "process_load",
+		id: tg.Process.Id,
+		remote: string | undefined,
+	): Promise<tg.Process.State>;
 
 	function syscall(
-		syscall: "target_output",
-		target: tg.Target,
-	): Promise<tg.Value>;
+		syscall: "process_spawn",
+		arg: {
+			checksum: tg.Checksum | undefined;
+			command: tg.Command.Id | undefined;
+			create: boolean;
+			cwd: string | undefined;
+			env: { [key: string]: string } | undefined;
+			network: boolean | undefined;
+			parent: tg.Process.Id | undefined;
+			remote: string | undefined;
+			retry: boolean;
+		},
+	): Promise<{ process: tg.Process.Id; remote: string | undefined }>;
+
+	function syscall(
+		syscall: "process_wait",
+		id: tg.Process.Id,
+		remote: string | undefined,
+	): Promise<tg.Process.WaitOutput>;
+
+	function syscall(syscall: "sleep", duration: number): Promise<void>;
 }

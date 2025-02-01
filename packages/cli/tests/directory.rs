@@ -17,13 +17,13 @@ async fn get_symlink() {
 		let temp = Temp::new();
 		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export default tg.target(async () => {
+				export default async () => {
 					let directory = await tg.directory({
 						"hello.txt": "Hello, World!",
 						"link": tg.symlink("hello.txt"),
 					});
 					return directory.get("link");
-				});
+				};
 			"#),
 		};
 		directory.to_path(temp.as_ref()).await.unwrap();
@@ -55,7 +55,7 @@ async fn get_file_through_symlink() {
 		let temp = Temp::new();
 		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export default tg.target(async () => {
+				export default async () => {
 					let directory = await tg.directory({
 						"subdirectory": {
 							"hello.txt": "Hello, World!",
@@ -63,7 +63,7 @@ async fn get_file_through_symlink() {
 						"link": tg.symlink("subdirectory"),
 					});
 					return directory.get("link/hello.txt");
-				});
+				};
 			"#),
 		};
 		directory.to_path(temp.as_ref()).await.unwrap();

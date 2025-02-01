@@ -14,7 +14,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 
-		// Get the build health.
+		// Get the process health.
 		#[derive(serde::Deserialize)]
 		struct Row {
 			created: u64,
@@ -23,9 +23,9 @@ impl Server {
 		}
 		let statement = "
 			select
-				(select count(*) from builds where status = 'created') as created,
-				(select count(*) from builds where status = 'dequeued') as dequeued,
-				(select count(*) from builds where status = 'started') as started;
+				(select count(*) from processes where status = 'created') as created,
+				(select count(*) from processes where status = 'dequeued') as dequeued,
+				(select count(*) from processes where status = 'started') as started;
 		"
 		.to_owned();
 		let params = db::params![];
@@ -37,7 +37,7 @@ impl Server {
 			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let builds = tg::health::Builds {
+		let processes = tg::health::Processes {
 			created,
 			dequeued,
 			started,
@@ -66,7 +66,7 @@ impl Server {
 		};
 
 		let health = tg::Health {
-			builds: Some(builds),
+			processes: Some(processes),
 			database: Some(database),
 			file_descriptor_semaphore: Some(file_descriptor_semaphore),
 			version: self.config.version.clone(),

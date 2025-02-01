@@ -244,12 +244,12 @@ impl std::str::FromStr for Operator {
 	}
 }
 
-fn pattern(input: &mut &str) -> PResult<Pattern> {
+fn pattern(input: &mut &str) -> ModalResult<Pattern> {
 	let components = separated(1.., component, ",").parse_next(input)?;
 	Ok(Pattern { components })
 }
 
-fn component(input: &mut &str) -> PResult<Component> {
+fn component(input: &mut &str) -> ModalResult<Component> {
 	let (operator, major, minor, patch) = (
 		operator,
 		dec_uint,
@@ -265,7 +265,7 @@ fn component(input: &mut &str) -> PResult<Component> {
 	})
 }
 
-fn operator(input: &mut &str) -> PResult<Operator> {
+fn operator(input: &mut &str) -> ModalResult<Operator> {
 	alt((
 		"^".map(|_| Operator::Caret),
 		"=".map(|_| Operator::Eq),

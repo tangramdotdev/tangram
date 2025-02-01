@@ -6,18 +6,18 @@ use winnow::{
 	token::{any, none_of, one_of, take, take_while},
 };
 
-type Input<'a> = winnow::stream::Located<&'a str>;
+type Input<'a> = winnow::stream::LocatingSlice<&'a str>;
 
 pub fn parse(input: &str) -> tg::Result<tg::Value> {
 	value(&mut Input::new(input))
 		.map_err(|error| tg::error!("{}", error.into_inner().unwrap().to_string()))
 }
 
-fn value(input: &mut Input) -> PResult<tg::Value> {
+fn value(input: &mut Input) -> ModalResult<tg::Value> {
 	delimited(whitespace, value_inner, whitespace).parse_next(input)
 }
 
-fn value_inner(input: &mut Input) -> PResult<tg::Value> {
+fn value_inner(input: &mut Input) -> ModalResult<tg::Value> {
 	alt((
 		null.value(tg::Value::Null),
 		bool_.map(tg::Value::Bool),
@@ -30,19 +30,19 @@ fn value_inner(input: &mut Input) -> PResult<tg::Value> {
 	.parse_next(input)
 }
 
-fn null(input: &mut Input) -> PResult<()> {
+fn null(input: &mut Input) -> ModalResult<()> {
 	"null".value(()).parse_next(input)
 }
 
-fn bool_(input: &mut Input) -> PResult<bool> {
+fn bool_(input: &mut Input) -> ModalResult<bool> {
 	alt(("true".value(true), "false".value(false))).parse_next(input)
 }
 
-fn number(input: &mut Input) -> PResult<f64> {
+fn number(input: &mut Input) -> ModalResult<f64> {
 	float.parse_next(input)
 }
 
-fn string(input: &mut Input) -> PResult<String> {
+fn string(input: &mut Input) -> ModalResult<String> {
 	let string = repeat(0.., char_).fold(String::new, |mut s, c| {
 		s.push(c);
 		s
@@ -50,7 +50,7 @@ fn string(input: &mut Input) -> PResult<String> {
 	delimited('"', cut_err(string), '"').parse_next(input)
 }
 
-fn char_(input: &mut Input) -> PResult<char> {
+fn char_(input: &mut Input) -> ModalResult<char> {
 	let c = none_of('\"').parse_next(input)?;
 	if c == '\\' {
 		let c = alt((
@@ -74,7 +74,7 @@ fn char_(input: &mut Input) -> PResult<char> {
 	Ok(c)
 }
 
-fn unicode_escape(input: &mut Input) -> PResult<char> {
+fn unicode_escape(input: &mut Input) -> ModalResult<char> {
 	alt((
 		u16_hex
 			.verify(|cp| !(0xD800..0xE000).contains(cp))
@@ -91,13 +91,13 @@ fn unicode_escape(input: &mut Input) -> PResult<char> {
 	.parse_next(input)
 }
 
-fn u16_hex(input: &mut Input) -> PResult<u16> {
+fn u16_hex(input: &mut Input) -> ModalResult<u16> {
 	take(4usize)
 		.verify_map(|s| u16::from_str_radix(s, 16).ok())
 		.parse_next(input)
 }
 
-fn array(input: &mut Input) -> PResult<tg::value::Array> {
+fn array(input: &mut Input) -> ModalResult<tg::value::Array> {
 	delimited(
 		('[', whitespace),
 		cut_err(separated(0.., value, (whitespace, ',', whitespace))),
@@ -106,7 +106,7 @@ fn array(input: &mut Input) -> PResult<tg::value::Array> {
 	.parse_next(input)
 }
 
-fn map(input: &mut Input) -> PResult<tg::value::Map> {
+fn map(input: &mut Input) -> ModalResult<tg::value::Map> {
 	delimited(
 		('{', whitespace),
 		cut_err(separated(
@@ -119,7 +119,7 @@ fn map(input: &mut Input) -> PResult<tg::value::Map> {
 	.parse_next(input)
 }
 
-fn id(input: &mut Input) -> PResult<tg::id::Id> {
+fn id(input: &mut Input) -> ModalResult<tg::id::Id> {
 	(id_kind, "_", "0", id_body)
 		.verify_map(|(kind, _, version, body)| match version {
 			"0" => Some(tg::Id::V0(tg::id::V0 { kind, body })),
@@ -128,7 +128,7 @@ fn id(input: &mut Input) -> PResult<tg::id::Id> {
 		.parse_next(input)
 }
 
-fn id_kind(input: &mut Input) -> PResult<tg::id::Kind> {
+fn id_kind(input: &mut Input) -> ModalResult<tg::id::Kind> {
 	alt((
 		alt(("lef", "leaf")).value(tg::id::Kind::Leaf),
 		alt(("bch", "branch")).value(tg::id::Kind::Branch),
@@ -136,8 +136,8 @@ fn id_kind(input: &mut Input) -> PResult<tg::id::Kind> {
 		alt(("fil", "file")).value(tg::id::Kind::File),
 		alt(("sym", "symlink")).value(tg::id::Kind::Symlink),
 		alt(("gph", "graph")).value(tg::id::Kind::Graph),
-		alt(("tgt", "target")).value(tg::id::Kind::Target),
-		alt(("bld", "build")).value(tg::id::Kind::Build),
+		alt(("cmd", "command")).value(tg::id::Kind::Command),
+		alt(("pcs", "process")).value(tg::id::Kind::Process),
 		alt(("usr", "user")).value(tg::id::Kind::User),
 		alt(("tok", "token")).value(tg::id::Kind::Token),
 		alt(("req", "request")).value(tg::id::Kind::Request),
@@ -145,7 +145,7 @@ fn id_kind(input: &mut Input) -> PResult<tg::id::Kind> {
 	.parse_next(input)
 }
 
-fn id_body(input: &mut Input) -> PResult<tg::id::Body> {
+fn id_body(input: &mut Input) -> ModalResult<tg::id::Body> {
 	alt((
 		preceded("0", id_body_inner)
 			.verify_map(|bytes| bytes.try_into().map(tg::id::Body::UuidV7).ok()),
@@ -155,7 +155,7 @@ fn id_body(input: &mut Input) -> PResult<tg::id::Body> {
 	.parse_next(input)
 }
 
-fn id_body_inner(input: &mut Input) -> PResult<Vec<u8>> {
+fn id_body_inner(input: &mut Input) -> ModalResult<Vec<u8>> {
 	const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 		symbols: "0123456789abcdefghjkmnpqrstvwxyz",
 	};
@@ -171,12 +171,12 @@ fn id_body_inner(input: &mut Input) -> PResult<Vec<u8>> {
 	.parse_next(input)
 }
 
-fn object(input: &mut Input) -> PResult<tg::Object> {
+fn object(input: &mut Input) -> ModalResult<tg::Object> {
 	id.verify_map(|id| id.try_into().map(tg::Object::with_id).ok())
 		.parse_next(input)
 }
 
-fn whitespace(input: &mut Input) -> PResult<()> {
+fn whitespace(input: &mut Input) -> ModalResult<()> {
 	take_while(0.., [' ', '\t', '\r', '\n'])
 		.parse_next(input)
 		.map(|_| ())

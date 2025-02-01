@@ -27,7 +27,7 @@ curl -fsSL https://tangram.dev/install.sh | sh
 Create a file at the root of your project called `tangram.ts` with the following content:
 
 ```ts
-export default tg.target(() => tg.file("Hello, World!"));
+export default tg.command(() => tg.file("Hello, World!"));
 ```
 
 Run `tg build`.
@@ -51,7 +51,7 @@ import * as std from "std";
 
 import source from "./packages/hello";
 
-export default tg.target(() => {
+export default tg.command(() => {
   return cargo.build({
     env: std.env(openssl()),
     source,
@@ -75,7 +75,7 @@ import jq from "jq";
 import sqlite from "sqlite";
 import * as std from "std";
 
-export default tg.target(() => std.env(jq(), ripgrep()));
+export default tg.command(() => std.env(jq(), ripgrep()));
 ```
 
 Run `tg run -- sh` to build the environment and run a shell in it.

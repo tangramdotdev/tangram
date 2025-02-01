@@ -3,7 +3,6 @@ use tangram_cli::test::{assert_failure, assert_success, test};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
-/// Test building a module without a package.
 #[tokio::test]
 async fn download_checksum_none() {
 	test(TG, |context| async move {
@@ -12,10 +11,9 @@ async fn download_checksum_none() {
 		// Start the server.
 		let server = context.spawn_server().await.unwrap();
 
-		// Download with checksum None.
+		// Download with checksum "none".
 		let output = server
 			.tg()
-			.arg("blob")
 			.arg("download")
 			.arg("https://example.com")
 			.arg("--checksum")
@@ -25,10 +23,9 @@ async fn download_checksum_none() {
 			.unwrap();
 		assert_failure!(output);
 
-		// Download with checksum set.
+		// Download with the correct checksum.
 		let output = server
 			.tg()
-			.arg("blob")
 			.arg("download")
 			.arg("https://example.com")
 			.arg("--checksum")

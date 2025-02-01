@@ -9,21 +9,21 @@ use tangram_temp::{self as temp, Temp};
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
-async fn builds() {
+async fn processes() {
 	test(TG, move |context| async move {
-		let build = temp::directory! {
+		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export let e = tg.target(() => "e");
-				export let d = tg.target(() => "d");
-				export let c = tg.target(() => "c");
-				export let b = tg.target(async () => {
+				export let e = tg.command(() => "e");
+				export let d = tg.command(() => "d");
+				export let c = tg.command(() => "c");
+				export let b = tg.command(async () => {
 					await e();
 					await d();
 					return "b";
 				});
-				export let a = tg.target(async () => {
-					await b();
+				export let a = tg.command(async () => {
 					await c();
+					await b();
 					return "a";
 				});
 			"#),
@@ -31,17 +31,17 @@ async fn builds() {
 		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
 
-		let artifact: temp::Artifact = build.into();
+		let artifact: temp::Artifact = directory.into();
 		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
 
-		let a = build_target_get_build_id("a", &server, artifact_temp.path()).await;
-		let b = build_target_get_build_id("b", &server, artifact_temp.path()).await;
-		let c = build_target_get_build_id("c", &server, artifact_temp.path()).await;
-		let d = build_target_get_build_id("d", &server, artifact_temp.path()).await;
-		let e = build_target_get_build_id("e", &server, artifact_temp.path()).await;
+		let (a, _) = build(&server, artifact_temp.path(), "a").await;
+		let (b, _) = build(&server, artifact_temp.path(), "b").await;
+		let (c, _) = build(&server, artifact_temp.path(), "c").await;
+		let (d, _) = build(&server, artifact_temp.path(), "d").await;
+		let (e, _) = build(&server, artifact_temp.path(), "e").await;
 
-		// Tag the builds.
+		// Tag the processes.
 		for (pattern, id) in [("b", &b), ("d", &d)] {
 			let output = server
 				.tg()
@@ -58,10 +58,10 @@ async fn builds() {
 		let output = server.tg().arg("clean").output().await.unwrap();
 		assert_success!(output);
 
-		// Confirm presence/absence of builds.
+		// Confirm the presence of the processes.
 		let a_output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(a)
 			.output()
@@ -71,7 +71,7 @@ async fn builds() {
 
 		let output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(b)
 			.output()
@@ -81,7 +81,7 @@ async fn builds() {
 
 		let output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(c)
 			.output()
@@ -91,7 +91,7 @@ async fn builds() {
 
 		let output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(d)
 			.output()
@@ -101,7 +101,7 @@ async fn builds() {
 
 		let output = server
 			.tg()
-			.arg("build")
+			.arg("process")
 			.arg("get")
 			.arg(e)
 			.output()
@@ -115,22 +115,22 @@ async fn builds() {
 #[tokio::test]
 async fn objects() {
 	test(TG, move |context| async move {
-		let build = temp::directory! {
+		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export let h = tg.target(() => tg.file("h"));
-				export let g = tg.target(() => tg.file("g"));
-				export let f = tg.target(() => tg.file("f"));
-				export let e = tg.target(() => tg.file("e"));
-				export let d = tg.target(() => tg.directory({
+				export let h = tg.command(() => tg.file("h"));
+				export let g = tg.command(() => tg.file("g"));
+				export let f = tg.command(() => tg.file("f"));
+				export let e = tg.command(() => tg.file("e"));
+				export let d = tg.command(() => tg.directory({
 					"h": h(),
 				}));
-				export let c = tg.target(() => tg.directory({
+				export let c = tg.command(() => tg.directory({
 					"g": g(),
 				}));
-				export let b = tg.target(() => tg.directory({
+				export let b = tg.command(() => tg.directory({
 					"f": f(),
 				}));
-				export let a = tg.target(() => tg.directory({
+				export let a = tg.command(() => tg.directory({
 					"b": b(),
 					"c": c(),
 					"d": d(),
@@ -142,18 +142,18 @@ async fn objects() {
 		let mut context = context.lock().await;
 		let server = context.spawn_server().await.unwrap();
 
-		let artifact: temp::Artifact = build.into();
+		let artifact: temp::Artifact = directory.into();
 		let artifact_temp = Temp::new();
 		artifact.to_path(artifact_temp.as_ref()).await.unwrap();
 
-		let a = build_target_get_object_id("a", &server, artifact_temp.path()).await;
-		let b = build_target_get_object_id("b", &server, artifact_temp.path()).await;
-		let c = build_target_get_object_id("c", &server, artifact_temp.path()).await;
-		let d = build_target_get_object_id("d", &server, artifact_temp.path()).await;
-		let e = build_target_get_object_id("e", &server, artifact_temp.path()).await;
-		let f = build_target_get_object_id("f", &server, artifact_temp.path()).await;
-		let g = build_target_get_object_id("g", &server, artifact_temp.path()).await;
-		let h = build_target_get_object_id("h", &server, artifact_temp.path()).await;
+		let (_, a) = build(&server, artifact_temp.path(), "a").await;
+		let (_, b) = build(&server, artifact_temp.path(), "b").await;
+		let (_, c) = build(&server, artifact_temp.path(), "c").await;
+		let (_, d) = build(&server, artifact_temp.path(), "d").await;
+		let (_, e) = build(&server, artifact_temp.path(), "e").await;
+		let (_, f) = build(&server, artifact_temp.path(), "f").await;
+		let (_, g) = build(&server, artifact_temp.path(), "g").await;
+		let (_, h) = build(&server, artifact_temp.path(), "h").await;
 
 		// Tag c.
 		let output = server
@@ -181,7 +181,7 @@ async fn objects() {
 		let output = server.tg().arg("clean").output().await.unwrap();
 		assert_success!(output);
 
-		// Confirm presence/absence of objects.
+		// Confirm the presence of the objects.
 		let a_output = server
 			.tg()
 			.arg("object")
@@ -250,7 +250,7 @@ async fn objects() {
 			.output()
 			.await
 			.unwrap();
-		assert_failure!(g_output);
+		assert_success!(g_output);
 
 		let h_output = server
 			.tg()
@@ -265,38 +265,27 @@ async fn objects() {
 	.await;
 }
 
-async fn build_target_get_build_id(name: &str, server: &Server, path: &Path) -> String {
+async fn build(server: &Server, path: &Path, name: &str) -> (String, String) {
 	let output = server
 		.tg()
-		.arg("build")
-		.arg("--detach")
+		.arg("process")
+		.arg("spawn")
+		.arg("--sandbox")
 		.arg(format!("{}#{}", path.display(), name))
 		.output()
 		.await
 		.unwrap();
 	assert_success!(output);
-	let build_id = std::str::from_utf8(&output.stdout).unwrap().trim();
+	let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 	let output = server
 		.tg()
-		.arg("build")
+		.arg("process")
 		.arg("output")
-		.arg(build_id)
-		.output()
-		.await
-		.unwrap();
-	assert_success!(output);
-	build_id.to_owned()
-}
-
-async fn build_target_get_object_id(name: &str, server: &Server, path: &Path) -> String {
-	let output = server
-		.tg()
-		.arg("build")
-		.arg(format!("{}#{}", path.display(), name))
+		.arg(id)
 		.output()
 		.await
 		.unwrap();
 	assert_success!(output);
 	let output = std::str::from_utf8(&output.stdout).unwrap().trim();
-	output.to_owned()
+	(id.to_owned(), output.to_owned())
 }

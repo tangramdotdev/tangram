@@ -12,8 +12,11 @@ interface ImportMeta {
 
 // @ts-ignore
 declare let console: {
-	/** Write to the log. */
+	/** Write to stdout. */
 	log: (...args: Array<unknown>) => void;
+
+	/** Write to stderr. */
+	error: (...args: Array<unknown>) => void;
 };
 
 declare function tg(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
@@ -23,7 +26,7 @@ declare function tg(
 ): Promise<tg.Template>;
 
 declare namespace tg {
-	/** The union of all types that can be used as the input or output of Tangram targets. */
+	/** The union of all types that can be used as the input or output of Tangram commands. */
 	export type Value =
 		| undefined
 		| boolean
@@ -59,7 +62,7 @@ declare namespace tg {
 		| tg.File
 		| tg.Symlink
 		| tg.Graph
-		| tg.Target;
+		| tg.Command;
 
 	export namespace Object {
 		export type Id =
@@ -69,7 +72,7 @@ declare namespace tg {
 			| tg.File.Id
 			| tg.Symlink.Id
 			| tg.Graph.Id
-			| tg.Target.Id;
+			| tg.Command.Id;
 
 		/** Get an object with an ID. */
 		export let withId: (id: tg.Object.Id) => tg.Object;
@@ -438,8 +441,8 @@ declare namespace tg {
 		/** Resolve this symlink to the artifact it refers to, or return undefined if none is found. */
 		resolve(): Promise<tg.Artifact | undefined>;
 
-		/** Get this symlink's target. */
-		target(): Promise<string | undefined>;
+		/** Get this symlink's command. */
+		command(): Promise<string | undefined>;
 	}
 
 	export namespace Symlink {
@@ -449,7 +452,7 @@ declare namespace tg {
 
 		type ArgObject =
 			| { graph: tg.Graph; node: number }
-			| { target: string }
+			| { command: string }
 			| {
 					artifact: tg.Artifact;
 					subpath?: string | undefined;
@@ -509,7 +512,7 @@ declare namespace tg {
 		type SymlinkNodeArg =
 			| {
 					kind: "symlink";
-					target: string;
+					command: string;
 			  }
 			| {
 					kind: "symlink";
@@ -536,7 +539,7 @@ declare namespace tg {
 		type SymlinkNode =
 			| {
 					kind: "symlink";
-					target: string;
+					command: string;
 			  }
 			| {
 					kind: "symlink";
@@ -545,72 +548,69 @@ declare namespace tg {
 			  };
 	}
 
-	/** Create a target. */
-	export function target<
+	/** Create a command. */
+	export function command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
-	>(function_: (...args: A) => tg.Unresolved<R>): tg.Target<A, R>;
-	export function target<
+	>(function_: (...args: A) => tg.Unresolved<R>): tg.Command<A, R>;
+	export function command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
-	>(...args: tg.Args<tg.Target.Arg>): Promise<tg.Target<A, R>>;
+	>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
 
-	/** A target. */
-	export interface Target<
+	/** A command. */
+	export interface Command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> {
-		/** Build this target. */
+		/** Build this command. */
 		// biome-ignore lint/style/useShorthandFunctionType: interface is necessary .
 		(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): Promise<R>;
 	}
 
-	/** A target. */
-	export class Target<
+	/** A command. */
+	export class Command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends globalThis.Function {
-		/** Get a target with an ID. */
-		static withId(id: tg.Target.Id): tg.Target;
+		/** Get a command with an ID. */
+		static withId(id: tg.Command.Id): tg.Command;
 
-		/** Create a target. */
+		/** Create a command. */
 		static new<
 			A extends Array<tg.Value> = Array<tg.Value>,
 			R extends tg.Value = tg.Value,
-		>(...args: tg.Args<tg.Target.Arg>): Promise<tg.Target<A, R>>;
+		>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
 
-		/** The currently building target. */
-		static get current(): tg.Target;
+		/** Expect that a value is a `tg.Command`. */
+		static expect(value: unknown): tg.Command;
 
-		/** Expect that a value is a `tg.Target`. */
-		static expect(value: unknown): tg.Target;
+		/** Assert that a value is a `tg.Command`. */
+		static assert(value: unknown): asserts value is tg.Command;
 
-		/** Assert that a value is a `tg.Target`. */
-		static assert(value: unknown): asserts value is tg.Target;
+		/** Get this command's ID. */
+		id(): Promise<tg.Command.Id>;
 
-		/** Get this target's ID. */
-		id(): Promise<tg.Target.Id>;
-
-		/** Get this target's arguments. */
+		/** Get this command's arguments. */
 		args(): Promise<Array<tg.Value>>;
 
-		/** Get this target's checksum. */
-		checksum(): Promise<tg.Checksum | undefined>;
+		/** Get this command's environment. */
+		env(): Promise<tg.Mutation>;
 
-		/** Get this target's environment. */
-		env(): Promise<{ [key: string]: tg.Value }>;
+		/** Get this command's executable. */
+		executable(): Promise<tg.Command.Executable | undefined>;
 
-		/** Get this target's executable. */
-		executable(): Promise<tg.Target.Executable | undefined>;
-
-		/** Get this target's host. */
+		/** Get this command's host. */
 		host(): Promise<string>;
 
-		/** Build this target and return the build's output. */
-		output(): Promise<R>;
+		/** Build this command and return the process's output. */
+		build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
+
+		/** Run this command and return the process's output. */
+		run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
 	}
 
-	export namespace Target {
+	export namespace Command {
 		export type Id = string;
 
 		export type Arg =
@@ -618,23 +618,20 @@ declare namespace tg {
 			| string
 			| tg.Artifact
 			| tg.Template
-			| tg.Target
+			| tg.Command
 			| ArgObject;
 
 		type ArgObject = {
-			/** The target's command line arguments. */
+			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
 
-			/** If a checksum of the target's output is provided, then the target will have access to the network. */
-			checksum?: tg.Checksum | undefined;
-
-			/** The target's environment variables. */
+			/** The command's environment. */
 			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 
-			/** The target's executable. */
-			executable?: tg.Target.ExecutableArg | undefined;
+			/** The command's executable. */
+			executable?: tg.Command.ExecutableArg | undefined;
 
-			/** The system to build the target on. */
+			/** The command's host. */
 			host?: string | undefined;
 		};
 
@@ -901,8 +898,11 @@ declare namespace tg {
 		}
 	}
 
-	/** Write to the log. */
+	/** Write to stdout. */
 	export let log: (...args: Array<unknown>) => void;
+
+	/** Write to stderr. */
+	export let error: (...args: Array<unknown>) => void;
 
 	export type Module = {
 		kind: tg.Module.Kind;
@@ -923,7 +923,87 @@ declare namespace tg {
 			| "file"
 			| "symlink"
 			| "graph"
-			| "target";
+			| "command";
+	}
+
+	export let build: (
+		...args: tg.Args<tg.Process.SpawnArg>
+	) => Promise<tg.Value>;
+
+	export let run: (...args: tg.Args<tg.Process.SpawnArg>) => Promise<tg.Value>;
+
+	/** The current process. */
+	export let process: tg.Process;
+
+	export class Process {
+		/** Expect that a value is a `tg.Process`. */
+		static expect(value: unknown): tg.Process;
+
+		/** Assert that a value is a `tg.Process`. */
+		static assert(value: unknown): asserts value is tg.Process;
+
+		/** Load the process's state. */
+		load(): Promise<void>;
+
+		/** Reload the process's state. */
+		reload(): Promise<void>;
+
+		/** Get this process's ID. */
+		id(): tg.Process.Id;
+
+		/** Get this process's checksum. */
+		checksum(): Promise<tg.Checksum | undefined>;
+
+		/** Get this process's command. */
+		command(): Promise<tg.Command>;
+
+		/** Get this process's cwd. */
+		cwd(): Promise<string | undefined>;
+
+		/** Get this process's environment. */
+		env(): Promise<{ [name: string]: tg.Value }>;
+		env(name: string): Promise<tg.Value | undefined>;
+
+		/** Get whether this process has the network enabled. */
+		network(): Promise<boolean>;
+	}
+
+	export namespace Process {
+		export type Id = string;
+
+		export type SpawnArg =
+			| undefined
+			| string
+			| tg.Artifact
+			| tg.Template
+			| tg.Command
+			| SpawnArgObject;
+
+		export type SpawnArgObject = {
+			/** The command's arguments. */
+			args?: Array<tg.Value> | undefined;
+
+			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
+			checksum?: tg.Checksum | undefined;
+
+			/** The command to spawn. **/
+			command?: tg.Command.Arg | undefined;
+
+			/** Set the current working directory for the process. **/
+			cwd?: string | undefined;
+
+			/** The command's environment. */
+			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
+
+			/** The command's executable. */
+			executable?: tg.Command.ExecutableArg | undefined;
+
+			/** The command's host. */
+			host?: string | undefined;
+
+			/** Configure whether the process has access to the network. **/
+			network?: boolean | undefined;
+		};
 	}
 
 	export type Reference = string;

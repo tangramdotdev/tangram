@@ -1,37 +1,42 @@
 import * as tg from "./index.ts";
-import { setCurrentTarget } from "./target.ts";
+import { setProcess } from "./process.ts";
 
-export let start = async (target: tg.Target): Promise<tg.Value> => {
-	// Load the target.
-	await target.load();
+export let start = async (process: tg.Process): Promise<tg.Value> => {
+	// Load the process and command.
+	await process.load();
+	const command = await process.command();
+	await command.load();
 
-	// Set the current target.
-	setCurrentTarget(target);
+	// Set the process.
+	await setProcess(process);
 
 	// @ts-ignore
 	// biome-ignore lint/security/noGlobalEval: special import
 	let namespace = await eval(`import("!")`);
 
-	// Get the args.
-	let args = await target.args();
-
-	// Get the target name.
-	if (args.length < 1) {
-		throw new Error("the target must have at least one argument");
-	}
-	let name = args.at(0);
-	if (typeof name !== "string") {
-		throw new Error("the target's first argument must be a string");
-	}
-
 	// Get the target.
-	let target_ = namespace[name];
-	if (!(target_ instanceof tg.Target)) {
-		throw new Error(`failed to find the export named "${name}"`);
+	const args = await command.args();
+	if (args.length < 1) {
+		throw new Error("the command must have at least one argument");
+	}
+	let target = args.at(0);
+	if (typeof target !== "string") {
+		throw new Error("the command's first argument must be a string");
+	}
+
+	// Get the command.
+	let value = namespace[target];
+	let function_: Function;
+	if (value instanceof tg.Command) {
+		function_ = value.function()!;
+	} else if (typeof value === "function") {
+		function_ = value;
+	} else {
+		throw new Error("invalid export");
 	}
 
 	// Call the function and resolve its output.
-	let output = await tg.resolve(target_.function()!(...args.slice(1)));
+	let output = await tg.resolve(function_!(...args.slice(1)));
 
 	return output;
 };

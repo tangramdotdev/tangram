@@ -4,24 +4,19 @@ use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
-/// Test building a module without a package.
 #[tokio::test]
 async fn create_from_file() {
 	test(TG, |context| async move {
 		let mut context = context.lock().await;
 
-		// Start the server.
 		let server = context.spawn_server().await.unwrap();
 
-		// Create the file.
 		let temp = Temp::new();
 		let artifact: temp::Artifact = temp::file!("hello, world!\n").into();
 		artifact.to_path(temp.path()).await.unwrap();
 
-		// Read the file
 		let mut file = tokio::fs::File::open(temp.path()).await.unwrap();
 
-		// Build the module.
 		let mut child = server
 			.tg()
 			.arg("blob")

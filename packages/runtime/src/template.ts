@@ -83,7 +83,6 @@ export class Template {
 		tg.assert(value instanceof Template);
 	}
 
-	/** Join an array of templates with a separator. */
 	static async join(
 		separator: tg.Unresolved<Template.Arg>,
 		...args: tg.Args<Template.Arg>

@@ -132,13 +132,13 @@ impl std::str::FromStr for Component {
 	}
 }
 
-fn tag(input: &mut &str) -> PResult<Tag> {
+fn tag(input: &mut &str) -> ModalResult<Tag> {
 	let string = input.to_owned();
 	let components: Vec<_> = separated(1.., component, "/").parse_next(input)?;
 	Ok(Tag { string, components })
 }
 
-fn component(input: &mut &str) -> PResult<Component> {
+fn component(input: &mut &str) -> ModalResult<Component> {
 	alt((
 		version.map(Component::Version),
 		string.map(Component::String),
@@ -146,7 +146,7 @@ fn component(input: &mut &str) -> PResult<Component> {
 	.parse_next(input)
 }
 
-fn version(input: &mut &str) -> PResult<Version> {
+fn version(input: &mut &str) -> ModalResult<Version> {
 	let prerelease = opt(preceded("-", dot_separated_identifier));
 	let build = opt(preceded("+", dot_separated_identifier));
 	let (major, _, minor, _, patch, prerelease, build) =
@@ -163,16 +163,16 @@ fn version(input: &mut &str) -> PResult<Version> {
 	Ok(version)
 }
 
-fn dot_separated_identifier<'a>(input: &mut &'a str) -> PResult<&'a str> {
+fn dot_separated_identifier<'a>(input: &mut &'a str) -> ModalResult<&'a str> {
 	separated::<_, _, Vec<_>, _, _, _, _>(1.., alphanumeric1, ".")
 		.take()
 		.parse_next(input)
 }
 
-fn string(input: &mut &str) -> PResult<String> {
+fn string(input: &mut &str) -> ModalResult<String> {
 	let string = take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-')
 		.verify(|value: &str| {
-			if value.parse::<tg::build::Id>().is_ok() {
+			if value.parse::<tg::process::Id>().is_ok() {
 				return false;
 			}
 			if value.parse::<tg::object::Id>().is_ok() {
