@@ -59,12 +59,17 @@ impl Server {
 					select id, status
 					from processes
 					where
-						command = {p}1
+						command = {p}1 and (
+							case when {p}2 is not null
+							then checksum = {p}2
+							else checksum is null
+							end
+						)
 					order by created_at desc
 					limit 1;
 				"
 			);
-			let params = db::params![arg.command];
+			let params = db::params![arg.command, arg.checksum];
 			let Some(Row { id, status }) = connection
 				.query_optional_into::<Row>(statement.into(), params)
 				.await

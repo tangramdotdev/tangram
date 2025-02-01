@@ -68,7 +68,7 @@ async fn no_return_value() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r"null");
+		assert_snapshot!(stdout, @r"");
 	};
 	let path = "";
 	let command = "default";
