@@ -116,6 +116,7 @@ impl Server {
 			data.clone()
 		} else {
 			let id: tg::artifact::Id = id.try_into().unwrap();
+
 			tg::Artifact::with_id(id.clone()).data(self).await.map_err(
 				|source| tg::error!(!source, %artifact = id, "missing artifact in object graph"),
 			)?
@@ -184,12 +185,13 @@ impl Server {
 	) -> tg::Result<tg::lockfile::Node> {
 		let id = tg::file::Id::new(&data.serialize()?);
 		let (contents, executable) = match data {
-			tg::file::Data::Graph { graph, node } => {
-				let file = tg::Graph::with_id(graph.clone()).object(self).await?.nodes[*node]
-					.clone()
-					.try_unwrap_file()
-					.unwrap();
-				let contents = file.contents.id(self).await?;
+			tg::file::Data::Graph {
+				graph: graph_id,
+				node,
+			} => {
+				let graph = &graph.graphs.get(graph_id).unwrap().0;
+				let file = graph.nodes[*node].clone().try_unwrap_file().unwrap();
+				let contents = file.contents;
 				let executable = file.executable;
 				(contents, executable)
 			},
@@ -234,17 +236,18 @@ impl Server {
 	) -> tg::Result<tg::lockfile::Node> {
 		let id = tg::symlink::Id::new(&data.serialize()?);
 		let subpath = match data {
-			tg::symlink::Data::Graph { graph, node } => {
-				let symlink = tg::Graph::with_id(graph.clone()).object(self).await?.nodes[*node]
-					.clone()
-					.try_unwrap_symlink()
-					.unwrap();
+			tg::symlink::Data::Graph {
+				graph: graph_id,
+				node,
+			} => {
+				let graph = &graph.graphs.get(graph_id).unwrap().0;
+				let symlink = graph.nodes[*node].clone().try_unwrap_symlink().unwrap();
 				match symlink {
-					tg::graph::object::Symlink::Artifact {
+					tg::graph::data::Symlink::Artifact {
 						artifact: _,
 						subpath,
 					} => subpath,
-					tg::graph::object::Symlink::Target { target } => Some(target),
+					tg::graph::data::Symlink::Target { target } => Some(target),
 				}
 			},
 			tg::symlink::Data::Target { target } => Some(PathBuf::from(target)),

@@ -119,21 +119,21 @@ impl Server {
 					})?;
 					let statement = indoc!(
 						"
-						with inserted_object_children as (
-							insert into object_children (object, child)
-							select $1, unnest($2::text[])
-							on conflict (object, child) do nothing
-							returning child
-						),
-						inserted_objects as (
-							insert into objects (id, bytes, size, touched_at)
-							values ($1, $3, $4, $5)
-							on conflict (id) do update set touched_at = $5
-							returning id, complete
-						)
-						select complete
-						from inserted_objects;
-					"
+							with inserted_object_children as (
+								insert into object_children (object, child)
+								select $1, unnest($2::text[])
+								on conflict (object, child) do nothing
+								returning child
+							),
+							inserted_objects as (
+								insert into objects (id, bytes, size, touched_at)
+								values ($1, $3, $4, $5)
+								on conflict (id) do update set touched_at = $5
+								returning id, complete
+							)
+							select complete
+							from inserted_objects;
+						"
 					);
 					let id = id.to_string();
 					let children = children.iter().map(ToString::to_string).collect_vec();

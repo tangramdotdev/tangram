@@ -65,3 +65,13 @@ impl Object {
 		}
 	}
 }
+
+impl From<tg::artifact::Data> for Object {
+	fn from(value: tg::artifact::Data) -> Self {
+		match value {
+			tg::artifact::data::Artifact::Directory(data) => Object::Directory(data),
+			tg::artifact::data::Artifact::File(data) => Object::File(data),
+			tg::artifact::data::Artifact::Symlink(data) => Object::Symlink(data),
+		}
+	}
+}
