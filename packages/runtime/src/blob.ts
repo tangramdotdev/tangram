@@ -77,6 +77,7 @@ export namespace Blob {
 	): Promise<Blob> => {
 		let value = await tg.build({
 			args: ["compress", blob, format],
+			env: undefined,
 			host: "builtin",
 		});
 		tg.assert(tg.Blob.is(value));
