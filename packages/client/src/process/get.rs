@@ -101,6 +101,7 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub outputs_weight: Option<u64>,
 
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

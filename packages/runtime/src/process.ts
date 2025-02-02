@@ -63,7 +63,7 @@ export class Process {
 		let process = await Process.spawn(
 			{
 				cwd: undefined,
-				processEnv: {},
+				processEnv: undefined,
 				network: false,
 			},
 			...args,
