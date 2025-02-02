@@ -1,17 +1,18 @@
 use super::{input, object};
 use crate::{temp::Temp, Server};
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt as _};
-use indoc::formatdoc;
+use indoc::indoc;
 use num::ToPrimitive;
 use std::{
 	collections::BTreeSet,
 	ffi::OsStr,
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
-	sync::RwLock,
+	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use tangram_database::{self as db, prelude::*, Transaction};
+use tangram_either::Either;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Debug)]
@@ -46,7 +47,7 @@ impl Server {
 		&self,
 		input: &input::Graph,
 		object: &object::Graph,
-	) -> tg::Result<Graph> {
+	) -> tg::Result<Arc<Graph>> {
 		// Create the state.
 		let state = RwLock::new(State {
 			nodes: Vec::with_capacity(object.nodes.len()),
@@ -62,7 +63,7 @@ impl Server {
 			nodes: state.into_inner().unwrap().nodes,
 		};
 
-		Ok(output)
+		Ok(Arc::new(output))
 	}
 
 	async fn try_create_output_graph_inner(
@@ -135,7 +136,11 @@ impl Server {
 		Ok(Some(output_index))
 	}
 
-	pub async fn write_output_to_database(&self, output: &Graph) -> tg::Result<()> {
+	pub async fn write_output_to_database(
+		&self,
+		output: Arc<Graph>,
+		object: Arc<object::Graph>,
+	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = self
 			.database
@@ -149,91 +154,93 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
 
-		// Get the output in reverse-topological order.
-		let mut stack = vec![0];
-		let mut visited = vec![false; output.nodes.len()];
-		while let Some(output_index) = stack.pop() {
-			// Check if we've visited this node yet.
-			if visited[output_index] {
-				continue;
-			}
-			visited[output_index] = true;
+		match transaction {
+			Either::Left(sqlite) => {
+				sqlite
+					.with(move |transaction| {
+						for (id, (data, metadata)) in &object.graphs {
+							write_object_sqlite(
+								transaction,
+								&id.clone().into(),
+								&data.clone().into(),
+								metadata,
+							)?;
+						}
 
-			// Get the output data.
-			let output = &output.nodes[output_index];
+						// Get the output in reverse-topological order.
+						let mut stack = vec![0];
+						let mut visited = vec![false; output.nodes.len()];
+						while let Some(output_index) = stack.pop() {
+							// Check if we've visited this node yet.
+							if visited[output_index] {
+								continue;
+							}
+							visited[output_index] = true;
 
-			// Insert the object's children.
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					insert into object_children (object, child)
-					values ({p}1, {p}2)
-					on conflict (object, child) do nothing;
-				"
-			);
-			output
-				.data
-				.children()
-				.iter()
-				.map(|child| {
-					let id = output.id.clone();
-					let transaction = &transaction;
-					let statement = statement.clone();
-					async move {
-						let params = db::params![id, child];
-						transaction
-							.execute(statement.into(), params)
-							.await
-							.map_err(|source| {
-								tg::error!(
-									!source,
-									"failed to put the object children into the database"
-								)
-							})
-							.ok()
+							// Get the output data.
+							let output = &output.nodes[output_index];
+
+							// Write the object.
+							write_object_sqlite(
+								transaction,
+								&output.id.clone().into(),
+								&output.data.clone().into(),
+								&output.metadata,
+							)?;
+							stack.extend(output.edges.iter().map(|edge| edge.node));
+						}
+
+						Ok::<_, tg::Error>(())
+					})
+					.await?;
+				sqlite
+					.commit()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			},
+			Either::Right(transaction) => {
+				// Write graphs.
+				for (id, (data, metadata)) in &object.graphs {
+					write_object_postgres(
+						&transaction,
+						&id.clone().into(),
+						&data.clone().into(),
+						metadata,
+					)
+					.await?;
+				}
+
+				// Get the output in reverse-topological order.
+				let mut stack = vec![0];
+				let mut visited = vec![false; output.nodes.len()];
+				while let Some(output_index) = stack.pop() {
+					// Check if we've visited this node yet.
+					if visited[output_index] {
+						continue;
 					}
-				})
-				.collect::<FuturesUnordered<_>>()
-				.collect::<Vec<_>>()
-				.await;
+					visited[output_index] = true;
 
-			// Insert the object.
-			let statement = formatdoc!(
-				"
-					insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7, {p}8, {p}9)
-					on conflict (id) do update set touched_at = {p}8;
-				"
-			);
-			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let bytes = output.data.serialize()?;
-			let size = bytes.len().to_u64().unwrap();
-			let params: Vec<tangram_database::Value> = db::params![
-				output.id,
-				bytes,
-				output.metadata.complete,
-				output.metadata.count,
-				output.metadata.depth,
-				0,
-				size,
-				now,
-				output.metadata.weight,
-			];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to put the artifact into the database")
-				})?;
+					// Get the output data.
+					let output = &output.nodes[output_index];
 
-			stack.extend(output.edges.iter().map(|edge| edge.node));
+					// Write the object.
+					write_object_postgres(
+						&transaction,
+						&output.id.clone().into(),
+						&output.data.clone().into(),
+						&output.metadata,
+					)
+					.await?;
+					stack.extend(output.edges.iter().map(|edge| edge.node));
+				}
+
+				// Commit the transaction.
+				transaction
+					.commit()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			},
 		}
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		Ok(())
 	}
@@ -696,5 +703,120 @@ fn set_file_times_to_epoch_inner(
 		)
 	})?;
 
+	Ok(())
+}
+
+fn write_object_sqlite(
+	transaction: &mut rusqlite::Transaction<'_>,
+	id: &tg::object::Id,
+	data: &tg::object::Data,
+	metadata: &tg::object::Metadata,
+) -> tg::Result<()> {
+	let statement = indoc!(
+		"
+			insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
+			values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+			on conflict (id) do update set touched_at = ?8;
+		"
+	);
+	let mut statement = transaction
+		.prepare_cached(statement)
+		.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
+	let bytes = data.serialize()?;
+	let size = bytes.len().to_u64().unwrap();
+	let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+	let params = rusqlite::params![
+		id.to_string(),
+		bytes.as_ref(),
+		metadata.complete,
+		metadata.count,
+		metadata.depth,
+		0,
+		size,
+		now,
+		metadata.weight,
+	];
+	statement
+		.execute(params)
+		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+	let statement = indoc!(
+		"
+			insert into object_children (object, child)
+			values (?1, ?2)
+			on conflict (object, child) do nothing;
+		"
+	);
+	let mut statement = transaction
+		.prepare_cached(statement)
+		.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
+	for child in data.children() {
+		let params = rusqlite::params![id.to_string(), child.to_string()];
+		statement
+			.execute(params)
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+	}
+	Ok(())
+}
+
+async fn write_object_postgres(
+	transaction: &db::postgres::Transaction<'_>,
+	id: &tg::object::Id,
+	data: &tg::object::Data,
+	metadata: &tg::object::Metadata,
+) -> tg::Result<()> {
+	let statement = indoc!(
+		"
+			insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			on conflict (id) do update set touched_at = $8;
+		"
+	);
+	let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+	let bytes = data.serialize()?;
+	let size = bytes.len().to_u64().unwrap();
+	let params = db::params![
+		id,
+		bytes,
+		metadata.complete,
+		metadata.count,
+		metadata.depth,
+		0,
+		size,
+		now,
+		metadata.weight,
+	];
+	transaction
+		.execute(statement.into(), params)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to put the artifact into the database"))?;
+	data.children()
+		.iter()
+		.map(|child| {
+			let id = id.clone();
+			let transaction = &transaction;
+			async move {
+				let statement = indoc!(
+					"
+						insert into object_children (object, child)
+						values ($1, $2)
+						on conflict (object, child) do nothing;
+					"
+				);
+				let params = db::params![id, child];
+				transaction
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to put the object children into the database"
+						)
+					})
+					.ok()
+			}
+		})
+		.collect::<FuturesUnordered<_>>()
+		.collect::<Vec<_>>()
+		.await;
 	Ok(())
 }
