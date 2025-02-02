@@ -2,19 +2,27 @@ use crate::Server;
 use futures::{stream, Future, StreamExt as _};
 use tangram_client::{self as tg, handle::Ext};
 use tangram_futures::{stream::TryExt as _, task::Stop};
-use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 
 impl Server {
-	pub async fn wait_process_future(
+	pub async fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<
-		impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		Option<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
 	> {
 		let server = self.clone();
 		let id = id.clone();
-		Ok(async move {
-			let stream = server.get_process_status(&id).await?.boxed();
+		let Some(stream) = server
+			.try_get_process_status(&id)
+			.await?
+			.map(futures::StreamExt::boxed)
+		else {
+			return Ok(None);
+		};
+		Ok(Some(async move {
 			let status = stream
 				.try_last()
 				.await?
@@ -30,7 +38,7 @@ impl Server {
 				status: output.status,
 			};
 			Ok(Some(output))
-		})
+		}))
 	}
 }
 
@@ -50,7 +58,9 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the future.
-		let future = handle.wait_process_future(&id).await?;
+		let Some(future) = handle.try_wait_process_future(&id).await? else {
+			return Ok(http::Response::builder().not_found().empty().unwrap());
+		};
 
 		// Create the stream.
 		let stream = stream::once(future).filter_map(|result| async move {
