@@ -83,6 +83,14 @@ impl Server {
 			},
 			future::Either::Right((remote, local)) => {
 				if let Ok(Some(id)) = remote {
+					let arg = tg::process::finish::Arg {
+						error: None,
+						exit: None,
+						output: None,
+						remote: None,
+						status: tg::process::Status::Canceled,
+					};
+					self.try_finish_process(&id, arg).boxed().await.ok();
 					Some(id)
 				} else {
 					local.await?
