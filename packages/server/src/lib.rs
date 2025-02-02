@@ -76,7 +76,7 @@ pub struct Inner {
 	path: PathBuf,
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
-	processes: BuildTaskMap,
+	processes: ProcessTaskMap,
 	pipes: DashMap<tg::pipe::Id, Pipe, fnv::FnvBuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
@@ -93,14 +93,14 @@ struct Pipe {
 }
 
 type ProcessPermits =
-	DashMap<tg::process::Id, Arc<tokio::sync::Mutex<Option<BuildPermit>>>, fnv::FnvBuildHasher>;
+	DashMap<tg::process::Id, Arc<tokio::sync::Mutex<Option<ProcessPermit>>>, fnv::FnvBuildHasher>;
 
-struct BuildPermit(
+struct ProcessPermit(
 	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type BuildTaskMap = TaskMap<tg::process::Id, (), fnv::FnvBuildHasher>;
+type ProcessTaskMap = TaskMap<tg::process::Id, (), fnv::FnvBuildHasher>;
 
 type ArtifactCacheTaskMap =
 	TaskMap<tg::artifact::Id, tg::Result<crate::artifact::cache::Output>, fnv::FnvBuildHasher>;
