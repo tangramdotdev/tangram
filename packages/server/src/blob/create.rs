@@ -312,11 +312,12 @@ impl Server {
 		state: &State<'_>,
 		children: Vec<InnerOutput>,
 	) -> tg::Result<InnerOutput> {
-		let (count, depth, weight) =
+		let (size, count, depth, weight) =
 			children
 				.iter()
-				.fold((0, 0, 0), |(count, depth, weight), output| {
+				.fold((0, 0, 0, 0), |(size, count, depth, weight), output| {
 					(
+						size + output.size,
 						count + output.count,
 						depth.max(output.depth),
 						weight + output.weight,
@@ -331,10 +332,10 @@ impl Server {
 			.collect();
 		let data = tg::branch::Data { children };
 		let bytes = data.serialize()?;
+		let size_ = bytes.len().to_u64().unwrap();
 		let count = 1 + count;
 		let depth = 1 + depth;
-		let size = bytes.len().to_u64().unwrap();
-		let weight = size + weight;
+		let weight = size_ + weight;
 		let id = tg::branch::Id::new(&bytes);
 		let p = state.transaction.p();
 		for child in data.children() {
@@ -360,7 +361,7 @@ impl Server {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![&id, &bytes, 1, count, depth, 0, size, now, weight];
+		let params = db::params![&id, &bytes, 1, count, depth, 0, size_, now, weight];
 		state
 			.transaction
 			.execute(statement.into(), params)

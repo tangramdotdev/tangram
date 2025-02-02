@@ -111,7 +111,6 @@ export class Command<
 		R extends tg.Value = tg.Value,
 	>(...args: tg.Args<Command.Arg>): Promise<Command<A, R>> {
 		let arg = await Command.arg(...args);
-		tg.log(arg);
 		let args_ = arg.args ?? [];
 		let env = await tg.Args.applyMutations(flatten(arg.env ?? []));
 		let executable = arg.executable;

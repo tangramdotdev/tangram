@@ -53,7 +53,7 @@ impl Runtime {
 						title: "decompressing".to_owned(),
 						total: Some(size),
 					};
-					let message = indicator.to_string();
+					let message = format!("{indicator}\n");
 					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
 						remote: process.remote().cloned(),

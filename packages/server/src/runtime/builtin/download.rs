@@ -40,27 +40,22 @@ impl Runtime {
 			.error_for_status()
 			.map_err(|source| tg::error!(!source, %url, "expected a success status"))?;
 
-		// Spawn a task to log progress.
+		// Log that the download started.
+		let message = format!("downloading from \"{url}\"\n");
+		let arg = tg::process::log::post::Arg {
+			bytes: message.into(),
+			remote: process.remote().cloned(),
+		};
+		server.try_post_process_log(process.id(), arg).await.ok();
+
+		// Create the log task.
 		let downloaded = Arc::new(AtomicU64::new(0));
 		let content_length = response.content_length();
 		let log_task = tokio::spawn({
 			let server = server.clone();
 			let process = process.clone();
-			let url = url.clone();
 			let downloaded = downloaded.clone();
 			async move {
-				let first_message = format!("downloading from \"{url}\"\n");
-				let arg = tg::process::log::post::Arg {
-					bytes: first_message.into(),
-					remote: process.remote().cloned(),
-				};
-				if !server
-					.try_post_process_log(process.id(), arg)
-					.await
-					.map_or(true, |ok| ok.added)
-				{
-					return;
-				}
 				loop {
 					let downloaded = downloaded.load(std::sync::atomic::Ordering::Relaxed);
 					let indicator = tg::progress::Indicator {
@@ -70,8 +65,7 @@ impl Runtime {
 						title: "downloading".to_owned(),
 						total: content_length,
 					};
-					let mut message = indicator.to_string();
-					message.push('\n');
+					let message = format!("{indicator}\n");
 					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
 						remote: process.remote().cloned(),

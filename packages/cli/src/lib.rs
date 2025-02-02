@@ -100,6 +100,8 @@ enum Mode {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 enum Command {
+	Archive(self::artifact::archive::Args),
+
 	Artifact(self::artifact::Args),
 
 	Blob(self::blob::Args),
@@ -121,10 +123,16 @@ enum Command {
 
 	Clean(self::clean::Args),
 
+	Compress(self::blob::compress::Args),
+
+	Decompress(self::blob::decompress::Args),
+
 	#[command(alias = "doc")]
 	Document(self::package::document::Args),
 
 	Download(self::blob::download::Args),
+
+	Extract(self::artifact::extract::Args),
 
 	Format(self::package::format::Args),
 
@@ -848,6 +856,7 @@ impl Cli {
 	// Run the command.
 	async fn command(&self, args: Args) -> tg::Result<()> {
 		match args.command {
+			Command::Archive(args) => self.command_artifact_archive(args).boxed(),
 			Command::Artifact(args) => self.command_artifact(args).boxed(),
 			Command::Blob(args) => self.command_blob(args).boxed(),
 			Command::Build(args) => self.command_process_build(args).boxed(),
@@ -857,8 +866,11 @@ impl Cli {
 			Command::Checkout(args) => self.command_artifact_checkout(args).boxed(),
 			Command::Checksum(args) => self.command_checksum(args).boxed(),
 			Command::Clean(args) => self.command_clean(args).boxed(),
+			Command::Compress(args) => self.command_blob_compress(args).boxed(),
+			Command::Decompress(args) => self.command_blob_decompress(args).boxed(),
 			Command::Document(args) => self.command_package_document(args).boxed(),
 			Command::Download(args) => self.command_blob_download(args).boxed(),
+			Command::Extract(args) => self.command_artifact_extract(args).boxed(),
 			Command::Format(args) => self.command_package_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Health(args) => self.command_health(args).boxed(),
