@@ -42,11 +42,13 @@ pub enum Exit {
 }
 
 impl tg::Client {
-	pub async fn wait_process_future(
+	pub async fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<
-		impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		Option<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
 	> {
 		let method = http::Method::POST;
 		let uri = format!("/processes/{id}/wait");
@@ -57,6 +59,9 @@ impl tg::Client {
 			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
 		if !response.status().is_success() {
 			let error = response.json().await?;
 			return Err(error);
@@ -93,7 +98,7 @@ impl tg::Client {
 				output
 			})
 		});
-		Ok(future)
+		Ok(Some(future))
 	}
 }
 

@@ -381,6 +381,19 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
+	fn wait_process_future(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
+	> + Send {
+		self.try_wait_process_future(id).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
+		})
+	}
+
 	fn wait_process(
 		&self,
 		id: &tg::process::Id,

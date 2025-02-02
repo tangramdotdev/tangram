@@ -127,12 +127,14 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::spawn::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> + Send;
 
-	fn wait_process_future(
+	fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			Option<
+				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			>,
 		>,
 	> + Send;
 

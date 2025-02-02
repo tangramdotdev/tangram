@@ -117,7 +117,7 @@ impl Server {
 			return Ok(Some(output));
 		}
 
-		// If the process is cacheable, then get a remote process if one exists that satisfies the retry constraint.
+		// If the process is cacheable, then get a remote process if one exists.
 		'a: {
 			if !cacheable {
 				break 'a;

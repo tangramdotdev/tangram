@@ -163,15 +163,17 @@ impl tg::Handle for Proxy {
 		self.server.try_spawn_process(arg).await
 	}
 
-	fn wait_process_future(
+	fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			Option<
+				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			>,
 		>,
 	> {
-		self.server.wait_process_future(id)
+		self.server.try_wait_process_future(id)
 	}
 
 	async fn lsp(

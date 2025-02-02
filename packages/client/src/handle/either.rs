@@ -251,22 +251,24 @@ where
 		}
 	}
 
-	fn wait_process_future(
+	fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			Option<
+				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			>,
 		>,
 	> {
 		match self {
 			Either::Left(s) => s
-				.wait_process_future(id)
-				.map_ok(futures::FutureExt::left_future)
+				.try_wait_process_future(id)
+				.map_ok(|option| option.map(futures::FutureExt::left_future))
 				.left_future(),
 			Either::Right(s) => s
-				.wait_process_future(id)
-				.map_ok(futures::FutureExt::right_future)
+				.try_wait_process_future(id)
+				.map_ok(|option| option.map(futures::FutureExt::right_future))
 				.right_future(),
 		}
 	}
