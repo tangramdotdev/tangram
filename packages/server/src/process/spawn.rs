@@ -8,6 +8,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
+use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn try_spawn_process(
@@ -35,80 +36,91 @@ impl Server {
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some() || sandboxed;
 
-		// If the process is cacheable, then return a matching local process if one exists.
-		if cacheable {
-			if let Some(process) = self.try_get_cached_process_local(&arg).await? {
-				let output = tg::process::spawn::Output {
-					process,
-					remote: None,
-				};
-				return Ok(Some(output));
+		// If the process is not cacheable, then spawn a local process, add it as a child of the parent, and return it.
+		if !cacheable {
+			let id = self.spawn_local_process(&arg).await?;
+			if let Some(parent) = arg.parent.as_ref() {
+				self.try_add_process_child(parent, &id).await.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
 			}
+			let output = tg::process::spawn::Output {
+				process: id,
+				remote: None,
+			};
+			return Ok(Some(output));
 		}
 
-		// Create a channel for the spawn result.
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-
-		// Create a future that will spawn and await a local process.
-		let local = async {
-			if !arg.create {
-				return Ok(None);
+		// Return a matching local process if one exists.
+		if let Some(id) = self.try_get_cached_process_local(&arg).await? {
+			if let Some(parent) = arg.parent.as_ref() {
+				self.try_add_process_child(parent, &id).await.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
 			}
-			let result = self.spawn_local_process(&arg).await;
-			sender.send(result.clone()).unwrap();
-			let id = result?;
-			self.wait_process(&id).await?;
-			Ok::<_, tg::Error>(Some(id))
+			let output = tg::process::spawn::Output {
+				process: id,
+				remote: None,
+			};
+			return Ok(Some(output));
 		}
-		.boxed();
 
-		// Create a future that will attempt to get a cached remote process.
-		let remote = async {
-			if !cacheable {
-				return Ok(None);
-			}
+		// If create is false, then attempt to get a remote process.
+		if !arg.create {
 			let Some(id) = self.try_get_cached_process_remote(&arg).await? else {
 				return Ok(None);
 			};
-			Ok::<_, tg::Error>(Some(id))
+			if let Some(parent) = arg.parent.as_ref() {
+				self.try_add_process_child(parent, &id).await.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
+			}
+			let output = tg::process::spawn::Output {
+				process: id,
+				remote: None,
+			};
+			return Ok(Some(output));
 		}
-		.boxed();
 
-		// If the local process finishes first, then use it. If a remote process is found sooner, then use it.
+		// Spawn a local process.
+		let local_id = self.spawn_local_process(&arg).await?;
+
+		// Create a future that will await the local process.
+		let id = local_id.clone();
+		let local = self.wait_process(&id).boxed();
+
+		// Create a future that will attempt to get a cached remote process.
+		let remote = self.try_get_cached_process_remote(&arg).boxed();
+
+		// If the local process finishes before the remote responds, then use the local process. If a remote process is found sooner, then spawn a task to cancel the local process and use the remote process.
 		let id = match future::select(local, remote).await {
-			future::Either::Left((local, remote)) => {
-				if let Ok(Some(id)) = local {
-					Some(id)
-				} else {
-					remote.await?
-				}
-			},
+			future::Either::Left((_, _)) => local_id,
 			future::Either::Right((remote, _)) => {
-				if let Ok(Some(id)) = remote {
-					let arg = tg::process::finish::Arg {
-						error: None,
-						exit: None,
-						output: None,
-						remote: None,
-						status: tg::process::Status::Canceled,
-					};
-					self.try_finish_process(&id, arg).boxed().await.ok();
-					Some(id)
+				if let Ok(Some(remote_id)) = remote {
+					tokio::spawn({
+						let server = self.clone();
+						async move {
+							let arg = tg::process::finish::Arg {
+								error: None,
+								exit: None,
+								output: None,
+								remote: None,
+								status: tg::process::Status::Canceled,
+							};
+							server.try_finish_process(&local_id, arg).boxed().await.ok();
+						}
+					});
+					remote_id
 				} else {
-					let result = receiver.await.unwrap();
-					let id = result?;
-					Some(id)
+					local_id
 				}
 			},
-		};
-		let Some(id) = id else {
-			return Ok(None);
 		};
 
 		// Add the process to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
 			self.try_add_process_child(parent, &id).await.map_err(
-				|source| tg::error!(!source, %parent, %child = id, "failed to add process as a child"),
+				|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 			)?;
 		}
 
@@ -204,27 +216,100 @@ impl Server {
 		// Create an ID.
 		let id = tg::process::Id::new();
 
-		// Put the process.
-		let put_arg = tg::process::put::Arg {
-			checksum: arg.checksum.clone(),
-			children: Vec::new(),
-			command: arg.command.clone().unwrap(),
-			created_at: time::OffsetDateTime::now_utc(),
-			cwd: arg.cwd.clone(),
-			dequeued_at: None,
-			enqueued_at: Some(time::OffsetDateTime::now_utc()),
-			env: arg.env.clone(),
-			error: None,
-			finished_at: None,
-			id: id.clone(),
-			log: None,
-			network: arg.network,
-			output: None,
-			retry: arg.retry,
-			started_at: None,
-			status: tg::process::Status::Enqueued,
-		};
-		self.put_process(&id, put_arg).await?;
+		// Create the log file.
+		if !self.config.advanced.write_process_logs_to_database {
+			let path = self.logs_path().join(id.to_string());
+			tokio::fs::File::create(path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
+		}
+
+		// Determine if the process is sandboxed.
+		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
+
+		// Determine if the process is cacheable.
+		let cacheable = arg.checksum.is_some() || sandboxed;
+
+		// Get the host.
+		let command = tg::Command::with_id(arg.command.clone().unwrap());
+		let host = &*command.host(self).await?;
+
+		// Get a database connection.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Insert the process.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into processes (
+					id,
+					cacheable,
+					checksum,
+					command,
+					created_at,
+					cwd,
+					enqueued_at,
+					env,
+					host,
+					network,
+					retry,
+					status,
+					touched_at
+				)
+				values (
+					{p}1,
+					{p}2,
+					{p}3,
+					{p}4,
+					{p}5,
+					{p}6,
+					{p}7,
+					{p}8,
+					{p}9,
+					{p}10,
+					{p}11,
+					{p}12,
+					{p}13
+				)
+				on conflict (id) do update set
+					cacheable = {p}2,
+					checksum = {p}3,
+					command = {p}4,
+					created_at = {p}5,
+					cwd = {p}6,
+					enqueued_at = {p}7,
+					env = {p}8,
+					host = {p}9,
+					network = {p}10,
+					retry = {p}11,
+					status = {p}12,
+					touched_at = {p}13;
+			"
+		);
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let params = db::params![
+			id,
+			cacheable,
+			arg.checksum,
+			arg.command,
+			now,
+			arg.cwd,
+			now,
+			arg.env.as_ref().map(db::value::Json),
+			host,
+			arg.network,
+			arg.retry,
+			tg::process::Status::Enqueued,
+			now,
+		];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Publish the message.
 		tokio::spawn({
