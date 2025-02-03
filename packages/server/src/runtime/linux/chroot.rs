@@ -4,16 +4,11 @@ use super::{
 };
 use crate::temp::Temp;
 use indoc::formatdoc;
-use std::{
-	ffi::CString,
-	os::unix::ffi::OsStrExt as _,
-	path::{Path, PathBuf},
-};
+use std::{ffi::CString, os::unix::ffi::OsStrExt as _, path::Path};
 use tangram_client as tg;
 
 pub struct Chroot {
-	pub home: PathBuf,
-	pub temp: Temp,
+	_temp: Temp,
 	pub mounts: Vec<Mount>,
 	pub root: CString,
 }
@@ -117,7 +112,6 @@ impl Chroot {
 		// Create the host and guest paths for the home directory, with inner .tangram directory.
 		let home_directory_host_path =
 			root.join(HOME_DIRECTORY_GUEST_PATH.strip_prefix('/').unwrap());
-		let home_directory_guest_path = PathBuf::from(HOME_DIRECTORY_GUEST_PATH);
 		tokio::fs::create_dir_all(&home_directory_host_path.join(".tangram"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the home directory"))?;
@@ -284,8 +278,7 @@ impl Chroot {
 		})?;
 
 		Ok(Self {
-			home: home_directory_guest_path,
-			temp,
+			_temp: temp,
 			root,
 			mounts,
 		})
