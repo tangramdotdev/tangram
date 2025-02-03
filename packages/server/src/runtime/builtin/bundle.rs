@@ -6,8 +6,6 @@ use tangram_client as tg;
 
 static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 
-static TANGRAM_RUN_PATH: &str = ".tangram/run";
-
 impl Runtime {
 	pub async fn bundle(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
@@ -51,21 +49,9 @@ impl Runtime {
 			// If the artifact is a directory, use it as is.
 			tg::Artifact::Directory(directory) => directory.clone().into(),
 
-			// If the artifact is an executable file, then create a directory and place the executable at `.tangram/run`.
-			tg::Artifact::File(file) if file.executable(server).await? => {
-				tg::directory::Builder::default()
-					.add(server, TANGRAM_RUN_PATH.as_ref(), file.clone().into())
-					.await?
-					.build()
-					.into()
-			},
-
 			// Otherwise, return an error.
 			artifact => {
-				return Err(tg::error!(
-					?artifact,
-					"the artifact must be a directory or an executable file"
-				));
+				return Err(tg::error!(?artifact, "the artifact must be a directory"));
 			},
 		};
 
