@@ -55,7 +55,8 @@ impl Cli {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Build.
-		self.build_process(args.options, reference, args.trailing)
+		let _value = self
+			.build_process(args.options, reference, args.trailing)
 			.await?;
 
 		Ok(())
@@ -79,7 +80,7 @@ impl Cli {
 		// Spawn the process.
 		options.spawn.sandbox = true;
 		let process = self
-			.spawn_process(options.spawn, reference, trailing)
+			.spawn_process(options.spawn, reference, trailing, None, None, None)
 			.boxed()
 			.await?;
 

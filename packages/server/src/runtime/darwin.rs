@@ -213,14 +213,17 @@ impl Runtime {
 			kill_process_tree(pid);
 		}
 
-		// Spawn the log task.
-		let log_task = super::util::post_log_task(
-			&self.server,
-			process,
-			remote,
-			child.stdout.take().unwrap(),
-			child.stderr.take().unwrap(),
-		);
+		// Spawn the stdio task.
+		let stdio_task = Task::spawn(|stop| {
+			super::util::stdio_task(
+				self.server.clone(),
+				process.clone(),
+				stop,
+				child.stdin.take().unwrap(),
+				child.stdout.take().unwrap(),
+				child.stderr.take().unwrap(),
+			)
+		});
 
 		// Wait for the process to exit.
 		let exit = child
@@ -241,12 +244,16 @@ impl Runtime {
 			task.wait().await.unwrap();
 		}
 
-		// Join the i/o tasks.
-		let (input, output) = future::try_join(future::ok(Ok::<_, tg::Error>(())), log_task)
+		// Join the i/o task.
+		stdio_task.stop();
+		stdio_task
+			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to join the i/o tasks"))?;
-		input.map_err(|source| tg::error!(!source, "the stdin task failed"))?;
-		output.map_err(|source| tg::error!(!source, "the log task failed"))?;
+			.unwrap()
+			.inspect_err(|error| {
+				tracing::error!(?error, "io task failed");
+			})
+			.ok();
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(output_parent.path().join("output"))

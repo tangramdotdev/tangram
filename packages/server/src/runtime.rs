@@ -5,6 +5,7 @@ use tangram_client::{self as tg, handle::Ext as _};
 use tokio_stream::StreamExt as _;
 
 mod proxy;
+mod stdio;
 mod util;
 
 pub mod builtin;
@@ -75,6 +76,9 @@ impl Runtime {
 			return Ok(output);
 		}
 
+		// Ensure the process is loaded.
+		let state = process.load(self.server()).await?;
+
 		// Run the process.
 		let output = match self {
 			Runtime::Builtin(runtime) => runtime.run(process).boxed().await,
@@ -86,7 +90,6 @@ impl Runtime {
 		};
 
 		// If the process has a checksum, then compute the checksum of the output.
-		let state = process.load(self.server()).await?;
 		if let (Some(value), Some(checksum)) = (&output.output, &state.checksum) {
 			self::util::compute_checksum(self, process, value, checksum).await?;
 		}
@@ -126,6 +129,9 @@ impl Runtime {
 			parent: None,
 			remote: process.remote().cloned(),
 			retry: state.retry,
+			stderr: None,
+			stdin: None,
+			stdout: None,
 		};
 
 		// Spawn the process.
@@ -158,6 +164,9 @@ impl Runtime {
 								parent: Some(process.id().clone()),
 								remote: process.remote().cloned(),
 								retry: child_process.data.retry,
+								stderr: None,
+								stdin: None,
+								stdout: None,
 							};
 							server.try_spawn_process(arg).await?;
 						}

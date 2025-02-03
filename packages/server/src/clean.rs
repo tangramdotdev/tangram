@@ -173,6 +173,39 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
+		// Get pipes to remove.
+		let statement = formatdoc!(
+			r#"
+				select id
+				from pipes
+				where reader_count = 0 and and writer_count = 0 and touched_at <= {p}1
+				limit {p}2;
+			"#
+		);
+		let max_touched_at = (time::OffsetDateTime::now_utc() - config.touch_timeout)
+			.format(&Rfc3339)
+			.unwrap();
+		let params = db::params![max_touched_at, config.batch_size];
+		let pipes = transaction
+			.query_all_value_into::<tg::pipe::Id>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		// Remove the pipes.
+		for id in &pipes {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"
+					delete from pipes
+					where id = {p}1;
+				"
+			);
+			let params = db::params![id];
+			transaction
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
 		// Commit the transaction.
 		transaction
 			.commit()

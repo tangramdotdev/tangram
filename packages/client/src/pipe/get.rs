@@ -10,14 +10,14 @@ pub struct Arg {
 }
 
 impl Client {
-	pub async fn read_pipe(
+	pub async fn get_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,
 		arg: Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>>> {
-		let method = http::Method::POST;
+		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/pipes/{id}/read?{query}");
+		let uri = format!("/pipes/{id}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -25,7 +25,10 @@ impl Client {
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			let error = response.json().await?;
+			let error = response
+				.json()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to parse error"))?;
 			return Err(error);
 		}
 		let body = response
@@ -42,6 +45,17 @@ impl Client {
 						.to_str()
 						.map_err(|source| tg::error!(!source, "invalid event"))?;
 					match event {
+						"window-size" => {
+							let data = trailers
+								.get("x-tg-data")
+								.ok_or_else(|| tg::error!("missing data"))?
+								.to_str()
+								.map_err(|source| tg::error!(!source, "invalid data"))?;
+							let window_size = serde_json::from_str(data).map_err(|source| {
+								tg::error!(!source, "failed to deserialize the header value")
+							})?;
+							Ok(tg::pipe::Event::WindowSize(window_size))
+						},
 						"end" => Ok(tg::pipe::Event::End),
 						"error" => {
 							let data = trailers

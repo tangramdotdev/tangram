@@ -235,7 +235,7 @@ impl Server {
 		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
 
 		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some() || sandboxed;
+		let cacheable = arg.checksum.is_some() || sandboxed || arg.stdin.is_none();
 
 		// Get the host.
 		let command = tg::Command::with_id(arg.command.clone().unwrap());
@@ -265,6 +265,9 @@ impl Server {
 					network,
 					retry,
 					status,
+					stderr,
+					stdin,
+					stdout,
 					touched_at
 				)
 				values (
@@ -280,7 +283,10 @@ impl Server {
 					{p}10,
 					{p}11,
 					{p}12,
-					{p}13
+					{p}13,
+					{p}14,
+					{p}15,
+					{p}16
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -294,7 +300,10 @@ impl Server {
 					network = {p}10,
 					retry = {p}11,
 					status = {p}12,
-					touched_at = {p}13;
+					stderr = {p}13,
+					stderr = {p}14,
+					stderr = {p}15,
+					touched_at = {p}16;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -311,12 +320,26 @@ impl Server {
 			arg.network,
 			arg.retry,
 			tg::process::Status::Enqueued,
+			arg.stderr,
+			arg.stdin,
+			arg.stdout,
 			now,
 		];
 		connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
+
+		// Increment refcounts on pipes if necessary.
+		if arg.remote.is_none() {
+			for pipe in [arg.stdin.as_ref(), arg.stdout.as_ref(), arg.stderr.as_ref()]
+				.into_iter()
+				.flatten()
+			{
+				self.try_add_pipe_ref(pipe).await?;
+			}
+		}
 
 		// Publish the message.
 		tokio::spawn({
