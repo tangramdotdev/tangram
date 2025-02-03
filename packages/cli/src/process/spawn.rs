@@ -1,5 +1,4 @@
 use crate::Cli;
-use crossterm::style::Stylize as _;
 use itertools::Itertools as _;
 use std::path::Path;
 use tangram_client::{self as tg, Handle as _};
@@ -10,16 +9,20 @@ use tangram_either::Either;
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub inner: InnerArgs,
+	pub options: Options,
 
 	/// The reference to the command.
 	#[arg(index = 1)]
 	pub reference: Option<tg::Reference>,
+
+	/// Set arguments.
+	#[arg(index = 2, trailing_var_arg = true)]
+	pub trailing: Vec<String>,
 }
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
-pub struct InnerArgs {
+pub struct Options {
 	/// Set arguments.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub arg: Vec<String>,
@@ -60,31 +63,28 @@ pub struct InnerArgs {
 	/// Tag the process.
 	#[arg(long)]
 	pub tag: Option<tg::Tag>,
-
-	/// Set arguments.
-	#[arg(index = 2, trailing_var_arg = true)]
-	pub trailing: Vec<String>,
 }
 
 impl Cli {
 	pub async fn command_process_spawn(&self, args: Args) -> tg::Result<()> {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 		let process = self
-			.command_process_spawn_inner(args.inner, reference)
+			.spawn_process(args.options, reference, args.trailing)
 			.await?;
 		println!("{}", process.id());
 		Ok(())
 	}
 
-	pub async fn command_process_spawn_inner(
+	pub(crate) async fn spawn_process(
 		&self,
-		args: InnerArgs,
+		options: Options,
 		reference: tg::Reference,
+		trailing: Vec<String>,
 	) -> tg::Result<tg::Process> {
 		let handle = self.handle().await?;
 
 		// Get the remote.
-		let remote = args
+		let remote = options
 			.remote
 			.clone()
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
@@ -209,22 +209,23 @@ impl Cli {
 				},
 			};
 
-			// Get the command.
-			let command = reference
+			// Get the target.
+			let target = reference
 				.uri()
 				.fragment()
 				.map_or("default", |fragment| fragment);
 
 			// Get the args.
-			let mut args_: Vec<tg::Value> = args
+			let mut args_: Vec<tg::Value> = options
 				.arg
 				.into_iter()
 				.map(|arg| arg.parse())
+				.chain(trailing.into_iter().map(tg::Value::String).map(Ok))
 				.try_collect::<tg::Value, _, _>()?;
-			args_.insert(0, command.into());
+			args_.insert(0, target.into());
 
 			// Get the env.
-			let mut env: tg::value::Map = args
+			let mut env: tg::value::Map = options
 				.env
 				.into_iter()
 				.flatten()
@@ -243,7 +244,7 @@ impl Cli {
 
 			// Set the TANGRAM_HOST environment variable if it is not set.
 			if !env.contains_key("TANGRAM_HOST") {
-				let host = if let Some(host) = args.host {
+				let host = if let Some(host) = options.host {
 					host
 				} else {
 					tg::host().to_owned()
@@ -263,14 +264,7 @@ impl Cli {
 		};
 
 		// Determine the retry.
-		let retry = args.retry;
-
-		// Print the command.
-		eprintln!(
-			"{} command {}",
-			"info".blue().bold(),
-			command.id(&handle).await?
-		);
+		let retry = options.retry;
 
 		// If the remote is set, then push the commnad.
 		if let Some(remote) = remote.clone() {
@@ -281,7 +275,7 @@ impl Cli {
 		}
 
 		// Handle build vs run.
-		let (cwd, env, network) = if args.sandbox {
+		let (cwd, env, network) = if options.sandbox {
 			let cwd = None;
 			let env = None;
 			let network = false;
@@ -298,9 +292,9 @@ impl Cli {
 
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
-			checksum: args.checksum,
+			checksum: options.checksum,
 			command: Some(command.id(&handle).await?.clone()),
-			create: args.create,
+			create: options.create,
 			cwd,
 			env,
 			network,
@@ -311,7 +305,7 @@ impl Cli {
 		let process = tg::Process::spawn(&handle, arg).await?;
 
 		// Tag the process if requested.
-		if let Some(tag) = args.tag {
+		if let Some(tag) = options.tag {
 			let item = Either::Left(process.id().clone());
 			let arg = tg::tag::put::Arg {
 				force: false,

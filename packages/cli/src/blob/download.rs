@@ -7,7 +7,7 @@ use url::Url;
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub inner: crate::process::build::InnerArgs,
+	pub build: crate::process::build::Options,
 
 	#[arg(index = 1)]
 	pub url: Url,
@@ -21,8 +21,7 @@ impl Cli {
 		let command = tg::Command::builder(host).args(command_args).build();
 		let command = command.id(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
-		self.command_process_build_inner(args.inner, reference)
-			.await?;
+		self.build_process(args.build, reference, vec![]).await?;
 		Ok(())
 	}
 }
