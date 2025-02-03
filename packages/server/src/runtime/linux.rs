@@ -131,7 +131,7 @@ impl Runtime {
 			};
 
 			// Create the proxy server guest URL.
-			let socket = Path::new(HOME_DIRECTORY_GUEST_PATH).join(".tangram/socket");
+			let socket = Path::new(SERVER_DIRECTORY_GUEST_PATH).join("socket");
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
