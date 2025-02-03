@@ -13,7 +13,7 @@ pub struct Inner {
 impl Messenger {
 	#[must_use]
 	pub fn new() -> Self {
-		let (mut sender, receiver) = async_broadcast::broadcast(1_000_000);
+		let (mut sender, receiver) = async_broadcast::broadcast(1024);
 		let receiver = receiver.deactivate();
 		sender.set_overflow(true);
 		Self(Arc::new(Inner { sender, receiver }))

@@ -1,7 +1,11 @@
-use super::Runtime;
+use super::{stdio, Runtime};
 use crate::Server;
 use bytes::Bytes;
-use futures::{TryStreamExt, stream::FuturesOrdered};
+use futures::{
+	future,
+	stream::{self, FuturesOrdered},
+	Stream, StreamExt as _, TryStreamExt as _,
+};
 use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
@@ -37,64 +41,6 @@ pub async fn render(
 	} else {
 		Ok("<tangram value>".to_owned())
 	}
-}
-
-// Post process logs.
-pub fn post_log_task(
-	server: &Server,
-	process: &tg::Process,
-	remote: Option<&String>,
-	stdout: impl AsyncRead + Send + 'static,
-	stderr: impl AsyncRead + Send + 'static,
-) -> tokio::task::JoinHandle<tg::Result<()>> {
-	async fn inner(
-		server: Server,
-		process: tg::Process,
-		remote: Option<String>,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
-		let mut reader = pin!(reader);
-		let mut buffer = vec![0; 4096];
-		loop {
-			// Read from the reader.
-			let size = reader
-				.read(&mut buffer)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read from the log"))?;
-			if size == 0 {
-				return Ok::<_, tg::Error>(());
-			}
-			let bytes = Bytes::copy_from_slice(&buffer[0..size]);
-
-			// Write to stderr if configured.
-			if server.config.advanced.write_process_logs_to_stderr {
-				tokio::io::stderr()
-					.write_all(&bytes)
-					.await
-					.inspect_err(|error| {
-						tracing::error!(?error, "failed to write the build log to stderr");
-					})
-					.ok();
-			}
-
-			// Write the log.
-			let arg = tg::process::log::post::Arg {
-				bytes: bytes.clone(),
-				remote: remote.clone(),
-			};
-			process.post_log(&server, arg).await?;
-		}
-	}
-
-	// Create the futures for stdout/stderr readers.
-	let stdout = inner(server.clone(), process.clone(), remote.cloned(), stdout);
-	let stderr = inner(server.clone(), process.clone(), remote.cloned(), stderr);
-
-	// Spawn the task
-	tokio::spawn(async move {
-		futures::try_join!(stderr, stdout)?;
-		Ok(())
-	})
 }
 
 pub async fn compute_checksum(
@@ -211,4 +157,190 @@ pub async fn merge_env(
 		.collect::<FuturesOrdered<_>>()
 		.try_collect()
 		.await
+}
+
+pub async fn stdio_task(
+	server: Server,
+	process: tg::Process,
+	stdin: stdio::Host,
+	stdout: stdio::Host,
+	stderr: stdio::Host,
+) -> tg::Result<()> {
+	let state = process.load(&server).await?;
+	if state.cacheable {
+		log_task(&server, &process, stdout, stderr).await?;
+	} else {
+		pipe_task(&server, &process, stdin, stdout, stderr).await?;
+	};
+	Ok(())
+}
+
+async fn log_task(
+	server: &Server,
+	process: &tg::Process,
+	stdout: impl AsyncRead + Unpin + Send + 'static,
+	stderr: impl AsyncRead + Unpin + Send + 'static,
+) -> tg::Result<()> {
+	// Create a task for stdout.
+	let stdout = tokio::spawn({
+		let server = server.clone();
+		let process = process.clone();
+		async move {
+			let stream = chunk_stream_from_reader(stdout);
+			let mut stream = pin!(stream);
+			while let Some(tg::pipe::Event::Chunk(bytes)) = stream.try_next().await? {
+				if server.config().advanced.write_process_logs_to_stderr {
+					tokio::io::stderr().write_all(&bytes).await.ok();
+				}
+				let arg = tg::process::log::post::Arg {
+					bytes,
+					remote: process.remote().cloned(),
+				};
+				server.try_post_process_log(process.id(), arg).await?;
+			}
+			Ok::<_, tg::Error>(())
+		}
+	});
+
+	// Create a task for stderr
+	let stderr = tokio::spawn({
+		let server = server.clone();
+		let process = process.clone();
+		async move {
+			let stream = chunk_stream_from_reader(stderr);
+			let mut stream = pin!(stream);
+			while let Some(tg::pipe::Event::Chunk(bytes)) = stream.try_next().await? {
+				if server.config().advanced.write_process_logs_to_stderr {
+					tokio::io::stderr().write_all(&bytes).await.ok();
+				}
+				let arg = tg::process::log::post::Arg {
+					bytes,
+					remote: process.remote().cloned(),
+				};
+				server.try_post_process_log(process.id(), arg).await?;
+			}
+			Ok::<_, tg::Error>(())
+		}
+	});
+
+	let (stdout, stderr) = future::join(stdout, stderr).await;
+	stdout
+		.unwrap()
+		.map_err(|source| tg::error!(!source, "failed to write stdout to log"))?;
+	stderr
+		.unwrap()
+		.map_err(|source| tg::error!(!source, "failed to write stderr to log"))?;
+
+	Ok(())
+}
+
+async fn pipe_task(
+	server: &Server,
+	process: &tg::Process,
+	stdin: stdio::Host,
+	stdout: stdio::Host,
+	stderr: stdio::Host,
+) -> tg::Result<()> {
+	// Create a task for stdin.
+	let stdin = tokio::spawn({
+		let server = server.clone();
+		let state = process.load(&server).await?;
+		let process = process.clone();
+		async move {
+			let Some(pipe) = state.stdin.as_ref() else {
+				return Ok(());
+			};
+			let arg = tg::pipe::get::Arg {
+				remote: process.remote().cloned(),
+			};
+			let stream = server.get_pipe_stream(pipe, arg).await?;
+			let mut stream = pin!(stream);
+			let mut stdin = pin!(stdin);
+			while let Some(event) = stream.try_next().await? {
+				match event {
+					tg::pipe::Event::Chunk(chunk) => {
+						stdin.write_all(&chunk).await.map_err(
+							|source| tg::error!(!source, %pipe, "failed to write stdin"),
+						)?;
+					},
+					tg::pipe::Event::WindowSize(window_size) => {
+						stdin
+							.set_window_size(window_size)
+							.map_err(|source| tg::error!(!source, "failed to set window size"))?;
+					},
+					tg::pipe::Event::End => break,
+				}
+			}
+			stdin.shutdown().await.ok();
+
+			Ok::<_, tg::Error>(())
+		}
+	});
+
+	// Create a task for stdout.
+	let stdout = tokio::spawn({
+		let server = server.clone();
+		let state = process.load(&server).await?;
+		let process = process.clone();
+		async move {
+			let Some(pipe) = state.stdout.as_ref() else {
+				return Ok(());
+			};
+			let arg = tg::pipe::post::Arg {
+				remote: process.remote().cloned(),
+			};
+			let stream = chunk_stream_from_reader(stdout);
+			server.post_pipe(pipe, arg, stream).await?;
+			Ok::<_, tg::Error>(())
+		}
+	});
+
+	// Create a task for stderr.
+	let stderr = tokio::spawn({
+		let server = server.clone();
+		let state = process.load(&server).await?;
+		let process = process.clone();
+		async move {
+			let Some(pipe) = state.stderr.as_ref() else {
+				return Ok(());
+			};
+			let arg = tg::pipe::post::Arg {
+				remote: process.remote().cloned(),
+			};
+			let stream = chunk_stream_from_reader(stderr);
+			server.post_pipe(pipe, arg, stream).await?;
+			Ok::<_, tg::Error>(())
+		}
+	});
+
+	// Join the tasks.
+	let (stdout, stderr) = future::join(stdout, stderr).await;
+	stdin.abort();
+	stdout
+		.unwrap()
+		.map_err(|source| tg::error!(!source, "failed to read stdout from pipe"))?;
+	stderr
+		.unwrap()
+		.map_err(|source| tg::error!(!source, "failed to read stderr from pipe"))?;
+	Ok::<_, tg::Error>(())
+}
+
+// Helper to create an event stream from pipes
+fn chunk_stream_from_reader(
+	reader: impl AsyncRead + Unpin + Send + 'static,
+) -> impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static {
+	let buffer = vec![0u8; 4096];
+	stream::try_unfold((reader, buffer), |(mut reader, mut buffer)| async move {
+		let size = reader
+			.read(&mut buffer)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read"))?;
+		if size == 0 {
+			return Ok(None);
+		}
+		let chunk = Bytes::copy_from_slice(&buffer[0..size]);
+		let event = tg::pipe::Event::Chunk(chunk);
+		Ok(Some((event, (reader, buffer))))
+	})
+	.chain(stream::once(future::ok(tg::pipe::Event::End)))
 }

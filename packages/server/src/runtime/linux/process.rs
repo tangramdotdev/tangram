@@ -1,4 +1,10 @@
+<<<<<<< HEAD
 use super::{TANGRAM_GID, TANGRAM_UID, chroot::Chroot};
+=======
+use crate::runtime::stdio;
+
+use super::{chroot::Chroot, TANGRAM_GID, TANGRAM_UID};
+>>>>>>> 300b3991 (starting point)
 use itertools::Itertools;
 use std::{
 	collections::BTreeMap,
@@ -14,9 +20,9 @@ pub struct Child {
 	context: Context,
 	socket: tokio::net::UnixStream,
 	root_process: libc::pid_t,
-	pub _stdin: Option<tokio::net::UnixStream>,
-	pub stdout: Option<tokio::net::UnixStream>,
-	pub stderr: Option<tokio::net::UnixStream>,
+	pub stdin: Option<stdio::Host>,
+	pub stdout: Option<stdio::Host>,
+	pub stderr: Option<stdio::Host>,
 }
 
 struct Context {
@@ -27,9 +33,9 @@ struct Context {
 	chroot: Option<super::chroot::Chroot>,
 	network: bool,
 	socket: std::os::unix::net::UnixStream,
-	stdin: std::os::unix::net::UnixStream,
-	stdout: std::os::unix::net::UnixStream,
-	stderr: std::os::unix::net::UnixStream,
+	stdin: stdio::Guest,
+	stdout: stdio::Guest,
+	stderr: stdio::Guest,
 }
 
 unsafe impl Send for Context {}
@@ -84,9 +90,12 @@ pub fn spawn(
 	let socket = socket_pair()?;
 
 	// Create sockets to redirect stdio.
-	let stdin = socket_pair()?;
-	let stderr = socket_pair()?;
-	let stdout = socket_pair()?;
+	let stdin =
+		stdio::pair(false).map_err(|source| tg::error!(!source, "failed to create stdin"))?;
+	let stderr =
+		stdio::pair(false).map_err(|source| tg::error!(!source, "failed to create stderr"))?;
+	let stdout =
+		stdio::pair(false).map_err(|source| tg::error!(!source, "failed to create stdout"))?;
 
 	// Create the context.
 	let context = Context {
@@ -134,7 +143,7 @@ pub fn spawn(
 
 	// Run the root process.
 	if pid == 0 {
-		unsafe { root(&context) };
+		unsafe { root(context) };
 	}
 
 	// Otherwise, Create the child.
@@ -142,7 +151,7 @@ pub fn spawn(
 		root_process: pid,
 		context,
 		socket: socket.0,
-		_stdin: Some(stdin.0),
+		stdin: Some(stdin.0),
 		stdout: Some(stdout.0),
 		stderr: Some(stderr.0),
 	};
@@ -277,7 +286,7 @@ impl Child {
 	}
 }
 
-unsafe fn root(context: &Context) -> ! {
+unsafe fn root(context: Context) -> ! {
 	// Ask to receive a SIGKILL signal if the host process exits.
 	let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
 	if ret == -1 {
@@ -286,9 +295,9 @@ unsafe fn root(context: &Context) -> ! {
 
 	// Redirect stdio streams.
 	for (src, dst) in [
-		(&context.stdin, libc::STDIN_FILENO),
-		(&context.stdout, libc::STDOUT_FILENO),
-		(&context.stderr, libc::STDERR_FILENO),
+		(context.stderr.as_raw_fd(), libc::STDERR_FILENO),
+		(context.stdin.as_raw_fd(), libc::STDIN_FILENO),
+		(context.stdout.as_raw_fd(), libc::STDOUT_FILENO),
 	] {
 		let ret = libc::dup2(src.as_raw_fd(), dst);
 		if ret == -1 {
@@ -334,7 +343,7 @@ unsafe fn root(context: &Context) -> ! {
 
 	// Run the guest process.
 	if pid == 0 {
-		guest(context);
+		guest(&context);
 	}
 
 	// Send the guest process's PID to the host process, so the host process can write the UID and GID maps.

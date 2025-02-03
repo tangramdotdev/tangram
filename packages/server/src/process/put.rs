@@ -63,6 +63,9 @@ impl Server {
 					retry,
 					started_at,
 					status,
+					stderr,
+					stdin,
+					stdout,
 					touched_at
 				)
 				values (
@@ -85,7 +88,10 @@ impl Server {
 					?17,
 					?18,
 					?19,
-					?20
+					?20,
+					?21,
+					?22,
+					?23
 				)
 				on conflict (id) do update set
 					cacheable = ?2,
@@ -106,7 +112,10 @@ impl Server {
 					retry = ?17,
 					started_at = ?18,
 					status = ?19,
-					touched_at = ?20;
+					stderr = ?20,
+					stdin = ?21,
+					stdout = ?22,
+					touched_at = ?23;
 			"
 		);
 		let params = db::params![
@@ -129,6 +138,9 @@ impl Server {
 			arg.data.retry,
 			arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.status,
+			arg.stderr,
+			arg.stdin,
+			arg.stdout,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		transaction
