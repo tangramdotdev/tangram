@@ -139,7 +139,7 @@ impl Runtime {
 			let guest_url = format!("http+unix://{socket}").parse::<Url>().unwrap();
 
 			// Create the proxy server guest URL.
-			let socket = chroot.home.join(".tangram/socket");
+			let socket = chroot.temp.path().join(".tangram/socket");
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
@@ -210,9 +210,11 @@ impl Runtime {
 			// Set `$HOME`.
 			env.insert("HOME".to_owned(), HOME_DIRECTORY_GUEST_PATH.to_owned());
 			// Set `$OUTPUT`.
+			let output_guest_path =
+				std::path::PathBuf::from(OUTPUT_PARENT_DIRECTORY_GUEST_PATH).join("output");
 			env.insert(
 				"OUTPUT".to_owned(),
-				OUTPUT_PARENT_DIRECTORY_GUEST_PATH.to_owned(),
+				output_guest_path.to_str().unwrap().to_owned(),
 			);
 		} else {
 			// Set OUTPUT to the host path.
