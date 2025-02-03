@@ -14,6 +14,7 @@ mod artifact;
 mod blob;
 mod cat;
 mod checksum;
+mod children;
 mod clean;
 mod get;
 mod health;
@@ -120,6 +121,8 @@ enum Command {
 	Checkout(self::artifact::checkout::Args),
 
 	Checksum(self::checksum::Args),
+
+	Children(self::children::Args),
 
 	Clean(self::clean::Args),
 
@@ -868,6 +871,7 @@ impl Cli {
 			Command::Checkin(args) => self.command_artifact_checkin(args).boxed(),
 			Command::Checkout(args) => self.command_artifact_checkout(args).boxed(),
 			Command::Checksum(args) => self.command_checksum(args).boxed(),
+			Command::Children(args) => self.command_children(args).boxed(),
 			Command::Clean(args) => self.command_clean(args).boxed(),
 			Command::Compress(args) => self.command_blob_compress(args).boxed(),
 			Command::Decompress(args) => self.command_blob_decompress(args).boxed(),
