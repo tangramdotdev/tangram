@@ -46,20 +46,19 @@ impl Server {
 			}
 		}
 
-		// Create an ID for a new local process.
-		let id = tg::process::Id::new();
+		// Create a channel for the spawn result.
+		let (sender, receiver) = tokio::sync::oneshot::channel();
 
 		// Create a future that will spawn and await a local process.
-		let local = {
-			let id = id.clone();
-			async {
-				if !arg.create {
-					return Ok(None);
-				}
-				self.spawn_local_process(&id, &arg).await?;
-				self.wait_process(&id).await?;
-				Ok::<_, tg::Error>(Some(id))
+		let local = async {
+			if !arg.create {
+				return Ok(None);
 			}
+			let result = self.spawn_local_process(&arg).await;
+			sender.send(result.clone()).unwrap();
+			let id = result?;
+			self.wait_process(&id).await?;
+			Ok::<_, tg::Error>(Some(id))
 		}
 		.boxed();
 
@@ -96,6 +95,8 @@ impl Server {
 					self.try_finish_process(&id, arg).boxed().await.ok();
 					Some(id)
 				} else {
+					let result = receiver.await.unwrap();
+					let id = result?;
 					Some(id)
 				}
 			},
@@ -198,9 +199,11 @@ impl Server {
 
 	async fn spawn_local_process(
 		&self,
-		id: &tg::process::Id,
 		arg: &tg::process::spawn::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::process::Id> {
+		// Create an ID.
+		let id = tg::process::Id::new();
+
 		// Put the process.
 		let put_arg = tg::process::put::Arg {
 			checksum: arg.checksum.clone(),
@@ -221,7 +224,7 @@ impl Server {
 			started_at: None,
 			status: tg::process::Status::Enqueued,
 		};
-		self.put_process(id, put_arg).await?;
+		self.put_process(&id, put_arg).await?;
 
 		// Publish the message.
 		tokio::spawn({
@@ -263,7 +266,7 @@ impl Server {
 				.ok();
 		});
 
-		Ok(())
+		Ok(id)
 	}
 
 	async fn try_get_cached_process_remote(
