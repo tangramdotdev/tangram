@@ -52,7 +52,9 @@ impl Server {
 					retry,
 					started_at,
 					status,
-					touched_at
+					stderr,
+					stdin,
+					stdout
 				)
 				values (
 					{p}1,
@@ -74,7 +76,10 @@ impl Server {
 					{p}17,
 					{p}18,
 					{p}19,
-					{p}20
+					{p}20,
+					{p}21,
+					{p}22,
+					{p}23
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -95,7 +100,16 @@ impl Server {
 					retry = {p}17,
 					started_at = {p}18,
 					status = {p}19,
-					touched_at = {p}20;
+					stderr = {p}20,
+					stdin = {p}21,
+					stdout = {p}22,
+					touched_at = {p}23
+				returning
+					commands_complete,
+					complete,
+					logs_complete,
+					outputs_complete;
+>>>>>>> 300b3991 (starting point)
 			"
 		);
 		let params = db::params![
@@ -118,6 +132,9 @@ impl Server {
 			arg.data.retry,
 			arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.status,
+			arg.stderr,
+			arg.stdin,
+			arg.stdout,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		transaction
