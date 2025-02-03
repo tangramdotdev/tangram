@@ -118,22 +118,31 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> + Send;
+	fn open_pipe(
+		&self,
+		arg: tg::pipe::open::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> + Send;
 
-	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn read_pipe(
+	fn close_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::close::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn post_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn get_pipe_stream(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
 	> + Send;
-
-	fn write_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_spawn_process(
 		&self,
@@ -232,6 +241,17 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::process::Id,
 		arg: tg::process::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send;
+
+	// fn put_process_pty(
+	// 	&self,
+	// 	id: &tg::process::Id,
+	// 	pty: tg::process::Pty,
+	// ) -> impl Future<Output = tg::Result<()>> + Send;
+
+	// fn get_process_pty_stream(
+	// 	&self,
+	// 	id: &tg::process::Id,
+	// ) -> impl Future<Output = tg::Result<impl Stream>> + Send;
 
 	fn try_get_reference(
 		&self,

@@ -1,36 +1,59 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, stream::TryStreamExt as _};
+use bytes::Bytes;
+use futures::{
+	future,
+	stream::{self, TryStreamExt as _},
+	Stream, StreamExt as _,
+};
 use http_body_util::{BodyExt as _, BodyStream};
+use std::pin::pin;
 use tangram_client as tg;
-use tangram_http::{Body, response::builder::Ext as _};
+use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
+
+use super::Pipe;
 
 impl Server {
-	pub async fn write_pipe(
+	pub async fn post_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		mut arg: tg::pipe::post::Arg,
 		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
 	) -> tg::Result<()> {
-		let sender = self
-			.pipes
-			.get(id)
-			.ok_or_else(|| tg::error!("failed to find the pipe"))?
-			.value()
-			.sender
-			.clone();
-
-		let mut stream = std::pin::pin!(stream);
-		while let Some(event) = stream.try_next().await? {
-			sender
-				.send(event)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote.clone()).await?;
+			return remote.post_pipe(id, arg, stream.boxed()).await;
 		}
+		let Pipe { writer, .. } = self
+			.try_get_pipe(id)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the pipe"))?
+			.ok_or_else(|| tg::error!(%id, "missing pipe"))?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			self.send_pipe_event(&writer, event).await?;
+		}
+		Ok(())
+	}
+
+	pub(crate) async fn write_pipe_bytes(
+		&self,
+		id: &tg::pipe::Id,
+		remote: Option<String>,
+		bytes: Bytes,
+	) -> tg::Result<()> {
+		let arg = tg::pipe::post::Arg { remote };
+		self.post_pipe(
+			id,
+			arg,
+			stream::once(future::ok(tg::pipe::Event::Chunk(bytes))),
+		)
+		.await?;
 		Ok(())
 	}
 }
 
 impl Server {
-	pub(crate) async fn handle_write_pipe_request<H>(
+	pub(crate) async fn handle_post_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		id: &str,
@@ -40,6 +63,9 @@ impl Server {
 	{
 		// Parse the ID.
 		let id = id.parse()?;
+
+		// Get the query.
+		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Create the stream.
 		let body = request
@@ -57,6 +83,17 @@ impl Server {
 							.to_str()
 							.map_err(|source| tg::error!(!source, "invalid event"))?;
 						match event {
+							"window-size" => {
+								let data = trailers
+									.get("x-tg-data")
+									.ok_or_else(|| tg::error!("missing data"))?
+									.to_str()
+									.map_err(|source| tg::error!(!source, "invalid data"))?;
+								let window_size = serde_json::from_str(data).map_err(|source| {
+									tg::error!(!source, "failed to deserialize the header value")
+								})?;
+								Ok(tg::pipe::Event::WindowSize(window_size))
+							},
 							"end" => Ok(tg::pipe::Event::End),
 							"error" => {
 								let data = trailers
@@ -76,8 +113,8 @@ impl Server {
 			})
 			.boxed();
 
-		// Write.
-		handle.write_pipe(&id, stream).await?;
+		// Send the stream.
+		handle.post_pipe(&id, arg, stream).await?;
 
 		// Create the response.
 		let response = http::Response::builder().empty().unwrap();

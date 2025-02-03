@@ -75,7 +75,22 @@ impl Server {
 			return Err(tg::error!("failed to find the process"));
 		};
 
-		// Get the children.
+		// Close pipes.
+		for pipe in [
+			data.stdin.as_ref(),
+			data.stdout.as_ref(),
+			data.stderr.as_ref(),
+		]
+		.into_iter()
+		.flatten()
+		{
+			let arg = tg::pipe::close::Arg {
+				remote: remote.cloned(),
+			};
+			self.close_pipe(pipe, arg).await.ok();
+		}
+
+		// Get a database connection.
 		let connection = self
 			.database
 			.connection()
