@@ -8,6 +8,7 @@ use std::{
 
 pub use self::{
 	id::Id,
+	pty::Pty,
 	status::Status,
 	wait::{Exit, Wait},
 };
@@ -19,6 +20,7 @@ pub mod get;
 pub mod heartbeat;
 pub mod id;
 pub mod log;
+pub mod pty;
 pub mod pull;
 pub mod push;
 pub mod put;

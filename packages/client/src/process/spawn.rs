@@ -32,6 +32,7 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
+	// TODO add stdio and pty
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
