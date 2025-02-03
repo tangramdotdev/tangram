@@ -4,15 +4,10 @@ use super::{
 };
 use crate::temp::Temp;
 use indoc::formatdoc;
-use std::{
-	ffi::CString,
-	os::unix::ffi::OsStrExt as _,
-	path::{Path, PathBuf},
-};
+use std::{ffi::CString, os::unix::ffi::OsStrExt as _, path::Path};
 use tangram_client as tg;
 
 pub struct Chroot {
-	pub home: PathBuf,
 	pub temp: Temp,
 	pub mounts: Vec<Mount>,
 	pub root: CString,
@@ -117,7 +112,6 @@ impl Chroot {
 		// Create the host and guest paths for the home directory, with inner .tangram directory.
 		let home_directory_host_path =
 			root.join(HOME_DIRECTORY_GUEST_PATH.strip_prefix('/').unwrap());
-		let home_directory_guest_path = PathBuf::from(HOME_DIRECTORY_GUEST_PATH);
 		tokio::fs::create_dir_all(&home_directory_host_path.join(".tangram"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the home directory"))?;
@@ -204,12 +198,16 @@ impl Chroot {
 			readonly: false,
 		});
 
-		// Add the &runtime.server directory to the mounts.
-		let server_directory_source_path = &runtime.server.path;
-		let server_directory_guest_path = Path::new(SERVER_DIRECTORY_GUEST_PATH);
-		let server_directory_target_path =
-			root.join(server_directory_guest_path.strip_prefix("/").unwrap());
-		tokio::fs::create_dir_all(&server_directory_target_path)
+		// Add the &runtime.server artifacts directory to the mounts.
+		let server_artifacts_directory_source_path = &runtime.server.path.join("artifacts");
+		let server_artifacts_directory_guest_path =
+			Path::new(SERVER_DIRECTORY_GUEST_PATH).join("artifacts");
+		let server_artifacts_directory_target_path = root.join(
+			server_artifacts_directory_guest_path
+				.strip_prefix("/")
+				.unwrap(),
+		);
+		tokio::fs::create_dir_all(&server_artifacts_directory_target_path)
 			.await
 			.map_err(|error| {
 				tg::error!(
@@ -217,13 +215,21 @@ impl Chroot {
 					"failed to create the mount point for the tangram directory"
 				)
 			})?;
-		let server_directory_source_path =
-			CString::new(server_directory_source_path.as_os_str().as_bytes()).unwrap();
-		let server_directory_target_path =
-			CString::new(server_directory_target_path.as_os_str().as_bytes()).unwrap();
+		let server_artifacts_directory_source_path = CString::new(
+			server_artifacts_directory_source_path
+				.as_os_str()
+				.as_bytes(),
+		)
+		.unwrap();
+		let server_artifacts_directory_target_path = CString::new(
+			server_artifacts_directory_target_path
+				.as_os_str()
+				.as_bytes(),
+		)
+		.unwrap();
 		mounts.push(Mount {
-			source: server_directory_source_path,
-			target: server_directory_target_path,
+			source: server_artifacts_directory_source_path,
+			target: server_artifacts_directory_target_path,
 			fstype: None,
 			flags: libc::MS_BIND | libc::MS_REC,
 			data: None,
@@ -283,11 +289,6 @@ impl Chroot {
 			)
 		})?;
 
-		Ok(Self {
-			home: home_directory_guest_path,
-			temp,
-			root,
-			mounts,
-		})
+		Ok(Self { temp, root, mounts })
 	}
 }
