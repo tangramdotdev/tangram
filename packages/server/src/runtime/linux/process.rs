@@ -308,7 +308,7 @@ unsafe fn root(context: &Context) -> ! {
 
 	// Fork.
 	let mut clone_args = libc::clone_args {
-		flags: dbg!(flags.try_into().unwrap()),
+		flags: flags.try_into().unwrap(),
 		stack: 0,
 		stack_size: 0,
 		pidfd: 0,
