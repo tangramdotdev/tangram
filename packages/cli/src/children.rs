@@ -17,20 +17,20 @@ impl Cli {
 		let referent = self.get_reference(&args.reference).await?;
 		match referent.item {
 			Either::Left(process) => {
-				self.command_process_children(crate::process::children::Args {
+				let args = crate::process::children::Args {
 					length: None,
 					position: None,
 					process: process.id().clone(),
 					remote: None,
 					size: None,
-				})
-				.await?
+				};
+				self.command_process_children(args).await?
 			},
 			Either::Right(object) => {
-				self.command_object_children(crate::object::children::Args {
+				let args = crate::object::children::Args {
 					object: object.id(&handle).await?.clone(),
-				})
-				.await?
+				};
+				self.command_object_children(args).await?
 			},
 		}
 		Ok(())
