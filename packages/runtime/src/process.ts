@@ -224,6 +224,9 @@ export namespace Process {
 		network: boolean;
 		output: tg.Value | undefined;
 		status: tg.Process.Status;
+		stderr?: string;
+		stdin?: string;
+		stdout?: string;
 	};
 
 	export type Status =

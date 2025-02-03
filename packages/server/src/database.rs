@@ -262,6 +262,16 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = old.child;
 			end;
 
+			create table pipes (
+				reader text primary key,
+				writer text not null,
+				reader_count integer not null,
+				writer_count integer not null,
+				touched_at text not null,
+				window_size text
+			);
+			create index pipes_writer_index on pipes (writer);
+
 			create table processes (
 				cacheable integer not null,
 				checksum text,
@@ -298,6 +308,9 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				retry integer not null,
 				started_at text,
 				status text not null,
+				stderr text,
+				stdin text,
+				stdout text,
 				touched_at text
 			);
 

@@ -69,6 +69,18 @@ impl Server {
 			#[serde_as(as = "Option<Rfc3339>")]
 			started_at: Option<time::OffsetDateTime>,
 			status: tg::process::Status,
+<<<<<<< HEAD
+=======
+			#[serde(default)]
+			stderr: Option<tg::pipe::Id>,
+			#[serde(default)]
+			stdin: Option<tg::pipe::Id>,
+			#[serde(default)]
+			stdout: Option<tg::pipe::Id>,
+			#[serde(default)]
+			#[serde_as(as = "Option<Rfc3339>")]
+			touched_at: Option<time::OffsetDateTime>,
+>>>>>>> 300b3991 (starting point)
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -92,7 +104,11 @@ impl Server {
 					retry,
 					network,
 					started_at,
-					status
+					status,
+					stderr,
+					stdin,
+					stdout,
+					touched_at
 				from processes
 				where id = {p}1;
 			"
@@ -124,6 +140,10 @@ impl Server {
 				network: row.network,
 				started_at: row.started_at,
 				status: row.status,
+				stderr: row.stderr,
+				stdin: row.stdin,
+				stdout: row.stdout,
+				touched_at: row.touched_at,
 			};
 			tg::process::get::Output { data }
 		});
