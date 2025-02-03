@@ -30,13 +30,13 @@ pub struct Options {
 	pub checkout: Option<Option<PathBuf>>,
 
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
-	#[arg(short, long, conflicts_with = "checkout")]
+	#[arg(short, long)]
 	pub detach: bool,
 
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
 
-	#[arg(short, long)]
+	#[arg(default_value = "inline", short, long)]
 	pub view: View,
 }
 

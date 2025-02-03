@@ -21,7 +21,7 @@ pub struct Args {
 #[group(skip)]
 pub struct Options {
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
-	#[arg(short, long, conflicts_with = "checkout")]
+	#[arg(short, long)]
 	pub detach: bool,
 
 	#[command(flatten)]
