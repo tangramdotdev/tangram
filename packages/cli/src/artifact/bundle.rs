@@ -9,7 +9,7 @@ pub struct Args {
 	pub artifact: tg::artifact::Id,
 
 	#[command(flatten)]
-	pub inner: crate::process::run::InnerArgs,
+	pub build: crate::process::build::Options,
 }
 
 impl Cli {
@@ -18,11 +18,8 @@ impl Cli {
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let command = artifact.bundle_command();
 		let command = command.id(&handle).await?;
-		let args = crate::process::build::Args {
-			reference: Some(tg::Reference::with_object(&command.into())),
-			inner: args.inner,
-		};
-		self.command_process_build(args).await?;
+		let reference = tg::Reference::with_object(&command.into());
+		self.build_process(args.build, reference, vec![]).await?;
 		Ok(())
 	}
 }
