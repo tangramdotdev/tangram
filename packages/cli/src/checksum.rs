@@ -11,7 +11,7 @@ pub struct Args {
 	pub algorithm: tg::checksum::Algorithm,
 
 	#[command(flatten)]
-	pub inner: crate::process::run::InnerArgs,
+	pub build: crate::process::build::Options,
 
 	/// The artifact, blob, or URL to checksum.
 	#[arg(index = 1, default_value = ".")]
@@ -39,7 +39,7 @@ impl Cli {
 			let args = crate::artifact::checksum::Args {
 				algorithm: args.algorithm,
 				artifact,
-				inner: args.inner,
+				build: args.build,
 			};
 			self.command_artifact_checksum(args).await?;
 		} else if let Ok(blob) = tg::Blob::try_from(object.clone()) {
@@ -47,7 +47,7 @@ impl Cli {
 			let args = crate::blob::checksum::Args {
 				algorithm: args.algorithm,
 				blob,
-				inner: args.inner,
+				build: args.build,
 			};
 			self.command_blob_checksum(args).await?;
 		} else {
