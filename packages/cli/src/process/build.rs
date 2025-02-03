@@ -63,7 +63,7 @@ impl Cli {
 
 	pub async fn build_process(
 		&self,
-		options: Options,
+		mut options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
 	) -> tg::Result<Option<tg::Value>> {
@@ -77,6 +77,7 @@ impl Cli {
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 
 		// Spawn the process.
+		options.spawn.sandbox = true;
 		let process = self
 			.spawn_process(options.spawn, reference, trailing)
 			.boxed()
