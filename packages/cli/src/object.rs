@@ -1,6 +1,7 @@
 use crate::Cli;
 use tangram_client as tg;
 
+pub mod children;
 pub mod get;
 pub mod metadata;
 pub mod pull;
@@ -17,6 +18,7 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
+	Children(self::children::Args),
 	Get(self::get::Args),
 	Metadata(self::metadata::Args),
 	Pull(self::pull::Args),
@@ -27,6 +29,9 @@ pub enum Command {
 impl Cli {
 	pub async fn command_object(&self, args: Args) -> tg::Result<()> {
 		match args.command {
+			Command::Children(args) => {
+				self.command_object_children(args).await?;
+			},
 			Command::Get(args) => {
 				self.command_object_get(args).await?;
 			},
