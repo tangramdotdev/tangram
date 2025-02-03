@@ -130,7 +130,7 @@ impl Runtime {
 			};
 
 			// Create the proxy server guest URL.
-			let socket = Path::new(SERVER_DIRECTORY_GUEST_PATH).join("socket");
+			let socket = Path::new(HOME_DIRECTORY_GUEST_PATH).join(".tangram/socket");
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
@@ -139,7 +139,7 @@ impl Runtime {
 			let guest_url = format!("http+unix://{socket}").parse::<Url>().unwrap();
 
 			// Create the proxy server host URL.
-			let socket = chroot.temp.path().join(".tangram/socket");
+			let socket = chroot.temp.path().join("home/tangram/.tangram/socket");
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
@@ -160,6 +160,7 @@ impl Runtime {
 		} else {
 			None
 		};
+		dbg!(&proxy.is_some());
 
 		// Get the artifacts path.
 		let artifacts_path = if chroot.is_some() {
@@ -238,6 +239,7 @@ impl Runtime {
 				let path = urlencoding::encode(&path);
 				format!("http+unix://{path}")
 			});
+		dbg!(&url);
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 		// Spawn the child.
