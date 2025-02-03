@@ -198,12 +198,16 @@ impl Chroot {
 			readonly: false,
 		});
 
-		// Add the &runtime.server directory to the mounts.
-		let server_directory_source_path = &runtime.server.path;
-		let server_directory_guest_path = Path::new(SERVER_DIRECTORY_GUEST_PATH);
-		let server_directory_target_path =
-			root.join(server_directory_guest_path.strip_prefix("/").unwrap());
-		tokio::fs::create_dir_all(&server_directory_target_path)
+		// Add the &runtime.server artifacts directory to the mounts.
+		let server_artifacts_directory_source_path = &runtime.server.path.join("artifacts");
+		let server_artifacts_directory_guest_path =
+			Path::new(SERVER_DIRECTORY_GUEST_PATH).join("artifacts");
+		let server_artifacts_directory_target_path = root.join(
+			server_artifacts_directory_guest_path
+				.strip_prefix("/")
+				.unwrap(),
+		);
+		tokio::fs::create_dir_all(&server_artifacts_directory_target_path)
 			.await
 			.map_err(|error| {
 				tg::error!(
@@ -211,13 +215,21 @@ impl Chroot {
 					"failed to create the mount point for the tangram directory"
 				)
 			})?;
-		let server_directory_source_path =
-			CString::new(server_directory_source_path.as_os_str().as_bytes()).unwrap();
-		let server_directory_target_path =
-			CString::new(server_directory_target_path.as_os_str().as_bytes()).unwrap();
+		let server_artifacts_directory_source_path = CString::new(
+			server_artifacts_directory_source_path
+				.as_os_str()
+				.as_bytes(),
+		)
+		.unwrap();
+		let server_artifacts_directory_target_path = CString::new(
+			server_artifacts_directory_target_path
+				.as_os_str()
+				.as_bytes(),
+		)
+		.unwrap();
 		mounts.push(Mount {
-			source: server_directory_source_path,
-			target: server_directory_target_path,
+			source: server_artifacts_directory_source_path,
+			target: server_artifacts_directory_target_path,
 			fstype: None,
 			flags: libc::MS_BIND | libc::MS_REC,
 			data: None,
