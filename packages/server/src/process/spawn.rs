@@ -50,13 +50,16 @@ impl Server {
 		let id = tg::process::Id::new();
 
 		// Create a future that will spawn and await a local process.
-		let local = async {
-			if !arg.create {
-				return Ok(None);
+		let local = {
+			let id = id.clone();
+			async {
+				if !arg.create {
+					return Ok(None);
+				}
+				self.spawn_local_process(&id, &arg).await?;
+				self.wait_process(&id).await?;
+				Ok::<_, tg::Error>(Some(id))
 			}
-			self.spawn_local_process(&id, &arg).await?;
-			self.wait_process(&id).await?;
-			Ok::<_, tg::Error>(Some(id))
 		}
 		.boxed();
 
@@ -81,7 +84,7 @@ impl Server {
 					remote.await?
 				}
 			},
-			future::Either::Right((remote, local)) => {
+			future::Either::Right((remote, _)) => {
 				if let Ok(Some(id)) = remote {
 					let arg = tg::process::finish::Arg {
 						error: None,
@@ -93,7 +96,7 @@ impl Server {
 					self.try_finish_process(&id, arg).boxed().await.ok();
 					Some(id)
 				} else {
-					local.await?
+					Some(id)
 				}
 			},
 		};
