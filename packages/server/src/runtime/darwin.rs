@@ -87,7 +87,7 @@ impl Runtime {
 			tokio::fs::create_dir_all(&home)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the home directory"))?;
-			let cwd = home.join("Users/tangram/work");
+			let cwd = home.join("work");
 			tokio::fs::create_dir_all(&cwd)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
