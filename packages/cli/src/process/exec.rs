@@ -43,6 +43,17 @@ impl Cli {
 			let artifact: tg::Artifact = output
 				.try_into()
 				.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
+			artifact
+				.check_out(
+					&handle,
+					tg::artifact::checkout::Arg {
+						dependencies: false,
+						force: false,
+						lockfile: false,
+						path: None,
+					},
+				)
+				.await?;
 			let path = self
 				.config
 				.as_ref()
@@ -60,7 +71,7 @@ impl Cli {
 			// Ensure the path is not a directory.
 			let metadata = tokio::fs::metadata(&artifact_path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to stat the artifact"))?;
+				.map_err(|source| tg::error!(!source, %artifact_path  = artifact_path.display(), "failed to stat the artifact"))?;
 			if metadata.is_dir() {
 				return Err(
 					tg::error!(%artifact_path = artifact_path.display(), "cannot execute a directory"),
