@@ -8,6 +8,8 @@ use time::format_description::well_known::Rfc3339;
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	pub cacheable: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 

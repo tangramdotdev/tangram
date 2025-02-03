@@ -39,6 +39,7 @@ impl Server {
 		#[derive(serde::Deserialize)]
 		struct Row {
 			cwd: Option<PathBuf>,
+			cacheable: bool,
 			checksum: Option<tg::Checksum>,
 			command: tg::command::Id,
 			commands_complete: bool,
@@ -102,6 +103,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				select
+					cacheable,
 					checksum,
 					command,
 					commands_complete,
@@ -142,6 +144,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let output = row.map(|row| tg::process::get::Output {
+			cacheable: row.cacheable,
 			checksum: row.checksum,
 			command: row.command,
 			commands_complete: row.commands_complete,

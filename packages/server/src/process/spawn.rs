@@ -145,7 +145,8 @@ impl Server {
 						then checksum = {p}2
 						else checksum is null
 						end
-					)
+					) 
+					and cacheable = 1
 				order by created_at desc
 				limit 1;
 			"
