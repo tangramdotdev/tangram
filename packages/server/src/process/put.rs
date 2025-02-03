@@ -28,6 +28,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let transaction = Arc::new(transaction);
 
+		// Determine if the process is sandboxed.
+		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
+
+		// Determine if the process is cacheable.
+		let cacheable = arg.checksum.is_some() || sandboxed;
+
 		// Insert the process.
 		let command = tg::Command::with_id(arg.command.clone());
 		let host = &*command.host(self).await?;
@@ -43,6 +49,7 @@ impl Server {
 			"
 				insert into processes (
 					id,
+					cacheable,
 					checksum,
 					command,
 					created_at,
@@ -79,26 +86,28 @@ impl Server {
 					{p}15,
 					{p}16,
 					{p}17,
-					{p}18
+					{p}18,
+					{p}19
 				)
 				on conflict (id) do update set
-					checksum = {p}2,
-					command = {p}3,
-					created_at = {p}4,
-					cwd = {p}5,
-					dequeued_at = {p}6,
-					enqueued_at = {p}7,
-					env = {p}8,
-					error = {p}9,
-					finished_at = {p}10,
-					host = {p}11,
-					log = {p}12,
-					network = {p}13,
-					output = {p}14,
-					retry = {p}15,
-					started_at = {p}16,
-					status = {p}17,
-					touched_at = {p}18
+					cacheable = {p}2,
+					checksum = {p}3,
+					command = {p}4,
+					created_at = {p}5,
+					cwd = {p}6,
+					dequeued_at = {p}7,
+					enqueued_at = {p}8,
+					env = {p}9,
+					error = {p}10,
+					finished_at = {p}11,
+					host = {p}12,
+					log = {p}13,
+					network = {p}14,
+					output = {p}15,
+					retry = {p}16,
+					started_at = {p}17,
+					status = {p}18,
+					touched_at = {p}19
 				returning
 					commands_complete,
 					complete,
@@ -108,6 +117,7 @@ impl Server {
 		);
 		let params = db::params![
 			id,
+			cacheable,
 			arg.checksum,
 			arg.command,
 			arg.created_at.format(&Rfc3339).unwrap(),

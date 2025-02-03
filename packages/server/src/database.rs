@@ -147,6 +147,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index object_children_child_index on object_children (child);
 
 			create table processes (
+				cacheable integer not null,
 				checksum text,
 				command text not null,
 				commands_complete integer not null default 0,
