@@ -94,6 +94,7 @@ impl tg::Handle for Proxy {
 	> {
 		// Replace the path with the host path.
 		arg.path = self.host_path_for_guest_path(arg.path.clone());
+		dbg!(&arg.path);
 
 		// Perform the checkin.
 		let stream = self.server.check_in_artifact(arg).await?;

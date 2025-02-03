@@ -122,12 +122,11 @@ impl Runtime {
 
 		// Create the proxy for the chroot.
 		let proxy = if let Some(chroot) = &chroot {
-			let root_host = std::path::PathBuf::from(chroot.root.clone().into_string().unwrap());
 			// Create the path map.
 			let path_map = proxy::PathMap {
 				output_host: output_parent.path().to_owned(),
 				output_guest: OUTPUT_PARENT_DIRECTORY_GUEST_PATH.into(),
-				root_host: root_host.to_owned(),
+				root_host: chroot.temp.path().to_owned(),
 			};
 
 			// Create the proxy server guest URL.
@@ -140,7 +139,7 @@ impl Runtime {
 			let guest_url = format!("http+unix://{socket}").parse::<Url>().unwrap();
 
 			// Create the proxy server host URL.
-			let socket = root_host.join(".tangram/socket");
+			let socket = chroot.temp.path().join(".tangram/socket");
 			let socket = urlencoding::encode(
 				socket
 					.to_str()

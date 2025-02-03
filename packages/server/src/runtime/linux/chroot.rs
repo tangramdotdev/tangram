@@ -8,7 +8,7 @@ use std::{ffi::CString, os::unix::ffi::OsStrExt as _, path::Path};
 use tangram_client as tg;
 
 pub struct Chroot {
-	_temp: Temp,
+	pub temp: Temp,
 	pub mounts: Vec<Mount>,
 	pub root: CString,
 }
@@ -277,10 +277,6 @@ impl Chroot {
 			)
 		})?;
 
-		Ok(Self {
-			_temp: temp,
-			root,
-			mounts,
-		})
+		Ok(Self { temp, root, mounts })
 	}
 }
