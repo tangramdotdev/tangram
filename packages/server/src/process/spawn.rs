@@ -156,13 +156,9 @@ impl Server {
 				select id, status
 				from processes
 				where
-					command = {p}1 and (
-						case when {p}2 is not null
-						then checksum = {p}2
-						else checksum is null
-						end
-					) 
-					and cacheable = 1
+					cacheable = 1 and
+					command = {p}1 and
+					coalesce(checksum = {p}2, checksum is null)
 				order by created_at desc
 				limit 1;
 			"
