@@ -23,24 +23,31 @@ impl Server {
 			sender
 				.send(event)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
+				.map_err(|source| tg::error!(!source, %pipe = id, "failed to write to the pipe"))?;
 		}
 		Ok(())
 	}
 
-	// pub (crate) fn async write_pipe_event(&self,
-	// 	id: &tg::pipe::Id,
-	// 	event: tg::pipe::Event 
-	// ) -> tg::Result<()> {
-	// 	let sender = self
-	// 		.pipes
-	// 		.get(id)
-	// 		.ok_or_else(|| tg::error!("failed to find the pipe"))?
-	// 		.value()
-	// 		.sender
-	// 		.clone();
+	pub(crate) async fn write_pipe_event(
+		&self,
+		id: &tg::pipe::Id,
+		event: tg::pipe::Event,
+	) -> tg::Result<()> {
+		let sender = self
+			.pipes
+			.get(id)
+			.ok_or_else(|| tg::error!("failed to find the pipe"))?
+			.value()
+			.sender
+			.clone();
 
-	// }
+		sender
+			.send(event)
+			.await
+			.map_err(|source| tg::error!(!source, %pipe = id, "failed to write to the pipe"))?;
+
+		Ok(())
+	}
 }
 
 impl Server {
