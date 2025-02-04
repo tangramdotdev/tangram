@@ -71,7 +71,7 @@ impl Cli {
 		let stream = handle
 			.check_out_artifact(&artifact, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create check out stream"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the checkout stream"))?;
 		let output = self.render_progress_stream(stream).await?;
 
 		// Print the path.

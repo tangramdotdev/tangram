@@ -1,6 +1,6 @@
 use crate::Cli;
-use std::{os::unix::process::CommandExt as _, path::PathBuf};
-use tangram_client as tg;
+use std::os::unix::process::CommandExt as _;
+use tangram_client::{self as tg, Handle as _};
 
 /// Spawn and await a sandboxed process, then exec an executable from its output.
 #[derive(Clone, Debug, clap::Args)]
@@ -38,30 +38,22 @@ impl Cli {
 			.await?
 			.unwrap();
 
-		// Get the path to the artifact.
-		let artifact_path = {
-			let artifact: tg::Artifact = output
-				.try_into()
-				.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
-			artifact
-				.check_out(
-					&handle,
-					tg::artifact::checkout::Arg {
-						dependencies: false,
-						force: false,
-						lockfile: false,
-						path: None,
-					},
-				)
-				.await?;
-			let path = self
-				.config
-				.as_ref()
-				.and_then(|config| config.path.clone())
-				.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
-			path.join("artifacts")
-				.join(artifact.id(&handle).await?.to_string())
+		// Check out the output.
+		let artifact: tg::Artifact = output
+			.try_into()
+			.map_err(|source| tg::error!(!source, "expected the output to be an artifact"))?;
+		let arg = tg::artifact::checkout::Arg {
+			dependencies: false,
+			force: false,
+			lockfile: false,
+			path: None,
 		};
+		let stream = handle
+			.check_out_artifact(&artifact.id(&handle).await?, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the checkout stream"))?;
+		let output = self.render_progress_stream(stream).await?;
+		let artifact_path = output.path;
 
 		// Get the executable path.
 		let executable_path = if let Some(executable_path) = args.executable {
