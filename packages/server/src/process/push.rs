@@ -151,6 +151,7 @@ impl Server {
 			env: output.env,
 			error: output.error,
 			finished_at: output.finished_at,
+			host: output.host,
 			id: process.clone(),
 			log: output.log.clone(),
 			network: output.network,

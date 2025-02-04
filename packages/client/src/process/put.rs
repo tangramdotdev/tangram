@@ -40,6 +40,8 @@ pub struct Arg {
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub finished_at: Option<time::OffsetDateTime>,
 
+	pub host: String,
+
 	pub id: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
