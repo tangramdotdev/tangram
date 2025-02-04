@@ -159,6 +159,9 @@ impl Server {
 			retry: output.retry,
 			started_at: output.started_at,
 			status: output.status,
+			stderr: output.stderr,
+			stdin: output.stdin,
+			stdout: output.stdout,
 		};
 		let put_output = dst
 			.put_process(process, put_arg)

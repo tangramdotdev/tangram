@@ -160,6 +160,14 @@ impl Runtime {
 						remote: process.remote().map(ToOwned::to_owned),
 					};
 					server.try_post_process_log(process.id(), arg).await.ok();
+					match message.level {
+						syscall::log::Level::Log => {
+
+						},
+						syscall::log::Level::Error => {
+							
+						},
+					}
 				}
 			}
 		});
