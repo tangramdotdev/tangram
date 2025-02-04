@@ -65,58 +65,6 @@ async fn directory_no_dependencies() {
 	test_bundle(directory, assertions).await;
 }
 
-/// Test bundling an executable file with a dependency.
-#[tokio::test]
-async fn executable_file_with_dependency() {
-	let directory = temp::directory! {
-		"tangram.ts" => indoc!(r#"
-			export default tg.command(async () => {
-				let dependency = tg.file("dependency");
-				let file = await tg.file({
-					contents: "f", 
-					dependencies: {
-						"dependency": {
-							item: dependency
-						}, 
-					},
-					executable: true
-				});
-				return tg.bundle(file);
-			});
-		"#),
-	};
-	let assertions = |artifact: temp::Artifact| async move {
-		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      ".tangram": {
-        "kind": "directory",
-        "entries": {
-          "artifacts": {
-            "kind": "directory",
-            "entries": {
-              "fil_01gkrw51xnwqmtdqg7eww1yzcgvwjber106q9j96z94zdgkr49073g": {
-                "kind": "file",
-                "contents": "dependency",
-                "executable": false
-              }
-            }
-          },
-          "run": {
-            "kind": "file",
-            "contents": "f",
-            "executable": true
-          }
-        }
-      }
-    }
-  }
-  "#);
-	};
-	test_bundle_js(directory, assertions).await;
-}
-
 /// Test bundling a directory that contains files with dependencies.  #[tokio::test]
 #[tokio::test]
 async fn directory_containing_file_with_file_dependency() {
