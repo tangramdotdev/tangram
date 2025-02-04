@@ -28,14 +28,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 		let children = data.children();
 
-		// Create the store future.
-		let store = async {
-			if let Some(store) = &self.store {
-				store.put(id.clone(), arg.bytes.clone()).await?;
-			}
-			Ok::<_, tg::Error>(())
-		};
-
 		// Create the database future.
 		let database = async {
 			let complete = match &self.database {
@@ -153,6 +145,14 @@ impl Server {
 				},
 			};
 			Ok::<_, tg::Error>(complete)
+		};
+
+		// Create the store future.
+		let store = async {
+			if let Some(store) = &self.store {
+				store.put(id.clone(), arg.bytes.clone()).await?;
+			}
+			Ok::<_, tg::Error>(())
 		};
 
 		// Await the futures.

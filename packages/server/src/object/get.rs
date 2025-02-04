@@ -34,16 +34,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Create the store future.
-		let store = async {
-			// Attempt to get the bytes from the store.
-			if let Some(store) = &self.store {
-				let bytes = store.try_get(id).await?;
-				return Ok::<(Option<Bytes>, Option<Metadata>), tg::Error>((bytes, None));
-			}
-			Ok::<_, tg::Error>((None, None))
-		};
-
 		// Create the database future.
 		let database = async {
 			// Get the object.
@@ -85,6 +75,16 @@ impl Server {
 				metadata.weight = row.weight;
 			};
 			Ok::<_, tg::Error>((bytes, metadata))
+		};
+
+		// Create the store future.
+		let store = async {
+			// Attempt to get the bytes from the store.
+			if let Some(store) = &self.store {
+				let bytes = store.try_get(id).await?;
+				return Ok::<(Option<Bytes>, Option<Metadata>), tg::Error>((bytes, None));
+			}
+			Ok::<_, tg::Error>((None, None))
 		};
 
 		// Await the futures.
