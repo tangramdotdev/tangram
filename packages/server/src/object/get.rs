@@ -90,7 +90,7 @@ impl Server {
 		};
 
 		// Await the futures.
-		let ((store_bytes, _), (database_bytes, metadata)) = futures::try_join!(store, database)?;
+		let ((database_bytes, metadata), (store_bytes, _)) = futures::try_join!(database, store)?;
 		let mut bytes = store_bytes.or(database_bytes);
 
 		// If the bytes were not in the database or the store, then attempt to read the bytes from a blob file.

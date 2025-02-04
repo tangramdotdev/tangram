@@ -156,7 +156,7 @@ impl Server {
 		};
 
 		// Await the futures.
-		let ((), complete) = futures::try_join!(store, database)?;
+		let (complete, ()) = futures::try_join!(database, store)?;
 
 		// Create the output.
 		let output = tg::object::put::Output { complete };
