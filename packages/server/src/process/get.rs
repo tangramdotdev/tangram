@@ -121,6 +121,7 @@ impl Server {
 					exit,
 					finished_at,
 					heartbeat_at,
+					host,
 					id,
 					log,
 					logs_complete,
