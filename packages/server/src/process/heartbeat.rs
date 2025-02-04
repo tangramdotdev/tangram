@@ -61,13 +61,10 @@ impl Server {
 		Ok(output)
 	}
 
-	pub async fn process_heartbeat_monitor_task(
-		&self,
-		options: &crate::config::ProcessHeartbeatMonitor,
-	) {
+	pub async fn watchdog_task(&self, options: &crate::config::Watchdog) {
 		loop {
 			let result = self
-				.process_monitor_heartbeat_task_inner(options.timeout, options.limit)
+				.watchdog_task_inner(options.timeout, options.limit)
 				.await
 				.inspect_err(|error| tracing::error!(%error, "failed to cancel processes"));
 			if matches!(result, Err(_) | Ok(0)) {
@@ -76,7 +73,7 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn process_monitor_heartbeat_task_inner(
+	pub(crate) async fn watchdog_task_inner(
 		&self,
 		timeout: Duration,
 		limit: usize,

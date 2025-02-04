@@ -8,15 +8,14 @@ pub struct Config {
 	pub authentication: Option<Authentication>,
 	pub database: Database,
 	pub messenger: Messenger,
-	pub object_indexer: Option<ObjectIndexer>,
+	pub indexer: Option<Indexer>,
 	pub path: PathBuf,
-	pub process: Option<Process>,
-	pub process_heartbeat_monitor: Option<ProcessHeartbeatMonitor>,
-	pub process_indexer: Option<ProcessIndexer>,
+	pub runner: Option<Runner>,
 	pub store: Option<Store>,
 	pub url: Option<Url>,
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
+	pub watchdog: Option<Watchdog>,
 }
 
 #[derive(Clone, Debug)]
@@ -50,24 +49,6 @@ pub struct Oauth {
 }
 
 #[derive(Clone, Debug)]
-pub struct Process {
-	pub concurrency: usize,
-	pub heartbeat_interval: Duration,
-	pub max_depth: u64,
-	pub remotes: Vec<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ProcessHeartbeatMonitor {
-	pub interval: Duration,
-	pub limit: usize,
-	pub timeout: Duration,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ProcessIndexer {}
-
-#[derive(Clone, Debug)]
 pub enum Database {
 	Postgres(PostgresDatabase),
 	Sqlite(SqliteDatabase),
@@ -85,6 +66,12 @@ pub struct SqliteDatabase {
 	pub path: PathBuf,
 }
 
+#[derive(Clone, Debug)]
+pub struct Indexer {
+	pub batch_size: usize,
+	pub timeout: Duration,
+}
+
 #[derive(Clone, Debug, Default)]
 pub enum Messenger {
 	#[default]
@@ -98,9 +85,11 @@ pub struct NatsMessenger {
 }
 
 #[derive(Clone, Debug)]
-pub struct ObjectIndexer {
-	pub batch_size: usize,
-	pub timeout: Duration,
+pub struct Runner {
+	pub concurrency: usize,
+	pub heartbeat_interval: Duration,
+	pub max_depth: u64,
+	pub remotes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -126,6 +115,13 @@ pub struct Vfs {
 	pub database_connections: usize,
 }
 
+#[derive(Clone, Debug)]
+pub struct Watchdog {
+	pub interval: Duration,
+	pub limit: usize,
+	pub timeout: Duration,
+}
+
 impl Config {
 	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {
@@ -135,29 +131,27 @@ impl Config {
 			connections: 1,
 			path: path.join("database"),
 		});
+		let indexer = None;
 		let messenger = Messenger::default();
-		let object_indexer = None;
-		let process = None;
-		let process_heartbeat_monitor = None;
-		let process_indexer = None;
+		let runner = None;
 		let store = None;
 		let url = None;
 		let version = None;
 		let vfs = None;
+		let watchdog = None;
 		Self {
 			advanced,
 			authentication,
 			database,
 			messenger,
-			object_indexer,
+			indexer,
 			path,
-			process,
-			process_heartbeat_monitor,
-			process_indexer,
+			runner,
 			store,
 			url,
 			version,
 			vfs,
+			watchdog,
 		}
 	}
 }
@@ -179,7 +173,7 @@ impl Default for Advanced {
 	}
 }
 
-impl Default for Process {
+impl Default for Runner {
 	fn default() -> Self {
 		Self {
 			concurrency: 1,
@@ -190,7 +184,7 @@ impl Default for Process {
 	}
 }
 
-impl Default for ProcessHeartbeatMonitor {
+impl Default for Watchdog {
 	fn default() -> Self {
 		Self {
 			interval: Duration::from_secs(1),
@@ -209,7 +203,7 @@ impl Default for PostgresDatabase {
 	}
 }
 
-impl Default for ObjectIndexer {
+impl Default for Indexer {
 	fn default() -> Self {
 		Self {
 			batch_size: 128,

@@ -12,7 +12,6 @@ mod log;
 mod pull;
 mod push;
 mod put;
-mod queue;
 mod spawn;
 mod start;
 mod status;

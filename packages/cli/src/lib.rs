@@ -455,7 +455,7 @@ impl Cli {
 				connections: parallelism,
 				path: path.join("database"),
 			});
-		let process = Some(tangram_server::config::Process {
+		let process = Some(tangram_server::config::Runner {
 			concurrency: parallelism,
 			heartbeat_interval: Duration::from_secs(1),
 			max_depth: 4096,
@@ -471,28 +471,15 @@ impl Cli {
 			authentication: None,
 			database,
 			messenger: tangram_server::config::Messenger::default(),
-			object_indexer: Some(tangram_server::config::ObjectIndexer::default()),
+			indexer: Some(tangram_server::config::Indexer::default()),
 			path,
-			process,
-			process_heartbeat_monitor: Some(
-				tangram_server::config::ProcessHeartbeatMonitor::default(),
-			),
-			process_indexer: None,
+			runner: process,
+			watchdog: Some(tangram_server::config::Watchdog::default()),
 			store: None,
 			url: None,
 			version: None,
 			vfs,
 		};
-
-		// Set the url.
-		if let Some(url) = self
-			.args
-			.url
-			.clone()
-			.or(self.config.as_ref().and_then(|config| config.url.clone()))
-		{
-			config.url = Some(url);
-		}
 
 		// Set the advanced options.
 		if let Some(advanced) = self
@@ -550,76 +537,6 @@ impl Cli {
 			},
 		}
 
-		// Set the process options.
-		match self
-			.config
-			.as_ref()
-			.and_then(|config| config.process.clone())
-		{
-			None => (),
-			Some(None) => {
-				config.process = None;
-			},
-			Some(Some(process)) => {
-				let mut process_ = tangram_server::config::Process::default();
-				if let Some(concurrency) = process.concurrency {
-					process_.concurrency = concurrency;
-				}
-				if let Some(heartbeat_interval) = process.heartbeat_interval {
-					process_.heartbeat_interval = heartbeat_interval;
-				}
-				if let Some(max_depth) = process.max_depth {
-					process_.max_depth = max_depth;
-				}
-				if let Some(remotes) = process.remotes.clone() {
-					process_.remotes = remotes;
-				}
-				config.process = Some(process_);
-			},
-		}
-
-		// Set the process heartbeat monitor options.
-		match self
-			.config
-			.as_ref()
-			.and_then(|config| config.process_heartbeat_monitor.clone())
-		{
-			None => (),
-			Some(None) => {
-				config.process_heartbeat_monitor = None;
-			},
-			Some(Some(process_heartbeat_monitor)) => {
-				let mut process_heartbeat_monitor_ =
-					tangram_server::config::ProcessHeartbeatMonitor::default();
-				if let Some(interval) = process_heartbeat_monitor.interval {
-					process_heartbeat_monitor_.interval = interval;
-				}
-				if let Some(limit) = process_heartbeat_monitor.limit {
-					process_heartbeat_monitor_.limit = limit;
-				}
-				if let Some(timeout) = process_heartbeat_monitor.timeout {
-					process_heartbeat_monitor_.timeout = timeout;
-				}
-				config.process_heartbeat_monitor = Some(process_heartbeat_monitor_);
-			},
-		}
-
-		// Set the process indexer options.
-		match self
-			.config
-			.as_ref()
-			.and_then(|config| config.process_indexer.clone())
-		{
-			None => (),
-			Some(None) => {
-				config.process_indexer = None;
-			},
-			Some(Some(_)) => {
-				let process_indexer_ = tangram_server::config::ProcessIndexer::default();
-				config.process_indexer = Some(process_indexer_);
-			},
-		}
-
 		// Set the database options.
 		if let Some(database) = self
 			.config
@@ -656,6 +573,28 @@ impl Cli {
 			};
 		}
 
+		// Set the indexer options.
+		match self
+			.config
+			.as_ref()
+			.and_then(|config| config.indexer.clone())
+		{
+			None => (),
+			Some(None) => {
+				config.indexer = None;
+			},
+			Some(Some(indexer)) => {
+				let mut indexer_ = tangram_server::config::Indexer::default();
+				if let Some(batch_size) = indexer.batch_size {
+					indexer_.batch_size = batch_size;
+				}
+				if let Some(timeout) = indexer.timeout {
+					indexer_.timeout = timeout;
+				}
+				config.indexer = Some(indexer_);
+			},
+		}
+
 		// Set the messenger options.
 		if let Some(messenger) = self
 			.config
@@ -674,29 +613,35 @@ impl Cli {
 			}
 		}
 
-		// Set the object indexer options.
+		// Set the runner options.
 		match self
 			.config
 			.as_ref()
-			.and_then(|config| config.object_indexer.clone())
+			.and_then(|config| config.runner.clone())
 		{
 			None => (),
 			Some(None) => {
-				config.object_indexer = None;
+				config.runner = None;
 			},
-			Some(Some(object_indexer)) => {
-				let mut object_indexer_ = tangram_server::config::ObjectIndexer::default();
-				if let Some(batch_size) = object_indexer.batch_size {
-					object_indexer_.batch_size = batch_size;
+			Some(Some(runner)) => {
+				let mut runner_ = tangram_server::config::Runner::default();
+				if let Some(concurrency) = runner.concurrency {
+					runner_.concurrency = concurrency;
 				}
-				if let Some(timeout) = object_indexer.timeout {
-					object_indexer_.timeout = timeout;
+				if let Some(heartbeat_interval) = runner.heartbeat_interval {
+					runner_.heartbeat_interval = heartbeat_interval;
 				}
-				config.object_indexer = Some(object_indexer_);
+				if let Some(max_depth) = runner.max_depth {
+					runner_.max_depth = max_depth;
+				}
+				if let Some(remotes) = runner.remotes.clone() {
+					runner_.remotes = remotes;
+				}
+				config.runner = Some(runner_);
 			},
 		}
 
-		// Set the authentication options.
+		// Set the store options.
 		match self.config.as_ref().and_then(|config| config.store.clone()) {
 			None => (),
 			Some(None) => {
@@ -718,6 +663,16 @@ impl Cli {
 			},
 		}
 
+		// Set the url.
+		if let Some(url) = self
+			.args
+			.url
+			.clone()
+			.or(self.config.as_ref().and_then(|config| config.url.clone()))
+		{
+			config.url = Some(url);
+		}
+
 		// Set the vfs options.
 		match self.config.as_ref().and_then(|config| config.vfs.clone()) {
 			None => (),
@@ -736,6 +691,31 @@ impl Cli {
 					vfs_.database_connections = database_connections;
 				}
 				config.vfs = Some(vfs_);
+			},
+		}
+
+		// Set the watchdog options.
+		match self
+			.config
+			.as_ref()
+			.and_then(|config| config.watchdog.clone())
+		{
+			None => (),
+			Some(None) => {
+				config.watchdog = None;
+			},
+			Some(Some(watchdog)) => {
+				let mut watchdog_ = tangram_server::config::Watchdog::default();
+				if let Some(interval) = watchdog.interval {
+					watchdog_.interval = interval;
+				}
+				if let Some(limit) = watchdog.limit {
+					watchdog_.limit = limit;
+				}
+				if let Some(timeout) = watchdog.timeout {
+					watchdog_.timeout = timeout;
+				}
+				config.watchdog = Some(watchdog_);
 			},
 		}
 

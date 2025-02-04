@@ -5,7 +5,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
 impl Server {
-	pub(crate) async fn object_indexer_task(&self) -> tg::Result<()> {
+	pub(crate) async fn indexer_task(&self) -> tg::Result<()> {
 		loop {
 			// Get a database connection
 			let options = db::ConnectionOptions {

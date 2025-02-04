@@ -6,7 +6,7 @@ use tangram_either::Either;
 use tangram_futures::task::Task;
 
 impl Server {
-	pub(crate) async fn process_queue_task(&self) {
+	pub(crate) async fn runner_task(&self) {
 		loop {
 			// Wait for a permit.
 			let permit = self
@@ -26,7 +26,7 @@ impl Server {
 			)
 			.chain(
 				self.config
-					.process
+					.runner
 					.as_ref()
 					.unwrap()
 					.remotes
@@ -164,7 +164,7 @@ impl Server {
 	}
 
 	async fn heartbeat_task(&self, process: &tg::Process) -> tg::Result<()> {
-		let interval = self.config.process.as_ref().unwrap().heartbeat_interval;
+		let interval = self.config.runner.as_ref().unwrap().heartbeat_interval;
 		loop {
 			let arg = tg::process::heartbeat::Arg {
 				remote: process.remote().cloned(),

@@ -19,53 +19,35 @@ pub struct Config {
 	)]
 	pub authentication: Option<Option<Authentication>>,
 
-	/// Configure processes.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub process: Option<Option<Process>>,
-
-	/// Configure the process heartbeat monitor.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub process_heartbeat_monitor: Option<Option<ProcessHeartbeatMonitor>>,
-
-	/// Configure the process indexer.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub process_indexer: Option<Option<ProcessIndexer>>,
-
 	/// Configure the database.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,
+
+	/// Configure the indexer task.
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub indexer: Option<Option<Indexer>>,
 
 	/// Configure the messenger.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub messenger: Option<Messenger>,
 
-	/// Configure the object indexer.
+	/// The path where a client will look for a socket file and where a server will store its data.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+
+	/// Configure the runner task.
 	#[allow(clippy::option_option)]
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
 		with = "serde_with::rust::double_option"
 	)]
-	pub object_indexer: Option<Option<ObjectIndexer>>,
-
-	/// The path where a client will look for a socket file and where a server will store its data.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<PathBuf>,
+	pub runner: Option<Option<Runner>>,
 
 	/// Configure the store.
 	#[allow(clippy::option_option)]
@@ -92,6 +74,15 @@ pub struct Config {
 		with = "serde_with::rust::double_option"
 	)]
 	pub vfs: Option<Option<Vfs>>,
+
+	/// Configure the watchdog task.
+	#[allow(clippy::option_option)]
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub watchdog: Option<Option<Watchdog>>,
 }
 
 #[serde_as]
@@ -140,29 +131,6 @@ pub struct Advanced {
 	pub write_blobs_to_blobs_directory: Option<bool>,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessHeartbeatMonitor {
-	/// The duration to pause when there are no processes that need to be canceled.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub interval: Option<Duration>,
-
-	/// The maximum number of processes that will be canceled at a time.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub limit: Option<usize>,
-
-	/// The duration without a heartbeat before a process is canceled.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub timeout: Option<Duration>,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessIndexer {}
-
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Authentication {
@@ -185,26 +153,6 @@ pub struct Oauth {
 	pub client_secret: String,
 	pub redirect_url: String,
 	pub token_url: String,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Process {
-	/// The maximum number of concurrent processes.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub concurrency: Option<usize>,
-
-	/// The interval at which heartbeats will be sent.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub heartbeat_interval: Option<Duration>,
-
-	/// The maximum process depth.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_depth: Option<u64>,
-
-	/// The remotes to run processes for.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remotes: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -238,6 +186,18 @@ pub struct SqliteDatabase {
 	pub path: Option<PathBuf>,
 }
 
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Indexer {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub timeout: Option<Duration>,
+}
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Messenger {
@@ -253,16 +213,24 @@ pub struct NatsMessenger {
 	pub url: Option<Url>,
 }
 
-#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectIndexer {
+pub struct Runner {
+	/// The maximum number of concurrent processes.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_size: Option<usize>,
+	pub concurrency: Option<usize>,
 
+	/// The interval at which heartbeats will be sent.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub timeout: Option<Duration>,
+	pub heartbeat_interval: Option<Duration>,
+
+	/// The maximum process depth.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_depth: Option<u64>,
+
+	/// The remotes to run processes for.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remotes: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -319,4 +287,23 @@ pub struct Vfs {
 	pub cache_ttl: Option<Duration>,
 	pub cache_size: Option<usize>,
 	pub database_connections: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Watchdog {
+	/// The duration to pause when there are no processes that need to be canceled.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub interval: Option<Duration>,
+
+	/// The maximum number of processes that will be canceled at a time.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub limit: Option<usize>,
+
+	/// The duration without a heartbeat before a process is canceled.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub timeout: Option<Duration>,
 }

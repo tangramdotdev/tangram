@@ -37,6 +37,7 @@ mod clean;
 mod compiler;
 mod database;
 mod health;
+mod index;
 mod lockfile;
 mod messenger;
 mod module;
@@ -47,6 +48,7 @@ mod process;
 mod progress;
 mod reference;
 mod remote;
+mod runner;
 mod runtime;
 mod store;
 mod tag;
@@ -54,6 +56,7 @@ mod temp;
 mod user;
 mod util;
 mod vfs;
+mod watchdog;
 
 pub use self::config::Config;
 
@@ -195,7 +198,7 @@ impl Server {
 
 		// Create the process semaphore.
 		let permits = config
-			.process
+			.runner
 			.as_ref()
 			.map(|process| process.concurrency)
 			.unwrap_or_default();
@@ -249,7 +252,7 @@ impl Server {
 
 		// Create the local pool handle.
 		let local_pool_handle = config
-			.process
+			.runner
 			.as_ref()
 			.map(|process| tokio_util::task::LocalPoolHandle::new(process.concurrency));
 
@@ -451,29 +454,13 @@ impl Server {
 			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
-		// Spawn the process heartbeat monitor task.
-		let process_heartbeat_monitor_task =
-			server
-				.config
-				.process_heartbeat_monitor
-				.as_ref()
-				.map(|options| {
-					tokio::spawn({
-						let server = server.clone();
-						let options = options.clone();
-						async move {
-							server.process_heartbeat_monitor_task(&options).await;
-						}
-					})
-				});
-
-		// Spawn the object indexer task.
-		let object_indexer_task = if server.config.object_indexer.is_some() {
+		// Spawn the indexer task.
+		let indexer_task = if server.config.indexer.is_some() {
 			Some(tokio::spawn({
 				let server = server.clone();
 				async move {
 					server
-						.object_indexer_task()
+						.indexer_task()
 						.await
 						.inspect_err(|error| {
 							tracing::error!(?error);
@@ -485,12 +472,23 @@ impl Server {
 			None
 		};
 
-		// Spawn the process queue task.
-		let process_spawn_task = if server.config.process.is_some() {
+		// Spawn the watchdog task.
+		let watchdog_task = server.config.watchdog.as_ref().map(|options| {
+			tokio::spawn({
+				let server = server.clone();
+				let options = options.clone();
+				async move {
+					server.watchdog_task(&options).await;
+				}
+			})
+		});
+
+		// Spawn the runner task.
+		let runner_task = if server.config.runner.is_some() {
 			Some(tokio::spawn({
 				let server = server.clone();
 				async move {
-					server.process_queue_task().await;
+					server.runner_task().await;
 				}
 			}))
 		} else {
@@ -532,35 +530,35 @@ impl Server {
 					}
 				}
 
-				// Abort the process spawn task.
-				if let Some(task) = process_spawn_task {
+				// Abort the runner task.
+				if let Some(task) = runner_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result {
 						if !error.is_cancelled() {
-							tracing::error!(?error, "the process spawn task panicked");
+							tracing::error!(?error, "the runner task panicked");
 						}
 					}
 				}
 
-				// Abort the object indexer task.
-				if let Some(task) = object_indexer_task {
+				// Abort the indexer task.
+				if let Some(task) = indexer_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result {
 						if !error.is_cancelled() {
-							tracing::error!(?error, "the object index task panicked");
+							tracing::error!(?error, "the index task panicked");
 						}
 					}
 				}
 
-				// Abort the process heartbeat monitor task.
-				if let Some(task) = process_heartbeat_monitor_task {
+				// Abort the watchdog task.
+				if let Some(task) = watchdog_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result {
 						if !error.is_cancelled() {
-							tracing::error!(?error, "the process heartbeat monitor task panicked");
+							tracing::error!(?error, "the watchdog task panicked");
 						}
 					}
 				}
