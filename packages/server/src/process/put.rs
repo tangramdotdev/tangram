@@ -35,8 +35,6 @@ impl Server {
 		let cacheable = arg.checksum.is_some() || sandboxed;
 
 		// Insert the process.
-		let command = tg::Command::with_id(arg.command.clone());
-		let host = &*command.host(self).await?;
 		#[derive(serde::Deserialize)]
 		struct Row {
 			commands_complete: bool,
@@ -127,7 +125,7 @@ impl Server {
 			arg.env.as_ref().map(db::value::Json),
 			arg.error,
 			arg.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
-			host,
+			arg.host,
 			arg.log,
 			arg.network,
 			arg.output.as_ref().map(db::value::Json),

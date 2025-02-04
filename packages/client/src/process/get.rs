@@ -64,6 +64,8 @@ pub struct Output {
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub heartbeat_at: Option<time::OffsetDateTime>,
 
+	pub host: String,
+
 	pub id: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
