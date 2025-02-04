@@ -34,51 +34,64 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Get the object.
-		#[derive(serde::Deserialize)]
-		struct Row {
-			bytes: Option<Bytes>,
-			complete: bool,
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
+		// Create the database future.
+		let database = async {
+			// Get the object.
+			#[derive(serde::Deserialize)]
+			struct Row {
+				bytes: Option<Bytes>,
+				complete: bool,
+				count: Option<u64>,
+				depth: Option<u64>,
+				weight: Option<u64>,
+			}
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
 				select bytes, complete, count, depth, weight
 				from objects
 				where id = {p}1;
 			",
-		);
-		let params = db::params![id];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			);
+			let params = db::params![id];
+			let row = connection
+				.query_optional_into::<Row>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the database connection.
-		drop(connection);
+			// Drop the database connection.
+			drop(connection);
 
-		// Create the bytes and metadata.
-		let mut bytes = None;
-		let mut metadata = tg::object::Metadata::default();
+			// Create the bytes and metadata.
+			let mut bytes = None;
+			let mut metadata = tg::object::Metadata::default();
 
-		// If the row was in the database, then get the values.
-		if let Some(row) = row {
-			bytes = row.bytes;
-			metadata.complete = row.complete;
-			metadata.count = row.count;
-			metadata.depth = row.depth;
-			metadata.weight = row.weight;
+			// If the row was in the database, then get the values.
+			if let Some(row) = row {
+				bytes = row.bytes;
+				metadata.complete = row.complete;
+				metadata.count = row.count;
+				metadata.depth = row.depth;
+				metadata.weight = row.weight;
+			};
+			Ok::<_, tg::Error>((bytes, metadata))
 		};
 
-		// If the bytes were not in the database, then attempt to get the bytes from the store.
-		if bytes.is_none() {
+		// Create the store future.
+		let store = async {
+			// Attempt to get the bytes from the store.
 			if let Some(store) = &self.store {
-				bytes = store.try_get(id).await?;
+				let bytes = store.try_get(id).await?;
+				return Ok::<(Option<Bytes>, Option<tg::object::Metadata>), tg::Error>((
+					bytes, None,
+				));
 			}
-		}
+			Ok::<_, tg::Error>((None, None))
+		};
+
+		// Await the futures.
+		let ((database_bytes, metadata), (store_bytes, _)) = futures::try_join!(database, store)?;
+		let mut bytes = store_bytes.or(database_bytes);
 
 		// If the bytes were not in the database or the store, then attempt to read the bytes from a blob file.
 		if bytes.is_none() {
