@@ -564,15 +564,19 @@ impl Client {
 		&self,
 		request: http::Request<Outgoing>,
 	) -> tg::Result<http::Response<Incoming>> {
-		let mut sender = self.sender().boxed().await?;
-		let future = sender.send_request(request);
-		let timeout = Duration::from_secs(60);
-		let response = tokio::time::timeout(timeout, future)
+		// let mut sender = self.sender().boxed().await?;
+		// let future = sender.send_request(request);
+		// let timeout = Duration::from_secs(60);
+		// let response = tokio::time::timeout(timeout, future)
+		// 	.await
+		// 	.map_err(|source| tg::error!(!source, "the request timed out"))?
+		self.sender()
+			.boxed()
+			.await?
+			.send_request(request)
 			.await
-			.map_err(|source| tg::error!(!source, "the request timed out"))?
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		let response = response.map(Into::into);
-		Ok(response)
+			.map(|response| response.map(Into::into))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))
 	}
 }
 
