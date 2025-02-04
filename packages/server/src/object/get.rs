@@ -4,7 +4,7 @@ use futures::{future, FutureExt as _};
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use tangram_client::{self as tg, handle::Ext as _, object::Metadata};
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
@@ -82,7 +82,9 @@ impl Server {
 			// Attempt to get the bytes from the store.
 			if let Some(store) = &self.store {
 				let bytes = store.try_get(id).await?;
-				return Ok::<(Option<Bytes>, Option<Metadata>), tg::Error>((bytes, None));
+				return Ok::<(Option<Bytes>, Option<tg::object::Metadata>), tg::Error>((
+					bytes, None,
+				));
 			}
 			Ok::<_, tg::Error>((None, None))
 		};
