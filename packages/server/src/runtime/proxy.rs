@@ -1,4 +1,5 @@
 use crate::Server;
+use bytes::Bytes;
 use futures::{stream, Future, Stream, TryStreamExt as _};
 use std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc};
 use tangram_client as tg;
@@ -259,7 +260,7 @@ impl tg::Handle for Proxy {
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.write_pipe(id, stream)
 	}

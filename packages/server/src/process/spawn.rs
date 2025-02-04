@@ -254,6 +254,9 @@ impl Server {
 					network,
 					retry,
 					status,
+					stderr,
+					stdin,
+					stdout,
 					touched_at
 				)
 				values (

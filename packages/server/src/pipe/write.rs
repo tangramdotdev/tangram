@@ -1,4 +1,5 @@
 use crate::Server;
+use bytes::Bytes;
 use futures::{stream::TryStreamExt as _, Stream, StreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use tangram_client as tg;
@@ -8,7 +9,7 @@ impl Server {
 	pub async fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
+		stream: impl Stream<Item = tg::Result<Bytes>> + Send + 'static,
 	) -> tg::Result<()> {
 		let sender = self
 			.pipes
@@ -21,7 +22,7 @@ impl Server {
 		let mut stream = std::pin::pin!(stream);
 		while let Some(event) = stream.try_next().await? {
 			sender
-				.send(event)
+				.send(tg::pipe::Event::Chunk(event))
 				.await
 				.map_err(|source| tg::error!(!source, %pipe = id, "failed to write to the pipe"))?;
 		}
@@ -69,7 +70,7 @@ impl Server {
 		let stream = BodyStream::new(body)
 			.and_then(|frame| async {
 				match frame.into_data() {
-					Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
+					Ok(bytes) => Ok(bytes),
 					Err(frame) => {
 						let trailers = frame.into_trailers().unwrap();
 						let event = trailers
@@ -78,7 +79,6 @@ impl Server {
 							.to_str()
 							.map_err(|source| tg::error!(!source, "invalid event"))?;
 						match event {
-							"end" => Ok(tg::pipe::Event::End),
 							"error" => {
 								let data = trailers
 									.get("x-tg-data")

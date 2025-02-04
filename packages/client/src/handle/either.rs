@@ -1,4 +1,5 @@
 use crate as tg;
+use bytes::Bytes;
 use futures::{Future, FutureExt, Stream, TryFutureExt as _};
 use std::pin::Pin;
 use tangram_either::Either;
@@ -233,7 +234,7 @@ where
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.write_pipe(id, stream).left_future(),

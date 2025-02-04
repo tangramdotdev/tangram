@@ -1,6 +1,11 @@
 use crate as tg;
+<<<<<<< HEAD
 use futures::{Future, FutureExt as _, Stream, TryFutureExt as _};
 use http::{HeaderName, HeaderValue};
+=======
+use bytes::Bytes;
+use futures::{Future, FutureExt as _, Stream};
+>>>>>>> 618fd4c8 (wip)
 use std::{
 	collections::VecDeque,
 	ops::Deref,
@@ -750,7 +755,7 @@ impl tg::Handle for Client {
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.write_pipe(id, stream)
 	}

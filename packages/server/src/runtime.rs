@@ -69,6 +69,9 @@ impl Runtime {
 	}
 
 	async fn run_inner(&self, process: &tg::Process) -> tg::Result<Output> {
+		// Ensure the process is loaded.
+		let state = process.load(self.server()).await?;
+
 		// Run the process.
 		let output = match self {
 			Runtime::Builtin(runtime) => runtime.run(process).boxed().await,
@@ -79,8 +82,22 @@ impl Runtime {
 			Runtime::Linux(runtime) => runtime.run(process).boxed().await,
 		};
 
+		// Close pipes.
+		for pipe in [
+			state.stdin.as_ref(),
+			state.stdout.as_ref(),
+			state.stderr.as_ref(),
+		]
+		.into_iter()
+		.flatten()
+		{
+			self.server()
+				.close_pipe(pipe)
+				.await
+				.ok();
+		}
+
 		// If the process has a checksum, then compute the checksum of the output.
-		let state = process.load(self.server()).await?;
 		if let (Some(value), Some(checksum)) = (&output.output, &state.checksum) {
 			self::util::compute_checksum(self, process, value, checksum).await?;
 		}
