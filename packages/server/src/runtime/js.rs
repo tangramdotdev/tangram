@@ -12,6 +12,7 @@ use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, pin::pin, rc::R
 use tangram_client as tg;
 use tangram_v8::{FromV8 as _, ToV8};
 use tokio::io::AsyncWriteExt as _;
+use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
 mod error;
 mod syscall;
@@ -87,6 +88,7 @@ impl Runtime {
 						.await
 				}
 			});
+
 		let abort_handle = task.abort_handle();
 		scopeguard::defer! {
 			abort_handle.abort();
@@ -96,6 +98,7 @@ impl Runtime {
 			}
 		};
 
+		// Get the output.
 		let (error, exit, output) = match task.await.unwrap() {
 			Ok(output) => (None, None::<tg::process::Exit>, Some(output)),
 			Err(error) => (Some(error), None, None),

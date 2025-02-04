@@ -2,6 +2,7 @@ use self::{
 	database::Database, messenger::Messenger, runtime::Runtime, store::Store, util::fs::remove,
 };
 use async_nats as nats;
+use bytes::Bytes;
 use compiler::Compiler;
 use dashmap::{DashMap, DashSet};
 use futures::{future, stream::FuturesUnordered, Future, FutureExt as _, Stream, StreamExt as _};
@@ -1172,7 +1173,7 @@ impl tg::Handle for Server {
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.write_pipe(id, stream)
 	}

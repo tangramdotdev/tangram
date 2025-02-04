@@ -1,4 +1,4 @@
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 
 use crate::Cli;
 use bytes::Bytes;
@@ -6,7 +6,9 @@ use crossterm::style::Stylize;
 use futures::{future, stream, FutureExt, Stream, StreamExt, TryStreamExt};
 use std::pin::pin;
 use tangram_client as tg;
+use tangram_futures::task::{Stop, Task};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio_stream::wrappers::ReceiverStream;
 
 /// Spawn and await an unsandboxed process.
 #[derive(Clone, Debug, clap::Args)]
@@ -151,10 +153,10 @@ impl Cli {
 		eprintln!("{} process {}", "info".blue().bold(), process.id());
 
 		// Spawn a task for stdio.
-		let stdio = tokio::spawn({
+		let stdio = Task::spawn(|stop| {
 			let handle = handle.clone();
 			let pipes = pipes.clone();
-			async move { stdio_task(&handle, &pipes).await }
+			async move { stdio_task(&handle, &pipes, stop).await }
 		});
 
 		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
@@ -196,14 +198,21 @@ impl Cli {
 			}
 		});
 
-		// Wait for the output and stdio tasks.
-		let (_input, output) = future::join(stdio, output).await;
-		let output = output
+		// Wait for the output.
+		let result = output
+			.await
 			.unwrap()
-			.map_err(|source| tg::error!(!source, "failed to wait for the output"))?;
+			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
+
+		// Stop and wait for the stdio task.
+		stdio.stop();
+		stdio.wait().await.ok();
 
 		// Abort the cancel task.
 		cancel_task.abort();
+
+		// Get the output.
+		let output = result?;
 
 		// Return an error if appropriate.
 		if let Some(source) = output.error {
@@ -244,28 +253,44 @@ impl Cli {
 	}
 }
 
-async fn stdio_task<H>(handle: &H, pipes: &Pipes) -> tg::Result<()>
+async fn stdio_task<H>(handle: &H, pipes: &Pipes, stop: Stop) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
+	// Spawn a task to read from stdin.
 	let stdin = tokio::spawn({
 		let handle = handle.clone();
 		let pipe = pipes.stdin.clone();
 		async move {
-			let stream = chunk_stream_from_reader(tokio::io::stdin())
-				.map_ok(tg::pipe::Event::Chunk)
-				.chain(stream::once(future::ok(tg::pipe::Event::End)))
-				.boxed();
-			handle.write_pipe(&pipe, stream).await?;
-			Ok::<_, tg::Error>(())
+			// Create the stream.
+			let stream = stdin_stream().boxed();
+
+			// Create a future to drain the stream to the pipe.
+			let write = handle.write_pipe(&pipe, stream).boxed();
+
+			// Wait for stdin to be empty or the stop signal to be sent.
+			let wait = stop.wait().boxed();
+			let result = match future::select(write, wait).await {
+				future::Either::Left((result, ..)) => result,
+				future::Either::Right(_) => Ok(()),
+			};
+
+			// Close stdin.
+			handle.close_pipe(&pipe).await.ok();
+			eprintln!("closed pipe");
+			result
 		}
 	});
 
+	// Create the stdout task.
 	let stdout = handle.read_pipe(&pipes.stdout).await?;
-	let stderr = handle.read_pipe(&pipes.stderr).await?;
 	let stdout = tokio::spawn(drain_stream_to_writer(stdout, tokio::io::stdout()));
+
+	// Create the stdin task.
+	let stderr = handle.read_pipe(&pipes.stderr).await?;
 	let stderr = tokio::spawn(drain_stream_to_writer(stderr, tokio::io::stderr()));
 
+	// Join all tasks and return errors.
 	let (stdin, stdout, stderr) = future::try_join3(stdin, stdout, stderr).await.unwrap();
 	stdin?;
 	stdout?;
@@ -292,19 +317,30 @@ async fn drain_stream_to_writer(
 	Ok(())
 }
 
-fn chunk_stream_from_reader(
-	reader: impl AsyncRead + Unpin + Send + 'static,
-) -> impl Stream<Item = tg::Result<Bytes>> + Send + 'static {
-	let buffer = vec![0u8; 4096];
-	stream::try_unfold((reader, buffer), |(mut reader, mut buffer)| async move {
-		let size = reader
-			.read(&mut buffer)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read"))?;
-		if size == 0 {
-			return Ok(None);
+fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
+	// Create a send/receive pair for sending stdin chunks. The channel is bounded to 1 to avoid buffering stdin messages.
+	let (send, recv) = tokio::sync::mpsc::channel(1);
+
+	// Spawn the stdin thread and detach it. This is necessary because the read from stdin cannot be interrupted or canceled.
+	std::thread::spawn(move || {
+		let mut stdin = std::io::stdin();
+		loop {
+			let mut buf = vec![0u8; 4096];
+			let result = match stdin.read(&mut buf) {
+				Ok(0) => break,
+				Ok(n) => {
+					let chunk = Bytes::copy_from_slice(&buf[0..n]);
+					eprintln!("sent chunk {chunk:?}");
+					Ok(chunk)
+				},
+				Err(source) => Err(tg::error!(!source, "failed to read stdin")),
+			};
+			if let Err(_error) = send.blocking_send(result) {
+				break;
+			}
 		}
-		let chunk = Bytes::copy_from_slice(&buffer[0..size]);
-		Ok(Some((chunk, (reader, buffer))))
-	})
+	});
+
+	// Convert to a stream.
+	ReceiverStream::new(recv)
 }

@@ -1,4 +1,5 @@
 use crate as tg;
+use bytes::Bytes;
 use futures::{Future, Stream};
 use std::pin::Pin;
 use tangram_either::Either;
@@ -119,7 +120,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_spawn_process(

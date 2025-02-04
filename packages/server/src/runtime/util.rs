@@ -8,7 +8,9 @@ use futures::{
 };
 use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
+use tangram_futures::task::{Stop, Task};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
+use tokio_stream::wrappers::ReceiverStream;
 
 /// Render a value.
 pub async fn render(
@@ -113,15 +115,16 @@ pub async fn merge_env(
 pub async fn stdio_task(
 	server: Server,
 	process: tg::Process,
+	stop: Stop,
 	stdin: impl AsyncWrite + Send + 'static,
 	stdout: impl AsyncRead + Unpin + Send + 'static,
 	stderr: impl AsyncRead + Unpin + Send + 'static,
 ) -> tg::Result<()> {
 	let state = process.load(&server).await?;
 	if state.cacheable {
-		log_task(&server, &process, stdout, stderr).await?;
+		log_task(&server, &process, stop, stdout, stderr).await?;
 	} else {
-		pipe_task(&server, &process, stdin, stdout, stderr).await?;
+		pipe_task(&server, &process, stop, stdin, stdout, stderr).await?;
 	};
 	Ok(())
 }
@@ -129,6 +132,7 @@ pub async fn stdio_task(
 async fn log_task(
 	server: &Server,
 	process: &tg::Process,
+	_stop: Stop,
 	stdout: impl AsyncRead + Unpin + Send + 'static,
 	stderr: impl AsyncRead + Unpin + Send + 'static,
 ) -> tg::Result<()> {
@@ -188,6 +192,7 @@ async fn log_task(
 async fn pipe_task(
 	server: &Server,
 	process: &tg::Process,
+	stop: Stop,
 	stdin: impl AsyncWrite + Send + 'static,
 	stdout: impl AsyncRead + Unpin + Send + 'static,
 	stderr: impl AsyncRead + Unpin + Send + 'static,
@@ -196,7 +201,6 @@ async fn pipe_task(
 	let stdin = tokio::spawn({
 		let server = server.clone();
 		let state = process.load(&server).await?;
-		let process = process.clone();
 		async move {
 			let Some(pipe) = state.stdin.as_ref() else {
 				return Ok(());
@@ -204,18 +208,20 @@ async fn pipe_task(
 			let stream = server.read_pipe(pipe).await?;
 			let mut stream = pin!(stream);
 			let mut stdin = pin!(stdin);
-			while let Some(chunk) = stream.try_next().await? {
-				match chunk {
-					tg::pipe::Event::Chunk(chunk) => {
-						stdin
-							.write_all(&chunk)
-							.await
-							.map_err(|source| tg::error!(!source, %pipe, %process = process.id(), "failed to write pipe to process stdin"))?;
-					},
-					tg::pipe::Event::End => break,
+			loop {
+				let event = stream.try_next();
+				let wait = stop.wait();
+				let chunk = match future::select(event, pin!(wait)).await {
+					future::Either::Left((Ok(Some(tg::pipe::Event::Chunk(chunk))), ..)) => chunk,
+					_ => break,
+				};
+				if let Err(error) = stdin.write_all(&chunk).await {
+					tracing::error!(%pipe, %error, "failed to write stdin");
+					break;
 				}
 			}
-
+			server.close_pipe(pipe).await.ok();
+			eprintln!("stdin task done");
 			Ok::<_, tg::Error>(())
 		}
 	});
@@ -228,10 +234,9 @@ async fn pipe_task(
 			let Some(pipe) = state.stdout.as_ref() else {
 				return Ok(());
 			};
-			let stream = chunk_stream_from_reader(stdout)
-				.map_ok(tg::pipe::Event::Chunk)
-				.chain(stream::once(future::ok(tg::pipe::Event::End)));
+			let stream = chunk_stream_from_reader(stdout);
 			server.write_pipe(pipe, stream).await?;
+			eprintln!("stdout task done");
 			Ok::<_, tg::Error>(())
 		}
 	});
@@ -244,10 +249,9 @@ async fn pipe_task(
 			let Some(pipe) = state.stderr.as_ref() else {
 				return Ok(());
 			};
-			let stream = chunk_stream_from_reader(stderr)
-				.map_ok(tg::pipe::Event::Chunk)
-				.chain(stream::once(future::ok(tg::pipe::Event::End)));
+			let stream = chunk_stream_from_reader(stderr);
 			server.write_pipe(pipe, stream).await?;
+			eprintln!("stderr task done");
 			Ok::<_, tg::Error>(())
 		}
 	});
@@ -263,7 +267,8 @@ async fn pipe_task(
 	stderr
 		.unwrap()
 		.map_err(|source| tg::error!(!source, "failed to read stderr from pipe"))?;
-	Ok(())
+
+	Ok::<_, tg::Error>(())
 }
 
 // Helper to create an event stream from pipes
