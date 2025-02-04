@@ -56,14 +56,14 @@ impl Server {
 					.and_then(|options| options.subpath.clone());
 				let output = tg::Referent {
 					item,
-					path: None,
+					path: Some(path.clone()),
 					subpath,
 					tag: None,
 				};
 				Ok(Some(output))
 			},
 			tg::reference::Item::Tag(tag) => {
-				let Some(tg::tag::get::Output { item, .. }) = self.try_get_tag(tag).await? else {
+				let Some(tg::tag::get::Output { item, tag }) = self.try_get_tag(tag).await? else {
 					return Ok(None);
 				};
 				let subpath = reference
@@ -73,7 +73,7 @@ impl Server {
 					item,
 					path: None,
 					subpath,
-					tag: None,
+					tag: Some(tag),
 				};
 				Ok(Some(output))
 			},
