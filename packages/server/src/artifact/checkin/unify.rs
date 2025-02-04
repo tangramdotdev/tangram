@@ -736,14 +736,22 @@ impl Server {
 		mut graph: Graph,
 	) -> tg::Result<Graph> {
 		for node in graph.nodes.keys().cloned().collect::<Vec<_>>() {
-			// Skip nodes that don't refer to local modules.
-			let src_is_local_module = node.as_ref().right().is_some_and(|index| {
-				input
-					.nodes
-					.get(*index)
-					.is_some_and(|input| tg::package::is_module_path(&input.arg.path))
-			});
-			if !src_is_local_module {
+			// Skip nodes that don't refer to input nodes.
+			let Some(input_node) = graph
+				.nodes
+				.get(&node)
+				.unwrap()
+				.object
+				.as_ref()
+				.left()
+				.copied()
+			else {
+				continue;
+			};
+
+			// Skip nodes that are not modules.
+			let path = &input.nodes[input_node].arg.path;
+			if !tg::package::is_module_path(path) {
 				continue;
 			}
 
