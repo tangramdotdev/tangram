@@ -235,16 +235,16 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send;
 
-	fn put_process_pty(
-		&self,
-		id: &tg::process::Id,
-		pty: tg::process::Pty,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	// fn put_process_pty(
+	// 	&self,
+	// 	id: &tg::process::Id,
+	// 	pty: tg::process::Pty,
+	// ) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn get_process_pty_stream(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<impl Stream>> + Send;
+	// fn get_process_pty_stream(
+	// 	&self,
+	// 	id: &tg::process::Id,
+	// ) -> impl Future<Output = tg::Result<impl Stream>> + Send;
 
 	fn try_get_reference(
 		&self,

@@ -112,6 +112,15 @@ pub struct Output {
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub started_at: Option<time::OffsetDateTime>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stderr: Option<tg::pipe::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdin: Option<tg::pipe::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdout: Option<tg::pipe::Id>,
+
 	pub status: tg::process::Status,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

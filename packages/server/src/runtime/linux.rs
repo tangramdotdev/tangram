@@ -4,7 +4,6 @@ use super::{
 };
 use crate::{temp::Temp, Server};
 use futures::{
-	future,
 	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
 };
@@ -243,14 +242,14 @@ impl Runtime {
 		// Spawn the child.
 		let mut child = process::spawn(args, cwd, env, executable, chroot, state.network)?;
 
-		// Spawn the log task.
-		let log_task = super::util::post_log_task(
-			&self.server,
-			process,
-			remote,
+		// Spawn the stdio task.
+		let stdio_task = tokio::spawn(super::util::stdio_task(
+			self.server.clone(),
+			process.clone(),
+			child.stdin.take().unwrap(),
 			child.stdout.take().unwrap(),
 			child.stderr.take().unwrap(),
-		);
+		));
 
 		// Wait for the child process to complete.
 		let exit = child
@@ -264,12 +263,14 @@ impl Runtime {
 			task.wait().await.unwrap();
 		}
 
-		// Join the i/o tasks.
-		let (input, output) = future::try_join(future::ok(Ok::<_, tg::Error>(())), log_task)
+		// Join the i/o task.
+		stdio_task
 			.await
-			.map_err(|source| tg::error!(!source, "failed to join the i/o tasks"))?;
-		input.map_err(|source| tg::error!(!source, "the stdin task failed"))?;
-		output.map_err(|source| tg::error!(!source, "the log task failed"))?;
+			.unwrap()
+			.inspect_err(|error| {
+				tracing::error!(?error, "io task failed");
+			})
+			.ok();
 
 		// Create the output.
 		let output = output_parent.path().join("output");

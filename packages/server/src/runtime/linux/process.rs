@@ -14,7 +14,7 @@ pub struct Child {
 	context: Context,
 	socket: tokio::net::UnixStream,
 	root_process: libc::pid_t,
-	pub _stdin: Option<tokio::net::UnixStream>,
+	pub stdin: Option<tokio::net::UnixStream>,
 	pub stdout: Option<tokio::net::UnixStream>,
 	pub stderr: Option<tokio::net::UnixStream>,
 }
@@ -142,7 +142,7 @@ pub fn spawn(
 		root_process: pid,
 		context,
 		socket: socket.0,
-		_stdin: Some(stdin.0),
+		stdin: Some(stdin.0),
 		stdout: Some(stdout.0),
 		stderr: Some(stderr.0),
 	};

@@ -269,7 +269,10 @@ impl Server {
 					{p}10,
 					{p}11,
 					{p}12,
-					{p}13
+					{p}13,
+					{p}14,
+					{p}15,
+					{p}16
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -283,7 +286,10 @@ impl Server {
 					network = {p}10,
 					retry = {p}11,
 					status = {p}12,
-					touched_at = {p}13;
+					stderr = {p}13,
+					stderr = {p}14,
+					stderr = {p}15,
+					touched_at = {p}16;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -300,6 +306,9 @@ impl Server {
 			arg.network,
 			arg.retry,
 			tg::process::Status::Enqueued,
+			arg.stderr,
+			arg.stdin,
+			arg.stdout,
 			now,
 		];
 		connection

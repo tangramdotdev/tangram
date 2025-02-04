@@ -64,6 +64,9 @@ impl Server {
 					retry,
 					started_at,
 					status,
+					stdin,
+					stdout,
+					stderr,
 					touched_at
 				)
 				values (
@@ -85,7 +88,10 @@ impl Server {
 					{p}16,
 					{p}17,
 					{p}18,
-					{p}19
+					{p}19,
+					{p}20,
+					{p}21,
+					{p}22
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -105,7 +111,10 @@ impl Server {
 					retry = {p}16,
 					started_at = {p}17,
 					status = {p}18,
-					touched_at = {p}19
+					stderr = {p}19,
+					stdin = {p}20,
+					stdout = {p}21,
+					touched_at = {p}22
 				returning
 					commands_complete,
 					complete,
@@ -132,6 +141,9 @@ impl Server {
 			arg.retry,
 			arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.status,
+			arg.stderr,
+			arg.stdin,
+			arg.stdout,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		let row = transaction

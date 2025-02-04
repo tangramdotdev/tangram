@@ -159,11 +159,14 @@ impl Runtime {
 						bytes: bytes.clone(),
 						remote: process.remote().map(ToOwned::to_owned),
 					};
-					if let Some(remote) = process.remote() {
-						let client = server.get_remote_client(remote.to_string()).await?;
-						client.try_post_process_log(process.id(), arg).await.ok();
-					} else {
-						server.try_post_process_log(process.id(), arg).await.ok();
+					server.try_post_process_log(process.id(), arg).await.ok();
+					match message.level {
+						syscall::log::Level::Log => {
+
+						},
+						syscall::log::Level::Error => {
+
+						},
 					}
 				}
 				Ok::<(), tg::Error>(())

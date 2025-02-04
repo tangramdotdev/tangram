@@ -27,6 +27,20 @@ impl Server {
 		}
 		Ok(())
 	}
+
+	// pub (crate) fn async write_pipe_event(&self,
+	// 	id: &tg::pipe::Id,
+	// 	event: tg::pipe::Event 
+	// ) -> tg::Result<()> {
+	// 	let sender = self
+	// 		.pipes
+	// 		.get(id)
+	// 		.ok_or_else(|| tg::error!("failed to find the pipe"))?
+	// 		.value()
+	// 		.sender
+	// 		.clone();
+
+	// }
 }
 
 impl Server {

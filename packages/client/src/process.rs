@@ -43,6 +43,7 @@ pub struct Inner {
 
 #[derive(Clone, Debug)]
 pub struct State {
+	pub cacheable: bool,
 	pub checksum: Option<tg::Checksum>,
 	pub command: tg::Command,
 	pub commands_complete: bool,
@@ -74,6 +75,9 @@ pub struct State {
 	pub retry: bool,
 	pub started_at: Option<time::OffsetDateTime>,
 	pub status: tg::process::Status,
+	pub stderr: Option<tg::pipe::Id>,
+	pub stdin: Option<tg::pipe::Id>,
+	pub stdout: Option<tg::pipe::Id>,
 	pub touched_at: Option<time::OffsetDateTime>,
 }
 
@@ -203,6 +207,7 @@ impl TryFrom<tg::process::get::Output> for tg::process::State {
 	type Error = tg::Error;
 
 	fn try_from(value: tg::process::get::Output) -> Result<Self, Self::Error> {
+		let cacheable = value.cacheable;
 		let checksum = value.checksum;
 		let command = tg::Command::with_id(value.command);
 		let commands_complete = value.commands_complete;
@@ -233,9 +238,13 @@ impl TryFrom<tg::process::get::Output> for tg::process::State {
 		let outputs_weight = value.outputs_weight;
 		let retry = value.retry;
 		let started_at = value.started_at;
+		let stderr = value.stderr;
+		let stdin = value.stdin;
+		let stdout = value.stdout;
 		let status = value.status;
 		let touched_at = value.touched_at;
 		Ok(State {
+			cacheable,
 			checksum,
 			command,
 			commands_complete,
@@ -266,6 +275,9 @@ impl TryFrom<tg::process::get::Output> for tg::process::State {
 			outputs_weight,
 			retry,
 			started_at,
+			stderr,
+			stdin,
+			stdout,
 			status,
 			touched_at,
 		})

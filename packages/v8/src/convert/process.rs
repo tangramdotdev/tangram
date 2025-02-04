@@ -16,6 +16,21 @@ impl FromV8 for tg::process::Id {
 	}
 }
 
+impl ToV8 for tg::pipe::Id {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		self.to_string().to_v8(scope)
+	}
+}
+
+impl FromV8 for tg::pipe::Id {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		String::from_v8(scope, value)?.parse()
+	}
+}
+
 impl ToV8 for tg::Process {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
@@ -227,6 +242,18 @@ impl ToV8 for tg::process::State {
 		let value = self.status.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
+		let key = v8::String::new_external_onebyte_static(scope, "stderr".as_bytes()).unwrap();
+		let value = self.stderr.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "stdin".as_bytes()).unwrap();
+		let value = self.stdin.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "stdout".as_bytes()).unwrap();
+		let value = self.stdout.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
 		let key = v8::String::new_external_onebyte_static(scope, "touched_at".as_bytes()).unwrap();
 		let value = self.touched_at.to_v8(scope)?;
 		object.set(scope, key.into(), value);
@@ -241,6 +268,12 @@ impl FromV8 for tg::process::State {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = value.to_object(scope).unwrap();
+
+		let cacheable =
+			v8::String::new_external_onebyte_static(scope, "cacheable".as_bytes()).unwrap();
+		let cacheable = value.get(scope, cacheable.into()).unwrap();
+		let cacheable = <_>::from_v8(scope, cacheable)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the checksum"))?;
 
 		let checksum =
 			v8::String::new_external_onebyte_static(scope, "checksum".as_bytes()).unwrap();
@@ -417,6 +450,21 @@ impl FromV8 for tg::process::State {
 		let status = <_>::from_v8(scope, status)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the status"))?;
 
+		let stderr = v8::String::new_external_onebyte_static(scope, "stderr".as_bytes()).unwrap();
+		let stderr = value.get(scope, stderr.into()).unwrap();
+		let stderr = <_>::from_v8(scope, stderr)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the stderr"))?;
+
+		let stdin = v8::String::new_external_onebyte_static(scope, "stdin".as_bytes()).unwrap();
+		let stdin = value.get(scope, stdin.into()).unwrap();
+		let stdin = <_>::from_v8(scope, stdin)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the stdin"))?;
+
+		let stdout = v8::String::new_external_onebyte_static(scope, "stdout".as_bytes()).unwrap();
+		let stdout = value.get(scope, stdout.into()).unwrap();
+		let stdout = <_>::from_v8(scope, stdout)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the stdout"))?;
+
 		let touched_at =
 			v8::String::new_external_onebyte_static(scope, "touched_at".as_bytes()).unwrap();
 		let touched_at = value.get(scope, touched_at.into()).unwrap();
@@ -424,6 +472,7 @@ impl FromV8 for tg::process::State {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the touched_at"))?;
 
 		Ok(Self {
+			cacheable,
 			checksum,
 			command,
 			commands_complete,
@@ -455,6 +504,9 @@ impl FromV8 for tg::process::State {
 			retry,
 			started_at,
 			status,
+			stderr,
+			stdin,
+			stdout,
 			touched_at,
 		})
 	}
