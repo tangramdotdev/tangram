@@ -40,10 +40,10 @@ pub struct Edge {
 #[derive(Clone, Debug)]
 struct RemappedEdge {
 	pub id: Either<usize, tg::object::Id>,
-	pub _path: Option<PathBuf>,
+	pub path: Option<PathBuf>,
 	pub reference: tg::Reference,
 	pub subpath: Option<PathBuf>,
-	pub _tag: Option<tg::Tag>,
+	pub tag: Option<tg::Tag>,
 }
 
 impl Server {
@@ -308,10 +308,10 @@ impl Server {
 				};
 				RemappedEdge {
 					id,
-					_path: edge.path.clone(),
+					path: edge.path.clone(),
 					reference: edge.reference.clone(),
 					subpath: edge.subpath.clone(),
-					_tag: edge.tag.clone(),
+					tag: edge.tag.clone(),
 				}
 			})
 			.collect::<Vec<_>>();
@@ -397,10 +397,10 @@ impl Server {
 				};
 				RemappedEdge {
 					id,
-					_path: edge.path.clone(),
+					path: edge.path.clone(),
 					reference: edge.reference.clone(),
 					subpath: edge.subpath.clone(),
-					_tag: edge.tag.clone(),
+					tag: edge.tag.clone(),
 				}
 			})
 			.collect::<Vec<_>>();
@@ -458,9 +458,9 @@ impl Server {
 					.map(|edge| {
 						let dependency = tg::Referent {
 							item: edge.id,
-							path: None,
+							path: edge.path,
 							subpath: edge.subpath,
-							tag: None,
+							tag: edge.tag,
 						};
 						(edge.reference, dependency)
 					})
