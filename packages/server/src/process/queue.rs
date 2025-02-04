@@ -116,7 +116,7 @@ impl Server {
 		// Run.
 		let output = self.process_task_inner(process).await?;
 
-		// Compute the status.
+		// Determine the status.
 		let status = match (&output.output, &output.exit, &output.error) {
 			(_, _, Some(_)) | (_, Some(tg::process::Exit::Signal { signal: _ }), _) => {
 				tg::process::Status::Failed
@@ -130,7 +130,6 @@ impl Server {
 		// Get the output data.
 		let value = match &output.output {
 			Some(output) => Some(output.data(self).await?),
-			// If the process succeeded but had no output, mark it as having the value "null"
 			None if status == tg::process::Status::Succeeded => Some(tg::value::Data::Null),
 			None => None,
 		};
@@ -143,8 +142,11 @@ impl Server {
 	}
 
 	async fn process_task_inner(&self, process: &tg::Process) -> tg::Result<runtime::Output> {
+		// Get the host.
 		let command = process.command(self).await?;
 		let host = command.host(self).await?;
+
+		// Get the runtime.
 		let runtime = self
 			.runtimes
 			.read()
@@ -154,7 +156,11 @@ impl Server {
 				|| tg::error!(?id = process, ?host = &*host, "failed to find a runtime for the process"),
 			)?
 			.clone();
-		Ok(runtime.run(process).await)
+
+		// Run the process.
+		let output = runtime.run(process).await;
+
+		Ok(output)
 	}
 
 	async fn heartbeat_task(&self, process: &tg::Process) -> tg::Result<()> {

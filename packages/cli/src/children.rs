@@ -24,13 +24,13 @@ impl Cli {
 					remote: None,
 					size: None,
 				};
-				self.command_process_children(args).await?
+				self.command_process_children(args).await?;
 			},
 			Either::Right(object) => {
 				let args = crate::object::children::Args {
 					object: object.id(&handle).await?.clone(),
 				};
-				self.command_object_children(args).await?
+				self.command_object_children(args).await?;
 			},
 		}
 		Ok(())
