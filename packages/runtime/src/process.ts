@@ -68,18 +68,16 @@ export class Process {
 			},
 			...args,
 		);
-		let output = await process.output();
-		return output;
+		let output = await process.wait();
+		if (output.status !== "succeeded") {
+			throw output.error;
+		}
+		return output.output;
 	}
 
 	static async run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value> {
 		let process = await Process.spawn(...args);
-		let output = await process.output();
-		return output;
-	}
-
-	async output(): Promise<tg.Value> {
-		let output = await this.wait();
+		let output = await process.wait();
 		if (output.status !== "succeeded") {
 			throw output.error;
 		}

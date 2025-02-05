@@ -173,13 +173,19 @@ impl Process {
 	{
 		let process = Self::spawn(handle, arg).await?;
 		let output = process.wait(handle).await?;
-		if let Some(error) = output.error {
+		if output.status != tg::process::Status::Succeeded {
+			let error = output.error.unwrap_or_else(|| {
+				tg::error!(
+					%process = process.id(),
+					"the process failed",
+				)
+			});
 			return Err(error);
 		}
-		if let Some(output) = output.output {
-			return Ok(output);
-		}
-		Err(tg::error!("invalid output"))
+		let output = output
+			.output
+			.ok_or_else(|| tg::error!(%process = process.id(), "expected the output to be set"))?;
+		Ok(output)
 	}
 }
 
