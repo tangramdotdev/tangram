@@ -7,10 +7,13 @@ pub async fn load(state: Rc<State>, args: (tg::object::Id,)) -> tg::Result<tg::o
 	let server = state.server.clone();
 	let object = state
 		.main_runtime_handle
-		.spawn(async move { tg::object::Handle::with_id(id).object(&server).await })
+		.spawn({
+			let id = id.clone();
+			async move { tg::object::Handle::with_id(id).object(&server).await }
+		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to load the object"))?;
+		.map_err(|source| tg::error!(!source, %id, "failed to load the object"))?;
 	Ok(object)
 }
 

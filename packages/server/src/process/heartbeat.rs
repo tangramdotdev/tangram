@@ -119,10 +119,10 @@ impl Server {
 					server
 						.try_finish_process_local(
 							process,
+							tg::process::Status::Canceled,
+							None,
 							Some(error),
 							None,
-							None,
-							tg::process::Status::Canceled,
 						)
 						.await
 						.inspect_err(|error| {

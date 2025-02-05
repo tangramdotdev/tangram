@@ -449,13 +449,16 @@ impl Cli {
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 
 		// Create the default config.
+		let advanced = tangram_server::config::Advanced::default();
 		let parallelism = std::thread::available_parallelism().unwrap().into();
 		let database =
 			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
 				connections: parallelism,
 				path: path.join("database"),
 			});
-		let process = Some(tangram_server::config::Runner {
+		let messenger = tangram_server::config::Messenger::default();
+		let indexer = Some(tangram_server::config::Indexer::default());
+		let runner = Some(tangram_server::config::Runner {
 			concurrency: parallelism,
 			heartbeat_interval: Duration::from_secs(1),
 			max_depth: 4096,
@@ -466,19 +469,20 @@ impl Cli {
 		} else {
 			None
 		};
+		let watchdog = Some(tangram_server::config::Watchdog::default());
 		let mut config = tangram_server::Config {
-			advanced: tangram_server::config::Advanced::default(),
+			advanced,
 			authentication: None,
 			database,
-			messenger: tangram_server::config::Messenger::default(),
-			indexer: Some(tangram_server::config::Indexer::default()),
+			indexer,
+			messenger,
 			path,
-			runner: process,
-			watchdog: Some(tangram_server::config::Watchdog::default()),
+			runner,
 			store: None,
 			url: None,
 			version: None,
 			vfs,
+			watchdog,
 		};
 
 		// Set the advanced options.

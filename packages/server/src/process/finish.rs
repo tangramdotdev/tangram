@@ -1,9 +1,10 @@
+use std::pin::pin;
+
 use crate::Server;
 use bytes::Bytes;
-use futures::{stream::FuturesUnordered, FutureExt as _, StreamExt, TryStreamExt as _};
+use futures::{future, stream::FuturesUnordered, FutureExt as _, TryStreamExt as _};
 use indoc::formatdoc;
-use std::pin::pin;
-use tangram_client::{self as tg, handle::Ext};
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
@@ -31,17 +32,17 @@ impl Server {
 		self.processes.abort(id);
 
 		// Finish the process.
-		self.try_finish_process_local(id, arg.error, arg.output, None, arg.status)
+		self.try_finish_process_local(id, arg.status, arg.output, arg.error, None)
 			.await
 	}
 
 	pub async fn try_finish_process_local(
 		&self,
 		id: &tg::process::Id,
-		mut error: Option<tg::Error>,
-		output: Option<tg::value::Data>,
-		exit: Option<tg::process::Exit>,
 		mut status: tg::process::Status,
+		output: Option<tg::value::Data>,
+		mut error: Option<tg::Error>,
+		exit: Option<tg::process::Exit>,
 	) -> tg::Result<tg::process::finish::Output> {
 		// Attempt to set the process's status to finishing.
 		let connection = self
@@ -110,31 +111,33 @@ impl Server {
 					remote: None,
 					status: tg::process::Status::Canceled,
 				};
-				self.try_finish_process(&child, arg).await?;
-				Ok::<_, tg::Error>(())
+				let output = self.try_finish_process(&child, arg).await?;
+				Ok::<_, tg::Error>((child, output.finished))
 			})
 			.collect::<FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await;
+			.try_filter_map(|(child, finished)| future::ready(Ok(finished.then_some(child))))
+			.try_collect::<Vec<_>>()
+			.await?;
 
 		// If any of the children were canceled, then this process should be canceled.
-		if status != tg::process::status::Status::Canceled
-			&& children
-				.iter()
-				.map(|child| async move {
-					pin!(self.get_process_status(child).await?)
-						.try_next()
-						.await?
-						.ok_or_else(|| tg::error!("failed to get the process status"))
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
-				.await?
-				.iter()
-				.any(tg::process::Status::is_canceled)
+		let children_statuses = children
+			.iter()
+			.map(|child| async {
+				let stream = self.get_process_status(child).await?;
+				let status = pin!(stream).try_next().await?.unwrap();
+				Ok::<_, tg::Error>(status)
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		if children_statuses
+			.iter()
+			.any(tg::process::Status::is_canceled)
 		{
-			status = tg::process::status::Status::Canceled;
-			error = Some(tg::error!("one of the process's children was canceled"));
+			if error.is_none() {
+				error = Some(tg::error!("one of the process's children was canceled"));
+			}
+			status = tg::process::Status::Canceled;
 		}
 
 		// Verify the checksum if one was provided.

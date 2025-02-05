@@ -117,11 +117,11 @@ impl Server {
 		let output = self.process_task_inner(process).await?;
 
 		// Determine the status.
-		let status = match (&output.output, &output.exit, &output.error) {
-			(_, _, Some(_)) | (_, Some(tg::process::Exit::Signal { signal: _ }), _) => {
+		let status = match (&output.output, &output.error, &output.exit) {
+			(_, Some(_), _) | (_, _, Some(tg::process::Exit::Signal { signal: _ })) => {
 				tg::process::Status::Failed
 			},
-			(_, Some(tg::process::Exit::Code { code }), _) if *code != 0 => {
+			(_, _, Some(tg::process::Exit::Code { code })) if *code != 0 => {
 				tg::process::Status::Failed
 			},
 			_ => tg::process::Status::Succeeded,
@@ -135,7 +135,7 @@ impl Server {
 		};
 
 		// Finish the process.
-		self.try_finish_process_local(process.id(), output.error, value, output.exit, status)
+		self.try_finish_process_local(process.id(), status, value, output.error, output.exit)
 			.await?;
 
 		Ok::<_, tg::Error>(())
