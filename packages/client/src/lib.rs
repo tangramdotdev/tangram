@@ -188,11 +188,14 @@ impl Client {
 				}
 				#[cfg(feature = "tls")]
 				{
-					let host = self.url.domain().ok_or_else(|| tg::error!("invalid url"))?;
+					let host = self
+						.url
+						.domain()
+						.ok_or_else(|| tg::error!(%url = self.url, "invalid url"))?;
 					let port = self
 						.url
 						.port_or_known_default()
-						.ok_or_else(|| tg::error!("invalid url"))?;
+						.ok_or_else(|| tg::error!(%url = self.url, "invalid url"))?;
 					self.connect_tcp_tls_h1(host, port).await
 				}
 			},
@@ -208,7 +211,7 @@ impl Client {
 					.host_str()
 					.ok_or_else(|| tg::error!("invalid url"))?;
 				let path = urlencoding::decode(path)
-					.map_err(|source| tg::error!(!source, "invalid url"))?;
+					.map_err(|source| tg::error!(!source, %path, "invalid url"))?;
 				let path = PathBuf::from(path.into_owned());
 				self.connect_unix_h2(&path).await
 			},

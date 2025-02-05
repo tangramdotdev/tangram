@@ -81,7 +81,12 @@ pub fn post_log_task(
 				bytes: bytes.clone(),
 				remote: remote.clone(),
 			};
-			process.post_log(&server, arg).await?;
+			if let Some(remote) = process.remote() {
+				let client = server.get_remote_client(remote.to_string()).await?;
+				client.try_post_process_log(process.id(), arg).await.ok();
+			} else {
+				process.post_log(&server, arg).await?;
+			}
 		}
 	}
 

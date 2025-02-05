@@ -96,7 +96,7 @@ impl<T> Handle<T> {
 		let receiver = self.receiver.clone();
 		let interval = Duration::from_millis(100);
 		let interval = tokio::time::interval(interval);
-		let updates = IntervalStream::new(interval).flat_map(move |_| {
+		let updates = IntervalStream::new(interval).skip(1).flat_map(move |_| {
 			let indicators = indicators
 				.read()
 				.unwrap()
@@ -131,5 +131,29 @@ impl<T> Handle<T> {
 				Ok(tg::progress::Event::Output(_)) | Err(_)
 			))
 		})
+		// FIXME add a final event before the end.
+		// stream::select(receiver, updates)
+		// .scan(false, |sent_final, event| {
+		// 	let stream = match (event, *sent_final) {
+		// 		// If we see an Output/Error and haven't sent final update
+		// 		(event @ (Ok(tg::progress::Event::Output(_)) | Err(_)), false) => {
+		// 			*sent_final = true;
+		// 			Some(stream::iter(vec![
+		// 				Ok(tg::progress::Event::FinalUpdate),
+		// 				event,
+		// 			]))
+		// 		},
+		// 		// Otherwise just pass through the event
+		// 		(event, _) => Some(stream::iter(vec![event])),
+		// 	};
+		// 	Some(future::ready(stream))
+		// })
+		// .flatten_stream()
+		// .take_while_inclusive(|event| {
+		// 	future::ready(!matches!(
+		// 		event,
+		// 		Ok(tg::progress::Event::Output(_)) | Err(_)
+		// 	))
+		// })
 	}
 }

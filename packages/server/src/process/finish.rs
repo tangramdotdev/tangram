@@ -28,28 +28,32 @@ impl Server {
 			return Ok(output);
 		}
 
-		// If the process is running locally then abort it.
-		self.processes.abort(id);
+		// If the process is not the current process then abort it.
+		let process_task_id = self.processes.get_task_id(id);
+		let should_abort = if let Some(process_task_id) = process_task_id {
+			process_task_id != tokio::task::id()
+		} else {
+			true
+		};
+		if should_abort {
+			self.processes.abort(id);
+		}
 
-		// Finish the process.
-		self.try_finish_process_local(id, arg.status, arg.output, arg.error, None)
-			.await
-	}
+		let tg::process::finish::Arg {
+			mut error,
+			output,
+			mut status,
+			exit,
+			..
+		} = arg;
 
-	pub async fn try_finish_process_local(
-		&self,
-		id: &tg::process::Id,
-		mut status: tg::process::Status,
-		output: Option<tg::value::Data>,
-		mut error: Option<tg::Error>,
-		exit: Option<tg::process::Exit>,
-	) -> tg::Result<tg::process::finish::Output> {
 		// Attempt to set the process's status to finishing.
 		let connection = self
 			.database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
 		let p = connection.p();
 		let statement = formatdoc!(
 			"

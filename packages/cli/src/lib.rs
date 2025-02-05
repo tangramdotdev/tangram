@@ -628,7 +628,7 @@ impl Cli {
 				config.runner = None;
 			},
 			Some(Some(runner)) => {
-				let mut runner_ = tangram_server::config::Runner::default();
+				let mut runner_ = config.runner.unwrap_or_default();
 				if let Some(concurrency) = runner.concurrency {
 					runner_.concurrency = concurrency;
 				}

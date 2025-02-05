@@ -123,7 +123,7 @@ impl Server {
 			arg.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.env.as_ref().map(db::value::Json),
-			arg.error,
+			arg.error.as_ref().map(db::value::Json),
 			arg.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.host,
 			arg.log,

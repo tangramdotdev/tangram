@@ -2,6 +2,7 @@ use crate::Value;
 use indexmap::IndexMap;
 use tangram_either::Either;
 
+#[derive(Debug, Clone)]
 pub struct Row {
 	entries: IndexMap<String, Value>,
 }

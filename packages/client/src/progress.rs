@@ -9,6 +9,7 @@ pub enum Event<T> {
 	Diagnostic(tg::Diagnostic),
 	Start(Indicator),
 	Update(Indicator),
+	// FinalUpdate,
 	Finish(Indicator),
 	Output(T),
 }
@@ -137,6 +138,11 @@ where
 					..Default::default()
 				}
 			},
+			// Event::FinalUpdate => tangram_http::sse::Event {
+			// 	event: Some("final update".to_owned()),
+			// 	data: "placeholder".to_string(),
+			// 	..Default::default()
+			// },
 			Event::Finish(indicator) => {
 				let data = serde_json::to_string(&indicator)
 					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;

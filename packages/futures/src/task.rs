@@ -121,6 +121,10 @@ where
 			.clone()
 	}
 
+	pub fn get_task_id(&self, key: &K) -> Option<tokio::task::Id> {
+		self.map.get(key).map(|task| task.abort.id())
+	}
+
 	pub fn abort(&self, key: &K) {
 		if let Some(task) = self.map.get(key) {
 			task.abort();

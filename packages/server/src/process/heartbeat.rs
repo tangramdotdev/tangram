@@ -115,15 +115,16 @@ impl Server {
 			.map(|process| {
 				let server = self.clone();
 				async move {
-					let error = tg::error!("the process's heartbeat expired");
+					let error = Some(tg::error!("the process's heartbeat expired"));
+					let arg = tg::process::finish::Arg {
+						error,
+						exit: None,
+						output: None,
+						remote: None,
+						status: tg::process::Status::Canceled,
+					};
 					server
-						.try_finish_process_local(
-							process,
-							tg::process::Status::Canceled,
-							None,
-							Some(error),
-							None,
-						)
+						.try_finish_process(process, arg)
 						.await
 						.inspect_err(|error| {
 							tracing::error!(?error, "failed to cancel the process");

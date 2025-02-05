@@ -159,8 +159,14 @@ impl Runtime {
 						bytes: bytes.clone(),
 						remote: process.remote().map(ToOwned::to_owned),
 					};
-					server.try_post_process_log(process.id(), arg).await.ok();
+					if let Some(remote) = process.remote() {
+						let client = server.get_remote_client(remote.to_string()).await?;
+						client.try_post_process_log(process.id(), arg).await.ok();
+					} else {
+						server.try_post_process_log(process.id(), arg).await.ok();
+					}
 				}
+				Ok::<(), tg::Error>(())
 			}
 		});
 		let log_task_abort_handle = log_task.abort_handle();
@@ -384,7 +390,8 @@ impl Runtime {
 		state.log_sender.borrow_mut().take().unwrap();
 		log_task
 			.await
-			.map_err(|source| tg::error!(!source, "failed to join the log task"))?;
+			.map_err(|source| tg::error!(!source, "failed to join the log task"))?
+			.map_err(|source| tg::error!(!source, "the log task failed"))?;
 
 		// Stop and await the compiler.
 		state.compiler.stop();

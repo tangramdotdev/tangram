@@ -2,6 +2,7 @@ use crate::Server;
 use bytes::Bytes;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
@@ -35,6 +36,10 @@ impl Server {
 
 		// Start the process.
 		let p = connection.p();
+		let cast = match connection {
+			Either::Left(_) => "",
+			Either::Right(_) => "::int8",
+		};
 		let statement = format!(
 			"
 				update processes
@@ -43,13 +48,13 @@ impl Server {
 					started_at = {p}1,
 					status = 'started'
 				where id = {p}2 and (status = 'created' or status = 'enqueued' or status = 'dequeued')
-				returning 1;
+				returning 1{cast};
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![now, id];
 		let started = connection
-			.query_optional(statement.into(), params)
+			.query_optional_value_into::<bool>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.is_some();

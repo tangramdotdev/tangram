@@ -18,12 +18,14 @@ impl Server {
 		#[derive(serde::Deserialize)]
 		struct Row {
 			created: u64,
+			enqueued: u64,
 			dequeued: u64,
 			started: u64,
 		}
 		let statement = "
 			select
 				(select count(*) from processes where status = 'created') as created,
+				(select count(*) from processes where status = 'enqueued') as enqueued,
 				(select count(*) from processes where status = 'dequeued') as dequeued,
 				(select count(*) from processes where status = 'started') as started;
 		"
@@ -31,6 +33,7 @@ impl Server {
 		let params = db::params![];
 		let Row {
 			created,
+			enqueued,
 			dequeued,
 			started,
 		} = connection
@@ -39,6 +42,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let processes = tg::health::Processes {
 			created,
+			enqueued,
 			dequeued,
 			started,
 		};
