@@ -64,6 +64,15 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> + Send;
 
+	fn post_object(
+		&self,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Object>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static,
+		>,
+	> + Send;
+
 	fn put_object(
 		&self,
 		id: &tg::object::Id,

@@ -656,6 +656,19 @@ impl tg::Handle for Client {
 		self.put_object(id, arg)
 	}
 
+	fn post_object(
+		&self,
+		stream: Pin<
+			Box<dyn Stream<Item = crate::Result<crate::object::post::Object>> + Send + 'static>,
+		>,
+	) -> impl Future<
+		Output = crate::Result<
+			impl Stream<Item = crate::Result<crate::object::post::Event>> + Send + 'static,
+		>,
+	> {
+		self.post_object(stream)
+	}
+
 	fn push_object(
 		&self,
 		id: &tg::object::Id,

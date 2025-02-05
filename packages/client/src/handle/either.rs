@@ -127,6 +127,28 @@ where
 		}
 	}
 
+	fn post_object(
+		&self,
+		stream: Pin<
+			Box<dyn Stream<Item = crate::Result<crate::object::post::Object>> + Send + 'static>,
+		>,
+	) -> impl Future<
+		Output = crate::Result<
+			impl Stream<Item = crate::Result<crate::object::post::Event>> + Send + 'static,
+		>,
+	> + Send {
+		match self {
+			Either::Left(s) => s
+				.post_object(stream)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.post_object(stream)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
 	fn push_object(
 		&self,
 		id: &tg::object::Id,

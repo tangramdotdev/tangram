@@ -848,6 +848,9 @@ impl Server {
 			(http::Method::PUT, ["objects", object]) => {
 				Self::handle_put_object_request(handle, request, object).boxed()
 			},
+			(http::Method::POST, ["objects"]) => {
+				Self::handle_post_object_request(handle, request).boxed()
+			},
 			(http::Method::POST, ["objects", object, "push"]) => {
 				Self::handle_push_object_request(handle, request, object).boxed()
 			},
@@ -1109,6 +1112,17 @@ impl tg::Handle for Server {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.put_object(id, arg)
+	}
+
+	fn post_object(
+		&self,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Object>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static,
+		>,
+	> + Send {
+		self.post_object(stream)
 	}
 
 	fn push_object(

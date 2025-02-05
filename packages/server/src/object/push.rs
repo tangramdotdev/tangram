@@ -1,19 +1,31 @@
 use crate::Server;
+use dashmap::{DashMap, DashSet};
 use futures::{
-	stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
-	TryStreamExt as _,
+	stream::{self, FuturesUnordered},
+	FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 };
 use num::ToPrimitive as _;
-use std::panic::AssertUnwindSafe;
-use tangram_client::{self as tg, handle::Ext as _};
+use std::{
+	collections::{BTreeMap, BTreeSet, VecDeque},
+	panic::AssertUnwindSafe,
+	pin::pin,
+	sync::{atomic::AtomicUsize, Arc},
+};
+use tangram_client::{self as tg, handle::Ext as _, leaf::object};
 use tangram_futures::stream::Ext as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
 pub(crate) struct InnerOutput {
 	pub(crate) count: u64,
 	pub(crate) depth: u64,
 	pub(crate) weight: u64,
+}
+
+struct State {
+	nodes: Vec<usize>,
+	incoming: Vec<(usize, usize)>,
 }
 
 impl Server {
@@ -209,3 +221,9 @@ impl Server {
 		Ok(response)
 	}
 }
+
+/*
+
+
+
+*/
