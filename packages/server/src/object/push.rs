@@ -1,31 +1,21 @@
 use crate::Server;
-use dashmap::{DashMap, DashSet};
 use futures::{
-	stream::{self, FuturesUnordered},
-	FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
+	stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
+	TryStreamExt as _,
 };
 use num::ToPrimitive as _;
-use std::{
-	collections::{BTreeMap, BTreeSet, VecDeque},
-	panic::AssertUnwindSafe,
-	pin::pin,
-	sync::{atomic::AtomicUsize, Arc},
-};
-use tangram_client::{self as tg, handle::Ext as _, leaf::object};
+use std::{panic::AssertUnwindSafe, pin::pin};
+use tangram_client::{self as tg, handle::Ext as _, Handle};
 use tangram_futures::stream::Ext as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
+
+mod graph;
 
 pub(crate) struct InnerOutput {
 	pub(crate) count: u64,
 	pub(crate) depth: u64,
 	pub(crate) weight: u64,
-}
-
-struct State {
-	nodes: Vec<usize>,
-	incoming: Vec<(usize, usize)>,
 }
 
 impl Server {
@@ -35,9 +25,119 @@ impl Server {
 		arg: tg::object::push::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let remote = self.get_remote_client(arg.remote.clone()).await?;
-		Self::push_or_pull_object(self, &remote, object).await
+		self.push_object_inner(object, remote).await
 	}
 
+	async fn push_object_inner(
+		&self,
+		root: &tg::object::Id,
+		remote: tg::Client,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		let metadata = self.try_get_object_metadata(root).await?;
+		let progress = crate::progress::Handle::new();
+		let graph = graph::Graph::new(self, root.clone()).await?;
+
+		let task = tokio::spawn({
+			// Create the inner future.
+			let server = self.clone();
+			let remote = remote.clone();
+			let progress_ = progress.clone();
+			let inner = async move {
+				// Create the visitor stream.
+				let stream = graph
+					.visitor()
+					.await
+					.try_filter_map({
+						let progress = progress_.clone();
+						let server = server.clone();
+						move |(id, node)| {
+							let progress = progress.clone();
+							let server = server.clone();
+							async move {
+								// Swallow nodes that are complete.
+								if node.complete {
+									progress.increment("objects", node.metadata.count.unwrap());
+									progress.increment("bytes", node.metadata.weight.unwrap());
+									return Ok(None);
+								}
+
+								// Get the node data.
+								let data = server.get_object(&id).await?.bytes;
+
+								// Update progress.
+								progress.increment("objects", 1);
+								progress.increment("bytes", data.len().to_u64().unwrap());
+
+								// Send the object.
+								let object = tg::object::post::Object { id, data };
+								Ok::<_, tg::Error>(Some(object))
+							}
+						}
+					})
+					.boxed();
+
+				// Send the recv stream and get back the post stream.
+				let stream = remote.post_object(stream).await?;
+
+				// Spawn a task to drain the stream.
+				let mut stream = pin!(stream);
+				while let Some(event) = stream.try_next().await? {
+					match event {
+						tg::object::post::Event::Complete(id) => {
+							graph.mark_complete(&id).await?;
+						},
+						tg::object::post::Event::End => break,
+					}
+				}
+				Ok::<_, tg::Error>(())
+			};
+
+			// Create the outer future.
+			let progress = progress.clone();
+			let outer = async move {
+				progress.start(
+					"objects".to_owned(),
+					"objects".to_owned(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					metadata.as_ref().and_then(|metadata| metadata.count),
+				);
+				progress.start(
+					"bytes".to_owned(),
+					"bytes".to_owned(),
+					tg::progress::IndicatorFormat::Bytes,
+					Some(0),
+					metadata.as_ref().and_then(|metadata| metadata.weight),
+				);
+				let result = AssertUnwindSafe(inner).catch_unwind().await;
+				progress.finish("objects");
+				progress.finish("bytes");
+				match result {
+					Ok(Ok(output)) => {
+						progress.output(output);
+					},
+					Ok(Err(error)) => {
+						progress.error(error);
+					},
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						progress.error(tg::error!(?message, "the task panicked"));
+					},
+				};
+			};
+
+			outer
+		});
+		let abort_handle = AbortOnDropHandle::new(task);
+		let stream = progress.stream().attach(abort_handle);
+		Ok(stream)
+	}
+}
+
+impl Server {
 	pub(crate) async fn push_or_pull_object<S, D>(
 		src: &S,
 		dst: &D,
@@ -221,9 +321,3 @@ impl Server {
 		Ok(response)
 	}
 }
-
-/*
-
-
-
-*/
