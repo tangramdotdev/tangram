@@ -4,8 +4,10 @@ use futures::{
 	TryStreamExt as _,
 };
 use num::ToPrimitive as _;
+use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
 use std::pin::pin;
+use std::sync::{Arc, RwLock};
 use tangram_client::Handle;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::Ext as _;
@@ -55,10 +57,11 @@ impl Server {
 					Some(0),
 					metadata.as_ref().and_then(|metadata| metadata.weight),
 				);
-				let result =
-					AssertUnwindSafe(server.push_object_with_post_objects_stream(root, remote, &progress))
-						.catch_unwind()
-						.await;
+				let result = AssertUnwindSafe(
+					server.push_object_with_post_objects_stream(root, remote, &progress),
+				)
+				.catch_unwind()
+				.await;
 				progress.finish("objects");
 				progress.finish("bytes");
 				match result {
@@ -89,24 +92,33 @@ impl Server {
 		remote: tg::Client,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
+		// Create the complete tree.
+		let complete_tree = CompleteTree::new();
+
 		// Create the channels.
 		let limit = 128;
-		let (send_event, mut recv_event) = tokio::sync::mpsc::channel(limit);
 		let (mut send_item, recv_item) = tokio::sync::mpsc::channel(limit);
 
 		// Create a task to send items.
 		let send_task = tokio::spawn({
 			let server = self.clone();
+			let complete_tree = complete_tree.clone();
 			let object = root.clone();
 			let progress = progress.clone();
 			async move {
+				// Initialize the complete tree.
+				complete_tree.insert(None, &object);
+
+				// Push the object from the root.
 				let result = Box::pin(server.push_object_with_push_objects_stream_inner(
 					&object,
+					&complete_tree,
 					&mut send_item,
-					&mut recv_event,
 					&progress,
 				))
 				.await;
+
+				// Send an error if necessary.
 				if let Err(error) = result {
 					send_item.send(Err(error)).await.ok();
 				}
@@ -122,15 +134,15 @@ impl Server {
 		let recv_task = tokio::spawn(async move {
 			// Drain the stream.
 			let mut stream = pin!(stream);
-			while let Some(event) = stream
-				.try_next()
-				.await?
-			{
+			while let Some(event) = stream.try_next().await? {
+				// Break if necessary.
 				if matches!(event, tg::object::post::Event::End) {
 					break;
 				}
-				if send_event.send(Ok(event)).await.is_err() {
-					break;
+
+				// Mark the object as complete if necessary.
+				if let tg::object::post::Event::Complete(object) = event {
+					complete_tree.mark_complete(&object);
 				}
 			}
 			Ok::<_, tg::Error>(())
@@ -142,8 +154,8 @@ impl Server {
 	async fn push_object_with_push_objects_stream_inner(
 		&self,
 		object: &tg::object::Id,
+		complete_tree: &CompleteTree,
 		send: &mut tokio::sync::mpsc::Sender<tg::Result<tg::object::post::Item>>,
-		recv: &mut tokio::sync::mpsc::Receiver<tg::Result<tg::object::post::Event>>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<InnerOutput> {
 		// Get the object.
@@ -163,49 +175,42 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
-		// Wait for ack.
-		let ack = recv
-			.recv()
-			.await
-			.ok_or_else(|| tg::error!("expected an ack"))?
-			.map_err(|source| tg::error!(!source, "post stream error"))?;
-		let complete = match ack {
-			tg::object::post::Event::Complete(id) if &id == object => true,
-			tg::object::post::Event::Incomplete(id) if &id == object => false,
-			tg::object::post::Event::End => return Err(tg::error!("unexpected end of stream")),
-			tg::object::post::Event::Complete(id) | tg::object::post::Event::Incomplete(id) => {
-				return Err(tg::error!(%expected = object, %received = id, "unexpected id"))
-			},
-		};
-
 		// Increment the count and add the object's size to the weight.
 		progress.increment("objects", 1);
 		progress.increment("bytes", size);
 
 		// Recurse into the incomplete children.
-		let (incomplete_count, incomplete_depth, incomplete_weight) = if complete {
-			(0, 0, 0)
-		} else {
-			let mut incomplete_count = 0;
-			let mut incomplete_depth = 0;
-			let mut incomplete_weight = 0;
-			for object in data.children() {
-				let result =
-					Box::pin(self.push_object_with_push_objects_stream_inner(&object, send, recv, progress))
-						.await;
-				match result {
-					Ok(output) => {
-						incomplete_count += output.count;
-						incomplete_depth = incomplete_depth.max(1 + output.depth);
-						incomplete_weight += output.weight;
-					},
-					Err(error) => {
-						send.send(Err(error)).await.ok();
-					},
-				}
-			}
-			(incomplete_count, incomplete_depth, incomplete_weight)
-		};
+		let (incomplete_count, incomplete_depth, incomplete_weight) =
+			if complete_tree.is_complete(object) {
+				(0, 0, 0)
+			} else {
+				data.children()
+					.into_iter()
+					.map(|child| {
+						complete_tree.insert(Some(&object), &child);
+						let mut send = send.clone();
+						async move {
+							self.push_object_with_push_objects_stream_inner(
+								&child,
+								complete_tree,
+								&mut send,
+								progress,
+							)
+							.await
+						}
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect::<Vec<_>>()
+					.await?
+					.into_iter()
+					.fold((0, 0, 0), |(count, depth, weight), output| {
+						(
+							count + output.count,
+							depth.max(1 + output.depth),
+							weight + output.weight,
+						)
+					})
+			};
 
 		// If the count is set, then add the count not yet added.
 		if let Some(count) = metadata.count {
@@ -412,5 +417,67 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+struct CompleteTree {
+	inner: Arc<RwLock<CompleteTreeInner>>,
+}
+
+struct CompleteTreeInner {
+	nodes: Vec<usize>,
+	indices: BTreeMap<tg::object::Id, usize>,
+}
+
+impl Clone for CompleteTree {
+	fn clone(&self) -> Self {
+		Self {
+			inner: self.inner.clone(),
+		}
+	}
+}
+
+impl CompleteTree {
+	const MARKER: usize = usize::MAX;
+
+	fn new() -> Self {
+		Self {
+			inner: Arc::new(RwLock::new(CompleteTreeInner {
+				nodes: Vec::new(),
+				indices: BTreeMap::new(),
+			})),
+		}
+	}
+
+	fn insert(&self, parent: Option<&tg::object::Id>, child: &tg::object::Id) {
+		let mut inner = self.inner.write().unwrap();
+		let index = inner.nodes.len();
+		inner.indices.insert(child.clone(), index);
+		if let Some(parent) = parent {
+			let parent = inner.indices.get(parent).copied().unwrap();
+			inner.nodes.push(parent);
+		} else {
+			inner.nodes.push(index);
+		}
+	}
+
+	fn mark_complete(&self, object: &tg::object::Id) {
+		let mut inner = self.inner.write().unwrap();
+		let Some(index) = inner.indices.get(object).copied() else {
+			return;
+		};
+		inner.nodes[index] = Self::MARKER;
+	}
+
+	fn is_complete(&self, object: &tg::object::Id) -> bool {
+		let inner = self.inner.read().unwrap();
+		let mut index = inner.indices.get(object).copied().unwrap();
+		while inner.nodes[index] != index {
+			if inner.nodes[index] == Self::MARKER {
+				return true;
+			}
+			index = inner.nodes[index];
+		}
+		false
 	}
 }
