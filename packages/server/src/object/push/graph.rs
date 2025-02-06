@@ -1,7 +1,6 @@
-use std::{collections::VecDeque, sync::Arc};
-
 use dashmap::DashMap;
 use futures::{stream, Stream};
+use std::{collections::VecDeque, sync::Arc};
 use tangram_client::{self as tg, handle::Ext};
 
 #[derive(Debug)]

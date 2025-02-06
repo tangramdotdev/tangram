@@ -1,43 +1,48 @@
-use std::pin::Pin;
-
 use crate as tg;
 use bytes::Bytes;
-use futures::{future, Stream, StreamExt, TryStreamExt};
+use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
 use http_body_util::StreamBody;
 use num::ToPrimitive;
-use tangram_http::{incoming::response::Ext, sse, Outgoing};
-use winnow::stream::ToUsize;
+use std::pin::Pin;
+use tangram_http::{incoming::response::Ext as _, Outgoing};
 
-pub struct Object {
+#[derive(Debug, Clone)]
+pub struct Item {
 	pub id: tg::object::Id,
-	pub data: Bytes,
+	pub bytes: Bytes,
 }
 
+#[derive(Debug, Clone)]
 pub enum Event {
 	Complete(tg::object::Id),
 	End,
 }
 
 impl tg::Client {
-	pub(crate) async fn post_object(
+	pub(crate) async fn post_objects(
 		&self,
 		stream: Pin<
-			Box<dyn Stream<Item = crate::Result<crate::object::post::Object>> + Send + 'static>,
+			Box<dyn Stream<Item = crate::Result<crate::object::post::Item>> + Send + 'static>,
 		>,
 	) -> tg::Result<impl Stream<Item = crate::Result<crate::object::post::Event>> + Send + 'static>
 	{
 		let method = http::Method::POST;
-		let uri = format!("/objects");
+		let uri = "/objects";
 
 		// Create the body.
 		let body = Outgoing::body(StreamBody::new(stream.map(|result| match result {
-			Ok(object) => Ok(hyper::body::Frame::data(object.serialize())),
+			Ok(item) => {
+				let bytes = item.serialize();
+				let frame = hyper::body::Frame::data(bytes);
+				Ok(frame)
+			},
 			Err(error) => {
 				let mut trailers = http::HeaderMap::new();
 				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
 				let json = serde_json::to_string(&error).unwrap();
 				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-				Ok(hyper::body::Frame::trailers(trailers))
+				let frame = hyper::body::Frame::trailers(trailers);
+				Ok(frame)
 			},
 		})));
 
@@ -50,10 +55,6 @@ impl tg::Client {
 
 		// Send the request.
 		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let error = response.json().await?;
-			return Err(error);
-		}
 
 		// Check for an error.
 		if !response.status().is_success() {
@@ -76,30 +77,31 @@ impl tg::Client {
 					},
 				)
 			});
+
 		Ok(stream)
 	}
 }
 
-impl TryFrom<Event> for sse::Event {
+impl TryFrom<Event> for tangram_http::sse::Event {
 	type Error = tg::Error;
 	fn try_from(value: Event) -> Result<Self, Self::Error> {
 		match value {
-			Event::Complete(id) => Ok(sse::Event {
+			Event::Complete(id) => Ok(tangram_http::sse::Event {
 				event: Some("complete".to_owned()),
 				data: id.to_string(),
-				..sse::Event::default()
+				..tangram_http::sse::Event::default()
 			}),
-			Event::End => Ok(sse::Event {
+			Event::End => Ok(tangram_http::sse::Event {
 				event: Some("end".to_owned()),
-				..sse::Event::default()
+				..tangram_http::sse::Event::default()
 			}),
 		}
 	}
 }
 
-impl TryFrom<sse::Event> for Event {
+impl TryFrom<tangram_http::sse::Event> for Event {
 	type Error = tg::Error;
-	fn try_from(value: sse::Event) -> Result<Self, Self::Error> {
+	fn try_from(value: tangram_http::sse::Event) -> Result<Self, Self::Error> {
 		match value.event.as_deref() {
 			Some("complete") => value
 				.data
@@ -111,25 +113,24 @@ impl TryFrom<sse::Event> for Event {
 					.map_err(|_| tg::error!("failed to deserialize the event"))?;
 				Err(error)
 			},
-			Some("end") => Ok(Event::End),
-			_ => return Err(tg::error!("unknown event type")),
+			_ => Err(tg::error!("unknown event type")),
 		}
 	}
 }
 
-impl Object {
+impl Item {
 	pub fn serialize(&self) -> Bytes {
 		// Serialize the ID.
 		let id = self.id.to_string();
 
 		// Allocate the body.
-		let mut body = Vec::with_capacity(16 + id.len() + self.data.len());
+		let mut body = Vec::with_capacity(16 + id.len() + self.bytes.len());
 
 		// Create the body.
 		body.extend_from_slice(&id.len().to_u64().unwrap().to_be_bytes());
 		body.extend_from_slice(id.as_bytes());
-		body.extend_from_slice(&self.data.len().to_u64().unwrap().to_be_bytes());
-		body.extend_from_slice(&self.data);
+		body.extend_from_slice(&self.bytes.len().to_u64().unwrap().to_be_bytes());
+		body.extend_from_slice(&self.bytes);
 
 		body.into()
 	}
@@ -176,6 +177,6 @@ impl Object {
 		}
 
 		// Create the object.
-		Ok(Object { id, data })
+		Ok(Item { id, bytes: data })
 	}
 }

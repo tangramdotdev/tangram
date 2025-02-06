@@ -127,10 +127,10 @@ where
 		}
 	}
 
-	fn post_object(
+	fn post_objects(
 		&self,
 		stream: Pin<
-			Box<dyn Stream<Item = crate::Result<crate::object::post::Object>> + Send + 'static>,
+			Box<dyn Stream<Item = crate::Result<crate::object::post::Item>> + Send + 'static>,
 		>,
 	) -> impl Future<
 		Output = crate::Result<
@@ -139,11 +139,11 @@ where
 	> + Send {
 		match self {
 			Either::Left(s) => s
-				.post_object(stream)
+				.post_objects(stream)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
 			Either::Right(s) => s
-				.post_object(stream)
+				.post_objects(stream)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}

@@ -4,8 +4,9 @@ use futures::{
 	TryStreamExt as _,
 };
 use num::ToPrimitive as _;
-use std::{panic::AssertUnwindSafe, pin::pin};
-use tangram_client::{self as tg, handle::Ext as _, Handle};
+use std::panic::AssertUnwindSafe;
+use std::pin::pin;
+use tangram_client::{self as tg, handle::Ext as _, Handle as _};
 use tangram_futures::stream::Ext as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
 use tokio_util::task::AbortOnDropHandle;
@@ -61,15 +62,15 @@ impl Server {
 									return Ok(None);
 								}
 
-								// Get the node data.
-								let data = server.get_object(&id).await?.bytes;
+								// Get the bytes.
+								let bytes = server.get_object(&id).await?.bytes;
 
 								// Update progress.
 								progress.increment("objects", 1);
-								progress.increment("bytes", data.len().to_u64().unwrap());
+								progress.increment("bytes", bytes.len().to_u64().unwrap());
 
 								// Send the object.
-								let object = tg::object::post::Object { id, data };
+								let object = tg::object::post::Item { id, bytes };
 								Ok::<_, tg::Error>(Some(object))
 							}
 						}
@@ -77,7 +78,7 @@ impl Server {
 					.boxed();
 
 				// Send the recv stream and get back the post stream.
-				let stream = remote.post_object(stream).await?;
+				let stream = remote.post_objects(stream).await?;
 
 				// Spawn a task to drain the stream.
 				let mut stream = pin!(stream);

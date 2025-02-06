@@ -1114,15 +1114,15 @@ impl tg::Handle for Server {
 		self.put_object(id, arg)
 	}
 
-	fn post_object(
+	fn post_objects(
 		&self,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Object>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Item>> + Send + 'static>>,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static,
 		>,
 	> + Send {
-		self.post_object(stream)
+		self.post_objects(stream)
 	}
 
 	fn push_object(

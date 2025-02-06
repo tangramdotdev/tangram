@@ -206,9 +206,9 @@ impl tg::Handle for Proxy {
 		self.server.put_object(id, arg)
 	}
 
-	async fn post_object(
+	async fn post_objects(
 		&self,
-		_stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Object>> + Send + 'static>>,
+		_stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Item>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
