@@ -1,6 +1,5 @@
 use crate::Server;
-use futures::{future, stream::FuturesUnordered, Stream, StreamExt as _, TryStreamExt as _};
-use http_body_util::{BodyExt as _, BodyStream};
+use futures::{future, stream, Stream, StreamExt as _, TryStreamExt as _};
 use std::pin::{pin, Pin};
 use tangram_client as tg;
 use tangram_futures::stream::Ext as _;
@@ -28,27 +27,17 @@ impl Server {
 			let server = self.clone();
 			let event_sender = event_sender.clone();
 			async move {
-				let stream = ReceiverStream::new(database_receiver).chunks(100);
+				let stream = ReceiverStream::new(database_receiver);
 				let mut stream = pin!(stream);
-				while let Some(items) = stream.next().await {
-					let complete = items
-						.into_iter()
-						.map(|item| {
-							let server = server.clone();
-							let arg = tg::object::put::Arg { bytes: item.bytes };
-							async move {
-								let output = server.put_object(&item.id, arg).await?;
-								Ok::<_, tg::Error>((item.id, output.complete))
-							}
-						})
-						.collect::<FuturesUnordered<_>>()
-						.try_filter_map(|(id, complete)| future::ok(complete.then_some(id)))
-						.try_collect::<Vec<_>>()
-						.await?;
-					for id in complete {
-						let event = tg::object::post::Event::Complete(id);
-						event_sender.send(Ok(event)).ok();
-					}
+				while let Some(item) = stream.next().await {
+					let arg = tg::object::put::Arg { bytes: item.bytes };
+					let output = server.put_object(&item.id, arg).await?;
+					let event = if output.complete {
+						tg::object::post::Event::Complete(item.id.clone())
+					} else {
+						tg::object::post::Event::Incomplete(item.id.clone())
+					};
+					event_sender.send(Ok(event)).ok();
 				}
 				Ok(())
 			}
@@ -85,9 +74,7 @@ impl Server {
 				loop {
 					let item = match stream.try_next().await {
 						Ok(Some(item)) => item,
-						Ok(None) => {
-							break;
-						},
+						Ok(None) => break,
 						Err(error) => {
 							event_sender.send(Err(error)).ok();
 							return;
@@ -105,10 +92,18 @@ impl Server {
 						return;
 					}
 				}
+
+				// Close the channels
+				drop(database_sender);
+				drop(store_sender);
+
+				// Join the tasks.
 				let result = future::try_join(database_task, store_task).await;
 				if let (Err(error), _) | (_, Err(error)) = result.unwrap() {
 					event_sender.send(Err(error)).ok();
 				}
+
+				// Send the end event.
 				event_sender.send(Ok(tg::object::post::Event::End)).ok();
 			}
 		});
@@ -135,38 +130,14 @@ impl Server {
 			.transpose()?;
 
 		// Create the incoming stream.
-		let body = request
-			.into_body()
-			.map_err(|source| tg::error!(!source, "failed to read the body"));
-		let stream = BodyStream::new(body)
-			.and_then(|frame| async {
-				match frame.into_data() {
-					Ok(bytes) => tg::object::post::Item::deserialize(bytes),
-					Err(frame) => {
-						let trailers = frame.into_trailers().unwrap();
-						let event = trailers
-							.get("x-tg-event")
-							.ok_or_else(|| tg::error!("missing event"))?
-							.to_str()
-							.map_err(|source| tg::error!(!source, "invalid event"))?;
-						match event {
-							"error" => {
-								let data = trailers
-									.get("x-tg-data")
-									.ok_or_else(|| tg::error!("missing data"))?
-									.to_str()
-									.map_err(|source| tg::error!(!source, "invalid data"))?;
-								let error = serde_json::from_str(data).map_err(|source| {
-									tg::error!(!source, "failed to deserialize the header value")
-								})?;
-								Err(error)
-							},
-							_ => Err(tg::error!("invalid event")),
-						}
-					},
-				}
-			})
-			.boxed();
+		let body = request.reader();
+		let stream = stream::try_unfold(body, |mut reader| async move {
+			let Some(item) = tg::object::post::Item::try_deserialize(&mut reader).await? else {
+				return Ok(None);
+			};
+			Ok(Some((item, reader)))
+		})
+		.boxed();
 
 		// Create the outgoing stream.
 		let stream = handle.post_objects(stream).await?.boxed();

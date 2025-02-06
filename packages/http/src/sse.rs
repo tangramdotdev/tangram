@@ -55,7 +55,6 @@ pub fn decode(
 			match field {
 				"data" => {
 					event.data.push_str(value);
-					event.data.push('\n');
 				},
 				"event" => {
 					event.event = Some(value.to_owned());

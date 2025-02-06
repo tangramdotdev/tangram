@@ -6,12 +6,12 @@ use futures::{
 use num::ToPrimitive as _;
 use std::panic::AssertUnwindSafe;
 use std::pin::pin;
-use tangram_client::{self as tg, handle::Ext as _, Handle as _};
+use tangram_client::Handle;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::Ext as _;
 use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
-
-mod graph;
 
 pub(crate) struct InnerOutput {
 	pub(crate) count: u64,
@@ -36,66 +36,11 @@ impl Server {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let metadata = self.try_get_object_metadata(root).await?;
 		let progress = crate::progress::Handle::new();
-		let graph = graph::Graph::new(self, root.clone()).await?;
-
 		let task = tokio::spawn({
-			// Create the inner future.
-			let server = self.clone();
-			let remote = remote.clone();
-			let progress_ = progress.clone();
-			let inner = async move {
-				// Create the visitor stream.
-				let stream = graph
-					.visitor()
-					.await
-					.try_filter_map({
-						let progress = progress_.clone();
-						let server = server.clone();
-						move |(id, node)| {
-							let progress = progress.clone();
-							let server = server.clone();
-							async move {
-								// Swallow nodes that are complete.
-								if node.complete {
-									progress.increment("objects", node.metadata.count.unwrap());
-									progress.increment("bytes", node.metadata.weight.unwrap());
-									return Ok(None);
-								}
-
-								// Get the bytes.
-								let bytes = server.get_object(&id).await?.bytes;
-
-								// Update progress.
-								progress.increment("objects", 1);
-								progress.increment("bytes", bytes.len().to_u64().unwrap());
-
-								// Send the object.
-								let object = tg::object::post::Item { id, bytes };
-								Ok::<_, tg::Error>(Some(object))
-							}
-						}
-					})
-					.boxed();
-
-				// Send the recv stream and get back the post stream.
-				let stream = remote.post_objects(stream).await?;
-
-				// Spawn a task to drain the stream.
-				let mut stream = pin!(stream);
-				while let Some(event) = stream.try_next().await? {
-					match event {
-						tg::object::post::Event::Complete(id) => {
-							graph.mark_complete(&id).await?;
-						},
-						tg::object::post::Event::End => break,
-					}
-				}
-				Ok::<_, tg::Error>(())
-			};
-
-			// Create the outer future.
 			let progress = progress.clone();
-			let outer = async move {
+			let server = self.clone();
+			let root = root.clone();
+			async move {
 				progress.start(
 					"objects".to_owned(),
 					"objects".to_owned(),
@@ -110,7 +55,10 @@ impl Server {
 					Some(0),
 					metadata.as_ref().and_then(|metadata| metadata.weight),
 				);
-				let result = AssertUnwindSafe(inner).catch_unwind().await;
+				let result =
+					AssertUnwindSafe(server.push_object_with_post_objects_stream(root, remote, &progress))
+						.catch_unwind()
+						.await;
 				progress.finish("objects");
 				progress.finish("bytes");
 				match result {
@@ -128,13 +76,157 @@ impl Server {
 						progress.error(tg::error!(?message, "the task panicked"));
 					},
 				};
-			};
-
-			outer
+			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = progress.stream().attach(abort_handle);
 		Ok(stream)
+	}
+
+	pub async fn push_object_with_post_objects_stream(
+		&self,
+		root: tg::object::Id,
+		remote: tg::Client,
+		progress: &crate::progress::Handle<()>,
+	) -> tg::Result<()> {
+		// Create the channels.
+		let limit = 128;
+		let (send_event, mut recv_event) = tokio::sync::mpsc::channel(limit);
+		let (mut send_item, recv_item) = tokio::sync::mpsc::channel(limit);
+
+		// Create a task to send items.
+		let send_task = tokio::spawn({
+			let server = self.clone();
+			let object = root.clone();
+			let progress = progress.clone();
+			async move {
+				let result = Box::pin(server.push_object_with_push_objects_stream_inner(
+					&object,
+					&mut send_item,
+					&mut recv_event,
+					&progress,
+				))
+				.await;
+				if let Err(error) = result {
+					send_item.send(Err(error)).await.ok();
+				}
+			}
+		});
+
+		// Create the stream.
+		let stream = remote
+			.post_objects(ReceiverStream::new(recv_item).boxed())
+			.await?;
+
+		// Create a task to receive ack messages.
+		let recv_task = tokio::spawn(async move {
+			// Drain the stream.
+			let mut stream = pin!(stream);
+			while let Some(event) = stream
+				.try_next()
+				.await?
+			{
+				if matches!(event, tg::object::post::Event::End) {
+					break;
+				}
+				if send_event.send(Ok(event)).await.is_err() {
+					break;
+				}
+			}
+			Ok::<_, tg::Error>(())
+		});
+
+		futures::try_join!(send_task, recv_task).unwrap().1
+	}
+
+	async fn push_object_with_push_objects_stream_inner(
+		&self,
+		object: &tg::object::Id,
+		send: &mut tokio::sync::mpsc::Sender<tg::Result<tg::object::post::Item>>,
+		recv: &mut tokio::sync::mpsc::Receiver<tg::Result<tg::object::post::Event>>,
+		progress: &crate::progress::Handle<()>,
+	) -> tg::Result<InnerOutput> {
+		// Get the object.
+		let tg::object::get::Output { bytes, metadata } = self
+			.get_object(object)
+			.await
+			.map_err(|source| tg::error!(!source, %object, "failed to get the object"))?;
+		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
+		let size = bytes.len().to_u64().unwrap();
+
+		// Send the object.
+		let item = tg::object::post::Item {
+			id: object.clone(),
+			bytes: bytes.clone(),
+		};
+		send.send(Ok(item))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send"))?;
+
+		// Wait for ack.
+		let ack = recv
+			.recv()
+			.await
+			.ok_or_else(|| tg::error!("expected an ack"))?
+			.map_err(|source| tg::error!(!source, "post stream error"))?;
+		let complete = match ack {
+			tg::object::post::Event::Complete(id) if &id == object => true,
+			tg::object::post::Event::Incomplete(id) if &id == object => false,
+			tg::object::post::Event::End => return Err(tg::error!("unexpected end of stream")),
+			tg::object::post::Event::Complete(id) | tg::object::post::Event::Incomplete(id) => {
+				return Err(tg::error!(%expected = object, %received = id, "unexpected id"))
+			},
+		};
+
+		// Increment the count and add the object's size to the weight.
+		progress.increment("objects", 1);
+		progress.increment("bytes", size);
+
+		// Recurse into the incomplete children.
+		let (incomplete_count, incomplete_depth, incomplete_weight) = if complete {
+			(0, 0, 0)
+		} else {
+			let mut incomplete_count = 0;
+			let mut incomplete_depth = 0;
+			let mut incomplete_weight = 0;
+			for object in data.children() {
+				let result =
+					Box::pin(self.push_object_with_push_objects_stream_inner(&object, send, recv, progress))
+						.await;
+				match result {
+					Ok(output) => {
+						incomplete_count += output.count;
+						incomplete_depth = incomplete_depth.max(1 + output.depth);
+						incomplete_weight += output.weight;
+					},
+					Err(error) => {
+						send.send(Err(error)).await.ok();
+					},
+				}
+			}
+			(incomplete_count, incomplete_depth, incomplete_weight)
+		};
+
+		// If the count is set, then add the count not yet added.
+		if let Some(count) = metadata.count {
+			progress.increment("objects", count - 1 - incomplete_count);
+		}
+
+		// If the weight is set, then add the weight not yet added.
+		if let Some(weight) = metadata.weight {
+			progress.increment("bytes", weight - size - incomplete_weight);
+		}
+
+		// Compute the count and weight from this call.
+		let count = metadata.count.unwrap_or_else(|| 1 + incomplete_count);
+		let depth = metadata.depth.unwrap_or_else(|| 1 + incomplete_depth);
+		let weight = metadata.weight.unwrap_or_else(|| size + incomplete_weight);
+
+		Ok(InnerOutput {
+			count,
+			depth,
+			weight,
+		})
 	}
 }
 
