@@ -1,4 +1,5 @@
 use crate::Server;
+use dashmap::DashSet;
 use futures::{
 	stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _,
 	TryStreamExt as _,
@@ -94,6 +95,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Create the complete tree.
 		let complete_tree = CompleteTree::new();
+		let complete_set = Arc::new(DashSet::new());
 
 		// Create the channels.
 		let limit = 128;
@@ -103,6 +105,7 @@ impl Server {
 		let send_task = tokio::spawn({
 			let server = self.clone();
 			let complete_tree = complete_tree.clone();
+			let complete_set = complete_set.clone();
 			let object = root.clone();
 			let progress = progress.clone();
 			async move {
@@ -113,6 +116,7 @@ impl Server {
 				let result = Box::pin(server.push_object_with_push_objects_stream_inner(
 					&object,
 					&complete_tree,
+					&complete_set,
 					&mut send_item,
 					&progress,
 				))
@@ -143,6 +147,7 @@ impl Server {
 				// Mark the object as complete if necessary.
 				if let tg::object::post::Event::Complete(object) = event {
 					complete_tree.mark_complete(&object);
+					complete_set.insert(object);
 				}
 			}
 			Ok::<_, tg::Error>(())
@@ -155,6 +160,7 @@ impl Server {
 		&self,
 		object: &tg::object::Id,
 		complete_tree: &CompleteTree,
+		complete_set: &Arc<DashSet<tg::object::Id>>,
 		send: &mut tokio::sync::mpsc::Sender<tg::Result<tg::object::post::Item>>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<InnerOutput> {
@@ -163,54 +169,50 @@ impl Server {
 			.get_object(object)
 			.await
 			.map_err(|source| tg::error!(!source, %object, "failed to get the object"))?;
+
 		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
 		let size = bytes.len().to_u64().unwrap();
 
-		// Send the object.
-		let item = tg::object::post::Item {
-			id: object.clone(),
-			bytes: bytes.clone(),
+		// Send the object if not complete.
+		if !complete_tree.is_complete(object){
+			let item = tg::object::post::Item {
+				id: object.clone(),
+				bytes: bytes.clone(),
+			};
+			send.send(Ok(item))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to send"))?;
+		}
+
+		// Recurse into the incomplete children if not complete.
+		let (incomplete_count, incomplete_depth, incomplete_weight) = if complete_tree.is_complete(object) {
+			(0, 0, 0)
+		} else {
+			let mut count = 0;
+			let mut depth = 0;
+			let mut weight = 0;
+
+			for child in data.children() {
+				complete_tree.insert(Some(&object), &child);
+				let output = Box::pin(self.push_object_with_push_objects_stream_inner(
+					&child,
+					complete_tree,
+					complete_set,
+					send,
+					progress,
+				))
+				.await?;
+				count += output.count;
+				depth = depth.max(1 + output.depth);
+				weight += output.weight;
+			}
+
+			(count, depth, weight)
 		};
-		send.send(Ok(item))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
 		// Increment the count and add the object's size to the weight.
 		progress.increment("objects", 1);
 		progress.increment("bytes", size);
-
-		// Recurse into the incomplete children.
-		let (incomplete_count, incomplete_depth, incomplete_weight) =
-			if complete_tree.is_complete(object) {
-				(0, 0, 0)
-			} else {
-				data.children()
-					.into_iter()
-					.map(|child| {
-						complete_tree.insert(Some(&object), &child);
-						let mut send = send.clone();
-						async move {
-							self.push_object_with_push_objects_stream_inner(
-								&child,
-								complete_tree,
-								&mut send,
-								progress,
-							)
-							.await
-						}
-					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect::<Vec<_>>()
-					.await?
-					.into_iter()
-					.fold((0, 0, 0), |(count, depth, weight), output| {
-						(
-							count + output.count,
-							depth.max(1 + output.depth),
-							weight + output.weight,
-						)
-					})
-			};
 
 		// If the count is set, then add the count not yet added.
 		if let Some(count) = metadata.count {
@@ -463,9 +465,7 @@ impl CompleteTree {
 
 	fn mark_complete(&self, object: &tg::object::Id) {
 		let mut inner = self.inner.write().unwrap();
-		let Some(index) = inner.indices.get(object).copied() else {
-			return;
-		};
+		let index = inner.indices.get(object).copied().unwrap();
 		inner.nodes[index] = Self::MARKER;
 	}
 
