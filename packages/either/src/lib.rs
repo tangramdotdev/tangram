@@ -185,6 +185,16 @@ where
 	}
 }
 
+impl<L, R> AsRef<[u8]> for Either<L, R>
+where
+	L: AsRef<[u8]>,
+	R: AsRef<[u8]>,
+{
+	fn as_ref(&self) -> &[u8] {
+		for_both!(self, value => value.as_ref())
+	}
+}
+
 #[macro_export]
 macro_rules! for_both {
 	($value:expr, $pattern:pat => $result:expr) => {

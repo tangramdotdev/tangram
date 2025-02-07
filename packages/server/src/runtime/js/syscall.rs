@@ -26,6 +26,7 @@ pub fn syscall<'s>(
 
 	// Invoke the syscall.
 	let result = match name.as_str() {
+		"blob_create" => async_(scope, &args, self::blob::create),
 		"blob_read" => async_(scope, &args, self::blob::read),
 		"checksum" => async_(scope, &args, self::checksum::checksum),
 		"encoding_base64_decode" => sync(scope, &args, self::encoding::base64_decode),

@@ -1,6 +1,11 @@
 import type * as tg from "./index.ts";
 
 declare global {
+	function syscall(
+		syscall: "blob_create",
+		bytes: string | Uint8Array,
+	): Promise<tg.Blob>;
+
 	function syscall(syscall: "blob_read", blob: tg.Blob): Promise<Uint8Array>;
 
 	function syscall(

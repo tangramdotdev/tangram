@@ -27,10 +27,8 @@ export namespace Blob {
 				flattened.map(async (arg) => {
 					if (arg === undefined) {
 						return [];
-					} else if (typeof arg === "string") {
-						return [await tg.leaf(arg)];
-					} else if (arg instanceof Uint8Array) {
-						return [await tg.leaf(arg)];
+					} else if (typeof arg === "string" || arg instanceof Uint8Array) {
+						return [await syscall("blob_create", arg)];
 					} else {
 						return [arg];
 					}
