@@ -115,6 +115,9 @@ impl Server {
 		tokio::fs::create_dir_all(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+		let path = tokio::fs::canonicalize(&config.path).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "could not canonicalize server path"),
+		)?;
 
 		// Lock the lock file.
 		let lock_path = path.join("lock");

@@ -160,7 +160,9 @@ impl Runtime {
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 		// Create the sandbox profile.
+		tracing::debug!(?artifacts_path, ?home, ?output, "sandbox profile inputs");
 		let profile = create_sandbox_profile(&state, &artifacts_path, home.as_deref(), &output);
+		tracing::debug!(?profile, "sandbox profile");
 
 		// Create the command.
 		let mut command = tokio::process::Command::new(executable);
@@ -185,6 +187,7 @@ impl Runtime {
 					let error = *error;
 					let _message = CStr::from_ptr(error);
 					sandbox_free_error(error);
+					tracing::debug!(?_message, "sandbox_init error");
 					return Err(std::io::Error::last_os_error());
 				}
 
