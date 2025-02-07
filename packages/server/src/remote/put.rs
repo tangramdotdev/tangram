@@ -25,6 +25,7 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
+		self.remotes.remove(name);
 		Ok(())
 	}
 }
