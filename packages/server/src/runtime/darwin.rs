@@ -160,9 +160,28 @@ impl Runtime {
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 		// Create the sandbox profile.
-		tracing::debug!(?artifacts_path, ?home, ?output, "sandbox profile inputs");
-		let profile = create_sandbox_profile(&state, &artifacts_path, home.as_deref(), &output);
-		tracing::debug!(?profile, "sandbox profile");
+		let canonical_artifacts_path = tokio::fs::canonicalize(&artifacts_path).await.map_err(
+			|source| tg::error!(!source, %path = artifacts_path.display(), "failed to canonicalize"),
+		)?;
+		let canonical_home_path = if let Some(path) = home {
+			Some(tokio::fs::canonicalize(&path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to canonicalize"),
+			)?)
+		} else {
+			None
+		};
+		let canonical_output_path = tokio::fs::canonicalize(&output_parent.path())
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = output_parent.path().display(), "failed to canonicalize"),
+			)?
+			.join("output");
+		let profile = create_sandbox_profile(
+			&state,
+			&canonical_artifacts_path,
+			canonical_home_path.as_deref(),
+			&canonical_output_path,
+		);
 
 		// Create the command.
 		let mut command = tokio::process::Command::new(executable);
