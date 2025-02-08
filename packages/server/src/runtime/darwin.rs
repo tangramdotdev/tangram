@@ -107,25 +107,17 @@ impl Runtime {
 			let socket = path.join("socket").display().to_string();
 			let path = urlencoding::encode(&socket);
 			let mut url = format!("http+unix://{path}").parse::<Url>().unwrap();
-			let mut is_tcp = false;
 			if url.as_str().len() >= MAX_URL_LEN {
 				url = "http://localhost:0".to_string().parse::<Url>().unwrap();
-				is_tcp = true;
 			}
 			let listener = Server::listen(&url).await?;
 			let listener_addr = listener
 				.local_addr()
 				.map_err(|source| tg::error!(!source, "failed to get listener address"))?;
-			if is_tcp {
-				let port = match listener_addr {
-					tokio_util::either::Either::Left(_unix_listener) => {
-						return Err(tg::error!("expected a TCP listener"))
-					},
-					tokio_util::either::Either::Right(tcp_listener) => tcp_listener.port(),
-				};
+			if let tokio_util::either::Either::Right(listener) = listener_addr {
+				let port = listener.port();
 				url = format!("http://localhost:{port}").parse::<Url>().unwrap();
-			}
-
+			};
 			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 			Some((task, url))
 		} else {
