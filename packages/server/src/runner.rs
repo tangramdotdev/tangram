@@ -143,40 +143,24 @@ impl Server {
 			None => None,
 		};
 
-		// If the process was remote, push the output.
-		let remote = process.remote();
-		if let Some(remote) = remote {
-			if let Some(ref value) = value {
-				let client = self.get_remote_client(remote.into()).await?;
+		// If the process is remote, then push the output.
+		if let Some(remote) = process.remote() {
+			if let Some(value) = &value {
 				let value = tg::Value::try_from(value.clone())?;
-				// FIXME - this is a stopgap. This logic should call the as-yet unimplemented push() with all objects.
 				let object = value
 					.try_unwrap_object()
-					.map_err(|source| tg::error!(!source, "expected a single object"))?;
+					.map_err(|source| tg::error!(!source, "expected an object"))?;
 
+				// Push the object.
 				let object_id = object.id(self).await?;
 				let arg = tg::object::push::Arg {
 					remote: remote.to_owned(),
 				};
 				let stream = self.push_object(&object_id, arg).await?;
+
+				// Consume the stream and log progress.
 				let mut stream = pin!(stream);
-
-				// Log that the push started.
-				let message = format!("pushing {object_id}\n");
-				let arg = tg::process::log::post::Arg {
-					bytes: message.into(),
-					remote: process.remote().cloned(),
-				};
-				client.try_post_process_log(process.id(), arg).await.ok();
-
-				// Consume the stream.
-				while let Some(result) = stream.next().await {
-					let event = match result {
-						Ok(event) => event,
-						Err(error) => return Err(error),
-					};
-
-					// Handle the event.
+				while let Some(event) = stream.try_next().await? {
 					match event {
 						tg::progress::Event::Start(indicator)
 						| tg::progress::Event::Update(indicator) => {
@@ -186,7 +170,7 @@ impl Server {
 									bytes: message.into(),
 									remote: process.remote().cloned(),
 								};
-								client.try_post_process_log(process.id(), arg).await.ok();
+								self.try_post_process_log(process.id(), arg).await.ok();
 							}
 						},
 						tg::progress::Event::Output(()) => {
@@ -195,14 +179,6 @@ impl Server {
 						_ => {},
 					}
 				}
-
-				// Log that the push finished.
-				let message = format!("finished pushing {object_id}\n");
-				let arg = tg::process::log::post::Arg {
-					bytes: message.into(),
-					remote: process.remote().cloned(),
-				};
-				client.try_post_process_log(process.id(), arg).await.ok();
 			}
 		}
 
@@ -211,7 +187,7 @@ impl Server {
 			error: output.error,
 			exit: output.exit,
 			output: value,
-			remote: remote.cloned(),
+			remote: process.remote().cloned(),
 			status,
 		};
 		self.try_finish_process(process.id(), arg).await?;

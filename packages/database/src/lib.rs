@@ -320,6 +320,6 @@ pub trait Query {
 #[macro_export]
 macro_rules! params {
 	($($v:expr),* $(,)?) => {
-		vec![$(::serde::Serialize::serialize(&$v, $crate::value::ser::Serializer).unwrap_or_else(|e| panic!("Failed to serialize value: {:?}: {}", stringify!($v), e)),)*]
+		vec![$(::serde::Serialize::serialize(&$v, $crate::value::ser::Serializer).unwrap(),)*]
 	};
 }

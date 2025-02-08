@@ -191,7 +191,6 @@ impl Runtime {
 			.stdin(std::process::Stdio::piped())
 			.stdout(std::process::Stdio::piped())
 			.stderr(std::process::Stdio::piped());
-		tracing::debug!(?command, "command");
 
 		// Add a pre_exec hook to initialize the sandbox.
 		unsafe {
@@ -205,7 +204,6 @@ impl Runtime {
 					let error = *error;
 					let _message = CStr::from_ptr(error);
 					sandbox_free_error(error);
-					tracing::debug!(?_message, "sandbox_init error");
 					return Err(std::io::Error::last_os_error());
 				}
 

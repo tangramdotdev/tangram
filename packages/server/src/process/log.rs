@@ -291,6 +291,18 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
 	) -> tg::Result<tg::process::log::post::Output> {
+		// If the remote arg is set, then forward the request.
+		let remote = arg.remote.as_ref();
+		if let Some(remote) = remote {
+			let remote = self.get_remote_client(remote.clone()).await?;
+			let arg = tg::process::log::post::Arg {
+				remote: None,
+				..arg
+			};
+			let output = remote.try_post_process_log(id, arg).await?;
+			return Ok(output);
+		}
+
 		// Verify the process is local and started.
 		if self.get_current_process_status_local(id).await? != tg::process::Status::Started {
 			return Ok(tg::process::log::post::Output { added: false });

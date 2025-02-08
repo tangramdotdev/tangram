@@ -22,13 +22,6 @@ pub trait Ext: AsyncRead {
 		Box::pin(self)
 	}
 
-	// fn left_reader<'a>(self) -> Boxed<'a>
-	// where
-	// 	Self: Sized + Send + 'a,
-	// {
-	// 	Box::pin(self)
-	// }
-
 	fn read_uvarint(&mut self) -> impl Future<Output = std::io::Result<u64>> + Send
 	where
 		Self: Unpin + Send,

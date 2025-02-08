@@ -28,32 +28,18 @@ pub async fn spawn(
 	let output = state
 		.main_runtime_handle
 		.spawn(async move {
-			// If the parent remote set, push the command.
+			// If the parent is remote, then push the command.
 			if let Some(remote) = parent.remote() {
-				if let Some(ref command) = arg.command {
-					let client = server.get_remote_client(remote.to_string()).await?;
-
+				if let Some(command) = &arg.command {
+					// Push the command.
 					let arg = tg::object::push::Arg {
 						remote: remote.to_owned(),
 					};
 					let stream = server.push_object(&command.clone().into(), arg).await?;
+
+					// Consume the stream and log progress.
 					let mut stream = pin!(stream);
-					// Log that the push started.
-					let message = format!("pushing {command}\n");
-					let arg = tg::process::log::post::Arg {
-						bytes: message.into(),
-						remote: Some(remote.to_owned()),
-					};
-					client.try_post_process_log(parent.id(), arg).await.ok();
-
-					// Consume the stream.
-					while let Some(result) = stream.next().await {
-						let event = match result {
-							Ok(event) => event,
-							Err(error) => return Err(error),
-						};
-
-						// Handle the event.
+					while let Some(event) = stream.try_next().await? {
 						match event {
 							tg::progress::Event::Start(indicator)
 							| tg::progress::Event::Update(indicator) => {
@@ -63,7 +49,7 @@ pub async fn spawn(
 										bytes: message.into(),
 										remote: Some(remote.to_owned()),
 									};
-									client.try_post_process_log(parent.id(), arg).await.ok();
+									server.try_post_process_log(parent.id(), arg).await.ok();
 								}
 							},
 							tg::progress::Event::Output(()) => {
@@ -72,14 +58,6 @@ pub async fn spawn(
 							_ => {},
 						}
 					}
-
-					// Log that the push finished.
-					let message = format!("finished pushing {command}\n");
-					let arg = tg::process::log::post::Arg {
-						bytes: message.into(),
-						remote: Some(remote.to_owned()),
-					};
-					client.try_post_process_log(parent.id(), arg).await.ok();
 				}
 			}
 
@@ -92,21 +70,8 @@ pub async fn spawn(
 				retry,
 				..arg
 			};
-
-			// let output = if let Some(remote) = parent.remote() {
-			// 	let client = server.get_remote_client(remote.to_string()).await?;
-			// 	client
-			// 		.spawn_process(tg::process::spawn::Arg {
-			// 			remote: None,
-			// 			..arg
-			// 		})
-			// 		.await?
-			// 	// client.spawn_process(arg).await?
-			// } else {
-			// server.spawn_process(arg).await?
-			// };
-
 			let output = server.spawn_process(arg).await?;
+
 			Ok::<_, tg::Error>(output)
 		})
 		.await
