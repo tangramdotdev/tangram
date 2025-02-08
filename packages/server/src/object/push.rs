@@ -174,7 +174,7 @@ impl Server {
 		let size = bytes.len().to_u64().unwrap();
 
 		// Send the object if not complete.
-		if !complete_tree.is_complete(object){
+		if !complete_tree.is_complete(object) {
 			let item = tg::object::post::Item {
 				id: object.clone(),
 				bytes: bytes.clone(),
@@ -185,30 +185,31 @@ impl Server {
 		}
 
 		// Recurse into the incomplete children if not complete.
-		let (incomplete_count, incomplete_depth, incomplete_weight) = if complete_tree.is_complete(object) {
-			(0, 0, 0)
-		} else {
-			let mut count = 0;
-			let mut depth = 0;
-			let mut weight = 0;
+		let (incomplete_count, incomplete_depth, incomplete_weight) =
+			if complete_tree.is_complete(object) {
+				(0, 0, 0)
+			} else {
+				let mut count = 0;
+				let mut depth = 0;
+				let mut weight = 0;
 
-			for child in data.children() {
-				complete_tree.insert(Some(&object), &child);
-				let output = Box::pin(self.push_object_with_push_objects_stream_inner(
-					&child,
-					complete_tree,
-					complete_set,
-					send,
-					progress,
-				))
-				.await?;
-				count += output.count;
-				depth = depth.max(1 + output.depth);
-				weight += output.weight;
-			}
+				for child in data.children() {
+					complete_tree.insert(Some(object), &child);
+					let output = Box::pin(self.push_object_with_push_objects_stream_inner(
+						&child,
+						complete_tree,
+						complete_set,
+						send,
+						progress,
+					))
+					.await?;
+					count += output.count;
+					depth = depth.max(1 + output.depth);
+					weight += output.weight;
+				}
 
-			(count, depth, weight)
-		};
+				(count, depth, weight)
+			};
 
 		// Increment the count and add the object's size to the weight.
 		progress.increment("objects", 1);

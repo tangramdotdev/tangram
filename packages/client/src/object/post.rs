@@ -6,7 +6,7 @@ use num::ToPrimitive;
 use std::pin::Pin;
 use tangram_futures::{read::Ext as _, write::Ext as _};
 use tangram_http::{incoming::response::Ext as _, Outgoing};
-use tokio::io::{AsyncReadExt as _, AsyncRead, AsyncWriteExt as _};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 #[derive(Debug, Clone)]
 pub struct Item {
 	pub id: tg::object::Id,
@@ -116,12 +116,16 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 			Some("complete") => value
 				.data
 				.parse()
-				.map_err(|source| tg::error!(!source, %data = value.data, "failed to deserialize the event"))
+				.map_err(
+					|source| tg::error!(!source, %data = value.data, "failed to deserialize the event"),
+				)
 				.map(Event::Complete),
 			Some("incomplete") => value
 				.data
 				.parse()
-				.map_err(|source| tg::error!(!source, %data = value.data, "failed to deserialize the event"))
+				.map_err(
+					|source| tg::error!(!source, %data = value.data, "failed to deserialize the event"),
+				)
 				.map(Event::Incomplete),
 			Some("end") => Ok(Event::End),
 			Some("error") => {
@@ -148,26 +152,34 @@ impl Item {
 			.await
 			.unwrap();
 		body.write_all(id.as_bytes()).await.unwrap();
-		body.write_uvarint(self.bytes.len().to_u64().unwrap()).await.unwrap();
+		body.write_uvarint(self.bytes.len().to_u64().unwrap())
+			.await
+			.unwrap();
 		body.write_all(&self.bytes).await.unwrap();
 
 		body.into()
 	}
 
-	pub async fn try_deserialize(mut reader: impl AsyncRead + Unpin + Send) -> tg::Result<Option<Self>> {
+	pub async fn try_deserialize(
+		mut reader: impl AsyncRead + Unpin + Send,
+	) -> tg::Result<Option<Self>> {
 		// Deserialize the ID.
 		let Some(len) = reader
 			.try_read_uvarint()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read id length"))?
-			.map(|u| u.to_usize().unwrap()) else { return Ok(None) };
-			
+			.map(|u| u.to_usize().unwrap())
+		else {
+			return Ok(None);
+		};
+
 		let mut id = vec![0u8; len];
 		reader
 			.read_exact(&mut id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read id"))?;
-		let id = String::from_utf8(id).map_err(|_| tg::error!("expected a string"))?
+		let id = String::from_utf8(id)
+			.map_err(|_| tg::error!("expected a string"))?
 			.parse::<tg::object::Id>()?;
 
 		// Deserialize the data.
@@ -178,10 +190,12 @@ impl Item {
 			.to_usize()
 			.unwrap();
 		let mut bytes = vec![0u8; len];
-		reader.read_exact(&mut bytes).await
+		reader
+			.read_exact(&mut bytes)
+			.await
 			.map_err(|source| tg::error!(!source, "failed to read the bytes"))?;
 		let bytes = Bytes::from(bytes);
-		
+
 		// Validate the data matches the ID.
 		if id != tg::object::Id::new(id.kind(), &bytes) {
 			return Err(tg::error!("id mismatch"));

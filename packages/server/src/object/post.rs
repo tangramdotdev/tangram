@@ -43,7 +43,7 @@ impl Server {
 					let complete = server
 						.try_get_object_metadata(&item.id)
 						.await?
-						.map_or(false, |metadata| metadata.complete);
+						.is_some_and(|metadata| metadata.complete);
 					if complete {
 						event_sender
 							.send(Ok(tg::object::post::Event::Complete(item.id)))
@@ -256,13 +256,13 @@ impl Server {
 					with inserted_object_children as (
 						insert into object_children (object, child)
 						select ($1::text[])[parent_index], child
-						from unnest($2::text[], $3::integer[]) as c(child, parent_index)
+						from unnest($2::text[], $3::integer[]) as c (child, parent_index)
 					),
 					inserted_objects as (
 						insert into objects (id, bytes, size, touched_at)
 						select id, bytes, size, $6
 						from
-							unnest($1::text[], $4::bytea[], $5::integer[]) as t(id, bytes, size)
+							unnest($1::text[], $4::bytea[], $5::integer[]) as t (id, bytes, size)
 						on conflict (id) do update set touched_at = $6
 					)
 					select 1;
@@ -274,20 +274,14 @@ impl Server {
 				.collect::<Vec<_>>();
 			let children = chunk
 				.iter()
-				.map(|(_, _, children)| {
-					children
-						.into_iter()
-						.map(ToString::to_string)
-				})
-				.flatten()
+				.flat_map(|(_, _, children)| children.iter().map(ToString::to_string))
 				.collect::<Vec<_>>();
 			let parent_indices = chunk
 				.iter()
 				.enumerate()
-				.map(|(idx, (_, _, children))| {
-					std::iter::repeat_n((idx + 1).to_i64().unwrap(), children.len())
+				.flat_map(|(index, (_, _, children))| {
+					std::iter::repeat_n((index + 1).to_i64().unwrap(), children.len())
 				})
-				.flatten()
 				.collect::<Vec<_>>();
 			let bytes = chunk
 				.iter()
@@ -305,14 +299,17 @@ impl Server {
 				.collect::<Vec<_>>();
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 			client
-				.execute(statement, &[
-					&ids.as_slice(),
-					&children.as_slice(),
-					&parent_indices.as_slice(),
-					&bytes.as_slice(),
-					&size.as_slice(),
-					&now
-				])
+				.execute(
+					statement,
+					&[
+						&ids.as_slice(),
+						&children.as_slice(),
+						&parent_indices.as_slice(),
+						&bytes.as_slice(),
+						&size.as_slice(),
+						&now,
+					],
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
