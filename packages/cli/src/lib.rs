@@ -525,7 +525,7 @@ impl Cli {
 				config.authentication = None;
 			},
 			Some(Some(authentication)) => {
-				let mut authentication_ = tangram_server::config::Authentication::default();
+				let mut authentication_ = config.authentication.unwrap_or_default();
 				if let Some(providers) = authentication.providers.as_ref() {
 					if let Some(github) = providers.github.as_ref() {
 						authentication_.providers.github = Some(tangram_server::config::Oauth {
@@ -588,7 +588,7 @@ impl Cli {
 				config.indexer = None;
 			},
 			Some(Some(indexer)) => {
-				let mut indexer_ = tangram_server::config::Indexer::default();
+				let mut indexer_ = config.indexer.unwrap_or_default();
 				if let Some(batch_size) = indexer.batch_size {
 					indexer_.batch_size = batch_size;
 				}
@@ -628,7 +628,7 @@ impl Cli {
 				config.runner = None;
 			},
 			Some(Some(runner)) => {
-				let mut runner_ = tangram_server::config::Runner::default();
+				let mut runner_ = config.runner.unwrap_or_default();
 				if let Some(concurrency) = runner.concurrency {
 					runner_.concurrency = concurrency;
 				}
@@ -684,7 +684,7 @@ impl Cli {
 				config.vfs = None;
 			},
 			Some(Some(vfs)) => {
-				let mut vfs_ = tangram_server::config::Vfs::default();
+				let mut vfs_ = config.vfs.unwrap_or_default();
 				if let Some(cache_ttl) = vfs.cache_ttl {
 					vfs_.cache_ttl = cache_ttl;
 				}
@@ -709,7 +709,7 @@ impl Cli {
 				config.watchdog = None;
 			},
 			Some(Some(watchdog)) => {
-				let mut watchdog_ = tangram_server::config::Watchdog::default();
+				let mut watchdog_ = config.watchdog.unwrap_or_default();
 				if let Some(interval) = watchdog.interval {
 					watchdog_.interval = interval;
 				}
