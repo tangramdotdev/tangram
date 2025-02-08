@@ -96,7 +96,7 @@ impl<T> Handle<T> {
 		let receiver = self.receiver.clone();
 		let interval = Duration::from_millis(100);
 		let interval = tokio::time::interval(interval);
-		let updates = IntervalStream::new(interval).flat_map(move |_| {
+		let updates = IntervalStream::new(interval).skip(1).flat_map(move |_| {
 			let indicators = indicators
 				.read()
 				.unwrap()

@@ -12,6 +12,7 @@ pub struct Health {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Processes {
 	pub created: u64,
+	pub enqueued: u64,
 	pub dequeued: u64,
 	pub started: u64,
 }

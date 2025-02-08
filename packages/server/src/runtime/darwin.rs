@@ -17,6 +17,8 @@ use tangram_client as tg;
 use tangram_futures::task::Task;
 use url::Url;
 
+const MAX_URL_LEN: usize = 100;
+
 #[derive(Clone)]
 pub struct Runtime {
 	pub(crate) server: Server,
@@ -104,9 +106,18 @@ impl Runtime {
 
 			let socket = path.join("socket").display().to_string();
 			let path = urlencoding::encode(&socket);
-			let url = format!("http+unix://{path}").parse::<Url>().unwrap();
+			let mut url = format!("http+unix://{path}").parse::<Url>().unwrap();
+			if url.as_str().len() >= MAX_URL_LEN {
+				url = "http://localhost:0".to_string().parse::<Url>().unwrap();
+			}
 			let listener = Server::listen(&url).await?;
-
+			let listener_addr = listener
+				.local_addr()
+				.map_err(|source| tg::error!(!source, "failed to get listener address"))?;
+			if let tokio_util::either::Either::Right(listener) = listener_addr {
+				let port = listener.port();
+				url = format!("http://localhost:{port}").parse::<Url>().unwrap();
+			};
 			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 			Some((task, url))
 		} else {

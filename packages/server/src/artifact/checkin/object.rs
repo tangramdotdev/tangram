@@ -626,7 +626,6 @@ impl Server {
 		scc: &[usize],
 		file_metadata: &BTreeMap<usize, tg::object::Metadata>,
 	) -> tg::object::Metadata {
-		// let children = data.children();
 		let mut complete = true;
 		let mut count = 1;
 		let mut depth = 1;

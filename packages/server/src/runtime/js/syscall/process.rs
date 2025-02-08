@@ -1,6 +1,7 @@
 use super::State;
-use std::{rc::Rc, sync::Arc};
+use std::{pin::pin, rc::Rc, sync::Arc};
 use tangram_client::{self as tg, handle::Ext};
+use tokio_stream::StreamExt as _;
 
 pub async fn load(
 	state: Rc<State>,
@@ -27,6 +28,40 @@ pub async fn spawn(
 	let output = state
 		.main_runtime_handle
 		.spawn(async move {
+			// If the parent is remote, then push the command.
+			if let Some(remote) = parent.remote() {
+				if let Some(command) = &arg.command {
+					// Push the command.
+					let arg = tg::object::push::Arg {
+						remote: remote.to_owned(),
+					};
+					let stream = server.push_object(&command.clone().into(), arg).await?;
+
+					// Consume the stream and log progress.
+					let mut stream = pin!(stream);
+					while let Some(event) = stream.try_next().await? {
+						match event {
+							tg::progress::Event::Start(indicator)
+							| tg::progress::Event::Update(indicator) => {
+								if indicator.name == "bytes" {
+									let message = format!("{indicator}\n");
+									let arg = tg::process::log::post::Arg {
+										bytes: message.into(),
+										remote: Some(remote.to_owned()),
+									};
+									server.try_post_process_log(parent.id(), arg).await.ok();
+								}
+							},
+							tg::progress::Event::Output(()) => {
+								break;
+							},
+							_ => {},
+						}
+					}
+				}
+			}
+
+			// Spawn.
 			let retry = *parent.retry(&server).await?;
 			let arg = tg::process::spawn::Arg {
 				create: true,
@@ -36,6 +71,7 @@ pub async fn spawn(
 				..arg
 			};
 			let output = server.spawn_process(arg).await?;
+
 			Ok::<_, tg::Error>(output)
 		})
 		.await
