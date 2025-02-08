@@ -1,4 +1,3 @@
-use aws_sdk_s3 as s3;
 use bytes::Bytes;
 use dashmap::DashMap;
 use tangram_client as tg;
@@ -10,7 +9,6 @@ pub enum Store {
 
 pub struct S3 {
 	credentials: Option<aws_credential_types::Credentials>,
-	aws: s3::Client,
 	config: crate::config::S3Store,
 	reqwest: reqwest::Client,
 	semaphore: tokio::sync::Semaphore,
@@ -47,7 +45,6 @@ impl Store {
 
 impl S3 {
 	pub fn new(config: &crate::config::S3Store) -> Self {
-		let mut builder = s3::Config::builder();
 		let credentials = if let (Some(access_key), Some(secret_key)) =
 			(&config.access_key, &config.secret_key)
 		{
@@ -62,26 +59,10 @@ impl S3 {
 		} else {
 			None
 		};
-		builder.set_credentials_provider(
-			credentials
-				.clone()
-				.map(aws_credential_types::provider::SharedCredentialsProvider::new),
-		);
-		builder.set_behavior_version(Some(s3::config::BehaviorVersion::latest()));
-		builder.set_stalled_stream_protection(Some(
-			s3::config::StalledStreamProtectionConfig::disabled(),
-		));
-		builder.set_force_path_style(true.into());
-		builder.set_endpoint_url(Some(config.url.to_string()));
-		if let Some(region) = config.region.clone() {
-			builder.set_region(Some(s3::config::Region::new(region)));
-		}
-		let aws = s3::Client::from_conf(builder.build());
 		let reqwest = reqwest::Client::new();
 		let semaphore = tokio::sync::Semaphore::new(256);
 		Self {
 			credentials,
-			aws,
 			config: config.clone(),
 			reqwest,
 			semaphore,
@@ -158,62 +139,6 @@ impl S3 {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read the response body"))?;
 			return Err(tg::error!(%text, "the request failed"));
-		}
-		Ok(())
-	}
-
-	pub async fn try_get_aws(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		let _permit = self.semaphore.acquire().await;
-		let response = self
-			.aws
-			.get_object()
-			.bucket(&self.config.bucket)
-			.key(id.to_string())
-			.send()
-			.await;
-		let output = match response {
-			Ok(output) => output,
-			Err(s3::error::SdkError::ServiceError(error)) => match error.into_err() {
-				s3::operation::get_object::GetObjectError::NoSuchKey(_) => return Ok(None),
-				error => {
-					return Err(tg::error!(!error, "failed to get the object"));
-				},
-			},
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to get the object"));
-			},
-		};
-		let bytes = output
-			.body
-			.collect()
-			.await
-			.map(s3::primitives::AggregatedBytes::into_bytes)
-			.map_err(|source| tg::error!(!source, "failed to read the object"))?;
-		Ok(Some(bytes))
-	}
-
-	pub async fn put_aws(&self, id: tg::object::Id, bytes: Bytes) -> tg::Result<()> {
-		let _permit = self.semaphore.acquire().await;
-		let bytes = s3::primitives::SdkBody::from(bytes.to_vec());
-		let result = self
-			.aws
-			.put_object()
-			.bucket(&self.config.bucket)
-			.key(id.to_string())
-			.if_match("")
-			.body(bytes.into())
-			.send()
-			.await;
-		match result {
-			Ok(_) => (),
-			Err(error) => {
-				if let Some(response) = error.raw_response() {
-					if response.status().as_u16() == 412 {
-						return Ok(());
-					}
-				}
-				return Err(tg::error!(!error, "failed to put the object"));
-			},
 		}
 		Ok(())
 	}
