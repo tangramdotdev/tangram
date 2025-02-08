@@ -8,14 +8,13 @@ use std::{
 	sync::Arc,
 	time::Duration,
 };
+use tangram_either::Either;
 use tangram_http::{Incoming, Outgoing};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
 };
 use url::Url;
-
-pub use tangram_either::{for_both, Either};
 
 pub use self::{
 	artifact::Handle as Artifact,

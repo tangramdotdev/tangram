@@ -69,7 +69,7 @@ data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.74"
 derive_builder = "0.20"
-derive_more = { version = "1", features = ["full"] }
+derive_more = { version = "2", features = ["full"] }
 erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
@@ -121,7 +121,7 @@ serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 sourcemap = "9"
-swc_core = { version = "11", features = [
+swc_core = { version = "13", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",
@@ -168,10 +168,10 @@ unicode-width = "0.2"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { version = "130" }
+v8 = { version = "134" }
 webbrowser = "1"
 webpki-roots = "0.26"
-winnow = "0.6"
+winnow = "0.7"
 xattr = { version = "1" }
 zerocopy = { version = "0.8", features = ["derive"] }
 zstd = "0.13"
