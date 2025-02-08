@@ -341,23 +341,24 @@ impl Cli {
 		let client = tg::Client::new(url);
 
 		// Attempt to connect to the server.
-		client.connect().await.ok();
+		let mut connected = client.connect().await.is_ok();
 
 		// If the client is not connected and the URL is local, then start the server and attempt to connect.
 		let local = client.url().scheme() == "http+unix"
 			|| matches!(client.url().host_str(), Some("localhost" | "0.0.0.0"));
-		if !client.connected().await && local {
+		if !connected && local {
 			// Start the server.
 			self.start_server().await?;
 
 			// Try to connect for up to one second. If the client is still not connected, then return an error.
 			for duration in [10, 20, 30, 50, 100, 300, 500] {
-				if client.connect().await.is_ok() {
+				connected = client.connect().await.is_ok();
+				if connected {
 					break;
 				}
 				tokio::time::sleep(Duration::from_millis(duration)).await;
 			}
-			if !client.connected().await {
+			if !connected {
 				return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
 			}
 		}
@@ -387,12 +388,13 @@ impl Cli {
 
 			// Try to connect for up to one second. If the client is still not connected, then return an error.
 			for duration in [10, 20, 30, 50, 100, 300, 500] {
-				if client.connect().await.is_ok() {
+				connected = client.connect().await.is_ok();
+				if connected {
 					break;
 				}
 				tokio::time::sleep(Duration::from_millis(duration)).await;
 			}
-			if !client.connected().await {
+			if !connected {
 				return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
 			}
 		}
@@ -426,13 +428,15 @@ impl Cli {
 		let client = tg::Client::new(url);
 
 		// Try to connect for up to one second. If the client is still not connected, then return an error.
+		let mut connected = false;
 		for duration in [10, 20, 30, 50, 100, 300, 500] {
-			if client.connect().await.is_ok() {
+			connected = client.connect().await.is_ok();
+			if connected {
 				break;
 			}
 			tokio::time::sleep(Duration::from_millis(duration)).await;
 		}
-		if !client.connected().await {
+		if !connected {
 			return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
 		}
 

@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{Future, FutureExt as _, Stream};
+use futures::{Future, FutureExt as _, Stream, TryFutureExt as _};
 use std::{
 	collections::VecDeque,
 	ops::Deref,
@@ -14,6 +14,7 @@ use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
 };
+use tower::{util::BoxCloneService, Service as _};
 use url::Url;
 
 pub use self::{
@@ -94,14 +95,16 @@ pub struct Client(Arc<Inner>);
 #[derive(Debug)]
 pub struct Inner {
 	url: Url,
-	sender: tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Outgoing>>>,
+	service: tokio::sync::Mutex<Option<Service>>,
 }
+
+type Service = BoxCloneService<http::Request<Outgoing>, http::Response<Incoming>, tg::Error>;
 
 impl Client {
 	#[must_use]
 	pub fn new(url: Url) -> Self {
-		let sender = tokio::sync::Mutex::new(None);
-		Self(Arc::new(Inner { url, sender }))
+		let service = tokio::sync::Mutex::new(None);
+		Self(Arc::new(Inner { url, service }))
 	}
 
 	pub fn with_env() -> tg::Result<Self> {
@@ -128,33 +131,31 @@ impl Client {
 	}
 
 	pub async fn connect(&self) -> tg::Result<()> {
-		self.sender().boxed().await.map(|_| ())
-	}
-
-	pub async fn connected(&self) -> bool {
-		self.0
-			.sender
-			.lock()
-			.await
-			.as_ref()
-			.is_some_and(hyper::client::conn::http2::SendRequest::is_ready)
-	}
-
-	pub async fn disconnect(&self) -> tg::Result<()> {
-		self.sender.lock().await.take();
+		self.service().await?;
 		Ok(())
 	}
 
-	async fn sender(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
-		let mut guard = self.sender.lock().await;
-		if let Some(sender) = guard.as_ref() {
-			if sender.is_ready() {
-				return Ok(sender.clone());
-			}
+	pub async fn disconnect(&self) -> tg::Result<()> {
+		self.service.lock().await.take();
+		Ok(())
+	}
+
+	async fn service(&self) -> tg::Result<Service> {
+		let mut guard = self.service.lock().await;
+		if let Some(service) = guard.as_ref() {
+			return Ok(service.clone());
 		}
-		let sender = self.connect_h2().await?;
-		guard.replace(sender.clone());
-		Ok(sender)
+		let mut sender = self.connect_h2().boxed().await?;
+		let service = tower::service_fn(move |request| {
+			sender
+				.send_request(request)
+				.map_ok(|response| response.map(Into::into))
+				.map_err(|source| tg::error!(!source, "failed to send the request"))
+		});
+		let service = tower::ServiceBuilder::new().service(service);
+		let service = Service::new(service);
+		guard.replace(service.clone());
+		Ok(service)
 	}
 
 	async fn connect_h1(&self) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
@@ -563,8 +564,8 @@ impl Client {
 		&self,
 		request: http::Request<Outgoing>,
 	) -> tg::Result<http::Response<Incoming>> {
-		let mut sender = self.sender().boxed().await?;
-		let future = sender.send_request(request);
+		let mut service = self.service().await?;
+		let future = service.call(request);
 		let timeout = Duration::from_secs(60);
 		let response = tokio::time::timeout(timeout, future)
 			.await

@@ -748,13 +748,13 @@ impl Server {
 
 			// Create the service.
 			let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
-			let service = hyper::service::service_fn({
+			let service = tower::service_fn({
 				let handle = handle.clone();
 				let idle = idle.clone();
 				let stop = stop.clone();
-				move |request| {
+				move |request: http::Request<hyper::body::Incoming>| {
 					let handle = handle.clone();
-					let mut request = request.map(Incoming::from);
+					let mut request = request.map(Into::into);
 					let idle = idle.token();
 					let stop = stop.clone();
 					async move {
@@ -766,6 +766,7 @@ impl Server {
 					}
 				}
 			});
+			let service = tower::ServiceBuilder::new().service(service);
 
 			// Spawn a task to serve the connection.
 			task_tracker.spawn({
@@ -775,6 +776,7 @@ impl Server {
 					let mut builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
 					builder.http2().max_concurrent_streams(None);
+					let service = hyper_util::service::TowerToHyperService::new(service);
 					let connection = builder.serve_connection_with_upgrades(stream, service);
 					let result = match future::select(
 						pin!(connection),
