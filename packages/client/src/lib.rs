@@ -1,20 +1,24 @@
 use crate as tg;
 use futures::{Future, FutureExt as _, Stream, TryFutureExt as _};
+use http::{HeaderName, HeaderValue};
 use std::{
 	collections::VecDeque,
 	ops::Deref,
 	path::{Path, PathBuf},
 	pin::Pin,
+	str::FromStr,
 	sync::Arc,
 	time::Duration,
 };
 use tangram_either::Either;
 use tangram_http::{Incoming, Outgoing};
+use time::{format_description::well_known::Rfc3339, Date, Month, OffsetDateTime, Time};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
 };
 use tower::{util::BoxCloneService, Service as _};
+use tower_http::set_header::SetRequestHeaderLayer;
 use url::Url;
 
 pub use self::{
@@ -152,7 +156,17 @@ impl Client {
 				.map_ok(|response| response.map(Into::into))
 				.map_err(|source| tg::error!(!source, "failed to send the request"))
 		});
-		let service = tower::ServiceBuilder::new().service(service);
+		let service = tower::ServiceBuilder::new()
+			.layer(SetRequestHeaderLayer::overriding(
+				HeaderName::from_str("x-tg-compatibility-date").unwrap(),
+				HeaderValue::from_str(&Self::compatibility_date().format(&Rfc3339).unwrap())
+					.unwrap(),
+			))
+			.layer(SetRequestHeaderLayer::overriding(
+				HeaderName::from_str("x-tg-version").unwrap(),
+				HeaderValue::from_str(&Self::version()).unwrap(),
+			))
+			.service(service);
 		let service = Service::new(service);
 		guard.replace(service.clone());
 		Ok(service)
@@ -576,6 +590,22 @@ impl Client {
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		let response = response.map(Into::into);
 		Ok(response)
+	}
+
+	fn compatibility_date() -> OffsetDateTime {
+		OffsetDateTime::new_utc(
+			Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+			Time::MIDNIGHT,
+		)
+	}
+
+	fn version() -> String {
+		let mut version = env!("CARGO_PKG_VERSION").to_owned();
+		if let Some(commit) = option_env!("TANGRAM_CLI_COMMIT_HASH") {
+			version.push('+');
+			version.push_str(commit);
+		}
+		version
 	}
 }
 
