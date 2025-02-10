@@ -813,7 +813,7 @@ impl Server {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 
-		tracing::trace!(?id, method = ?request.method(), path = ?request.uri().path(), "received request");
+		tracing::trace!(?id, headers = ?request.headers(), method = ?request.method(), path = ?request.uri().path(), "received request");
 
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
