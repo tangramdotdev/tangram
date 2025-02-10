@@ -10,6 +10,7 @@ use futures::{
 };
 use std::path::Path;
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::task::Task;
 use url::Url;
 
@@ -55,10 +56,35 @@ pub struct Runtime {
 
 impl Runtime {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
-		let env = tg::Blob::with_reader(server, ENV).await?;
+		let env = tg::Blob::with_reader(server, ENV)
+			.await
+			.inspect_err(|error| {
+				let trace = error.trace(&server.config.advanced.error_trace_options);
+				eprintln!("{trace}");
+			})?;
 		let env = tg::File::builder(env).executable(true).build();
-		let sh = tg::Blob::with_reader(server, DASH).await?;
+		let arg = tg::tag::put::Arg {
+			force: true,
+			item: Either::Right(env.id(server).await?.into()),
+			remote: None,
+		};
+		server
+			.put_tag(&"tg/rt/linux/env".parse().unwrap(), arg)
+			.await?;
+
+		let sh = tg::Blob::with_reader(server, DASH)
+			.await
+			.inspect_err(|error| eprintln!("{error}"))?;
 		let sh = tg::File::builder(sh).executable(true).build();
+		let arg = tg::tag::put::Arg {
+			force: true,
+			item: Either::Right(sh.id(server).await?.into()),
+			remote: None,
+		};
+		server
+			.put_tag(&"tg/rt/linux/sh".parse().unwrap(), arg)
+			.await?;
+
 		let server = server.clone();
 		Ok(Self { server, env, sh })
 	}

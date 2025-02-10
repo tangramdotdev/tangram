@@ -430,7 +430,8 @@ impl Server {
 			let triple = "builtin".to_owned();
 			let runtime = self::runtime::builtin::Runtime::new(&server);
 			let runtime = self::runtime::Runtime::Builtin(runtime);
-			server.runtimes.write().unwrap().insert(triple, runtime);
+			let mut lock = server.runtimes.write().unwrap();
+			lock.insert(triple, runtime);
 		}
 		{
 			let triple = "js".to_owned();

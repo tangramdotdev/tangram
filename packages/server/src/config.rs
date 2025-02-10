@@ -20,6 +20,7 @@ pub struct Config {
 
 #[derive(Clone, Debug)]
 pub struct Advanced {
+	pub garbage_collection_grace_period: Duration,
 	pub process_dequeue_timeout: Duration,
 	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
@@ -164,6 +165,7 @@ impl Config {
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
+			garbage_collection_grace_period: Duration::from_secs(0),
 			process_dequeue_timeout: Duration::from_secs(3600),
 			error_trace_options: tg::error::TraceOptions {
 				internal: true,
