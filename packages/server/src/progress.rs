@@ -1,10 +1,7 @@
 use futures::{future, stream, Stream, StreamExt as _};
 use indexmap::IndexMap;
 use std::{
-	sync::{
-		atomic::{AtomicBool, AtomicU64},
-		Arc, Mutex, RwLock,
-	},
+	sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
 	time::Duration,
 };
 use tangram_client as tg;
@@ -87,7 +84,6 @@ impl<T> Handle<T> {
 	pub fn finish(&self, name: &str) {
 		if let Some(indicator) = self.indicators.read().unwrap().get(name) {
 			let event = Self::get_indicator_update_event(indicator);
-			tracing::debug!("sending final update");
 			self.sender.try_send(Ok(event)).ok();
 		}
 		self.indicators.write().unwrap().shift_remove(name);
@@ -110,7 +106,7 @@ impl<T> Handle<T> {
 		let interval = tokio::time::interval(interval);
 		let updates = IntervalStream::new(interval).skip(1).flat_map(move |_| {
 			*sent_once.write().unwrap() = true;
-			stream::iter(Self::get_indicators(&indicators))
+			stream::iter(Self::get_indicator_update_events(&indicators))
 		});
 		stream::select(receiver, updates).take_while_inclusive(|event| {
 			future::ready(!matches!(
@@ -120,7 +116,7 @@ impl<T> Handle<T> {
 		})
 	}
 
-	fn get_indicators(
+	fn get_indicator_update_events(
 		indicators: &RwLock<IndexMap<String, Indicator>>,
 	) -> Vec<tg::Result<tg::progress::Event<T>>> {
 		indicators
