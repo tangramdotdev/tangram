@@ -59,13 +59,16 @@ impl Server {
 			.map(|process| {
 				let server = self.clone();
 				async move {
-					let error = Some(tg::error!("the process's heartbeat expired"));
+					let error = Some(tg::error!(
+						canceled = true,
+						"the process's heartbeat expired"
+					));
 					let arg = tg::process::finish::Arg {
 						error,
 						exit: None,
 						output: None,
 						remote: None,
-						status: tg::process::Status::Canceled,
+						status: tg::process::Status::Failed,
 					};
 					server
 						.try_finish_process(process, arg)

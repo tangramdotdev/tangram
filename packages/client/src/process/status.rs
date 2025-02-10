@@ -20,7 +20,6 @@ pub enum Status {
 	Dequeued,
 	Started,
 	Finishing,
-	Canceled,
 	Failed,
 	Succeeded,
 }
@@ -40,7 +39,7 @@ pub enum Event {
 impl Status {
 	#[must_use]
 	pub fn is_finished(&self) -> bool {
-		matches!(self, Status::Canceled | Status::Failed | Status::Succeeded)
+		matches!(self, Status::Failed | Status::Succeeded)
 	}
 }
 
@@ -131,7 +130,6 @@ impl std::fmt::Display for Status {
 			Self::Dequeued => write!(f, "dequeued"),
 			Self::Started => write!(f, "started"),
 			Self::Finishing => write!(f, "finishing"),
-			Self::Canceled => write!(f, "canceled"),
 			Self::Failed => write!(f, "failed"),
 			Self::Succeeded => write!(f, "succeeded"),
 		}
@@ -148,7 +146,6 @@ impl std::str::FromStr for Status {
 			"dequeued" => Ok(Self::Dequeued),
 			"started" => Ok(Self::Started),
 			"finishing" => Ok(Self::Finishing),
-			"canceled" => Ok(Self::Canceled),
 			"failed" => Ok(Self::Failed),
 			"succeeded" => Ok(Self::Succeeded),
 			status => Err(tg::error!(%status, "invalid value")),

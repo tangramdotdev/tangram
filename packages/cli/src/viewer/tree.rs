@@ -458,9 +458,7 @@ where
 				tg::process::Status::Dequeued => Indicator::Dequeued,
 				tg::process::Status::Started => Indicator::Started,
 				tg::process::Status::Finishing => Indicator::Finishing,
-				tg::process::Status::Canceled
-				| tg::process::Status::Failed
-				| tg::process::Status::Succeeded => {
+				tg::process::Status::Failed | tg::process::Status::Succeeded => {
 					// Remove the child if necessary.
 					if options.condensed_processes {
 						let update = move |node: Rc<RefCell<Node>>| {
@@ -489,7 +487,6 @@ where
 					}
 
 					match status {
-						tg::process::Status::Canceled => Indicator::Canceled,
 						tg::process::Status::Failed => Indicator::Failed,
 						tg::process::Status::Succeeded => Indicator::Succeeded,
 						_ => unreachable!(),
@@ -498,6 +495,20 @@ where
 			};
 			let update = move |node: Rc<RefCell<Node>>| {
 				node.borrow_mut().indicator.replace(indicator);
+			};
+			update_sender.send(Box::new(update)).ok();
+		}
+
+		// Check if the process was canceled.
+		if handle
+			.try_get_process(process.id())
+			.await?
+			.and_then(|output| output.error)
+			.map_or(false, |error| {
+				matches!(error.code, Some(tg::error::code::CANCELED))
+			}) {
+			let update = move |node: Rc<RefCell<Node>>| {
+				node.borrow_mut().indicator.replace(Indicator::Canceled);
 			};
 			update_sender.send(Box::new(update)).ok();
 		}
@@ -606,7 +617,6 @@ where
 					matches!(
 						status,
 						tg::process::Status::Finishing
-							| tg::process::Status::Canceled
 							| tg::process::Status::Failed
 							| tg::process::Status::Succeeded
 					)

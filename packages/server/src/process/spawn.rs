@@ -102,11 +102,14 @@ impl Server {
 						let server = self.clone();
 						async move {
 							let arg = tg::process::finish::Arg {
-								error: None,
+								error: Some(tg::error!(
+									canceled = true,
+									"the process was canceled"
+								)),
 								exit: None,
 								output: None,
 								remote: None,
-								status: tg::process::Status::Canceled,
+								status: tg::process::Status::Failed,
 							};
 							server.try_finish_process(&local_id, arg).boxed().await.ok();
 						}
@@ -152,12 +155,13 @@ impl Server {
 		#[derive(serde::Deserialize)]
 		struct Row {
 			id: tg::process::Id,
+			error: Option<tg::Error>,
 			status: tg::process::Status,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id, status
+				select id, error, status
 				from processes
 				where
 					cacheable = 1 and
@@ -168,7 +172,7 @@ impl Server {
 			"
 		);
 		let params = db::params![arg.command, arg.checksum];
-		let Some(Row { id, status }) = connection
+		let Some(Row { id, error, status }) = connection
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -180,7 +184,9 @@ impl Server {
 		drop(connection);
 
 		// If the process is canceled, then return.
-		if status.is_canceled() {
+		if error.map_or(false, |error| {
+			matches!(error.code, Some(tg::error::code::CANCELED))
+		}) {
 			return Ok(None);
 		}
 
