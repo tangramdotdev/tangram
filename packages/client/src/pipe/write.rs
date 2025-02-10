@@ -1,8 +1,7 @@
 use crate::{self as tg, Client};
 use futures::{Stream, StreamExt as _};
-use http_body_util::StreamBody;
 use std::pin::Pin;
-use tangram_http::{incoming::response::Ext as _, Outgoing};
+use tangram_http::{response::Ext as _, Body};
 
 impl Client {
 	pub async fn write_pipe(
@@ -14,23 +13,26 @@ impl Client {
 		let uri = format!("/pipes/{id}/write");
 
 		// Create the body.
-		let body = Outgoing::body(StreamBody::new(stream.map(|result| match result {
-			Ok(event) => match event {
-				tg::pipe::Event::Chunk(bytes) => Ok(hyper::body::Frame::data(bytes)),
-				tg::pipe::Event::End => {
-					let mut trailers = http::HeaderMap::new();
-					trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
-					Ok(hyper::body::Frame::trailers(trailers))
+		let body = Body::with_stream(stream.map(|result| {
+			let event = match result {
+				Ok(event) => match event {
+					tg::pipe::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),
+					tg::pipe::Event::End => {
+						let mut trailers = http::HeaderMap::new();
+						trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
+						hyper::body::Frame::trailers(trailers)
+					},
 				},
-			},
-			Err(error) => {
-				let mut trailers = http::HeaderMap::new();
-				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-				let json = serde_json::to_string(&error).unwrap();
-				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-				Ok(hyper::body::Frame::trailers(trailers))
-			},
-		})));
+				Err(error) => {
+					let mut trailers = http::HeaderMap::new();
+					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
+					let json = serde_json::to_string(&error).unwrap();
+					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
+					hyper::body::Frame::trailers(trailers)
+				},
+			};
+			Ok::<_, tg::Error>(event)
+		}));
 
 		// Create the request.
 		let request = http::request::Builder::default()

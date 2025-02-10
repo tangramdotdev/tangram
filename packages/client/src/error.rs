@@ -205,36 +205,6 @@ impl std::fmt::Display for Source {
 	}
 }
 
-impl serde::ser::Error for Error {
-	fn custom<T>(msg: T) -> Self
-	where
-		T: std::fmt::Display,
-	{
-		Self {
-			message: Some(msg.to_string()),
-			location: None,
-			stack: None,
-			source: None,
-			values: BTreeMap::new(),
-		}
-	}
-}
-
-impl serde::de::Error for Error {
-	fn custom<T>(msg: T) -> Self
-	where
-		T: std::fmt::Display,
-	{
-		Self {
-			message: Some(msg.to_string()),
-			location: None,
-			stack: None,
-			source: None,
-			values: BTreeMap::new(),
-		}
-	}
-}
-
 impl TryFrom<Error> for tangram_http::sse::Event {
 	type Error = tg::Error;
 

@@ -1,9 +1,13 @@
-use crate::{sse, Error, Incoming};
+use crate::{sse, Body, Error};
 use bytes::Bytes;
 use futures::{future, Future, Stream, TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use tokio::io::AsyncBufRead;
 use tokio_util::io::StreamReader;
+
+pub mod builder;
+
+pub type Response = http::Response<Body>;
 
 pub trait Ext: Sized {
 	fn parse_header<T, E>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>
@@ -32,7 +36,7 @@ pub trait Ext: Sized {
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static;
 }
 
-impl Ext for http::Response<Incoming> {
+impl Ext for http::Response<Body> {
 	fn parse_header<T, E>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>
 	where
 		T: std::str::FromStr<Err = E>,

@@ -1,6 +1,6 @@
-use crate::{Error, Outgoing};
+use crate::{Body, Error};
 use bytes::Bytes;
-use futures::{Stream, TryStreamExt as _};
+use futures::Stream;
 use tokio::io::AsyncRead;
 
 pub trait Ext: Sized {
@@ -18,23 +18,23 @@ pub trait Ext: Sized {
 		http::HeaderName: TryFrom<K, Error: Into<http::Error>>,
 		V: serde::Serialize;
 
-	fn empty(self) -> http::Result<http::Response<Outgoing>>;
+	fn empty(self) -> http::Result<http::Response<Body>>;
 
-	fn bytes<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	fn bytes<T>(self, value: T) -> http::Result<http::Response<Body>>
 	where
 		T: Into<Bytes>;
 
-	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	fn json<T>(self, value: T) -> http::Result<http::Response<Body>>
 	where
 		T: serde::Serialize + Send + Sync + 'static;
 
-	fn stream<S, T, E>(self, value: S) -> http::Result<http::Response<Outgoing>>
+	fn data_stream<S, T, E>(self, value: S) -> http::Result<http::Response<Body>>
 	where
 		S: Stream<Item = Result<T, E>> + Send + 'static,
 		T: Into<Bytes> + 'static,
 		E: Into<Error> + 'static;
 
-	fn reader<R>(self, value: R) -> http::Result<http::Response<Outgoing>>
+	fn reader<R>(self, value: R) -> http::Result<http::Response<Body>>
 	where
 		R: AsyncRead + Send + 'static;
 }
@@ -61,37 +61,37 @@ impl Ext for http::response::Builder {
 		Ok(self.header(key, value))
 	}
 
-	fn empty(self) -> http::Result<http::Response<Outgoing>> {
-		self.body(Outgoing::empty())
+	fn empty(self) -> http::Result<http::Response<Body>> {
+		self.body(Body::empty())
 	}
 
-	fn bytes<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	fn bytes<T>(self, value: T) -> http::Result<http::Response<Body>>
 	where
 		T: Into<Bytes>,
 	{
-		self.body(Outgoing::bytes(value))
+		self.body(Body::with_bytes(value))
 	}
 
-	fn json<T>(self, value: T) -> http::Result<http::Response<Outgoing>>
+	fn json<T>(self, value: T) -> http::Result<http::Response<Body>>
 	where
 		T: serde::Serialize + Send + Sync + 'static,
 	{
-		self.body(Outgoing::json(value))
+		self.body(Body::with_json(value))
 	}
 
-	fn stream<S, T, E>(self, value: S) -> http::Result<http::Response<Outgoing>>
+	fn data_stream<S, T, E>(self, value: S) -> http::Result<http::Response<Body>>
 	where
 		S: Stream<Item = Result<T, E>> + Send + 'static,
 		T: Into<Bytes> + 'static,
 		E: Into<Error> + 'static,
 	{
-		self.body(Outgoing::stream(value.err_into()))
+		self.body(Body::with_data_stream(value))
 	}
 
-	fn reader<R>(self, value: R) -> http::Result<http::Response<Outgoing>>
+	fn reader<R>(self, value: R) -> http::Result<http::Response<Body>>
 	where
 		R: AsyncRead + Send + 'static,
 	{
-		self.body(Outgoing::reader(value))
+		self.body(Body::with_reader(value))
 	}
 }

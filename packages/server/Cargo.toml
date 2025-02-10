@@ -105,3 +105,4 @@ urlencoding = { workspace = true }
 uuid = { workspace = true }
 v8 = { workspace = true }
 xattr = { workspace = true }
+zstd = { workspace = true }

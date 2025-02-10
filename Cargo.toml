@@ -43,6 +43,7 @@ same_functions_in_if_condition = "allow"
 similar_names = "allow"
 struct_excessive_bools = "allow"
 too_many_lines = "allow"
+type_complexity = "allow"
 unused_async = "allow"
 
 [workspace.dependencies]
@@ -159,7 +160,7 @@ tokio-stream = { version = "0.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
 toml = { version = "0.8" }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["compression-zstd", "decompression-zstd", "set-header"] }
+tower-http = { version = "0.6", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-tree = "0.4"

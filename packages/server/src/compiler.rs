@@ -12,7 +12,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::{Stop, Task};
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{response::builder::Ext as _, Body};
 use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
@@ -280,7 +280,7 @@ impl Compiler {
 				}) if method == <lsp::notification::Exit as lsp::notification::Notification>::METHOD
 			) {
 				break;
-			};
+			}
 
 			// Spawn a task to handle the message.
 			task_tracker.spawn({
@@ -925,8 +925,8 @@ impl crate::Server {
 impl crate::Server {
 	pub(crate) async fn handle_lsp_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>>
+		request: http::Request<Body>,
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

@@ -7,7 +7,7 @@ use num::ToPrimitive;
 use std::{os::unix::fs::PermissionsExt as _, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
 use time::format_description::well_known::Rfc3339;
 use tokio::io::AsyncRead;
 
@@ -381,8 +381,8 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_create_blob_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>>
+		request: http::Request<Body>,
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

@@ -106,7 +106,7 @@ impl vfs::Provider for Provider {
 		let entry = 'a: {
 			if parent != vfs::ROOT_NODE_ID {
 				break 'a None;
-			};
+			}
 			let Ok(artifact) = name.parse() else {
 				return Ok(None);
 			};

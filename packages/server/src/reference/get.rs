@@ -3,7 +3,7 @@ use std::pin::pin;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
 
 impl Server {
 	pub async fn try_get_reference(
@@ -84,9 +84,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_get_reference_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		path: &[&str],
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

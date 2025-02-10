@@ -7,7 +7,7 @@ pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<Path
 		return Err(std::io::Error::other("path must be absolute"));
 	}
 	let parent = path.parent().unwrap();
-	let last = path.components().last().unwrap();
+	let last = path.components().next_back().unwrap();
 	let mut path = tokio::fs::canonicalize(parent).await?;
 	match last {
 		std::path::Component::Prefix(_) | std::path::Component::RootDir => {
@@ -22,7 +22,7 @@ pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<Path
 		std::path::Component::Normal(component) => {
 			path.push(component);
 		},
-	};
+	}
 	Ok(path)
 }
 

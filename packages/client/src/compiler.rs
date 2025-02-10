@@ -1,7 +1,7 @@
 use crate as tg;
 use futures::{future, TryFutureExt as _};
 use http_body_util::BodyExt as _;
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
+use tangram_http::{response::Ext as _, request::builder::Ext as _};
 use tokio::io::{AsyncBufRead, AsyncWrite};
 
 impl tg::Client {

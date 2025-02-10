@@ -270,7 +270,7 @@ impl Server {
 		// Check if we've visited this node.
 		if visited[node] {
 			return Ok(());
-		};
+		}
 		visited[node] = true;
 
 		// macOS disables hardlinking for some files within .app dirs, such as *.app/Contents/{PkgInfo,Resources/\*.lproj,_CodeSignature} and .DS_Store. Perform a copy instead in these cases. See <https://github.com/NixOS/nix/blob/95f2b2beabc1ab0447bb4683516598265d71b695/src/libstore/optimise-store.cc#L100>.
@@ -309,7 +309,7 @@ impl Server {
 						return Err(tg::error!(!source, %src, %dst, "failed to hardlink"));
 					},
 				}
-			};
+			}
 
 			// Since every file is a child of a directory we do not need to recurse over file dependencies and can bail early.
 			return Ok(());

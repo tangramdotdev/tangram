@@ -11,14 +11,14 @@ use std::{
 	time::Duration,
 };
 use tangram_either::Either;
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::Body;
 use time::{format_description::well_known::Rfc3339, Date, Month, OffsetDateTime, Time};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
 };
 use tower::{util::BoxCloneService, Service as _};
-use tower_http::set_header::SetRequestHeaderLayer;
+use tower_http::ServiceBuilderExt as _;
 use url::Url;
 
 pub use self::{
@@ -102,7 +102,7 @@ pub struct Inner {
 	service: tokio::sync::Mutex<Option<Service>>,
 }
 
-type Service = BoxCloneService<http::Request<Outgoing>, http::Response<Incoming>, tg::Error>;
+type Service = BoxCloneService<http::Request<Body>, http::Response<Body>, tg::Error>;
 
 impl Client {
 	#[must_use]
@@ -149,30 +149,36 @@ impl Client {
 		if let Some(service) = guard.as_ref() {
 			return Ok(service.clone());
 		}
+
+		// Connect.
 		let mut sender = self.connect_h2().boxed().await?;
+
+		// Create the service.
 		let service = tower::service_fn(move |request| {
 			sender
 				.send_request(request)
-				.map_ok(|response| response.map(Into::into))
+				.map_ok(|response| response.map(Body::with_body))
 				.map_err(|source| tg::error!(!source, "failed to send the request"))
 		});
 		let service = tower::ServiceBuilder::new()
-			.layer(SetRequestHeaderLayer::overriding(
+			.insert_request_header_if_not_present(
 				HeaderName::from_str("x-tg-compatibility-date").unwrap(),
 				HeaderValue::from_str(&Self::compatibility_date().format(&Rfc3339).unwrap())
 					.unwrap(),
-			))
-			.layer(SetRequestHeaderLayer::overriding(
+			)
+			.insert_request_header_if_not_present(
 				HeaderName::from_str("x-tg-version").unwrap(),
 				HeaderValue::from_str(&Self::version()).unwrap(),
-			))
+			)
 			.service(service);
 		let service = Service::new(service);
+
 		guard.replace(service.clone());
+
 		Ok(service)
 	}
 
-	async fn connect_h1(&self) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+	async fn connect_h1(&self) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
 		match self.url.scheme() {
 			"http+unix" => {
 				let path = self
@@ -217,7 +223,7 @@ impl Client {
 		}
 	}
 
-	async fn connect_h2(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	async fn connect_h2(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
 		match self.url.scheme() {
 			"http+unix" => {
 				let path = self
@@ -262,7 +268,7 @@ impl Client {
 	async fn connect_unix_h1(
 		&self,
 		path: &Path,
-	) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -299,7 +305,7 @@ impl Client {
 	async fn connect_unix_h2(
 		&self,
 		path: &Path,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -339,7 +345,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
@@ -377,7 +383,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
 		// Connect via TCP.
 		let stream = TcpStream::connect(format!("{host}:{port}"))
 			.await
@@ -416,7 +422,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> tg::Result<hyper::client::conn::http1::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
 		// Connect via TLS over TCP.
 		let stream = self
 			.connect_tcp_tls(host, port, vec![b"http/1.1".into()])
@@ -465,7 +471,7 @@ impl Client {
 		&self,
 		host: &str,
 		port: u16,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<Outgoing>> {
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
 		// Connect via TLS over TCP.
 		let stream = self.connect_tcp_tls(host, port, vec![b"h2".into()]).await?;
 
@@ -546,7 +552,7 @@ impl Client {
 		Ok(stream)
 	}
 
-	async fn send(&self, request: http::Request<Outgoing>) -> tg::Result<http::Response<Incoming>> {
+	async fn send(&self, request: http::Request<Body>) -> tg::Result<http::Response<Body>> {
 		if request.body().try_clone().is_some() {
 			self.send_with_retry(request).await
 		} else {
@@ -556,8 +562,8 @@ impl Client {
 
 	async fn send_with_retry(
 		&self,
-		request: http::Request<Outgoing>,
-	) -> tg::Result<http::Response<Incoming>> {
+		request: http::Request<Body>,
+	) -> tg::Result<http::Response<Body>> {
 		let mut retries = VecDeque::from([100, 1000]);
 		let (head, body) = request.into_parts();
 		loop {
@@ -579,8 +585,8 @@ impl Client {
 
 	async fn send_without_retry(
 		&self,
-		request: http::Request<Outgoing>,
-	) -> tg::Result<http::Response<Incoming>> {
+		request: http::Request<Body>,
+	) -> tg::Result<http::Response<Body>> {
 		let mut service = self.service().await?;
 		let future = service.call(request);
 		let timeout = Duration::from_secs(60);

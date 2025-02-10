@@ -6,7 +6,7 @@ use std::time::Duration;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::{stream::Ext as _, task::Stop};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
 use tangram_messenger::Messenger as _;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -184,9 +184,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_get_process_status_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
@@ -217,7 +217,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(Some(content_type), Outgoing::sse(stream))
+				(Some(content_type), Body::with_sse_stream(stream))
 			},
 
 			_ => {

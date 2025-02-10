@@ -117,7 +117,7 @@ impl Runtime {
 			if let tokio_util::either::Either::Right(listener) = listener_addr {
 				let port = listener.port();
 				url = format!("http://localhost:{port}").parse::<Url>().unwrap();
-			};
+			}
 			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 			Some((task, url))
 		} else {

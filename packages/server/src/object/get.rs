@@ -6,7 +6,7 @@ use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{response::builder::Ext as _, Body};
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 
 impl Server {
@@ -73,7 +73,8 @@ impl Server {
 				metadata.count = row.count;
 				metadata.depth = row.depth;
 				metadata.weight = row.weight;
-			};
+			}
+
 			Ok::<_, tg::Error>((bytes, metadata))
 		};
 
@@ -204,9 +205,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_get_object_request<H>(
 		handle: &H,
-		_request: http::Request<Incoming>,
+		_request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

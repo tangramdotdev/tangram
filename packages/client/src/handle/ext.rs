@@ -403,7 +403,7 @@ pub trait Ext: tg::Handle {
 			loop {
 				if let Some(output) = future.await? {
 					return Ok(output);
-				};
+				}
 				future = self.wait_process_future(id).await?;
 			}
 		}

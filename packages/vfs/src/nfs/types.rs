@@ -2313,7 +2313,7 @@ impl xdr::Encode for READ4res {
 				encoder.encode(&resop.data)?;
 			},
 			Self::Error(error) => encoder.encode(error)?,
-		};
+		}
 		Ok(())
 	}
 }
@@ -3074,85 +3074,239 @@ impl std::fmt::Debug for bitmap4 {
 				continue;
 			}
 			match flag {
-				FATTR4_SUPPORTED_ATTRS => list.entry(&"SUPPORTED_ATTRS"),
-				FATTR4_TYPE => list.entry(&"TYPE"),
-				FATTR4_FH_EXPIRE_TYPE => list.entry(&"FH_EXPIRE_TYPE"),
-				FATTR4_CHANGE => list.entry(&"CHANGE"),
-				FATTR4_SIZE => list.entry(&"SIZE"),
-				FATTR4_LINK_SUPPORT => list.entry(&"LINK_SUPPORT"),
-				FATTR4_SYMLINK_SUPPORT => list.entry(&"SYMLINK_SUPPORT"),
-				FATTR4_NAMED_ATTR => list.entry(&"NAMED_ATTR"),
-				FATTR4_FSID => list.entry(&"FSID"),
-				FATTR4_UNIQUE_HANDLES => list.entry(&"UNIQUE_HANDLES"),
-				FATTR4_LEASE_TIME => list.entry(&"LEASE_TIME"),
-				FATTR4_RDATTR_ERROR => list.entry(&"RDATTR_ERROR"),
-				FATTR4_ACL => list.entry(&"ACL"),
-				FATTR4_ACLSUPPORT => list.entry(&"ACLSUPPORT"),
-				FATTR4_ARCHIVE => list.entry(&"ARCHIVE"),
-				FATTR4_CANSETTIME => list.entry(&"CANSETTIME"),
-				FATTR4_CASE_INSENSITIVE => list.entry(&"CASE_INSENSITIVE"),
-				FATTR4_CASE_PRESERVING => list.entry(&"CASE_PRESERVING"),
-				FATTR4_CHOWN_RESTRICTED => list.entry(&"CHOWN_RESTRICTED"),
-				FATTR4_FILEHANDLE => list.entry(&"FILEHANDLE"),
-				FATTR4_FILEID => list.entry(&"FILEID"),
-				FATTR4_FILES_AVAIL => list.entry(&"FILES_AVAIL"),
-				FATTR4_FILES_FREE => list.entry(&"FILES_FREE"),
-				FATTR4_FILES_TOTAL => list.entry(&"FILES_TOTAL"),
-				FATTR4_FS_LOCATIONS => list.entry(&"FS_LOCATIONS"),
-				FATTR4_HIDDEN => list.entry(&"HIDDEN"),
-				FATTR4_HOMOGENEOUS => list.entry(&"HOMOGENEOUS"),
-				FATTR4_MAXFILESIZE => list.entry(&"MAXFILESIZE"),
-				FATTR4_MAXLINK => list.entry(&"MAXLINK"),
-				FATTR4_MAXNAME => list.entry(&"MAXNAME"),
-				FATTR4_MAXREAD => list.entry(&"MAXREAD"),
-				FATTR4_MAXWRITE => list.entry(&"MAXWRITE"),
-				FATTR4_MIMETYPE => list.entry(&"MIMETYPE"),
-				FATTR4_MODE => list.entry(&"MODE"),
-				FATTR4_NO_TRUNC => list.entry(&"NO_TRUNC"),
-				FATTR4_NUMLINKS => list.entry(&"NUMLINKS"),
-				FATTR4_OWNER => list.entry(&"OWNER"),
-				FATTR4_OWNER_GROUP => list.entry(&"OWNER_GROUP"),
-				FATTR4_QUOTA_AVAIL_HARD => list.entry(&"QUOTA_AVAIL_HARD"),
-				FATTR4_QUOTA_AVAIL_SOFT => list.entry(&"QUOTA_AVAIL_SOFT"),
-				FATTR4_QUOTA_USED => list.entry(&"QUOTA_USED"),
-				FATTR4_RAWDEV => list.entry(&"RAWDEV"),
-				FATTR4_SPACE_AVAIL => list.entry(&"SPACE_AVAIL"),
-				FATTR4_SPACE_FREE => list.entry(&"SPACE_FREE"),
-				FATTR4_SPACE_TOTAL => list.entry(&"SPACE_TOTAL"),
-				FATTR4_SPACE_USED => list.entry(&"SPACE_USED"),
-				FATTR4_SYSTEM => list.entry(&"SYSTEM"),
-				FATTR4_TIME_ACCESS => list.entry(&"TIME_ACCESS"),
-				// FATTR4_TIME_ACCESS_SET => list.entry(&"TIME_ACCESS_SET"),
-				FATTR4_TIME_BACKUP => list.entry(&"TIME_BACKUP"),
-				FATTR4_TIME_CREATE => list.entry(&"TIME_CREATE"),
-				FATTR4_TIME_DELTA => list.entry(&"TIME_DELTA"),
-				FATTR4_TIME_METADATA => list.entry(&"TIME_METADATA"),
-				FATTR4_TIME_MODIFY => list.entry(&"TIME_MODIFY"),
-				FATTR4_TIME_MODIFY_SET => list.entry(&"TIME_MODIFY_SET"),
-				FATTR4_MOUNTED_ON_FILEID => list.entry(&"MOUNTED_ON_FILEID"),
-				FATTR4_DIR_NOTIF_DELAY => list.entry(&"DIR_NOTIF_DELAY"),
-				FATTR4_DIRENT_NOTIF_DELAY => list.entry(&"DIRENT_NOTIF_DELAY"),
-				FATTR4_DACL => list.entry(&"DACL"),
-				FATTR4_SACL => list.entry(&"SACL"),
-				FATTR4_CHANGE_POLICY => list.entry(&"CHANGE_POLICY"),
-				FATTR4_FS_STATUS => list.entry(&"FS_STATUS"),
-				FATTR4_FS_LAYOUT_TYPE => list.entry(&"FS_LAYOUT_TYPE"),
-				FATTR4_LAYOUT_HINT => list.entry(&"LAYOUT_HINT"),
-				FATTR4_LAYOUT_TYPE => list.entry(&"LAYOUT_TYPE"),
-				FATTR4_LAYOUT_BLKSIZE => list.entry(&"LAYOUT_BLKSIZE"),
-				FATTR4_LAYOUT_ALIGNMENT => list.entry(&"LAYOUT_ALIGNMENT"),
-				FATTR4_FS_LOCATIONS_INFO => list.entry(&"FS_LOCATIONS_INFO"),
-				FATTR4_MDSTHRESHOLD => list.entry(&"MDSTHRESHOLD"),
-				FATTR4_RETENTION_GET => list.entry(&"RETENTION_GET"),
-				FATTR4_RETENTION_SET => list.entry(&"RETENTION_SET"),
-				FATTR4_RETENTEVT_GET => list.entry(&"RETENTEVT_GET"),
-				FATTR4_RETENTEVT_SET => list.entry(&"RETENTEVT_SET"),
-				FATTR4_RETENTION_HOLD => list.entry(&"RETENTION_HOLD"),
-				FATTR4_MODE_SET_MASKED => list.entry(&"MODE_SET_MASKED"),
-				FATTR4_SUPPATTR_EXCLCREAT => list.entry(&"SUPPATTR_EXCLCREAT"),
-				FATTR4_FS_CHARSET_CAP => list.entry(&"FS_CHARSET_CA&P"),
-				_ => continue,
-			};
+				FATTR4_SUPPORTED_ATTRS => {
+					list.entry(&"SUPPORTED_ATTRS");
+				},
+				FATTR4_TYPE => {
+					list.entry(&"TYPE");
+				},
+				FATTR4_FH_EXPIRE_TYPE => {
+					list.entry(&"FH_EXPIRE_TYPE");
+				},
+				FATTR4_CHANGE => {
+					list.entry(&"CHANGE");
+				},
+				FATTR4_SIZE => {
+					list.entry(&"SIZE");
+				},
+				FATTR4_LINK_SUPPORT => {
+					list.entry(&"LINK_SUPPORT");
+				},
+				FATTR4_SYMLINK_SUPPORT => {
+					list.entry(&"SYMLINK_SUPPORT");
+				},
+				FATTR4_NAMED_ATTR => {
+					list.entry(&"NAMED_ATTR");
+				},
+				FATTR4_FSID => {
+					list.entry(&"FSID");
+				},
+				FATTR4_UNIQUE_HANDLES => {
+					list.entry(&"UNIQUE_HANDLES");
+				},
+				FATTR4_LEASE_TIME => {
+					list.entry(&"LEASE_TIME");
+				},
+				FATTR4_RDATTR_ERROR => {
+					list.entry(&"RDATTR_ERROR");
+				},
+				FATTR4_ACL => {
+					list.entry(&"ACL");
+				},
+				FATTR4_ACLSUPPORT => {
+					list.entry(&"ACLSUPPORT");
+				},
+				FATTR4_ARCHIVE => {
+					list.entry(&"ARCHIVE");
+				},
+				FATTR4_CANSETTIME => {
+					list.entry(&"CANSETTIME");
+				},
+				FATTR4_CASE_INSENSITIVE => {
+					list.entry(&"CASE_INSENSITIVE");
+				},
+				FATTR4_CASE_PRESERVING => {
+					list.entry(&"CASE_PRESERVING");
+				},
+				FATTR4_CHOWN_RESTRICTED => {
+					list.entry(&"CHOWN_RESTRICTED");
+				},
+				FATTR4_FILEHANDLE => {
+					list.entry(&"FILEHANDLE");
+				},
+				FATTR4_FILEID => {
+					list.entry(&"FILEID");
+				},
+				FATTR4_FILES_AVAIL => {
+					list.entry(&"FILES_AVAIL");
+				},
+				FATTR4_FILES_FREE => {
+					list.entry(&"FILES_FREE");
+				},
+				FATTR4_FILES_TOTAL => {
+					list.entry(&"FILES_TOTAL");
+				},
+				FATTR4_FS_LOCATIONS => {
+					list.entry(&"FS_LOCATIONS");
+				},
+				FATTR4_HIDDEN => {
+					list.entry(&"HIDDEN");
+				},
+				FATTR4_HOMOGENEOUS => {
+					list.entry(&"HOMOGENEOUS");
+				},
+				FATTR4_MAXFILESIZE => {
+					list.entry(&"MAXFILESIZE");
+				},
+				FATTR4_MAXLINK => {
+					list.entry(&"MAXLINK");
+				},
+				FATTR4_MAXNAME => {
+					list.entry(&"MAXNAME");
+				},
+				FATTR4_MAXREAD => {
+					list.entry(&"MAXREAD");
+				},
+				FATTR4_MAXWRITE => {
+					list.entry(&"MAXWRITE");
+				},
+				FATTR4_MIMETYPE => {
+					list.entry(&"MIMETYPE");
+				},
+				FATTR4_MODE => {
+					list.entry(&"MODE");
+				},
+				FATTR4_NO_TRUNC => {
+					list.entry(&"NO_TRUNC");
+				},
+				FATTR4_NUMLINKS => {
+					list.entry(&"NUMLINKS");
+				},
+				FATTR4_OWNER => {
+					list.entry(&"OWNER");
+				},
+				FATTR4_OWNER_GROUP => {
+					list.entry(&"OWNER_GROUP");
+				},
+				FATTR4_QUOTA_AVAIL_HARD => {
+					list.entry(&"QUOTA_AVAIL_HARD");
+				},
+				FATTR4_QUOTA_AVAIL_SOFT => {
+					list.entry(&"QUOTA_AVAIL_SOFT");
+				},
+				FATTR4_QUOTA_USED => {
+					list.entry(&"QUOTA_USED");
+				},
+				FATTR4_RAWDEV => {
+					list.entry(&"RAWDEV");
+				},
+				FATTR4_SPACE_AVAIL => {
+					list.entry(&"SPACE_AVAIL");
+				},
+				FATTR4_SPACE_FREE => {
+					list.entry(&"SPACE_FREE");
+				},
+				FATTR4_SPACE_TOTAL => {
+					list.entry(&"SPACE_TOTAL");
+				},
+				FATTR4_SPACE_USED => {
+					list.entry(&"SPACE_USED");
+				},
+				FATTR4_SYSTEM => {
+					list.entry(&"SYSTEM");
+				},
+				FATTR4_TIME_ACCESS => {
+					list.entry(&"TIME_ACCESS");
+				},
+				FATTR4_TIME_ACCESS_SET => {
+					list.entry(&"TIME_ACCESS_SET");
+				},
+				FATTR4_TIME_BACKUP => {
+					list.entry(&"TIME_BACKUP");
+				},
+				FATTR4_TIME_CREATE => {
+					list.entry(&"TIME_CREATE");
+				},
+				FATTR4_TIME_DELTA => {
+					list.entry(&"TIME_DELTA");
+				},
+				FATTR4_TIME_METADATA => {
+					list.entry(&"TIME_METADATA");
+				},
+				FATTR4_TIME_MODIFY => {
+					list.entry(&"TIME_MODIFY");
+				},
+				FATTR4_TIME_MODIFY_SET => {
+					list.entry(&"TIME_MODIFY_SET");
+				},
+				FATTR4_MOUNTED_ON_FILEID => {
+					list.entry(&"MOUNTED_ON_FILEID");
+				},
+				FATTR4_DIR_NOTIF_DELAY => {
+					list.entry(&"DIR_NOTIF_DELAY");
+				},
+				FATTR4_DIRENT_NOTIF_DELAY => {
+					list.entry(&"DIRENT_NOTIF_DELAY");
+				},
+				FATTR4_DACL => {
+					list.entry(&"DACL");
+				},
+				FATTR4_SACL => {
+					list.entry(&"SACL");
+				},
+				FATTR4_CHANGE_POLICY => {
+					list.entry(&"CHANGE_POLICY");
+				},
+				FATTR4_FS_STATUS => {
+					list.entry(&"FS_STATUS");
+				},
+				FATTR4_FS_LAYOUT_TYPE => {
+					list.entry(&"FS_LAYOUT_TYPE");
+				},
+				FATTR4_LAYOUT_HINT => {
+					list.entry(&"LAYOUT_HINT");
+				},
+				FATTR4_LAYOUT_TYPE => {
+					list.entry(&"LAYOUT_TYPE");
+				},
+				FATTR4_LAYOUT_BLKSIZE => {
+					list.entry(&"LAYOUT_BLKSIZE");
+				},
+				FATTR4_LAYOUT_ALIGNMENT => {
+					list.entry(&"LAYOUT_ALIGNMENT");
+				},
+				FATTR4_FS_LOCATIONS_INFO => {
+					list.entry(&"FS_LOCATIONS_INFO");
+				},
+				FATTR4_MDSTHRESHOLD => {
+					list.entry(&"MDSTHRESHOLD");
+				},
+				FATTR4_RETENTION_GET => {
+					list.entry(&"RETENTION_GET");
+				},
+				FATTR4_RETENTION_SET => {
+					list.entry(&"RETENTION_SET");
+				},
+				FATTR4_RETENTEVT_GET => {
+					list.entry(&"RETENTEVT_GET");
+				},
+				FATTR4_RETENTEVT_SET => {
+					list.entry(&"RETENTEVT_SET");
+				},
+				FATTR4_RETENTION_HOLD => {
+					list.entry(&"RETENTION_HOLD");
+				},
+				FATTR4_MODE_SET_MASKED => {
+					list.entry(&"MODE_SET_MASKED");
+				},
+				FATTR4_SUPPATTR_EXCLCREAT => {
+					list.entry(&"SUPPATTR_EXCLCREAT");
+				},
+				FATTR4_FS_CHARSET_CAP => {
+					list.entry(&"FS_CHARSET_CA&P");
+				},
+				_ => (),
+			}
 		}
 		list.finish()
 	}

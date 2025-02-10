@@ -1,9 +1,8 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _};
-use http_body_util::StreamBody;
 use tangram_client as tg;
 use tangram_futures::task::Stop;
-use tangram_http::{Incoming, Outgoing};
+use tangram_http::Body;
 use tokio_stream::wrappers::ReceiverStream;
 
 impl Server {
@@ -26,9 +25,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_read_pipe_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
@@ -44,23 +43,26 @@ impl Server {
 		let stream = stream.take_until(stop);
 
 		// Create the body.
-		let body = Outgoing::body(StreamBody::new(stream.map(move |result| match result {
-			Ok(event) => match event {
-				tg::pipe::Event::Chunk(bytes) => Ok(hyper::body::Frame::data(bytes)),
-				tg::pipe::Event::End => {
-					let mut trailers = http::HeaderMap::new();
-					trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
-					Ok(hyper::body::Frame::trailers(trailers))
+		let body = Body::with_stream(stream.map(move |result| {
+			let event = match result {
+				Ok(event) => match event {
+					tg::pipe::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),
+					tg::pipe::Event::End => {
+						let mut trailers = http::HeaderMap::new();
+						trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
+						hyper::body::Frame::trailers(trailers)
+					},
 				},
-			},
-			Err(error) => {
-				let mut trailers = http::HeaderMap::new();
-				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-				let json = serde_json::to_string(&error).unwrap();
-				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-				Ok(hyper::body::Frame::trailers(trailers))
-			},
-		})));
+				Err(error) => {
+					let mut trailers = http::HeaderMap::new();
+					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
+					let json = serde_json::to_string(&error).unwrap();
+					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
+					hyper::body::Frame::trailers(trailers)
+				},
+			};
+			Ok::<_, tg::Error>(event)
+		}));
 
 		// Create the response.
 		let response = http::Response::builder().body(body).unwrap();

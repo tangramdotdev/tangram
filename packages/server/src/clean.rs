@@ -2,7 +2,7 @@ use super::Server;
 use indoc::{formatdoc, indoc};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{response::builder::Ext as _, Body};
 
 impl Server {
 	pub async fn clean(&self) -> tg::Result<()> {
@@ -194,8 +194,8 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_server_clean_request<H>(
 		handle: &H,
-		_request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>>
+		_request: http::Request<Body>,
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

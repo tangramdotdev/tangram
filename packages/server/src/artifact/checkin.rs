@@ -4,7 +4,7 @@ use indoc::indoc;
 use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_client as tg;
 use tangram_futures::stream::Ext as _;
-use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, Body};
 use tangram_ignore::Matcher;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -45,7 +45,7 @@ impl Server {
 							.or(payload.downcast_ref::<&str>().copied());
 						progress.error(tg::error!(?message, "the task panicked"));
 					},
-				};
+				}
 			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
@@ -170,8 +170,8 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_check_in_artifact_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
-	) -> tg::Result<http::Response<Outgoing>>
+		request: http::Request<Body>,
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
@@ -196,7 +196,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(Some(content_type), Outgoing::sse(stream))
+				(Some(content_type), Body::with_sse_stream(stream))
 			},
 
 			_ => {

@@ -6,7 +6,7 @@ use futures::{future, stream::FuturesUnordered, FutureExt as _, TryStreamExt as 
 use indoc::formatdoc;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
@@ -350,9 +350,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_finish_process_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

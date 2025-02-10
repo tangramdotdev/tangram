@@ -707,7 +707,7 @@ where
 			},
 			None => write!(title, "builtin").unwrap(),
 			_ => (),
-		};
+		}
 
 		let host = command.host(handle).await.ok();
 		let host = host.as_deref();

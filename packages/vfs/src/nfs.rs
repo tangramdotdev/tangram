@@ -635,7 +635,7 @@ where
 		// Required overflow check.
 		if ![0, u64::MAX].contains(&arg.length) && (u64::MAX - arg.offset > arg.length) {
 			return LOCK4res::Error(nfsstat4::NFS4ERR_INVAL);
-		};
+		}
 
 		// Since we're a read only file system we need to check if the client is attempting to acquire an exlusive (write) lock and return the appropriate error code.
 		// NFS section 13.1.8.9 https://datatracker.ietf.org/doc/html/rfc7530#autoid-325
@@ -644,7 +644,7 @@ where
 				return LOCK4res::Error(nfsstat4::NFS4ERR_OPENMODE);
 			},
 			_ => (),
-		};
+		}
 
 		// Get the arguments we care about.
 		let stateid = match arg.locker {
@@ -664,13 +664,13 @@ where
 	async fn handle_lockt(&self, _ctx: &mut Context, arg: LOCKT4args) -> LOCKT4res {
 		if ![0, u64::MAX].contains(&arg.length) && (u64::MAX - arg.offset > arg.length) {
 			return LOCKT4res::Error(nfsstat4::NFS4ERR_INVAL);
-		};
+		}
 		match arg.locktype {
 			nfs_lock_type4::WRITE_LT | nfs_lock_type4::WRITEW_LT => {
 				return LOCKT4res::Error(nfsstat4::NFS4ERR_OPENMODE);
 			},
 			_ => (),
-		};
+		}
 		LOCKT4res::NFS4_OK
 	}
 
@@ -1370,7 +1370,7 @@ impl FileAttrData {
 				FATTR4_TIME_MODIFY => encoder.encode(&self.time_modify).unwrap(),
 				FATTR4_MOUNTED_ON_FILEID => encoder.encode(&self.mounted_on_fileid).unwrap(),
 				_ => (),
-			};
+			}
 		}
 		buf
 	}

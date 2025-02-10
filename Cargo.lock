@@ -6446,6 +6446,7 @@ dependencies = [
 name = "tangram_client"
 version = "0.0.0"
 dependencies = [
+ "async-compression",
  "blake3",
  "byte-unit",
  "bytes",
@@ -6488,6 +6489,7 @@ dependencies = [
  "uuid",
  "webpki-roots",
  "winnow",
+ "zstd",
 ]
 
 [[package]]
@@ -6534,6 +6536,7 @@ name = "tangram_http"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "derive_more",
  "erased-serde",
  "futures",
  "http 1.2.0",
@@ -6544,9 +6547,11 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
+ "sync_wrapper",
  "tokio",
  "tokio-util",
  "tower 0.5.2",
+ "tower-http",
 ]
 
 [[package]]

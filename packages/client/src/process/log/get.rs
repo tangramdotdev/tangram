@@ -6,7 +6,7 @@ use crate::{
 use bytes::Bytes;
 use futures::{future, Stream, TryStreamExt as _};
 use serde_with::serde_as;
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
+use tangram_http::{response::Ext as _, request::builder::Ext as _};
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

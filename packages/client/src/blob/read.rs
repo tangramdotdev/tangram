@@ -8,7 +8,7 @@ use bytes::Bytes;
 use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
 use serde_with::serde_as;
 use std::pin::pin;
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
+use tangram_http::{response::Ext as _, request::builder::Ext as _};
 use tokio::io::{AsyncBufRead, AsyncReadExt};
 use tokio_util::io::StreamReader;
 

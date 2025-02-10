@@ -31,9 +31,7 @@ impl Builder {
 				Some(std::path::Component::Normal(name)) => {
 					break name;
 				},
-				Some(std::path::Component::CurDir) => {
-					continue;
-				},
+				Some(std::path::Component::CurDir) => (),
 				_ => {
 					return Err(tg::error!("expected a normal path component"));
 				},
@@ -130,7 +128,7 @@ impl Builder {
 
 			// Add the new artifact.
 			self.entries.insert(name, artifact);
-		};
+		}
 
 		Ok(self)
 	}

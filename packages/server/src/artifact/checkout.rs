@@ -7,7 +7,7 @@ use num::ToPrimitive as _;
 use std::{os::unix::fs::PermissionsExt as _, panic::AssertUnwindSafe, path::PathBuf, sync::Arc};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::Ext as _;
-use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, Body};
 use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
 mod lockfile;
@@ -97,7 +97,7 @@ impl Server {
 							.or(payload.downcast_ref::<&str>().copied());
 						progress.error(tg::error!(?message, "the task panicked"));
 					},
-				};
+				}
 			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
@@ -445,7 +445,7 @@ impl Server {
 		// Handle an existing artifact at the path.
 		if arg.existing_artifact.is_some() {
 			crate::util::fs::remove(&arg.path).await.ok();
-		};
+		}
 
 		// Check out the file's dependencies.
 		if arg.dependencies {
@@ -473,7 +473,7 @@ impl Server {
 				.into_iter()
 				.map(|output| output.progress)
 				.sum();
-		};
+		}
 
 		// Attempt to copy the file from another file in the checkout.
 		let path = state.files.get(&id).map(|path| path.clone());
@@ -547,7 +547,7 @@ impl Server {
 		// Handle an existing artifact at the path.
 		if arg.existing_artifact.is_some() {
 			crate::util::fs::remove(&arg.path).await.ok();
-		};
+		}
 
 		// Get the symlink's target, artifact, and subpath.
 		let target = symlink.target(self).await?;
@@ -607,9 +607,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_check_out_artifact_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
@@ -637,7 +637,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(Some(content_type), Outgoing::sse(stream))
+				(Some(content_type), Body::with_sse_stream(stream))
 			},
 
 			_ => {

@@ -439,7 +439,7 @@ impl Server {
 					let it = artifact.as_ref().right().cloned();
 					object_ids.extend(it);
 				},
-				tg::lockfile::Node::Symlink(_) => continue,
+				tg::lockfile::Node::Symlink(_) => (),
 			}
 		}
 		let artifact_ids: Vec<tg::artifact::Id> = object_ids
@@ -505,7 +505,7 @@ async fn get_paths(
 		// Check if the file system object exists. If it doesn't, leave the node empty.
 		if !matches!(tokio::fs::try_exists(node_path).await, Ok(true)) {
 			return Ok(());
-		};
+		}
 
 		// Update the visited set.
 		visited[node].replace(node_path.to_owned());
@@ -547,7 +547,7 @@ async fn get_paths(
 						let path = node_path.parent().unwrap().join(path);
 						if !matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
 							break 'a;
-						};
+						}
 						let Ok(node_path) = crate::util::fs::canonicalize_parent(&path).await
 						else {
 							break 'a;
@@ -600,7 +600,7 @@ async fn get_paths(
 				.await?;
 			},
 			tg::lockfile::Node::Symlink(_) => (),
-		};
+		}
 
 		Ok(())
 	}

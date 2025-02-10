@@ -23,7 +23,7 @@ impl Server {
 		// Skip empty lockfiles.
 		if lockfile.nodes.is_empty() {
 			return Ok(());
-		};
+		}
 
 		// Get the path to the root of the input graph.
 		let root_path = &input.nodes[0].arg.path;
@@ -158,7 +158,7 @@ impl Server {
 				.item()
 				.unwrap_path_ref()
 				.components()
-				.last()
+				.next_back()
 				.unwrap()
 				.as_os_str()
 				.to_str()
@@ -647,7 +647,7 @@ fn try_find_in_lockfile_nodes(
 	};
 	for component in subpath.components() {
 		match component {
-			std::path::Component::CurDir => continue,
+			std::path::Component::CurDir => (),
 			std::path::Component::Normal(normal) => {
 				let name = normal.to_str().unwrap();
 				let tg::lockfile::Node::Directory(directory) = &nodes[node] else {

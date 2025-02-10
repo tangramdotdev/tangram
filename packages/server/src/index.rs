@@ -51,16 +51,12 @@ impl Server {
 				Ok(0) => {
 					drop(connection);
 					tokio::time::sleep(Duration::from_millis(100)).await;
-					continue;
 				},
-				Ok(_) => {
-					continue;
-				},
+				Ok(_) => (),
 				Err(error) => {
 					drop(connection);
 					tracing::error!(?error, "failed to index the objects");
 					tokio::time::sleep(Duration::from_secs(1)).await;
-					continue;
 				},
 			};
 		}

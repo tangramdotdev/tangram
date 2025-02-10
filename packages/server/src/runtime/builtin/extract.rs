@@ -169,9 +169,7 @@ where
 			async_tar::EntryType::XGlobalHeader
 			| async_tar::EntryType::XHeader
 			| async_tar::EntryType::GNULongName
-			| async_tar::EntryType::GNULongLink => {
-				continue;
-			},
+			| async_tar::EntryType::GNULongLink => (),
 			_ => {
 				let mode = header
 					.mode()

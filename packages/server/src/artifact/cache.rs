@@ -296,7 +296,7 @@ impl Server {
 							.cache_artifact_dependency(artifact, ancestors, &state.progress)
 							.await?;
 						output.progress += dependency_output.progress;
-					};
+					}
 					Ok::<_, tg::Error>(output)
 				}
 			})

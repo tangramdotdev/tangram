@@ -185,7 +185,7 @@ where
 					},
 				}
 			}
-		};
+		}
 
 		// Attempt to scroll up by 1 line.
 		loop {

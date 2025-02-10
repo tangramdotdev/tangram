@@ -1,6 +1,6 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{response::builder::Ext as _, Body};
 
 impl Server {
 	pub async fn close_pipe(&self, id: &tg::pipe::Id) -> tg::Result<()> {
@@ -16,9 +16,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_close_pipe_request<H>(
 		handle: &H,
-		_request: http::Request<Incoming>,
+		_request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

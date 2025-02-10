@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _};
 use tangram_client as tg;
-use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, Body};
 
 impl Server {
 	pub async fn pull_object(
@@ -17,9 +17,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_pull_object_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
@@ -47,7 +47,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(Some(content_type), Outgoing::sse(stream))
+				(Some(content_type), Body::with_sse_stream(stream))
 			},
 
 			_ => {

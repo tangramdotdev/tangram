@@ -258,7 +258,7 @@ impl Compiler {
 							.and_then(|options| options.subpath.clone()),
 						tag: None,
 					});
-				};
+				}
 
 				// Otherwise we cannot resolve this reference.
 				Err(

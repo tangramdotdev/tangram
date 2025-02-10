@@ -7,7 +7,7 @@ use itertools::Itertools as _;
 use std::panic::AssertUnwindSafe;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::Ext as _;
-use tangram_http::{incoming::request::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, Body};
 use tokio_util::task::AbortOnDropHandle;
 
 struct InnerOutput {
@@ -99,7 +99,7 @@ impl Server {
 							.or(payload.downcast_ref::<&str>().copied());
 						progress.error(tg::error!(?message, "the task panicked"));
 					},
-				};
+				}
 			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
@@ -410,9 +410,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_push_process_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
@@ -440,7 +440,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(Some(content_type), Outgoing::sse(stream))
+				(Some(content_type), Body::with_sse_stream(stream))
 			},
 
 			_ => {

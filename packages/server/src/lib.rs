@@ -23,11 +23,13 @@ use tangram_client as tg;
 use tangram_database as db;
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{response::builder::Ext as _, Body};
 use tokio::{
-	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt},
+	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
 	net::{TcpListener, UnixListener},
 };
+use tower::ServiceExt as _;
+use tower_http::ServiceBuilderExt as _;
 use url::Url;
 
 mod artifact;
@@ -751,25 +753,24 @@ impl Server {
 
 			// Create the service.
 			let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
-			let service = tower::service_fn({
-				let handle = handle.clone();
-				let idle = idle.clone();
-				let stop = stop.clone();
-				move |request: http::Request<hyper::body::Incoming>| {
-					let handle = handle.clone();
-					let mut request = request.map(Into::into);
-					let idle = idle.token();
-					let stop = stop.clone();
-					async move {
-						request.extensions_mut().insert(stop);
-						let response = Self::handle_request(&handle, request)
-							.await
-							.map(|body| tangram_http::idle::Body::new(idle, body));
-						Ok::<_, Infallible>(response)
+			let service = tower::ServiceBuilder::new()
+				.add_extension(stop.clone())
+				.map_response_body({
+					let idle = idle.clone();
+					move |body: Body| {
+						Body::with_body(tangram_http::idle::Body::new(idle.token(), body))
 					}
-				}
-			});
-			let service = tower::ServiceBuilder::new().service(service);
+				})
+				.service_fn({
+					let handle = handle.clone();
+					move |request| {
+						let handle = handle.clone();
+						async move {
+							let response = Self::handle_request(&handle, request).await;
+							Ok::<_, Infallible>(response)
+						}
+					}
+				});
 
 			// Spawn a task to serve the connection.
 			task_tracker.spawn({
@@ -779,6 +780,10 @@ impl Server {
 					let mut builder =
 						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
 					builder.http2().max_concurrent_streams(None);
+					let service =
+						service.map_request(|request: http::Request<hyper::body::Incoming>| {
+							request.map(Body::with_body)
+						});
 					let service = hyper_util::service::TowerToHyperService::new(service);
 					let connection = builder.serve_connection_with_upgrades(stream, service);
 					let result = match future::select(
@@ -803,10 +808,7 @@ impl Server {
 		task_tracker.wait().await;
 	}
 
-	async fn handle_request<H>(
-		handle: &H,
-		mut request: http::Request<Incoming>,
-	) -> http::Response<Outgoing>
+	async fn handle_request<H>(handle: &H, mut request: http::Request<Body>) -> http::Response<Body>
 	where
 		H: tg::Handle,
 	{
@@ -1002,13 +1004,13 @@ impl Server {
 
 		// Add tracing for response body errors.
 		let response = response.map(|body| {
-			Outgoing::body(body.map_err(|error| {
+			Body::with_body(body.map_err(|error| {
 				tracing::error!(?error, "response body error");
 				error
 			}))
 		});
 
-		tracing::trace!(?id, status = ?response.status(), "sending response");
+		tracing::trace!(?id, headers = ?response.headers(), status = ?response.status(), "sending response");
 
 		response
 	}

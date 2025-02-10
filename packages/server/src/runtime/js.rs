@@ -314,7 +314,7 @@ impl Runtime {
 									let exception = error::to_exception(scope, &error);
 									promise_resolver.reject(scope, exception);
 								},
-							};
+							}
 						}
 
 						// Exit the isolate.
@@ -370,7 +370,7 @@ impl Runtime {
 
 						return Poll::Ready(result);
 					},
-				};
+				}
 			}
 		});
 		let mut rejection = state.rejection.subscribe();

@@ -2,7 +2,7 @@ use crate::Server;
 use futures::{stream::TryStreamExt as _, Stream, StreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{response::builder::Ext as _, Body};
 
 impl Server {
 	pub async fn write_pipe(
@@ -32,9 +32,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_write_pipe_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

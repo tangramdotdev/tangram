@@ -375,7 +375,7 @@ impl Cli {
 
 			if Args::command().get_version().unwrap() == server_version {
 				break 'a;
-			};
+			}
 
 			// Disconnect.
 			client.disconnect().await?;

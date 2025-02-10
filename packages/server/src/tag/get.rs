@@ -1,6 +1,6 @@
 use crate::Server;
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{response::builder::Ext as _, Body};
 
 impl Server {
 	pub async fn try_get_tag(
@@ -24,9 +24,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_get_tag_request<H>(
 		handle: &H,
-		_request: http::Request<Incoming>,
+		_request: http::Request<Body>,
 		pattern: &[&str],
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

@@ -209,7 +209,7 @@ impl Server {
 		let lockfile_path = 'a: {
 			if let Some(path) = lockfile_path {
 				break 'a Some(path);
-			};
+			}
 			for path in path.ancestors() {
 				let path = path.join(tg::package::LOCKFILE_FILE_NAME);
 				if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
@@ -368,7 +368,7 @@ impl Server {
 			// If this is a module path, attempt to parse it.
 			if !tg::package::is_module_path(path) {
 				break 'a None;
-			};
+			}
 
 			// Read the file, returning an error if we couldn't.
 			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
@@ -865,7 +865,7 @@ impl Graph {
 					|| !tg::package::is_module_path(&self.nodes[child].arg.path)
 				{
 					continue;
-				};
+				}
 				let root_of_child = get_root_node(self, child);
 				if root_of_child != root {
 					return Err(tg::error!(

@@ -6,7 +6,7 @@ use num::ToPrimitive;
 use tangram_client as tg;
 use tangram_database::prelude::*;
 use tangram_either::Either;
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -168,9 +168,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_put_object_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{

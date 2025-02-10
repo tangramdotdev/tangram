@@ -1,6 +1,6 @@
 use crate as tg;
 use tangram_either::Either;
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
+use tangram_http::{response::Ext as _, request::builder::Ext as _};
 
 pub struct Output {
 	pub referent: tg::Referent<Either<tg::process::Id, tg::object::Id>>,

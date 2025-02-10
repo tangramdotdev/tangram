@@ -1,9 +1,13 @@
-use crate::{sse, Error, Incoming};
+use crate::{sse, Body, Error};
 use bytes::Bytes;
 use futures::{future, Future, Stream, TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use tokio::io::AsyncBufRead;
 use tokio_util::io::StreamReader;
+
+pub mod builder;
+
+pub type Request = http::Request<Body>;
 
 pub trait Ext {
 	fn query_params<T>(&self) -> Option<Result<T, Error>>
@@ -35,7 +39,7 @@ pub trait Ext {
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static;
 }
 
-impl Ext for http::Request<Incoming> {
+impl Ext for http::Request<Body> {
 	fn query_params<T>(&self) -> Option<Result<T, Error>>
 	where
 		T: serde::de::DeserializeOwned,

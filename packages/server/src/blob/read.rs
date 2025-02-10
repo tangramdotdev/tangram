@@ -1,4 +1,5 @@
 use crate::Server;
+use async_compression::tokio::bufread::ZstdEncoder;
 use bytes::{Buf as _, Bytes};
 use futures::{future::BoxFuture, FutureExt as _, Stream, StreamExt};
 use num::ToPrimitive;
@@ -6,7 +7,7 @@ use std::{io::Cursor, pin::pin};
 use sync_wrapper::SyncWrapper;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::{stream::Ext, task::Stop};
-use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
 use tokio_util::task::AbortOnDropHandle;
 
@@ -283,7 +284,7 @@ impl AsyncRead for Object {
 					this.read.take();
 					this.cursor.replace(cursor);
 				},
-			};
+			}
 		}
 
 		// Read.
@@ -337,7 +338,7 @@ impl AsyncBufRead for Object {
 					this.read.take();
 					this.cursor.replace(cursor);
 				},
-			};
+			}
 		}
 
 		// Read.
@@ -443,9 +444,9 @@ async fn poll_read_inner(
 impl Server {
 	pub(crate) async fn handle_read_blob_request<H>(
 		handle: &H,
-		request: http::Request<Incoming>,
+		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Outgoing>>
+	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
@@ -479,7 +480,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				let body = Outgoing::sse(stream);
+				let body = Body::with_sse_stream(stream);
 				(content_type, body)
 			},
 
@@ -487,6 +488,8 @@ impl Server {
 				return Err(tg::error!(?accept, "invalid accept header"));
 			},
 		};
+
+		let body = Body::with_reader(ZstdEncoder::new(body.into_reader()));
 
 		// Create the response.
 		let response = http::Response::builder()

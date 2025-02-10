@@ -185,7 +185,7 @@ impl Server {
 					// If we didn't find a resolution and the --locked arg was passed, it means the lockfile was out of date and we need to error.
 					if input_node.arg.locked {
 						return Err(tg::error!("lockfile is out of date"));
-					};
+					}
 					break 'a;
 				};
 
@@ -446,7 +446,7 @@ impl Server {
 				Err(error) => {
 					current.graph.add_error(&current.edge.src, error);
 				},
-			};
+			}
 			return;
 		}
 
@@ -908,7 +908,7 @@ impl std::fmt::Display for Edge {
 		match &self.referent {
 			Either::Left(reference) => write!(f, "(reference: {reference}")?,
 			Either::Right(index) => write!(f, "(index: {index}")?,
-		};
+		}
 		if let Some(path) = &self.path {
 			write!(f, ", path: {}", path.display())?;
 		}

@@ -2,7 +2,7 @@ use crate::{self as tg, util::serde::is_false};
 use itertools::Itertools as _;
 use serde_with::serde_as;
 use std::{collections::BTreeMap, path::PathBuf};
-use tangram_http::{incoming::response::Ext as _, outgoing::request::Ext as _};
+use tangram_http::{response::Ext as _, request::builder::Ext as _};
 use time::format_description::well_known::Rfc3339;
 
 #[serde_as]

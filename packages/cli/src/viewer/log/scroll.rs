@@ -337,7 +337,7 @@ impl GraphemeParserState<'_, '_> {
 				},
 
 				// We need more codepoints, continue parsing.
-				Err(GraphemeIncomplete::NextChunk | GraphemeIncomplete::PrevChunk) => continue,
+				Err(GraphemeIncomplete::NextChunk | GraphemeIncomplete::PrevChunk) => (),
 
 				// There's not enough information in the buffer, grab some precontext.
 				Err(GraphemeIncomplete::PreContext(end)) => {
@@ -346,6 +346,7 @@ impl GraphemeParserState<'_, '_> {
 					};
 					cursor.provide_context(context, start);
 				},
+
 				Err(_) => unreachable!(),
 			}
 		}
@@ -374,7 +375,7 @@ impl GraphemeParserState<'_, '_> {
 				self.start = self.start.saturating_sub(1);
 				self.buffer
 					.insert(0, self.chunks[self.chunk].bytes[self.byte]);
-			};
+			}
 		}
 	}
 

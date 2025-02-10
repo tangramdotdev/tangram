@@ -1,12 +1,12 @@
 use self::builder::Builder;
-use once_cell::sync::Lazy;
 use regex::Regex;
-use std::ops::Range;
+use std::{ops::Range, sync::LazyLock};
 
 pub mod builder;
 
-static REGEX: Lazy<Regex> =
-	Lazy::new(|| Regex::new(r"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?").unwrap());
+static REGEX: LazyLock<Regex> = LazyLock::new(|| {
+	Regex::new(r"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?").unwrap()
+});
 
 #[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub struct Reference {
