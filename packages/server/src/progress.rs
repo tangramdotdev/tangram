@@ -1,7 +1,10 @@
 use futures::{future, stream, Stream, StreamExt as _};
 use indexmap::IndexMap;
 use std::{
-	sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+	sync::{
+		atomic::{AtomicBool, AtomicU64},
+		Arc, Mutex, RwLock,
+	},
 	time::Duration,
 };
 use tangram_client as tg;
@@ -13,6 +16,7 @@ pub struct Handle<T> {
 	indicators: Arc<RwLock<IndexMap<String, Indicator>>>,
 	receiver: async_channel::Receiver<tg::Result<tg::progress::Event<T>>>,
 	sender: async_channel::Sender<tg::Result<tg::progress::Event<T>>>,
+	sent_once: Arc<RwLock<bool>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -28,10 +32,12 @@ impl<T> Handle<T> {
 	pub fn new() -> Self {
 		let (sender, receiver) = async_channel::unbounded();
 		let indicators = Arc::new(RwLock::new(IndexMap::new()));
+		let sent_once = Arc::new(RwLock::new(false));
 		Self {
 			indicators,
 			receiver,
 			sender,
+			sent_once,
 		}
 	}
 
@@ -79,14 +85,15 @@ impl<T> Handle<T> {
 	}
 
 	pub fn finish(&self, name: &str) {
+		if let Some(indicator) = self.indicators.read().unwrap().get(name) {
+			let event = Self::get_indicator_update_event(indicator);
+			tracing::debug!("sending final update");
+			self.sender.try_send(Ok(event)).ok();
+		}
 		self.indicators.write().unwrap().shift_remove(name);
 	}
 
 	pub fn output(&self, output: T) {
-		for result in Self::get_indicators(&self.indicators) {
-			self.sender.try_send(result).ok();
-		}
-
 		let event = tg::progress::Event::Output(output);
 		self.sender.try_send(Ok(event)).ok();
 	}
@@ -98,11 +105,13 @@ impl<T> Handle<T> {
 	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + use<T> {
 		let indicators = self.indicators.clone();
 		let receiver = self.receiver.clone();
+		let sent_once = self.sent_once.clone();
 		let interval = Duration::from_millis(100);
 		let interval = tokio::time::interval(interval);
-		let updates = IntervalStream::new(interval)
-			.skip(1)
-			.flat_map(move |_| stream::iter(Self::get_indicators(&indicators)));
+		let updates = IntervalStream::new(interval).skip(1).flat_map(move |_| {
+			*sent_once.write().unwrap() = true;
+			stream::iter(Self::get_indicators(&indicators))
+		});
 		stream::select(receiver, updates).take_while_inclusive(|event| {
 			future::ready(!matches!(
 				event,
@@ -118,26 +127,28 @@ impl<T> Handle<T> {
 			.read()
 			.unwrap()
 			.values()
-			.map(|indicator| {
-				let name = indicator.name.clone();
-				let format = indicator.format.clone();
-				let title = indicator.title.lock().unwrap().clone();
-				let current = indicator
-					.current
-					.as_ref()
-					.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
-				let total = indicator
-					.total
-					.as_ref()
-					.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
-				Ok(tg::progress::Event::Update(tg::progress::Indicator {
-					current,
-					format,
-					name,
-					title,
-					total,
-				}))
-			})
+			.map(|indicator| Ok(Self::get_indicator_update_event(indicator)))
 			.collect()
+	}
+
+	fn get_indicator_update_event(indicator: &Indicator) -> tg::progress::Event<T> {
+		let name = indicator.name.clone();
+		let format = indicator.format.clone();
+		let title = indicator.title.lock().unwrap().clone();
+		let current = indicator
+			.current
+			.as_ref()
+			.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
+		let total = indicator
+			.total
+			.as_ref()
+			.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
+		tg::progress::Event::Update(tg::progress::Indicator {
+			current,
+			format,
+			name,
+			title,
+			total,
+		})
 	}
 }
