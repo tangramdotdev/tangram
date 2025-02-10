@@ -125,6 +125,7 @@ pub(super) fn from_exception<'s>(
 
 	// Create the error.
 	tg::Error {
+		code: Some(tg::error::code::JS_RUNTIME),
 		message,
 		location,
 		stack,
