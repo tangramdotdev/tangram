@@ -83,6 +83,10 @@ impl<T> Handle<T> {
 	}
 
 	pub fn output(&self, output: T) {
+		for result in Self::get_indicators(&self.indicators) {
+			self.sender.try_send(result).ok();
+		}
+
 		let event = tg::progress::Event::Output(output);
 		self.sender.try_send(Ok(event)).ok();
 	}
@@ -96,40 +100,44 @@ impl<T> Handle<T> {
 		let receiver = self.receiver.clone();
 		let interval = Duration::from_millis(100);
 		let interval = tokio::time::interval(interval);
-		let updates = IntervalStream::new(interval).skip(1).flat_map(move |_| {
-			let indicators = indicators
-				.read()
-				.unwrap()
-				.values()
-				.map(move |indicator| {
-					let name = indicator.name.clone();
-					let format = indicator.format.clone();
-					let title = indicator.title.lock().unwrap().clone();
-					let current = indicator
-						.current
-						.as_ref()
-						.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
-					let total = indicator
-						.total
-						.as_ref()
-						.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
-					let indicator = tg::progress::Indicator {
-						current,
-						format,
-						name,
-						title,
-						total,
-					};
-					Ok(tg::progress::Event::Update(indicator))
-				})
-				.collect::<Vec<_>>();
-			stream::iter(indicators)
-		});
+		let updates = IntervalStream::new(interval)
+			.skip(1)
+			.flat_map(move |_| stream::iter(Self::get_indicators(&indicators)));
 		stream::select(receiver, updates).take_while_inclusive(|event| {
 			future::ready(!matches!(
 				event,
 				Ok(tg::progress::Event::Output(_)) | Err(_)
 			))
 		})
+	}
+
+	fn get_indicators(
+		indicators: &RwLock<IndexMap<String, Indicator>>,
+	) -> Vec<tg::Result<tg::progress::Event<T>>> {
+		indicators
+			.read()
+			.unwrap()
+			.values()
+			.map(|indicator| {
+				let name = indicator.name.clone();
+				let format = indicator.format.clone();
+				let title = indicator.title.lock().unwrap().clone();
+				let current = indicator
+					.current
+					.as_ref()
+					.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
+				let total = indicator
+					.total
+					.as_ref()
+					.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
+				Ok(tg::progress::Event::Update(tg::progress::Indicator {
+					current,
+					format,
+					name,
+					title,
+					total,
+				}))
+			})
+			.collect()
 	}
 }
