@@ -89,6 +89,11 @@ pub struct Config {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Advanced {
+	/// The duration after the last "touched at" time that an object will be preserved during clean.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub garbage_collection_grace_period: Option<Duration>,
+
 	/// The duration after which a process that is dequeued but not started may be dequeued again.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
