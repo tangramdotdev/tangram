@@ -170,6 +170,13 @@ impl Client {
 				HeaderName::from_str("x-tg-version").unwrap(),
 				HeaderValue::from_str(&Self::version()).unwrap(),
 			)
+			.layer(tangram_http::middleware::request_compression_layer(
+				tangram_http::middleware::CompressionPredicate::default(),
+			))
+			.layer(tangram_http::middleware::response_decompression_layer())
+			.layer(tangram_http::middleware::trace_layer(
+				&tangram_http::middleware::TraceLayerArg::default(),
+			))
 			.service(service);
 		let service = Service::new(service);
 

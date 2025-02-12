@@ -2,6 +2,7 @@ pub use self::{body::Body, request::Request, response::Response};
 
 pub mod body;
 pub mod idle;
+pub mod middleware;
 pub mod request;
 pub mod response;
 pub mod service;
