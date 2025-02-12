@@ -109,9 +109,13 @@ where
 	middleware::<S, E, _, _>(move |mut service, request| async move {
 		let response = service.ready().await?.call(request).await?;
 
-		// Don't recompress responses that are already compressed.
+		// Don't recompress responses that are already compressed or event streams.
 		let should_compress = !response.headers().contains_key(header::CONTENT_ENCODING)
 			&& !response.headers().contains_key(header::CONTENT_RANGE)
+			&& !response
+				.headers()
+				.get(header::CONTENT_TYPE)
+				.is_some_and(|ct| ct.to_str().unwrap_or("").eq("text/event-stream"))
 			&& predicate.should_compress(response.headers(), response.body());
 
 		if !should_compress {
