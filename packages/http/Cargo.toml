@@ -14,6 +14,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+async-compression = { workspace = true }
 bytes = { workspace = true }
 derive_more = { workspace = true }
 erased-serde = { workspace = true }
@@ -27,6 +28,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
 sync_wrapper = { workspace = true }
+tracing = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }

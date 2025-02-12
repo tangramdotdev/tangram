@@ -754,6 +754,9 @@ impl Server {
 			// Create the service.
 			let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
 			let service = tower::ServiceBuilder::new()
+				.layer(tangram_http::middleware::trace_layer(
+					&tangram_http::middleware::TraceLayerArg::default(),
+				))
 				.add_extension(stop.clone())
 				.map_response_body({
 					let idle = idle.clone();
@@ -761,6 +764,10 @@ impl Server {
 						Body::with_body(tangram_http::idle::Body::new(idle.token(), body))
 					}
 				})
+				.layer(tangram_http::middleware::request_decompression_layer())
+				.layer(tangram_http::middleware::response_compression_layer(
+					tangram_http::middleware::CompressionPredicate::default(),
+				))
 				.service_fn({
 					let handle = handle.clone();
 					move |request| {
@@ -814,8 +821,6 @@ impl Server {
 	{
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
-
-		tracing::trace!(?id, headers = ?request.headers(), method = ?request.method(), path = ?request.uri().path(), "received request");
 
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
@@ -1002,17 +1007,12 @@ impl Server {
 		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
 		response.headers_mut().insert(key, value);
 
-		// Add tracing for response body errors.
-		let response = response.map(|body| {
+		response.map(|body| {
 			Body::with_body(body.map_err(|error| {
 				tracing::error!(?error, "response body error");
 				error
 			}))
-		});
-
-		tracing::trace!(?id, headers = ?response.headers(), status = ?response.status(), "sending response");
-
-		response
+		})
 	}
 }
 

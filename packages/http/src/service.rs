@@ -1,11 +1,27 @@
 use crate::{Request, Response};
 use futures::Future;
 
-pub fn middleware<S, E, F, Fut>(
-	f: F,
-) -> tower::util::BoxCloneSyncServiceLayer<S, Request, Response, E>
+pub trait Service<E>:
+	tower::Service<Request, Response = Response, Error = E> + Clone + Send + Sync + 'static
+where
+	Self::Future: Send + 'static,
+	E: Send + 'static,
+{
+}
+
+impl<S, E> Service<E> for S
 where
 	S: tower::Service<Request, Response = Response, Error = E> + Clone + Send + Sync + 'static,
+	S::Future: Send + 'static,
+	E: Send + 'static,
+{
+}
+
+pub type BoxLayer<S, E> = tower::util::BoxCloneSyncServiceLayer<S, Request, Response, E>;
+
+pub fn middleware<S, E, F, Fut>(f: F) -> BoxLayer<S, E>
+where
+	S: Service<E>,
 	<S as tower::Service<Request>>::Future: Send + 'static,
 	F: FnMut(tower::util::BoxCloneSyncService<Request, Response, E>, Request) -> Fut
 		+ Clone

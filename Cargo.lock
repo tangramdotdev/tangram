@@ -6332,7 +6332,6 @@ dependencies = [
 name = "tangram_client"
 version = "0.0.0"
 dependencies = [
- "async-compression",
  "blake3",
  "byte-unit",
  "bytes",
@@ -6421,6 +6420,7 @@ dependencies = [
 name = "tangram_http"
 version = "0.0.0"
 dependencies = [
+ "async-compression",
  "bytes",
  "derive_more",
  "erased-serde",
@@ -6438,6 +6438,7 @@ dependencies = [
  "tokio-util",
  "tower 0.5.2",
  "tower-http",
+ "tracing",
 ]
 
 [[package]]

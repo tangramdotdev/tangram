@@ -21,7 +21,6 @@ workspace = true
 proptest = { workspace = true }
 
 [dependencies]
-async-compression = { workspace = true }
 blake3 = { workspace = true }
 byte-unit = { workspace = true }
 bytes = { workspace = true }
