@@ -161,6 +161,7 @@ impl Client {
 				.map_err(|source| tg::error!(!source, "failed to send the request"))
 		});
 		let service = tower::ServiceBuilder::new()
+			.layer(tangram_http::layer::tracing::TracingLayer::new())
 			.insert_request_header_if_not_present(
 				HeaderName::from_str("x-tg-compatibility-date").unwrap(),
 				HeaderValue::from_str(&Self::compatibility_date().format(&Rfc3339).unwrap())
@@ -170,13 +171,8 @@ impl Client {
 				HeaderName::from_str("x-tg-version").unwrap(),
 				HeaderValue::from_str(&Self::version()).unwrap(),
 			)
-			.layer(tangram_http::middleware::request_compression_layer(
-				tangram_http::middleware::CompressionPredicate::default(),
-			))
-			.layer(tangram_http::middleware::response_decompression_layer())
-			.layer(tangram_http::middleware::trace_layer(
-				&tangram_http::middleware::TraceLayerArg::default(),
-			))
+			.layer(tangram_http::layer::compression::RequestCompressionLayer::default())
+			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
 			.service(service);
 		let service = Service::new(service);
 

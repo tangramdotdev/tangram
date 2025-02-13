@@ -754,9 +754,7 @@ impl Server {
 			// Create the service.
 			let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
 			let service = tower::ServiceBuilder::new()
-				.layer(tangram_http::middleware::trace_layer(
-					&tangram_http::middleware::TraceLayerArg::default(),
-				))
+				.layer(tangram_http::layer::tracing::TracingLayer::new())
 				.add_extension(stop.clone())
 				.map_response_body({
 					let idle = idle.clone();
@@ -764,10 +762,8 @@ impl Server {
 						Body::with_body(tangram_http::idle::Body::new(idle.token(), body))
 					}
 				})
-				.layer(tangram_http::middleware::request_decompression_layer())
-				.layer(tangram_http::middleware::response_compression_layer(
-					tangram_http::middleware::CompressionPredicate::default(),
-				))
+				.layer(tangram_http::layer::compression::RequestDecompressionLayer)
+				.layer(tangram_http::layer::compression::ResponseCompressionLayer::default())
 				.service_fn({
 					let handle = handle.clone();
 					move |request| {
