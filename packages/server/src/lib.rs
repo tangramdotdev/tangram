@@ -38,7 +38,9 @@ mod checksum;
 mod clean;
 mod compiler;
 mod database;
+mod export;
 mod health;
+mod import;
 mod index;
 mod lockfile;
 mod messenger;
@@ -851,6 +853,9 @@ impl Server {
 			(http::Method::PUT, ["objects", object]) => {
 				Self::handle_put_object_request(handle, request, object).boxed()
 			},
+			(http::Method::POST, ["objects"]) => {
+				Self::handle_post_object_request(handle, request).boxed()
+			},
 			(http::Method::POST, ["objects", object, "push"]) => {
 				Self::handle_push_object_request(handle, request, object).boxed()
 			},
@@ -1079,6 +1084,26 @@ impl tg::Handle for Server {
 		self.try_wait_process_future(id)
 	}
 
+	fn import(
+		&self,
+		arg: tg::import::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
+	> {
+		self.import(arg, stream)
+	}
+
+	fn export(
+		&self,
+		arg: tg::export::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
+	> {
+		self.export(arg, stream)
+	}
+
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -1107,6 +1132,17 @@ impl tg::Handle for Server {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.put_object(id, arg)
+	}
+
+	fn post_objects(
+		&self,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Item>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static,
+		>,
+	> + Send {
+		self.post_objects(stream)
 	}
 
 	fn push_object(

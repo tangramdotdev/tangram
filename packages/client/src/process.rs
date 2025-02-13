@@ -42,6 +42,7 @@ pub struct Inner {
 #[derive(Clone, Debug)]
 pub struct State {
 	pub checksum: Option<tg::Checksum>,
+	pub children: Option<Vec<tg::Process>>,
 	pub command: tg::Command,
 	pub commands_complete: bool,
 	pub commands_count: Option<u64>,
@@ -202,6 +203,12 @@ impl TryFrom<tg::process::get::Output> for tg::process::State {
 
 	fn try_from(value: tg::process::get::Output) -> Result<Self, Self::Error> {
 		let checksum = value.checksum;
+		let children = value.children.map(|children| {
+			children
+				.into_iter()
+				.map(|id| tg::Process::new(id, None, None, None))
+				.collect()
+		});
 		let command = tg::Command::with_id(value.command);
 		let commands_complete = value.commands_complete;
 		let commands_count = value.commands_count;
@@ -235,6 +242,7 @@ impl TryFrom<tg::process::get::Output> for tg::process::State {
 		let touched_at = value.touched_at;
 		Ok(State {
 			checksum,
+			children,
 			command,
 			commands_complete,
 			commands_count,

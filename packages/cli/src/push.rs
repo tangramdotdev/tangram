@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client::{self as tg, Handle};
 use tangram_either::Either;
 
-/// Push a process or an object.
+/// Push processes and objects.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

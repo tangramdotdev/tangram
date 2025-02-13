@@ -248,6 +248,12 @@ impl FromV8 for tg::process::State {
 		let checksum = <_>::from_v8(scope, checksum)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the checksum"))?;
 
+		let children =
+			v8::String::new_external_onebyte_static(scope, "children".as_bytes()).unwrap();
+		let children = value.get(scope, children.into()).unwrap();
+		let children = <_>::from_v8(scope, children)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the children"))?;
+
 		let command = v8::String::new_external_onebyte_static(scope, "command".as_bytes()).unwrap();
 		let command = value.get(scope, command.into()).unwrap();
 		let command = <_>::from_v8(scope, command)
@@ -425,6 +431,7 @@ impl FromV8 for tg::process::State {
 
 		Ok(Self {
 			checksum,
+			children,
 			command,
 			commands_complete,
 			commands_count,

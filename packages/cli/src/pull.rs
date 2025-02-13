@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
-/// Pull a process or an object.
+/// Pull processes and objects.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

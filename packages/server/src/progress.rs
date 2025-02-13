@@ -156,3 +156,9 @@ impl<T> Handle<T> {
 		})
 	}
 }
+
+impl<T> Default for Handle<T> {
+	fn default() -> Self {
+		Self::new()
+	}
+}

@@ -2,17 +2,20 @@ use crate::{self as tg, util::serde::is_false};
 use itertools::Itertools as _;
 use serde_with::serde_as;
 use std::{collections::BTreeMap, path::PathBuf};
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 use time::format_description::well_known::Rfc3339;
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cacheable: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub children: Vec<tg::process::Id>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub children: Option<Vec<tg::process::Id>>,
 
 	pub command: tg::command::Id,
 

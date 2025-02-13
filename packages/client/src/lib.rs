@@ -35,11 +35,10 @@ pub use self::{
 	handle::Handle,
 	health::Health,
 	id::Id,
-	import::Import,
 	leaf::Handle as Leaf,
 	location::Location,
 	lockfile::Lockfile,
-	module::Module,
+	module::{Import, Module},
 	mutation::Mutation,
 	object::Handle as Object,
 	position::Position,
@@ -64,6 +63,7 @@ pub mod compiler;
 pub mod diagnostic;
 pub mod directory;
 pub mod error;
+pub mod export;
 pub mod file;
 pub mod graph;
 pub mod handle;
@@ -81,6 +81,8 @@ pub mod pipe;
 pub mod position;
 pub mod process;
 pub mod progress;
+pub mod pull;
+pub mod push;
 pub mod range;
 pub mod reference;
 pub mod referent;
@@ -665,6 +667,26 @@ impl tg::Handle for Client {
 		self.try_read_blob_stream(id, arg)
 	}
 
+	fn import(
+		&self,
+		arg: tg::import::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
+	> {
+		self.import(arg, stream)
+	}
+
+	fn export(
+		&self,
+		arg: tg::export::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
+	> {
+		self.export(arg, stream)
+	}
+
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -693,6 +715,19 @@ impl tg::Handle for Client {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.put_object(id, arg)
+	}
+
+	fn post_objects(
+		&self,
+		stream: Pin<
+			Box<dyn Stream<Item = crate::Result<crate::object::post::Item>> + Send + 'static>,
+		>,
+	) -> impl Future<
+		Output = crate::Result<
+			impl Stream<Item = crate::Result<crate::object::post::Event>> + Send + 'static,
+		>,
+	> {
+		self.post_objects(stream)
 	}
 
 	fn push_object(

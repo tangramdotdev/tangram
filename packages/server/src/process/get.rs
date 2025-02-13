@@ -148,6 +148,7 @@ impl Server {
 		let output = row.map(|row| tg::process::get::Output {
 			cacheable: row.cacheable,
 			checksum: row.checksum,
+			children: None,
 			command: row.command,
 			commands_complete: row.commands_complete,
 			commands_count: row.commands_count,
@@ -224,8 +225,9 @@ impl Server {
 						.try_collect()
 						.await?;
 					let arg = tg::process::put::Arg {
+						cacheable: output.cacheable,
 						checksum: output.checksum,
-						children,
+						children: Some(children),
 						command: output.command.clone(),
 						created_at: output.created_at,
 						cwd: output.cwd,
