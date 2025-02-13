@@ -1,7 +1,9 @@
 use crate::{compiler::Compiler, Server};
-use futures::FutureExt as _;
-use tangram_client as tg;
+use futures::{future, FutureExt as _, TryFutureExt};
+use std::pin::pin;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_http::{response::builder::Ext as _, Body};
+use tokio_stream::StreamExt as _;
 
 mod proxy;
 mod util;
@@ -69,6 +71,11 @@ impl Runtime {
 	}
 
 	async fn run_inner(&self, process: &tg::Process) -> tg::Result<Output> {
+		// Attempt to reuse an existing process.
+		if let Some(output) = self.try_reuse_process(process).boxed().await? {
+			return Ok(output);
+		}
+
 		// Run the process.
 		let output = match self {
 			Runtime::Builtin(runtime) => runtime.run(process).boxed().await,
@@ -86,6 +93,164 @@ impl Runtime {
 		}
 
 		Ok(output)
+	}
+
+	async fn try_reuse_process(&self, process: &tg::Process) -> tg::Result<Option<Output>> {
+		// Load the process.
+		let Ok(state) = process.load(self.server()).await else {
+			return Ok(None);
+		};
+
+		// If there is no checksum, then return.
+		let Some(checksum) = &state.checksum else {
+			return Ok(None);
+		};
+
+		// TODO: Replace with cacheable field in state.
+		// If the process is not cacheable, then return.
+		if state.cwd.is_some() || state.env.is_some() || state.network {
+			return Ok(None);
+		}
+
+		// If the process checksum was "none" or "any", then return.
+		if matches!(checksum, tg::Checksum::None) || matches!(checksum, tg::Checksum::Any) {
+			return Ok(None);
+		}
+
+		// Try spawning the command with the checksum "none".
+		let arg = tg::process::spawn::Arg {
+			checksum: Some(tangram_client::Checksum::None),
+			command: state.command.id(self.server()).await.ok(),
+			create: false,
+			cwd: None,
+			env: None,
+			network: false,
+			parent: None,
+			remote: process.remote().cloned(),
+			retry: state.retry,
+		};
+
+		// Spawn the process.
+		let Ok(Some(spawn_output)) = self.server().try_spawn_process(arg).await else {
+			return Ok(None);
+		};
+		let existing_process_id = spawn_output.process;
+
+		// Spawn a task to copy the children.
+		let children_task = tokio::spawn({
+			let server = self.server().clone();
+			let process = process.clone();
+			let existing_process_id = existing_process_id.clone();
+			async move {
+				let arg = tg::process::children::get::Arg::default();
+				let stream = server
+					.get_process_children(&existing_process_id, arg)
+					.await?;
+				let mut stream = pin!(stream);
+				while let Some(chunk) = stream.try_next().await? {
+					for child in chunk.data {
+						if let Some(child_process) = server.try_get_process(&child).await? {
+							let arg = tg::process::spawn::Arg {
+								checksum: child_process.checksum,
+								command: Some(child_process.command),
+								create: false,
+								cwd: None,
+								env: None,
+								network: child_process.network,
+								parent: Some(process.id().clone()),
+								remote: process.remote().cloned(),
+								retry: child_process.retry,
+							};
+							server.try_spawn_process(arg).await?;
+						}
+					}
+				}
+				Ok::<_, tg::Error>(())
+			}
+		})
+		.map_err(|source| tg::error!(!source, "the log task panicked"))
+		.and_then(future::ready);
+
+		// Spawn a task to copy the log.
+		let log_task = tokio::spawn({
+			let server = self.server().clone();
+			let process = process.clone();
+			let existing_process_id = existing_process_id.clone();
+			async move {
+				let arg = tg::process::log::get::Arg {
+					remote: process.remote().cloned(),
+					..Default::default()
+				};
+				let stream = server.get_process_log(&existing_process_id, arg).await?;
+				let mut stream = pin!(stream);
+				while let Some(chunk) = stream.try_next().await? {
+					let arg = tg::process::log::post::Arg {
+						bytes: chunk.bytes,
+						remote: process.remote().cloned(),
+					};
+					server.try_post_process_log(process.id(), arg).await?;
+				}
+				Ok::<_, tg::Error>(())
+			}
+		})
+		.map_err(|source| tg::error!(!source, "the log task panicked"))
+		.and_then(future::ready);
+
+		// Spawn a task to await the process.
+		let wait_task = tokio::spawn({
+			let server = self.server().clone();
+			let existing_process_id = existing_process_id.clone();
+			async move {
+				let output = server.wait_process(&existing_process_id).await?;
+				Ok::<_, tg::Error>(output)
+			}
+		})
+		.map_err(|source| tg::error!(!source, "the log task panicked"))
+		.and_then(future::ready);
+
+		// Join the tasks.
+		let ((), (), output) = futures::try_join!(children_task, log_task, wait_task)?;
+
+		// If the process did not succeed, then return its output.
+		if !output.status.is_succeeded() {
+			let value = output.output.map(tg::Value::try_from).transpose()?;
+			let output = Output {
+				error: None,
+				exit: output.exit,
+				output: value,
+			};
+			return Ok(Some(output));
+		}
+
+		// If the process had no output or the output cannot be converted to a `tg::Value`, return.
+		let value = output
+			.output
+			.ok_or_else(|| tg::error!("expected the output to be set"))?;
+		let value = tg::Value::try_from(value)?;
+
+		// Compute the checksum.
+		let actual_checksum = self::util::compute_checksum(self, process, &value, checksum).await?;
+
+		// Verify the checksum matches the expected value.
+		if *checksum != actual_checksum {
+			let error =
+				tg::error!("checksums do not match, expected {checksum}, actual {actual_checksum}");
+			let output = Output {
+				error: Some(error),
+				exit: output.exit,
+				output: None,
+			};
+			return Ok(Some(output));
+		}
+
+		// Create the output.
+		let output = Output {
+			error: None,
+			exit: output.exit,
+			output: Some(value),
+		};
+
+		Ok(Some(output))
 	}
 }
 

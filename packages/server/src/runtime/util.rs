@@ -101,7 +101,7 @@ pub async fn compute_checksum(
 	process: &tg::Process,
 	value: &tg::Value,
 	checksum: &tg::Checksum,
-) -> tg::Result<()> {
+) -> tg::Result<tg::Checksum> {
 	let algorithm = checksum.algorithm();
 	let algorithm = if algorithm == tg::checksum::Algorithm::None {
 		tg::checksum::Algorithm::Sha256
@@ -110,7 +110,7 @@ pub async fn compute_checksum(
 	};
 
 	if algorithm == tg::checksum::Algorithm::Any {
-		return Ok(());
+		return Ok(checksum.clone());
 	}
 
 	let host = "builtin";
@@ -126,9 +126,12 @@ pub async fn compute_checksum(
 		parent: Some(process.id().clone()),
 		..Default::default()
 	};
-	tg::Process::run(runtime.server(), arg).await?;
+	let output = tg::Process::run(runtime.server(), arg).await?;
+	let output = output
+		.try_unwrap_string()
+		.map_err(|source| tg::error!(!source, "expected a string"))?;
 
-	Ok(())
+	output.parse()
 }
 
 pub async fn merge_env(
