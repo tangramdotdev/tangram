@@ -8,13 +8,6 @@ pub enum Either<L, R> {
 }
 
 impl<L, R> Either<L, R> {
-	pub fn as_ref(&self) -> Either<&L, &R> {
-		match self {
-			Self::Left(left) => Either::Left(left),
-			Self::Right(right) => Either::Right(right),
-		}
-	}
-
 	pub fn as_mut(&mut self) -> Either<&mut L, &mut R> {
 		match self {
 			Self::Left(left) => Either::Left(left),
@@ -22,17 +15,10 @@ impl<L, R> Either<L, R> {
 		}
 	}
 
-	pub fn left(self) -> Option<L> {
+	pub fn as_ref(&self) -> Either<&L, &R> {
 		match self {
-			Self::Left(left) => Some(left),
-			Self::Right(_) => None,
-		}
-	}
-
-	pub fn right(self) -> Option<R> {
-		match self {
-			Self::Left(_) => None,
-			Self::Right(right) => Some(right),
+			Self::Left(left) => Either::Left(left),
+			Self::Right(right) => Either::Right(right),
 		}
 	}
 
@@ -44,12 +30,11 @@ impl<L, R> Either<L, R> {
 		self.as_ref().right().is_some()
 	}
 
-	pub fn unwrap_left(self) -> L {
-		self.left().unwrap()
-	}
-
-	pub fn unwrap_right(self) -> R {
-		self.right().unwrap()
+	pub fn left(self) -> Option<L> {
+		match self {
+			Self::Left(left) => Some(left),
+			Self::Right(_) => None,
+		}
 	}
 
 	pub fn map_left<F, L2>(self, f: F) -> Either<L2, R>
@@ -70,6 +55,27 @@ impl<L, R> Either<L, R> {
 			Self::Left(left) => Either::Left(left),
 			Self::Right(right) => Either::Right(f(right)),
 		}
+	}
+
+	pub fn right(self) -> Option<R> {
+		match self {
+			Self::Left(_) => None,
+			Self::Right(right) => Some(right),
+		}
+	}
+
+	pub fn unwrap_left(self) -> L {
+		self.left().unwrap()
+	}
+
+	pub fn unwrap_right(self) -> R {
+		self.right().unwrap()
+	}
+}
+
+impl<T> Either<T, T> {
+	pub fn into_inner(self) -> T {
+		for_both!(self, inner => inner)
 	}
 }
 
@@ -192,6 +198,20 @@ where
 {
 	fn as_ref(&self) -> &[u8] {
 		for_both!(self, value => value.as_ref())
+	}
+}
+
+impl<L, R> std::str::FromStr for Either<L, R>
+where
+	L: std::str::FromStr,
+	R: std::str::FromStr,
+{
+	type Err = Either<L::Err, R::Err>;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		L::from_str(s)
+			.map(Either::Left)
+			.or_else(|_| R::from_str(s).map(Either::Right).map_err(Either::Right))
 	}
 }
 

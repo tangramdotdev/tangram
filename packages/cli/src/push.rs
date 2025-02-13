@@ -2,10 +2,13 @@ use crate::Cli;
 use tangram_client::{self as tg, Handle};
 use tangram_either::Either;
 
-/// Push a process or an object.
+/// Push processes and objects.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long)]
+	pub commands: bool,
+
 	#[arg(short, long)]
 	pub force: bool,
 
@@ -20,9 +23,6 @@ pub struct Args {
 
 	#[arg(short, long)]
 	pub remote: Option<String>,
-
-	#[arg(long)]
-	pub commands: bool,
 }
 
 impl Cli {
@@ -55,25 +55,16 @@ impl Cli {
 		};
 
 		// Push the item.
-		match item.clone() {
-			Either::Left(process) => {
-				let args = crate::process::push::Args {
-					process,
-					logs: args.logs,
-					recursive: args.recursive,
-					remote: Some(remote.clone()),
-					commands: args.commands,
-				};
-				self.command_process_push(args).await?;
-			},
-			Either::Right(object) => {
-				let args = crate::object::push::Args {
-					object,
-					remote: Some(remote.clone()),
-				};
-				self.command_object_push(args).await?;
-			},
-		}
+		let arg = tg::push::Arg {
+			items: vec![item.clone()],
+			logs: args.logs,
+			outputs: true,
+			recursive: args.recursive,
+			remote: remote.clone(),
+			commands: args.commands,
+		};
+		let stream = handle.push(arg).await?;
+		self.render_progress_stream(stream).await?;
 
 		// If the reference has a tag, then put it.
 		if let tg::reference::Item::Tag(pattern) = args.reference.item() {

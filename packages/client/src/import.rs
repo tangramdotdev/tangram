@@ -1,77 +1,154 @@
-use crate as tg;
-use std::collections::BTreeMap;
+use crate::{self as tg, util::serde::CommaSeparatedString};
+use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
+use serde_with::serde_as;
+use std::pin::Pin;
+use tangram_either::Either;
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
-/// An import in a module.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct Import {
-	pub kind: Option<tg::module::Kind>,
-	pub reference: tg::Reference,
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	pub items: Vec<Either<tg::process::Id, tg::object::Id>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
 }
 
-impl Import {
-	pub fn with_specifier_and_attributes(
-		specifier: &str,
-		mut attributes: Option<BTreeMap<String, String>>,
-	) -> tg::Result<Self> {
-		// Parse the specifier as a reference.
-		let reference = specifier.parse::<tg::Reference>()?;
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct QueryArg {
+	#[serde_as(as = "CommaSeparatedString")]
+	items: Vec<Either<tg::process::Id, tg::object::Id>>,
 
-		// Parse the kind.
-		let kind = attributes
-			.as_mut()
-			.and_then(|attributes| attributes.remove("type").or(attributes.remove("kind")))
-			.map(|kind| kind.parse())
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	remote: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Event {
+	Complete(Either<tg::process::Id, tg::object::Id>),
+}
+
+impl tg::Client {
+	pub async fn import(
+		&self,
+		arg: tg::import::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
+		let method = http::Method::POST;
+		let query = serde_urlencoded::to_string(QueryArg::from(arg)).unwrap();
+		let uri = format!("/import?{query}");
+
+		let stream = stream.then(|result| async {
+			let frame = match result {
+				Ok(item) => {
+					let bytes = item.to_bytes().await;
+					hyper::body::Frame::data(bytes)
+				},
+				Err(error) => {
+					let mut trailers = http::HeaderMap::new();
+					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
+					let json = serde_json::to_string(&error).unwrap();
+					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
+					hyper::body::Frame::trailers(trailers)
+				},
+			};
+			Ok::<_, tg::Error>(frame)
+		});
+
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_OCTET_STREAM.to_string(),
+			)
+			.stream(stream)
+			.unwrap();
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
+
+		let content_type = response
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
+		if !matches!(
+			content_type
+				.as_ref()
+				.map(|content_type| (content_type.type_(), content_type.subtype())),
+			Some((mime::TEXT, mime::EVENT_STREAM)),
+		) {
+			return Err(tg::error!(?content_type, "invalid content type"));
+		}
+		let stream = response
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			});
 
-		// Parse the remaining attributes as the query component of a reference and update the reference.
-		let reference = if let Some(attributes) = attributes {
-			if attributes.is_empty() {
-				reference
-			} else {
-				let attributes = serde_json::Value::Object(
-					attributes
-						.into_iter()
-						.map(|(key, value)| (key, serde_json::Value::String(value)))
-						.collect(),
-				);
-				let attributes = serde_json::from_value::<tg::reference::Options>(attributes)
-					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
-				let name = reference
-					.options()
-					.and_then(|query| query.name.clone())
-					.or(attributes.name);
-				let overrides = reference
-					.options()
-					.and_then(|query| query.overrides.clone())
-					.or(attributes.overrides);
-				let path = reference
-					.options()
-					.and_then(|query| query.path.clone())
-					.or(attributes.path);
-				let remote = reference
-					.options()
-					.and_then(|query| query.remote.clone())
-					.or(attributes.remote);
-				let subpath = reference
-					.options()
-					.and_then(|query| query.subpath.clone())
-					.or(attributes.subpath);
-				let query = tg::reference::Options {
-					name,
-					overrides,
-					path,
-					remote,
-					subpath,
-				};
-				let query = serde_urlencoded::to_string(query)
-					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
-				let uri = reference.uri().to_builder().query(query).build().unwrap();
-				tg::Reference::with_uri(uri)?
-			}
-		} else {
-			reference
+		Ok(stream)
+	}
+}
+
+impl From<Arg> for QueryArg {
+	fn from(value: Arg) -> Self {
+		Self {
+			items: value.items,
+			remote: value.remote,
+		}
+	}
+}
+
+impl From<QueryArg> for Arg {
+	fn from(value: QueryArg) -> Self {
+		Self {
+			items: value.items,
+			remote: value.remote,
+		}
+	}
+}
+
+impl TryFrom<Event> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: Event) -> Result<Self, Self::Error> {
+		let event = match value {
+			Event::Complete(data) => {
+				let data = serde_json::to_string(&data)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+				tangram_http::sse::Event {
+					event: Some("complete".to_owned()),
+					data,
+					..Default::default()
+				}
+			},
 		};
+		Ok(event)
+	}
+}
 
-		Ok(Import { kind, reference })
+impl TryFrom<tangram_http::sse::Event> for Event {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
+		match value.event.as_deref() {
+			Some("complete") => {
+				let data = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Ok(Self::Complete(data))
+			},
+			_ => Err(tg::error!("invalid event")),
+		}
 	}
 }

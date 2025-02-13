@@ -28,12 +28,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let transaction = Arc::new(transaction);
 
-		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
-
-		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some() || sandboxed;
-
 		// Insert the process.
 		#[derive(serde::Deserialize)]
 		struct Row {
@@ -115,7 +109,7 @@ impl Server {
 		);
 		let params = db::params![
 			id,
-			cacheable,
+			arg.cacheable,
 			arg.checksum,
 			arg.command,
 			arg.created_at.format(&Rfc3339).unwrap(),
@@ -162,6 +156,8 @@ impl Server {
 			"
 		);
 		arg.children
+			.as_ref()
+			.ok_or_else(|| tg::error!("the children must be set"))?
 			.iter()
 			.enumerate()
 			.map(|(position, child)| {

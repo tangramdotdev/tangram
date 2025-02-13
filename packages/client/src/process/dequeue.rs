@@ -1,7 +1,7 @@
 use crate as tg;
 use futures::{future, StreamExt as _, TryStreamExt as _};
 use tangram_futures::stream::TryExt as _;
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {}

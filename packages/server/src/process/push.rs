@@ -46,8 +46,9 @@ impl Server {
 		S: tg::Handle,
 		D: tg::Handle,
 	{
-		let output = src.get_process(process).await?;
-		let stats = Self::get_process_stats(src, &output, &arg).await?;
+		let tg::process::get::Output { data, metadata } = src.get_process(process).await?;
+		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
+		let stats = Self::get_process_stats(src, &data, &metadata, &arg).await?;
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({
 			let src = src.clone();
@@ -115,18 +116,19 @@ impl Server {
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<InnerOutput> {
 		// Get the process.
-		let output = src
+		let tg::process::get::Output { data, metadata } = src
 			.get_process(process)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the process"))?;
+		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
 
 		// Return an error if the process is not finished.
-		if !output.status.is_finished() {
+		if !data.status.is_finished() {
 			return Err(tg::error!(%process, "process is not finished"));
 		}
 
 		// Get the stats.
-		let stats = Self::get_process_stats(src, &output, &arg).await?;
+		let stats = Self::get_process_stats(src, &data, &metadata, &arg).await?;
 
 		// Get the children.
 		let children_arg = tg::process::children::get::Arg::default();
@@ -141,24 +143,25 @@ impl Server {
 
 		// Put the process.
 		let put_arg = tg::process::put::Arg {
-			checksum: output.checksum,
-			children: children.clone(),
-			command: output.command.clone(),
-			created_at: output.created_at,
-			cwd: output.cwd,
-			dequeued_at: output.dequeued_at,
-			enqueued_at: output.enqueued_at,
-			env: output.env,
-			error: output.error,
-			finished_at: output.finished_at,
-			host: output.host,
+			cacheable: data.cacheable,
+			checksum: data.checksum,
+			children: Some(children.clone()),
+			command: data.command.clone(),
+			created_at: data.created_at,
+			cwd: data.cwd,
+			dequeued_at: data.dequeued_at,
+			enqueued_at: data.enqueued_at,
+			env: data.env,
+			error: data.error,
+			finished_at: data.finished_at,
+			host: data.host,
 			id: process.clone(),
-			log: output.log.clone(),
-			network: output.network,
-			output: output.output.clone(),
-			retry: output.retry,
-			started_at: output.started_at,
-			status: output.status,
+			log: data.log.clone(),
+			network: data.network,
+			output: data.output.clone(),
+			retry: data.retry,
+			started_at: data.started_at,
+			status: data.status,
 		};
 		let put_output = dst
 			.put_process(process, put_arg)
@@ -171,15 +174,15 @@ impl Server {
 		// Handle the command, log, and output.
 		let mut objects: Vec<tg::object::Id> = Vec::new();
 		if arg.commands {
-			objects.push(output.command.clone().into());
+			objects.push(data.command.clone().into());
 		}
 		if arg.logs {
-			if let Some(log) = output.log.clone() {
+			if let Some(log) = data.log.clone() {
 				objects.push(log.clone().into());
 			}
 		}
 		if arg.outputs {
-			if let Some(output_objects) = output.output.as_ref().map(tg::value::Data::children) {
+			if let Some(output_objects) = data.output.as_ref().map(tg::value::Data::children) {
 				objects.extend(output_objects);
 			}
 		}
@@ -261,20 +264,29 @@ impl Server {
 
 	async fn get_process_stats(
 		src: &impl tg::Handle,
-		output: &tg::process::get::Output,
+		data: &tg::process::Data,
+		metadata: &tg::process::Metadata,
 		arg: &tg::process::push::Arg,
 	) -> tg::Result<Stats> {
-		let process_count = if arg.recursive { output.count } else { Some(1) };
+		let process_count = if arg.recursive {
+			metadata.count
+		} else {
+			Some(1)
+		};
 		let (object_count, object_depth, object_weight) = if arg.recursive {
 			// If the push is recursive, then use the logs', outputs', and commands' counts and weights.
-			let logs_count = if arg.logs { output.logs_count } else { Some(0) };
+			let logs_count = if arg.logs {
+				metadata.logs_count
+			} else {
+				Some(0)
+			};
 			let outputs_count = if arg.outputs {
-				output.outputs_count
+				metadata.outputs_count
 			} else {
 				Some(0)
 			};
 			let commands_count = if arg.commands {
-				output.commands_count
+				metadata.commands_count
 			} else {
 				Some(0)
 			};
@@ -283,14 +295,18 @@ impl Server {
 				.chain(Some(outputs_count))
 				.chain(Some(commands_count))
 				.sum::<Option<u64>>();
-			let logs_depth = if arg.logs { output.logs_depth } else { Some(0) };
+			let logs_depth = if arg.logs {
+				metadata.logs_depth
+			} else {
+				Some(0)
+			};
 			let outputs_depth = if arg.outputs {
-				output.outputs_depth
+				metadata.outputs_depth
 			} else {
 				Some(0)
 			};
 			let commands_depth = if arg.commands {
-				output.commands_depth
+				metadata.commands_depth
 			} else {
 				Some(0)
 			};
@@ -301,17 +317,17 @@ impl Server {
 				.max()
 				.unwrap();
 			let logs_weight = if arg.logs {
-				output.logs_weight
+				metadata.logs_weight
 			} else {
 				Some(0)
 			};
 			let outputs_weight = if arg.outputs {
-				output.outputs_weight
+				metadata.outputs_weight
 			} else {
 				Some(0)
 			};
 			let commands_weight = if arg.commands {
-				output.commands_weight
+				metadata.commands_weight
 			} else {
 				Some(0)
 			};
@@ -324,7 +340,7 @@ impl Server {
 		} else {
 			// If the push is not recursive, then use the count, depth, and weight of the log, output, and command.
 			let (log_count, log_depth, log_weight) = if arg.logs {
-				if let Some(log) = output.log.as_ref() {
+				if let Some(log) = data.log.as_ref() {
 					if let Some(metadata) = src.try_get_object_metadata(&log.clone().into()).await?
 					{
 						(metadata.count, metadata.depth, metadata.weight)
@@ -338,8 +354,8 @@ impl Server {
 				(Some(0), Some(0), Some(0))
 			};
 			let (output_count, output_depth, output_weight) = if arg.outputs {
-				if output.status.is_succeeded() {
-					let metadata = output
+				if data.status.is_succeeded() {
+					let metadata = data
 						.output
 						.as_ref()
 						.map(tg::value::Data::children)
@@ -372,7 +388,7 @@ impl Server {
 			};
 			let (command_count, command_depth, command_weight) = {
 				if let Some(metadata) = src
-					.try_get_object_metadata(&output.command.clone().into())
+					.try_get_object_metadata(&data.command.clone().into())
 					.await?
 				{
 					(metadata.count, metadata.depth, metadata.weight)

@@ -1,7 +1,16 @@
 use crate as tg;
 use num::ToPrimitive as _;
 
-#[derive(Debug, Clone, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[derive(
+	Debug,
+	Clone,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Event<T> {
@@ -46,7 +55,7 @@ pub enum IndicatorFormat {
 impl std::fmt::Display for Indicator {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		const LENGTH: u64 = 20;
-		write!(f, "{} ", self.title)?;
+		write!(f, "{}", self.title)?;
 		if let (Some(current), Some(total)) = (self.current, self.total) {
 			write!(f, " [")?;
 			let last = current * LENGTH / total;
@@ -101,54 +110,54 @@ where
 
 	fn try_from(value: Event<T>) -> Result<Self, Self::Error> {
 		let event = match value {
-			Event::Log(print) => {
-				let data = serde_json::to_string(&print)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+			Event::Log(data) => {
+				let data = serde_json::to_string(&data)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("print".to_owned()),
 					data,
 					..Default::default()
 				}
 			},
-			Event::Diagnostic(diagnostic) => {
-				let data = serde_json::to_string(&diagnostic)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+			Event::Diagnostic(data) => {
+				let data = serde_json::to_string(&data)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("diagnostic".to_owned()),
 					data,
 					..Default::default()
 				}
 			},
-			Event::Start(indicator) => {
-				let data = serde_json::to_string(&indicator)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+			Event::Start(data) => {
+				let data = serde_json::to_string(&data)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("start".to_owned()),
 					data,
 					..Default::default()
 				}
 			},
-			Event::Update(indicator) => {
-				let data = serde_json::to_string(&indicator)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+			Event::Update(data) => {
+				let data = serde_json::to_string(&data)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("update".to_owned()),
 					data,
 					..Default::default()
 				}
 			},
-			Event::Finish(indicator) => {
-				let data = serde_json::to_string(&indicator)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+			Event::Finish(data) => {
+				let data = serde_json::to_string(&data)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("finish".to_owned()),
 					data,
 					..Default::default()
 				}
 			},
-			Event::Output(value) => {
-				let data = serde_json::to_string(&value)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+			Event::Output(data) => {
+				let data = serde_json::to_string(&data)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("output".to_owned()),
 					data,
@@ -169,34 +178,34 @@ where
 	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
 		match value.event.as_deref() {
 			Some("print") => {
-				let print = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Ok(Self::Log(print))
+				let data = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Ok(Self::Log(data))
 			},
 			Some("diagnostic") => {
-				let diagnostic = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Ok(Self::Diagnostic(diagnostic))
+				let data = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Ok(Self::Diagnostic(data))
 			},
 			Some("start") => {
-				let indicator = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Ok(Self::Start(indicator))
+				let data = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Ok(Self::Start(data))
 			},
 			Some("update") => {
-				let indicator = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Ok(Self::Update(indicator))
+				let data = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Ok(Self::Update(data))
 			},
 			Some("finish") => {
-				let indicator = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Ok(Self::Finish(indicator))
+				let data = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Ok(Self::Finish(data))
 			},
 			Some("output") => {
-				let value = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Ok(Self::Output(value))
+				let data = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Ok(Self::Output(data))
 			},
 			_ => Err(tg::error!("invalid event")),
 		}

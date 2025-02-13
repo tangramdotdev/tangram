@@ -11,7 +11,10 @@ pub async fn load(
 	let server = state.server.clone();
 	let state = state
 		.main_runtime_handle
-		.spawn(async move { tg::Process::new(id, remote, None, None).load(&server).await })
+		.spawn(async move {
+			let process = tg::Process::new(id, remote, None, None, None);
+			process.load(&server).await
+		})
 		.await
 		.unwrap()
 		.map_err(|source| tg::error!(!source, "failed to load the process"))?;

@@ -20,7 +20,7 @@ impl Server {
 		}
 	}
 
-	async fn try_get_object_metadata_local(
+	pub(crate) async fn try_get_object_metadata_local(
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
@@ -87,11 +87,7 @@ impl Server {
 		let Some(metadata) = handle.try_get_object_metadata(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let mut response = http::Response::builder();
-		response = response
-			.header_json(tg::object::metadata::HEADER, metadata)
-			.unwrap();
-		let response = response.empty().unwrap();
+		let response = http::Response::builder().json(metadata).unwrap();
 		Ok(response)
 	}
 }

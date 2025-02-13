@@ -16,8 +16,10 @@ mod cat;
 mod checksum;
 mod children;
 mod clean;
+mod export;
 mod get;
 mod health;
+mod import;
 mod lsp;
 mod object;
 mod package;
@@ -138,6 +140,8 @@ enum Command {
 	#[command(alias = "x")]
 	Exec(self::process::exec::Args),
 
+	Export(self::export::Args),
+
 	Extract(self::artifact::extract::Args),
 
 	Format(self::package::format::Args),
@@ -145,6 +149,8 @@ enum Command {
 	Get(self::get::Args),
 
 	Health(self::health::Args),
+
+	Import(self::import::Args),
 
 	Init(self::package::init::Args),
 
@@ -176,9 +182,6 @@ enum Command {
 	#[command(alias = "r")]
 	Run(self::process::run::Args),
 
-	#[command(name = "self")]
-	Tangram(self::tangram::Args),
-
 	Serve(self::server::run::Args),
 
 	Server(self::server::Args),
@@ -186,6 +189,9 @@ enum Command {
 	Spawn(self::process::spawn::Args),
 
 	Tag(self::tag::Args),
+
+	#[command(name = "self")]
+	Tangram(self::tangram::Args),
 
 	#[command(hide = true)]
 	Tree(self::tree::Args),
@@ -866,10 +872,12 @@ impl Cli {
 			Command::Document(args) => self.command_package_document(args).boxed(),
 			Command::Download(args) => self.command_blob_download(args).boxed(),
 			Command::Exec(args) => self.command_process_exec(args).boxed(),
+			Command::Export(args) => self.command_export(args).boxed(),
 			Command::Extract(args) => self.command_artifact_extract(args).boxed(),
 			Command::Format(args) => self.command_package_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Health(args) => self.command_health(args).boxed(),
+			Command::Import(args) => self.command_import(args).boxed(),
 			Command::Init(args) => self.command_package_init(args).boxed(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_process_log(args).boxed(),
@@ -884,11 +892,11 @@ impl Cli {
 			Command::Put(args) => self.command_object_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_process_run(args).boxed(),
-			Command::Tangram(args) => self.command_tangram(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Spawn(args) => self.command_process_spawn(args).boxed(),
 			Command::Tag(args) => self.command_tag(args).boxed(),
+			Command::Tangram(args) => self.command_tangram(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_package_update(args).boxed(),
 			Command::View(args) => self.command_view(args).boxed(),

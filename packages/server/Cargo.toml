@@ -34,7 +34,7 @@ async-nats = { workspace = true }
 async-tar = { workspace = true }
 async_zip = { workspace = true }
 aws-credential-types = { workspace = true }
-aws-sdk-s3 = { workspace = true }
+aws-sigv4 = { workspace = true }
 biome_js_formatter = { workspace = true }
 biome_js_parser = { workspace = true }
 biome_js_syntax = { workspace = true }
@@ -49,6 +49,7 @@ fastcdc = { workspace = true }
 filetime = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
+heed = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
@@ -87,6 +88,7 @@ tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
 tangram_messenger  = { workspace = true }
 tangram_temp = { workspace = true }
+tangram_uri = { workspace = true }
 tangram_v8 = { workspace = true }
 tangram_version = { workspace = true }
 tangram_vfs = { workspace = true }

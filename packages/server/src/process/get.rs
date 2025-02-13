@@ -145,42 +145,48 @@ impl Server {
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let output = row.map(|row| tg::process::get::Output {
-			cacheable: row.cacheable,
-			checksum: row.checksum,
-			command: row.command,
-			commands_complete: row.commands_complete,
-			commands_count: row.commands_count,
-			commands_depth: row.commands_depth,
-			commands_weight: row.commands_weight,
-			complete: row.complete,
-			count: row.count,
-			created_at: row.created_at,
-			cwd: row.cwd,
-			dequeued_at: row.dequeued_at,
-			enqueued_at: row.enqueued_at,
-			env: row.env.map(|env| env.0),
-			error: row.error.map(|error| error.0),
-			exit: row.exit.map(|exit| exit.0),
-			finished_at: row.finished_at,
-			heartbeat_at: row.heartbeat_at,
-			host: row.host,
-			id: row.id,
-			log: row.log,
-			logs_complete: row.logs_complete,
-			logs_count: row.logs_count,
-			logs_depth: row.logs_depth,
-			logs_weight: row.logs_weight,
-			output: row.output.map(|output| output.0),
-			outputs_complete: row.outputs_complete,
-			outputs_count: row.outputs_count,
-			outputs_depth: row.outputs_depth,
-			outputs_weight: row.outputs_weight,
-			retry: row.retry,
-			network: row.network,
-			started_at: row.started_at,
-			status: row.status,
-			touched_at: row.touched_at,
+		let output = row.map(|row| {
+			let data = tg::process::Data {
+				cacheable: row.cacheable,
+				checksum: row.checksum,
+				children: None,
+				command: row.command,
+				created_at: row.created_at,
+				cwd: row.cwd,
+				dequeued_at: row.dequeued_at,
+				enqueued_at: row.enqueued_at,
+				env: row.env.map(|env| env.0),
+				error: row.error.map(|error| error.0),
+				exit: row.exit.map(|exit| exit.0),
+				finished_at: row.finished_at,
+				heartbeat_at: row.heartbeat_at,
+				host: row.host,
+				id: row.id,
+				log: row.log,
+				output: row.output.map(|output| output.0),
+				retry: row.retry,
+				network: row.network,
+				started_at: row.started_at,
+				status: row.status,
+				touched_at: row.touched_at,
+			};
+			let metadata = Some(tg::process::Metadata {
+				commands_complete: row.commands_complete,
+				commands_count: row.commands_count,
+				commands_depth: row.commands_depth,
+				commands_weight: row.commands_weight,
+				complete: row.complete,
+				count: row.count,
+				logs_complete: row.logs_complete,
+				logs_count: row.logs_count,
+				logs_depth: row.logs_depth,
+				logs_weight: row.logs_weight,
+				outputs_complete: row.outputs_complete,
+				outputs_count: row.outputs_count,
+				outputs_depth: row.outputs_depth,
+				outputs_weight: row.outputs_weight,
+			});
+			tg::process::get::Output { data, metadata }
 		});
 
 		// Drop the database connection.
@@ -208,7 +214,7 @@ impl Server {
 		};
 
 		// Spawn a task to put the process if it is finished.
-		if output.status.is_finished() {
+		if output.data.status.is_finished() {
 			tokio::spawn({
 				let server = self.clone();
 				let id = id.clone();
@@ -224,24 +230,25 @@ impl Server {
 						.try_collect()
 						.await?;
 					let arg = tg::process::put::Arg {
-						checksum: output.checksum,
-						children,
-						command: output.command.clone(),
-						created_at: output.created_at,
-						cwd: output.cwd,
-						dequeued_at: output.dequeued_at,
-						enqueued_at: output.enqueued_at,
-						env: output.env,
-						error: output.error,
-						finished_at: output.finished_at,
-						host: output.host.clone(),
-						id: output.id.clone(),
-						log: output.log.clone(),
-						network: output.network,
-						output: output.output,
-						retry: output.retry,
-						started_at: output.started_at,
-						status: output.status,
+						cacheable: output.data.cacheable,
+						checksum: output.data.checksum,
+						children: Some(children),
+						command: output.data.command.clone(),
+						created_at: output.data.created_at,
+						cwd: output.data.cwd,
+						dequeued_at: output.data.dequeued_at,
+						enqueued_at: output.data.enqueued_at,
+						env: output.data.env,
+						error: output.data.error,
+						finished_at: output.data.finished_at,
+						host: output.data.host.clone(),
+						id: output.data.id.clone(),
+						log: output.data.log.clone(),
+						network: output.data.network,
+						output: output.data.output,
+						retry: output.data.retry,
+						started_at: output.data.started_at,
+						status: output.data.status,
 					};
 					server.put_process(&id, arg).await?;
 					Ok::<_, tg::Error>(())
@@ -266,7 +273,11 @@ impl Server {
 		let Some(output) = handle.try_get_process(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let response = http::Response::builder().json(output).unwrap();
+		let response = http::Response::builder()
+			.header_json(tg::process::get::METADATA_HEADER, output.metadata)
+			.unwrap()
+			.json(output.data)
+			.unwrap();
 		Ok(response)
 	}
 }

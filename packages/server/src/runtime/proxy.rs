@@ -176,6 +176,36 @@ impl tg::Handle for Proxy {
 		self.server.try_wait_process_future(id)
 	}
 
+	async fn import(
+		&self,
+		_arg: tg::import::Arg,
+		_stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+
+	async fn export(
+		&self,
+		arg: tg::export::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
+		self.server.export(arg, stream).await
+	}
+
+	async fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		self.server.push(arg).await
+	}
+
+	async fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		self.server.pull(arg).await
+	}
+
 	async fn lsp(
 		&self,
 		_input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -204,6 +234,13 @@ impl tg::Handle for Proxy {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.server.put_object(id, arg)
+	}
+
+	async fn post_objects(
+		&self,
+		_stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Item>> + Send + 'static>>,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
 	async fn push_object(

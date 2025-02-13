@@ -38,7 +38,9 @@ mod checksum;
 mod clean;
 mod compiler;
 mod database;
+mod export;
 mod health;
+mod import;
 mod index;
 mod lockfile;
 mod messenger;
@@ -48,6 +50,8 @@ mod package;
 mod pipe;
 mod process;
 mod progress;
+mod pull;
+mod push;
 mod reference;
 mod remote;
 mod runner;
@@ -284,10 +288,16 @@ impl Server {
 		let runtimes = RwLock::new(HashMap::default());
 
 		// Create the store.
-		let store = config.store.as_ref().map(|store| match store {
-			config::Store::Memory => Arc::new(Store::new_memory()),
-			config::Store::S3(s3) => Arc::new(Store::new_s3(s3)),
-		});
+		let store = if let Some(store) = &config.store {
+			let store = match store {
+				config::Store::Memory => Store::new_memory(),
+				config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
+				config::Store::S3(s3) => Store::new_s3(s3),
+			};
+			Some(Arc::new(store))
+		} else {
+			None
+		};
 
 		// Create the task.
 		let task = Mutex::new(None);
@@ -838,6 +848,16 @@ impl Server {
 				Self::handle_read_blob_request(handle, request, blob).boxed()
 			},
 
+			// Items.
+			(http::Method::POST, ["export"]) => {
+				Self::handle_export_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["import"]) => {
+				Self::handle_import_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["push"]) => Self::handle_push_request(handle, request).boxed(),
+			(http::Method::POST, ["pull"]) => Self::handle_pull_request(handle, request).boxed(),
+
 			// Compiler.
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 
@@ -850,6 +870,9 @@ impl Server {
 			},
 			(http::Method::PUT, ["objects", object]) => {
 				Self::handle_put_object_request(handle, request, object).boxed()
+			},
+			(http::Method::POST, ["objects"]) => {
+				Self::handle_post_object_request(handle, request).boxed()
 			},
 			(http::Method::POST, ["objects", object, "push"]) => {
 				Self::handle_push_object_request(handle, request, object).boxed()
@@ -1079,6 +1102,48 @@ impl tg::Handle for Server {
 		self.try_wait_process_future(id)
 	}
 
+	fn import(
+		&self,
+		arg: tg::import::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
+	> {
+		self.import(arg, stream)
+	}
+
+	fn export(
+		&self,
+		arg: tg::export::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
+	> {
+		self.export(arg, stream)
+	}
+
+	fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push(arg)
+	}
+
+	fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull(arg)
+	}
+
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -1107,6 +1172,17 @@ impl tg::Handle for Server {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.put_object(id, arg)
+	}
+
+	fn post_objects(
+		&self,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Item>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static,
+		>,
+	> + Send {
+		self.post_objects(stream)
 	}
 
 	fn push_object(

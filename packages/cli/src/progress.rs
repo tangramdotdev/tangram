@@ -104,14 +104,14 @@ impl Cli {
 				let position = position.to_usize().unwrap();
 				let spinner = crossterm::style::Stylize::blue(SPINNER[position]);
 				let mut line = String::new();
-				write!(line, "{spinner} ").unwrap();
 				write!(
 					tty,
-					"{:title_length$} ",
+					"{:title_length$}",
 					indicator.title,
 					title_length = title_length.unwrap(),
 				)
 				.unwrap();
+				write!(line, " {spinner}").unwrap();
 				if let (Some(current), Some(total)) = (indicator.current, indicator.total) {
 					write!(line, " [").unwrap();
 					let last = current * LENGTH / total;

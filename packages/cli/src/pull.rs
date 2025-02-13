@@ -2,7 +2,7 @@ use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
-/// Pull a process or an object.
+/// Pull processes and objects.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -25,6 +25,9 @@ pub struct Args {
 impl Cli {
 	pub async fn command_pull(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+
+		// Get the remote.
+		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
@@ -49,25 +52,16 @@ impl Cli {
 		};
 
 		// Pull the item.
-		match item.clone() {
-			Either::Left(process) => {
-				self.command_process_pull(crate::process::pull::Args {
-					process,
-					logs: args.logs,
-					recursive: args.recursive,
-					remote: args.remote,
-					commands: args.commands,
-				})
-				.await?;
-			},
-			Either::Right(object) => {
-				self.command_object_pull(crate::object::pull::Args {
-					object,
-					remote: args.remote,
-				})
-				.await?;
-			},
-		}
+		let arg = tg::pull::Arg {
+			items: vec![item.clone()],
+			logs: args.logs,
+			outputs: true,
+			recursive: args.recursive,
+			remote: remote.clone(),
+			commands: args.commands,
+		};
+		let stream = handle.pull(arg).await?;
+		self.render_progress_stream(stream).await?;
 
 		// If the reference has a tag, then put it.
 		if let tg::reference::Item::Tag(pattern) = args.reference.item() {

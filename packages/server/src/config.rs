@@ -92,11 +92,16 @@ pub struct Runner {
 	pub remotes: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub enum Store {
-	#[default]
 	Memory,
+	Lmdb(LmdbStore),
 	S3(S3Store),
+}
+
+#[derive(Clone, Debug)]
+pub struct LmdbStore {
+	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug)]

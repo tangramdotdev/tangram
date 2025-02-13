@@ -1,7 +1,7 @@
 use crate::{self as tg, Client};
 use futures::{Stream, TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 impl Client {
 	pub async fn read_pipe(

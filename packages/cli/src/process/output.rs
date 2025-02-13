@@ -13,7 +13,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_output(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let process = tg::Process::new(args.process, None, None, None);
+		let process = tg::Process::new(args.process, None, None, None, None);
 		let output = process.wait(&handle).await?;
 		let output = if output.status.is_succeeded() {
 			output

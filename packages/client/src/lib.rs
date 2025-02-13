@@ -1,6 +1,5 @@
 use crate as tg;
-use futures::{Future, FutureExt as _, Stream, TryFutureExt as _};
-use http::{HeaderName, HeaderValue};
+use futures::{Future, Stream, TryFutureExt as _};
 use std::{
 	collections::VecDeque,
 	ops::Deref,
@@ -17,7 +16,7 @@ use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
 };
-use tower::{util::BoxCloneService, Service as _};
+use tower::{util::BoxCloneSyncService, Service as _};
 use tower_http::ServiceBuilderExt as _;
 use url::Url;
 
@@ -35,11 +34,10 @@ pub use self::{
 	handle::Handle,
 	health::Health,
 	id::Id,
-	import::Import,
 	leaf::Handle as Leaf,
 	location::Location,
 	lockfile::Lockfile,
-	module::Module,
+	module::{Import, Module},
 	mutation::Mutation,
 	object::Handle as Object,
 	position::Position,
@@ -64,6 +62,7 @@ pub mod compiler;
 pub mod diagnostic;
 pub mod directory;
 pub mod error;
+pub mod export;
 pub mod file;
 pub mod graph;
 pub mod handle;
@@ -81,6 +80,8 @@ pub mod pipe;
 pub mod position;
 pub mod process;
 pub mod progress;
+pub mod pull;
+pub mod push;
 pub mod range;
 pub mod reference;
 pub mod referent;
@@ -99,16 +100,63 @@ pub struct Client(Arc<Inner>);
 #[derive(Debug)]
 pub struct Inner {
 	url: Url,
-	service: tokio::sync::Mutex<Option<Service>>,
+	sender: Arc<tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Body>>>>,
+	service: Service,
 }
 
-type Service = BoxCloneService<http::Request<Body>, http::Response<Body>, tg::Error>;
+type Service = BoxCloneSyncService<http::Request<Body>, http::Response<Body>, tg::Error>;
 
 impl Client {
 	#[must_use]
 	pub fn new(url: Url) -> Self {
-		let service = tokio::sync::Mutex::new(None);
-		Self(Arc::new(Inner { url, service }))
+		let sender = Arc::new(tokio::sync::Mutex::<
+			Option<hyper::client::conn::http2::SendRequest<Body>>,
+		>::new(None));
+		let service = tower::service_fn({
+			let url = url.clone();
+			let sender = sender.clone();
+			move |request| {
+				let url = url.clone();
+				let sender = sender.clone();
+				async move {
+					let mut guard = sender.lock().await;
+					let mut sender = match guard.as_ref() {
+						Some(sender) if sender.is_ready() => sender.clone(),
+						_ => {
+							let sender = Self::connect_h2(&url).await?;
+							guard.replace(sender.clone());
+							sender
+						},
+					};
+					drop(guard);
+					sender
+						.send_request(request)
+						.map_ok(|response| response.map(Body::with_body))
+						.map_err(|source| tg::error!(!source, "failed to send the request"))
+						.await
+				}
+			}
+		});
+		let service = tower::ServiceBuilder::new()
+			.layer(tangram_http::layer::tracing::TracingLayer::new())
+			.insert_request_header_if_not_present(
+				http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
+				http::HeaderValue::from_str(&Self::compatibility_date().format(&Rfc3339).unwrap())
+					.unwrap(),
+			)
+			.insert_request_header_if_not_present(
+				http::HeaderName::from_str("x-tg-version").unwrap(),
+				http::HeaderValue::from_str(&Self::version()).unwrap(),
+			)
+			.layer(tangram_http::layer::compression::RequestCompressionLayer::default())
+			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
+			.service(service);
+		let service = Service::new(service);
+		Self(Arc::new(Inner {
+			url,
+			sender,
+			service,
+		}))
 	}
 
 	pub fn with_env() -> tg::Result<Self> {
@@ -135,74 +183,37 @@ impl Client {
 	}
 
 	pub async fn connect(&self) -> tg::Result<()> {
-		self.service().await?;
+		let mut guard = self.sender.lock().await;
+		match guard.as_ref() {
+			Some(sender) if sender.is_ready() => (),
+			_ => {
+				let sender = Self::connect_h2(&self.url).await?;
+				guard.replace(sender.clone());
+			},
+		}
 		Ok(())
 	}
 
 	pub async fn disconnect(&self) -> tg::Result<()> {
-		self.service.lock().await.take();
+		self.sender.lock().await.take();
 		Ok(())
 	}
 
-	async fn service(&self) -> tg::Result<Service> {
-		let mut guard = self.service.lock().await;
-		if let Some(service) = guard.as_ref() {
-			return Ok(service.clone());
-		}
-
-		// Connect.
-		let mut sender = self.connect_h2().boxed().await?;
-
-		// Create the service.
-		let service = tower::service_fn(move |request| {
-			sender
-				.send_request(request)
-				.map_ok(|response| response.map(Body::with_body))
-				.map_err(|source| tg::error!(!source, "failed to send the request"))
-		});
-		let service = tower::ServiceBuilder::new()
-			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.insert_request_header_if_not_present(
-				HeaderName::from_str("x-tg-compatibility-date").unwrap(),
-				HeaderValue::from_str(&Self::compatibility_date().format(&Rfc3339).unwrap())
-					.unwrap(),
-			)
-			.insert_request_header_if_not_present(
-				HeaderName::from_str("x-tg-version").unwrap(),
-				HeaderValue::from_str(&Self::version()).unwrap(),
-			)
-			.layer(tangram_http::layer::compression::RequestCompressionLayer::default())
-			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
-			.service(service);
-		let service = Service::new(service);
-
-		guard.replace(service.clone());
-
-		Ok(service)
-	}
-
-	async fn connect_h1(&self) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
-		match self.url.scheme() {
+	async fn connect_h1(url: &Url) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
+		match url.scheme() {
 			"http+unix" => {
-				let path = self
-					.url
-					.host_str()
-					.ok_or_else(|| tg::error!("invalid url"))?;
+				let path = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
 				let path = urlencoding::decode(path)
 					.map_err(|source| tg::error!(!source, "invalid url"))?;
 				let path = PathBuf::from(path.into_owned());
-				self.connect_unix_h1(&path).await
+				Self::connect_unix_h1(&path).await
 			},
 			"http" => {
-				let host = self
-					.url
-					.host_str()
-					.ok_or_else(|| tg::error!("invalid url"))?;
-				let port = self
-					.url
+				let host = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
+				let port = url
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!("invalid url"))?;
-				self.connect_tcp_h1(host, port).await
+				Self::connect_tcp_h1(host, port).await
 			},
 			"https" => {
 				#[cfg(not(feature = "tls"))]
@@ -211,43 +222,34 @@ impl Client {
 				}
 				#[cfg(feature = "tls")]
 				{
-					let host = self
-						.url
+					let host = url
 						.domain()
-						.ok_or_else(|| tg::error!(%url = self.url, "invalid url"))?;
-					let port = self
-						.url
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let port = url
 						.port_or_known_default()
-						.ok_or_else(|| tg::error!(%url = self.url, "invalid url"))?;
-					self.connect_tcp_tls_h1(host, port).await
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					Self::connect_tcp_tls_h1(host, port).await
 				}
 			},
 			_ => Err(tg::error!("invalid url")),
 		}
 	}
 
-	async fn connect_h2(&self) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
-		match self.url.scheme() {
+	async fn connect_h2(url: &Url) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
+		match url.scheme() {
 			"http+unix" => {
-				let path = self
-					.url
-					.host_str()
-					.ok_or_else(|| tg::error!("invalid url"))?;
+				let path = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
 				let path = urlencoding::decode(path)
 					.map_err(|source| tg::error!(!source, %path, "invalid url"))?;
 				let path = PathBuf::from(path.into_owned());
-				self.connect_unix_h2(&path).await
+				Self::connect_unix_h2(&path).await
 			},
 			"http" => {
-				let host = self
-					.url
-					.host_str()
-					.ok_or_else(|| tg::error!("invalid url"))?;
-				let port = self
-					.url
+				let host = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
+				let port = url
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!("invalid url"))?;
-				self.connect_tcp_h2(host, port).await
+				Self::connect_tcp_h2(host, port).await
 			},
 			"https" => {
 				#[cfg(not(feature = "tls"))]
@@ -256,12 +258,11 @@ impl Client {
 				}
 				#[cfg(feature = "tls")]
 				{
-					let host = self.url.domain().ok_or_else(|| tg::error!("invalid url"))?;
-					let port = self
-						.url
+					let host = url.domain().ok_or_else(|| tg::error!("invalid url"))?;
+					let port = url
 						.port_or_known_default()
 						.ok_or_else(|| tg::error!("invalid url"))?;
-					self.connect_tcp_tls_h2(host, port).await
+					Self::connect_tcp_tls_h2(host, port).await
 				}
 			},
 			_ => Err(tg::error!("invalid url")),
@@ -269,7 +270,6 @@ impl Client {
 	}
 
 	async fn connect_unix_h1(
-		&self,
 		path: &Path,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
 		// Connect via UNIX.
@@ -306,7 +306,6 @@ impl Client {
 	}
 
 	async fn connect_unix_h2(
-		&self,
 		path: &Path,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
 		// Connect via UNIX.
@@ -345,7 +344,6 @@ impl Client {
 	}
 
 	async fn connect_tcp_h1(
-		&self,
 		host: &str,
 		port: u16,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
@@ -383,7 +381,6 @@ impl Client {
 	}
 
 	async fn connect_tcp_h2(
-		&self,
 		host: &str,
 		port: u16,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
@@ -422,14 +419,11 @@ impl Client {
 
 	#[cfg(feature = "tls")]
 	async fn connect_tcp_tls_h1(
-		&self,
 		host: &str,
 		port: u16,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
 		// Connect via TLS over TCP.
-		let stream = self
-			.connect_tcp_tls(host, port, vec![b"http/1.1".into()])
-			.await?;
+		let stream = Self::connect_tcp_tls(host, port, vec![b"http/1.1".into()]).await?;
 
 		// Verify the negotiated protocol.
 		let success = stream
@@ -471,12 +465,11 @@ impl Client {
 
 	#[cfg(feature = "tls")]
 	async fn connect_tcp_tls_h2(
-		&self,
 		host: &str,
 		port: u16,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
 		// Connect via TLS over TCP.
-		let stream = self.connect_tcp_tls(host, port, vec![b"h2".into()]).await?;
+		let stream = Self::connect_tcp_tls(host, port, vec![b"h2".into()]).await?;
 
 		// Verify the negotiated protocol.
 		let success = stream
@@ -518,7 +511,6 @@ impl Client {
 
 	#[cfg(feature = "tls")]
 	async fn connect_tcp_tls(
-		&self,
 		host: &str,
 		port: u16,
 		protocols: Vec<Vec<u8>>,
@@ -590,8 +582,7 @@ impl Client {
 		&self,
 		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>> {
-		let mut service = self.service().await?;
-		let future = service.call(request);
+		let future = self.service.clone().call(request);
 		let timeout = Duration::from_secs(60);
 		let response = tokio::time::timeout(timeout, future)
 			.await
@@ -665,6 +656,48 @@ impl tg::Handle for Client {
 		self.try_read_blob_stream(id, arg)
 	}
 
+	fn import(
+		&self,
+		arg: tg::import::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
+	> {
+		self.import(arg, stream)
+	}
+
+	fn export(
+		&self,
+		arg: tg::export::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
+	> {
+		self.export(arg, stream)
+	}
+
+	fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push(arg)
+	}
+
+	fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull(arg)
+	}
+
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -693,6 +726,19 @@ impl tg::Handle for Client {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.put_object(id, arg)
+	}
+
+	fn post_objects(
+		&self,
+		stream: Pin<
+			Box<dyn Stream<Item = crate::Result<crate::object::post::Item>> + Send + 'static>,
+		>,
+	) -> impl Future<
+		Output = crate::Result<
+			impl Stream<Item = crate::Result<crate::object::post::Event>> + Send + 'static,
+		>,
+	> {
+		self.post_objects(stream)
 	}
 
 	fn push_object(

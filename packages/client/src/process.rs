@@ -1,29 +1,33 @@
 use crate::{self as tg, handle::Ext as _, util::arc::Ext as _};
 use std::{
-	collections::BTreeMap,
 	ops::Deref,
-	path::PathBuf,
 	sync::{Arc, RwLock},
 };
 
 pub use self::{
+	data::Data,
 	id::Id,
+	metadata::Metadata,
+	state::State,
 	status::Status,
 	wait::{Exit, Wait},
 };
 
 pub mod children;
+pub mod data;
 pub mod dequeue;
 pub mod finish;
 pub mod get;
 pub mod heartbeat;
 pub mod id;
 pub mod log;
+pub mod metadata;
 pub mod pull;
 pub mod push;
 pub mod put;
 pub mod spawn;
 pub mod start;
+pub mod state;
 pub mod status;
 pub mod touch;
 pub mod wait;
@@ -36,43 +40,8 @@ pub struct Inner {
 	id: Id,
 	remote: Option<String>,
 	state: RwLock<Option<Arc<State>>>,
+	metadata: RwLock<Option<Arc<Metadata>>>,
 	token: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct State {
-	pub checksum: Option<tg::Checksum>,
-	pub command: tg::Command,
-	pub commands_complete: bool,
-	pub commands_count: Option<u64>,
-	pub commands_depth: Option<u64>,
-	pub commands_weight: Option<u64>,
-	pub complete: bool,
-	pub count: Option<u64>,
-	pub created_at: time::OffsetDateTime,
-	pub cwd: Option<PathBuf>,
-	pub dequeued_at: Option<time::OffsetDateTime>,
-	pub enqueued_at: Option<time::OffsetDateTime>,
-	pub env: Option<BTreeMap<String, String>>,
-	pub error: Option<tg::Error>,
-	pub exit: Option<tg::process::Exit>,
-	pub finished_at: Option<time::OffsetDateTime>,
-	pub heartbeat_at: Option<time::OffsetDateTime>,
-	pub log: Option<tg::Blob>,
-	pub logs_complete: bool,
-	pub logs_count: Option<u64>,
-	pub logs_depth: Option<u64>,
-	pub logs_weight: Option<u64>,
-	pub network: bool,
-	pub output: Option<tg::Value>,
-	pub outputs_complete: bool,
-	pub outputs_count: Option<u64>,
-	pub outputs_depth: Option<u64>,
-	pub outputs_weight: Option<u64>,
-	pub retry: bool,
-	pub started_at: Option<time::OffsetDateTime>,
-	pub status: tg::process::Status,
-	pub touched_at: Option<time::OffsetDateTime>,
 }
 
 impl Process {
@@ -81,13 +50,16 @@ impl Process {
 		id: Id,
 		remote: Option<String>,
 		state: Option<State>,
+		metadata: Option<Metadata>,
 		token: Option<String>,
 	) -> Self {
 		let state = RwLock::new(state.map(Arc::new));
+		let metadata = RwLock::new(metadata.map(Arc::new));
 		Self(Arc::new(Inner {
 			id,
 			remote,
 			state,
+			metadata,
 			token,
 		}))
 	}
@@ -105,6 +77,11 @@ impl Process {
 	#[must_use]
 	pub fn state(&self) -> &RwLock<Option<Arc<State>>> {
 		&self.state
+	}
+
+	#[must_use]
+	pub fn metadata(&self) -> &RwLock<Option<Arc<Metadata>>> {
+		&self.metadata
 	}
 
 	#[must_use]
@@ -131,7 +108,7 @@ impl Process {
 		let Some(output) = handle.try_get_process(self.id()).await? else {
 			return Ok(None);
 		};
-		let state: tg::process::State = output.try_into()?;
+		let state = tg::process::State::try_from(output.data)?;
 		let state = Arc::new(state);
 		self.state.write().unwrap().replace(state.clone());
 		Ok(Some(state))
@@ -156,7 +133,7 @@ impl Process {
 		H: tg::Handle,
 	{
 		let output = handle.spawn_process(arg).await?;
-		let process = tg::Process::new(output.process, output.remote, None, None);
+		let process = tg::Process::new(output.process, output.remote, None, None, None);
 		Ok(process)
 	}
 
@@ -194,78 +171,5 @@ impl Deref for Process {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
-	}
-}
-
-impl TryFrom<tg::process::get::Output> for tg::process::State {
-	type Error = tg::Error;
-
-	fn try_from(value: tg::process::get::Output) -> Result<Self, Self::Error> {
-		let checksum = value.checksum;
-		let command = tg::Command::with_id(value.command);
-		let commands_complete = value.commands_complete;
-		let commands_count = value.commands_count;
-		let commands_depth = value.commands_depth;
-		let commands_weight = value.commands_weight;
-		let complete = value.complete;
-		let count = value.count;
-		let created_at = value.created_at;
-		let cwd = value.cwd;
-		let dequeued_at = value.dequeued_at;
-		let enqueued_at = value.enqueued_at;
-		let env = value.env;
-		let error = value.error;
-		let exit = value.exit;
-		let finished_at = value.finished_at;
-		let heartbeat_at = value.heartbeat_at;
-		let log = value.log.map(tg::Blob::with_id);
-		let logs_complete = value.logs_complete;
-		let logs_count = value.logs_count;
-		let logs_depth = value.logs_depth;
-		let logs_weight = value.logs_weight;
-		let network = value.network;
-		let output = value.output.map(tg::Value::try_from).transpose()?;
-		let outputs_complete = value.outputs_complete;
-		let outputs_count = value.outputs_count;
-		let outputs_depth = value.outputs_depth;
-		let outputs_weight = value.outputs_weight;
-		let retry = value.retry;
-		let started_at = value.started_at;
-		let status = value.status;
-		let touched_at = value.touched_at;
-		Ok(State {
-			checksum,
-			command,
-			commands_complete,
-			commands_count,
-			commands_depth,
-			commands_weight,
-			complete,
-			count,
-			created_at,
-			cwd,
-			dequeued_at,
-			enqueued_at,
-			env,
-			error,
-			exit,
-			finished_at,
-			heartbeat_at,
-			log,
-			logs_complete,
-			logs_count,
-			logs_depth,
-			logs_weight,
-			network,
-			output,
-			outputs_complete,
-			outputs_count,
-			outputs_depth,
-			outputs_weight,
-			retry,
-			started_at,
-			status,
-			touched_at,
-		})
 	}
 }

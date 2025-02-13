@@ -27,15 +27,15 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 		// Create the database future.
 		let database = async {
+			// Get a database connection.
+			let connection = self
+				.database
+				.connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
 			// Get the object.
 			#[derive(serde::Deserialize)]
 			struct Row {
@@ -48,10 +48,10 @@ impl Server {
 			let p = connection.p();
 			let statement = formatdoc!(
 				"
-				select bytes, complete, count, depth, weight
-				from objects
-				where id = {p}1;
-			",
+					select bytes, complete, count, depth, weight
+					from objects
+					where id = {p}1;
+				",
 			);
 			let params = db::params![id];
 			let row = connection
@@ -62,11 +62,9 @@ impl Server {
 			// Drop the database connection.
 			drop(connection);
 
-			// Create the bytes and metadata.
+			// Get the bytes and metadata.
 			let mut bytes = None;
 			let mut metadata = tg::object::Metadata::default();
-
-			// If the row was in the database, then get the values.
 			if let Some(row) = row {
 				bytes = row.bytes;
 				metadata.complete = row.complete;
@@ -80,18 +78,17 @@ impl Server {
 
 		// Create the store future.
 		let store = async {
-			// Attempt to get the bytes from the store.
-			if let Some(store) = &self.store {
-				let bytes = store.try_get(id).await?;
-				return Ok::<(Option<Bytes>, Option<tg::object::Metadata>), tg::Error>((
-					bytes, None,
-				));
-			}
-			Ok::<_, tg::Error>((None, None))
+			let Some(store) = &self.store else {
+				return Ok(None);
+			};
+			let Some(bytes) = store.try_get(id).await? else {
+				return Ok(None);
+			};
+			Ok(Some(bytes))
 		};
 
 		// Await the futures.
-		let ((database_bytes, metadata), (store_bytes, _)) = futures::try_join!(database, store)?;
+		let ((database_bytes, metadata), store_bytes) = futures::try_join!(database, store)?;
 		let mut bytes = store_bytes.or(database_bytes);
 
 		// If the bytes were not in the database or the store, then attempt to read the bytes from a blob file.
@@ -107,7 +104,10 @@ impl Server {
 		};
 
 		// Create the output.
-		let output = tg::object::get::Output { bytes, metadata };
+		let output = tg::object::get::Output {
+			bytes,
+			metadata: Some(metadata),
+		};
 
 		Ok(Some(output))
 	}
@@ -216,7 +216,7 @@ impl Server {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder()
-			.header_json(tg::object::metadata::HEADER, output.metadata)
+			.header_json(tg::object::get::METADATA_HEADER, output.metadata)
 			.unwrap()
 			.bytes(output.bytes)
 			.unwrap();

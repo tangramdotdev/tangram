@@ -1,7 +1,7 @@
 use crate as tg;
 use futures::{future, TryFutureExt as _};
 use http_body_util::BodyExt as _;
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 use tokio::io::{AsyncBufRead, AsyncWrite};
 
 impl tg::Client {
@@ -24,7 +24,7 @@ impl tg::Client {
 		mut input: impl AsyncBufRead + Send + Unpin + 'static,
 		mut output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let mut sender = self.connect_h1().await?;
+		let mut sender = Self::connect_h1(self.url()).await?;
 		let method = http::Method::POST;
 		let uri = "/lsp";
 		let request = http::request::Builder::default()

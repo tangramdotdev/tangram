@@ -85,7 +85,7 @@ impl FromV8 for tg::Process {
 		let state = <_>::from_v8(scope, state)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
 
-		Ok(Self::new(id, remote, state, None))
+		Ok(Self::new(id, remote, state, None, None))
 	}
 }
 
@@ -99,34 +99,6 @@ impl ToV8 for tg::process::State {
 
 		let key = v8::String::new_external_onebyte_static(scope, "command".as_bytes()).unwrap();
 		let value = self.command.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "commands_complete".as_bytes()).unwrap();
-		let value = self.commands_complete.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "commands_count".as_bytes()).unwrap();
-		let value = self.commands_count.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "commands_depth".as_bytes()).unwrap();
-		let value = self.commands_depth.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "commands_weight".as_bytes()).unwrap();
-		let value = self.commands_weight.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "complete".as_bytes()).unwrap();
-		let value = self.complete.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "count".as_bytes()).unwrap();
-		let value = self.count.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "created_at".as_bytes()).unwrap();
@@ -170,49 +142,12 @@ impl ToV8 for tg::process::State {
 		let value = self.log.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key =
-			v8::String::new_external_onebyte_static(scope, "logs_complete".as_bytes()).unwrap();
-		let value = self.logs_complete.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "logs_count".as_bytes()).unwrap();
-		let value = self.logs_count.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "logs_depth".as_bytes()).unwrap();
-		let value = self.logs_depth.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "logs_weight".as_bytes()).unwrap();
-		let value = self.logs_weight.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
 		let key = v8::String::new_external_onebyte_static(scope, "network".as_bytes()).unwrap();
 		let value = self.network.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "output".as_bytes()).unwrap();
 		let value = self.output.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "outputs_complete".as_bytes()).unwrap();
-		let value = self.outputs_complete.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "outputs_count".as_bytes()).unwrap();
-		let value = self.outputs_count.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "outputs_depth".as_bytes()).unwrap();
-		let value = self.outputs_depth.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "outputs_weight".as_bytes()).unwrap();
-		let value = self.outputs_weight.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "retry".as_bytes()).unwrap();
@@ -242,196 +177,122 @@ impl FromV8 for tg::process::State {
 	) -> tg::Result<Self> {
 		let value = value.to_object(scope).unwrap();
 
+		let cacheable =
+			v8::String::new_external_onebyte_static(scope, "cacheable".as_bytes()).unwrap();
+		let cacheable = value.get(scope, cacheable.into()).unwrap();
+		let cacheable = <_>::from_v8(scope, cacheable)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the cacheable field"))?;
+
 		let checksum =
 			v8::String::new_external_onebyte_static(scope, "checksum".as_bytes()).unwrap();
 		let checksum = value.get(scope, checksum.into()).unwrap();
 		let checksum = <_>::from_v8(scope, checksum)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the checksum"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the checksum field"))?;
+
+		let children =
+			v8::String::new_external_onebyte_static(scope, "children".as_bytes()).unwrap();
+		let children = value.get(scope, children.into()).unwrap();
+		let children = <_>::from_v8(scope, children)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the children field"))?;
 
 		let command = v8::String::new_external_onebyte_static(scope, "command".as_bytes()).unwrap();
 		let command = value.get(scope, command.into()).unwrap();
 		let command = <_>::from_v8(scope, command)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the command"))?;
-
-		let commands_complete =
-			v8::String::new_external_onebyte_static(scope, "commands_complete".as_bytes()).unwrap();
-		let commands_complete = value.get(scope, commands_complete.into()).unwrap();
-		let commands_complete = <_>::from_v8(scope, commands_complete)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the commands_complete"))?;
-
-		let commands_count =
-			v8::String::new_external_onebyte_static(scope, "commands_count".as_bytes()).unwrap();
-		let commands_count = value.get(scope, commands_count.into()).unwrap();
-		let commands_count = <_>::from_v8(scope, commands_count)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the commands_count"))?;
-
-		let commands_depth =
-			v8::String::new_external_onebyte_static(scope, "commands_depth".as_bytes()).unwrap();
-		let commands_depth = value.get(scope, commands_depth.into()).unwrap();
-		let commands_depth = <_>::from_v8(scope, commands_depth)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the commands_depth"))?;
-
-		let commands_weight =
-			v8::String::new_external_onebyte_static(scope, "commands_weight".as_bytes()).unwrap();
-		let commands_weight = value.get(scope, commands_weight.into()).unwrap();
-		let commands_weight = <_>::from_v8(scope, commands_weight)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the commands_weight"))?;
-
-		let complete =
-			v8::String::new_external_onebyte_static(scope, "complete".as_bytes()).unwrap();
-		let complete = value.get(scope, complete.into()).unwrap();
-		let complete = <_>::from_v8(scope, complete)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the complete"))?;
-
-		let count = v8::String::new_external_onebyte_static(scope, "count".as_bytes()).unwrap();
-		let count = value.get(scope, count.into()).unwrap();
-		let count = <_>::from_v8(scope, count)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the count"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the command field"))?;
 
 		let created_at =
 			v8::String::new_external_onebyte_static(scope, "created_at".as_bytes()).unwrap();
 		let created_at = value.get(scope, created_at.into()).unwrap();
 		let created_at = <_>::from_v8(scope, created_at)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the created_at"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the created_at field"))?;
 
 		let cwd = v8::String::new_external_onebyte_static(scope, "cwd".as_bytes()).unwrap();
 		let cwd = value.get(scope, cwd.into()).unwrap();
 		let cwd = <_>::from_v8(scope, cwd)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the cwd"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the cwd field"))?;
 
 		let dequeued_at =
 			v8::String::new_external_onebyte_static(scope, "dequeued_at".as_bytes()).unwrap();
 		let dequeued_at = value.get(scope, dequeued_at.into()).unwrap();
 		let dequeued_at = <_>::from_v8(scope, dequeued_at)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the dequeued_at"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the dequeued_at field"))?;
 
 		let enqueued_at =
 			v8::String::new_external_onebyte_static(scope, "enqueued_at".as_bytes()).unwrap();
 		let enqueued_at = value.get(scope, enqueued_at.into()).unwrap();
 		let enqueued_at = <_>::from_v8(scope, enqueued_at)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the enqueued_at"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the enqueued_at field"))?;
 
 		let env = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
 		let env = value.get(scope, env.into()).unwrap();
 		let env = <_>::from_v8(scope, env)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the env"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the env field"))?;
 
 		let error = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
 		let error = value.get(scope, error.into()).unwrap();
 		let error = <_>::from_v8(scope, error)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the error field"))?;
 
 		let exit = v8::String::new_external_onebyte_static(scope, "exit".as_bytes()).unwrap();
 		let exit = value.get(scope, exit.into()).unwrap();
 		let exit = <_>::from_v8(scope, exit)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the exit"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the exit field"))?;
 
 		let finished_at =
 			v8::String::new_external_onebyte_static(scope, "finished_at".as_bytes()).unwrap();
 		let finished_at = value.get(scope, finished_at.into()).unwrap();
 		let finished_at = <_>::from_v8(scope, finished_at)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the finished_at"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the finished_at field"))?;
 
 		let heartbeat_at =
 			v8::String::new_external_onebyte_static(scope, "heartbeat_at".as_bytes()).unwrap();
 		let heartbeat_at = value.get(scope, heartbeat_at.into()).unwrap();
-		let heartbeat_at = <_>::from_v8(scope, heartbeat_at)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the heartbeat_at"))?;
+		let heartbeat_at = <_>::from_v8(scope, heartbeat_at).map_err(|source| {
+			tg::error!(!source, "failed to deserialize the heartbeat_at field")
+		})?;
 
 		let log = v8::String::new_external_onebyte_static(scope, "log".as_bytes()).unwrap();
 		let log = value.get(scope, log.into()).unwrap();
 		let log = <_>::from_v8(scope, log)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the log"))?;
-
-		let logs_complete =
-			v8::String::new_external_onebyte_static(scope, "logs_complete".as_bytes()).unwrap();
-		let logs_complete = value.get(scope, logs_complete.into()).unwrap();
-		let logs_complete = <_>::from_v8(scope, logs_complete)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the logs_complete"))?;
-
-		let logs_count =
-			v8::String::new_external_onebyte_static(scope, "logs_count".as_bytes()).unwrap();
-		let logs_count = value.get(scope, logs_count.into()).unwrap();
-		let logs_count = <_>::from_v8(scope, logs_count)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the logs_count"))?;
-
-		let logs_depth =
-			v8::String::new_external_onebyte_static(scope, "logs_depth".as_bytes()).unwrap();
-		let logs_depth = value.get(scope, logs_depth.into()).unwrap();
-		let logs_depth = <_>::from_v8(scope, logs_depth)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the logs_depth"))?;
-
-		let logs_weight =
-			v8::String::new_external_onebyte_static(scope, "logs_weight".as_bytes()).unwrap();
-		let logs_weight = value.get(scope, logs_weight.into()).unwrap();
-		let logs_weight = <_>::from_v8(scope, logs_weight)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the logs_weight"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the log field"))?;
 
 		let network = v8::String::new_external_onebyte_static(scope, "network".as_bytes()).unwrap();
 		let network = value.get(scope, network.into()).unwrap();
 		let network = <_>::from_v8(scope, network)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the network"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the network field"))?;
 
 		let output = v8::String::new_external_onebyte_static(scope, "output".as_bytes()).unwrap();
 		let output = value.get(scope, output.into()).unwrap();
 		let output = <_>::from_v8(scope, output)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the output"))?;
-
-		let outputs_complete =
-			v8::String::new_external_onebyte_static(scope, "outputs_complete".as_bytes()).unwrap();
-		let outputs_complete = value.get(scope, outputs_complete.into()).unwrap();
-		let outputs_complete = <_>::from_v8(scope, outputs_complete)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the outputs_complete"))?;
-
-		let outputs_count =
-			v8::String::new_external_onebyte_static(scope, "outputs_count".as_bytes()).unwrap();
-		let outputs_count = value.get(scope, outputs_count.into()).unwrap();
-		let outputs_count = <_>::from_v8(scope, outputs_count)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the outputs_count"))?;
-
-		let outputs_depth =
-			v8::String::new_external_onebyte_static(scope, "outputs_depth".as_bytes()).unwrap();
-		let outputs_depth = value.get(scope, outputs_depth.into()).unwrap();
-		let outputs_depth = <_>::from_v8(scope, outputs_depth)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the outputs_depth"))?;
-
-		let outputs_weight =
-			v8::String::new_external_onebyte_static(scope, "outputs_weight".as_bytes()).unwrap();
-		let outputs_weight = value.get(scope, outputs_weight.into()).unwrap();
-		let outputs_weight = <_>::from_v8(scope, outputs_weight)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the outputs_weight"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the output field"))?;
 
 		let retry = v8::String::new_external_onebyte_static(scope, "retry".as_bytes()).unwrap();
 		let retry = value.get(scope, retry.into()).unwrap();
 		let retry = <_>::from_v8(scope, retry)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the retry"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the retry field"))?;
 
 		let started_at =
 			v8::String::new_external_onebyte_static(scope, "started_at".as_bytes()).unwrap();
 		let started_at = value.get(scope, started_at.into()).unwrap();
 		let started_at = <_>::from_v8(scope, started_at)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the started_at"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the started_at field"))?;
 
 		let status = v8::String::new_external_onebyte_static(scope, "status".as_bytes()).unwrap();
 		let status = value.get(scope, status.into()).unwrap();
 		let status = <_>::from_v8(scope, status)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the status"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the status field"))?;
 
 		let touched_at =
 			v8::String::new_external_onebyte_static(scope, "touched_at".as_bytes()).unwrap();
 		let touched_at = value.get(scope, touched_at.into()).unwrap();
 		let touched_at = <_>::from_v8(scope, touched_at)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the touched_at"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the touched_at field"))?;
 
 		Ok(Self {
+			cacheable,
 			checksum,
+			children,
 			command,
-			commands_complete,
-			commands_count,
-			commands_depth,
-			commands_weight,
-			complete,
-			count,
 			created_at,
 			cwd,
 			dequeued_at,
@@ -442,16 +303,8 @@ impl FromV8 for tg::process::State {
 			finished_at,
 			heartbeat_at,
 			log,
-			logs_complete,
-			logs_count,
-			logs_depth,
-			logs_weight,
 			network,
 			output,
-			outputs_complete,
-			outputs_count,
-			outputs_depth,
-			outputs_weight,
 			retry,
 			started_at,
 			status,

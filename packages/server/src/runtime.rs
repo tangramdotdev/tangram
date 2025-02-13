@@ -106,9 +106,8 @@ impl Runtime {
 			return Ok(None);
 		};
 
-		// TODO: Replace with cacheable field in state.
 		// If the process is not cacheable, then return.
-		if state.cwd.is_some() || state.env.is_some() || state.network {
+		if !state.cacheable {
 			return Ok(None);
 		}
 
@@ -151,15 +150,15 @@ impl Runtime {
 					for child in chunk.data {
 						if let Some(child_process) = server.try_get_process(&child).await? {
 							let arg = tg::process::spawn::Arg {
-								checksum: child_process.checksum,
-								command: Some(child_process.command),
+								checksum: child_process.data.checksum,
+								command: Some(child_process.data.command),
 								create: false,
 								cwd: None,
 								env: None,
-								network: child_process.network,
+								network: child_process.data.network,
 								parent: Some(process.id().clone()),
 								remote: process.remote().cloned(),
-								retry: child_process.retry,
+								retry: child_process.data.retry,
 							};
 							server.try_spawn_process(arg).await?;
 						}
