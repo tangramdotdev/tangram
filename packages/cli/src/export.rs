@@ -70,8 +70,9 @@ impl Cli {
 
 		// Display the stream.
 		let mut stream = pin!(stream);
+		let mut stdout = tokio::io::stdout();
 		while let Some(event) = stream.try_next().await? {
-			event.to_writer(tokio::io::stdout()).await?;
+			event.to_writer(&mut stdout).await?;
 		}
 
 		Ok(())
