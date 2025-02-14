@@ -1,11 +1,16 @@
 use crate::Server;
-use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{
+	future,
+	stream::{self, FuturesUnordered},
+	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+};
 use num::ToPrimitive as _;
 use std::{
 	collections::BTreeMap,
 	panic::AssertUnwindSafe,
 	pin::{pin, Pin},
 	sync::{Arc, RwLock},
+	time::Duration,
 };
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;
@@ -63,6 +68,81 @@ impl Server {
 			None,
 		);
 		let (item_sender, item_receiver) = tokio::sync::mpsc::channel(256);
+
+		// Collect metadata, updating totals when available.
+		tokio::spawn({
+			let server = self.clone();
+			let progress = progress.clone();
+			let items = arg.items.clone();
+
+			async move {
+				// Track which items still need polling
+				let mut pending_items: Vec<_> = items.iter().enumerate().collect();
+				// Track the latest known metadata for each item
+				let mut completed_metadata: Vec<Option<tg::object::Metadata>> =
+					vec![None; items.len()];
+
+				while !pending_items.is_empty() {
+					let Ok(new_metadata) = pending_items
+						.iter()
+						.map(|(idx, item)| {
+							let server = server.clone();
+							async move {
+								let metadata = match item {
+									tangram_either::Either::Left(_) => todo!(),
+									tangram_either::Either::Right(id) => {
+										server.try_get_object_metadata_local(id).await?.ok_or_else(
+											|| tg::error!("expected the metadata to be set"),
+										)?
+									},
+								};
+								Ok::<_, tg::Error>((*idx, metadata))
+							}
+						})
+						.collect::<FuturesUnordered<_>>()
+						.try_collect::<Vec<_>>()
+						.await
+					else {
+						tokio::time::sleep(Duration::from_secs(1)).await;
+						continue;
+					};
+
+					// Determine which items now have complete metadata, store in latest_metadata.
+					pending_items.retain(|(idx, _)| {
+						if let Some((new_idx, metadata)) =
+							new_metadata.iter().find(|(i, _)| i == idx)
+						{
+							// If count and weight are set, set in "completed metadata", remove from pending.
+							if metadata.count.is_some() && metadata.weight.is_some() {
+								completed_metadata[*new_idx] = Some(metadata.clone());
+								false
+							} else {
+								true
+							}
+						} else {
+							true // Keep in pending if we didn't get new metadata
+						}
+					});
+
+					// Update the progress totals based on the latest information.
+					let objects = completed_metadata
+						.iter()
+						.filter_map(|metadata| metadata.as_ref()?.count)
+						.sum();
+					let bytes = completed_metadata
+						.iter()
+						.filter_map(|metadata| metadata.as_ref()?.count)
+						.sum();
+					progress.set_total("objects", objects);
+					progress.set_total("bytes", bytes);
+
+					if !pending_items.is_empty() {
+						tokio::time::sleep(Duration::from_secs(1)).await;
+					}
+				}
+			}
+		});
+
 		let task = tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
