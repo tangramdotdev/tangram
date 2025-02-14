@@ -4,7 +4,7 @@ use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
 use num::ToPrimitive;
 use std::pin::Pin;
 use tangram_futures::{read::Ext as _, write::Ext as _};
-use tangram_http::{response::Ext as _, Body};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 
 #[derive(Debug, Clone)]
@@ -31,8 +31,8 @@ impl tg::Client {
 		let method = http::Method::POST;
 		let uri = "/objects";
 
-		// Create the body.
-		let body = Body::with_stream(stream.then(|result| async {
+		// Create the stream.
+		let stream = stream.then(|result| async {
 			let frame = match result {
 				Ok(item) => {
 					let bytes = item.serialize().await;
@@ -47,14 +47,14 @@ impl tg::Client {
 				},
 			};
 			Ok::<_, tg::Error>(frame)
-		}));
+		});
 
 		// Create the request.
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-			.body(body)
+			.stream(stream)
 			.unwrap();
 
 		// Send the request.

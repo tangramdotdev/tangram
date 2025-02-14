@@ -43,6 +43,59 @@ impl<'de> serde_with::DeserializeAs<'de, Bytes> for BytesBase64 {
 	}
 }
 
+pub struct CommaSeparatedString;
+
+impl<T> serde_with::SerializeAs<Vec<T>> for CommaSeparatedString
+where
+	T: std::fmt::Display,
+{
+	fn serialize_as<S>(source: &Vec<T>, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.collect_str(&CommaSeparatedStringDisplay(source))
+	}
+}
+
+impl<'de, T> serde_with::DeserializeAs<'de, Vec<T>> for CommaSeparatedString
+where
+	T: std::str::FromStr,
+	T::Err: std::fmt::Display,
+{
+	fn deserialize_as<D>(deserializer: D) -> Result<Vec<T>, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		let s: &str = serde::Deserialize::deserialize(deserializer)?;
+		if s.is_empty() {
+			return Ok(Vec::new());
+		}
+		s.split(',')
+			.map(|item| T::from_str(item).map_err(serde::de::Error::custom))
+			.collect()
+	}
+}
+
+struct CommaSeparatedStringDisplay<'a, T>(&'a Vec<T>);
+
+impl<T> std::fmt::Display for CommaSeparatedStringDisplay<'_, T>
+where
+	T: std::fmt::Display,
+{
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut first = true;
+		for item in self.0 {
+			if first {
+				first = false;
+			} else {
+				write!(f, ",")?;
+			}
+			write!(f, "{item}")?;
+		}
+		Ok(())
+	}
+}
+
 pub struct SeekFromString;
 
 impl serde_with::SerializeAs<std::io::SeekFrom> for SeekFromString {

@@ -840,6 +840,14 @@ impl Server {
 				Self::handle_read_blob_request(handle, request, blob).boxed()
 			},
 
+			// Items.
+			(http::Method::POST, ["export"]) => {
+				Self::handle_post_export_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["import"]) => {
+				Self::handle_post_import_request(handle, request).boxed()
+			},
+
 			// Compiler.
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 

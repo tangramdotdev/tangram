@@ -1,14 +1,26 @@
-use crate as tg;
+use crate::{self as tg, util::serde::CommaSeparatedString};
 use bytes::Bytes;
-use futures::{stream, Stream};
+use futures::{stream, Stream, StreamExt as _};
 use num::ToPrimitive as _;
+use serde_with::serde_as;
 use std::pin::Pin;
 use tangram_either::Either;
 use tangram_futures::{read::Ext as _, write::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	items: Vec<Either<tg::process::Id, tg::object::Id>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	remote: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct QueryArg {
+	#[serde_as(as = "CommaSeparatedString")]
 	items: Vec<Either<tg::process::Id, tg::object::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -35,7 +47,54 @@ impl tg::Client {
 		arg: tg::export::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
-		Ok(stream::empty())
+		let method = http::Method::POST;
+		let query = serde_urlencoded::to_string(QueryArg::from(arg)).unwrap();
+		let uri = format!("/export?{query}");
+
+		let sse = stream.map(|result| match result {
+			Ok(event) => event.try_into(),
+			Err(error) => error.try_into(),
+		});
+
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(
+				http::header::ACCEPT,
+				mime::APPLICATION_OCTET_STREAM.to_string(),
+			)
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::TEXT_EVENT_STREAM.to_string(),
+			)
+			.sse(sse)
+			.unwrap();
+		let response = self.send(request).await?;
+		if !response.status().is_success() {
+			let error = response.json().await?;
+			return Err(error);
+		}
+
+		let content_type = response
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()?;
+		if !matches!(
+			content_type
+				.as_ref()
+				.map(|content_type| (content_type.type_(), content_type.subtype())),
+			Some((mime::APPLICATION, mime::OCTET_STREAM)),
+		) {
+			return Err(tg::error!(?content_type, "invalid content type"));
+		}
+		let reader = response.reader();
+		let stream = stream::try_unfold(reader, |mut reader| async move {
+			let Some(event) = tg::export::Event::from_reader(&mut reader).await? else {
+				return Ok(None);
+			};
+			Ok(Some((event, reader)))
+		});
+
+		Ok(stream)
 	}
 }
 
@@ -206,5 +265,23 @@ impl Event {
 		};
 
 		Ok(Some(event))
+	}
+}
+
+impl From<Arg> for QueryArg {
+	fn from(value: Arg) -> Self {
+		Self {
+			items: value.items,
+			remote: value.remote,
+		}
+	}
+}
+
+impl From<QueryArg> for Arg {
+	fn from(value: QueryArg) -> Self {
+		Self {
+			items: value.items,
+			remote: value.remote,
+		}
 	}
 }

@@ -37,6 +37,11 @@ pub trait Ext: Sized {
 	fn reader<R>(self, value: R) -> http::Result<http::Response<Body>>
 	where
 		R: AsyncRead + Send + 'static;
+
+	fn sse<S, E>(self, value: S) -> http::Result<http::Response<Body>>
+	where
+		S: Stream<Item = Result<crate::sse::Event, E>> + Send + 'static,
+		E: Into<Error> + 'static;
 }
 
 impl Ext for http::response::Builder {
@@ -93,5 +98,13 @@ impl Ext for http::response::Builder {
 		R: AsyncRead + Send + 'static,
 	{
 		self.body(Body::with_reader(value))
+	}
+
+	fn sse<S, E>(self, value: S) -> http::Result<http::Response<Body>>
+	where
+		S: Stream<Item = Result<crate::sse::Event, E>> + Send + 'static,
+		E: Into<Error> + 'static,
+	{
+		self.body(Body::with_sse_stream(value))
 	}
 }

@@ -14,6 +14,12 @@ pub trait Ext: Sized {
 	where
 		T: serde::Serialize + Send + Sync + 'static;
 
+	fn stream<S, T, E>(self, value: S) -> http::Result<http::Request<Body>>
+	where
+		S: Stream<Item = Result<T, E>> + Send + 'static,
+		T: Into<hyper::body::Frame<Bytes>> + 'static,
+		E: Into<Error> + 'static;
+
 	fn data_stream<S, T, E>(self, value: S) -> http::Result<http::Request<Body>>
 	where
 		S: Stream<Item = Result<T, E>> + Send + 'static,
@@ -23,6 +29,11 @@ pub trait Ext: Sized {
 	fn reader<R>(self, value: R) -> http::Result<http::Request<Body>>
 	where
 		R: AsyncRead + Send + 'static;
+
+	fn sse<S, E>(self, value: S) -> http::Result<http::Request<Body>>
+	where
+		S: Stream<Item = Result<crate::sse::Event, E>> + Send + 'static,
+		E: Into<Error> + 'static;
 }
 
 impl Ext for http::request::Builder {
@@ -44,6 +55,15 @@ impl Ext for http::request::Builder {
 		self.body(Body::with_json(value))
 	}
 
+	fn stream<S, T, E>(self, value: S) -> http::Result<http::Request<Body>>
+	where
+		S: Stream<Item = Result<T, E>> + Send + 'static,
+		T: Into<hyper::body::Frame<Bytes>> + 'static,
+		E: Into<Error> + 'static,
+	{
+		self.body(Body::with_stream(value))
+	}
+
 	fn data_stream<S, T, E>(self, value: S) -> http::Result<http::Request<Body>>
 	where
 		S: Stream<Item = Result<T, E>> + Send + 'static,
@@ -58,5 +78,13 @@ impl Ext for http::request::Builder {
 		R: AsyncRead + Send + 'static,
 	{
 		self.body(Body::with_reader(value))
+	}
+
+	fn sse<S, E>(self, value: S) -> http::Result<http::Request<Body>>
+	where
+		S: Stream<Item = Result<crate::sse::Event, E>> + Send + 'static,
+		E: Into<Error> + 'static,
+	{
+		self.body(Body::with_sse_stream(value))
 	}
 }
