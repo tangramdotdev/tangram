@@ -445,7 +445,7 @@ impl Clone for CompleteTree {
 }
 
 impl CompleteTree {
-	const MARKER: usize = usize::MAX;
+	const COMPLETE: usize = usize::MAX;
 
 	fn new() -> Self {
 		Self {
@@ -471,14 +471,14 @@ impl CompleteTree {
 	fn mark_complete(&self, object: &tg::object::Id) {
 		let mut inner = self.inner.write().unwrap();
 		let index = inner.indices.get(object).copied().unwrap();
-		inner.nodes[index] = Self::MARKER;
+		inner.nodes[index] = Self::COMPLETE;
 	}
 
 	fn is_complete(&self, object: &tg::object::Id) -> bool {
 		let inner = self.inner.read().unwrap();
 		let mut index = inner.indices.get(object).copied().unwrap();
 		while inner.nodes[index] != index {
-			if inner.nodes[index] == Self::MARKER {
+			if inner.nodes[index] == Self::COMPLETE {
 				return true;
 			}
 			index = inner.nodes[index];

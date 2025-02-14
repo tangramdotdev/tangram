@@ -1,8 +1,22 @@
 use crate::Server;
 use futures::{future, stream, Stream, StreamExt as _, TryStreamExt as _};
-use std::pin::Pin;
+use std::{
+	collections::BTreeMap,
+	pin::Pin,
+	sync::{Arc, RwLock},
+};
 use tangram_client as tg;
 use tangram_http::{request::Ext, Body};
+
+#[derive(Clone)]
+struct Graph {
+	inner: Arc<RwLock<GraphInner>>,
+}
+
+struct GraphInner {
+	nodes: Vec<usize>,
+	indices: BTreeMap<tg::object::Id, usize>,
+}
 
 impl Server {
 	pub async fn export(
@@ -90,5 +104,48 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+impl Graph {
+	const COMPLETE: usize = usize::MAX;
+
+	fn new() -> Self {
+		Self {
+			inner: Arc::new(RwLock::new(GraphInner {
+				nodes: Vec::new(),
+				indices: BTreeMap::new(),
+			})),
+		}
+	}
+
+	fn insert(&self, parent: Option<&tg::object::Id>, child: &tg::object::Id) {
+		let mut inner = self.inner.write().unwrap();
+		let index = inner.nodes.len();
+		inner.indices.insert(child.clone(), index);
+		if let Some(parent) = parent {
+			let parent = inner.indices.get(parent).copied().unwrap();
+			inner.nodes.push(parent);
+		} else {
+			inner.nodes.push(index);
+		}
+	}
+
+	fn mark_complete(&self, object: &tg::object::Id) {
+		let mut inner = self.inner.write().unwrap();
+		let index = inner.indices.get(object).copied().unwrap();
+		inner.nodes[index] = Self::COMPLETE;
+	}
+
+	fn is_complete(&self, object: &tg::object::Id) -> bool {
+		let inner = self.inner.read().unwrap();
+		let mut index = inner.indices.get(object).copied().unwrap();
+		while inner.nodes[index] != index {
+			if inner.nodes[index] == Self::COMPLETE {
+				return true;
+			}
+			index = inner.nodes[index];
+		}
+		false
 	}
 }

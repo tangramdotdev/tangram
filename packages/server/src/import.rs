@@ -22,7 +22,7 @@ impl Server {
 				..arg
 			};
 			let stream = client.import(arg, stream).await?;
-			return Ok(stream);
+			return Ok(stream.left_stream());
 		}
 
 		let limit = 256;
@@ -33,11 +33,9 @@ impl Server {
 		let (complete_sender, complete_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(limit);
 
-		// TODO - remote?
-
 		let progress = crate::progress::Handle::new();
 
-		// Create the completeness task.
+		// Create the complete task.
 		let complete_task = tokio::spawn({
 			let event_sender = event_sender.clone();
 			async move {
@@ -75,23 +73,24 @@ impl Server {
 								.len()
 								.try_into()
 								.map_err(|source| tg::error!(!source, "bytes len overflow"))?;
-							if let Some(store) = server.store.clone() {
-								join_set.spawn({
-									let progress = progress.clone();
-									async move {
+							join_set.spawn({
+								let server = server.clone();
+								let progress = progress.clone();
+								async move {
+									if let Some(store) = server.store.clone() {
 										store.put(id, bytes).await?;
 										progress.increment("items", 1);
 										progress.increment("bytes", bytes_len);
-										Ok::<_, tg::Error>(())
+									} else {
+										// TODO store to database.
 									}
-								});
-								while let Some(result) = join_set.try_join_next() {
-									result.map_err(|source| {
-										tg::error!(!source, "a store task panicked")
-									})??;
+									Ok::<_, tg::Error>(())
 								}
-							} else {
-								// TODO store to database.
+							});
+							while let Some(result) = join_set.try_join_next() {
+								result.map_err(|source| {
+									tg::error!(!source, "a store task panicked")
+								})??;
 							}
 						},
 					}
@@ -161,22 +160,18 @@ impl Server {
 			}
 		});
 
-		// Map progress events to import events.
+		// Merge the streams.
 		let progress_stream = progress
 			.stream()
 			.map(|result| result.map(tg::import::Event::Progress));
-
-		// Collect the complete events.
 		let complete_stream = UnboundedReceiverStream::new(event_receiver);
+		let stream = stream::select(progress_stream, complete_stream);
 
-		// Merge the streams.
-		let stream = stream::select(complete_stream, progress_stream);
-
-		// Create the event stream.
+		// Create the stream.
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = stream.attach(abort_handle);
 
-		Ok(stream)
+		Ok(stream.right_stream())
 	}
 
 	pub(crate) async fn handle_import_request<H>(
