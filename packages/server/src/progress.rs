@@ -84,6 +84,16 @@ impl<T> Handle<T> {
 		}
 	}
 
+	pub fn set_total(&self, name: &str, total: u64) {
+		if let Some(indicator) = self.indicators.read().unwrap().get(name) {
+			indicator
+				.total
+				.as_ref()
+				.unwrap()
+				.store(total, std::sync::atomic::Ordering::Relaxed);
+		}
+	}
+
 	pub fn finish(&self, name: &str) {
 		let indicators_sent = self
 			.indicators_sent

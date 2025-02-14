@@ -15,6 +15,7 @@ impl Server {
 		arg: tg::import::Arg,
 		mut stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
+		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote {
 			let client = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::import::Arg {

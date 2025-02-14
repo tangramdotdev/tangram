@@ -1,21 +1,26 @@
 use crate::Server;
-use futures::{future, stream, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use std::{
 	collections::BTreeMap,
-	pin::Pin,
+	panic::AssertUnwindSafe,
+	pin::{pin, Pin},
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
+use tangram_either::Either;
+use tangram_futures::stream::Ext as _;
 use tangram_http::{request::Ext, Body};
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::task::AbortOnDropHandle;
 
 #[derive(Clone)]
-struct Graph {
-	inner: Arc<RwLock<GraphInner>>,
+struct Graph<T> {
+	inner: Arc<RwLock<GraphInner<T>>>,
 }
 
-struct GraphInner {
+struct GraphInner<T> {
 	nodes: Vec<usize>,
-	indices: BTreeMap<tg::object::Id, usize>,
+	indices: BTreeMap<T, usize>,
 }
 
 impl Server {
@@ -24,9 +29,114 @@ impl Server {
 		arg: tg::export::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
-		Ok(stream::empty())
+		// If the remote arg is set, then forward the request.
+		if let Some(remote) = arg.remote {
+			let client = self.get_remote_client(remote.clone()).await?;
+			let arg = tg::export::Arg {
+				remote: None,
+				..arg
+			};
+			let stream = client.export(arg, stream).await?;
+			return Ok(stream.left_stream());
+		}
+
+		let progress = crate::progress::Handle::new();
+		progress.start(
+			"objects".to_owned(),
+			"objects".to_owned(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+		progress.start(
+			"bytes".to_owned(),
+			"bytes".to_owned(),
+			tg::progress::IndicatorFormat::Bytes,
+			Some(0),
+			None,
+		);
+		let (item_sender, item_receiver) = tokio::sync::mpsc::channel(256);
+		let task = tokio::spawn({
+			let server = self.clone();
+			let progress = progress.clone();
+			let items = arg.items;
+			async move {
+				let result =
+					AssertUnwindSafe(server.export_inner(items, stream, item_sender, &progress))
+						.catch_unwind()
+						.await;
+				progress.finish("objects");
+				progress.finish("bytes");
+				match result {
+					Ok(Ok(output)) => {
+						progress.output(output);
+					},
+					Ok(Err(error)) => {
+						progress.error(error);
+					},
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						progress.error(tg::error!(?message, "the task panicked"));
+					},
+				}
+			}
+		});
+		let item_receiver_stream = ReceiverStream::new(item_receiver);
+		let abort_handle = AbortOnDropHandle::new(task);
+		let stream = stream::select(
+			item_receiver_stream.map(tg::export::Event::Item).map(Ok),
+			progress.stream().map_ok(tg::export::Event::Progress),
+		)
+		.attach(abort_handle);
+
+		Ok(stream.right_stream())
 	}
 
+	pub async fn export_inner(
+		&self,
+		items: Vec<Either<tg::process::Id, tg::object::Id>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+		item_sender: tokio::sync::mpsc::Sender<tg::export::Item>,
+		progress: &crate::progress::Handle<()>,
+	) -> tg::Result<()> {
+		// Create the object graph.
+		let object_graph = Graph::new();
+
+		// Create the item send future.
+		let item_send_future = {
+			let object_graph = object_graph.clone();
+			async move { Ok::<_, tg::Error>(()) }
+		};
+
+		// Create the import event future.
+		let import_event_future = {
+			let object_graph = object_graph.clone();
+			async move {
+				let mut stream = pin!(stream);
+				while let Some(event) = stream.try_next().await? {
+					match event {
+						tg::import::Event::Complete(item) => match item {
+							Either::Left(_) => todo!(),
+							Either::Right(id) => {
+								object_graph.mark_complete(&id);
+							},
+						},
+					}
+				}
+				Ok::<_, tg::Error>(())
+			}
+		};
+
+		futures::try_join!(item_send_future, import_event_future)?;
+
+		Ok(())
+	}
+}
+
+impl Server {
 	pub(crate) async fn handle_export_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
@@ -107,7 +217,10 @@ impl Server {
 	}
 }
 
-impl Graph {
+impl<T> Graph<T>
+where
+	T: Clone + Eq + Ord,
+{
 	const COMPLETE: usize = usize::MAX;
 
 	fn new() -> Self {
@@ -119,7 +232,7 @@ impl Graph {
 		}
 	}
 
-	fn insert(&self, parent: Option<&tg::object::Id>, child: &tg::object::Id) {
+	fn insert(&self, parent: Option<&T>, child: &T) {
 		let mut inner = self.inner.write().unwrap();
 		let index = inner.nodes.len();
 		inner.indices.insert(child.clone(), index);
@@ -131,13 +244,13 @@ impl Graph {
 		}
 	}
 
-	fn mark_complete(&self, object: &tg::object::Id) {
+	fn mark_complete(&self, object: &T) {
 		let mut inner = self.inner.write().unwrap();
 		let index = inner.indices.get(object).copied().unwrap();
 		inner.nodes[index] = Self::COMPLETE;
 	}
 
-	fn is_complete(&self, object: &tg::object::Id) -> bool {
+	fn is_complete(&self, object: &T) -> bool {
 		let inner = self.inner.read().unwrap();
 		let mut index = inner.indices.get(object).copied().unwrap();
 		while inner.nodes[index] != index {

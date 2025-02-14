@@ -97,7 +97,6 @@ impl Server {
 	) -> tg::Result<()> {
 		// Create the complete tree.
 		let complete_tree = CompleteTree::new();
-		let complete_set = Arc::new(DashSet::new());
 
 		// Create the channels.
 		let limit = 128;
@@ -107,7 +106,6 @@ impl Server {
 		let send_task = tokio::spawn({
 			let server = self.clone();
 			let complete_tree = complete_tree.clone();
-			let complete_set = complete_set.clone();
 			let object = root.clone();
 			let progress = progress.clone();
 			async move {
@@ -118,7 +116,6 @@ impl Server {
 				let result = Box::pin(server.push_object_with_push_objects_stream_inner(
 					&object,
 					&complete_tree,
-					&complete_set,
 					&mut send_item,
 					&progress,
 				))
@@ -149,7 +146,6 @@ impl Server {
 				// Mark the object as complete if necessary.
 				if let tg::object::post::Event::Complete(object) = event {
 					complete_tree.mark_complete(&object);
-					complete_set.insert(object);
 				}
 			}
 			Ok::<_, tg::Error>(())
@@ -162,7 +158,6 @@ impl Server {
 		&self,
 		object: &tg::object::Id,
 		complete_tree: &CompleteTree,
-		complete_set: &Arc<DashSet<tg::object::Id>>,
 		send: &mut tokio::sync::mpsc::Sender<tg::Result<tg::object::post::Item>>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<InnerOutput> {
@@ -201,7 +196,6 @@ impl Server {
 					let output = Box::pin(self.push_object_with_push_objects_stream_inner(
 						&child,
 						complete_tree,
-						complete_set,
 						send,
 						progress,
 					))
