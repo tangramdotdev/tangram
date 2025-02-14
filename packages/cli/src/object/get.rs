@@ -31,6 +31,7 @@ impl Cli {
 	pub async fn command_object_get(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let tg::object::get::Output { bytes, metadata } = handle.get_object(&args.object).await?;
+		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
 		eprintln!("{} complete {}", "info".blue().bold(), metadata.complete);
 		eprint!("{} count ", "info".blue().bold());
 		if let Some(count) = metadata.count {

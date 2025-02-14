@@ -107,7 +107,10 @@ impl Server {
 		};
 
 		// Create the output.
-		let output = tg::object::get::Output { bytes, metadata };
+		let output = tg::object::get::Output {
+			bytes,
+			metadata: Some(metadata),
+		};
 
 		Ok(Some(output))
 	}
@@ -216,7 +219,7 @@ impl Server {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder()
-			.header_json(tg::object::metadata::HEADER, output.metadata)
+			.header_json(tg::object::get::METADATA_HEADER, output.metadata)
 			.unwrap()
 			.bytes(output.bytes)
 			.unwrap();

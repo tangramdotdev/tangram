@@ -29,7 +29,7 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the log.
-		let process = tg::Process::new(args.process, None, None, None);
+		let process = tg::Process::new(args.process, None, None, None, None);
 		let remote = args
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));

@@ -32,10 +32,10 @@ impl Server {
 			}
 			let output = server.get_process(&id).await?;
 			let output = tg::process::wait::Output {
-				error: output.error,
-				exit: output.exit,
-				output: output.output,
-				status: output.status,
+				error: output.data.error,
+				exit: output.data.exit,
+				output: output.data.output,
+				status: output.data.status,
 			};
 			Ok(Some(output))
 		}))

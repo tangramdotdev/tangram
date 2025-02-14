@@ -407,7 +407,7 @@ impl Reader {
 			.try_get_process_local(id)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
-		if let Some(log) = output.log {
+		if let Some(log) = output.data.log {
 			let blob = tg::Blob::with_id(log);
 			let reader = crate::blob::Reader::new(server, blob).await?;
 			return Ok(Self::Blob(reader));

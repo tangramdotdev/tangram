@@ -85,7 +85,7 @@ impl FromV8 for tg::Process {
 		let state = <_>::from_v8(scope, state)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
 
-		Ok(Self::new(id, remote, state, None))
+		Ok(Self::new(id, remote, state, None, None))
 	}
 }
 
@@ -99,34 +99,6 @@ impl ToV8 for tg::process::State {
 
 		let key = v8::String::new_external_onebyte_static(scope, "command".as_bytes()).unwrap();
 		let value = self.command.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "commands_complete".as_bytes()).unwrap();
-		let value = self.commands_complete.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "commands_count".as_bytes()).unwrap();
-		let value = self.commands_count.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "commands_depth".as_bytes()).unwrap();
-		let value = self.commands_depth.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "commands_weight".as_bytes()).unwrap();
-		let value = self.commands_weight.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "complete".as_bytes()).unwrap();
-		let value = self.complete.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "count".as_bytes()).unwrap();
-		let value = self.count.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "created_at".as_bytes()).unwrap();
@@ -170,49 +142,12 @@ impl ToV8 for tg::process::State {
 		let value = self.log.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key =
-			v8::String::new_external_onebyte_static(scope, "logs_complete".as_bytes()).unwrap();
-		let value = self.logs_complete.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "logs_count".as_bytes()).unwrap();
-		let value = self.logs_count.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "logs_depth".as_bytes()).unwrap();
-		let value = self.logs_depth.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "logs_weight".as_bytes()).unwrap();
-		let value = self.logs_weight.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
 		let key = v8::String::new_external_onebyte_static(scope, "network".as_bytes()).unwrap();
 		let value = self.network.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "output".as_bytes()).unwrap();
 		let value = self.output.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "outputs_complete".as_bytes()).unwrap();
-		let value = self.outputs_complete.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "outputs_count".as_bytes()).unwrap();
-		let value = self.outputs_count.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "outputs_depth".as_bytes()).unwrap();
-		let value = self.outputs_depth.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key =
-			v8::String::new_external_onebyte_static(scope, "outputs_weight".as_bytes()).unwrap();
-		let value = self.outputs_weight.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "retry".as_bytes()).unwrap();
@@ -258,41 +193,6 @@ impl FromV8 for tg::process::State {
 		let command = value.get(scope, command.into()).unwrap();
 		let command = <_>::from_v8(scope, command)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the command"))?;
-
-		let commands_complete =
-			v8::String::new_external_onebyte_static(scope, "commands_complete".as_bytes()).unwrap();
-		let commands_complete = value.get(scope, commands_complete.into()).unwrap();
-		let commands_complete = <_>::from_v8(scope, commands_complete)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the commands_complete"))?;
-
-		let commands_count =
-			v8::String::new_external_onebyte_static(scope, "commands_count".as_bytes()).unwrap();
-		let commands_count = value.get(scope, commands_count.into()).unwrap();
-		let commands_count = <_>::from_v8(scope, commands_count)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the commands_count"))?;
-
-		let commands_depth =
-			v8::String::new_external_onebyte_static(scope, "commands_depth".as_bytes()).unwrap();
-		let commands_depth = value.get(scope, commands_depth.into()).unwrap();
-		let commands_depth = <_>::from_v8(scope, commands_depth)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the commands_depth"))?;
-
-		let commands_weight =
-			v8::String::new_external_onebyte_static(scope, "commands_weight".as_bytes()).unwrap();
-		let commands_weight = value.get(scope, commands_weight.into()).unwrap();
-		let commands_weight = <_>::from_v8(scope, commands_weight)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the commands_weight"))?;
-
-		let complete =
-			v8::String::new_external_onebyte_static(scope, "complete".as_bytes()).unwrap();
-		let complete = value.get(scope, complete.into()).unwrap();
-		let complete = <_>::from_v8(scope, complete)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the complete"))?;
-
-		let count = v8::String::new_external_onebyte_static(scope, "count".as_bytes()).unwrap();
-		let count = value.get(scope, count.into()).unwrap();
-		let count = <_>::from_v8(scope, count)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the count"))?;
 
 		let created_at =
 			v8::String::new_external_onebyte_static(scope, "created_at".as_bytes()).unwrap();
@@ -349,30 +249,6 @@ impl FromV8 for tg::process::State {
 		let log = <_>::from_v8(scope, log)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the log"))?;
 
-		let logs_complete =
-			v8::String::new_external_onebyte_static(scope, "logs_complete".as_bytes()).unwrap();
-		let logs_complete = value.get(scope, logs_complete.into()).unwrap();
-		let logs_complete = <_>::from_v8(scope, logs_complete)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the logs_complete"))?;
-
-		let logs_count =
-			v8::String::new_external_onebyte_static(scope, "logs_count".as_bytes()).unwrap();
-		let logs_count = value.get(scope, logs_count.into()).unwrap();
-		let logs_count = <_>::from_v8(scope, logs_count)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the logs_count"))?;
-
-		let logs_depth =
-			v8::String::new_external_onebyte_static(scope, "logs_depth".as_bytes()).unwrap();
-		let logs_depth = value.get(scope, logs_depth.into()).unwrap();
-		let logs_depth = <_>::from_v8(scope, logs_depth)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the logs_depth"))?;
-
-		let logs_weight =
-			v8::String::new_external_onebyte_static(scope, "logs_weight".as_bytes()).unwrap();
-		let logs_weight = value.get(scope, logs_weight.into()).unwrap();
-		let logs_weight = <_>::from_v8(scope, logs_weight)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the logs_weight"))?;
-
 		let network = v8::String::new_external_onebyte_static(scope, "network".as_bytes()).unwrap();
 		let network = value.get(scope, network.into()).unwrap();
 		let network = <_>::from_v8(scope, network)
@@ -382,30 +258,6 @@ impl FromV8 for tg::process::State {
 		let output = value.get(scope, output.into()).unwrap();
 		let output = <_>::from_v8(scope, output)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the output"))?;
-
-		let outputs_complete =
-			v8::String::new_external_onebyte_static(scope, "outputs_complete".as_bytes()).unwrap();
-		let outputs_complete = value.get(scope, outputs_complete.into()).unwrap();
-		let outputs_complete = <_>::from_v8(scope, outputs_complete)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the outputs_complete"))?;
-
-		let outputs_count =
-			v8::String::new_external_onebyte_static(scope, "outputs_count".as_bytes()).unwrap();
-		let outputs_count = value.get(scope, outputs_count.into()).unwrap();
-		let outputs_count = <_>::from_v8(scope, outputs_count)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the outputs_count"))?;
-
-		let outputs_depth =
-			v8::String::new_external_onebyte_static(scope, "outputs_depth".as_bytes()).unwrap();
-		let outputs_depth = value.get(scope, outputs_depth.into()).unwrap();
-		let outputs_depth = <_>::from_v8(scope, outputs_depth)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the outputs_depth"))?;
-
-		let outputs_weight =
-			v8::String::new_external_onebyte_static(scope, "outputs_weight".as_bytes()).unwrap();
-		let outputs_weight = value.get(scope, outputs_weight.into()).unwrap();
-		let outputs_weight = <_>::from_v8(scope, outputs_weight)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the outputs_weight"))?;
 
 		let retry = v8::String::new_external_onebyte_static(scope, "retry".as_bytes()).unwrap();
 		let retry = value.get(scope, retry.into()).unwrap();
@@ -433,12 +285,6 @@ impl FromV8 for tg::process::State {
 			checksum,
 			children,
 			command,
-			commands_complete,
-			commands_count,
-			commands_depth,
-			commands_weight,
-			complete,
-			count,
 			created_at,
 			cwd,
 			dequeued_at,
@@ -449,16 +295,8 @@ impl FromV8 for tg::process::State {
 			finished_at,
 			heartbeat_at,
 			log,
-			logs_complete,
-			logs_count,
-			logs_depth,
-			logs_weight,
 			network,
 			output,
-			outputs_complete,
-			outputs_count,
-			outputs_depth,
-			outputs_weight,
 			retry,
 			started_at,
 			status,

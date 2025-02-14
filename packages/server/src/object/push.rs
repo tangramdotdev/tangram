@@ -171,6 +171,7 @@ impl Server {
 			.get_object(object)
 			.await
 			.map_err(|source| tg::error!(!source, %object, "failed to get the object"))?;
+		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
 
 		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
 		let size = bytes.len().to_u64().unwrap();
@@ -314,6 +315,7 @@ impl Server {
 			.get_object(object)
 			.await
 			.map_err(|source| tg::error!(!source, %object, "failed to get the object"))?;
+		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
 		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
 		let size = bytes.len().to_u64().unwrap();
 

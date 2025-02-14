@@ -1,7 +1,7 @@
 use crate::{self as tg, handle::Ext as _, util::serde::SeekFromString};
 use futures::{future, stream, Stream, StreamExt as _, TryStreamExt as _};
 use serde_with::serde_as;
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -64,7 +64,7 @@ impl tg::Process {
 							chunk
 								.data
 								.into_iter()
-								.map(|id| tg::Process::new(id, None, None, None))
+								.map(|id| tg::Process::new(id, None, None, None, None))
 								.map(Ok),
 						)
 					})

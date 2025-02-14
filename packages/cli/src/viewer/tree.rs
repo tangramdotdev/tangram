@@ -10,7 +10,7 @@ use std::{
 	fmt::Write,
 	rc::{Rc, Weak},
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;
 use tangram_futures::task::Task;
 
@@ -172,15 +172,11 @@ where
 			// Update the data view.
 			let result = match item {
 				Item::Process(process) => {
-					handle
-						.try_get_process(process.id())
-						.await
-						.and_then(|output| {
-							let output = output.ok_or_else(|| tg::error!("expected a process"))?;
-							serde_json::to_string_pretty(&output).map_err(|source| {
-								tg::error!(!source, "failed to serialize process output")
-							})
+					handle.get_process(process.id()).await.and_then(|output| {
+						serde_json::to_string_pretty(&output.data).map_err(|source| {
+							tg::error!(!source, "failed to serialize the process data")
 						})
+					})
 				},
 				Item::Value(value) => {
 					let value = match value {

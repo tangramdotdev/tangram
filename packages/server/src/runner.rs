@@ -22,7 +22,7 @@ impl Server {
 			let arg = tg::process::dequeue::Arg::default();
 			let futures = std::iter::once(
 				self.dequeue_process(arg)
-					.map_ok(|output| tg::Process::new(output.process, None, None, None))
+					.map_ok(|output| tg::Process::new(output.process, None, None, None, None))
 					.boxed(),
 			)
 			.chain(
@@ -39,8 +39,13 @@ impl Server {
 							let client = server.get_remote_client(remote).await?;
 							let arg = tg::process::dequeue::Arg::default();
 							let output = client.dequeue_process(arg).await?;
-							let process =
-								tg::Process::new(output.process, Some(name.clone()), None, None);
+							let process = tg::Process::new(
+								output.process,
+								Some(name.clone()),
+								None,
+								None,
+								None,
+							);
 							Ok::<_, tg::Error>(process)
 						}
 						.boxed()

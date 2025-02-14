@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(
 	Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize,
@@ -10,8 +10,6 @@ pub struct Metadata {
 	pub depth: Option<u64>,
 	pub weight: Option<u64>,
 }
-
-pub const HEADER: &str = "x-tg-object-metadata";
 
 impl tg::Client {
 	pub async fn try_get_object_metadata(
@@ -33,10 +31,7 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let metadata = response
-			.header_json::<Metadata>(HEADER)
-			.transpose()?
-			.ok_or_else(|| tg::error!("expected the metadata header to be set"))?;
+		let metadata = response.json().await?;
 		Ok(Some(metadata))
 	}
 }

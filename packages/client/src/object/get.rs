@@ -1,14 +1,13 @@
-use crate::{self as tg, util::serde::BytesBase64};
+use crate as tg;
 use bytes::Bytes;
-use serde_with::serde_as;
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
-#[serde_as]
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize)]
+pub const METADATA_HEADER: &str = "x-tg-object-metadata";
+
+#[derive(Clone, Debug)]
 pub struct Output {
-	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
-	pub metadata: tg::object::Metadata,
+	pub metadata: Option<tg::object::Metadata>,
 }
 
 impl tg::Client {
@@ -32,9 +31,8 @@ impl tg::Client {
 			return Err(error);
 		}
 		let metadata = response
-			.header_json::<tg::object::Metadata>(tg::object::metadata::HEADER)
-			.transpose()?
-			.ok_or_else(|| tg::error!("expected the metadata header to be set"))?;
+			.header_json(tg::object::get::METADATA_HEADER)
+			.transpose()?;
 		let bytes = response.bytes().await?;
 		let output = tg::object::get::Output { bytes, metadata };
 		Ok(Some(output))

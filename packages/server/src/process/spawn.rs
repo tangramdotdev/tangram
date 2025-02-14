@@ -323,7 +323,7 @@ impl Server {
 		// Spawn a task to spawn the process when the parent's permit is available.
 		let server = self.clone();
 		let parent = arg.parent.clone();
-		let process = tg::Process::new(id.clone(), None, None, None);
+		let process = tg::Process::new(id.clone(), None, None, None, None);
 		tokio::spawn(async move {
 			// Acquire the parent's permit.
 			let Some(permit) = parent.as_ref().and_then(|parent| {

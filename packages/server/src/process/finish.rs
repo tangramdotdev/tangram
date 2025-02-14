@@ -73,7 +73,8 @@ impl Server {
 		}
 
 		// Get the process.
-		let Some(process) = self.try_get_process_local(id).await? else {
+		let Some(tg::process::get::Output { data, .. }) = self.try_get_process_local(id).await?
+		else {
 			return Err(tg::error!("failed to find the process"));
 		};
 
@@ -145,7 +146,7 @@ impl Server {
 		}
 
 		// Verify the checksum if one was provided.
-		if let (Some(output), Some(expected)) = (output.clone(), process.checksum.as_ref()) {
+		if let (Some(output), Some(expected)) = (output.clone(), data.checksum.as_ref()) {
 			let value: tg::Value = output.try_into()?;
 			if let Err(checksum_error) = self
 				.verify_checksum(id.clone(), &value, expected)

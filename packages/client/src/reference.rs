@@ -146,7 +146,7 @@ impl Reference {
 			.map(|referent| tg::Referent {
 				item: referent
 					.item
-					.map_left(|id| tg::Process::new(id, None, None, None))
+					.map_left(|id| tg::Process::new(id, None, None, None, None))
 					.map_right(tg::Object::with_id),
 				path: referent.path,
 				subpath: referent.subpath,
