@@ -687,6 +687,28 @@ impl tg::Handle for Client {
 		self.export(arg, stream)
 	}
 
+	fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push(arg)
+	}
+
+	fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull(arg)
+	}
+
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,

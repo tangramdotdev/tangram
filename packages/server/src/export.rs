@@ -13,7 +13,7 @@ impl Server {
 		Ok(stream::empty())
 	}
 
-	pub(crate) async fn handle_post_export_request<H>(
+	pub(crate) async fn handle_export_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>>

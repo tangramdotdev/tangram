@@ -123,6 +123,46 @@ where
 		}
 	}
 
+	fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.push(arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.push(arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
+	fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.pull(arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.pull(arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,

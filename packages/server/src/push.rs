@@ -1,50 +1,36 @@
 use crate::Server;
 use futures::{stream, Stream, StreamExt as _};
-use std::pin::Pin;
 use tangram_client as tg;
-use tangram_http::{request::Ext, Body};
+use tangram_http::{request::Ext as _, Body};
 
 impl Server {
-	pub async fn import(
+	pub async fn push(
 		&self,
-		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
+		arg: tg::push::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		Ok(stream::empty())
 	}
+}
 
-	pub(crate) async fn handle_import_request<H>(
+impl Server {
+	pub(crate) async fn handle_push_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
-		// Parse the arg.
-		let arg = request
-			.query_params()
-			.transpose()?
-			.ok_or_else(|| tg::error!("query parameters required"))?;
-
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()?;
 
-		// Create the incoming stream.
-		let body = request.reader();
-		let stream = stream::try_unfold(body, |mut reader| async move {
-			let Some(item) = tg::export::Event::from_reader(&mut reader).await? else {
-				return Ok(None);
-			};
-			Ok(Some((item, reader)))
-		})
-		.boxed();
+		// Get the arg.
+		let arg = request.json().await?;
 
-		// Create the outgoing stream.
-		let stream = handle.import(arg, stream).await?;
+		// Get the stream.
+		let stream = handle.push(arg).await?;
 
-		// Create the response body.
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
@@ -57,6 +43,7 @@ impl Server {
 				});
 				(Some(content_type), Body::with_sse_stream(stream))
 			},
+
 			_ => {
 				return Err(tg::error!(?accept, "invalid accept header"));
 			},

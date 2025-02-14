@@ -64,23 +64,23 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
 	> + Send;
 
-	// fn push(
-	// 	&self,
-	// 	arg: tg::push::Arg,
-	// ) -> impl Future<
-	// 	Output = tg::Result<
-	// 		impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-	// 	>,
-	// > + Send;
+	fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send;
 
-	// fn pull(
-	// 	&self,
-	// 	arg: tg::pull::Arg,
-	// ) -> impl Future<
-	// 	Output = tg::Result<
-	// 		impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-	// 	>,
-	// > + Send;
+	fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn lsp(
 		&self,

@@ -50,6 +50,8 @@ mod package;
 mod pipe;
 mod process;
 mod progress;
+mod pull;
+mod push;
 mod reference;
 mod remote;
 mod runner;
@@ -842,11 +844,13 @@ impl Server {
 
 			// Items.
 			(http::Method::POST, ["export"]) => {
-				Self::handle_post_export_request(handle, request).boxed()
+				Self::handle_export_request(handle, request).boxed()
 			},
 			(http::Method::POST, ["import"]) => {
-				Self::handle_post_import_request(handle, request).boxed()
+				Self::handle_import_request(handle, request).boxed()
 			},
+			(http::Method::POST, ["push"]) => Self::handle_push_request(handle, request).boxed(),
+			(http::Method::POST, ["pull"]) => Self::handle_pull_request(handle, request).boxed(),
 
 			// Compiler.
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
@@ -1110,6 +1114,28 @@ impl tg::Handle for Server {
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
 	> {
 		self.export(arg, stream)
+	}
+
+	fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push(arg)
+	}
+
+	fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull(arg)
 	}
 
 	fn lsp(

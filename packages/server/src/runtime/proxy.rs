@@ -178,8 +178,8 @@ impl tg::Handle for Proxy {
 
 	async fn import(
 		&self,
-		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
+		_arg: tg::import::Arg,
+		_stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
@@ -190,6 +190,20 @@ impl tg::Handle for Proxy {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
 		self.server.export(arg, stream).await
+	}
+
+	async fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		self.server.push(arg).await
+	}
+
+	async fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		self.server.pull(arg).await
 	}
 
 	async fn lsp(
