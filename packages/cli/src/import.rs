@@ -39,23 +39,9 @@ impl Cli {
 		let stream = handle.import(arg, stream).await?;
 
 		let mut stream = pin!(stream);
-		let stdout = std::io::stdout();
-		if stdout.is_terminal() {
-			let stream = stream.filter_map(|event| async move {
-				match event {
-					Ok(tg::import::Event::Progress(progress)) => Some(Ok(progress)),
-					Ok(tg::import::Event::Complete(_)) => None,
-					Err(e) => Some(Err(e)),
-				}
-			});
-			self.render_progress_stream(stream).await?;
-		} else {
-			while let Some(event) = stream.try_next().await? {
-				if let tg::import::Event::Complete(_) = event {
-					let event = tangram_http::sse::Event::try_from(event)?;
-					println!("{event}");
-				}
-			}
+		while let Some(event) = stream.try_next().await? {
+			let event = tangram_http::sse::Event::try_from(event)?;
+			println!("{event}");
 		}
 
 		Ok(())

@@ -27,37 +27,45 @@ impl Server {
 		S: tg::Handle,
 		D: tg::Handle,
 	{
+		let (export_item_sender, export_item_receiver) = tokio::sync::mpsc::channel(1024);
+		let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
+		let (progress_event_sender, progress_event_receiver) = tokio::sync::mpsc::channel(1024);
 		let export_arg = tg::export::Arg {
 			items: arg.items.clone(),
 			remote: None,
 		};
-		let (export_event_sender, export_event_receiver) = tokio::sync::mpsc::channel(1024);
-		let export_event_stream = ReceiverStream::new(export_event_receiver);
-		let export_item_stream = src.export(export_arg, export_event_stream.boxed()).await?;
+		let import_event_stream = ReceiverStream::new(import_event_receiver);
+		let export_event_stream = src.export(export_arg, import_event_stream.boxed()).await?;
 		let import_arg = tg::import::Arg {
 			items: arg.items.clone(),
 			remote: None,
 		};
+		let export_item_stream = ReceiverStream::new(export_item_receiver);
 		let import_event_stream = dst.import(import_arg, export_item_stream.boxed()).await?;
-		let (progress_event_sender, progress_event_receiver) = tokio::sync::mpsc::channel(1024);
 		let task = tokio::spawn(async move {
-			let mut import_event_stream = pin!(import_event_stream);
-			while let Some(result) = import_event_stream.next().await {
-				match result {
-					Ok(tg::import::Event::Progress(event)) => {
-						progress_event_sender.send(Ok(event)).await.unwrap();
-					},
-					Ok(tg::import::Event::Complete(id)) => {
-						export_event_sender
-							.send(Ok(tg::export::Event::Complete(id)))
-							.await
-							.unwrap();
-					},
-					Err(error) => {
-						progress_event_sender.send(Err(error)).await.unwrap();
-					},
+			let export_future = async move {
+				let mut export_event_stream = pin!(export_event_stream);
+				while let Some(result) = export_event_stream.next().await {
+					match result {
+						Ok(tg::export::Event::Item(item)) => {
+							export_item_sender.send(Ok(item)).await.unwrap();
+						},
+						Ok(tg::export::Event::Progress(event)) => {
+							progress_event_sender.send(Ok(event)).await.unwrap();
+						},
+						Err(error) => {
+							progress_event_sender.send(Err(error)).await.unwrap();
+						},
+					}
 				}
-			}
+			};
+			let import_future = async move {
+				let mut import_event_stream = pin!(import_event_stream);
+				while let Some(result) = import_event_stream.next().await {
+					import_event_sender.send(result).await.unwrap();
+				}
+			};
+			futures::join!(export_future, import_future);
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
 		let progress_event_stream =

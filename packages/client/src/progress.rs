@@ -1,7 +1,16 @@
 use crate as tg;
 use num::ToPrimitive as _;
 
-#[derive(Debug, Clone, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[derive(
+	Debug,
+	Clone,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[serde(tag = "kind", content = "value")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Event<T> {

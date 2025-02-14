@@ -187,8 +187,8 @@ impl tg::Handle for Proxy {
 	async fn export(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Item>> + Send + 'static> {
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
 		self.server.export(arg, stream).await
 	}
 

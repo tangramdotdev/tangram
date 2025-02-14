@@ -25,7 +25,6 @@ pub struct QueryArg {
 
 #[derive(Debug, Clone)]
 pub enum Event {
-	Progress(tg::progress::Event<()>),
 	Complete(Either<tg::process::Id, tg::object::Id>),
 }
 
@@ -125,7 +124,6 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 
 	fn try_from(value: Event) -> Result<Self, Self::Error> {
 		let event = match value {
-			Event::Progress(data) => data.try_into()?,
 			Event::Complete(data) => {
 				let data = serde_json::to_string(&data)
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
@@ -150,7 +148,7 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 				Ok(Self::Complete(data))
 			},
-			_ => Ok(Self::Progress(value.try_into()?)),
+			_ => Err(tg::error!("invalid event")),
 		}
 	}
 }

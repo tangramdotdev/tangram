@@ -25,13 +25,12 @@ impl Server {
 			return Ok(stream.left_stream());
 		}
 
-		let limit = 256;
 		let (event_sender, event_receiver) =
 			tokio::sync::mpsc::unbounded_channel::<tg::Result<tg::import::Event>>();
 		let (store_sender, mut store_receiver) =
-			tokio::sync::mpsc::channel::<tg::export::Item>(limit);
+			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (complete_sender, complete_receiver) =
-			tokio::sync::mpsc::channel::<tg::export::Item>(limit);
+			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 
 		// Create the complete task.
 		let complete_task = tokio::spawn({
@@ -74,11 +73,8 @@ impl Server {
 							join_set.spawn({
 								let server = server.clone();
 								async move {
-									if let Some(store) = server.store.clone() {
-										store.put(id, bytes).await?;
-									} else {
-										// TODO store to database.
-									}
+									let store = server.store.as_ref().unwrap();
+									store.put(id, bytes).await?;
 									Ok::<_, tg::Error>(())
 								}
 							});
@@ -101,7 +97,7 @@ impl Server {
 		let task = tokio::spawn({
 			let event_sender = event_sender.clone();
 			async move {
-				// Initialize progress.
+				// Read the items from the stream and send them to the tasks.
 				loop {
 					let item = match stream.try_next().await {
 						Ok(Some(item)) => item,
