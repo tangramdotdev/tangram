@@ -243,10 +243,9 @@ impl Runtime {
 		let mut child = process::spawn(args, cwd, env, executable, chroot, state.network)?;
 
 		// Spawn the stdio task.
-		let stdio_task = Task::spawn(|stop| super::util::stdio_task(
+		let stdio_task = tokio::spawn(super::util::stdio_task(
 			self.server.clone(),
 			process.clone(),
-			stop,
 			child.stdin.take().unwrap(),
 			child.stdout.take().unwrap(),
 			child.stderr.take().unwrap(),
@@ -258,7 +257,7 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
 		eprintln!("process done.");
-		
+
 		// Stop the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
 			task.stop();
@@ -266,16 +265,7 @@ impl Runtime {
 		}
 
 		// Join the i/o task.
-		stdio_task.stop();
-		stdio_task
-			.wait()
-			.await
-			.unwrap()
-			.inspect_err(|error| {
-				tracing::error!(?error, "io task failed");
-			})
-			.ok();
-
+		stdio_task.await.unwrap()?;
 		// Create the output.
 		let output = output_parent.path().join("output");
 		let exists = tokio::fs::try_exists(&output)

@@ -86,7 +86,10 @@ impl Server {
 		.into_iter()
 		.flatten()
 		{
-			self.close_pipe(pipe).await.ok();
+			let arg = tg::pipe::close::Arg {
+				remote: remote.cloned(),
+			};
+			self.close_pipe(pipe, arg).await.ok();
 		}
 
 		// Get a database connection.

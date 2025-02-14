@@ -5,14 +5,22 @@ use http_body_util::StreamBody;
 use std::pin::Pin;
 use tangram_http::{incoming::response::Ext as _, Outgoing};
 
+#[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+}
+
 impl Client {
 	pub async fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let uri = format!("/pipes/{id}/write");
+		let query = serde_urlencoded::to_string(arg).unwrap();
+		let uri = format!("/pipes/{id}/write?{query}");
 
 		// Create the body.
 		let body = Outgoing::body(StreamBody::new(stream.map(|result| match result {

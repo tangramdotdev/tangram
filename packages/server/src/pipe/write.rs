@@ -1,52 +1,109 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use crate::Server;
 use bytes::Bytes;
-use futures::{stream::TryStreamExt as _, Stream, StreamExt as _};
+use futures::{
+	future,
+	stream::{self, TryStreamExt as _},
+	Stream, StreamExt as _,
+};
 use http_body_util::{BodyExt as _, BodyStream};
+use std::pin::pin;
 use tangram_client as tg;
-use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
+use tangram_http::{incoming::request::Ext as _, outgoing::response::Ext as _, Incoming, Outgoing};
+
+pub struct Writer {
+	pub(super) sender: async_channel::Sender<Bytes>,
+	pub(super) refcount: AtomicUsize,
+}
+
+impl Writer {
+	pub fn get_ref(&self) -> usize {
+		self.refcount.load(Ordering::Relaxed)
+	}
+
+	pub fn add_ref(&self) -> usize {
+		let mut current = self.get_ref();
+		loop {
+			if current == 0 {
+				return 0;
+			}
+			match self.refcount.compare_exchange(
+				current,
+				current + 1,
+				Ordering::Relaxed,
+				Ordering::Relaxed,
+			) {
+				Ok(_) => return current + 1,
+				Err(new) => current = new,
+			}
+		}
+	}
+
+	pub fn release(&self) -> usize {
+		let mut current = self.refcount.load(Ordering::Relaxed);
+		loop {
+			if current == 0 {
+				return 0;
+			}
+			match self.refcount.compare_exchange(
+				current,
+				current - 1,
+				Ordering::Relaxed,
+				Ordering::Relaxed,
+			) {
+				Ok(_) => return current - 1,
+				Err(new) => current = new,
+			}
+		}
+	}
+}
 
 impl Server {
 	pub async fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
 		stream: impl Stream<Item = tg::Result<Bytes>> + Send + 'static,
 	) -> tg::Result<()> {
-		let sender = self
+		if let Some(remote) = arg.remote {
+			let remote = self.get_remote_client(remote.clone()).await?;
+			return remote
+				.write_pipe(id, tg::pipe::write::Arg::default(), stream.boxed())
+				.await;
+		}
+		let pipe = self
 			.pipes
 			.get(id)
-			.ok_or_else(|| tg::error!("failed to find the pipe"))?
-			.value()
-			.sender
-			.clone();
-
-		let mut stream = std::pin::pin!(stream);
-		while let Some(event) = stream.try_next().await? {
+			.ok_or_else(|| tg::error!(%id, "missing pipe"))?;
+		let writer = pipe
+			.as_ref()
+			.left()
+			.ok_or_else(|| tg::error!(%id, "tried to write to a read pipe"))?;
+		if writer.get_ref() == 0 {
+			return Err(tg::error!(%id, "the pipe was closed"));
+		}
+		let sender = writer.sender.clone();
+		drop(pipe);
+		let mut stream = pin!(stream);
+		while let Some(chunk) = stream.try_next().await? {
 			sender
-				.send(tg::pipe::Event::Chunk(event))
+				.send(chunk)
 				.await
-				.map_err(|source| tg::error!(!source, %pipe = id, "failed to write to the pipe"))?;
+				.map_err(|_| tg::error!(%id, "the pipe was closed"))?;
 		}
 		Ok(())
 	}
 
-	pub(crate) async fn write_pipe_event(
+	pub(crate) async fn write_pipe_bytes(
 		&self,
 		id: &tg::pipe::Id,
-		event: tg::pipe::Event,
+		remote: Option<String>,
+		bytes: Bytes,
 	) -> tg::Result<()> {
-		let sender = self
-			.pipes
-			.get(id)
-			.ok_or_else(|| tg::error!("failed to find the pipe"))?
-			.value()
-			.sender
-			.clone();
-
-		sender
-			.send(event)
-			.await
-			.map_err(|source| tg::error!(!source, %pipe = id, "failed to write to the pipe"))?;
-
+		let arg = tg::pipe::write::Arg { remote };
+		self.write_pipe(id, arg, stream::once(future::ok(bytes)))
+			.await?;
 		Ok(())
 	}
 }
@@ -62,6 +119,9 @@ impl Server {
 	{
 		// Parse the ID.
 		let id = id.parse()?;
+
+		// Get the query.
+		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Create the stream.
 		let body = request
@@ -98,7 +158,7 @@ impl Server {
 			.boxed();
 
 		// Write.
-		handle.write_pipe(&id, stream).await?;
+		handle.write_pipe(&id, arg, stream).await?;
 
 		// Create the response.
 		let response = http::Response::builder().empty().unwrap();

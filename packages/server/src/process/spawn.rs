@@ -224,7 +224,7 @@ impl Server {
 		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
 
 		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some() || sandboxed;
+		let cacheable = arg.checksum.is_some() || sandboxed || arg.stdin.is_none();
 
 		// Get the host.
 		let command = tg::Command::with_id(arg.command.clone().unwrap());
@@ -318,6 +318,22 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Increment refcounts on pipes if necessary.
+		if arg.remote.is_none() {
+			for pipe in [arg.stdin.as_ref(), arg.stdout.as_ref(), arg.stderr.as_ref()]
+				.into_iter()
+				.flatten()
+			{
+				let Some(pipe) = self.pipes.get(pipe) else {
+					continue;
+				};
+				match pipe.as_ref() {
+					Either::Left(pipe) => pipe.add_ref(),
+					Either::Right(pipe) => pipe.add_ref(),
+				};
+			}
+		}
 
 		// Publish the message.
 		tokio::spawn({

@@ -1,11 +1,7 @@
 use crate as tg;
-<<<<<<< HEAD
+use bytes::Bytes;
 use futures::{Future, FutureExt as _, Stream, TryFutureExt as _};
 use http::{HeaderName, HeaderValue};
-=======
-use bytes::Bytes;
-use futures::{Future, FutureExt as _, Stream};
->>>>>>> 618fd4c8 (wip)
 use std::{
 	collections::VecDeque,
 	ops::Deref,
@@ -736,28 +732,37 @@ impl tg::Handle for Client {
 		self.format_package(arg)
 	}
 
-	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
-		self.open_pipe()
+	fn open_pipe(
+		&self,
+		arg: tg::pipe::open::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		self.open_pipe(arg)
 	}
 
-	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
-		self.close_pipe(id)
+	fn close_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::close::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.close_pipe(id, arg)
 	}
 
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
-		self.read_pipe(id)
+		self.read_pipe(id, arg)
 	}
 
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.write_pipe(id, stream)
+		self.write_pipe(id, arg, stream)
 	}
 
 	fn try_spawn_process(

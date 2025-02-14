@@ -82,21 +82,6 @@ impl Runtime {
 			Runtime::Linux(runtime) => runtime.run(process).boxed().await,
 		};
 
-		// Close pipes.
-		for pipe in [
-			state.stdin.as_ref(),
-			state.stdout.as_ref(),
-			state.stderr.as_ref(),
-		]
-		.into_iter()
-		.flatten()
-		{
-			self.server()
-				.close_pipe(pipe)
-				.await
-				.ok();
-		}
-
 		// If the process has a checksum, then compute the checksum of the output.
 		if let (Some(value), Some(checksum)) = (&output.output, &state.checksum) {
 			self::util::compute_checksum(self, process, value, checksum).await?;

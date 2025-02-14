@@ -200,32 +200,40 @@ where
 		}
 	}
 
-	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+	fn open_pipe(
+		&self,
+		arg: tg::pipe::open::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
 		match self {
-			Either::Left(s) => s.open_pipe().left_future(),
-			Either::Right(s) => s.open_pipe().right_future(),
+			Either::Left(s) => s.open_pipe(arg).left_future(),
+			Either::Right(s) => s.open_pipe(arg).right_future(),
 		}
 	}
 
-	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
+	fn close_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::close::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.close_pipe(id).left_future(),
-			Either::Right(s) => s.close_pipe(id).right_future(),
+			Either::Left(s) => s.close_pipe(id, arg).left_future(),
+			Either::Right(s) => s.close_pipe(id, arg).right_future(),
 		}
 	}
 
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
 		match self {
 			Either::Left(s) => s
-				.read_pipe(id)
+				.read_pipe(id, arg)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
 			Either::Right(s) => s
-				.read_pipe(id)
+				.read_pipe(id, arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}
@@ -234,11 +242,12 @@ where
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.write_pipe(id, stream).left_future(),
-			Either::Right(s) => s.write_pipe(id, stream).right_future(),
+			Either::Left(s) => s.write_pipe(id, arg, stream).left_future(),
+			Either::Right(s) => s.write_pipe(id, arg, stream).right_future(),
 		}
 	}
 

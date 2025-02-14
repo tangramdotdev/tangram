@@ -241,28 +241,30 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn open_pipe(&self) -> tg::Result<tg::pipe::open::Output> {
+	async fn open_pipe(&self, _arg: tg::pipe::open::Arg) -> tg::Result<tg::pipe::open::Output> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn close_pipe(&self, _id: &tg::pipe::Id) -> tg::Result<()> {
+	async fn close_pipe(&self, _id: &tg::pipe::Id, _arg: tg::pipe::close::Arg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
-		self.server.read_pipe(id)
+		self.server.read_pipe(id, arg)
 	}
 
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.server.write_pipe(id, stream)
+		self.server.write_pipe(id, arg, stream)
 	}
 
 	fn try_get_process(

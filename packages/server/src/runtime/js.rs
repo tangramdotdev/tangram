@@ -12,7 +12,6 @@ use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, pin::pin, rc::R
 use tangram_client as tg;
 use tangram_v8::{FromV8 as _, ToV8};
 use tokio::io::AsyncWriteExt as _;
-use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
 mod error;
 mod syscall;
@@ -168,7 +167,7 @@ impl Runtime {
 						syscall::log::Level::Log => {
 							if let Some(pipe) = &state.stdout {
 								server
-									.write_pipe_event(pipe, tg::pipe::Event::Chunk(bytes))
+									.write_pipe_bytes(pipe, process.remote().cloned(), bytes)
 									.await
 									.inspect_err(|error| {
 										tracing::error!(?error, "failed to write process stdout");
@@ -179,7 +178,7 @@ impl Runtime {
 						syscall::log::Level::Error => {
 							if let Some(pipe) = &state.stderr {
 								server
-									.write_pipe_event(pipe, tg::pipe::Event::Chunk(bytes))
+									.write_pipe_bytes(pipe, process.remote().cloned(), bytes)
 									.await
 									.inspect_err(|error| {
 										tracing::error!(?error, "failed to write process stderr");

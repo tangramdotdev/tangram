@@ -2,12 +2,11 @@ use std::io::{IsTerminal, Read};
 
 use crate::Cli;
 use bytes::Bytes;
-use crossterm::style::Stylize;
-use futures::{future, stream, FutureExt, Stream, StreamExt, TryStreamExt};
+use crossterm::style::Stylize as _;
+use futures::{future, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_futures::task::{Stop, Task};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use tokio_stream::wrappers::ReceiverStream;
 
 /// Spawn and await an unsandboxed process.
@@ -39,31 +38,44 @@ pub struct Options {
 
 #[derive(Clone)]
 struct Pipes {
-	stdin: tg::pipe::Id,
-	stderr: tg::pipe::Id,
-	stdout: tg::pipe::Id,
+	remote: Option<String>,
+	stdin: tg::pipe::open::Output,
+	stderr: tg::pipe::open::Output,
+	stdout: tg::pipe::open::Output,
 }
 
 impl Pipes {
-	async fn open<H>(handle: &H) -> tg::Result<Self>
+	async fn open<H>(handle: &H, remote: Option<String>) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
 		// Open all the pipes.
-		let (stderr, stdin, stdout) =
-			future::join3(handle.open_pipe(), handle.open_pipe(), handle.open_pipe()).await;
+		let arg = tg::pipe::open::Arg {
+			remote: remote.clone(),
+		};
+		let (stderr, stdin, stdout) = future::join3(
+			handle.open_pipe(arg.clone()),
+			handle.open_pipe(arg.clone()),
+			handle.open_pipe(arg.clone()),
+		)
+		.await;
 		let errored = stderr.is_err() || stdin.is_err() || stdout.is_err();
 		if errored {
 			for pipe in [&stderr, &stdin, &stdout] {
+				let arg = tg::pipe::close::Arg {
+					remote: remote.clone(),
+				};
 				if let Ok(pipe) = pipe {
-					handle.close_pipe(&pipe.id).await.ok();
+					handle.close_pipe(&pipe.reader, arg.clone()).await.ok();
+					handle.close_pipe(&pipe.writer, arg).await.ok();
 				}
 			}
 		}
-		let stderr = stderr?.id;
-		let stdin = stdin?.id;
-		let stdout = stdout?.id;
+		let stderr = dbg!(stderr?);
+		let stdin = dbg!(stdin?);
+		let stdout = dbg!(stdout?);
 		Ok(Self {
+			remote,
 			stderr,
 			stdin,
 			stdout,
@@ -74,10 +86,13 @@ impl Pipes {
 	where
 		H: tg::Handle,
 	{
+		let arg = tg::pipe::close::Arg {
+			remote: self.remote.clone(),
+		};
 		let (_stderr, _stdin, _stdout) = future::join3(
-			handle.close_pipe(&self.stderr),
-			handle.close_pipe(&self.stdin),
-			handle.close_pipe(&self.stdout),
+			handle.close_pipe(&self.stderr.reader, arg.clone()),
+			handle.close_pipe(&self.stdin.writer, arg.clone()),
+			handle.close_pipe(&self.stdout.reader, arg.clone()),
 		)
 		.await;
 		Ok(())
@@ -92,7 +107,10 @@ impl Cli {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Open pipes.
-		let pipes = Pipes::open(&handle).await?;
+		let remote = reference
+			.options()
+			.and_then(|options| options.remote.clone());
+		let pipes = Pipes::open(&handle, remote).await?;
 
 		// Get the result.
 		let result = self
@@ -101,6 +119,7 @@ impl Cli {
 
 		// Close the pipes.
 		pipes.close(&handle).await.ok();
+		eprintln!("closed pipes for good");
 
 		// Return the result.
 		result
@@ -142,9 +161,9 @@ impl Cli {
 				options.spawn,
 				reference,
 				trailing,
-				Some(pipes.stderr.clone()),
-				Some(pipes.stdin.clone()),
-				Some(pipes.stdout.clone()),
+				Some(pipes.stderr.writer.clone()),
+				Some(pipes.stdin.reader.clone()),
+				Some(pipes.stdout.writer.clone()),
 			)
 			.boxed()
 			.await?;
@@ -153,10 +172,10 @@ impl Cli {
 		eprintln!("{} process {}", "info".blue().bold(), process.id());
 
 		// Spawn a task for stdio.
-		let stdio = Task::spawn(|stop| {
+		let stdio = tokio::spawn({
 			let handle = handle.clone();
 			let pipes = pipes.clone();
-			async move { stdio_task(&handle, &pipes, stop).await }
+			async move { stdio_task(&handle, &pipes).await }
 		});
 
 		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
@@ -203,19 +222,26 @@ impl Cli {
 			.await
 			.unwrap()
 			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
+		eprintln!("got result.");
+
+		// Close pipes.
+		pipes.close(&handle).await.ok();
+		eprintln!("closed pipes");
 
 		// Stop and wait for the stdio task.
-		stdio.stop();
-		stdio.wait().await.ok();
+		stdio.await.ok();
+		eprintln!("awaited stdio");
 
 		// Abort the cancel task.
 		cancel_task.abort();
+		eprintln!("aborted, exiting");
 
 		// Get the output.
 		let output = result?;
 
 		// Return an error if appropriate.
 		if let Some(source) = output.error {
+			eprintln!("exiting");
 			return Err(tg::error!(!source, "the process failed"));
 		}
 		if matches!(output.status, tg::process::Status::Canceled) {
@@ -253,49 +279,59 @@ impl Cli {
 	}
 }
 
-async fn stdio_task<H>(handle: &H, pipes: &Pipes, stop: Stop) -> tg::Result<()>
+async fn stdio_task<H>(handle: &H, pipes: &Pipes) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
+	// Close unnused pipes.
+	let arg = tg::pipe::close::Arg {
+		remote: pipes.remote.clone(),
+	};
+	handle
+		.close_pipe(&pipes.stdin.reader, arg.clone())
+		.await
+		.ok();
+	handle
+		.close_pipe(&pipes.stdout.writer, arg.clone())
+		.await
+		.ok();
+	handle
+		.close_pipe(&pipes.stderr.writer, arg.clone())
+		.await
+		.ok();
+
 	// Spawn a task to read from stdin.
 	let stdin = tokio::spawn({
 		let handle = handle.clone();
-		let pipe = pipes.stdin.clone();
+		let pipe = pipes.stdin.writer.clone();
+		let arg = tg::pipe::write::Arg {
+			remote: pipes.remote.clone(),
+		};
 		async move {
 			// Create the stream.
 			let stream = stdin_stream().boxed();
-
-			// Create a future to drain the stream to the pipe.
-			let write = handle.write_pipe(&pipe, stream).boxed();
-
-			// Wait for stdin to be empty or the stop signal to be sent.
-			let wait = stop.wait().boxed();
-			let result = match future::select(write, wait).await {
-				future::Either::Left((result, ..)) => result,
-				future::Either::Right(_) => Ok(()),
-			};
-
-			// Close stdin.
-			handle.close_pipe(&pipe).await.ok();
-			eprintln!("closed pipe");
-			result
+			handle.write_pipe(&pipe, arg, stream).await
 		}
 	});
 
 	// Create the stdout task.
-	let stdout = handle.read_pipe(&pipes.stdout).await?;
+	let arg = tg::pipe::read::Arg {
+		remote: pipes.remote.clone(),
+	};
+	let stdout = handle.read_pipe(&pipes.stdout.reader, arg.clone()).await?;
 	let stdout = tokio::spawn(drain_stream_to_writer(stdout, tokio::io::stdout()));
 
 	// Create the stdin task.
-	let stderr = handle.read_pipe(&pipes.stderr).await?;
+	let stderr = handle.read_pipe(&pipes.stderr.reader, arg.clone()).await?;
 	let stderr = tokio::spawn(drain_stream_to_writer(stderr, tokio::io::stderr()));
 
 	// Join all tasks and return errors.
-	let (stdin, stdout, stderr) = future::try_join3(stdin, stdout, stderr).await.unwrap();
-	stdin?;
+	let (stdout, stderr) = future::try_join(stdout, stderr).await.unwrap();
+	stdin.abort();
+	eprintln!("awaited stdout, stderr");
+
 	stdout?;
 	stderr?;
-
 	Ok(())
 }
 async fn drain_stream_to_writer(
