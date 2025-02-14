@@ -95,71 +95,113 @@ impl Server {
 		tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			let items = arg.items.clone();
+			let arg = arg.clone();
 
 			async move {
-				// Track which items still need polling
-				let mut pending_items: Vec<_> = items.iter().enumerate().collect();
-				// Track the latest known metadata for each item
-				let mut completed_metadata: Vec<Option<tg::object::Metadata>> =
-					vec![None; items.len()];
+				// Create a future for each item that polls until count and weight are present.
+				let metadata_futures = arg.items.into_iter().map(|item| {
+					let server = server.clone();
+					async move {
+						loop {
+							match item {
+								tangram_either::Either::Left(ref process) => {
+									let tg::process::get::Output { metadata, .. } =
+										server.get_process(process).await.map_err(|source| {
+											tg::error!(!source, "failed to get the process")
+										})?;
+									let metadata = metadata.ok_or_else(|| {
+										tg::error!("expected the metadata to be set")
+									})?;
+									let mut complete = metadata.count.is_some();
+									if arg.commands {
+										complete = complete
+											&& metadata.commands_count.is_some()
+											&& metadata.commands_weight.is_some();
+									}
+									if arg.logs {
+										complete = complete
+											&& metadata.logs_count.is_some() && metadata
+											.logs_weight
+											.is_some();
+									}
+									if arg.outputs {
+										complete = complete
+											&& metadata.outputs_count.is_some()
+											&& metadata.outputs_weight.is_some();
+									}
+									if complete {
+										break Ok::<_, tg::Error>(Either::Left(metadata));
+									}
+								},
+								tangram_either::Either::Right(ref id) => {
+									let metadata = server
+										.try_get_object_metadata_local(id)
+										.await?
+										.ok_or_else(|| {
+											tg::error!("expected the metadata to be set")
+										})?;
 
-				while !pending_items.is_empty() {
-					let Ok(new_metadata) = pending_items
-						.iter()
-						.map(|(idx, item)| {
-							let server = server.clone();
-							async move {
-								let metadata = match item {
-									tangram_either::Either::Left(_) => todo!(),
-									tangram_either::Either::Right(id) => {
-										server.try_get_object_metadata_local(id).await?.ok_or_else(
-											|| tg::error!("expected the metadata to be set"),
-										)?
-									},
-								};
-								Ok::<_, tg::Error>((*idx, metadata))
-							}
-						})
-						.collect::<FuturesUnordered<_>>()
-						.try_collect::<Vec<_>>()
-						.await
-					else {
-						tokio::time::sleep(Duration::from_secs(1)).await;
-						continue;
-					};
-
-					// Determine which items now have complete metadata, store in latest_metadata.
-					pending_items.retain(|(idx, _)| {
-						if let Some((new_idx, metadata)) =
-							new_metadata.iter().find(|(i, _)| i == idx)
-						{
-							// If count and weight are set, set in "completed metadata", remove from pending.
-							if metadata.count.is_some() && metadata.weight.is_some() {
-								completed_metadata[*new_idx] = Some(metadata.clone());
-								false
-							} else {
-								true
-							}
-						} else {
-							true // Keep in pending if we didn't get new metadata
+									if metadata.count.is_some() && metadata.weight.is_some() {
+										break Ok::<_, tg::Error>(Either::Right(metadata));
+									}
+								},
+							};
+							tokio::time::sleep(Duration::from_secs(1)).await;
 						}
-					});
+					}
+				});
 
-					// Update the progress totals based on the latest information.
-					let objects = completed_metadata
-						.iter()
-						.filter_map(|metadata| metadata.as_ref()?.count)
-						.sum();
-					let bytes = completed_metadata
-						.iter()
-						.filter_map(|metadata| metadata.as_ref()?.count)
-						.sum();
-					progress.set_total("objects", objects);
-					progress.set_total("bytes", bytes);
+				// Collect all futures into a FuturesUnordered to process them concurrently
+				let mut metadata_futures = metadata_futures.collect::<FuturesUnordered<_>>();
+				let mut total_objects: u64 = 0;
+				let mut total_processes: u64 = 0;
+				let mut total_bytes: u64 = 0;
 
-					if !pending_items.is_empty() {
-						tokio::time::sleep(Duration::from_secs(1)).await;
+				// As each future completes, update the totals
+				while let Some(Ok(metadata)) = metadata_futures.next().await {
+					match metadata {
+						Either::Left(metadata) => {
+							if let Some(count) = metadata.count {
+								total_processes += count;
+								progress.set_total("processes", total_processes);
+							}
+							if arg.commands {
+								if let Some(commands_count) = metadata.commands_count {
+									total_objects += commands_count;
+								}
+								if let Some(commands_weight) = metadata.commands_weight {
+									total_bytes += commands_weight;
+								}
+							}
+							if arg.logs {
+								if let Some(logs_count) = metadata.logs_count {
+									total_objects += logs_count;
+								}
+								if let Some(logs_weight) = metadata.logs_weight {
+									total_bytes += logs_weight;
+								}
+							}
+							if arg.outputs {
+								if let Some(outputs_count) = metadata.outputs_count {
+									total_objects += outputs_count;
+								}
+								if let Some(outputs_weight) = metadata.outputs_weight {
+									total_bytes += outputs_weight;
+								}
+							}
+							progress.set_total("objects", total_objects);
+							progress.set_total("bytes", total_bytes);
+						},
+						Either::Right(metadata) => {
+							if let Some(count) = metadata.count {
+								total_objects += count;
+								progress.set_total("objects", total_objects);
+							}
+							if let Some(weight) = metadata.weight {
+								total_bytes += weight;
+								progress.set_total("bytes", total_bytes);
+							}
+						},
 					}
 				}
 			}
