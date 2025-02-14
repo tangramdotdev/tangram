@@ -28,7 +28,7 @@ impl tg::Client {
 		arg: tg::push::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let method = http::Method::POST;
-		let uri = format!("/push");
+		let uri = "/push";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

@@ -1,7 +1,6 @@
-use std::pin::pin;
-
 use crate::Cli;
 use futures::{future, StreamExt as _, TryStreamExt as _};
+use std::pin::pin;
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
@@ -26,7 +25,7 @@ impl Cli {
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
-		// Get reference.
+		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
 			Either::Left(process) => Either::Left(process.id().clone()),
@@ -44,7 +43,7 @@ impl Cli {
 			},
 		};
 
-		// Create the import stream
+		// Create the import stream.
 		let stdin = tokio::io::stdin();
 		let stream = tangram_http::sse::decode(tokio::io::BufReader::new(stdin))
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
@@ -61,18 +60,18 @@ impl Cli {
 			})
 			.boxed();
 
-		// Produce the import stream
+		// Export.
 		let arg = tg::export::Arg {
 			items: vec![item],
 			remote,
 		};
 		let stream = handle.export(arg, stream).await?;
 
-		// Display the stream.
+		// Write the stream.
 		let mut stream = pin!(stream);
 		let mut stdout = tokio::io::stdout();
-		while let Some(event) = stream.try_next().await? {
-			event.to_writer(&mut stdout).await?;
+		while let Some(item) = stream.try_next().await? {
+			item.to_writer(&mut stdout).await?;
 		}
 
 		Ok(())

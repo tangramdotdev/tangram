@@ -1,26 +1,8 @@
-use crate::{self as tg, util::serde::is_false};
+use crate as tg;
 use futures::{future, Stream, TryStreamExt as _};
-use tangram_either::Either;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub commands: bool,
-
-	pub items: Vec<Either<tg::process::Id, tg::object::Id>>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub logs: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub outputs: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub recursive: bool,
-
-	pub remote: String,
-}
+pub type Arg = tg::push::Arg;
 
 impl tg::Client {
 	pub async fn pull(
@@ -28,7 +10,7 @@ impl tg::Client {
 		arg: tg::pull::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let method = http::Method::POST;
-		let uri = format!("/pull");
+		let uri = "/pull";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

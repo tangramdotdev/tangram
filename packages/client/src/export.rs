@@ -29,6 +29,11 @@ pub struct QueryArg {
 
 #[derive(Debug, Clone)]
 pub enum Event {
+	Complete(Either<tg::process::Id, tg::object::Id>),
+}
+
+#[derive(Debug, Clone)]
+pub enum Item {
 	Process {
 		id: tg::process::Id,
 		metadata: tg::process::Metadata,
@@ -45,8 +50,8 @@ impl tg::Client {
 	pub async fn export(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Item>> + Send + 'static> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(QueryArg::from(arg)).unwrap();
 		let uri = format!("/export?{query}");
@@ -88,17 +93,17 @@ impl tg::Client {
 		}
 		let reader = response.reader();
 		let stream = stream::try_unfold(reader, |mut reader| async move {
-			let Some(event) = tg::export::Event::from_reader(&mut reader).await? else {
+			let Some(item) = tg::export::Item::from_reader(&mut reader).await? else {
 				return Ok(None);
 			};
-			Ok(Some((event, reader)))
+			Ok(Some((item, reader)))
 		});
 
 		Ok(stream)
 	}
 }
 
-impl Event {
+impl Item {
 	pub async fn to_bytes(&self) -> Bytes {
 		let mut bytes = Vec::new();
 		self.to_writer(&mut bytes).await.unwrap();
@@ -107,7 +112,7 @@ impl Event {
 
 	pub async fn to_writer(&self, mut writer: impl AsyncWrite + Unpin + Send) -> tg::Result<()> {
 		match self {
-			Event::Process { id, metadata, data } => {
+			Item::Process { id, metadata, data } => {
 				let id = id.to_string();
 				writer
 					.write_uvarint(id.len().to_u64().unwrap())
@@ -136,7 +141,7 @@ impl Event {
 					.map_err(|source| tg::error!(!source, "failed to write the data"))?;
 			},
 
-			Event::Object {
+			Item::Object {
 				id,
 				metadata,
 				bytes,
@@ -192,7 +197,7 @@ impl Event {
 			.parse()
 			.map_err(Either::into_inner)?;
 
-		let event = match id {
+		let item = match id {
 			Either::Left(id) => {
 				// Read the metadata.
 				let len = reader
@@ -224,7 +229,7 @@ impl Event {
 				let data = serde_json::from_slice(&data)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 
-				Event::Process { id, metadata, data }
+				Item::Process { id, metadata, data }
 			},
 			Either::Right(id) => {
 				// Read the metadata.
@@ -256,7 +261,7 @@ impl Event {
 					.map_err(|source| tg::error!(!source, "failed to read the data"))?;
 				let bytes = Bytes::from(bytes);
 
-				Event::Object {
+				Item::Object {
 					id,
 					metadata,
 					bytes,
@@ -264,7 +269,7 @@ impl Event {
 			},
 		};
 
-		Ok(Some(event))
+		Ok(Some(item))
 	}
 }
 
@@ -282,6 +287,40 @@ impl From<QueryArg> for Arg {
 		Self {
 			items: value.items,
 			remote: value.remote,
+		}
+	}
+}
+
+impl TryFrom<Event> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: Event) -> Result<Self, Self::Error> {
+		let event = match value {
+			Event::Complete(data) => {
+				let data = serde_json::to_string(&data)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+				tangram_http::sse::Event {
+					event: Some("complete".to_owned()),
+					data,
+					..Default::default()
+				}
+			},
+		};
+		Ok(event)
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for Event {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
+		match value.event.as_deref() {
+			Some("complete") => {
+				let data = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Ok(Self::Complete(data))
+			},
+			_ => Err(tg::error!("invalid event")),
 		}
 	}
 }

@@ -80,6 +80,11 @@ impl Process {
 	}
 
 	#[must_use]
+	pub fn metadata(&self) -> &RwLock<Option<Arc<Metadata>>> {
+		&self.metadata
+	}
+
+	#[must_use]
 	pub fn token(&self) -> Option<&String> {
 		self.token.as_ref()
 	}

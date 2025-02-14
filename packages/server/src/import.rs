@@ -8,7 +8,7 @@ impl Server {
 	pub async fn import(
 		&self,
 		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
 		Ok(stream::empty())
 	}
@@ -34,7 +34,7 @@ impl Server {
 		// Create the incoming stream.
 		let body = request.reader();
 		let stream = stream::try_unfold(body, |mut reader| async move {
-			let Some(item) = tg::export::Event::from_reader(&mut reader).await? else {
+			let Some(item) = tg::export::Item::from_reader(&mut reader).await? else {
 				return Ok(None);
 			};
 			Ok(Some((item, reader)))

@@ -1,14 +1,68 @@
 use crate::Server;
-use futures::{stream, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _};
+use std::pin::pin;
 use tangram_client as tg;
+use tangram_futures::stream::Ext;
 use tangram_http::{request::Ext as _, Body};
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::task::AbortOnDropHandle;
 
 impl Server {
 	pub async fn push(
 		&self,
 		arg: tg::push::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Ok(stream::empty())
+		let remote = self.get_remote_client(arg.remote.clone()).await?;
+		Self::push_or_pull(&remote, self, &arg).await
+	}
+
+	pub(crate) async fn push_or_pull<S, D>(
+		src: &S,
+		dst: &D,
+		arg: &tg::push::Arg,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static + use<S, D>,
+	>
+	where
+		S: tg::Handle,
+		D: tg::Handle,
+	{
+		let export_arg = tg::export::Arg {
+			items: arg.items.clone(),
+			remote: None,
+		};
+		let (export_event_sender, export_event_receiver) = tokio::sync::mpsc::channel(1024);
+		let export_event_stream = ReceiverStream::new(export_event_receiver);
+		let export_item_stream = src.export(export_arg, export_event_stream.boxed()).await?;
+		let import_arg = tg::import::Arg {
+			items: arg.items.clone(),
+			remote: None,
+		};
+		let import_event_stream = dst.import(import_arg, export_item_stream.boxed()).await?;
+		let (progress_event_sender, progress_event_receiver) = tokio::sync::mpsc::channel(1024);
+		let task = tokio::spawn(async move {
+			let mut import_event_stream = pin!(import_event_stream);
+			while let Some(result) = import_event_stream.next().await {
+				match result {
+					Ok(tg::import::Event::Progress(event)) => {
+						progress_event_sender.send(Ok(event)).await.unwrap();
+					},
+					Ok(tg::import::Event::Complete(id)) => {
+						export_event_sender
+							.send(Ok(tg::export::Event::Complete(id)))
+							.await
+							.unwrap();
+					},
+					Err(error) => {
+						progress_event_sender.send(Err(error)).await.unwrap();
+					},
+				}
+			}
+		});
+		let abort_handle = AbortOnDropHandle::new(task);
+		let progress_event_stream =
+			ReceiverStream::new(progress_event_receiver).attach(abort_handle);
+		Ok(progress_event_stream)
 	}
 }
 

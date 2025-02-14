@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _};
 use tangram_client as tg;
 use tangram_http::{request::Ext as _, Body};
 
@@ -8,7 +8,8 @@ impl Server {
 		&self,
 		arg: tg::pull::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Ok(stream::empty())
+		let remote = self.get_remote_client(arg.remote.clone()).await?;
+		Self::push_or_pull(self, &remote, &arg).await
 	}
 }
 
