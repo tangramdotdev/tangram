@@ -15,6 +15,16 @@ impl Server {
 		arg: tg::import::Arg,
 		mut stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
+		if let Some(remote) = arg.remote {
+			let client = self.get_remote_client(remote.clone()).await?;
+			let arg = tg::import::Arg {
+				remote: None,
+				..arg
+			};
+			let stream = client.import(arg, stream).await?;
+			return Ok(stream);
+		}
+
 		let limit = 256;
 		let (event_sender, event_receiver) =
 			tokio::sync::mpsc::unbounded_channel::<tg::Result<tg::import::Event>>();
@@ -144,16 +154,10 @@ impl Server {
 					event_sender.send(Err(error)).ok();
 				}
 
-				// Finish the progress - events?
+				// Finish the progress.
 				progress.finish("items");
-				progress.finish("bytess");
-				// Send the end event.
-				//
-				event_sender
-					.send(Ok(tg::import::Event::Progress(
-						tg::progress::Event::Output(()),
-					)))
-					.ok();
+				progress.finish("bytes");
+				progress.output(());
 			}
 		});
 
