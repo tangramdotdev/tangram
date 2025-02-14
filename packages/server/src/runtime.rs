@@ -106,9 +106,8 @@ impl Runtime {
 			return Ok(None);
 		};
 
-		// TODO: Replace with cacheable field in state.
 		// If the process is not cacheable, then return.
-		if state.cwd.is_some() || state.env.is_some() || state.network {
+		if !state.cacheable {
 			return Ok(None);
 		}
 

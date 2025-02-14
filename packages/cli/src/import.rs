@@ -19,6 +19,8 @@ impl Cli {
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
+		let stdin = tokio::io::stdin();
+
 		Ok(())
 	}
 }
