@@ -33,19 +33,22 @@ impl Server {
 		let (complete_sender, complete_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(limit);
 
-		let progress = crate::progress::Handle::new();
-
 		// Create the complete task.
 		let complete_task = tokio::spawn({
 			let event_sender = event_sender.clone();
+			let server = self.clone();
 			async move {
 				let stream = ReceiverStream::new(complete_receiver);
 				let mut stream = pin!(stream);
 				while let Some(item) = stream.next().await {
 					match item {
 						tg::export::Item::Process { .. } => todo!(),
-						tg::export::Item::Object { id, metadata, .. } => {
-							if metadata.complete {
+						tg::export::Item::Object { id, .. } => {
+							let complete = server
+								.try_get_object_metadata_local(&id)
+								.await?
+								.is_some_and(|metadata| metadata.complete);
+							if complete {
 								let event = tg::import::Event::Complete(Either::Right(id));
 								event_sender.send(Ok(event)).ok();
 							}
@@ -59,7 +62,6 @@ impl Server {
 		// Create the store task.
 		let store_task = tokio::spawn({
 			let server = self.clone();
-			let progress = progress.clone();
 			async move {
 				let mut join_set = JoinSet::new();
 				loop {
@@ -69,18 +71,11 @@ impl Server {
 					match item {
 						tg::export::Item::Process { .. } => todo!(),
 						tg::export::Item::Object { id, bytes, .. } => {
-							let bytes_len = bytes
-								.len()
-								.try_into()
-								.map_err(|source| tg::error!(!source, "bytes len overflow"))?;
 							join_set.spawn({
 								let server = server.clone();
-								let progress = progress.clone();
 								async move {
 									if let Some(store) = server.store.clone() {
 										store.put(id, bytes).await?;
-										progress.increment("items", 1);
-										progress.increment("bytes", bytes_len);
 									} else {
 										// TODO store to database.
 									}
@@ -105,23 +100,8 @@ impl Server {
 		// Spawn a task that sends items from the stream to the other tasks.
 		let task = tokio::spawn({
 			let event_sender = event_sender.clone();
-			let progress = progress.clone();
 			async move {
 				// Initialize progress.
-				progress.start(
-					"items".to_owned(),
-					"items".to_owned(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					None,
-				);
-				progress.start(
-					"bytes".to_owned(),
-					"bytes".to_owned(),
-					tg::progress::IndicatorFormat::Bytes,
-					Some(0),
-					None,
-				);
 				loop {
 					let item = match stream.try_next().await {
 						Ok(Some(item)) => item,
@@ -152,22 +132,11 @@ impl Server {
 				if let (Err(error), _) | (_, Err(error)) = result.unwrap() {
 					event_sender.send(Err(error)).ok();
 				}
-
-				// Finish the progress.
-				progress.finish("items");
-				progress.finish("bytes");
-				progress.output(());
 			}
 		});
 
-		// Merge the streams.
-		let progress_stream = progress
-			.stream()
-			.map(|result| result.map(tg::import::Event::Progress));
-		let complete_stream = UnboundedReceiverStream::new(event_receiver);
-		let stream = stream::select(progress_stream, complete_stream);
-
 		// Create the stream.
+		let stream = UnboundedReceiverStream::new(event_receiver);
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = stream.attach(abort_handle);
 

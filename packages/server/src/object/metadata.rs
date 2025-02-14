@@ -20,7 +20,7 @@ impl Server {
 		}
 	}
 
-	async fn try_get_object_metadata_local(
+	pub(crate) async fn try_get_object_metadata_local(
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
