@@ -8,6 +8,18 @@ use tangram_either::Either;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long)]
+	pub commands: bool,
+
+	#[arg(long)]
+	pub logs: bool,
+
+	#[arg(long)]
+	pub outputs: bool,
+
+	#[arg(long)]
+	pub recursive: bool,
+
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
 
@@ -62,8 +74,12 @@ impl Cli {
 
 		// Export.
 		let arg = tg::export::Arg {
+			commands: args.commands,
 			items: vec![item],
 			remote,
+			logs: args.logs,
+			outputs: args.outputs,
+			recursive: args.recursive,
 		};
 		let stream = handle.export(arg, stream).await?;
 

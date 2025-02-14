@@ -4,6 +4,7 @@ use futures::{
 	stream::{self, FuturesUnordered},
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
+use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{
 	collections::BTreeMap,
@@ -29,10 +30,24 @@ struct GraphInner<T> {
 	indices: BTreeMap<T, usize>,
 }
 
-pub(crate) struct InnerOutput {
+pub(crate) struct InnerObjectOutput {
 	pub(crate) count: u64,
 	pub(crate) depth: u64,
 	pub(crate) weight: u64,
+}
+
+pub(crate) struct InnerProcessOutput {
+	pub(crate) process_count: u64,
+	pub(crate) object_count: u64,
+	pub(crate) object_weight: u64,
+}
+
+struct ProcessStats {
+	process_count: Option<u64>,
+	object_count: Option<u64>,
+	#[allow(dead_code)]
+	object_depth: Option<u64>,
+	object_weight: Option<u64>,
 }
 
 impl Server {
@@ -56,6 +71,13 @@ impl Server {
 		progress.start(
 			"objects".to_owned(),
 			"objects".to_owned(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+		progress.start(
+			"processes".to_owned(),
+			"processes".to_owned(),
 			tg::progress::IndicatorFormat::Normal,
 			Some(0),
 			None,
@@ -146,13 +168,13 @@ impl Server {
 		let task = tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			let items = arg.items;
 			async move {
 				let result =
-					AssertUnwindSafe(server.export_inner(items, stream, &item_sender, &progress))
+					AssertUnwindSafe(server.export_inner(arg, stream, &item_sender, &progress))
 						.catch_unwind()
 						.await;
 				progress.finish("objects");
+				progress.finish("processes");
 				progress.finish("bytes");
 				match result {
 					Ok(Ok(output)) => {
@@ -184,32 +206,52 @@ impl Server {
 
 	pub async fn export_inner(
 		&self,
-		items: Vec<Either<tg::process::Id, tg::object::Id>>,
+		arg: tg::export::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
 		// Create the object graph.
 		let object_graph = Graph::new();
+		// Create the process graph.
+		let process_graph = Graph::new();
 
 		// Create the item send future.
-		let item_send_futures = future::try_join_all(items.into_iter().map(|item| {
+		let item_send_futures = future::try_join_all(arg.items.clone().into_iter().map(|item| {
 			let server = self.clone();
 			let object_graph = object_graph.clone();
+			let process_graph = process_graph.clone();
+			let arg = arg.clone();
 			async move {
 				match item {
-					Either::Left(_) => todo!(),
-					Either::Right(object) => {
-						object_graph.insert(None, &object);
-						let result = server
-							.export_inner_object(&object, &object_graph, item_sender, progress)
+					Either::Left(process) => {
+						process_graph.insert(None, &process);
+						if let Err(error) = server
+							.export_inner_process(
+								arg,
+								&process,
+								&object_graph,
+								&process_graph,
+								item_sender,
+								progress,
+							)
 							.boxed()
-							.await;
-						if let Err(error) = result {
+							.await
+						{
 							item_sender.send(Err(error)).await.ok();
 						}
 					},
-				}
+					Either::Right(object) => {
+						object_graph.insert(None, &object);
+						if let Err(error) = server
+							.export_inner_object(&object, &object_graph, item_sender, progress)
+							.boxed()
+							.await
+						{
+							item_sender.send(Err(error)).await.ok();
+						}
+					},
+				};
 				Ok::<_, tg::Error>(())
 			}
 		}));
@@ -222,7 +264,9 @@ impl Server {
 				while let Some(event) = stream.try_next().await? {
 					match event {
 						tg::import::Event::Complete(item) => match item {
-							Either::Left(_) => todo!(),
+							Either::Left(id) => {
+								process_graph.mark_complete(&id);
+							},
 							Either::Right(id) => {
 								object_graph.mark_complete(&id);
 							},
@@ -244,7 +288,7 @@ impl Server {
 		object_graph: &Graph<tg::object::Id>,
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
 		progress: &crate::progress::Handle<()>,
-	) -> tg::Result<InnerOutput> {
+	) -> tg::Result<InnerObjectOutput> {
 		// Get the object.
 		let tg::object::get::Output { bytes, metadata } = self
 			.get_object(object)
@@ -309,10 +353,319 @@ impl Server {
 		let depth = metadata.depth.unwrap_or_else(|| 1 + incomplete_depth);
 		let weight = metadata.weight.unwrap_or_else(|| size + incomplete_weight);
 
-		Ok(InnerOutput {
+		Ok(InnerObjectOutput {
 			count,
 			depth,
 			weight,
+		})
+	}
+
+	async fn export_inner_process(
+		&self,
+		arg: tg::export::Arg,
+		process: &tg::process::Id,
+		object_graph: &Graph<tg::object::Id>,
+		process_graph: &Graph<tg::process::Id>,
+		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
+		progress: &crate::progress::Handle<()>,
+	) -> tg::Result<InnerProcessOutput> {
+		// Get the process
+		let tg::process::get::Output { data, metadata } = self
+			.get_process(process)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the process"))?;
+		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
+
+		// Return an error if the process is not finished.
+		if !data.status.is_finished() {
+			return Err(tg::error!(%process, "process is not finished"));
+		}
+
+		// Get the stats.
+		let stats = Self::get_process_stats_local(&self.clone(), &arg, &data, &metadata).await?;
+
+		// Get the children.
+		let children_arg = tg::process::children::get::Arg::default();
+		let children = self
+			.get_process_children(process, children_arg)
+			.await?
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.flat_map(|chunk| chunk.data)
+			.collect_vec();
+
+		// Send the process if it is not complete.
+		if !process_graph.is_complete(process) {
+			let item = tg::export::Item::Process {
+				id: process.clone(),
+				data: data.clone(),
+			};
+			item_sender
+				.send(Ok(item))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to send"))?;
+		}
+		// Update the progress.
+		progress.increment("processes", 1);
+
+		// Handle the command, log, and output.
+		let mut objects: Vec<tg::object::Id> = Vec::new();
+		if arg.commands {
+			objects.push(data.command.clone().into());
+		}
+		if arg.logs {
+			if let Some(log) = data.log.clone() {
+				objects.push(log.clone().into());
+			}
+		}
+		if arg.outputs {
+			if let Some(output_objects) = data.output.as_ref().map(tg::value::Data::children) {
+				objects.extend(output_objects);
+			}
+		}
+		let self_object_count_and_weight = objects
+			.iter()
+			.map(|object| async {
+				let output = self
+					.export_inner_object(object, object_graph, item_sender, progress)
+					.await?;
+				Ok::<_, tg::Error>((output.count, output.weight))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		let self_object_count = self_object_count_and_weight
+			.iter()
+			.map(|(count, _)| count)
+			.sum::<u64>();
+		let self_object_weight = self_object_count_and_weight
+			.iter()
+			.map(|(_, weight)| weight)
+			.sum::<u64>();
+
+		// Recurse into the children.
+		let InnerProcessOutput {
+			process_count: children_process_count,
+			object_count: children_object_count,
+			object_weight: children_object_weight,
+		} = if process_graph.is_complete(process) || !arg.recursive {
+			InnerProcessOutput {
+				process_count: 0,
+				object_count: 0,
+				object_weight: 0,
+			}
+		} else {
+			let outputs = children
+				.iter()
+				.map(|child| {
+					self.export_inner_process(
+						arg.clone(),
+						child,
+						object_graph,
+						process_graph,
+						item_sender,
+						progress,
+					)
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<Vec<_>>()
+				.await?;
+			outputs.into_iter().fold(
+				InnerProcessOutput {
+					process_count: 0,
+					object_count: 0,
+					object_weight: 0,
+				},
+				|a, b| InnerProcessOutput {
+					process_count: a.process_count + b.process_count,
+					object_count: a.object_count + b.object_count,
+					object_weight: a.object_weight + b.object_weight,
+				},
+			)
+		};
+
+		// Update the progress.
+		let process_count = stats.process_count.map_or_else(
+			|| 1 + children_process_count,
+			|process_count| process_count - 1 - children_process_count,
+		);
+		progress.increment("processes", process_count);
+		let object_count = stats.object_count.map_or_else(
+			|| self_object_count + children_object_count,
+			|object_count| object_count - self_object_count - children_object_count,
+		);
+		progress.increment("objects", object_count);
+		let object_weight = stats.object_weight.map_or_else(
+			|| self_object_weight + children_object_weight,
+			|object_weight| object_weight - self_object_weight - children_object_weight,
+		);
+		progress.increment("bytes", object_weight);
+
+		Ok(InnerProcessOutput {
+			process_count,
+			object_count,
+			object_weight,
+		})
+	}
+
+	async fn get_process_stats_local(
+		src: &impl tg::Handle,
+		arg: &tg::export::Arg,
+		data: &tg::process::Data,
+		metadata: &tg::process::Metadata,
+	) -> tg::Result<ProcessStats> {
+		let process_count = if arg.recursive {
+			metadata.count
+		} else {
+			Some(1)
+		};
+		let (object_count, object_depth, object_weight) = if arg.recursive {
+			// If the push is recursive, then use the logs', outputs', and commands' counts and weights.
+			let logs_count = if arg.logs {
+				metadata.logs_count
+			} else {
+				Some(0)
+			};
+			let outputs_count = if arg.outputs {
+				metadata.outputs_count
+			} else {
+				Some(0)
+			};
+			let commands_count = if arg.commands {
+				metadata.commands_count
+			} else {
+				Some(0)
+			};
+			let count = std::iter::empty()
+				.chain(Some(logs_count))
+				.chain(Some(outputs_count))
+				.chain(Some(commands_count))
+				.sum::<Option<u64>>();
+			let logs_depth = if arg.logs {
+				metadata.logs_depth
+			} else {
+				Some(0)
+			};
+			let outputs_depth = if arg.outputs {
+				metadata.outputs_depth
+			} else {
+				Some(0)
+			};
+			let commands_depth = if arg.commands {
+				metadata.commands_depth
+			} else {
+				Some(0)
+			};
+			let depth = std::iter::empty()
+				.chain(Some(logs_depth))
+				.chain(Some(outputs_depth))
+				.chain(Some(commands_depth))
+				.max()
+				.unwrap();
+			let logs_weight = if arg.logs {
+				metadata.logs_weight
+			} else {
+				Some(0)
+			};
+			let outputs_weight = if arg.outputs {
+				metadata.outputs_weight
+			} else {
+				Some(0)
+			};
+			let commands_weight = if arg.commands {
+				metadata.commands_weight
+			} else {
+				Some(0)
+			};
+			let weight = std::iter::empty()
+				.chain(Some(logs_weight))
+				.chain(Some(outputs_weight))
+				.chain(Some(commands_weight))
+				.sum::<Option<u64>>();
+			(count, depth, weight)
+		} else {
+			// If the push is not recursive, then use the count, depth, and weight of the log, output, and command.
+			let (log_count, log_depth, log_weight) = if arg.logs {
+				if let Some(log) = data.log.as_ref() {
+					if let Some(metadata) = src.try_get_object_metadata(&log.clone().into()).await?
+					{
+						(metadata.count, metadata.depth, metadata.weight)
+					} else {
+						(Some(0), Some(0), Some(0))
+					}
+				} else {
+					(Some(0), Some(0), Some(0))
+				}
+			} else {
+				(Some(0), Some(0), Some(0))
+			};
+			let (output_count, output_depth, output_weight) = if arg.outputs {
+				if data.status.is_succeeded() {
+					let metadata = data
+						.output
+						.as_ref()
+						.map(tg::value::Data::children)
+						.iter()
+						.flatten()
+						.map(|child| src.try_get_object_metadata(child))
+						.collect::<FuturesUnordered<_>>()
+						.try_collect::<Vec<_>>()
+						.await?;
+					let count = metadata
+						.iter()
+						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.count))
+						.sum::<Option<u64>>();
+					let depth = metadata.iter().try_fold(0, |depth, metadata| {
+						metadata
+							.clone()
+							.and_then(|metadata| metadata.depth)
+							.map(|d| depth.max(d))
+					});
+					let weight = metadata
+						.iter()
+						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.weight))
+						.sum::<Option<u64>>();
+					(count, depth, weight)
+				} else {
+					(Some(0), Some(0), Some(0))
+				}
+			} else {
+				(Some(0), Some(0), Some(0))
+			};
+			let (command_count, command_depth, command_weight) = {
+				if let Some(metadata) = src
+					.try_get_object_metadata(&data.command.clone().into())
+					.await?
+				{
+					(metadata.count, metadata.depth, metadata.weight)
+				} else {
+					(Some(0), Some(0), Some(0))
+				}
+			};
+			let count = std::iter::empty()
+				.chain(Some(log_count))
+				.chain(Some(output_count))
+				.chain(Some(command_count))
+				.sum::<Option<u64>>();
+			let depth = std::iter::empty()
+				.chain(Some(log_depth))
+				.chain(Some(output_depth))
+				.chain(Some(command_depth))
+				.max()
+				.unwrap();
+			let weight = std::iter::empty()
+				.chain(Some(log_weight))
+				.chain(Some(output_weight))
+				.chain(Some(command_weight))
+				.sum::<Option<u64>>();
+			(count, depth, weight)
+		};
+		Ok(ProcessStats {
+			process_count,
+			object_count,
+			object_depth,
+			object_weight,
 		})
 	}
 }

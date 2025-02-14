@@ -1,4 +1,7 @@
-use crate::{self as tg, util::serde::CommaSeparatedString};
+use crate::{
+	self as tg,
+	util::serde::{is_false, CommaSeparatedString},
+};
 use bytes::Bytes;
 use futures::{stream, Stream, StreamExt as _};
 use num::ToPrimitive as _;
@@ -11,7 +14,19 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub commands: bool,
+
 	pub items: Vec<Either<tg::process::Id, tg::object::Id>>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub logs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub outputs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub recursive: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
@@ -20,8 +35,20 @@ pub struct Arg {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct QueryArg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub commands: bool,
+
 	#[serde_as(as = "CommaSeparatedString")]
 	items: Vec<Either<tg::process::Id, tg::object::Id>>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub logs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub outputs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub recursive: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	remote: Option<String>,
@@ -306,7 +333,11 @@ impl Item {
 impl From<Arg> for QueryArg {
 	fn from(value: Arg) -> Self {
 		Self {
+			commands: value.commands,
 			items: value.items,
+			logs: value.logs,
+			outputs: value.outputs,
+			recursive: value.recursive,
 			remote: value.remote,
 		}
 	}
@@ -315,7 +346,11 @@ impl From<Arg> for QueryArg {
 impl From<QueryArg> for Arg {
 	fn from(value: QueryArg) -> Self {
 		Self {
+			commands: value.commands,
 			items: value.items,
+			logs: value.logs,
+			outputs: value.outputs,
+			recursive: value.recursive,
 			remote: value.remote,
 		}
 	}

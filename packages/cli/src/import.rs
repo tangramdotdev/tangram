@@ -1,6 +1,6 @@
 use crate::Cli;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
-use std::{io::IsTerminal as _, pin::pin};
+use std::pin::pin;
 use tangram_client::{self as tg, Handle as _};
 
 /// Import processes and objects.

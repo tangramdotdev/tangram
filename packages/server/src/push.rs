@@ -31,7 +31,11 @@ impl Server {
 		let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
 		let (progress_event_sender, progress_event_receiver) = tokio::sync::mpsc::channel(1024);
 		let export_arg = tg::export::Arg {
+			commands: arg.commands,
 			items: arg.items.clone(),
+			logs: arg.logs,
+			outputs: arg.outputs,
+			recursive: arg.recursive,
 			remote: None,
 		};
 		let import_event_stream = ReceiverStream::new(import_event_receiver);
