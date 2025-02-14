@@ -1,12 +1,13 @@
 use crate::Server;
 use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
+use num::ToPrimitive as _;
 use std::{
 	collections::BTreeMap,
 	panic::AssertUnwindSafe,
 	pin::{pin, Pin},
 	sync::{Arc, RwLock},
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{request::Ext, Body};
@@ -21,6 +22,12 @@ struct Graph<T> {
 struct GraphInner<T> {
 	nodes: Vec<usize>,
 	indices: BTreeMap<T, usize>,
+}
+
+pub(crate) struct InnerOutput {
+	pub(crate) count: u64,
+	pub(crate) depth: u64,
+	pub(crate) weight: u64,
 }
 
 impl Server {
@@ -62,7 +69,7 @@ impl Server {
 			let items = arg.items;
 			async move {
 				let result =
-					AssertUnwindSafe(server.export_inner(items, stream, item_sender, &progress))
+					AssertUnwindSafe(server.export_inner(items, stream, &item_sender, &progress))
 						.catch_unwind()
 						.await;
 				progress.finish("objects");
@@ -87,7 +94,7 @@ impl Server {
 		let item_receiver_stream = ReceiverStream::new(item_receiver);
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = stream::select(
-			item_receiver_stream.map(tg::export::Event::Item).map(Ok),
+			item_receiver_stream.map_ok(tg::export::Event::Item),
 			progress.stream().map_ok(tg::export::Event::Progress),
 		)
 		.attach(abort_handle);
@@ -99,17 +106,33 @@ impl Server {
 		&self,
 		items: Vec<Either<tg::process::Id, tg::object::Id>>,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
-		item_sender: tokio::sync::mpsc::Sender<tg::export::Item>,
+		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
 		// Create the object graph.
 		let object_graph = Graph::new();
 
 		// Create the item send future.
-		let item_send_future = {
+		let item_send_futures = future::try_join_all(items.into_iter().map(|item| {
+			let server = self.clone();
 			let object_graph = object_graph.clone();
-			async move { Ok::<_, tg::Error>(()) }
-		};
+			async move {
+				match item {
+					Either::Left(_) => todo!(),
+					Either::Right(object) => {
+						object_graph.insert(None, &object);
+						let result = server
+							.export_inner_object(&object, &object_graph, item_sender, progress)
+							.boxed()
+							.await;
+						if let Err(error) = result {
+							item_sender.send(Err(error)).await.ok();
+						}
+					},
+				}
+				Ok::<_, tg::Error>(())
+			}
+		}));
 
 		// Create the import event future.
 		let import_event_future = {
@@ -130,9 +153,87 @@ impl Server {
 			}
 		};
 
-		futures::try_join!(item_send_future, import_event_future)?;
+		futures::try_join!(item_send_futures, import_event_future)?;
 
 		Ok(())
+	}
+
+	async fn export_inner_object(
+		&self,
+		object: &tg::object::Id,
+		object_graph: &Graph<tg::object::Id>,
+		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
+		progress: &crate::progress::Handle<()>,
+	) -> tg::Result<InnerOutput> {
+		// Get the object.
+		let tg::object::get::Output { bytes, metadata } = self
+			.get_object(object)
+			.await
+			.map_err(|source| tg::error!(!source, %object, "failed to get the object"))?;
+		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
+
+		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
+		let size = bytes.len().to_u64().unwrap();
+
+		// Send the object if it is not complete.
+		if !object_graph.is_complete(object) {
+			let item = tg::export::Item::Object {
+				id: object.clone(),
+				bytes: bytes.clone(),
+			};
+			item_sender
+				.send(Ok(item))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to send"))?;
+		}
+
+		// Recurse into the incomplete children if not complete.
+		let (incomplete_count, incomplete_depth, incomplete_weight) = if object_graph
+			.is_complete(object)
+		{
+			(0, 0, 0)
+		} else {
+			let mut count = 0;
+			let mut depth = 0;
+			let mut weight = 0;
+
+			for child in data.children() {
+				object_graph.insert(Some(object), &child);
+				let output =
+					Box::pin(self.export_inner_object(&child, object_graph, item_sender, progress))
+						.await?;
+				count += output.count;
+				depth = depth.max(1 + output.depth);
+				weight += output.weight;
+			}
+
+			(count, depth, weight)
+		};
+
+		// Increment the count and add the object's size to the weight.
+		progress.increment("objects", 1);
+		progress.increment("bytes", size);
+
+		// If the count is set, then add the count not yet added.
+		if let Some(count) = metadata.count {
+			progress.increment("objects", count - 1 - incomplete_count);
+		}
+
+		// If the weight is set, then add the weight not yet added.
+		if let Some(weight) = metadata.weight {
+			progress.increment("bytes", weight - size - incomplete_weight);
+		}
+
+		// Compute the count and weight from this call.
+		let count = metadata.count.unwrap_or_else(|| 1 + incomplete_count);
+		let depth = metadata.depth.unwrap_or_else(|| 1 + incomplete_depth);
+		let weight = metadata.weight.unwrap_or_else(|| size + incomplete_weight);
+
+		Ok(InnerOutput {
+			count,
+			depth,
+			weight,
+		})
 	}
 }
 
