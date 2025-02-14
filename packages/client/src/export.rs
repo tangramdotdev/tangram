@@ -11,10 +11,10 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	items: Vec<Either<tg::process::Id, tg::object::Id>>,
+	pub items: Vec<Either<tg::process::Id, tg::object::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	remote: Option<String>,
+	pub remote: Option<String>,
 }
 
 #[serde_as]
