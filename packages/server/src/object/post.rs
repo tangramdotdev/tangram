@@ -31,7 +31,7 @@ impl Server {
 		let (complete_sender, complete_receiver) =
 			tokio::sync::mpsc::channel::<tg::object::post::Item>(limit);
 
-		// Create the completeness task.
+		// Create the complete task.
 		let complete_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
@@ -183,10 +183,10 @@ impl Server {
 					// Insert the object children.
 					let statement = indoc!(
 						"
-						insert into object_children (object, child)
-						values (?1, ?2)
-						on conflict (object, child) do nothing;
-					"
+							insert into object_children (object, child)
+							values (?1, ?2)
+							on conflict (object, child) do nothing;
+						"
 					);
 					let mut statement = transaction
 						.prepare_cached(statement)
@@ -203,9 +203,10 @@ impl Server {
 					// Insert the object.
 					let statement = indoc!(
 						"
-						insert into objects (id, bytes, size, touched_at)
-						values (?1, ?2, ?3, ?4)
-						on conflict (id) do update set touched_at = ?4;					"
+							insert into objects (id, bytes, size, touched_at)
+							values (?1, ?2, ?3, ?4)
+							on conflict (id) do update set touched_at = ?4;
+						"
 					);
 					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 					let bytes = item.bytes.as_ref();
