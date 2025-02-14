@@ -5827,6 +5827,7 @@ dependencies = [
  "tangram_client",
  "tangram_either",
  "tangram_futures",
+ "tangram_http",
  "tangram_server",
  "tangram_temp",
  "tokio",

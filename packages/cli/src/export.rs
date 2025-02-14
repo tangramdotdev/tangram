@@ -1,7 +1,7 @@
 use std::pin::pin;
 
 use crate::Cli;
-use futures::stream;
+use futures::{future, StreamExt as _, TryStreamExt as _};
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
@@ -29,7 +29,7 @@ impl Cli {
 		// Get reference.
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
-			Either::Left(process) => Either::Left(process),
+			Either::Left(process) => Either::Left(process.id().clone()),
 			Either::Right(object) => {
 				let object = if let Some(subpath) = &referent.subpath {
 					let directory = object
@@ -40,42 +40,39 @@ impl Cli {
 				} else {
 					object
 				};
-				Either::Right(object)
+				Either::Right(object.id(&handle).await?)
 			},
 		};
-		let item = match item {
-			Either::Left(process) => crate::viewer::Item::Process(process),
-			Either::Right(object) => crate::viewer::Item::Value(object.into()),
+
+		// Create the import stream
+		let stdin = tokio::io::stdin();
+		let stream = tangram_http::sse::decode(tokio::io::BufReader::new(stdin))
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			})
+			.boxed();
+
+		// Produce the import stream
+		let arg = tg::export::Arg {
+			items: vec![item],
+			remote,
 		};
+		let stream = handle.export(arg, stream).await?;
 
-		// Create the export stream
-		// let stdin = tokio::io::stdin();
-		// // From SSE.
-		// let stream = tangram_http::sse::decode(tokio_util::io::ReaderStream::new(stdin));
-		// let stream = stream::try_unfold(stream, |mut reader| async move {
-		// 	let Some(item) = tg::import::Event::from_reader(&mut reader).await? else {
-		// 		return Ok(None);
-		// 	};
-		// 	Ok(Some((item, reader)))
-		// })
-		// .boxed();
-
-		// // Produce the import stream
-		// let arg = tg::export::Arg {
-		// 	items: vec![item.into()],
-		// 	remote,
-		// };
-		// let stream = handle.export(arg, stream).await?;
-
-		// // Display the export stream.
-		// // If TTY, progress. If not, events.
-		// let mut stream = pin!(stream);
-		// while let Some(event) = stream.try_next().await? {
-		// 	if let tg::import::Event::Complete(_) = event {
-		// 		let sse_event = tangram_http::sse::Event::try_from(event)?;
-		// 		println!("{sse_event}");
-		// 	}
-		// }
+		// Display the stream.
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			event.to_writer(tokio::io::stdout()).await?;
+		}
 
 		Ok(())
 	}
