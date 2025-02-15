@@ -1,6 +1,6 @@
 use crate::{self as tg, handle::Ext as _};
 use futures::{future, Stream, TryStreamExt as _};
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(
 	Clone,

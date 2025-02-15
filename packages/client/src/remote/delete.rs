@@ -1,5 +1,5 @@
 use crate as tg;
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 impl tg::Client {
 	pub async fn delete_remote(&self, name: &str) -> tg::Result<()> {

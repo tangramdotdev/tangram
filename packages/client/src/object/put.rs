@@ -4,7 +4,7 @@ use crate::{
 };
 use bytes::Bytes;
 use serde_with::serde_as;
-use tangram_http::{response::Ext as _, request::builder::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

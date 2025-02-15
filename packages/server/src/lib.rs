@@ -288,10 +288,16 @@ impl Server {
 		let runtimes = RwLock::new(HashMap::default());
 
 		// Create the store.
-		let store = config.store.as_ref().map(|store| match store {
-			config::Store::Memory => Arc::new(Store::new_memory()),
-			config::Store::S3(s3) => Arc::new(Store::new_s3(s3)),
-		});
+		let store = if let Some(store) = &config.store {
+			let store = match store {
+				config::Store::Memory => Store::new_memory(),
+				config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
+				config::Store::S3(s3) => Store::new_s3(s3),
+			};
+			Some(Arc::new(store))
+		} else {
+			None
+		};
 
 		// Create the task.
 		let task = Mutex::new(None);

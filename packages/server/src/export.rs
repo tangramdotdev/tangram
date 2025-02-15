@@ -145,7 +145,7 @@ impl Server {
 										break Ok::<_, tg::Error>(Either::Right(metadata));
 									}
 								},
-							};
+							}
 							tokio::time::sleep(Duration::from_secs(1)).await;
 						}
 					}
@@ -253,10 +253,11 @@ impl Server {
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
-		// Create the object graph.
-		let object_graph = Graph::new();
 		// Create the process graph.
 		let process_graph = Graph::new();
+
+		// Create the object graph.
+		let object_graph = Graph::new();
 
 		// Create the item send future.
 		let item_send_futures = future::try_join_all(arg.items.clone().into_iter().map(|item| {
@@ -293,7 +294,7 @@ impl Server {
 							item_sender.send(Err(error)).await.ok();
 						}
 					},
-				};
+				}
 				Ok::<_, tg::Error>(())
 			}
 		}));
@@ -448,6 +449,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to send"))?;
 		}
+
 		// Update the progress.
 		progress.increment("processes", 1);
 

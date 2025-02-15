@@ -1,10 +1,17 @@
 use bytes::Bytes;
 use dashmap::DashMap;
+use heed as lmdb;
 use tangram_client as tg;
 
 pub enum Store {
 	Memory(DashMap<tg::object::Id, Bytes, fnv::FnvBuildHasher>),
+	Lmdb(Lmdb),
 	S3(S3),
+}
+
+pub struct Lmdb {
+	db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
+	env: lmdb::Env,
 }
 
 pub struct S3 {
@@ -19,6 +26,11 @@ impl Store {
 		Self::Memory(DashMap::default())
 	}
 
+	pub fn new_lmdb(config: &crate::config::LmdbStore) -> tg::Result<Self> {
+		let lmdb = Lmdb::new(config)?;
+		Ok(Self::Lmdb(lmdb))
+	}
+
 	pub fn new_s3(config: &crate::config::S3Store) -> Self {
 		Self::S3(S3::new(config))
 	}
@@ -26,6 +38,7 @@ impl Store {
 	pub async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		match self {
 			Self::Memory(map) => Ok(map.get(id).map(|value| value.clone())),
+			Self::Lmdb(lmdb) => lmdb.try_get(id),
 			Self::S3(s3) => s3.try_get(id).await,
 		}
 	}
@@ -35,10 +48,72 @@ impl Store {
 			Self::Memory(map) => {
 				map.insert(id, bytes);
 			},
+			Self::Lmdb(lmdb) => {
+				lmdb.put(&id, &bytes)?;
+			},
 			Self::S3(s3) => {
 				s3.put(id, bytes).await?;
 			},
 		}
+		Ok(())
+	}
+}
+
+impl Lmdb {
+	fn new(config: &crate::config::LmdbStore) -> tg::Result<Self> {
+		if !config.path.exists() {
+			std::fs::File::create(&config.path)
+				.map_err(|source| tg::error!(!source, "failed to create the database file"))?;
+		}
+		let env = unsafe {
+			heed::EnvOpenOptions::new()
+				.map_size(1_099_511_627_776)
+				.max_dbs(3)
+				.flags(heed::EnvFlags::NO_SUB_DIR)
+				.open(&config.path)
+				.map_err(|source| tg::error!(!source, "failed to open the database"))?
+		};
+		let mut transaction = env.write_txn().unwrap();
+		let db: heed::Database<heed::types::Bytes, heed::types::Bytes> = env
+			.create_database(&mut transaction, None)
+			.map_err(|source| tg::error!(!source, "failed to open the database"))?;
+		transaction
+			.commit()
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		Ok(Self { db, env })
+	}
+
+	fn try_get(
+		&self,
+		id: &tangram_client::object::Id,
+	) -> Result<Option<Bytes>, tangram_client::Error> {
+		let transaction = self
+			.env
+			.read_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let Some(bytes) = self
+			.db
+			.get(&transaction, id.to_string().as_bytes())
+			.map_err(|source| tg::error!(!source, "failed to get the value"))?
+		else {
+			return Ok(None);
+		};
+		let bytes = Bytes::copy_from_slice(bytes);
+		drop(transaction);
+		Ok(Some(bytes))
+	}
+
+	fn put(&self, id: &tangram_client::object::Id, bytes: &Bytes) -> tg::Result<()> {
+		let mut transaction = self
+			.env
+			.write_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		self.db
+			.put(&mut transaction, id.to_string().as_bytes(), bytes)
+			.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+		transaction
+			.commit()
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		Ok(())
 	}
 }
