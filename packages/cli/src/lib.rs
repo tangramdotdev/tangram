@@ -501,6 +501,10 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 		{
+			if let Some(garbage_collection_grace_period) = advanced.garbage_collection_grace_period
+			{
+				config.advanced.garbage_collection_grace_period = garbage_collection_grace_period;
+			}
 			if let Some(process_dequeue_timeout) = advanced.process_dequeue_timeout {
 				config.advanced.process_dequeue_timeout = process_dequeue_timeout;
 			}

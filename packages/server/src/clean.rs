@@ -1,8 +1,9 @@
 use super::Server;
-use indoc::{formatdoc, indoc};
+use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{response::builder::Ext as _, Body};
+use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn clean(&self) -> tg::Result<()> {
@@ -30,25 +31,22 @@ impl Server {
 				.transaction()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			let max_touched_at = (time::OffsetDateTime::now_utc()
+				- self.config().advanced.garbage_collection_grace_period)
+				.format(&Rfc3339)
+				.unwrap();
 
 			// Get a process to remove.
-			let statement = indoc!(
+			let p = transaction.p();
+			let statement = formatdoc!(
 				"
 					select id
 					from processes
-					where (
-						select count(*) = 0
-						from process_children
-						where child = processes.id
-					) and (
-						select count(*) = 0
-						from tags
-						where item = processes.id
-					)
+					where reference_count = 0 and touched_at <= {p}1
 					limit 100;
 				"
 			);
-			let params = db::params![];
+			let params = db::params![max_touched_at];
 			let processes = transaction
 				.query_all_value_into::<tg::process::Id>(statement.into(), params)
 				.await
@@ -117,29 +115,22 @@ impl Server {
 				.transaction()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			let max_touched_at = (time::OffsetDateTime::now_utc()
+				- self.config().advanced.garbage_collection_grace_period)
+				.format(&Rfc3339)
+				.unwrap();
 
 			// Get objects to remove.
+			let p = transaction.p();
 			let statement = formatdoc!(
 				"
 					select id
 					from objects
-					where (
-						select count(*) = 0
-						from object_children
-						where child = objects.id
-					) and (
-						select count(*) = 0
-						from process_objects
-						where object = objects.id
-					) and (
-						select count(*) = 0
-						from tags
-						where item = objects.id
-					)
+					where reference_count = 0 and touched_at <= {p}1
 					limit 100;
 				"
 			);
-			let params = db::params![];
+			let params = db::params![max_touched_at];
 			let objects = transaction
 				.query_all_value_into::<tg::object::Id>(statement.into(), params)
 				.await

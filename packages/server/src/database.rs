@@ -101,12 +101,26 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				count integer,
 				depth integer,
 				incomplete_children integer,
+				reference_count integer,
 				size integer not null,
 				touched_at text,
 				weight integer
 			);
 
 			create index objects_complete_incomplete_children_index on objects (complete, incomplete_children);
+
+			create trigger objects_set_reference_count_trigger
+			after insert on objects
+			for each row
+			begin
+				update objects
+				set reference_count = (
+					(select count(*) from object_children where child = new.id) +
+					(select count(*) from process_objects where object = new.id) +
+					(select count(*) from tags where item = new.id)
+				)
+				where id = new.id;
+			end;
 
 			create trigger objects_set_incomplete_children_trigger
 			after insert on objects
@@ -146,6 +160,24 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index object_children_child_index on object_children (child);
 
+			create trigger object_children_increment_reference_count_trigger
+			after insert on object_children
+			for each row
+			begin
+				update objects
+				set reference_count = objects.reference_count + 1
+				where id = new.child;
+			end;
+
+			create trigger object_children_decrement_reference_count_trigger
+			after delete on object_children
+			for each row
+			begin
+				update objects
+				set reference_count = objects.reference_count - 1
+				where id = old.child;
+			end;
+
 			create table processes (
 				cacheable integer not null,
 				checksum text,
@@ -178,6 +210,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				outputs_count integer,
 				outputs_depth integer,
 				outputs_weight integer,
+				reference_count integer,
 				retry integer not null,
 				started_at text,
 				status text not null,
@@ -187,6 +220,18 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index processes_command_index on processes (command);
 
 			create index processes_status_index on processes (status);
+
+			create trigger processes_set_reference_count_trigger
+			after insert on processes
+			for each row
+			begin
+				update processes
+				set reference_count = (
+					(select count(*) from process_children where child = new.id) +
+					(select count(*) from tags where item = new.id)
+				)
+				where id = new.id;
+			end;
 
 			create table process_children (
 				process text not null,
@@ -199,6 +244,24 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index process_children_index on process_children (process, position);
 
 			create index process_children_child_process_index on process_children (child, process);
+
+			create trigger process_children_increment_reference_count_trigger
+			after insert on process_children
+			for each row
+			begin
+				update processes
+				set reference_count = processes.reference_count + 1
+				where id = new.child;
+			end;
+
+			create trigger process_children_decrement_reference_count_trigger
+			after delete on process_children
+			for each row
+			begin
+				update processes
+				set reference_count = processes.reference_count - 1
+				where id = old.child;
+			end;
 
 			create table process_tokens (
 				process text not null,
@@ -224,6 +287,22 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index process_objects_object_index on process_objects (object);
 
+			create trigger process_objects_increment_reference_count_trigger
+			after insert on process_objects
+			begin
+				update objects
+				set reference_count = reference_count + 1
+				where id = new.object;
+			end;
+
+			create trigger process_objects_decrement_reference_count_trigger
+			after delete on process_objects
+			begin
+				update objects
+				set reference_count = reference_count - 1
+				where id = old.object;
+			end;
+
 			create table remotes (
 				name text primary key,
 				url text not null
@@ -233,6 +312,28 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				tag text primary key,
 				item text not null
 			);
+
+			create trigger tags_increment_reference_count_trigger
+			after insert on tags
+			for each row
+			begin
+				update objects set reference_count = reference_count + 1
+				where id = new.item;
+
+				update processes set reference_count = reference_count + 1
+				where id = new.item;
+			end;
+
+			create trigger tags_decrement_reference_count_trigger
+			after delete on tags
+			for each row
+			begin
+				update objects set reference_count = reference_count - 1
+				where id = old.item;
+
+				update processes set reference_count = reference_count - 1
+				where id = old.item;
+			end;
 
 			create table users (
 				id text primary key,
