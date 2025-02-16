@@ -42,7 +42,7 @@ impl Server {
 				"
 					select id
 					from processes
-					where refcount = 0 and touched_at <= {p}1
+					where reference_count = 0 and touched_at <= {p}1
 					limit 100;
 				"
 			);
@@ -126,7 +126,7 @@ impl Server {
 				"
 					select id
 					from objects
-					where refcount = 0 and touched_at <= {p}1
+					where reference_count = 0 and touched_at <= {p}1
 					limit 100;
 				"
 			);

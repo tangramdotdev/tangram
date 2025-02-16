@@ -101,7 +101,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				count integer,
 				depth integer,
 				incomplete_children integer,
-				refcount integer,
+				reference_count integer,
 				size integer not null,
 				touched_at text,
 				weight integer
@@ -109,12 +109,12 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index objects_complete_incomplete_children_index on objects (complete, incomplete_children);
 
-			create trigger objects_set_refcount_trigger
+			create trigger objects_set_reference_count_trigger
 			after insert on objects
 			for each row
 			begin
 				update objects
-				set refcount = (
+				set reference_count = (
 					(select count(*) from object_children where child = new.id) +
 					(select count(*) from process_objects where object = new.id) +
 					(select count(*) from tags where item = new.id)
@@ -156,21 +156,21 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				child text not null
 			);
 
-			create trigger object_children_inc_refcount_trigger
+			create trigger object_children_inc_reference_count_trigger
 			after insert on object_children
 			for each row
 			begin
 				update objects
-				set refcount = objects.refcount + 1
+				set reference_count = objects.reference_count + 1
 				where id = new.child;
 			end;
 
-			create trigger object_children_dec_refcount_trigger
+			create trigger object_children_dec_reference_count_trigger
 			after delete on object_children
 			for each row
 			begin
 				update objects
-				set refcount = objects.refcount - 1
+				set reference_count = objects.reference_count - 1
 				where id = old.child;
 			end;
 
@@ -210,7 +210,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				outputs_count integer,
 				outputs_depth integer,
 				outputs_weight integer,
-				refcount integer,
+				reference_count integer,
 				retry integer not null,
 				started_at text,
 				status text not null,
@@ -233,33 +233,33 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index process_children_child_process_index on process_children (child, process);
 
-			create trigger processes_set_refcount_trigger
+			create trigger processes_set_reference_count_trigger
 			after insert on processes
 			for each row
 			begin
 				update processes
-				set refcount = (
+				set reference_count = (
 					(select count(*) from process_children where child = new.id) +
 					(select count(*) from tags where item = new.id)
 				)
 				where id = new.id;
 			end;
 
-			create trigger process_children_inc_refcount_trigger
+			create trigger process_children_inc_reference_count_trigger
 			after insert on process_children
 			for each row
 			begin
 				update processes
-				set refcount = processes.refcount + 1
+				set reference_count = processes.reference_count + 1
 				where id = new.child;
 			end;
 
-			create trigger process_children_dec_refcount_trigger
+			create trigger process_children_dec_reference_count_trigger
 			after delete on process_children
 			for each row
 			begin
 				update processes
-				set refcount = processes.refcount - 1
+				set reference_count = processes.reference_count - 1
 				where id = old.child;
 			end;
 
@@ -287,19 +287,19 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index process_objects_object_index on process_objects (object);
 
-			create trigger process_objects_inc_refcount_trigger
+			create trigger process_objects_inc_reference_count_trigger
 			after insert on process_objects
 			begin
 				update objects
-				set refcount = refcount + 1
+				set reference_count = reference_count + 1
 				where id = new.object;
 			end;
 
-			create trigger process_objects_dec_refcount_trigger
+			create trigger process_objects_dec_reference_count_trigger
 			after delete on process_objects
 			begin
 				update objects
-				set refcount = refcount - 1
+				set reference_count = reference_count - 1
 				where id = old.object;
 			end;
 
@@ -313,25 +313,25 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				item text not null
 			);
 
-			create trigger tags_inc_refcount
+			create trigger tags_inc_reference_count
 			after insert on tags
 			for each row
 			begin
-				update objects set refcount = refcount + 1
+				update objects set reference_count = reference_count + 1
 				where id = new.item;
 
-				update processes set refcount = refcount + 1
+				update processes set reference_count = reference_count + 1
 				where id = new.item;
 			end;
 
-			create trigger tags_inc_refcount
+			create trigger tags_inc_reference_count
 			after delete on tags
 			for each row
 			begin
-				update objects set refcount = refcount - 1
+				update objects set reference_count = reference_count - 1
 				where id = old.item;
 
-				update processes set refcount = refcount - 1
+				update processes set reference_count = reference_count - 1
 				where id = old.item;
 			end;
 
