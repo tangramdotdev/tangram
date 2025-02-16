@@ -69,7 +69,7 @@ impl Runtime {
 			remote: None,
 		};
 		server
-			.put_tag(&"tg/rt/linux/env".parse().unwrap(), arg)
+			.put_tag(&"internal/runtime/linux/env".parse().unwrap(), arg)
 			.await?;
 
 		let sh = tg::Blob::with_reader(server, DASH)
@@ -82,7 +82,7 @@ impl Runtime {
 			remote: None,
 		};
 		server
-			.put_tag(&"tg/rt/linux/sh".parse().unwrap(), arg)
+			.put_tag(&"internal/runtime/linux/sh".parse().unwrap(), arg)
 			.await?;
 
 		let server = server.clone();

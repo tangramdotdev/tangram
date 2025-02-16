@@ -156,7 +156,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				child text not null
 			);
 
-			create trigger object_children_inc_reference_count_trigger
+			create unique index object_children_index on object_children (object, child);
+
+			create index object_children_child_index on object_children (child);
+
+			create trigger object_children_increment_reference_count_trigger
 			after insert on object_children
 			for each row
 			begin
@@ -165,7 +169,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = new.child;
 			end;
 
-			create trigger object_children_dec_reference_count_trigger
+			create trigger object_children_decrement_reference_count_trigger
 			after delete on object_children
 			for each row
 			begin
@@ -173,10 +177,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				set reference_count = objects.reference_count - 1
 				where id = old.child;
 			end;
-
-			create unique index object_children_index on object_children (object, child);
-
-			create index object_children_child_index on object_children (child);
 
 			create table processes (
 				cacheable integer not null,
@@ -221,18 +221,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index processes_status_index on processes (status);
 
-			create table process_children (
-				process text not null,
-				child text not null,
-				position integer not null
-			);
-
-			create unique index process_children_process_child_index on process_children (process, child);
-
-			create index process_children_index on process_children (process, position);
-
-			create index process_children_child_process_index on process_children (child, process);
-
 			create trigger processes_set_reference_count_trigger
 			after insert on processes
 			for each row
@@ -245,7 +233,19 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = new.id;
 			end;
 
-			create trigger process_children_inc_reference_count_trigger
+			create table process_children (
+				process text not null,
+				child text not null,
+				position integer not null
+			);
+
+			create unique index process_children_process_child_index on process_children (process, child);
+
+			create index process_children_index on process_children (process, position);
+
+			create index process_children_child_process_index on process_children (child, process);
+
+			create trigger process_children_increment_reference_count_trigger
 			after insert on process_children
 			for each row
 			begin
@@ -254,7 +254,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = new.child;
 			end;
 
-			create trigger process_children_dec_reference_count_trigger
+			create trigger process_children_decrement_reference_count_trigger
 			after delete on process_children
 			for each row
 			begin
@@ -287,7 +287,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index process_objects_object_index on process_objects (object);
 
-			create trigger process_objects_inc_reference_count_trigger
+			create trigger process_objects_increment_reference_count_trigger
 			after insert on process_objects
 			begin
 				update objects
@@ -295,7 +295,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = new.object;
 			end;
 
-			create trigger process_objects_dec_reference_count_trigger
+			create trigger process_objects_decrement_reference_count_trigger
 			after delete on process_objects
 			begin
 				update objects
@@ -313,7 +313,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				item text not null
 			);
 
-			create trigger tags_inc_reference_count
+			create trigger tags_increment_reference_count_trigger
 			after insert on tags
 			for each row
 			begin
@@ -324,7 +324,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = new.item;
 			end;
 
-			create trigger tags_inc_reference_count
+			create trigger tags_decrement_reference_count_trigger
 			after delete on tags
 			for each row
 			begin
