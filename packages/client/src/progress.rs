@@ -10,7 +10,7 @@ use num::ToPrimitive as _;
 	serde::Deserialize,
 	serde::Serialize,
 )]
-#[serde(tag = "kind", content = "value")]
+#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Event<T> {

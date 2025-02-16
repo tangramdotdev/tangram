@@ -13,7 +13,7 @@ impl Server {
 		arg: tg::push::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let remote = self.get_remote_client(arg.remote.clone()).await?;
-		Self::push_or_pull(&remote, self, &arg).await
+		Self::push_or_pull(self, &remote, &arg).await
 	}
 
 	pub(crate) async fn push_or_pull<S, D>(
@@ -28,8 +28,8 @@ impl Server {
 		D: tg::Handle,
 	{
 		let (export_item_sender, export_item_receiver) = tokio::sync::mpsc::channel(1024);
-		let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
 		let (progress_event_sender, progress_event_receiver) = tokio::sync::mpsc::channel(1024);
+		let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
 		let export_arg = tg::export::Arg {
 			commands: arg.commands,
 			items: arg.items.clone(),

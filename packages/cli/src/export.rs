@@ -3,6 +3,7 @@ use futures::{future, StreamExt as _, TryStreamExt as _};
 use std::pin::pin;
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
+use tokio::io::AsyncWriteExt;
 
 /// Export processes and objects.
 #[derive(Clone, Debug, clap::Args)]
@@ -55,7 +56,7 @@ impl Cli {
 			},
 		};
 
-		// Create the import stream.
+		// // Create the import stream.
 		let stdin = tokio::io::stdin();
 		let stream = tangram_http::sse::decode(tokio::io::BufReader::new(stdin))
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
@@ -87,8 +88,14 @@ impl Cli {
 		let mut stream = pin!(stream);
 		let mut stdout = tokio::io::stdout();
 		while let Some(event) = stream.try_next().await? {
-			event.to_writer(&mut stdout).await?;
+			if let tg::export::Event::Item(item) = event {
+				item.to_writer(&mut stdout).await?;
+			}
 		}
+		stdout
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 
 		Ok(())
 	}

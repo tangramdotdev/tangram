@@ -74,8 +74,9 @@ impl Server {
 							join_set.spawn({
 								let server = server.clone();
 								async move {
-									let store = server.store.as_ref().unwrap();
-									store.put(id, bytes).await?;
+									if let Some(store) = &server.store {
+										store.put(id, bytes).await?;
+									}
 									Ok::<_, tg::Error>(())
 								}
 							});
@@ -149,9 +150,10 @@ impl Server {
 	{
 		// Parse the arg.
 		let arg = request
-			.query_params()
+			.query_params::<tg::import::QueryArg>()
 			.transpose()?
-			.ok_or_else(|| tg::error!("query parameters required"))?;
+			.ok_or_else(|| tg::error!("query parameters required"))?
+			.into();
 
 		// Get the accept header.
 		let accept = request

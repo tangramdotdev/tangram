@@ -1,6 +1,7 @@
 pub use self::{body::Body, request::Request, response::Response};
 
 pub mod body;
+pub mod header;
 pub mod idle;
 pub mod layer;
 pub mod middleware;

@@ -24,7 +24,7 @@ impl tg::Client {
 		mut input: impl AsyncBufRead + Send + Unpin + 'static,
 		mut output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let mut sender = self.connect_h1().await?;
+		let mut sender = Self::connect_h1(self.url()).await?;
 		let method = http::Method::POST;
 		let uri = "/lsp";
 		let request = http::request::Builder::default()
