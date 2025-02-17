@@ -795,7 +795,10 @@ where
 
 	fn is_complete(&self, object: &T) -> bool {
 		let inner = self.inner.read().unwrap();
-		let mut index = inner.indices.get(object).copied().unwrap();
+		let Some(index) = inner.indices.get(object).copied() else {
+			return false;
+		};
+		let mut index = index;
 		while inner.nodes[index] != index {
 			if inner.nodes[index] == Self::COMPLETE {
 				return true;
