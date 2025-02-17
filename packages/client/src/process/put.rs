@@ -53,6 +53,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub output: Option<tg::value::Data>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pty: Option<tg::process::pty::Pty>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
 

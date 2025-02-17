@@ -292,6 +292,7 @@ impl Cli {
 			let network = true;
 			(cwd, env, network)
 		};
+		let pty = None;
 
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
@@ -307,6 +308,7 @@ impl Cli {
 			stderr,
 			stdin,
 			stdout,
+			pty,
 		};
 		let process = tg::Process::spawn(&handle, arg).await?;
 

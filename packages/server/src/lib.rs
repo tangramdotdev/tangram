@@ -910,6 +910,15 @@ impl Server {
 			(http::Method::POST, ["processes", process, "log"]) => {
 				Self::handle_post_process_log_request(handle, request, process).boxed()
 			},
+			(http::Method::POST, ["processes", process, "signal"]) => {
+				Self::handle_signal_process_request(handle, request, process).boxed()
+			},
+			(http::Method::PUT, ["processes", process, "signalpty"]) => {
+				Self::handle_try_put_process_pty_request(handle, request, process).boxed()
+			},
+			(http::Method::GET, ["processes", process, "signal"]) => {
+				Self::handle_try_get_process_pty_stream_request(handle, request, process).boxed()
+			},
 			(http::Method::POST, ["processes", process, "finish"]) => {
 				Self::handle_finish_process_request(handle, request, process).boxed()
 			},
@@ -1282,6 +1291,34 @@ impl tg::Handle for Server {
 		arg: tg::process::log::post::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
 		self.try_post_process_log(id, arg)
+	}
+
+	fn try_signal_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.try_signal_process(id, arg)
+	}
+
+	fn try_put_process_pty(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.try_put_process_pty(id, arg)
+	}
+
+	fn try_get_process_pty_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static,
+		>,
+	> + Send {
+		self.try_get_process_pty_stream(id, arg)
 	}
 
 	fn try_finish_process(

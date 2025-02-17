@@ -1,3 +1,4 @@
+use super::Pty;
 use crate::{self as tg, util::serde::is_false};
 use itertools::Itertools as _;
 use serde_with::serde_as;
@@ -104,6 +105,9 @@ pub struct Output {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub outputs_weight: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pty: Option<Pty>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,

@@ -210,6 +210,10 @@ impl ToV8 for tg::process::State {
 		let value = self.output.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
+		let key = v8::String::new_external_onebyte_static(scope, "pty".as_bytes()).unwrap();
+		let value = self.pty.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
 		let key =
 			v8::String::new_external_onebyte_static(scope, "outputs_complete".as_bytes()).unwrap();
 		let value = self.outputs_complete.to_v8(scope)?;
@@ -434,6 +438,11 @@ impl FromV8 for tg::process::State {
 		let outputs_weight = <_>::from_v8(scope, outputs_weight)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the outputs_weight"))?;
 
+		let pty = v8::String::new_external_onebyte_static(scope, "pty".as_bytes()).unwrap();
+		let pty = value.get(scope, pty.into()).unwrap();
+		let pty = <_>::from_v8(scope, pty)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the pty"))?;
+
 		let retry = v8::String::new_external_onebyte_static(scope, "retry".as_bytes()).unwrap();
 		let retry = value.get(scope, retry.into()).unwrap();
 		let retry = <_>::from_v8(scope, retry)
@@ -501,6 +510,7 @@ impl FromV8 for tg::process::State {
 			outputs_count,
 			outputs_depth,
 			outputs_weight,
+			pty,
 			retry,
 			started_at,
 			status,
@@ -560,6 +570,24 @@ impl FromV8 for tg::process::Status {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		String::from_v8(scope, value)?.parse()
+	}
+}
+
+impl ToV8 for tg::process::pty::Pty {
+	fn to_v8<'a>(
+		&self,
+		scope: &mut v8::HandleScope<'a>,
+	) -> tangram_client::Result<v8::Local<'a, v8::Value>> {
+		todo!()
+	}
+}
+
+impl FromV8 for tg::process::pty::Pty {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tangram_client::Result<Self> {
+		todo!()
 	}
 }
 

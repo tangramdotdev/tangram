@@ -240,7 +240,8 @@ impl Runtime {
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 		// Spawn the child.
-		let mut child = process::spawn(args, cwd, env, executable, chroot, state.network)?;
+		let mut child =
+			process::spawn(args, cwd, env, executable, chroot, state.network, state.pty)?;
 
 		// Spawn the stdio task.
 		let stdio_task = tokio::spawn(super::util::stdio_task(
@@ -256,7 +257,6 @@ impl Runtime {
 			.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
-		eprintln!("process done.");
 
 		// Stop the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
@@ -266,6 +266,7 @@ impl Runtime {
 
 		// Join the i/o task.
 		stdio_task.await.unwrap()?;
+
 		// Create the output.
 		let output = output_parent.path().join("output");
 		let exists = tokio::fs::try_exists(&output)

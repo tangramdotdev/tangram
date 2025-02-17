@@ -4,6 +4,8 @@ use tangram_client as tg;
 use tangram_http::{outgoing::response::Ext as _, Incoming, Outgoing};
 
 mod proxy;
+mod pty;
+mod stdio;
 mod util;
 
 pub mod builtin;

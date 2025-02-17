@@ -890,6 +890,34 @@ impl tg::Handle for Client {
 		self.try_post_process_log(id, arg)
 	}
 
+	fn try_signal_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.try_signal_process(id, arg)
+	}
+
+	fn try_put_process_pty(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.try_put_process_pty(id, arg)
+	}
+
+	fn try_get_process_pty_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static,
+		>,
+	> + Send {
+		self.try_get_process_pty_stream(id, arg)
+	}
+
 	fn try_finish_process(
 		&self,
 		id: &tg::process::Id,

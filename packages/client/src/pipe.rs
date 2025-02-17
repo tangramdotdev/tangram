@@ -1,11 +1,14 @@
 use bytes::Bytes;
 
+use crate::process::Pty;
+
 pub use self::id::Id;
 
 pub mod close;
 pub mod id;
 pub mod open;
 pub mod read;
+pub mod window;
 pub mod write;
 
 #[derive(Debug)]

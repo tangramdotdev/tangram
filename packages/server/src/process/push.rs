@@ -155,6 +155,7 @@ impl Server {
 			id: process.clone(),
 			log: output.log.clone(),
 			network: output.network,
+			pty: output.pty,
 			output: output.output.clone(),
 			retry: output.retry,
 			started_at: output.started_at,

@@ -175,7 +175,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let bytes = request.bytes().await?;
+		let bytes = request.json().await?;
 		let arg = tg::object::put::Arg { bytes };
 		let output = handle.put_object(&id, arg).await?;
 		let response = http::Response::builder().json(output).unwrap();

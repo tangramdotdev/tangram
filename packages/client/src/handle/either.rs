@@ -440,6 +440,46 @@ where
 		}
 	}
 
+	fn try_signal_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.try_signal_process(id, arg).left_future(),
+			Either::Right(s) => s.try_signal_process(id, arg).right_future(),
+		}
+	}
+
+	fn try_put_process_pty(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.try_put_process_pty(id, arg).left_future(),
+			Either::Right(s) => s.try_put_process_pty(id, arg).right_future(),
+		}
+	}
+
+	async fn try_get_process_pty_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::get::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static>
+	{
+		match self {
+			Either::Left(s) => s
+				.try_get_process_pty_stream(id, arg)
+				.await
+				.map(futures::StreamExt::left_stream),
+			Either::Right(s) => s
+				.try_get_process_pty_stream(id, arg)
+				.await
+				.map(futures::StreamExt::right_stream),
+		}
+	}
+
 	fn try_finish_process(
 		&self,
 		id: &tg::process::Id,

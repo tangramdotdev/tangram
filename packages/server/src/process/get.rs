@@ -89,6 +89,8 @@ impl Server {
 			outputs_depth: Option<u64>,
 			#[serde(default)]
 			outputs_weight: Option<u64>,
+			#[serde(default)]
+			pty: Option<db::value::Json<tg::process::pty::Pty>>,
 			retry: bool,
 			#[serde(default)]
 			network: bool,
@@ -137,6 +139,7 @@ impl Server {
 					outputs_complete,
 					outputs_count,
 					outputs_weight,
+					pty,
 					retry,
 					network,
 					started_at,
@@ -185,6 +188,7 @@ impl Server {
 			outputs_count: row.outputs_count,
 			outputs_depth: row.outputs_depth,
 			outputs_weight: row.outputs_weight,
+			pty: row.pty.map(|output| output.0),
 			retry: row.retry,
 			network: row.network,
 			started_at: row.started_at,
@@ -251,6 +255,7 @@ impl Server {
 						log: output.log.clone(),
 						network: output.network,
 						output: output.output,
+						pty: output.pty,
 						retry: output.retry,
 						started_at: output.started_at,
 						status: output.status,

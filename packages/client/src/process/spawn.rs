@@ -41,7 +41,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdout: Option<tg::pipe::Id>,
-	// TODO: PTY
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pty: Option<tg::process::Pty>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -90,6 +92,7 @@ impl Default for Arg {
 			stderr: None,
 			stdin: None,
 			stdout: None,
+			pty: None,
 		}
 	}
 }

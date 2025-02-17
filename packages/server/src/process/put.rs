@@ -61,6 +61,7 @@ impl Server {
 					log,
 					network,
 					output,
+					pty,
 					retry,
 					started_at,
 					status,
@@ -92,6 +93,7 @@ impl Server {
 					{p}20,
 					{p}21,
 					{p}22
+					{p}23
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -108,13 +110,14 @@ impl Server {
 					log = {p}13,
 					network = {p}14,
 					output = {p}15,
-					retry = {p}16,
-					started_at = {p}17,
-					status = {p}18,
-					stderr = {p}19,
-					stdin = {p}20,
-					stdout = {p}21,
-					touched_at = {p}22
+					pty = {p}16,
+					retry = {p}17,
+					started_at = {p}18,
+					status = {p}19,
+					stderr = {p}20,
+					stdin = {p}21,
+					stdout = {p}22,
+					touched_at = {p}23
 				returning
 					commands_complete,
 					complete,
@@ -138,6 +141,7 @@ impl Server {
 			arg.log,
 			arg.network,
 			arg.output.as_ref().map(db::value::Json),
+			arg.pty.as_ref().map(db::value::Json),
 			arg.retry,
 			arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.status,

@@ -7,16 +7,16 @@ use std::{
 	path::PathBuf,
 };
 use tangram_client as tg;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// A child process that may or may not be spawned within a chroot jail.
 pub struct Child {
-	context: Context,
+	chroot: Option<Chroot>,
 	socket: tokio::net::UnixStream,
 	root_process: libc::pid_t,
-	pub stdin: Option<tokio::net::UnixStream>,
-	pub stdout: Option<tokio::net::UnixStream>,
-	pub stderr: Option<tokio::net::UnixStream>,
+	pub stdin: Option<Box<dyn AsyncWrite + Unpin + Send + 'static>>,
+	pub stdout: Option<Box<dyn AsyncRead + Unpin + Send + 'static>>,
+	pub stderr: Option<Box<dyn AsyncRead + Unpin + Send + 'static>>,
 }
 
 struct Context {
@@ -24,12 +24,10 @@ struct Context {
 	cwd: CString,
 	envp: CStringVec,
 	executable: CString,
-	chroot: Option<super::chroot::Chroot>,
+	chroot: Option<crate::runtime::linux::chroot::Chroot>,
 	network: bool,
 	socket: std::os::unix::net::UnixStream,
-	stdin: std::os::unix::net::UnixStream,
-	stdout: std::os::unix::net::UnixStream,
-	stderr: std::os::unix::net::UnixStream,
+	stdio: Option<crate::runtime::stdio::Stdio>,
 }
 
 unsafe impl Send for Context {}
@@ -47,6 +45,7 @@ pub fn spawn(
 	executable: String,
 	chroot: Option<Chroot>,
 	network: bool,
+	pty: Option<tg::process::pty::Pty>,
 ) -> tg::Result<Child> {
 	// Create the executable.
 	let executable = CString::new(executable)
@@ -83,12 +82,11 @@ pub fn spawn(
 	// Create a socket for host to guest control.
 	let socket = socket_pair()?;
 
-	// Create sockets to redirect stdio.
-	let stdin = socket_pair()?;
-	let stderr = socket_pair()?;
-	let stdout = socket_pair()?;
+	// Create stdio.
+	let stdio = crate::runtime::stdio::Stdio::new(pty)
+		.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
 
-	// Create the context.
+	// Create the guest context.
 	let context = Context {
 		argv,
 		cwd,
@@ -97,9 +95,7 @@ pub fn spawn(
 		chroot,
 		network,
 		socket: socket.1,
-		stdin: stdin.1,
-		stdout: stdout.1,
-		stderr: stderr.1,
+		stdio: Some(stdio),
 	};
 
 	// Spawn the root process.
@@ -134,17 +130,25 @@ pub fn spawn(
 
 	// Run the root process.
 	if pid == 0 {
-		unsafe { root(&context) };
+		unsafe { root(context) };
 	}
 
 	// Otherwise, Create the child.
+	let Context {
+		chroot, mut stdio, ..
+	} = context;
+	let (stdin, stdout, stderr) = stdio
+		.take()
+		.unwrap()
+		.host()
+		.map_err(|source| tg::error!(!source, "failed to get stdio channels"))?;
 	let child = Child {
+		chroot,
 		root_process: pid,
-		context,
 		socket: socket.0,
-		stdin: Some(stdin.0),
-		stdout: Some(stdout.0),
-		stderr: Some(stderr.0),
+		stdin: Some(stdin),
+		stdout: Some(stdout),
+		stderr: Some(stderr),
 	};
 	Ok(child)
 }
@@ -180,7 +184,7 @@ impl Child {
 		};
 
 		// If the guest process is running in a chroot jail, it's current state is blocked waiting for the host process (the caller) to update its uid and gid maps. We need to wait for the root process to notify the host of the guest's PID after it is cloned.
-		if self.context.chroot.is_some() {
+		if self.chroot.is_some() {
 			let pid =
 				self.socket.read_i32_le().await.map_err(|source| {
 					tg::error!(!source, "failed to get PID from guest process")
@@ -277,7 +281,7 @@ impl Child {
 	}
 }
 
-unsafe fn root(context: &Context) -> ! {
+unsafe fn root(mut context: Context) -> ! {
 	// Ask to receive a SIGKILL signal if the host process exits.
 	let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
 	if ret == -1 {
@@ -285,15 +289,8 @@ unsafe fn root(context: &Context) -> ! {
 	}
 
 	// Redirect stdio streams.
-	for (src, dst) in [
-		(&context.stdin, libc::STDIN_FILENO),
-		(&context.stdout, libc::STDOUT_FILENO),
-		(&context.stderr, libc::STDERR_FILENO),
-	] {
-		let ret = libc::dup2(src.as_raw_fd(), dst);
-		if ret == -1 {
-			abort_errno!("failed dup stream");
-		}
+	if context.stdio.take().unwrap().guest().is_err() {
+		abort_errno!("failed to initialize stdio");
 	}
 
 	// Get the clone flags.
@@ -389,7 +386,7 @@ unsafe fn root(context: &Context) -> ! {
 	std::process::exit(0)
 }
 
-unsafe fn guest(context: &Context) -> ! {
+unsafe fn guest(context: Context) -> ! {
 	// Ask to receive a SIGKILL signal if the root process exits.
 	let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
 	if ret == -1 {

@@ -252,6 +252,7 @@ impl Server {
 					env,
 					host,
 					network,
+					pty,
 					retry,
 					status,
 					stderr,
@@ -275,7 +276,8 @@ impl Server {
 					{p}13,
 					{p}14,
 					{p}15,
-					{p}16
+					{p}16,
+					{p}17
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -287,12 +289,13 @@ impl Server {
 					env = {p}8,
 					host = {p}9,
 					network = {p}10,
-					retry = {p}11,
-					status = {p}12,
-					stderr = {p}13,
+					pty = {p}11,
+					retry = {p}12,
+					status = {p}13,
 					stderr = {p}14,
 					stderr = {p}15,
-					touched_at = {p}16;
+					stderr = {p}16,
+					touched_at = {p}17;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -307,6 +310,7 @@ impl Server {
 			arg.env.as_ref().map(db::value::Json),
 			host,
 			arg.network,
+			arg.pty.as_ref().map(db::value::Json),
 			arg.retry,
 			tg::process::Status::Enqueued,
 			arg.stderr,

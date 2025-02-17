@@ -360,6 +360,32 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	async fn try_signal_process(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::signal::Arg,
+	) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_put_process_pty(
+		&self,
+		_id: &tg::process::Id,
+		_arg: tg::process::pty::put::Arg,
+	) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_get_process_pty_stream(
+		&self,
+		id: &tg::process::Id,
+		mut arg: tg::process::pty::get::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static>
+	{
+		arg.remote = self.remote.clone();
+		self.server.try_get_process_pty_stream(id, arg)
+	}
+
 	async fn try_finish_process(
 		&self,
 		_id: &tg::process::Id,

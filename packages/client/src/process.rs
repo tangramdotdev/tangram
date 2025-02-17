@@ -24,6 +24,7 @@ pub mod pty;
 pub mod pull;
 pub mod push;
 pub mod put;
+pub mod signal;
 pub mod spawn;
 pub mod start;
 pub mod status;
@@ -72,6 +73,7 @@ pub struct State {
 	pub outputs_count: Option<u64>,
 	pub outputs_depth: Option<u64>,
 	pub outputs_weight: Option<u64>,
+	pub pty: Option<tg::process::pty::Pty>,
 	pub retry: bool,
 	pub started_at: Option<time::OffsetDateTime>,
 	pub status: tg::process::Status,
@@ -236,6 +238,7 @@ impl TryFrom<tg::process::get::Output> for tg::process::State {
 		let outputs_count = value.outputs_count;
 		let outputs_depth = value.outputs_depth;
 		let outputs_weight = value.outputs_weight;
+		let pty = value.pty;
 		let retry = value.retry;
 		let started_at = value.started_at;
 		let stderr = value.stderr;
@@ -273,6 +276,7 @@ impl TryFrom<tg::process::get::Output> for tg::process::State {
 			outputs_count,
 			outputs_depth,
 			outputs_weight,
+			pty,
 			retry,
 			started_at,
 			stderr,
