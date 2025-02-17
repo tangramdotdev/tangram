@@ -335,6 +335,7 @@ impl Server {
 						insert into object_children (object, child)
 						select ($1::text[])[parent_index], child
 						from unnest($2::text[], $3::int8[]) as c (child, parent_index)
+						on conflict (object, child) do nothing
 					),
 					inserted_objects as (
 						insert into objects (id, bytes, size, touched_at)
