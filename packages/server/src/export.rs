@@ -28,6 +28,7 @@ struct Graph<T> {
 struct GraphInner<T> {
 	nodes: Vec<usize>,
 	indices: BTreeMap<T, usize>,
+	seen: HashSet<T>,
 }
 
 pub(crate) struct InnerObjectOutput {
@@ -45,29 +46,6 @@ struct ProcessStats {
 	process_count: Option<u64>,
 	object_count: Option<u64>,
 	object_weight: Option<u64>,
-}
-
-// Track which items have been sent to avoid duplicates
-#[derive(Clone)]
-struct SentItems {
-	inner: Arc<RwLock<HashSet<Either<tg::process::Id, tg::object::Id>>>>,
-}
-
-impl SentItems {
-	fn new() -> Self {
-		Self {
-			inner: Arc::new(RwLock::new(HashSet::new())),
-		}
-	}
-
-	fn contains(&self, id: &Either<tg::process::Id, tg::object::Id>) -> bool {
-		self.inner.read().unwrap().contains(id)
-	}
-
-	fn insert(&self, id: Either<tg::process::Id, tg::object::Id>) -> bool {
-		let mut inner = self.inner.write().unwrap();
-		inner.insert(id)
-	}
 }
 
 impl Server {
@@ -280,9 +258,6 @@ impl Server {
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
-		// Track items we've sent.
-		let sent_items = SentItems::new();
-
 		// Create the process graph.
 		let process_graph = Graph::new();
 
@@ -322,12 +297,10 @@ impl Server {
 				let object_graph = object_graph.clone();
 				let process_graph = process_graph.clone();
 				let arg = arg.clone();
-				let sent_items = sent_items.clone();
 				async move {
 					match item {
 						Either::Left(process) => {
-							if !sent_items.contains(&Either::Left(process.clone())) {
-								process_graph.insert(None, process);
+							if process_graph.insert(None, process) {
 								let result = server
 									.export_inner_process(
 										arg,
@@ -336,7 +309,6 @@ impl Server {
 										&process_graph,
 										item_sender,
 										progress,
-										&sent_items,
 									)
 									.boxed()
 									.await;
@@ -346,15 +318,13 @@ impl Server {
 							}
 						},
 						Either::Right(object) => {
-							if !sent_items.contains(&Either::Right(object.clone())) {
-								object_graph.insert(None, object);
+							if object_graph.insert(None, object) {
 								let result = server
 									.export_inner_object(
 										object,
 										&object_graph,
 										item_sender,
 										progress,
-										&sent_items,
 									)
 									.boxed()
 									.await;
@@ -379,7 +349,6 @@ impl Server {
 		object_graph: &Graph<tg::object::Id>,
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
 		progress: &crate::progress::Handle<()>,
-		sent_items: &SentItems,
 	) -> tg::Result<InnerObjectOutput> {
 		// Get the object.
 		let tg::object::get::Output { bytes, metadata } = self
@@ -401,16 +370,14 @@ impl Server {
 		}
 
 		// Send the object.
-		if sent_items.insert(Either::Right(object.clone())) {
-			let item = tg::export::Item::Object {
-				id: object.clone(),
-				bytes: bytes.clone(),
-			};
-			item_sender
-				.send(Ok(item))
-				.await
-				.map_err(|source| tg::error!(!source, "failed to send"))?;
-		}
+		let item = tg::export::Item::Object {
+			id: object.clone(),
+			bytes: bytes.clone(),
+		};
+		item_sender
+			.send(Ok(item))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
 		// Increment the count and add the object's size to the weight.
 		progress.increment("objects", 1);
@@ -421,14 +388,9 @@ impl Server {
 		let mut children_weight = 0;
 		for child in data.children() {
 			object_graph.insert(Some(object), &child);
-			let output = Box::pin(self.export_inner_object(
-				&child,
-				object_graph,
-				item_sender,
-				progress,
-				sent_items,
-			))
-			.await?;
+			let output =
+				Box::pin(self.export_inner_object(&child, object_graph, item_sender, progress))
+					.await?;
 			children_count += output.count;
 			children_weight += output.weight;
 		}
@@ -447,7 +409,6 @@ impl Server {
 		Ok(output)
 	}
 
-	#[allow(clippy::too_many_arguments)]
 	async fn export_inner_process(
 		&self,
 		arg: tg::export::Arg,
@@ -456,7 +417,6 @@ impl Server {
 		process_graph: &Graph<tg::process::Id>,
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
 		progress: &crate::progress::Handle<()>,
-		sent_items: &SentItems,
 	) -> tg::Result<InnerProcessOutput> {
 		// Get the process
 		let tg::process::get::Output { data, metadata } = self
@@ -485,7 +445,7 @@ impl Server {
 			.collect_vec();
 
 		// Send the process if it is not complete.
-		if !process_graph.is_complete(process) && sent_items.insert(Either::Left(process.clone())) {
+		if !process_graph.is_complete(process) {
 			let item = tg::export::Item::Process {
 				id: process.clone(),
 				data: data.clone(),
@@ -519,7 +479,7 @@ impl Server {
 			.map(|object| async {
 				object_graph.insert(None, object);
 				let output = self
-					.export_inner_object(object, object_graph, item_sender, progress, sent_items)
+					.export_inner_object(object, object_graph, item_sender, progress)
 					.await?;
 				Ok::<_, tg::Error>((output.count, output.weight))
 			})
@@ -557,7 +517,6 @@ impl Server {
 						process_graph,
 						item_sender,
 						progress,
-						sent_items,
 					)
 				})
 				.collect::<FuturesUnordered<_>>()
@@ -812,7 +771,7 @@ impl Server {
 
 impl<T> Graph<T>
 where
-	T: Clone + Eq + Ord,
+	T: Clone + Eq + Ord + std::hash::Hash,
 {
 	const COMPLETE: usize = usize::MAX;
 
@@ -821,12 +780,17 @@ where
 			inner: Arc::new(RwLock::new(GraphInner {
 				nodes: Vec::new(),
 				indices: BTreeMap::new(),
+				seen: HashSet::new(),
 			})),
 		}
 	}
 
-	fn insert(&self, parent: Option<&T>, child: &T) {
+	fn insert(&self, parent: Option<&T>, child: &T) -> bool {
 		let mut inner = self.inner.write().unwrap();
+		// Check if we've seen this item before. Return false if so.
+		if !inner.seen.insert(child.clone()) {
+			return false;
+		}
 		let index = inner.nodes.len();
 		inner.indices.insert(child.clone(), index);
 		if let Some(parent) = parent {
@@ -835,6 +799,7 @@ where
 		} else {
 			inner.nodes.push(index);
 		}
+		true
 	}
 
 	fn mark_complete(&self, object: &T) {
