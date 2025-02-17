@@ -123,6 +123,7 @@ serde_urlencoded = "0.7"
 serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
+smallvec = "1"
 sourcemap = "9"
 swc_core = { version = "14", features = [
   "common",
