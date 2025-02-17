@@ -7,12 +7,11 @@ use futures::{
 };
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 use std::{
-	collections::HashMap,
 	panic::AssertUnwindSafe,
 	pin::{pin, Pin},
-	sync::{Arc, RwLock, Weak},
+	sync::{atomic::AtomicBool, Arc, RwLock, Weak},
 	time::Duration,
 };
 use tangram_client::{self as tg, handle::Ext as _};
@@ -28,7 +27,8 @@ struct Graph {
 }
 
 struct Node {
-	output: Either<tg::process::put::Output, tg::object::put::Output>,
+	// output: Either<tg::process::put::Output, tg::object::put::Output>,
+	complete: AtomicBool,
 	parents: RwLock<SmallVec<[Weak<Self>; 1]>>,
 	children: RwLock<Vec<Arc<Self>>>,
 }
@@ -271,7 +271,7 @@ impl Server {
 				while let Some(event) = stream.try_next().await? {
 					match event {
 						tg::import::Event::Complete(item) => {
-							graph.mark_complete(item.as_ref());
+							graph.mark_complete(&item.clone());
 						},
 					}
 				}
@@ -328,7 +328,7 @@ impl Server {
 
 	async fn export_inner_object(
 		&self,
-		parent: Option<Either<&tg::process::Id, &tg::object::Id>>,
+		parent: Option<&Either<tg::process::Id, tg::object::Id>>,
 		object: &tg::object::Id,
 		graph: &Graph,
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
@@ -344,7 +344,8 @@ impl Server {
 		let size = bytes.len().to_u64().unwrap();
 
 		// If the object has already been sent or is complete, then update the progress and return.
-		if !graph.insert(parent, Either::Right(object)) || graph.is_complete(Either::Right(object))
+		if !graph.insert(parent, &Either::Right(object.clone()))
+			|| graph.is_complete(&Either::Right(object.clone()))
 		{
 			let count = metadata.count.unwrap_or(1);
 			let weight = metadata.weight.unwrap_or(size);
@@ -373,7 +374,7 @@ impl Server {
 		let mut children_weight = 0;
 		for child in data.children() {
 			let output = Box::pin(self.export_inner_object(
-				Some(Either::Right(object)),
+				Some(&Either::Right(object.clone())),
 				&child,
 				graph,
 				item_sender,
@@ -422,7 +423,10 @@ impl Server {
 		// Get the stats.
 		let stats = Self::get_process_stats_local(&self.clone(), &arg, &data, &metadata).await?;
 
-		if !graph.insert(parent.map(Either::Left), Either::Left(process)) {
+		if !graph.insert(
+			parent.cloned().map(Either::Left).as_ref(),
+			&Either::Left(process.clone()),
+		) {
 			return Ok(InnerProcessOutput {
 				process_count: stats.process_count.unwrap_or(1),
 				object_count: stats.object_count.unwrap_or(0),
@@ -431,7 +435,7 @@ impl Server {
 		}
 
 		// Send the process if it is not complete.
-		if !graph.is_complete(Either::Left(process)) {
+		if !graph.is_complete(&Either::Left(process.clone())) {
 			let item = tg::export::Item::Process {
 				id: process.clone(),
 				data: data.clone(),
@@ -476,7 +480,7 @@ impl Server {
 			.map(|object| async {
 				let output = self
 					.export_inner_object(
-						Some(Either::Left(process)),
+						Some(&Either::Left(process.clone())),
 						object,
 						graph,
 						item_sender,
@@ -773,22 +777,76 @@ impl Server {
 
 impl Graph {
 	fn new() -> Self {
-		todo!()
+		Self {
+			nodes: Arc::new(DashMap::default()),
+		}
 	}
 
 	fn insert(
 		&self,
-		parent: Option<Either<&tg::process::Id, &tg::object::Id>>,
-		item: Either<&tg::process::Id, &tg::object::Id>,
+		parent: Option<&Either<tg::process::Id, tg::object::Id>>,
+		item: &Either<tg::process::Id, tg::object::Id>,
 	) -> bool {
-		todo!()
+		// Check if the node already exists.
+		if self.nodes.contains_key(item) {
+			return false;
+		}
+
+		// Create the node.
+		let new_node = Arc::new(Node::new());
+
+		// If there's a parent, create the relationship.
+		if let Some(parent) = parent {
+			// Add the new node as a child of the parent.
+			// FIXME what if the parent doesnt exist?
+			if let Some(parent_node) = self.nodes.get(parent) {
+				parent_node
+					.children
+					.write()
+					.unwrap()
+					.push(Arc::clone(&new_node));
+				// Add the parent as a weak reference to the new node.
+				new_node
+					.parents
+					.write()
+					.unwrap()
+					.push(Arc::downgrade(&parent_node));
+			}
+		}
+
+		// Insert the new node.
+		self.nodes.insert(item.clone(), new_node);
+
+		true
 	}
 
-	fn mark_complete(&self, object: Either<&tg::process::Id, &tg::object::Id>) {
-		todo!()
+	fn mark_complete(&self, object: &Either<tg::process::Id, tg::object::Id>) {
+		if let Some(node) = self.nodes.get(object) {
+			// Mark the node as complete.
+			node.complete
+				.store(true, std::sync::atomic::Ordering::Relaxed);
+		} else {
+			// FIXME what?
+			todo!()
+		}
 	}
 
-	fn is_complete(&self, object: Either<&tg::process::Id, &tg::object::Id>) -> bool {
-		todo!()
+	fn is_complete(&self, object: &Either<tg::process::Id, tg::object::Id>) -> bool {
+		if let Some(node) = self.nodes.get(&object.clone()) {
+			node.complete.load(std::sync::atomic::Ordering::SeqCst)
+		} else {
+			// If the node doesn't exist, we consider it incomplete
+			false
+		}
+	}
+}
+
+impl Node {
+	fn new() -> Self {
+		Self {
+			parents: RwLock::new(SmallVec::new()),
+			children: RwLock::new(Vec::new()),
+			complete: AtomicBool::new(false),
+		}
 	}
 }

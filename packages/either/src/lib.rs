@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 #[derive(
 	Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Deserialize, serde::Serialize,
 )]
@@ -200,6 +202,23 @@ where
 		for_both!(self, value => value.as_ref())
 	}
 }
+
+// impl<T, U> Borrow<Either<T, U>> for Either<&T, &U>
+// where
+// 	&T: Borrow<T>,
+// 	&U: Borrow<U>,
+// {
+// 	fn from_refs(e: Either<&'a T, &'a U>) -> &'a Self
+// 	where
+// 		&'a T: Borrow<T>,
+// 		&'a U: Borrow<U>,
+// 	{
+// 		match e {
+// 			Either::Left(t) => Borrow::borrow(t),
+// 			Either::Right(u) => Borrow::borrow(u),
+// 		}
+// 	}
+// }
 
 impl<L, R> std::str::FromStr for Either<L, R>
 where
