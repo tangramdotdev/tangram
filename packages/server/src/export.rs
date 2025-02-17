@@ -269,8 +269,8 @@ impl Server {
 				let mut stream = pin!(stream);
 				while let Some(event) = stream.try_next().await? {
 					match event {
-						tg::import::Event::Complete(item) => {
-							graph.mark_complete(&item.clone());
+						tg::import::Event::Complete(data) => {
+							graph.update_output(&data.as_ref());
 						},
 					}
 				}
@@ -327,7 +327,7 @@ impl Server {
 
 	async fn export_inner_object(
 		&self,
-		parent: Option<&Either<tg::process::Id, tg::object::Id>>,
+		parent: Option<Either<&tg::process::Id, &tg::object::Id>>,
 		object: &tg::object::Id,
 		graph: &Graph,
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
@@ -343,8 +343,8 @@ impl Server {
 		let size = bytes.len().to_u64().unwrap();
 
 		// If the object has already been sent or is complete, then update the progress and return.
-		if !graph.insert(parent, &Either::Right(object.clone()))
-			|| graph.is_complete(&Either::Right(object.clone()))
+		if !graph.insert(parent.as_ref(), &Either::Right(object))
+			|| graph.is_complete(&Either::Right(object))
 		{
 			let count = metadata.count.unwrap_or(1);
 			let weight = metadata.weight.unwrap_or(size);
@@ -373,7 +373,7 @@ impl Server {
 		let mut children_weight = 0;
 		for child in data.children() {
 			let output = Box::pin(self.export_inner_object(
-				Some(&Either::Right(object.clone())),
+				Some(Either::Right(object)),
 				&child,
 				graph,
 				item_sender,
@@ -422,10 +422,7 @@ impl Server {
 		// Get the stats.
 		let stats = Self::get_process_stats_local(&self.clone(), &arg, &data, &metadata).await?;
 
-		if !graph.insert(
-			parent.cloned().map(Either::Left).as_ref(),
-			&Either::Left(process.clone()),
-		) {
+		if !graph.insert(parent.map(Either::Left).as_ref(), &Either::Left(process)) {
 			return Ok(InnerProcessOutput {
 				process_count: stats.process_count.unwrap_or(1),
 				object_count: stats.object_count.unwrap_or(0),
@@ -434,7 +431,7 @@ impl Server {
 		}
 
 		// Send the process if it is not complete.
-		if !graph.is_complete(&Either::Left(process.clone())) {
+		if !graph.is_complete(&Either::Left(process)) {
 			let item = tg::export::Item::Process {
 				id: process.clone(),
 				data: data.clone(),
@@ -460,18 +457,44 @@ impl Server {
 			.collect_vec();
 
 		// Handle the command, log, and output.
+		let current_output = graph.get_output(&Either::Left(process));
+
 		let mut objects: Vec<tg::object::Id> = Vec::new();
 		if arg.commands {
-			objects.push(data.command.clone().into());
+			let commands_complete = current_output.as_ref().is_some_and(|either| {
+				either
+					.as_ref()
+					.left()
+					.is_some_and(|output| output.commands_complete)
+			});
+			if !commands_complete {
+				objects.push(data.command.clone().into());
+			}
 		}
 		if arg.logs {
-			if let Some(log) = data.log.clone() {
-				objects.push(log.clone().into());
+			let logs_complete = current_output.as_ref().is_some_and(|either| {
+				either
+					.as_ref()
+					.left()
+					.is_some_and(|output| output.logs_complete)
+			});
+			if !logs_complete {
+				if let Some(log) = data.log.clone() {
+					objects.push(log.clone().into());
+				}
 			}
 		}
 		if arg.outputs {
-			if let Some(output_objects) = data.output.as_ref().map(tg::value::Data::children) {
-				objects.extend(output_objects);
+			let outputs_complete = current_output.as_ref().is_some_and(|either| {
+				either
+					.as_ref()
+					.left()
+					.is_some_and(|output| output.outputs_complete)
+			});
+			if !outputs_complete {
+				if let Some(output_objects) = data.output.as_ref().map(tg::value::Data::children) {
+					objects.extend(output_objects);
+				}
 			}
 		}
 		let self_object_count_and_weight = objects
@@ -479,7 +502,7 @@ impl Server {
 			.map(|object| async {
 				let output = self
 					.export_inner_object(
-						Some(&Either::Left(process.clone())),
+						Some(Either::Left(process)),
 						object,
 						graph,
 						item_sender,
@@ -783,11 +806,13 @@ impl Graph {
 
 	fn insert(
 		&self,
-		parent: Option<&Either<tg::process::Id, tg::object::Id>>,
-		item: &Either<tg::process::Id, tg::object::Id>,
+		parent: Option<&Either<&tg::process::Id, &tg::object::Id>>,
+		item: &Either<&tg::process::Id, &tg::object::Id>,
 	) -> bool {
+		let item = item.cloned();
+
 		// Check if the node already exists.
-		if self.nodes.contains_key(item) {
+		if self.nodes.contains_key(&item) {
 			return false;
 		}
 
@@ -800,8 +825,9 @@ impl Graph {
 
 		// If there's a parent, create the relationship.
 		if let Some(parent) = parent {
+			let parent = parent.cloned();
 			// Add the new node as a child of the parent.
-			if let Some(parent_node) = self.nodes.get(parent) {
+			if let Some(parent_node) = self.nodes.get(&parent) {
 				parent_node
 					.children
 					.write()
@@ -819,27 +845,14 @@ impl Graph {
 		}
 
 		// Insert the new node.
-		self.nodes.insert(item.clone(), new_node);
+		self.nodes.insert(item, new_node);
 
 		true
 	}
 
-	fn mark_complete(&self, object: &Either<tg::process::Id, tg::object::Id>) {
-		if let Some(node) = self.nodes.get(object) {
-			// Mark the node as complete.
-			let mut output = node.output.write().unwrap();
-			match *output {
-				Either::Left(ref mut process_output) => process_output.complete = true, // FIXME respect arg.
-				Either::Right(ref mut object_output) => object_output.complete = true,
-			}
-		} else {
-			tracing::debug!("attempted to mark a node as complete that does not exist");
-		}
-	}
-
-	// TODO take optional arg to determine whether logs/outputs/command are part of the deal.
-	fn is_complete(&self, object: &Either<tg::process::Id, tg::object::Id>) -> bool {
-		let Some(node) = self.nodes.get(&object.clone()) else {
+	fn is_complete(&self, item: &Either<&tg::process::Id, &tg::object::Id>) -> bool {
+		let item = item.cloned();
+		let Some(node) = self.nodes.get(&item) else {
 			return false;
 		};
 
@@ -903,16 +916,35 @@ impl Graph {
 		false
 	}
 
+	fn get_output(
+		&self,
+		item: &Either<&tg::process::Id, &tg::object::Id>,
+	) -> Option<Either<tg::process::put::Output, tg::object::put::Output>> {
+		let item = item.cloned();
+		let node = self.nodes.get(&item)?;
+		let output = node.output.read().unwrap().clone();
+		Some(output)
+	}
+
 	fn update_output(
 		&self,
-		item: &Either<tg::process::Id, tg::object::Id>,
-		new_output: Either<tg::process::put::Output, tg::object::put::Output>,
+		output: &Either<&tg::import::ProcessOutput, &tg::import::ObjectOutput>,
 	) -> bool {
-		if let Some(node) = self.nodes.get(item) {
+		let (item, new_output) = match output {
+			Either::Left(process) => (
+				Either::Left(process.id.clone()),
+				Either::Left(process.output.clone()),
+			),
+			Either::Right(object) => (
+				Either::Right(object.id.clone()),
+				Either::Right(object.output.clone()),
+			),
+		};
+		if let Some(node) = self.nodes.get(&item) {
 			let mut output = node.output.write().unwrap();
 			match (&*output, &new_output) {
 				(Either::Left(_), Either::Left(_)) | (Either::Right(_), Either::Right(_)) => {
-					*output = new_output;
+					*output = new_output.clone();
 					true
 				},
 				_ => {
