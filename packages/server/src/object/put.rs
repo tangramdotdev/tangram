@@ -106,7 +106,7 @@ impl Server {
 				},
 
 				Either::Right(database) => {
-					let mut connection = database.write_connection().await.map_err(|source| {
+					let connection = database.write_connection().await.map_err(|source| {
 						tg::error!(!source, "failed to get a database connection")
 					})?;
 					let statement = indoc!(

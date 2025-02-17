@@ -1,4 +1,5 @@
 use crate::Server;
+use dashmap::DashMap;
 use futures::{
 	future,
 	stream::{self, FuturesUnordered},
@@ -6,11 +7,11 @@ use futures::{
 };
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
+use smallvec::SmallVec;
 use std::{
-	collections::BTreeMap,
 	panic::AssertUnwindSafe,
 	pin::{pin, Pin},
-	sync::{Arc, RwLock},
+	sync::{Arc, RwLock, Weak},
 	time::Duration,
 };
 use tangram_client::{self as tg, handle::Ext as _};
@@ -21,13 +22,14 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
 #[derive(Clone)]
-struct Graph<T> {
-	inner: Arc<RwLock<GraphInner<T>>>,
+struct Graph {
+	nodes: Arc<DashMap<Either<tg::process::Id, tg::object::Id>, Arc<Node>, fnv::FnvBuildHasher>>,
 }
 
-struct GraphInner<T> {
-	nodes: Vec<usize>,
-	indices: BTreeMap<T, usize>,
+struct Node {
+	output: RwLock<Either<tg::process::put::Output, tg::object::put::Output>>,
+	parents: RwLock<SmallVec<[Weak<Self>; 1]>>,
+	children: RwLock<Vec<Arc<Self>>>,
 }
 
 pub(crate) struct InnerObjectOutput {
@@ -257,27 +259,18 @@ impl Server {
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
-		// Create the process graph.
-		let process_graph = Graph::new();
-
-		// Create the object graph.
-		let object_graph = Graph::new();
+		// Create the graph.
+		let graph = Graph::new();
 
 		// Spawn a task to receive import events and update the graphs.
 		let import_event_task = tokio::spawn({
-			let object_graph = object_graph.clone();
-			let process_graph = process_graph.clone();
+			let graph = graph.clone();
 			async move {
 				let mut stream = pin!(stream);
 				while let Some(event) = stream.try_next().await? {
 					match event {
-						tg::import::Event::Complete(item) => match item {
-							Either::Left(id) => {
-								process_graph.mark_complete(&id);
-							},
-							Either::Right(id) => {
-								object_graph.mark_complete(&id);
-							},
+						tg::import::Event::Complete(data) => {
+							graph.update_output(&data.as_ref());
 						},
 					}
 				}
@@ -293,20 +286,18 @@ impl Server {
 			.iter()
 			.map(|item| {
 				let server = self.clone();
-				let object_graph = object_graph.clone();
-				let process_graph = process_graph.clone();
+				let graph = graph.clone();
 				let arg = arg.clone();
 				async move {
 					match item {
 						Either::Left(process) => {
-							process_graph.insert(None, process);
 							let result = server
 								.export_inner_process(
-									arg,
+									None,
 									process,
-									&object_graph,
-									&process_graph,
+									&graph,
 									item_sender,
+									arg,
 									progress,
 								)
 								.boxed()
@@ -316,9 +307,8 @@ impl Server {
 							}
 						},
 						Either::Right(object) => {
-							object_graph.insert(None, object);
 							let result = server
-								.export_inner_object(object, &object_graph, item_sender, progress)
+								.export_inner_object(None, object, &graph, item_sender, progress)
 								.boxed()
 								.await;
 							if let Err(error) = result {
@@ -337,8 +327,9 @@ impl Server {
 
 	async fn export_inner_object(
 		&self,
+		parent: Option<Either<&tg::process::Id, &tg::object::Id>>,
 		object: &tg::object::Id,
-		object_graph: &Graph<tg::object::Id>,
+		graph: &Graph,
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<InnerObjectOutput> {
@@ -351,8 +342,10 @@ impl Server {
 		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
 		let size = bytes.len().to_u64().unwrap();
 
-		// If the object has been marked complete, then update the progress and return.
-		if object_graph.is_complete(object) {
+		// If the object has already been sent or is complete, then update the progress and return.
+		if !graph.insert(parent.as_ref(), &Either::Right(object))
+			|| graph.is_complete(&Either::Right(object))
+		{
 			let count = metadata.count.unwrap_or(1);
 			let weight = metadata.weight.unwrap_or(size);
 			progress.increment("objects", count);
@@ -379,10 +372,14 @@ impl Server {
 		let mut children_count = 0;
 		let mut children_weight = 0;
 		for child in data.children() {
-			object_graph.insert(Some(object), &child);
-			let output =
-				Box::pin(self.export_inner_object(&child, object_graph, item_sender, progress))
-					.await?;
+			let output = Box::pin(self.export_inner_object(
+				Some(Either::Right(object)),
+				&child,
+				graph,
+				item_sender,
+				progress,
+			))
+			.await?;
 			children_count += output.count;
 			children_weight += output.weight;
 		}
@@ -403,11 +400,11 @@ impl Server {
 
 	async fn export_inner_process(
 		&self,
-		arg: tg::export::Arg,
+		parent: Option<&tg::process::Id>,
 		process: &tg::process::Id,
-		object_graph: &Graph<tg::object::Id>,
-		process_graph: &Graph<tg::process::Id>,
+		graph: &Graph,
 		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
+		arg: tg::export::Arg,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<InnerProcessOutput> {
 		// Get the process
@@ -425,19 +422,16 @@ impl Server {
 		// Get the stats.
 		let stats = Self::get_process_stats_local(&self.clone(), &arg, &data, &metadata).await?;
 
-		// Get the children.
-		let children_arg = tg::process::children::get::Arg::default();
-		let children = self
-			.get_process_children(process, children_arg)
-			.await?
-			.try_collect::<Vec<_>>()
-			.await?
-			.into_iter()
-			.flat_map(|chunk| chunk.data)
-			.collect_vec();
+		if !graph.insert(parent.map(Either::Left).as_ref(), &Either::Left(process)) {
+			return Ok(InnerProcessOutput {
+				process_count: stats.process_count.unwrap_or(1),
+				object_count: stats.object_count.unwrap_or(0),
+				object_weight: stats.object_weight.unwrap_or(0),
+			});
+		}
 
 		// Send the process if it is not complete.
-		if !process_graph.is_complete(process) {
+		if !graph.is_complete(&Either::Left(process)) {
 			let item = tg::export::Item::Process {
 				id: process.clone(),
 				data: data.clone(),
@@ -451,26 +445,69 @@ impl Server {
 		// Update the progress.
 		progress.increment("processes", 1);
 
+		// Get the children.
+		let children_arg = tg::process::children::get::Arg::default();
+		let children = self
+			.get_process_children(process, children_arg)
+			.await?
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.flat_map(|chunk| chunk.data)
+			.collect_vec();
+
 		// Handle the command, log, and output.
+		let current_output = graph.get_output(&Either::Left(process));
+
 		let mut objects: Vec<tg::object::Id> = Vec::new();
 		if arg.commands {
-			objects.push(data.command.clone().into());
+			let commands_complete = current_output.as_ref().is_some_and(|either| {
+				either
+					.as_ref()
+					.left()
+					.is_some_and(|output| output.commands_complete)
+			});
+			if !commands_complete {
+				objects.push(data.command.clone().into());
+			}
 		}
 		if arg.logs {
-			if let Some(log) = data.log.clone() {
-				objects.push(log.clone().into());
+			let logs_complete = current_output.as_ref().is_some_and(|either| {
+				either
+					.as_ref()
+					.left()
+					.is_some_and(|output| output.logs_complete)
+			});
+			if !logs_complete {
+				if let Some(log) = data.log.clone() {
+					objects.push(log.clone().into());
+				}
 			}
 		}
 		if arg.outputs {
-			if let Some(output_objects) = data.output.as_ref().map(tg::value::Data::children) {
-				objects.extend(output_objects);
+			let outputs_complete = current_output.as_ref().is_some_and(|either| {
+				either
+					.as_ref()
+					.left()
+					.is_some_and(|output| output.outputs_complete)
+			});
+			if !outputs_complete {
+				if let Some(output_objects) = data.output.as_ref().map(tg::value::Data::children) {
+					objects.extend(output_objects);
+				}
 			}
 		}
 		let self_object_count_and_weight = objects
 			.iter()
 			.map(|object| async {
 				let output = self
-					.export_inner_object(object, object_graph, item_sender, progress)
+					.export_inner_object(
+						Some(Either::Left(process)),
+						object,
+						graph,
+						item_sender,
+						progress,
+					)
 					.await?;
 				Ok::<_, tg::Error>((output.count, output.weight))
 			})
@@ -491,22 +528,16 @@ impl Server {
 			process_count: children_process_count,
 			object_count: children_object_count,
 			object_weight: children_object_weight,
-		} = if process_graph.is_complete(process) || !arg.recursive {
-			InnerProcessOutput {
-				process_count: 0,
-				object_count: 0,
-				object_weight: 0,
-			}
-		} else {
+		} = if arg.recursive {
 			let outputs = children
 				.iter()
 				.map(|child| {
 					self.export_inner_process(
-						arg.clone(),
+						Some(process),
 						child,
-						object_graph,
-						process_graph,
+						graph,
 						item_sender,
+						arg.clone(),
 						progress,
 					)
 				})
@@ -525,6 +556,12 @@ impl Server {
 					object_weight: a.object_weight + b.object_weight,
 				},
 			)
+		} else {
+			InnerProcessOutput {
+				process_count: 0,
+				object_count: 0,
+				object_weight: 0,
+			}
 		};
 
 		// Update the progress.
@@ -760,48 +797,198 @@ impl Server {
 	}
 }
 
-impl<T> Graph<T>
-where
-	T: Clone + Eq + Ord,
-{
-	const COMPLETE: usize = usize::MAX;
-
+impl Graph {
 	fn new() -> Self {
 		Self {
-			inner: Arc::new(RwLock::new(GraphInner {
-				nodes: Vec::new(),
-				indices: BTreeMap::new(),
+			nodes: Arc::new(DashMap::default()),
+		}
+	}
+
+	fn insert(
+		&self,
+		parent: Option<&Either<&tg::process::Id, &tg::object::Id>>,
+		item: &Either<&tg::process::Id, &tg::object::Id>,
+	) -> bool {
+		let item = item.cloned();
+
+		// Check if the node already exists.
+		if self.nodes.contains_key(&item) {
+			return false;
+		}
+
+		// Create the node.
+		let new_node = match item {
+			Either::Left(_) => Node::process(),
+			Either::Right(_) => Node::object(),
+		};
+		let new_node = Arc::new(new_node);
+
+		// If there's a parent, create the relationship.
+		if let Some(parent) = parent {
+			let parent = parent.cloned();
+			// Add the new node as a child of the parent.
+			if let Some(parent_node) = self.nodes.get(&parent) {
+				parent_node
+					.children
+					.write()
+					.unwrap()
+					.push(Arc::clone(&new_node));
+				// Add the parent as a weak reference to the new node.
+				new_node
+					.parents
+					.write()
+					.unwrap()
+					.push(Arc::downgrade(&parent_node));
+			} else {
+				tracing::debug!("parent not found");
+			}
+		}
+
+		// Insert the new node.
+		self.nodes.insert(item, new_node);
+
+		true
+	}
+
+	fn is_complete(&self, item: &Either<&tg::process::Id, &tg::object::Id>) -> bool {
+		let item = item.cloned();
+		let Some(node) = self.nodes.get(&item) else {
+			return false;
+		};
+
+		// If this node is complete, return true.
+		if node.is_complete() {
+			return true;
+		}
+
+		// If this node is not complete, check ancestors recursively.
+
+		// Track a list of nodes to a specific ancestor.
+		let mut completion_path = Vec::new();
+		let found_complete_ancestor = Self::check_ancestor_completion(&node, &mut completion_path);
+
+		// if we found a path to complete, mark intermediate nodes as complete.
+		if found_complete_ancestor {
+			for node in completion_path {
+				let mut output = node.output.write().unwrap();
+				match *output {
+					Either::Left(ref mut process_output) => process_output.complete = true, // FIXME respect arg.
+					Either::Right(ref mut object_output) => object_output.complete = true,
+				}
+			}
+			true
+		} else {
+			false
+		}
+	}
+
+	fn check_ancestor_completion(node: &Node, completion_path: &mut Vec<Arc<Node>>) -> bool {
+		let parents = node.parents.read().unwrap();
+
+		for parent_weak in parents.iter() {
+			if let Some(parent) = parent_weak.upgrade() {
+				// If this parent is complete, mark this path complete.
+				if parent.is_complete() {
+					return true;
+				}
+
+				// Cycle detection - if we already stored this node, keep looking.
+				if completion_path
+					.iter()
+					.any(|node| Arc::ptr_eq(node, &parent))
+				{
+					continue;
+				}
+
+				// Add this path to the completion path and and check ancestors.
+				completion_path.push(Arc::clone(&parent));
+				if Self::check_ancestor_completion(&parent, completion_path) {
+					// If we found one we're done.
+					return true;
+				}
+				// If not, remove ourselves from the path and try again.
+				completion_path.pop();
+			} else {
+				tracing::debug!("failed to upgrade weak pointer");
+			}
+		}
+
+		false
+	}
+
+	fn get_output(
+		&self,
+		item: &Either<&tg::process::Id, &tg::object::Id>,
+	) -> Option<Either<tg::process::put::Output, tg::object::put::Output>> {
+		let item = item.cloned();
+		let node = self.nodes.get(&item)?;
+		let output = node.output.read().unwrap().clone();
+		Some(output)
+	}
+
+	fn update_output(
+		&self,
+		output: &Either<&tg::import::ProcessOutput, &tg::import::ObjectOutput>,
+	) -> bool {
+		let (item, new_output) = match output {
+			Either::Left(process) => (
+				Either::Left(process.id.clone()),
+				Either::Left(process.output.clone()),
+			),
+			Either::Right(object) => (
+				Either::Right(object.id.clone()),
+				Either::Right(object.output.clone()),
+			),
+		};
+		if let Some(node) = self.nodes.get(&item) {
+			let mut output = node.output.write().unwrap();
+			match (&*output, &new_output) {
+				(Either::Left(_), Either::Left(_)) | (Either::Right(_), Either::Right(_)) => {
+					*output = new_output.clone();
+					true
+				},
+				_ => {
+					tracing::error!("attempted to update output with mismatched type");
+					false
+				},
+			}
+		} else {
+			tracing::debug!("attempted to update output for non-existent node");
+			false
+		}
+	}
+}
+
+impl Node {
+	fn object() -> Self {
+		Self {
+			parents: RwLock::new(SmallVec::new()),
+			children: RwLock::new(Vec::new()),
+			output: RwLock::new(Either::Right(tg::object::put::Output { complete: false })),
+		}
+	}
+
+	fn process() -> Self {
+		Self {
+			parents: RwLock::new(SmallVec::new()),
+			children: RwLock::new(Vec::new()),
+			output: RwLock::new(Either::Left(tg::process::put::Output {
+				complete: false,
+				commands_complete: false,
+				logs_complete: false,
+				outputs_complete: false,
 			})),
 		}
 	}
 
-	fn insert(&self, parent: Option<&T>, child: &T) {
-		let mut inner = self.inner.write().unwrap();
-		let index = inner.nodes.len();
-		inner.indices.insert(child.clone(), index);
-		if let Some(parent) = parent {
-			let parent = inner.indices.get(parent).copied().unwrap();
-			inner.nodes.push(parent);
-		} else {
-			inner.nodes.push(index);
+	fn is_complete(&self) -> bool {
+		let output = self.output.read().unwrap();
+		match *output {
+			Either::Left(ref process_output) => {
+				// TODO logs/command/outputs?
+				process_output.complete
+			},
+			Either::Right(ref object_output) => object_output.complete,
 		}
-	}
-
-	fn mark_complete(&self, object: &T) {
-		let mut inner = self.inner.write().unwrap();
-		let index = inner.indices.get(object).copied().unwrap();
-		inner.nodes[index] = Self::COMPLETE;
-	}
-
-	fn is_complete(&self, object: &T) -> bool {
-		let inner = self.inner.read().unwrap();
-		let mut index = inner.indices.get(object).copied().unwrap();
-		while inner.nodes[index] != index {
-			if inner.nodes[index] == Self::COMPLETE {
-				return true;
-			}
-			index = inner.nodes[index];
-		}
-		false
 	}
 }

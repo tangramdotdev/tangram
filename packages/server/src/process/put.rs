@@ -50,6 +50,7 @@ impl Server {
 					enqueued_at,
 					env,
 					error,
+					exit,
 					finished_at,
 					host,
 					log,
@@ -79,7 +80,8 @@ impl Server {
 					{p}16,
 					{p}17,
 					{p}18,
-					{p}19
+					{p}19,
+					{p}20
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -91,15 +93,16 @@ impl Server {
 					enqueued_at = {p}8,
 					env = {p}9,
 					error = {p}10,
-					finished_at = {p}11,
-					host = {p}12,
-					log = {p}13,
-					network = {p}14,
-					output = {p}15,
-					retry = {p}16,
-					started_at = {p}17,
-					status = {p}18,
-					touched_at = {p}19
+					exit = {p}11,
+					finished_at = {p}12,
+					host = {p}13,
+					log = {p}14,
+					network = {p}15,
+					output = {p}16,
+					retry = {p}17,
+					started_at = {p}18,
+					status = {p}19,
+					touched_at = {p}20
 				returning
 					commands_complete,
 					complete,
@@ -118,6 +121,7 @@ impl Server {
 			arg.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.env.as_ref().map(db::value::Json),
 			arg.error.as_ref().map(db::value::Json),
+			arg.exit.as_ref().map(db::value::Json),
 			arg.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.host,
 			arg.log,
@@ -148,33 +152,35 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Insert the children.
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
+		if let Some(ref children) = arg.children {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"
 				insert into process_children (process, position, child)
 				values ({p}1, {p}2, {p}3);
 			"
-		);
-		arg.children
-			.as_ref()
-			.ok_or_else(|| tg::error!("the children must be set"))?
-			.iter()
-			.enumerate()
-			.map(|(position, child)| {
-				let transaction = transaction.clone();
-				let statement = statement.clone();
-				async move {
-					let params = db::params![id, position, child];
-					transaction
-						.execute(statement.into(), params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-					Ok::<_, tg::Error>(())
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<()>()
-			.await?;
+			);
+			children
+				.iter()
+				.enumerate()
+				.map(|(position, child)| {
+					let transaction = transaction.clone();
+					let statement = statement.clone();
+					async move {
+						let params = db::params![id, position, child];
+						transaction
+							.execute(statement.into(), params)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to execute the statement")
+							})?;
+						Ok::<_, tg::Error>(())
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<()>()
+				.await?;
+		}
 
 		// Delete any existing objects.
 		let p = transaction.p();

@@ -123,6 +123,7 @@ serde_urlencoded = "0.7"
 serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
+smallvec = "1"
 sourcemap = "9"
 swc_core = { version = "14", features = [
   "common",
@@ -171,7 +172,7 @@ unicode-width = "0.2"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { version = "134" }
+v8 = { version = "130" }
 webbrowser = "1"
 webpki-roots = "0.26"
 winnow = "0.7"
