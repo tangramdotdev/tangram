@@ -383,7 +383,7 @@ impl tg::Handle for Proxy {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static>
 	{
 		arg.remote = self.remote.clone();
-		self.server.try_get_process_pty_stream(id, arg)
+		self.server.try_get_process_pty_stream(id, arg).await
 	}
 
 	async fn try_finish_process(
