@@ -387,12 +387,13 @@ impl Server {
 		let mut children_count = 0;
 		let mut children_weight = 0;
 		for child in data.children() {
-			object_graph.insert(Some(object), &child);
-			let output =
-				Box::pin(self.export_inner_object(&child, object_graph, item_sender, progress))
-					.await?;
-			children_count += output.count;
-			children_weight += output.weight;
+			if object_graph.insert(Some(object), &child) {
+				let output =
+					Box::pin(self.export_inner_object(&child, object_graph, item_sender, progress))
+						.await?;
+				children_count += output.count;
+				children_weight += output.weight;
+			}
 		}
 		if let Some(count) = metadata.count {
 			progress.increment("objects", count - 1 - children_count);
@@ -476,12 +477,17 @@ impl Server {
 		}
 		let self_object_count_and_weight = objects
 			.iter()
-			.map(|object| async {
-				object_graph.insert(None, object);
-				let output = self
-					.export_inner_object(object, object_graph, item_sender, progress)
-					.await?;
-				Ok::<_, tg::Error>((output.count, output.weight))
+			.filter_map(|object| {
+				if object_graph.insert(None, object) {
+					Some(async move {
+						let output = self
+							.export_inner_object(object, object_graph, item_sender, progress)
+							.await?;
+						Ok::<_, tg::Error>((output.count, output.weight))
+					})
+				} else {
+					None
+				}
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
