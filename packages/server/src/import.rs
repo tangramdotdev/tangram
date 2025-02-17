@@ -1,10 +1,15 @@
 use crate::Server;
 use futures::{stream, Stream, StreamExt as _, TryStreamExt as _};
+use indoc::indoc;
+use itertools::Itertools;
+use num::ToPrimitive as _;
 use std::pin::{pin, Pin};
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Ext as _};
+use tangram_database::{self as db, Database as _};
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{request::Ext, Body};
+use time::format_description::well_known::Rfc3339;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use tokio_util::task::AbortOnDropHandle;
@@ -32,6 +37,10 @@ impl Server {
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (complete_sender, complete_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
+		let (database_object_sender, database_object_receiver) =
+			tokio::sync::mpsc::channel::<tg::export::Item>(256);
+		let (database_process_sender, database_process_receiver) =
+			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 
 		// Create the complete task.
 		let complete_task = tokio::spawn({
@@ -42,7 +51,16 @@ impl Server {
 				let mut stream = pin!(stream);
 				while let Some(item) = stream.next().await {
 					match item {
-						tg::export::Item::Process { .. } => todo!(),
+						tg::export::Item::Process { id, .. } => {
+							let tg::process::get::Output { metadata, .. } =
+								server.get_process(&id).await.map_err(|source| {
+									tg::error!(!source, "failed to get the process")
+								})?;
+							if metadata.is_some_and(|metadata| metadata.complete) {
+								let event = tg::import::Event::Complete(Either::Left(id));
+								event_sender.send(Ok(event)).ok();
+							}
+						},
 						tg::export::Item::Object { id, .. } => {
 							let complete = server
 								.try_get_object_metadata_local(&id)
@@ -55,7 +73,51 @@ impl Server {
 						},
 					}
 				}
-				Ok(())
+				Ok::<_, tg::Error>(())
+			}
+		});
+
+		// Create the database task for objects.
+		let database_objects_task = tokio::spawn({
+			let server = self.clone();
+			async move {
+				let stream = ReceiverStream::new(database_object_receiver);
+				match &server.database {
+					Either::Left(database) => {
+						let mut connection =
+							database.write_connection().await.map_err(|source| {
+								tg::error!(!source, "failed to get a database connection")
+							})?;
+						server
+							.insert_import_objects_sqlite(stream, &mut connection)
+							.await
+							.inspect_err(|error| eprintln!("failed to insert: {error}"))?;
+					},
+					Either::Right(database) => {
+						let mut connection =
+							database.write_connection().await.map_err(|source| {
+								tg::error!(!source, "failed to get a database connection")
+							})?;
+						server
+							.insert_import_objects_postgres(stream, &mut connection)
+							.await?;
+					},
+				}
+				Ok::<_, tg::Error>(())
+			}
+		});
+
+		// Create the database task for processes.
+		let database_processes_task = tokio::spawn({
+			let server = self.clone();
+			let event_sender = event_sender.clone();
+			async move {
+				let stream = ReceiverStream::new(database_process_receiver);
+				server
+					.insert_import_processes(stream, &event_sender)
+					.await
+					.inspect_err(|error| eprintln!("failed to put process: {error}"))?;
+				Ok::<_, tg::Error>(())
 			}
 		});
 
@@ -68,30 +130,26 @@ impl Server {
 					let Some(item) = store_receiver.recv().await else {
 						break;
 					};
-					match item {
-						tg::export::Item::Process { .. } => todo!(),
-						tg::export::Item::Object { id, bytes, .. } => {
-							join_set.spawn({
-								let server = server.clone();
-								async move {
-									if let Some(store) = &server.store {
-										store.put(id, bytes).await?;
-									}
-									Ok::<_, tg::Error>(())
+					if let tg::export::Item::Object { id, bytes, .. } = item {
+						join_set.spawn({
+							let server = server.clone();
+							async move {
+								if let Some(store) = &server.store {
+									store.put(id, bytes).await?;
 								}
-							});
-							while let Some(result) = join_set.try_join_next() {
-								result.map_err(|source| {
-									tg::error!(!source, "a store task panicked")
-								})??;
+								Ok::<_, tg::Error>(())
 							}
-						},
+						});
+						while let Some(result) = join_set.try_join_next() {
+							result
+								.map_err(|source| tg::error!(!source, "a store task panicked"))??;
+						}
 					}
 				}
 				while let Some(result) = join_set.join_next().await {
 					result.map_err(|source| tg::error!(!source, "a store task panicked"))??;
 				}
-				Ok(())
+				Ok::<_, tg::Error>(())
 			}
 		});
 
@@ -109,8 +167,17 @@ impl Server {
 							return;
 						},
 					};
+					let database_sender_future = match item {
+						tangram_client::export::Item::Process { .. } => {
+							database_process_sender.send(item.clone())
+						},
+						tangram_client::export::Item::Object { .. } => {
+							database_object_sender.send(item.clone())
+						},
+					};
 					let result = futures::try_join!(
 						complete_sender.send(item.clone()),
+						database_sender_future,
 						store_sender.send(item.clone()),
 					);
 					if result.is_err() {
@@ -123,12 +190,20 @@ impl Server {
 
 				// Close the channels
 				drop(complete_sender);
+				drop(database_object_sender);
+				drop(database_process_sender);
 				drop(store_sender);
 
 				// Join the tasks.
-				let result = futures::try_join!(complete_task, store_task);
-				if let (Err(error), _) | (_, Err(error)) = result.unwrap() {
-					event_sender.send(Err(error)).ok();
+				if let Err(error) = futures::try_join!(
+					complete_task,
+					database_objects_task,
+					database_processes_task,
+					store_task
+				) {
+					event_sender
+						.send(Err(tg::error!(!error, "failed to join the task")))
+						.ok();
 				}
 			}
 		});
@@ -139,6 +214,232 @@ impl Server {
 		let stream = stream.attach(abort_handle);
 
 		Ok(stream.right_stream())
+	}
+
+	async fn insert_import_objects_sqlite(
+		&self,
+		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
+		connection: &mut db::sqlite::Connection,
+	) -> tg::Result<()> {
+		// Chunk the stream.
+		let stream = stream.chunks(500);
+		// Drain the stream and insert the data, using a single transaction per chunk.
+		let mut stream = pin!(stream);
+		while let Some(chunk) = stream.next().await {
+			let chunk: Vec<_> = chunk
+				.into_iter()
+				.map(|item| {
+					// Make sure the item is an object.
+					let tg::export::Item::Object { id, bytes } = item else {
+						return Err(tg::error!(?item, "expected an object item"));
+					};
+					// Get the children.
+					let children = tg::object::Data::deserialize(id.kind(), &bytes)?.children();
+					Ok::<_, tg::Error>((id, bytes, children))
+				})
+				.try_collect()?;
+
+			connection
+				.with(move |connection| {
+					// Begin a transaction for the batch.
+					let transaction = connection
+						.transaction()
+						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+					// Prepare a statement for the object children
+					let children_statement = indoc!(
+						"
+							insert into object_children (object, child)
+							values (?1, ?2)
+							on conflict (object, child) do nothing;
+						"
+					);
+					let mut children_statement = transaction
+						.prepare_cached(children_statement)
+						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+					// Prepare a statement for the objects.
+					let objects_statement = indoc!(
+						"
+							insert into objects (id, bytes, size, touched_at)
+							values (?1, ?2, ?3, ?4)
+							on conflict (id) do update set touched_at = ?4;
+						"
+					);
+					let mut objects_statement = transaction
+						.prepare_cached(objects_statement)
+						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+
+					// Execute inserts for each member of the batch.
+					for (id, bytes, children) in chunk {
+						// Insert the childre.
+						for child in children {
+							let child = child.to_string();
+							let params = rusqlite::params![&id.to_string(), &child];
+							children_statement.execute(params).map_err(|source| {
+								tg::error!(!source, "failed to execute the statement")
+							})?;
+						}
+
+						// Insert the object.
+						let size = bytes.len().to_u64().unwrap();
+						let bytes = bytes.as_ref();
+						let params = rusqlite::params![&id.to_string(), bytes, size, now];
+						objects_statement.execute(params).map_err(|source| {
+							tg::error!(!source, "failed to execute the statement")
+						})?;
+					}
+					drop(children_statement);
+					drop(objects_statement);
+
+					// Commit the transaction.
+					transaction.commit().map_err(|source| {
+						tg::error!(!source, "failed to commit the transaction")
+					})?;
+
+					Ok::<_, tg::Error>(())
+				})
+				.await?;
+		}
+		Ok(())
+	}
+
+	async fn insert_import_objects_postgres(
+		&self,
+		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
+		connection: &mut db::postgres::Connection,
+	) -> tg::Result<()> {
+		let client = connection.client();
+
+		let stream = stream.chunks(500);
+		let mut stream = pin!(stream);
+		while let Some(chunk) = stream.next().await {
+			let chunk: Vec<_> = chunk
+				.into_iter()
+				.map(|item| {
+					// Ensure the item is an object.
+					let tg::export::Item::Object { id, bytes } = item else {
+						return Err(tg::error!(?item, "expected an object"));
+					};
+
+					// Get the children.
+					let children = tg::object::Data::deserialize(id.kind(), &bytes)?.children();
+					Ok::<_, tg::Error>((id, bytes, children))
+				})
+				.try_collect()?;
+			let statement = indoc!(
+				"
+					with inserted_object_children as (
+						insert into object_children (object, child)
+						select ($1::text[])[parent_index], child
+						from unnest($2::text[], $3::int8[]) as c (child, parent_index)
+					),
+					inserted_objects as (
+						insert into objects (id, bytes, size, touched_at)
+						select id, bytes, size, $6
+						from
+							unnest($1::text[], $4::bytea[], $5::int8[]) as t (id, bytes, size)
+						on conflict (id) do update set touched_at = $6
+					)
+					select 1;
+				"
+			);
+			let ids = chunk
+				.iter()
+				.map(|(id, _, _)| id.to_string())
+				.collect::<Vec<_>>();
+			let children = chunk
+				.iter()
+				.flat_map(|(_, _, children)| children.iter().map(ToString::to_string))
+				.collect::<Vec<_>>();
+			let parent_indices = chunk
+				.iter()
+				.enumerate()
+				.flat_map(|(index, (_, _, children))| {
+					std::iter::repeat_n((index + 1).to_i64().unwrap(), children.len())
+				})
+				.collect::<Vec<_>>();
+			let bytes = chunk
+				.iter()
+				.map(|(_, bytes, _)| {
+					if self.store.is_some() {
+						None
+					} else {
+						Some(bytes.as_ref())
+					}
+				})
+				.collect::<Vec<_>>();
+			let size = chunk
+				.iter()
+				.map(|(_, bytes, _)| bytes.len().to_i64().unwrap())
+				.collect::<Vec<_>>();
+			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+			client
+				.execute(
+					statement,
+					&[
+						&ids.as_slice(),
+						&children.as_slice(),
+						&parent_indices.as_slice(),
+						&bytes.as_slice(),
+						&size.as_slice(),
+						&now,
+					],
+				)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		Ok(())
+	}
+
+	async fn insert_import_processes(
+		&self,
+		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
+		event_sender: &tokio::sync::mpsc::UnboundedSender<tg::Result<tg::import::Event>>,
+	) -> tg::Result<()> {
+		let mut stream = pin!(stream);
+		while let Some(item) = stream.next().await {
+			// Make sure the item is a process.
+			let tg::export::Item::Process { id, data } = item else {
+				return Err(tg::error!(?item, "expected a process item"));
+			};
+
+			// Put the process.
+			let put_arg = tg::process::put::Arg {
+				cacheable: data.cacheable,
+				checksum: data.checksum,
+				children: data.children,
+				command: data.command.clone(),
+				created_at: data.created_at,
+				cwd: data.cwd,
+				dequeued_at: data.dequeued_at,
+				enqueued_at: data.enqueued_at,
+				env: data.env,
+				error: data.error,
+				finished_at: data.finished_at,
+				host: data.host,
+				id: id.clone(),
+				log: data.log.clone(),
+				network: data.network,
+				output: data.output.clone(),
+				retry: data.retry,
+				started_at: data.started_at,
+				status: data.status,
+			};
+			let put_output = self
+				.put_process(&id, put_arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+
+			if put_output.complete {
+				let event = tg::import::Event::Complete(Either::Left(id));
+				event_sender.send(Ok(event)).ok();
+			}
+		}
+		Ok(())
 	}
 
 	pub(crate) async fn handle_import_request<H>(

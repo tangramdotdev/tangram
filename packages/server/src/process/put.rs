@@ -148,33 +148,35 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Insert the children.
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
+		if let Some(ref children) = arg.children {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"
 				insert into process_children (process, position, child)
 				values ({p}1, {p}2, {p}3);
 			"
-		);
-		arg.children
-			.as_ref()
-			.ok_or_else(|| tg::error!("the children must be set"))?
-			.iter()
-			.enumerate()
-			.map(|(position, child)| {
-				let transaction = transaction.clone();
-				let statement = statement.clone();
-				async move {
-					let params = db::params![id, position, child];
-					transaction
-						.execute(statement.into(), params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-					Ok::<_, tg::Error>(())
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<()>()
-			.await?;
+			);
+			children
+				.iter()
+				.enumerate()
+				.map(|(position, child)| {
+					let transaction = transaction.clone();
+					let statement = statement.clone();
+					async move {
+						let params = db::params![id, position, child];
+						transaction
+							.execute(statement.into(), params)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to execute the statement")
+							})?;
+						Ok::<_, tg::Error>(())
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<()>()
+				.await?;
+		}
 
 		// Delete any existing objects.
 		let p = transaction.p();

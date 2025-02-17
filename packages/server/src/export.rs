@@ -469,6 +469,7 @@ impl Server {
 		let self_object_count_and_weight = objects
 			.iter()
 			.map(|object| async {
+				object_graph.insert(None, object);
 				let output = self
 					.export_inner_object(object, object_graph, item_sender, progress)
 					.await?;
