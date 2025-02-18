@@ -7,6 +7,7 @@ use dashmap::{DashMap, DashSet};
 use futures::{future, stream::FuturesUnordered, Future, FutureExt as _, Stream, StreamExt as _};
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
 use rusqlite as sqlite;
 use std::{
@@ -20,7 +21,7 @@ use std::{
 	time::Duration,
 };
 use tangram_client as tg;
-use tangram_database as db;
+use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{response::builder::Ext as _, Body};
@@ -349,6 +350,39 @@ impl Server {
 		self::database::migrate(&server.database)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
+
+		// Set the remotes if specified in the config.
+		if let Some(remotes) = &server.config.remotes {
+			let connection = server
+				.database
+				.write_connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			let statement = indoc!(
+				"
+					delete from remotes;
+				",
+			);
+			let params = db::params![];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete the remotes"))?;
+			for remote in remotes {
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						insert into remotes (name, url)
+						values ({p}1, {p}2);
+					",
+				);
+				let params = db::params![&remote.name, &remote.url];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
+			}
+		}
 
 		// Start the VFS if enabled.
 		let artifacts_path = server.path.join("artifacts");

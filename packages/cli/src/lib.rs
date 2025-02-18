@@ -663,6 +663,23 @@ impl Cli {
 			}
 		}
 
+		// Set the remotes config.
+		if let Some(remotes) = self
+			.config
+			.as_ref()
+			.and_then(|config| config.remotes.as_ref())
+		{
+			config.remotes = Some(
+				remotes
+					.iter()
+					.map(|remote| tangram_server::config::Remote {
+						name: remote.name.clone(),
+						url: remote.url.clone(),
+					})
+					.collect(),
+			);
+		}
+
 		// Set the runner config.
 		match self
 			.config

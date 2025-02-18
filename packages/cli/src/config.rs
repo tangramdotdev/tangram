@@ -39,6 +39,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
+	/// Set the remotes on server startup.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remotes: Option<Vec<Remote>>,
+
 	/// Configure the runner task.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub runner: Option<Either<bool, Runner>>,
@@ -192,6 +196,13 @@ pub enum Messenger {
 pub struct NatsMessenger {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Url>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Remote {
+	pub name: String,
+	pub url: Url,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
