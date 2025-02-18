@@ -798,7 +798,6 @@ impl Graph {
 		// If there's a parent, create the relationship.
 		if let Some(parent) = parent {
 			// Add the new node as a child of the parent.
-			// FIXME what if the parent doesnt exist?
 			if let Some(parent_node) = self.nodes.get(parent) {
 				parent_node
 					.children
@@ -811,6 +810,8 @@ impl Graph {
 					.write()
 					.unwrap()
 					.push(Arc::downgrade(&parent_node));
+			} else {
+				tracing::debug!("parent not found");
 			}
 		}
 
@@ -824,20 +825,72 @@ impl Graph {
 		if let Some(node) = self.nodes.get(object) {
 			// Mark the node as complete.
 			node.complete
-				.store(true, std::sync::atomic::Ordering::Relaxed);
+				.store(true, std::sync::atomic::Ordering::SeqCst);
 		} else {
-			// FIXME what?
-			todo!()
+			tracing::debug!("attempted to mark a node as complete that does not exist");
 		}
 	}
 
 	fn is_complete(&self, object: &Either<tg::process::Id, tg::object::Id>) -> bool {
-		if let Some(node) = self.nodes.get(&object.clone()) {
-			node.complete.load(std::sync::atomic::Ordering::SeqCst)
+		let Some(node) = self.nodes.get(&object.clone()) else {
+			return false;
+		};
+
+		// If this node is complete, return true.
+		if node.complete.load(std::sync::atomic::Ordering::SeqCst) {
+			return true;
+		}
+
+		// If this node is not complete, check ancestors recursively.
+
+		// Track a list of nodes to a specific ancestor.
+		let mut completion_path = Vec::new();
+		let found_complete_ancestor = Self::check_ancestor_completion(&node, &mut completion_path);
+
+		// if we found a path to complete, mark intermediate nodes as complete.
+		if found_complete_ancestor {
+			for node in completion_path {
+				node.complete
+					.store(true, std::sync::atomic::Ordering::SeqCst);
+			}
+			true
 		} else {
-			// If the node doesn't exist, we consider it incomplete
 			false
 		}
+	}
+
+	fn check_ancestor_completion(node: &Node, completion_path: &mut Vec<Arc<Node>>) -> bool {
+		let parents = node.parents.read().unwrap();
+
+		for parent_weak in parents.iter() {
+			if let Some(parent) = parent_weak.upgrade() {
+				// If this parent is complete, mark this path complete.
+				if parent.complete.load(std::sync::atomic::Ordering::SeqCst) {
+					return true;
+				}
+
+				// Cycle detection - if we already stored this node, keep looking.
+				if completion_path
+					.iter()
+					.any(|node| Arc::ptr_eq(node, &parent))
+				{
+					continue;
+				}
+
+				// Add this path to the completion path and and check ancestors.
+				completion_path.push(Arc::clone(&parent));
+				if Self::check_ancestor_completion(&parent, completion_path) {
+					// If we found one we're done.
+					return true;
+				}
+				// If not, remove ourselves from the path and try again.
+				completion_path.pop();
+			} else {
+				tracing::debug!("failed to upgrade weak pointer");
+			}
+		}
+
+		false
 	}
 }
 
