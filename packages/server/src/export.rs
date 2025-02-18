@@ -506,13 +506,7 @@ impl Server {
 			process_count: children_process_count,
 			object_count: children_object_count,
 			object_weight: children_object_weight,
-		} = if !arg.recursive {
-			InnerProcessOutput {
-				process_count: 0,
-				object_count: 0,
-				object_weight: 0,
-			}
-		} else {
+		} = if arg.recursive {
 			let outputs = children
 				.iter()
 				.map(|child| {
@@ -540,6 +534,12 @@ impl Server {
 					object_weight: a.object_weight + b.object_weight,
 				},
 			)
+		} else {
+			InnerProcessOutput {
+				process_count: 0,
+				object_count: 0,
+				object_weight: 0,
+			}
 		};
 
 		// Update the progress.
