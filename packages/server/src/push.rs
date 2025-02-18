@@ -54,14 +54,20 @@ impl Server {
 					while let Some(result) = export_event_stream.next().await {
 						match result {
 							Ok(tg::export::Event::Item(item)) => {
-								export_item_sender.send(Ok(item)).await.unwrap();
+								if let Err(error) = export_item_sender.send(Ok(item)).await {
+									progress_event_sender
+										.send(Err(tg::error!(!error, "failed to send export item")))
+										.await
+										.ok();
+									break;
+								}
 							},
 							Ok(tg::export::Event::Progress(tg::progress::Event::Output(()))) => (),
 							Ok(tg::export::Event::Progress(event)) => {
-								progress_event_sender.send(Ok(event)).await.unwrap();
+								progress_event_sender.send(Ok(event)).await.ok();
 							},
 							Err(error) => {
-								progress_event_sender.send(Err(error)).await.unwrap();
+								progress_event_sender.send(Err(error)).await.ok();
 							},
 						}
 					}
@@ -77,7 +83,7 @@ impl Server {
 			progress_event_sender
 				.send(Ok(tg::progress::Event::Output(())))
 				.await
-				.unwrap();
+				.ok();
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
 		let progress_event_stream =
