@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 use std::{
 	panic::AssertUnwindSafe,
 	pin::{pin, Pin},
-	sync::{atomic::AtomicBool, Arc, RwLock, Weak},
+	sync::{Arc, RwLock, Weak},
 	time::Duration,
 };
 use tangram_client::{self as tg, handle::Ext as _};
@@ -27,8 +27,7 @@ struct Graph {
 }
 
 struct Node {
-	// output: Either<tg::process::put::Output, tg::object::put::Output>,
-	complete: AtomicBool,
+	output: RwLock<Either<tg::process::put::Output, tg::object::put::Output>>,
 	parents: RwLock<SmallVec<[Weak<Self>; 1]>>,
 	children: RwLock<Vec<Arc<Self>>>,
 }
@@ -793,7 +792,11 @@ impl Graph {
 		}
 
 		// Create the node.
-		let new_node = Arc::new(Node::new());
+		let new_node = match item {
+			Either::Left(_) => Node::process(),
+			Either::Right(_) => Node::object(),
+		};
+		let new_node = Arc::new(new_node);
 
 		// If there's a parent, create the relationship.
 		if let Some(parent) = parent {
@@ -824,20 +827,24 @@ impl Graph {
 	fn mark_complete(&self, object: &Either<tg::process::Id, tg::object::Id>) {
 		if let Some(node) = self.nodes.get(object) {
 			// Mark the node as complete.
-			node.complete
-				.store(true, std::sync::atomic::Ordering::SeqCst);
+			let mut output = node.output.write().unwrap();
+			match *output {
+				Either::Left(ref mut process_output) => process_output.complete = true, // FIXME respect arg.
+				Either::Right(ref mut object_output) => object_output.complete = true,
+			}
 		} else {
 			tracing::debug!("attempted to mark a node as complete that does not exist");
 		}
 	}
 
+	// TODO take optional arg to determine whether logs/outputs/command are part of the deal.
 	fn is_complete(&self, object: &Either<tg::process::Id, tg::object::Id>) -> bool {
 		let Some(node) = self.nodes.get(&object.clone()) else {
 			return false;
 		};
 
 		// If this node is complete, return true.
-		if node.complete.load(std::sync::atomic::Ordering::SeqCst) {
+		if node.is_complete() {
 			return true;
 		}
 
@@ -850,8 +857,11 @@ impl Graph {
 		// if we found a path to complete, mark intermediate nodes as complete.
 		if found_complete_ancestor {
 			for node in completion_path {
-				node.complete
-					.store(true, std::sync::atomic::Ordering::SeqCst);
+				let mut output = node.output.write().unwrap();
+				match *output {
+					Either::Left(ref mut process_output) => process_output.complete = true, // FIXME respect arg.
+					Either::Right(ref mut object_output) => object_output.complete = true,
+				}
 			}
 			true
 		} else {
@@ -865,7 +875,7 @@ impl Graph {
 		for parent_weak in parents.iter() {
 			if let Some(parent) = parent_weak.upgrade() {
 				// If this parent is complete, mark this path complete.
-				if parent.complete.load(std::sync::atomic::Ordering::SeqCst) {
+				if parent.is_complete() {
 					return true;
 				}
 
@@ -892,14 +902,61 @@ impl Graph {
 
 		false
 	}
+
+	fn update_output(
+		&self,
+		item: &Either<tg::process::Id, tg::object::Id>,
+		new_output: Either<tg::process::put::Output, tg::object::put::Output>,
+	) -> bool {
+		if let Some(node) = self.nodes.get(item) {
+			let mut output = node.output.write().unwrap();
+			match (&*output, &new_output) {
+				(Either::Left(_), Either::Left(_)) | (Either::Right(_), Either::Right(_)) => {
+					*output = new_output;
+					true
+				},
+				_ => {
+					tracing::error!("attempted to update output with mismatched type");
+					false
+				},
+			}
+		} else {
+			tracing::debug!("attempted to update output for non-existent node");
+			false
+		}
+	}
 }
 
 impl Node {
-	fn new() -> Self {
+	fn object() -> Self {
 		Self {
 			parents: RwLock::new(SmallVec::new()),
 			children: RwLock::new(Vec::new()),
-			complete: AtomicBool::new(false),
+			output: RwLock::new(Either::Right(tg::object::put::Output { complete: false })),
+		}
+	}
+
+	fn process() -> Self {
+		Self {
+			parents: RwLock::new(SmallVec::new()),
+			children: RwLock::new(Vec::new()),
+			output: RwLock::new(Either::Left(tg::process::put::Output {
+				complete: false,
+				commands_complete: false,
+				logs_complete: false,
+				outputs_complete: false,
+			})),
+		}
+	}
+
+	fn is_complete(&self) -> bool {
+		let output = self.output.read().unwrap();
+		match *output {
+			Either::Left(ref process_output) => {
+				// TODO logs/command/outputs?
+				process_output.complete
+			},
+			Either::Right(ref object_output) => object_output.complete,
 		}
 	}
 }

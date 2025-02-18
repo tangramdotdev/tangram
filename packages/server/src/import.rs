@@ -56,6 +56,7 @@ impl Server {
 								server.get_process(&id).await.map_err(|source| {
 									tg::error!(!source, "failed to get the process")
 								})?;
+							// TODO - this event needs to support the whole put output.
 							if metadata.is_some_and(|metadata| metadata.complete) {
 								let event = tg::import::Event::Complete(Either::Left(id));
 								event_sender.send(Ok(event)).ok();
