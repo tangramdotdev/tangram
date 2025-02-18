@@ -69,6 +69,7 @@ pub mod handle;
 pub mod health;
 pub mod id;
 pub mod import;
+pub mod index;
 pub mod leaf;
 pub mod location;
 pub mod lockfile;
@@ -992,6 +993,10 @@ impl tg::Handle for Client {
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
 		self.health()
+	}
+
+	fn index(&self) -> impl Future<Output = tg::Result<()>> {
+		self.index()
 	}
 
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> {

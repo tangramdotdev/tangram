@@ -1,30 +1,29 @@
 use std::{path::PathBuf, time::Duration};
-use tangram_client as tg;
 use url::Url;
 
 #[derive(Clone, Debug)]
 pub struct Config {
 	pub advanced: Advanced,
 	pub authentication: Option<Authentication>,
+	pub cleaner: Option<Cleaner>,
 	pub database: Database,
-	pub messenger: Messenger,
+	pub http: Option<Http>,
 	pub indexer: Option<Indexer>,
+	pub messenger: Messenger,
 	pub path: PathBuf,
+	pub remotes: Option<Vec<Remote>>,
 	pub runner: Option<Runner>,
 	pub store: Option<Store>,
-	pub url: Option<Url>,
-	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
 	pub watchdog: Option<Watchdog>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Advanced {
-	pub garbage_collection_grace_period: Duration,
-	pub process_dequeue_timeout: Duration,
-	pub error_trace_options: tg::error::TraceOptions,
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
+	pub process_dequeue_timeout: Duration,
+	pub version: Option<String>,
 	pub write_blobs_to_blobs_directory: bool,
 	pub write_process_logs_to_database: bool,
 	pub write_process_logs_to_stderr: bool,
@@ -50,6 +49,12 @@ pub struct Oauth {
 }
 
 #[derive(Clone, Debug)]
+pub struct Cleaner {
+	pub batch_size: usize,
+	pub touch_timeout: Duration,
+}
+
+#[derive(Clone, Debug)]
 pub enum Database {
 	Postgres(PostgresDatabase),
 	Sqlite(SqliteDatabase),
@@ -67,10 +72,14 @@ pub struct SqliteDatabase {
 	pub path: PathBuf,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Http {
+	pub url: Option<Url>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Indexer {
 	pub batch_size: usize,
-	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -86,10 +95,15 @@ pub struct NatsMessenger {
 }
 
 #[derive(Clone, Debug)]
+pub struct Remote {
+	pub name: String,
+	pub url: Url,
+}
+
+#[derive(Clone, Debug)]
 pub struct Runner {
 	pub concurrency: usize,
 	pub heartbeat_interval: Duration,
-	pub max_depth: u64,
 	pub remotes: Vec<String>,
 }
 
@@ -116,15 +130,15 @@ pub struct S3Store {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Vfs {
-	pub cache_ttl: Duration,
 	pub cache_size: usize,
+	pub cache_ttl: Duration,
 	pub database_connections: usize,
 }
 
 #[derive(Clone, Debug)]
 pub struct Watchdog {
+	pub batch_size: usize,
 	pub interval: Duration,
-	pub limit: usize,
 	pub timeout: Duration,
 }
 
@@ -133,29 +147,31 @@ impl Config {
 	pub fn with_path(path: PathBuf) -> Self {
 		let advanced = Advanced::default();
 		let authentication = None;
+		let cleaner = None;
 		let database = Database::Sqlite(SqliteDatabase {
 			connections: 1,
 			path: path.join("database"),
 		});
-		let indexer = None;
+		let indexer = Some(Indexer::default());
 		let messenger = Messenger::default();
-		let runner = None;
+		let remotes = None;
+		let runner = Some(Runner::default());
 		let store = None;
-		let url = None;
-		let version = None;
+		let http = Some(Http::default());
 		let vfs = None;
-		let watchdog = None;
+		let watchdog = Some(Watchdog::default());
 		Self {
 			advanced,
 			authentication,
+			cleaner,
 			database,
-			messenger,
+			http,
 			indexer,
+			messenger,
 			path,
+			remotes,
 			runner,
 			store,
-			url,
-			version,
 			vfs,
 			watchdog,
 		}
@@ -165,14 +181,10 @@ impl Config {
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
-			garbage_collection_grace_period: Duration::from_secs(0),
 			process_dequeue_timeout: Duration::from_secs(3600),
-			error_trace_options: tg::error::TraceOptions {
-				internal: true,
-				reverse: false,
-			},
 			file_descriptor_semaphore_size: 1_000_000_000,
 			preserve_temp_directories: false,
+			version: None,
 			write_blobs_to_blobs_directory: true,
 			write_process_logs_to_database: false,
 			write_process_logs_to_stderr: false,
@@ -180,23 +192,11 @@ impl Default for Advanced {
 	}
 }
 
-impl Default for Runner {
+impl Default for Cleaner {
 	fn default() -> Self {
 		Self {
-			concurrency: 1,
-			heartbeat_interval: Duration::from_secs(1),
-			max_depth: 4096,
-			remotes: Vec::new(),
-		}
-	}
-}
-
-impl Default for Watchdog {
-	fn default() -> Self {
-		Self {
-			interval: Duration::from_secs(1),
-			limit: 100,
-			timeout: Duration::from_secs(60),
+			batch_size: 1024,
+			touch_timeout: Duration::from_secs(0),
 		}
 	}
 }
@@ -212,10 +212,7 @@ impl Default for PostgresDatabase {
 
 impl Default for Indexer {
 	fn default() -> Self {
-		Self {
-			batch_size: 128,
-			timeout: Duration::from_secs(60),
-		}
+		Self { batch_size: 1024 }
 	}
 }
 
@@ -226,12 +223,32 @@ impl Default for NatsMessenger {
 	}
 }
 
+impl Default for Runner {
+	fn default() -> Self {
+		Self {
+			concurrency: 1,
+			heartbeat_interval: Duration::from_secs(1),
+			remotes: Vec::new(),
+		}
+	}
+}
+
 impl Default for Vfs {
 	fn default() -> Self {
 		Self {
-			cache_ttl: Duration::from_secs(3600),
 			cache_size: 4096,
+			cache_ttl: Duration::from_secs(3600),
 			database_connections: 4,
+		}
+	}
+}
+
+impl Default for Watchdog {
+	fn default() -> Self {
+		Self {
+			batch_size: 100,
+			interval: Duration::from_secs(1),
+			timeout: Duration::from_secs(60),
 		}
 	}
 }

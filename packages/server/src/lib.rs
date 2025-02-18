@@ -69,7 +69,6 @@ pub use self::config::Config;
 pub mod config;
 pub mod test;
 
-/// A server.
 #[derive(Clone)]
 pub struct Server(pub Arc<Inner>);
 
@@ -79,6 +78,7 @@ pub struct Inner {
 	config: Config,
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
+	http: Option<Http>,
 	local_pool_handle: Option<tokio_util::task::LocalPoolHandle>,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
@@ -92,8 +92,14 @@ pub struct Inner {
 	store: Option<Arc<Store>>,
 	task: Mutex<Option<Task<()>>>,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
-	url: Url,
 	vfs: Mutex<Option<self::vfs::Server>>,
+}
+
+type ArtifactCacheTaskMap =
+	TaskMap<tg::artifact::Id, tg::Result<crate::artifact::cache::Output>, fnv::FnvBuildHasher>;
+
+struct Http {
+	url: Url,
 }
 
 struct Pipe {
@@ -110,9 +116,6 @@ struct ProcessPermit(
 );
 
 type ProcessTaskMap = TaskMap<tg::process::Id, (), fnv::FnvBuildHasher>;
-
-type ArtifactCacheTaskMap =
-	TaskMap<tg::artifact::Id, tg::Result<crate::artifact::cache::Output>, fnv::FnvBuildHasher>;
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Server> {
@@ -202,6 +205,17 @@ impl Server {
 		// Create the artifact cache task map.
 		let artifact_cache_task_map = TaskMap::default();
 
+		// Create the HTTP configuration.
+		let http = config.http.as_ref().map(|config| {
+			let url = config.url.clone().unwrap_or_else(|| {
+				let path = path.join("socket");
+				let path = path.to_str().unwrap();
+				let path = urlencoding::encode(path);
+				format!("http+unix://{path}").parse().unwrap()
+			});
+			Http { url }
+		});
+
 		// Create the process permits.
 		let process_permits = DashMap::default();
 
@@ -209,8 +223,7 @@ impl Server {
 		let permits = config
 			.runner
 			.as_ref()
-			.map(|process| process.concurrency)
-			.unwrap_or_default();
+			.map_or(0, |process| process.concurrency);
 		let process_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Create the process tasks.
@@ -305,14 +318,6 @@ impl Server {
 		// Create the temp paths.
 		let temp_paths = DashSet::default();
 
-		// Get the URL.
-		let url = config.url.clone().unwrap_or_else(|| {
-			let path = path.join("socket");
-			let path = path.to_str().unwrap();
-			let path = urlencoding::encode(path);
-			format!("http+unix://{path}").parse().unwrap()
-		});
-
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
@@ -323,6 +328,7 @@ impl Server {
 			config,
 			database,
 			file_descriptor_semaphore,
+			http,
 			local_pool_handle,
 			lock_file,
 			messenger,
@@ -336,7 +342,6 @@ impl Server {
 			store,
 			task,
 			temp_paths,
-			url,
 			vfs,
 		}));
 
@@ -348,8 +353,6 @@ impl Server {
 		// Start the VFS if enabled.
 		let artifacts_path = server.path.join("artifacts");
 		let cache_path = server.path.join("cache");
-
-		// Check if the artifacts path exists. If the VFS was ungracefully shutdown, then remove the artifacts path.
 		let artifacts_exists = match tokio::fs::try_exists(&artifacts_path).await {
 			Ok(exists) => exists,
 			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
@@ -469,31 +472,45 @@ impl Server {
 			server.runtimes.write().unwrap().insert(triple, runtime);
 		}
 
-		// Spawn the indexer task.
-		let indexer_task = if server.config.indexer.is_some() {
-			Some(tokio::spawn({
+		// Spawn the cleaner task.
+		let cleaner_task = server.config.cleaner.clone().map(|config| {
+			tokio::spawn({
 				let server = server.clone();
 				async move {
 					server
-						.indexer_task()
+						.cleaner_task(&config)
 						.await
 						.inspect_err(|error| {
 							tracing::error!(?error);
 						})
 						.ok();
 				}
-			}))
-		} else {
-			None
-		};
+			})
+		});
 
-		// Spawn the watchdog task.
-		let watchdog_task = server.config.watchdog.as_ref().map(|options| {
+		// Spawn the indexer task.
+		let indexer_task = server.config.indexer.clone().map(|config| {
 			tokio::spawn({
 				let server = server.clone();
-				let options = options.clone();
 				async move {
-					server.watchdog_task(&options).await;
+					server
+						.indexer_task(&config)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error);
+						})
+						.ok();
+				}
+			})
+		});
+
+		// Spawn the watchdog task.
+		let watchdog_task = server.config.watchdog.as_ref().map(|config| {
+			tokio::spawn({
+				let server = server.clone();
+				let config = config.clone();
+				async move {
+					server.watchdog_task(&config).await;
 				}
 			})
 		});
@@ -510,17 +527,19 @@ impl Server {
 			None
 		};
 
-		// Listen.
-		let listener = Self::listen(&server.url).await?;
-		tracing::trace!("listening on {}", server.url);
-
 		// Spawn the HTTP task.
-		let http_task = Some(Task::spawn(|stop| {
-			let server = server.clone();
-			async move {
-				Self::serve(server.clone(), listener, stop).await;
-			}
-		}));
+		let http_task = if let Some(http) = &server.http {
+			let listener = Self::listen(&http.url).await?;
+			tracing::trace!("listening on {}", http.url);
+			Some(Task::spawn(|stop| {
+				let server = server.clone();
+				async move {
+					Self::serve(server.clone(), listener, stop).await;
+				}
+			}))
+		} else {
+			None
+		};
 
 		let shutdown = {
 			let server = server.clone();
@@ -545,13 +564,13 @@ impl Server {
 					}
 				}
 
-				// Abort the runner task.
-				if let Some(task) = runner_task {
+				// Abort the cleaner task.
+				if let Some(task) = cleaner_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result {
 						if !error.is_cancelled() {
-							tracing::error!(?error, "the runner task panicked");
+							tracing::error!(?error, "the clean task panicked");
 						}
 					}
 				}
@@ -563,6 +582,17 @@ impl Server {
 					if let Err(error) = result {
 						if !error.is_cancelled() {
 							tracing::error!(?error, "the index task panicked");
+						}
+					}
+				}
+
+				// Abort the runner task.
+				if let Some(task) = runner_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the runner task panicked");
 						}
 					}
 				}
@@ -654,8 +684,8 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn url(&self) -> &Url {
-		&self.url
+	pub fn url(&self) -> Option<&Url> {
+		self.http.as_ref().map(|http| &http.url)
 	}
 
 	#[must_use]
@@ -1417,6 +1447,10 @@ impl tg::Handle for Server {
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
 		self.health()
+	}
+
+	fn index(&self) -> impl Future<Output = tg::Result<()>> {
+		self.index()
 	}
 
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> {

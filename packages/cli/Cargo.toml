@@ -37,6 +37,7 @@ libc = { workspace = true }
 num = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
+serde-untagged = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 tangram_client = { workspace = true }

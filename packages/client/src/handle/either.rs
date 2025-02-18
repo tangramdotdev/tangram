@@ -627,6 +627,13 @@ where
 		}
 	}
 
+	fn index(&self) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.index().left_future(),
+			Either::Right(s) => s.index().right_future(),
+		}
+	}
+
 	fn clean(&self) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.clean().left_future(),

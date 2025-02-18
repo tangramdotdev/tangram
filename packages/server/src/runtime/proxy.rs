@@ -452,6 +452,10 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	async fn index(&self) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
 	async fn clean(&self) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}

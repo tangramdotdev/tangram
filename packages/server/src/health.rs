@@ -73,7 +73,7 @@ impl Server {
 			processes: Some(processes),
 			database: Some(database),
 			file_descriptor_semaphore: Some(file_descriptor_semaphore),
-			version: self.config.version.clone(),
+			version: self.config.advanced.version.clone(),
 		};
 
 		Ok(health)

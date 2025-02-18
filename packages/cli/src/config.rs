@@ -1,6 +1,7 @@
 use serde_with::{serde_as, DurationSecondsWithFrac};
 use std::{path::PathBuf, time::Duration};
 use tangram_client::{self as tg, util::serde::is_false};
+use tangram_either::Either;
 use url::Url;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -11,26 +12,24 @@ pub struct Config {
 	pub advanced: Option<Advanced>,
 
 	/// Configure authentication.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub authentication: Option<Option<Authentication>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub authentication: Option<Either<bool, Authentication>>,
+
+	/// Configure the cleaner task.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cleaner: Option<Either<bool, Cleaner>>,
 
 	/// Configure the database.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,
 
+	/// Configure the http task.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http: Option<Either<bool, Http>>,
+
 	/// Configure the indexer task.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub indexer: Option<Option<Indexer>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub indexer: Option<Either<bool, Indexer>>,
 
 	/// Configure the messenger.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,71 +40,33 @@ pub struct Config {
 	pub path: Option<PathBuf>,
 
 	/// Configure the runner task.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub runner: Option<Option<Runner>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub runner: Option<Either<bool, Runner>>,
 
 	/// Configure the store.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub store: Option<Option<Store>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<Store>,
 
 	/// Configure tracing.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tracing: Option<Tracing>,
 
-	/// The URL a client will connect to and the server will bind to.
+	/// Configure the VFS.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub url: Option<Url>,
-
-	/// Enable or disable the VFS.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub vfs: Option<Option<Vfs>>,
+	pub vfs: Option<Either<bool, Vfs>>,
 
 	/// Configure the watchdog task.
-	#[allow(clippy::option_option)]
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::double_option"
-	)]
-	pub watchdog: Option<Option<Watchdog>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub watchdog: Option<Either<bool, Watchdog>>,
 }
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Advanced {
-	/// The duration after the last "touched at" time that an object will be preserved during clean.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub garbage_collection_grace_period: Option<Duration>,
-
-	/// The duration after which a process that is dequeued but not started may be dequeued again.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub process_dequeue_timeout: Option<Duration>,
-
 	/// Options for rendering error traces.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error_trace_options: Option<tg::error::TraceOptions>,
-
-	/// Set the file descriptor limit for the server on startup.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub file_descriptor_limit: Option<usize>,
 
 	/// The maximum number of file descriptors the server will open at a time.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -119,9 +80,18 @@ pub struct Advanced {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub preserve_temp_directories: Option<bool>,
 
+	/// The duration after which a process that is dequeued but not started may be dequeued again.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_dequeue_timeout: Option<Duration>,
+
 	/// Whether to enable publishing of data to tokio console.
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_console: bool,
+
+	/// Whether to write blobs to the server's cache directory.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_blobs_to_blobs_directory: Option<bool>,
 
 	/// Whether to write process logs to the database instead of files.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -130,10 +100,6 @@ pub struct Advanced {
 	/// Whether to write process logs to the server's stderr.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_process_logs_to_stderr: Option<bool>,
-
-	/// Whether to write blobs to the server's cache directory.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_blobs_to_blobs_directory: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -158,6 +124,13 @@ pub struct Oauth {
 	pub client_secret: String,
 	pub redirect_url: String,
 	pub token_url: String,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cleaner {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -191,16 +164,19 @@ pub struct SqliteDatabase {
 	pub path: Option<PathBuf>,
 }
 
-#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Http {
+	/// The URL the server will bind to.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Url>,
+}
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -228,10 +204,6 @@ pub struct Runner {
 	/// The interval at which heartbeats will be sent.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub heartbeat_interval: Option<Duration>,
-
-	/// The maximum process depth.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_depth: Option<u64>,
 
 	/// The remotes to run processes for.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -289,8 +261,13 @@ pub enum TracingFormat {
 #[serde(deny_unknown_fields)]
 pub struct Vfs {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache_ttl: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database_connections: Option<usize>,
 }
 
@@ -303,9 +280,8 @@ pub struct Watchdog {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub interval: Option<Duration>,
 
-	/// The maximum number of processes that will be canceled at a time.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub limit: Option<usize>,
+	pub batch_size: Option<usize>,
 
 	/// The duration without a heartbeat before a process is canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

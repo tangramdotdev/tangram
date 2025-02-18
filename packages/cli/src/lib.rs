@@ -20,6 +20,7 @@ mod export;
 mod get;
 mod health;
 mod import;
+mod index;
 mod lsp;
 mod object;
 mod package;
@@ -151,6 +152,8 @@ enum Command {
 	Health(self::health::Args),
 
 	Import(self::import::Args),
+
+	Index(self::index::Args),
 
 	Init(self::package::init::Args),
 
@@ -322,21 +325,26 @@ impl Cli {
 	}
 
 	async fn auto(&self) -> tg::Result<Client> {
-		// Get the path.
-		let path = self
-			.args
-			.path
-			.clone()
-			.or(self.config.as_ref().and_then(|config| config.path.clone()))
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
-
 		// Get the url.
 		let url = self
 			.args
 			.url
 			.clone()
-			.or(self.config.as_ref().and_then(|config| config.url.clone()))
+			.or(self
+				.config
+				.as_ref()
+				.and_then(|config| config.http.as_ref())
+				.and_then(|config| config.as_ref().right())
+				.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
+				let path = self
+					.args
+					.path
+					.clone()
+					.or(self.config.as_ref().and_then(|config| config.path.clone()))
+					.unwrap_or_else(|| {
+						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
+					});
 				let path = path.join("socket");
 				let path = path.to_str().unwrap();
 				let path = urlencoding::encode(path);
@@ -409,21 +417,26 @@ impl Cli {
 	}
 
 	async fn client(&self) -> tg::Result<Client> {
-		// Get the path.
-		let path = self
-			.args
-			.path
-			.clone()
-			.or(self.config.as_ref().and_then(|config| config.path.clone()))
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
-
 		// Get the url.
 		let url = self
 			.args
 			.url
 			.clone()
-			.or(self.config.as_ref().and_then(|config| config.url.clone()))
+			.or(self
+				.config
+				.as_ref()
+				.and_then(|config| config.http.as_ref())
+				.and_then(|config| config.as_ref().right())
+				.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
+				let path = self
+					.args
+					.path
+					.clone()
+					.or(self.config.as_ref().and_then(|config| config.path.clone()))
+					.unwrap_or_else(|| {
+						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
+					});
 				let path = path.join("socket");
 				let path = path.to_str().unwrap();
 				let path = urlencoding::encode(path);
@@ -459,21 +472,25 @@ impl Cli {
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 
 		// Create the default config.
-		let advanced = tangram_server::config::Advanced::default();
 		let parallelism = std::thread::available_parallelism().unwrap().into();
+		let advanced = tangram_server::config::Advanced::default();
+		let authentication = None;
+		let cleaner = None;
 		let database =
 			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
 				connections: parallelism,
 				path: path.join("database"),
 			});
-		let messenger = tangram_server::config::Messenger::default();
+		let http = Some(tangram_server::config::Http::default());
 		let indexer = Some(tangram_server::config::Indexer::default());
+		let messenger = tangram_server::config::Messenger::default();
+		let remotes = None;
 		let runner = Some(tangram_server::config::Runner {
 			concurrency: parallelism,
 			heartbeat_interval: Duration::from_secs(1),
-			max_depth: 4096,
 			remotes: Vec::new(),
 		});
+		let store = None;
 		let vfs = if cfg!(target_os = "linux") {
 			Some(tangram_server::config::Vfs::default())
 		} else {
@@ -482,15 +499,16 @@ impl Cli {
 		let watchdog = Some(tangram_server::config::Watchdog::default());
 		let mut config = tangram_server::Config {
 			advanced,
-			authentication: None,
+			authentication,
+			cleaner,
 			database,
+			http,
 			indexer,
 			messenger,
 			path,
+			remotes,
 			runner,
-			store: None,
-			url: None,
-			version: None,
+			store,
 			vfs,
 			watchdog,
 		};
@@ -501,15 +519,8 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 		{
-			if let Some(garbage_collection_grace_period) = advanced.garbage_collection_grace_period
-			{
-				config.advanced.garbage_collection_grace_period = garbage_collection_grace_period;
-			}
 			if let Some(process_dequeue_timeout) = advanced.process_dequeue_timeout {
 				config.advanced.process_dequeue_timeout = process_dequeue_timeout;
-			}
-			if let Some(error_trace_options) = advanced.error_trace_options.clone() {
-				config.advanced.error_trace_options = error_trace_options;
 			}
 			if let Some(file_descriptor_semaphore_size) = advanced.file_descriptor_semaphore_size {
 				config.advanced.file_descriptor_semaphore_size = file_descriptor_semaphore_size;
@@ -528,17 +539,20 @@ impl Cli {
 			}
 		}
 
-		// Set the authentication options.
+		// Set the authentication config.
 		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.authentication.as_ref())
 		{
 			None => (),
-			Some(None) => {
+			Some(Either::Left(false)) => {
 				config.authentication = None;
 			},
-			Some(Some(authentication)) => {
+			Some(Either::Left(true)) => {
+				config.authentication = Some(tangram_server::config::Authentication::default());
+			},
+			Some(Either::Right(authentication)) => {
 				let mut authentication_ = config.authentication.unwrap_or_default();
 				if let Some(providers) = authentication.providers.as_ref() {
 					if let Some(github) = providers.github.as_ref() {
@@ -555,7 +569,7 @@ impl Cli {
 			},
 		}
 
-		// Set the database options.
+		// Set the database config.
 		if let Some(database) = self
 			.config
 			.as_ref()
@@ -591,29 +605,47 @@ impl Cli {
 			};
 		}
 
-		// Set the indexer options.
+		// Set the http config.
+		match self.config.as_ref().and_then(|config| config.http.as_ref()) {
+			None => (),
+			Some(Either::Left(false)) => {
+				config.http = None;
+			},
+			Some(Either::Left(true)) => {
+				config.http = Some(tangram_server::config::Http::default());
+			},
+			Some(Either::Right(http)) => {
+				let mut http_ = config.http.unwrap_or_default();
+				if let Some(url) = http.url.clone() {
+					http_.url = Some(url);
+				}
+				config.http = Some(http_);
+			},
+		}
+
+		// Set the indexer config.
 		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.indexer.clone())
 		{
 			None => (),
-			Some(None) => {
+			Some(Either::Left(false)) => {
 				config.indexer = None;
 			},
-			Some(Some(indexer)) => {
+			Some(Either::Left(true)) => {
+				config.indexer = Some(tangram_server::config::Indexer::default());
+			},
+			Some(Either::Right(indexer)) => {
 				let mut indexer_ = config.indexer.unwrap_or_default();
 				if let Some(batch_size) = indexer.batch_size {
 					indexer_.batch_size = batch_size;
-				}
-				if let Some(timeout) = indexer.timeout {
-					indexer_.timeout = timeout;
 				}
 				config.indexer = Some(indexer_);
 			},
 		}
 
-		// Set the messenger options.
+		// Set the messenger config.
 		if let Some(messenger) = self
 			.config
 			.as_ref()
@@ -631,26 +663,26 @@ impl Cli {
 			}
 		}
 
-		// Set the runner options.
+		// Set the runner config.
 		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.runner.clone())
 		{
 			None => (),
-			Some(None) => {
+			Some(Either::Left(false)) => {
 				config.runner = None;
 			},
-			Some(Some(runner)) => {
+			Some(Either::Left(true)) => {
+				config.runner = Some(tangram_server::config::Runner::default());
+			},
+			Some(Either::Right(runner)) => {
 				let mut runner_ = config.runner.unwrap_or_default();
 				if let Some(concurrency) = runner.concurrency {
 					runner_.concurrency = concurrency;
 				}
 				if let Some(heartbeat_interval) = runner.heartbeat_interval {
 					runner_.heartbeat_interval = heartbeat_interval;
-				}
-				if let Some(max_depth) = runner.max_depth {
-					runner_.max_depth = max_depth;
 				}
 				if let Some(remotes) = runner.remotes.clone() {
 					runner_.remotes = remotes;
@@ -659,13 +691,10 @@ impl Cli {
 			},
 		}
 
-		// Set the store options.
+		// Set the store config.
 		match self.config.as_ref().and_then(|config| config.store.clone()) {
 			None => (),
-			Some(None) => {
-				config.store = None;
-			},
-			Some(Some(store)) => {
+			Some(store) => {
 				config.store = Some(match store {
 					config::Store::Memory => tangram_server::config::Store::Memory,
 					config::Store::S3(s3) => {
@@ -681,23 +710,16 @@ impl Cli {
 			},
 		}
 
-		// Set the url.
-		if let Some(url) = self
-			.args
-			.url
-			.clone()
-			.or(self.config.as_ref().and_then(|config| config.url.clone()))
-		{
-			config.url = Some(url);
-		}
-
-		// Set the vfs options.
+		// Set the vfs config.
 		match self.config.as_ref().and_then(|config| config.vfs.clone()) {
 			None => (),
-			Some(None) => {
+			Some(Either::Left(false)) => {
 				config.vfs = None;
 			},
-			Some(Some(vfs)) => {
+			Some(Either::Left(true)) => {
+				config.vfs = Some(tangram_server::config::Vfs::default());
+			},
+			Some(Either::Right(vfs)) => {
 				let mut vfs_ = config.vfs.unwrap_or_default();
 				if let Some(cache_ttl) = vfs.cache_ttl {
 					vfs_.cache_ttl = cache_ttl;
@@ -712,23 +734,26 @@ impl Cli {
 			},
 		}
 
-		// Set the watchdog options.
+		// Set the watchdog config.
 		match self
 			.config
 			.as_ref()
 			.and_then(|config| config.watchdog.clone())
 		{
 			None => (),
-			Some(None) => {
+			Some(Either::Left(false)) => {
 				config.watchdog = None;
 			},
-			Some(Some(watchdog)) => {
+			Some(Either::Left(true)) => {
+				config.watchdog = Some(tangram_server::config::Watchdog::default());
+			},
+			Some(Either::Right(watchdog)) => {
 				let mut watchdog_ = config.watchdog.unwrap_or_default();
+				if let Some(batch_size) = watchdog.batch_size {
+					watchdog_.batch_size = batch_size;
+				}
 				if let Some(interval) = watchdog.interval {
 					watchdog_.interval = interval;
-				}
-				if let Some(limit) = watchdog.limit {
-					watchdog_.limit = limit;
 				}
 				if let Some(timeout) = watchdog.timeout {
 					watchdog_.timeout = timeout;
@@ -882,6 +907,7 @@ impl Cli {
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Health(args) => self.command_health(args).boxed(),
 			Command::Import(args) => self.command_import(args).boxed(),
+			Command::Index(args) => self.command_index(args).boxed(),
 			Command::Init(args) => self.command_package_init(args).boxed(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_process_log(args).boxed(),

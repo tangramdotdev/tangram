@@ -1,28 +1,26 @@
 use crate::Server;
 use futures::{stream::FuturesUnordered, StreamExt as _};
 use num::ToPrimitive as _;
-use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn watchdog_task(&self, options: &crate::config::Watchdog) {
+	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) {
 		loop {
 			let result = self
-				.watchdog_task_inner(options.timeout, options.limit)
+				.watchdog_task_inner(config)
 				.await
 				.inspect_err(|error| tracing::error!(%error, "failed to cancel processes"));
 			if matches!(result, Err(_) | Ok(0)) {
-				tokio::time::sleep(options.interval).await;
+				tokio::time::sleep(config.interval).await;
 			}
 		}
 	}
 
 	pub(crate) async fn watchdog_task_inner(
 		&self,
-		timeout: Duration,
-		limit: usize,
+		config: &crate::config::Watchdog,
 	) -> tg::Result<u64> {
 		// Get a database connection.
 		let connection = self
@@ -43,10 +41,10 @@ impl Server {
 				limit {p}2;
 			"
 		);
-		let time = (time::OffsetDateTime::now_utc() - timeout)
+		let max_heartbeat_at = (time::OffsetDateTime::now_utc() - config.timeout)
 			.format(&Rfc3339)
 			.unwrap();
-		let params = db::params![time, limit];
+		let params = db::params![max_heartbeat_at, config.batch_size];
 		let processes = connection
 			.query_all_value_into::<tg::process::Id>(statement.into(), params)
 			.await

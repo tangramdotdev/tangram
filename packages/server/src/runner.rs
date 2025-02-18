@@ -25,32 +25,21 @@ impl Server {
 					.map_ok(|output| tg::Process::new(output.process, None, None, None, None))
 					.boxed(),
 			)
-			.chain(
-				self.config
-					.runner
-					.as_ref()
-					.unwrap()
-					.remotes
-					.iter()
-					.map(|name| {
-						let server = self.clone();
-						let remote = name.to_owned();
-						async move {
-							let client = server.get_remote_client(remote).await?;
-							let arg = tg::process::dequeue::Arg::default();
-							let output = client.dequeue_process(arg).await?;
-							let process = tg::Process::new(
-								output.process,
-								Some(name.clone()),
-								None,
-								None,
-								None,
-							);
-							Ok::<_, tg::Error>(process)
-						}
-						.boxed()
-					}),
-			);
+			.chain(self.config.runner.iter().flat_map(|config| {
+				config.remotes.iter().map(|name| {
+					let server = self.clone();
+					let remote = name.to_owned();
+					async move {
+						let client = server.get_remote_client(remote).await?;
+						let arg = tg::process::dequeue::Arg::default();
+						let output = client.dequeue_process(arg).await?;
+						let process =
+							tg::Process::new(output.process, Some(name.clone()), None, None, None);
+						Ok::<_, tg::Error>(process)
+					}
+					.boxed()
+				})
+			}));
 			let process = match future::select_ok(futures).await {
 				Ok((process, _)) => process,
 				Err(error) => {
@@ -223,7 +212,7 @@ impl Server {
 	}
 
 	async fn heartbeat_task(&self, process: &tg::Process) -> tg::Result<()> {
-		let interval = self.config.runner.as_ref().unwrap().heartbeat_interval;
+		let config = self.config.runner.clone().unwrap_or_default();
 		loop {
 			let arg = tg::process::heartbeat::Arg {
 				remote: process.remote().cloned(),
@@ -235,7 +224,7 @@ impl Server {
 					break;
 				}
 			}
-			tokio::time::sleep(interval).await;
+			tokio::time::sleep(config.heartbeat_interval).await;
 		}
 		Ok(())
 	}
