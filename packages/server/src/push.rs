@@ -72,12 +72,12 @@ impl Server {
 				while let Some(result) = import_event_stream.next().await {
 					import_event_sender.send(result).await.unwrap();
 				}
-				progress_event_sender
-					.send(Ok(tg::progress::Event::Output(())))
-					.await
-					.unwrap();
 			};
 			futures::join!(export_future, import_future);
+			progress_event_sender
+				.send(Ok(tg::progress::Event::Output(())))
+				.await
+				.unwrap();
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
 		let progress_event_stream =
