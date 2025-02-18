@@ -33,144 +33,65 @@ impl Server {
 
 		let (event_sender, event_receiver) =
 			tokio::sync::mpsc::unbounded_channel::<tg::Result<tg::import::Event>>();
-		let (store_sender, mut store_receiver) =
-			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (complete_sender, complete_receiver) =
-			tokio::sync::mpsc::channel::<tg::export::Item>(256);
-		let (database_object_sender, database_object_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (database_process_sender, database_process_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
+		let (database_object_sender, database_object_receiver) =
+			tokio::sync::mpsc::channel::<tg::export::Item>(256);
+		let (store_sender, store_receiver) = tokio::sync::mpsc::channel::<tg::export::Item>(256);
 
 		// Create the complete task.
 		let complete_task = tokio::spawn({
+			let server = self.clone();
 			let event_sender = event_sender.clone();
-			let server = self.clone();
 			async move {
-				let stream = ReceiverStream::new(complete_receiver);
-				let mut stream = pin!(stream);
-				while let Some(item) = stream.next().await {
-					match item {
-						tg::export::Item::Process { id, .. } => {
-							let tg::process::get::Output { metadata, .. } =
-								server.get_process(&id).await.map_err(|source| {
-									tg::error!(!source, "failed to get the process")
-								})?;
-							// TODO - this event needs to support the whole put output.
-							if metadata.as_ref().is_some_and(|metadata| {
-								metadata.complete
-									|| metadata.commands_complete
-									|| metadata.logs_complete || metadata.outputs_complete
-							}) {
-								let metadata = metadata.unwrap();
-								let event = tg::import::Event::Complete(Either::Left(
-									tg::import::ProcessOutput {
-										id,
-										output: tg::process::put::Output {
-											commands_complete: metadata.commands_complete,
-											complete: metadata.complete,
-											logs_complete: metadata.logs_complete,
-											outputs_complete: metadata.outputs_complete,
-										},
-									},
-								));
-								event_sender.send(Ok(event)).ok();
-							}
-						},
-						tg::export::Item::Object { id, .. } => {
-							let complete = server
-								.try_get_object_metadata_local(&id)
-								.await?
-								.is_some_and(|metadata| metadata.complete);
-							if complete {
-								let event = tg::import::Event::Complete(Either::Right(
-									tg::import::ObjectOutput {
-										id,
-										output: tg::object::put::Output { complete },
-									},
-								));
-								event_sender.send(Ok(event)).ok();
-							}
-						},
-					}
+				let result = server
+					.import_complete_task(complete_receiver, &event_sender)
+					.await;
+				if let Err(error) = result {
+					event_sender.send(Err(error)).ok();
 				}
-				Ok::<_, tg::Error>(())
 			}
 		});
 
-		// Create the database task for objects.
-		let database_objects_task = tokio::spawn({
-			let server = self.clone();
-			async move {
-				let stream = ReceiverStream::new(database_object_receiver);
-				match &server.database {
-					Either::Left(database) => {
-						let mut connection =
-							database.write_connection().await.map_err(|source| {
-								tg::error!(!source, "failed to get a database connection")
-							})?;
-						server
-							.insert_import_objects_sqlite(stream, &mut connection)
-							.await
-							.inspect_err(|error| eprintln!("failed to insert: {error}"))?;
-					},
-					Either::Right(database) => {
-						let mut connection =
-							database.write_connection().await.map_err(|source| {
-								tg::error!(!source, "failed to get a database connection")
-							})?;
-						server
-							.insert_import_objects_postgres(stream, &mut connection)
-							.await?;
-					},
-				}
-				Ok::<_, tg::Error>(())
-			}
-		});
-
-		// Create the database task for processes.
+		// Create the database processes task.
 		let database_processes_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
 			async move {
-				let stream = ReceiverStream::new(database_process_receiver);
-				server
-					.insert_import_processes(stream, &event_sender)
-					.await
-					.inspect_err(|error| eprintln!("failed to put process: {error}"))?;
-				Ok::<_, tg::Error>(())
+				let result = server
+					.import_processes_task(database_process_receiver, &event_sender)
+					.await;
+				if let Err(error) = result {
+					event_sender.send(Err(error)).ok();
+				}
+			}
+		});
+
+		// Create the database objects task.
+		let database_objects_task = tokio::spawn({
+			let server = self.clone();
+			let event_sender = event_sender.clone();
+			async move {
+				let result = server
+					.import_database_objects_task(database_object_receiver)
+					.await;
+				if let Err(error) = result {
+					event_sender.send(Err(error)).ok();
+				}
 			}
 		});
 
 		// Create the store task.
 		let store_task = tokio::spawn({
 			let server = self.clone();
+			let event_sender = event_sender.clone();
 			async move {
-				let mut join_set = JoinSet::new();
-				loop {
-					let Some(item) = store_receiver.recv().await else {
-						break;
-					};
-					if let tg::export::Item::Object { id, bytes, .. } = item {
-						join_set.spawn({
-							let server = server.clone();
-							async move {
-								if let Some(store) = &server.store {
-									store.put(id, bytes).await?;
-								}
-								Ok::<_, tg::Error>(())
-							}
-						});
-						while let Some(result) = join_set.try_join_next() {
-							result
-								.map_err(|source| tg::error!(!source, "a store task panicked"))??;
-						}
-					}
+				let result = server.import_store_task(store_receiver).await;
+				if let Err(error) = result {
+					event_sender.send(Err(error)).ok();
 				}
-				while let Some(result) = join_set.join_next().await {
-					result.map_err(|source| tg::error!(!source, "a store task panicked"))??;
-				}
-				Ok::<_, tg::Error>(())
 			}
 		});
 
@@ -188,18 +109,20 @@ impl Server {
 							return;
 						},
 					};
+					let complete_sender_future = complete_sender.send(item.clone());
 					let database_sender_future = match item {
-						tangram_client::export::Item::Process { .. } => {
+						tg::export::Item::Process { .. } => {
 							database_process_sender.send(item.clone())
 						},
-						tangram_client::export::Item::Object { .. } => {
+						tg::export::Item::Object { .. } => {
 							database_object_sender.send(item.clone())
 						},
 					};
+					let store_sender_future = store_sender.send(item.clone());
 					let result = futures::try_join!(
-						complete_sender.send(item.clone()),
+						complete_sender_future,
 						database_sender_future,
-						store_sender.send(item.clone()),
+						store_sender_future,
 					);
 					if result.is_err() {
 						event_sender
@@ -237,14 +160,150 @@ impl Server {
 		Ok(stream.right_stream())
 	}
 
-	async fn insert_import_objects_sqlite(
+	async fn import_complete_task(
+		&self,
+		complete_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
+		event_sender: &tokio::sync::mpsc::UnboundedSender<tg::Result<tg::import::Event>>,
+	) -> tg::Result<()> {
+		let stream = ReceiverStream::new(complete_receiver);
+		let mut stream = pin!(stream);
+		while let Some(item) = stream.next().await {
+			match item {
+				tg::export::Item::Process { id, .. } => {
+					let tg::process::get::Output { metadata, .. } = self
+						.get_process(&id)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the process"))?;
+					if metadata.as_ref().is_some_and(|metadata| {
+						metadata.complete
+							|| metadata.commands_complete
+							|| metadata.logs_complete
+							|| metadata.outputs_complete
+					}) {
+						let metadata = metadata.unwrap();
+						let output = tg::import::ProcessOutput {
+							id,
+							output: tg::process::put::Output {
+								commands_complete: metadata.commands_complete,
+								complete: metadata.complete,
+								logs_complete: metadata.logs_complete,
+								outputs_complete: metadata.outputs_complete,
+							},
+						};
+						let event = tg::import::Event::Complete(Either::Left(output));
+						event_sender.send(Ok(event)).ok();
+					}
+				},
+				tg::export::Item::Object { id, .. } => {
+					let metadata =
+						self.try_get_object_metadata_local(&id)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to get the object metadata")
+							})?;
+					let complete = metadata.is_some_and(|metadata| metadata.complete);
+					if complete {
+						let output = tg::import::ObjectOutput {
+							id,
+							output: tg::object::put::Output { complete },
+						};
+						let event = tg::import::Event::Complete(Either::Right(output));
+						event_sender.send(Ok(event)).ok();
+					}
+				},
+			}
+		}
+		Ok(())
+	}
+
+	async fn import_processes_task(
+		&self,
+		database_process_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
+		event_sender: &tokio::sync::mpsc::UnboundedSender<tg::Result<tg::import::Event>>,
+	) -> tg::Result<()> {
+		let stream = ReceiverStream::new(database_process_receiver);
+		let mut stream = pin!(stream);
+		while let Some(item) = stream.next().await {
+			// Make sure the item is a process.
+			let tg::export::Item::Process { id, data } = item else {
+				return Err(tg::error!(?item, "expected a process item"));
+			};
+
+			// Put the process.
+			let put_arg = tg::process::put::Arg {
+				cacheable: data.cacheable,
+				checksum: data.checksum,
+				children: data.children,
+				command: data.command.clone(),
+				created_at: data.created_at,
+				cwd: data.cwd,
+				dequeued_at: data.dequeued_at,
+				enqueued_at: data.enqueued_at,
+				env: data.env,
+				error: data.error,
+				finished_at: data.finished_at,
+				host: data.host,
+				id: id.clone(),
+				log: data.log.clone(),
+				network: data.network,
+				output: data.output.clone(),
+				retry: data.retry,
+				started_at: data.started_at,
+				status: data.status,
+			};
+			let put_output = self
+				.put_process(&id, put_arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+
+			if put_output.complete
+				|| put_output.commands_complete
+				|| put_output.logs_complete
+				|| put_output.outputs_complete
+			{
+				let event = tg::import::Event::Complete(Either::Left(tg::import::ProcessOutput {
+					id,
+					output: put_output,
+				}));
+				event_sender.send(Ok(event)).ok();
+			}
+		}
+		Ok(())
+	}
+
+	async fn import_database_objects_task(
+		&self,
+		database_object_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
+	) -> tg::Result<()> {
+		let stream = ReceiverStream::new(database_object_receiver);
+		match &self.database {
+			Either::Left(database) => {
+				let mut connection = database
+					.write_connection()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				self.import_objects_sqlite(stream, &mut connection)
+					.await
+					.inspect_err(|error| eprintln!("failed to insert: {error}"))?;
+			},
+			Either::Right(database) => {
+				let mut connection = database
+					.write_connection()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				self.import_objects_postgres(stream, &mut connection)
+					.await?;
+			},
+		}
+		Ok(())
+	}
+
+	async fn import_objects_sqlite(
 		&self,
 		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
 		connection: &mut db::sqlite::Connection,
 	) -> tg::Result<()> {
-		// Chunk the stream.
-		let stream = stream.chunks(500);
-		// Drain the stream and insert the data, using a single transaction per chunk.
+		let stream = stream.chunks(1024);
 		let mut stream = pin!(stream);
 		while let Some(chunk) = stream.next().await {
 			let chunk: Vec<_> = chunk
@@ -254,8 +313,10 @@ impl Server {
 					let tg::export::Item::Object { id, bytes } = item else {
 						return Err(tg::error!(?item, "expected an object item"));
 					};
+
 					// Get the children.
 					let children = tg::object::Data::deserialize(id.kind(), &bytes)?.children();
+
 					Ok::<_, tg::Error>((id, bytes, children))
 				})
 				.try_collect()?;
@@ -327,7 +388,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn insert_import_objects_postgres(
+	async fn import_objects_postgres(
 		&self,
 		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
 		connection: &mut db::postgres::Connection,
@@ -417,56 +478,32 @@ impl Server {
 		Ok(())
 	}
 
-	async fn insert_import_processes(
+	async fn import_store_task(
 		&self,
-		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
-		event_sender: &tokio::sync::mpsc::UnboundedSender<tg::Result<tg::import::Event>>,
+		mut store_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
 	) -> tg::Result<()> {
-		let mut stream = pin!(stream);
-		while let Some(item) = stream.next().await {
-			// Make sure the item is a process.
-			let tg::export::Item::Process { id, data } = item else {
-				return Err(tg::error!(?item, "expected a process item"));
+		let mut join_set = JoinSet::new();
+		loop {
+			let Some(item) = store_receiver.recv().await else {
+				break;
 			};
-
-			// Put the process.
-			let put_arg = tg::process::put::Arg {
-				cacheable: data.cacheable,
-				checksum: data.checksum,
-				children: data.children,
-				command: data.command.clone(),
-				created_at: data.created_at,
-				cwd: data.cwd,
-				dequeued_at: data.dequeued_at,
-				enqueued_at: data.enqueued_at,
-				env: data.env,
-				error: data.error,
-				finished_at: data.finished_at,
-				host: data.host,
-				id: id.clone(),
-				log: data.log.clone(),
-				network: data.network,
-				output: data.output.clone(),
-				retry: data.retry,
-				started_at: data.started_at,
-				status: data.status,
-			};
-			let put_output = self
-				.put_process(&id, put_arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
-
-			if put_output.complete
-				|| put_output.commands_complete
-				|| put_output.logs_complete
-				|| put_output.outputs_complete
-			{
-				let event = tg::import::Event::Complete(Either::Left(tg::import::ProcessOutput {
-					id,
-					output: put_output,
-				}));
-				event_sender.send(Ok(event)).ok();
+			if let tg::export::Item::Object { id, bytes, .. } = item {
+				join_set.spawn({
+					let server = self.clone();
+					async move {
+						if let Some(store) = &server.store {
+							store.put(id, bytes).await?;
+						}
+						Ok::<_, tg::Error>(())
+					}
+				});
+				while let Some(result) = join_set.try_join_next() {
+					result.map_err(|source| tg::error!(!source, "a store task panicked"))??;
+				}
 			}
+		}
+		while let Some(result) = join_set.join_next().await {
+			result.map_err(|source| tg::error!(!source, "a store task panicked"))??;
 		}
 		Ok(())
 	}

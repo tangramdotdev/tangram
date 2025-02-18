@@ -195,7 +195,8 @@ impl S3 {
 		let request = self
 			.reqwest
 			.request(method, url.as_str())
-			.header("If-Match", "")
+			.header(http::header::CONTENT_LENGTH, bytes.len().to_string())
+			.header(http::header::IF_MATCH, "")
 			.body(bytes)
 			.build()
 			.unwrap();

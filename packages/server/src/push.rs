@@ -54,7 +54,8 @@ impl Server {
 					while let Some(result) = export_event_stream.next().await {
 						match result {
 							Ok(tg::export::Event::Item(item)) => {
-								if let Err(error) = export_item_sender.send(Ok(item)).await {
+								let result = export_item_sender.send(Ok(item)).await;
+								if let Err(error) = result {
 									progress_event_sender
 										.send(Err(tg::error!(!error, "failed to send export item")))
 										.await
@@ -73,10 +74,16 @@ impl Server {
 					}
 				}
 			};
-			let import_future = async move {
-				let mut import_event_stream = pin!(import_event_stream);
-				while let Some(result) = import_event_stream.next().await {
-					import_event_sender.send(result).await.ok();
+			let import_future = {
+				let progress_event_sender = progress_event_sender.clone();
+				async move {
+					let mut import_event_stream = pin!(import_event_stream);
+					while let Some(result) = import_event_stream.next().await {
+						if let Err(error) = &result {
+							progress_event_sender.send(Err(error.clone())).await.ok();
+						}
+						import_event_sender.send(result).await.ok();
+					}
 				}
 			};
 			futures::join!(export_future, import_future);

@@ -172,7 +172,7 @@ unicode-width = "0.2"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { version = "134" }
+v8 = { version = "130" }
 webbrowser = "1"
 webpki-roots = "0.26"
 winnow = "0.7"
