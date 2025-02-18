@@ -70,7 +70,7 @@ impl Server {
 			let import_future = async move {
 				let mut import_event_stream = pin!(import_event_stream);
 				while let Some(result) = import_event_stream.next().await {
-					import_event_sender.send(result).await.unwrap();
+					import_event_sender.send(result).await.ok();
 				}
 			};
 			futures::join!(export_future, import_future);
