@@ -47,19 +47,23 @@ impl Server {
 		let export_item_stream = ReceiverStream::new(export_item_receiver);
 		let import_event_stream = dst.import(import_arg, export_item_stream.boxed()).await?;
 		let task = tokio::spawn(async move {
-			let export_future = async move {
-				let mut export_event_stream = pin!(export_event_stream);
-				while let Some(result) = export_event_stream.next().await {
-					match result {
-						Ok(tg::export::Event::Item(item)) => {
-							export_item_sender.send(Ok(item)).await.unwrap();
-						},
-						Ok(tg::export::Event::Progress(event)) => {
-							progress_event_sender.send(Ok(event)).await.unwrap();
-						},
-						Err(error) => {
-							progress_event_sender.send(Err(error)).await.unwrap();
-						},
+			let export_future = {
+				let progress_event_sender = progress_event_sender.clone();
+				async move {
+					let mut export_event_stream = pin!(export_event_stream);
+					while let Some(result) = export_event_stream.next().await {
+						match result {
+							Ok(tg::export::Event::Item(item)) => {
+								export_item_sender.send(Ok(item)).await.unwrap();
+							},
+							Ok(tg::export::Event::Progress(tg::progress::Event::Output(()))) => (),
+							Ok(tg::export::Event::Progress(event)) => {
+								progress_event_sender.send(Ok(event)).await.unwrap();
+							},
+							Err(error) => {
+								progress_event_sender.send(Err(error)).await.unwrap();
+							},
+						}
 					}
 				}
 			};
@@ -68,6 +72,10 @@ impl Server {
 				while let Some(result) = import_event_stream.next().await {
 					import_event_sender.send(result).await.unwrap();
 				}
+				progress_event_sender
+					.send(Ok(tg::progress::Event::Output(())))
+					.await
+					.unwrap();
 			};
 			futures::join!(export_future, import_future);
 		});
