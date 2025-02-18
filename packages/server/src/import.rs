@@ -57,8 +57,23 @@ impl Server {
 									tg::error!(!source, "failed to get the process")
 								})?;
 							// TODO - this event needs to support the whole put output.
-							if metadata.is_some_and(|metadata| metadata.complete) {
-								let event = tg::import::Event::Complete(Either::Left(id));
+							if metadata.as_ref().is_some_and(|metadata| {
+								metadata.complete
+									|| metadata.commands_complete
+									|| metadata.logs_complete || metadata.outputs_complete
+							}) {
+								let metadata = metadata.unwrap();
+								let event = tg::import::Event::Complete(Either::Left(
+									tg::import::ProcessOutput {
+										id,
+										output: tg::process::put::Output {
+											commands_complete: metadata.commands_complete,
+											complete: metadata.complete,
+											logs_complete: metadata.logs_complete,
+											outputs_complete: metadata.outputs_complete,
+										},
+									},
+								));
 								event_sender.send(Ok(event)).ok();
 							}
 						},
@@ -68,7 +83,12 @@ impl Server {
 								.await?
 								.is_some_and(|metadata| metadata.complete);
 							if complete {
-								let event = tg::import::Event::Complete(Either::Right(id));
+								let event = tg::import::Event::Complete(Either::Right(
+									tg::import::ObjectOutput {
+										id,
+										output: tg::object::put::Output { complete },
+									},
+								));
 								event_sender.send(Ok(event)).ok();
 							}
 						},
@@ -436,8 +456,15 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 
-			if put_output.complete {
-				let event = tg::import::Event::Complete(Either::Left(id));
+			if put_output.complete
+				|| put_output.commands_complete
+				|| put_output.logs_complete
+				|| put_output.outputs_complete
+			{
+				let event = tg::import::Event::Complete(Either::Left(tg::import::ProcessOutput {
+					id,
+					output: put_output,
+				}));
 				event_sender.send(Ok(event)).ok();
 			}
 		}
