@@ -436,7 +436,7 @@ impl Server {
 		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
 		database: &db::postgres::Database,
 	) -> tg::Result<()> {
-		let connection = database
+		let mut connection = database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -457,6 +457,13 @@ impl Server {
 					Ok::<_, tg::Error>((id, bytes, children))
 				})
 				.try_collect()?;
+
+			let transaction = connection
+				.client_mut()
+				.transaction()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
+
 			let statement = indoc!(
 				"
 					with inserted_object_children as (
@@ -468,8 +475,7 @@ impl Server {
 					inserted_objects as (
 						insert into objects (id, bytes, size, touched_at)
 						select id, bytes, size, $6
-						from
-							unnest($1::text[], $4::bytea[], $5::int8[]) as t (id, bytes, size)
+						from unnest($1::text[], $4::bytea[], $5::int8[]) as t (id, bytes, size)
 						on conflict (id) do update set touched_at = $6
 					)
 					select 1;
@@ -505,8 +511,7 @@ impl Server {
 				.map(|(_, bytes, _)| bytes.len().to_i64().unwrap())
 				.collect::<Vec<_>>();
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			connection
-				.client()
+			transaction
 				.execute(
 					statement,
 					&[
@@ -520,6 +525,36 @@ impl Server {
 				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Set reference counts and incomplete children.
+			let statement = indoc!(
+				"
+				 update objects
+					set incomplete_children = (
+						select count(*)
+						from object_children
+						left join objects child_objects on child_objects.id = object_children.child
+						where object_children.object = t.id and (child_objects.complete is null or child_objects.complete = 0)
+					),
+					reference_count = (
+						(select count(*) from object_children where child = t.id) +
+						(select count(*) from process_objects where object = t.id) +
+						(select count(*) from tags where item = t.id)
+					)
+					from unnest($1::text[]) as t (id)
+					where objects.id = t.id;
+				"
+			);
+
+			transaction
+				.execute(statement, &[&ids.as_slice()])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			transaction
+				.commit()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
 		}
 
 		Ok(())
