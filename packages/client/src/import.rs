@@ -25,7 +25,19 @@ pub struct QueryArg {
 
 #[derive(Debug, Clone)]
 pub enum Event {
-	Complete(Either<tg::process::Id, tg::object::Id>),
+	Complete(Either<ProcessOutput, ObjectOutput>),
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ProcessOutput {
+	pub id: tg::process::Id,
+	pub output: tg::process::put::Output,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ObjectOutput {
+	pub id: tg::object::Id,
+	pub output: tg::object::put::Output,
 }
 
 impl tg::Client {

@@ -133,11 +133,6 @@ impl ToV8 for tg::process::State {
 		let value = self.finished_at.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key =
-			v8::String::new_external_onebyte_static(scope, "heartbeat_at".as_bytes()).unwrap();
-		let value = self.heartbeat_at.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
 		let key = v8::String::new_external_onebyte_static(scope, "log".as_bytes()).unwrap();
 		let value = self.log.to_v8(scope)?;
 		object.set(scope, key.into(), value);
@@ -244,13 +239,6 @@ impl FromV8 for tg::process::State {
 		let finished_at = <_>::from_v8(scope, finished_at)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the finished_at field"))?;
 
-		let heartbeat_at =
-			v8::String::new_external_onebyte_static(scope, "heartbeat_at".as_bytes()).unwrap();
-		let heartbeat_at = value.get(scope, heartbeat_at.into()).unwrap();
-		let heartbeat_at = <_>::from_v8(scope, heartbeat_at).map_err(|source| {
-			tg::error!(!source, "failed to deserialize the heartbeat_at field")
-		})?;
-
 		let log = v8::String::new_external_onebyte_static(scope, "log".as_bytes()).unwrap();
 		let log = value.get(scope, log.into()).unwrap();
 		let log = <_>::from_v8(scope, log)
@@ -301,7 +289,6 @@ impl FromV8 for tg::process::State {
 			error,
 			exit,
 			finished_at,
-			heartbeat_at,
 			log,
 			network,
 			output,

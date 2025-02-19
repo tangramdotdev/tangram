@@ -40,6 +40,9 @@ pub struct Arg {
 	pub error: Option<tg::Error>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub exit: Option<tg::process::Exit>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub finished_at: Option<time::OffsetDateTime>,
 

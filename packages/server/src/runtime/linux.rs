@@ -56,12 +56,7 @@ pub struct Runtime {
 
 impl Runtime {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
-		let env = tg::Blob::with_reader(server, ENV)
-			.await
-			.inspect_err(|error| {
-				let trace = error.trace(&server.config.advanced.error_trace_options);
-				eprintln!("{trace}");
-			})?;
+		let env = tg::Blob::with_reader(server, ENV).await?;
 		let env = tg::File::builder(env).executable(true).build();
 		let arg = tg::tag::put::Arg {
 			force: true,

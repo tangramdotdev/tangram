@@ -66,9 +66,6 @@ impl Server {
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			finished_at: Option<time::OffsetDateTime>,
-			#[serde(default)]
-			#[serde_as(as = "Option<Rfc3339>")]
-			heartbeat_at: Option<time::OffsetDateTime>,
 			host: String,
 			id: tg::process::Id,
 			#[serde(default)]
@@ -120,7 +117,6 @@ impl Server {
 					error,
 					exit,
 					finished_at,
-					heartbeat_at,
 					host,
 					id,
 					log,
@@ -159,7 +155,6 @@ impl Server {
 				error: row.error.map(|error| error.0),
 				exit: row.exit.map(|exit| exit.0),
 				finished_at: row.finished_at,
-				heartbeat_at: row.heartbeat_at,
 				host: row.host,
 				id: row.id,
 				log: row.log,
@@ -240,6 +235,7 @@ impl Server {
 						enqueued_at: output.data.enqueued_at,
 						env: output.data.env,
 						error: output.data.error,
+						exit: output.data.exit,
 						finished_at: output.data.finished_at,
 						host: output.data.host.clone(),
 						id: output.data.id.clone(),

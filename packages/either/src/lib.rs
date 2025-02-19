@@ -79,6 +79,20 @@ impl<T> Either<T, T> {
 	}
 }
 
+impl<L, R> Either<&L, &R>
+where
+	L: Clone,
+	R: Clone,
+{
+	#[must_use]
+	pub fn cloned(&self) -> Either<L, R> {
+		match self {
+			Either::Left(inner) => Either::Left((*inner).clone()),
+			Either::Right(inner) => Either::Right((*inner).clone()),
+		}
+	}
+}
+
 impl<L, R> std::fmt::Display for Either<L, R>
 where
 	L: std::fmt::Display,
