@@ -457,28 +457,22 @@ impl Server {
 					Ok::<_, tg::Error>((id, bytes, children))
 				})
 				.try_collect()?;
-			let statement = indoc!(
-				"
-					with inserted_object_children as (
-						insert into object_children (object, child)
-						select ($1::text[])[parent_index], child
-						from unnest($2::text[], $3::int8[]) as c (child, parent_index)
-						on conflict (object, child) do nothing
-					),
-					inserted_objects as (
-						insert into objects (id, bytes, size, touched_at)
-						select id, bytes, size, $6
-						from
-							unnest($1::text[], $4::bytea[], $5::int8[]) as t (id, bytes, size)
-						on conflict (id) do update set touched_at = $6
-					)
-					select 1;
-				"
-			);
+
 			let ids = chunk
 				.iter()
 				.map(|(id, _, _)| id.to_string())
 				.collect::<Vec<_>>();
+
+			// First statement: Insert object children (now before objects)
+			let insert_children_stmt = indoc!(
+				"
+          insert into object_children (object, child)
+          select ($1::text[])[parent_index], child
+          from unnest($2::text[], $3::int8[]) as c (child, parent_index)
+          on conflict (object, child) do nothing
+        "
+			);
+
 			let children = chunk
 				.iter()
 				.flat_map(|(_, _, children)| children.iter().map(ToString::to_string))
@@ -490,6 +484,33 @@ impl Server {
 					std::iter::repeat_n((index + 1).to_i64().unwrap(), children.len())
 				})
 				.collect::<Vec<_>>();
+
+			connection
+				.client()
+				.execute(
+					insert_children_stmt,
+					&[
+						&ids.as_slice(),
+						&children.as_slice(),
+						&parent_indices.as_slice(),
+					],
+				)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to execute insert children statement")
+				})?;
+
+			// Second statement: Insert objects
+			let insert_objects_stmt = indoc!(
+				"
+            insert into objects (id, bytes, size, touched_at)
+            select id, bytes, size, $4
+            from
+                unnest($1::text[], $2::bytea[], $3::int8[]) as t (id, bytes, size)
+            on conflict (id) do update set touched_at = $4
+            "
+			);
+
 			let bytes = chunk
 				.iter()
 				.map(|(_, bytes, _)| {
@@ -505,21 +526,82 @@ impl Server {
 				.map(|(_, bytes, _)| bytes.len().to_i64().unwrap())
 				.collect::<Vec<_>>();
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+
 			connection
 				.client()
 				.execute(
-					statement,
-					&[
-						&ids.as_slice(),
-						&children.as_slice(),
-						&parent_indices.as_slice(),
-						&bytes.as_slice(),
-						&size.as_slice(),
-						&now,
-					],
+					insert_objects_stmt,
+					&[&ids.as_slice(), &bytes.as_slice(), &size.as_slice(), &now],
 				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| {
+					tg::error!(!source, "failed to execute insert objects statement")
+				})?;
+
+			// let statement = indoc!(
+			// 	"
+			// 		with inserted_object_children as (
+			// 			insert into object_children (object, child)
+			// 			select ($1::text[])[parent_index], child
+			// 			from unnest($2::text[], $3::int8[]) as c (child, parent_index)
+			// 			on conflict (object, child) do nothing
+			// 			returning 1
+			// 		),
+			// 		inserted_objects as (
+			// 			insert into objects (id, bytes, size, touched_at)
+			// 			select id, bytes, size, $6
+			// 			from
+			// 				unnest($1::text[], $4::bytea[], $5::int8[]) as t (id, bytes, size)
+			// 			on conflict (id) do update set touched_at = $6
+			// 		)
+			// 		select 1;
+			// 	"
+			// );
+			// let ids = chunk
+			// 	.iter()
+			// 	.map(|(id, _, _)| id.to_string())
+			// 	.collect::<Vec<_>>();
+			// let children = chunk
+			// 	.iter()
+			// 	.flat_map(|(_, _, children)| children.iter().map(ToString::to_string))
+			// 	.collect::<Vec<_>>();
+			// let parent_indices = chunk
+			// 	.iter()
+			// 	.enumerate()
+			// 	.flat_map(|(index, (_, _, children))| {
+			// 		std::iter::repeat_n((index + 1).to_i64().unwrap(), children.len())
+			// 	})
+			// 	.collect::<Vec<_>>();
+			// let bytes = chunk
+			// 	.iter()
+			// 	.map(|(_, bytes, _)| {
+			// 		if self.store.is_some() {
+			// 			None
+			// 		} else {
+			// 			Some(bytes.as_ref())
+			// 		}
+			// 	})
+			// 	.collect::<Vec<_>>();
+			// let size = chunk
+			// 	.iter()
+			// 	.map(|(_, bytes, _)| bytes.len().to_i64().unwrap())
+			// 	.collect::<Vec<_>>();
+			// let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+			// connection
+			// 	.client()
+			// 	.execute(
+			// 		statement,
+			// 		&[
+			// 			&ids.as_slice(),
+			// 			&children.as_slice(),
+			// 			&parent_indices.as_slice(),
+			// 			&bytes.as_slice(),
+			// 			&size.as_slice(),
+			// 			&now,
+			// 		],
+			// 	)
+			// 	.await
+			// 	.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		Ok(())
