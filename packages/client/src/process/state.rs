@@ -15,7 +15,6 @@ pub struct State {
 	pub error: Option<tg::Error>,
 	pub exit: Option<tg::process::Exit>,
 	pub finished_at: Option<time::OffsetDateTime>,
-	pub heartbeat_at: Option<time::OffsetDateTime>,
 	pub log: Option<tg::Blob>,
 	pub network: bool,
 	pub output: Option<tg::Value>,
@@ -46,7 +45,6 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let error = value.error;
 		let exit = value.exit;
 		let finished_at = value.finished_at;
-		let heartbeat_at = value.heartbeat_at;
 		let log = value.log.map(tg::Blob::with_id);
 		let network = value.network;
 		let output = value.output.map(tg::Value::try_from).transpose()?;
@@ -67,7 +65,6 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			error,
 			exit,
 			finished_at,
-			heartbeat_at,
 			log,
 			network,
 			output,

@@ -153,6 +153,7 @@ impl Server {
 			enqueued_at: data.enqueued_at,
 			env: data.env,
 			error: data.error,
+			exit: data.exit,
 			finished_at: data.finished_at,
 			host: data.host,
 			id: process.clone(),

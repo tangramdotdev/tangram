@@ -121,7 +121,11 @@ impl Connection {
 		&self.cache
 	}
 
-	pub fn client(&mut self) -> &mut postgres::Client {
+	pub fn client(&self) -> &postgres::Client {
+		&self.client
+	}
+
+	pub fn client_mut(&mut self) -> &mut postgres::Client {
 		&mut self.client
 	}
 }
