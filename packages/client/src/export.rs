@@ -120,7 +120,7 @@ impl tg::Client {
 	pub async fn export(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(QueryArg::from(arg)).unwrap();
@@ -182,21 +182,14 @@ impl Event {
 
 	pub async fn to_writer(&self, mut writer: impl AsyncWrite + Unpin + Send) -> tg::Result<()> {
 		match self {
-			Event::Item(item) => {
+			Event::Complete(complete) => {
 				writer
 					.write_uvarint(0)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the tag"))?;
-				item.to_writer(writer).await?;
-			},
 
-			Event::Progress(progress) => {
-				writer
-					.write_uvarint(1)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to write the tag"))?;
-				let bytes = serde_json::to_vec(progress)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+				let bytes = serde_json::to_vec(complete)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				writer
 					.write_uvarint(bytes.len().to_u64().unwrap())
 					.await
@@ -205,6 +198,14 @@ impl Event {
 					.write_all(&bytes)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the event"))?;
+			},
+
+			Event::Item(item) => {
+				writer
+					.write_uvarint(1)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the tag"))?;
+				item.to_writer(writer).await?;
 			},
 		}
 		Ok(())
@@ -224,13 +225,6 @@ impl Event {
 
 		let event = match tag {
 			0 => {
-				let item = Item::from_reader(reader)
-					.await?
-					.ok_or_else(|| tg::error!("expected an item"))?;
-				Event::Item(item)
-			},
-
-			1 => {
 				let len = reader
 					.read_uvarint()
 					.await
@@ -244,7 +238,14 @@ impl Event {
 					.map_err(|source| tg::error!(!source, "failed to read the event"))?;
 				let event = serde_json::from_slice(&bytes)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Event::Progress(event)
+				Event::Complete(event)
+			},
+
+			1 => {
+				let item = Item::from_reader(reader)
+					.await?
+					.ok_or_else(|| tg::error!("expected an item"))?;
+				Event::Item(item)
 			},
 
 			_ => {
