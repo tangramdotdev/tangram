@@ -56,8 +56,52 @@ pub struct QueryArg {
 
 #[derive(Debug, Clone)]
 pub enum Event {
+	Complete(tg::export::Complete),
 	Item(tg::export::Item),
-	Progress(tg::progress::Event<()>),
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum Complete {
+	Process(ProcessComplete),
+	Object(ObjectComplete),
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ProcessComplete {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub commands_count: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub commands_weight: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u64>,
+
+	pub id: tg::process::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub logs_count: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub logs_weight: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub outputs_count: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub outputs_weight: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ObjectComplete {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u64>,
+
+	pub id: tg::object::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub weight: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

@@ -1,4 +1,7 @@
-use crate::{self as tg, util::serde::CommaSeparatedString};
+use crate::{
+	self as tg,
+	util::serde::{is_false, CommaSeparatedString},
+};
 use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
 use serde_with::serde_as;
 use std::pin::Pin;
@@ -25,17 +28,44 @@ pub struct QueryArg {
 
 #[derive(Debug, Clone)]
 pub enum Event {
-	Complete(Either<ProcessOutput, ObjectOutput>),
+	Complete(tg::import::Complete),
+	Progress(tg::import::Progress),
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct ProcessOutput {
+#[serde(untagged)]
+pub enum Complete {
+	Process(ProcessComplete),
+	Object(ObjectComplete),
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ProcessComplete {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub commands_complete: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub complete: bool,
+
 	pub id: tg::process::Id,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub logs_complete: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub outputs_complete: bool,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct ObjectOutput {
+pub struct ObjectComplete {
 	pub id: tg::object::Id,
+}
+
+#[derive(Debug, Clone)]
+struct Progress {
+	processes: u64,
+	objects: u64,
+	bytes: u64,
 }
 
 impl tg::Client {

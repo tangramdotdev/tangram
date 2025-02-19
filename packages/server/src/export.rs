@@ -17,7 +17,7 @@ use std::{
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
-use tangram_http::{request::Ext, Body};
+use tangram_http::{request::Ext as _, Body};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
