@@ -175,7 +175,6 @@ impl Server {
 			.collect::<FuturesUnordered<_>>()
 			.collect::<()>()
 			.await;
-		tracing::debug!("exporter exhausted the stream");
 
 		Ok(())
 	}

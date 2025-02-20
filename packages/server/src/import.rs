@@ -228,7 +228,6 @@ impl Server {
 						return;
 					}
 				}
-				tracing::debug!("importer exhausted the stream");
 
 				// Close the channels
 				drop(export_complete_sender);
