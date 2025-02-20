@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{future, stream, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{stream, Stream, StreamExt as _, TryStreamExt as _};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools;
 use num::ToPrimitive as _;
@@ -14,7 +14,7 @@ use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{request::Ext, Body};
 use time::format_description::well_known::Rfc3339;
-use tokio::{sync::oneshot, task::JoinSet};
+use tokio::task::JoinSet;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::task::AbortOnDropHandle;
 
@@ -42,7 +42,6 @@ impl Server {
 			return Ok(stream.left_stream());
 		}
 
-		let (progress_shutdown_sender, progress_shutdown_receiver) = oneshot::channel();
 		let progress = Arc::new(Progress::new(arg.items.iter().any(Either::is_left)));
 
 		let (event_sender, event_receiver) =
@@ -183,9 +182,6 @@ impl Server {
 				drop(database_process_sender);
 				drop(store_sender);
 
-				// End the progress stream.
-				progress_shutdown_sender.send(()).unwrap();
-
 				// Join the database and store tasks.
 				let result =
 					futures::try_join!(database_processes_task, database_objects_task, store_task);
@@ -205,7 +201,7 @@ impl Server {
 		});
 
 		// Create the stream.
-		let progress_stream = Self::import_progress_stream(&progress, progress_shutdown_receiver);
+		let progress_stream = progress.stream();
 		let event_stream = ReceiverStream::new(event_receiver);
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = stream::select(
@@ -341,29 +337,6 @@ impl Server {
 			},
 		}
 		Ok(())
-	}
-
-	fn import_progress_stream(
-		progress_totals: &Arc<Progress>,
-		shutdown_receiver: oneshot::Receiver<()>,
-	) -> impl Stream<Item = tg::Result<tg::import::Progress>> {
-		let progress_totals = progress_totals.clone();
-		let receiver =
-			futures::stream::once(shutdown_receiver).map(|_| Ok::<_, tg::Error>(Either::Right(())));
-		let interval = Duration::from_millis(100);
-		let interval = tokio::time::interval(interval);
-		let updates = IntervalStream::new(interval)
-			.skip(1)
-			.map(move |_| Ok(Either::Left(progress_totals.get_import_progress())));
-		stream::select(receiver, updates)
-			.take_while(|event| future::ready(matches!(event, Ok(Either::Left(_)) | Err(_))))
-			.filter_map(|event| {
-				future::ready(match event {
-					Ok(Either::Left(progress)) => Some(Ok(progress)),
-					Ok(Either::Right(())) => None,
-					Err(error) => Some(Err(error)),
-				})
-			})
 	}
 
 	async fn import_objects_sqlite(
@@ -820,5 +793,14 @@ impl Progress {
 				|current| Some(current.checked_add(bytes).expect("counter overflow")),
 			)
 			.unwrap();
+	}
+
+	fn stream(self: Arc<Self>) -> impl Stream<Item = tg::Result<tg::import::Progress>> {
+		let progress = self.clone();
+		let interval = Duration::from_millis(100);
+		let interval = tokio::time::interval(interval);
+		IntervalStream::new(interval)
+			.skip(1)
+			.map(move |_| Ok(progress.get_import_progress()))
 	}
 }
