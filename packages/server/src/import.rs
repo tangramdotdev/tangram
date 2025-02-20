@@ -201,18 +201,15 @@ impl Server {
 		});
 
 		// Create the stream.
-		let progress_stream = progress.stream();
 		let event_stream = ReceiverStream::new(event_receiver);
+		let progress_stream = progress.stream().map_ok(tg::import::Event::Progress);
 		let abort_handle = AbortOnDropHandle::new(task);
-		let stream = stream::select(
-			event_stream,
-			progress_stream.map_ok(tg::import::Event::Progress),
-		)
-		.attach(abort_handle)
-		.attach(complete_task_abort_handle)
-		.attach(database_processes_task_abort_handle)
-		.attach(database_objects_task_abort_handle)
-		.attach(store_task_abort_handle);
+		let stream = stream::select(event_stream, progress_stream)
+			.attach(abort_handle)
+			.attach(complete_task_abort_handle)
+			.attach(database_processes_task_abort_handle)
+			.attach(database_objects_task_abort_handle)
+			.attach(store_task_abort_handle);
 
 		Ok(stream.right_stream())
 	}

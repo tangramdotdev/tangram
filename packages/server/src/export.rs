@@ -82,7 +82,14 @@ impl Server {
 					.catch_unwind()
 					.await;
 				match result {
-					Ok(Ok(())) => {},
+					Ok(Ok(())) => {
+						event_sender
+							.send(Ok(tg::export::Event::End))
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to send the export end event")
+							})?;
+					},
 					Ok(Err(error)) => {
 						event_sender.send(Err(error)).await.map_err(|source| {
 							tg::error!(!source, "failed to send the export error")
