@@ -1,7 +1,9 @@
-use crate::Server;
+use crate::{utils::serde::is_false, Server};
 use futures::{stream::FuturesUnordered, Stream, StreamExt as _};
+use indoc::formatdoc;
 use std::{pin::pin, time::Duration};
 use tangram_client as tg;
+use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::stream::Ext;
 use tangram_http::{request::Ext as _, Body};
@@ -29,42 +31,44 @@ impl Server {
 		D: tg::Handle,
 	{
 		// Create the progress handle and add the indicators.
-		// TODO - only add processes if there are processes
-		let progress = crate::progress::Handle::new();
-		progress.start(
-			"processes".to_owned(),
-			"processes".to_owned(),
-			tg::progress::IndicatorFormat::Normal,
-			Some(0),
-			None,
-		);
-		progress.start(
-			"objects".to_owned(),
-			"objects".to_owned(),
-			tg::progress::IndicatorFormat::Normal,
-			Some(0),
-			None,
-		);
-		progress.start(
-			"bytes".to_owned(),
-			"bytes".to_owned(),
-			tg::progress::IndicatorFormat::Bytes,
-			Some(0),
-			None,
-		);
+		// let progress = crate::progress::Handle::new();
+		// progress.start(
+		// 	"processes".to_owned(),
+		// 	"processes".to_owned(),
+		// 	tg::progress::IndicatorFormat::Normal,
+		// 	Some(0),
+		// 	None,
+		// );
+		// progress.start(
+		// 	"objects".to_owned(),
+		// 	"objects".to_owned(),
+		// 	tg::progress::IndicatorFormat::Normal,
+		// 	Some(0),
+		// 	None,
+		// );
+		// progress.start(
+		// 	"bytes".to_owned(),
+		// 	"bytes".to_owned(),
+		// 	tg::progress::IndicatorFormat::Bytes,
+		// 	Some(0),
+		// 	None,
+		// );
 		// Spawn a task to set the indicator totals as soon as they are ready.
 		let indicator_total_task = tokio::spawn({
 			let server = src.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
 			async move {
-				Self::set_push_progress_indicator_totals(&server, &arg, &progress).await;
+				// FIXME - where does this belong?
+				// server
+				// 	.set_push_progress_indicator_totals(&arg, &progress)
+				// 	.await;
 			}
 		});
 		let indicator_total_task_abort_handle = AbortOnDropHandle::new(indicator_total_task);
 
 		let (export_item_sender, export_item_receiver) = tokio::sync::mpsc::channel(1024);
-		let (progress_event_sender, progress_event_receiver) = tokio::sync::mpsc::channel(1024); // FIXME Do I still need this?
+		let (progress_event_sender, progress_event_receiver) = tokio::sync::mpsc::channel(1024);
 		let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
 		let export_arg = tg::export::Arg {
 			commands: arg.commands,
@@ -101,7 +105,7 @@ impl Server {
 							},
 							Ok(tg::export::Event::Complete(complete)) => {
 								// TODO - send a progress event noting what the exporter skipped.
-								// progress_event_sender.send(Ok(event)).await.ok();
+								progress_event_sender.send(Ok(event)).await.ok();
 							},
 							Err(error) => {
 								progress_event_sender.send(Err(error)).await.ok();
@@ -138,55 +142,54 @@ impl Server {
 	}
 
 	async fn set_push_progress_indicator_totals(
-		server: &impl tg::Handle,
+		self,
 		arg: &tg::push::Arg,
 		progress: &crate::progress::Handle<()>,
 	) {
-		let mut metadata_futures = arg
+		let mut item_data_futures = arg
 			.items
 			.iter()
 			.map(|item| {
-				let server = server.clone();
+				let server = self.clone();
 				async move {
 					loop {
 						match item {
 							tangram_either::Either::Left(ref process) => {
-								// let tg::process::get::Output { metadata, .. } =
-								// 	server.get_process(process).await.map_err(|source| {
-								// 		tg::error!(!source, "failed to get the process")
-								// 	})?;
-								// let metadata = metadata
-								// 	.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
-								let metadata: tg::process::Metadata = todo!();
-								let mut complete = metadata.count.is_some();
+								let item_data = server
+									.get_push_item_data(Either::Left(process))
+									.await
+									.map_err(|source| {
+										tg::error!(!source, "failed to get item data")
+									})?;
+								let mut complete = item_data.count.is_some();
 								if arg.commands {
 									complete = complete
-										&& metadata.commands_count.is_some()
-										&& metadata.commands_weight.is_some();
+										&& item_data.commands_count.is_some()
+										&& item_data.commands_weight.is_some();
 								}
 								if arg.logs {
 									complete = complete
-										&& metadata.logs_count.is_some()
-										&& metadata.logs_weight.is_some();
+										&& item_data.logs_count.is_some()
+										&& item_data.logs_weight.is_some();
 								}
 								if arg.outputs {
 									complete = complete
-										&& metadata.outputs_count.is_some()
-										&& metadata.outputs_weight.is_some();
+										&& item_data.outputs_count.is_some()
+										&& item_data.outputs_weight.is_some();
 								}
 								if complete {
-									break Ok::<_, tg::Error>(Either::Left(metadata));
+									break Ok::<_, tg::Error>(Either::Left(item_data));
 								}
 							},
-							tangram_either::Either::Right(ref id) => {
-								// let metadata = server
-								// 	.try_get_object_metadata_local(id)
-								// 	.await?
-								// 	.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
-								let metadata: tg::object::Metadata = todo!();
-
-								if metadata.count.is_some() && metadata.weight.is_some() {
-									break Ok::<_, tg::Error>(Either::Right(metadata));
+							tangram_either::Either::Right(ref object) => {
+								let item_data = server
+									.get_push_item_data(Either::Right(object))
+									.await
+									.map_err(|source| {
+										tg::error!(!source, "failed to get item data")
+									})?;
+								if item_data.count.is_some() && item_data.weight.is_some() {
+									break Ok::<_, tg::Error>(Either::Right(item_data));
 								}
 							},
 						}
@@ -198,7 +201,7 @@ impl Server {
 		let mut total_processes: u64 = 0;
 		let mut total_objects: u64 = 0;
 		let mut total_bytes: u64 = 0;
-		while let Some(Ok(metadata)) = metadata_futures.next().await {
+		while let Some(Ok(metadata)) = item_data_futures.next().await {
 			match metadata {
 				Either::Left(metadata) => {
 					if let Some(count) = metadata.count {
@@ -245,6 +248,83 @@ impl Server {
 			}
 		}
 	}
+
+	async fn get_push_item_data(
+		&self,
+		id: Either<&tg::process::Id, &tg::object::Id>,
+	) -> tg::Result<ItemData> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the object metadata.
+		let p = connection.p();
+		let statement = match id {
+			Either::Left(_) => {
+				formatdoc!(
+					"
+						select id, count, complete, commands_count, commands_complete, commands_weight, logs_count, logs_complete, logs_weight, outputs_count, objects_complete, outputs_weight
+						from processes
+						where id = {p}1;
+					",
+				)
+			},
+			Either::Right(_) => {
+				formatdoc!(
+					"
+						select id, count, complete, weight
+						from objects
+						where id = {p}1;
+					"
+				)
+			},
+		};
+		let params = db::params![id];
+		let Some(output) = connection
+			.query_optional_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
+			return Err(tg::error!("could not find process"));
+		};
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
+	}
+}
+
+/// Combined object to aggregate totals.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+struct ItemData {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	commands_count: Option<u64>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	commands_complete: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	commands_weight: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	count: Option<u64>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	complete: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	weight: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	logs_count: Option<u64>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	logs_complete: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	logs_weight: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	outputs_count: Option<u64>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	outputs_complete: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	outputs_weight: Option<u64>,
 }
 
 impl Server {

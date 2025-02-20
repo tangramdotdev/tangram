@@ -44,18 +44,32 @@ impl Progress {
 
 	fn increment_processes(&self) {
 		self.processes
-			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+			.fetch_update(
+				std::sync::atomic::Ordering::SeqCst,
+				std::sync::atomic::Ordering::SeqCst,
+				|current| Some(current.checked_add(1).expect("counter overflow")),
+			)
+			.unwrap();
 	}
 
 	fn increment_objects(&self, num_objects: u64) {
 		self.objects
-			.fetch_add(num_objects, std::sync::atomic::Ordering::SeqCst);
+			.fetch_update(
+				std::sync::atomic::Ordering::SeqCst,
+				std::sync::atomic::Ordering::SeqCst,
+				|current| Some(current.checked_add(num_objects).expect("counter overflow")),
+			)
+			.unwrap();
 	}
 
 	fn increment_bytes(&self, bytes: u64) {
-		// FIXME overflow?
-		self.objects
-			.fetch_add(bytes, std::sync::atomic::Ordering::SeqCst);
+		self.bytes
+			.fetch_update(
+				std::sync::atomic::Ordering::SeqCst,
+				std::sync::atomic::Ordering::SeqCst,
+				|current| Some(current.checked_add(bytes).expect("counter overflow")),
+			)
+			.unwrap();
 	}
 }
 
