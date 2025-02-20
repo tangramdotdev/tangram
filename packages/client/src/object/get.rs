@@ -2,12 +2,9 @@ use crate as tg;
 use bytes::Bytes;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
-pub const METADATA_HEADER: &str = "x-tg-object-metadata";
-
 #[derive(Clone, Debug)]
 pub struct Output {
 	pub bytes: Bytes,
-	pub metadata: Option<tg::object::Metadata>,
 }
 
 impl tg::Client {
@@ -30,11 +27,8 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let metadata = response
-			.header_json(tg::object::get::METADATA_HEADER)
-			.transpose()?;
 		let bytes = response.bytes().await?;
-		let output = tg::object::get::Output { bytes, metadata };
+		let output = tg::object::get::Output { bytes };
 		Ok(Some(output))
 	}
 }

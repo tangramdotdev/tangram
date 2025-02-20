@@ -1,4 +1,7 @@
-use super::{input, object};
+use super::{
+	input,
+	object::{self, Metadata},
+};
 use crate::{temp::Temp, Server};
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt as _};
 use indoc::indoc;
@@ -25,7 +28,7 @@ pub struct Node {
 	pub input: Option<usize>,
 	pub id: tg::artifact::Id,
 	pub data: tg::artifact::Data,
-	pub metadata: tg::object::Metadata,
+	pub metadata: Metadata,
 	pub edges: Vec<Edge>,
 }
 
@@ -710,7 +713,7 @@ fn write_object_sqlite(
 	transaction: &mut rusqlite::Transaction<'_>,
 	id: &tg::object::Id,
 	data: &tg::object::Data,
-	metadata: &tg::object::Metadata,
+	metadata: &Metadata,
 ) -> tg::Result<()> {
 	let statement = indoc!(
 		"
@@ -762,7 +765,7 @@ async fn write_object_postgres(
 	transaction: &db::postgres::Transaction<'_>,
 	id: &tg::object::Id,
 	data: &tg::object::Data,
-	metadata: &tg::object::Metadata,
+	metadata: &Metadata,
 ) -> tg::Result<()> {
 	let statement = indoc!(
 		"

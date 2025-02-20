@@ -5,7 +5,6 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 	Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize,
 )]
 pub struct Metadata {
-	pub complete: bool,
 	pub count: Option<u64>,
 	pub depth: Option<u64>,
 	pub weight: Option<u64>,

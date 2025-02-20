@@ -1,5 +1,6 @@
 use super::{input, unify};
 use crate::Server;
+use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
 	collections::{BTreeMap, BTreeSet},
@@ -7,12 +8,13 @@ use std::{
 	path::{Path, PathBuf},
 	sync::Arc,
 };
-use tangram_client::{self as tg, handle::Ext};
+use tangram_client as tg;
+use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 
 #[derive(Debug)]
 pub struct Graph {
-	pub graphs: BTreeMap<tg::graph::Id, (tg::graph::Data, tg::object::Metadata)>,
+	pub graphs: BTreeMap<tg::graph::Id, (tg::graph::Data, Metadata)>,
 	pub indices: BTreeMap<unify::Id, usize>,
 	pub nodes: Vec<Node>,
 	pub paths: BTreeMap<PathBuf, usize>,
@@ -24,7 +26,7 @@ pub struct Node {
 	pub data: Option<tg::artifact::Data>,
 	pub id: Option<tg::object::Id>,
 	pub edges: Vec<Edge>,
-	pub metadata: Option<tg::object::Metadata>,
+	pub metadata: Option<Metadata>,
 	pub unify: unify::Node,
 }
 
@@ -35,6 +37,14 @@ pub struct Edge {
 	pub reference: tg::Reference,
 	pub subpath: Option<PathBuf>,
 	pub tag: Option<tg::Tag>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct Metadata {
+	pub complete: bool,
+	pub count: Option<u64>,
+	pub depth: Option<u64>,
+	pub weight: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -161,7 +171,12 @@ impl Server {
 					.clone();
 				graph.nodes[scc[0]].id.replace(id.clone());
 				graph.objects.insert(id.clone(), scc[0]);
-				if let Ok(metadata) = self.get_object_metadata(&id).await {
+				if let Ok(metadata) = self
+					.try_get_object_complete_metadata_local(&id)
+					.await
+					.and_then(|option| {
+						option.ok_or_else(|| tg::error!("expected the object to exist"))
+					}) {
 					graph.nodes[scc[0]].metadata.replace(metadata);
 				}
 				continue;
@@ -270,7 +285,7 @@ impl Server {
 		graph: &mut Graph,
 		node: usize,
 		indices: &BTreeMap<usize, usize>,
-		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
+		file_metadata: &mut BTreeMap<usize, Metadata>,
 	) -> tg::Result<tg::graph::data::Node> {
 		if graph.nodes[node].unify.object.is_left() {
 			self.create_graph_node_data_from_input(input, graph, node, indices, file_metadata)
@@ -287,7 +302,7 @@ impl Server {
 		graph: &mut Graph,
 		index: usize,
 		indices: &BTreeMap<usize, usize>,
-		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
+		file_metadata: &mut BTreeMap<usize, Metadata>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Get the input metadata, or skip if the node is an object.
 		let input_index = graph.nodes[index].unify.object.clone().unwrap_left();
@@ -524,7 +539,7 @@ impl Server {
 		index: usize,
 		metadata: std::fs::Metadata,
 		edges: Vec<RemappedEdge>,
-		file_metadata: &mut BTreeMap<usize, tg::object::Metadata>,
+		file_metadata: &mut BTreeMap<usize, Metadata>,
 	) -> tg::Result<tg::graph::data::File> {
 		// Compute the dependencies, which will be shared in all cases.
 		let dependencies = edges
@@ -551,9 +566,11 @@ impl Server {
 		drop(permit);
 
 		// For files only, we need to keep track of the count, depth, and weight when reading the file.
-		let file_metadata_ = tg::object::Metadata {
+		let file_metadata_ = Metadata {
 			complete: false,
-			..blob_metadata
+			count: blob_metadata.count,
+			depth: blob_metadata.depth,
+			weight: blob_metadata.weight,
 		};
 		file_metadata.insert(index, file_metadata_);
 
@@ -624,8 +641,8 @@ impl Server {
 		graph: &Graph,
 		data: &tg::graph::Data,
 		scc: &[usize],
-		file_metadata: &BTreeMap<usize, tg::object::Metadata>,
-	) -> tg::object::Metadata {
+		file_metadata: &BTreeMap<usize, Metadata>,
+	) -> Metadata {
 		let mut complete = true;
 		let mut count = 1;
 		let mut depth = 1;
@@ -689,7 +706,7 @@ impl Server {
 			}
 		}
 
-		tg::object::Metadata {
+		Metadata {
 			complete,
 			count: Some(count),
 			depth: Some(depth),
@@ -703,8 +720,8 @@ impl Server {
 		graph: &Graph,
 		index: usize,
 		data: &tg::artifact::Data,
-		file_metadata: &BTreeMap<usize, tg::object::Metadata>,
-	) -> tg::object::Metadata {
+		file_metadata: &BTreeMap<usize, Metadata>,
+	) -> Metadata {
 		if let Some(metadata) = graph.nodes[index].metadata.clone() {
 			return metadata;
 		}
@@ -761,7 +778,7 @@ impl Server {
 						if let Some(data) = graph.nodes[edge.index].data.as_ref() {
 							self.compute_object_metadata(graph, edge.index, data, file_metadata)
 						} else {
-							tg::object::Metadata {
+							Metadata {
 								complete: false,
 								count: None,
 								depth: None,
@@ -788,12 +805,44 @@ impl Server {
 				}
 			},
 		}
-		tg::object::Metadata {
+		Metadata {
 			complete,
 			count,
 			depth,
 			weight,
 		}
+	}
+
+	pub(crate) async fn try_get_object_complete_metadata_local(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<Metadata>> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the object metadata.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select complete, count, depth, weight
+				from objects
+				where id = {p}1;
+			",
+		);
+		let params = db::params![id];
+		let output = connection
+			.query_optional_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
 	}
 }
 
