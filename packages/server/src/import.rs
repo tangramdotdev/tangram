@@ -368,6 +368,7 @@ impl Server {
 
 			connection
 				.with({
+					let server = self.clone();
 					let progress = progress.clone();
 					move |connection| {
 						// Begin a transaction for the batch.
@@ -418,7 +419,11 @@ impl Server {
 
 							// Insert the object.
 							let size = bytes.len().to_u64().unwrap();
-							let bytes = bytes.as_ref();
+							let bytes = if server.store.is_none() {
+								Some(bytes.as_ref())
+							} else {
+								None
+							};
 							let params = rusqlite::params![&id.to_string(), bytes, size, now];
 							objects_statement.execute(params).map_err(|source| {
 								tg::error!(!source, "failed to execute the statement")
@@ -514,10 +519,10 @@ impl Server {
 			let bytes = chunk
 				.iter()
 				.map(|(_, bytes, _)| {
-					if self.store.is_some() {
-						None
-					} else {
+					if self.store.is_none() {
 						Some(bytes.as_ref())
+					} else {
+						None
 					}
 				})
 				.collect::<Vec<_>>();
