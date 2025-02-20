@@ -302,6 +302,7 @@ impl Server {
 					}
 				};
 				futures::join!(export_future, import_future);
+				tracing::debug!("did we join the futures?");
 				progress.finish("processes");
 				progress.finish("objects");
 				progress.finish("bytes");
