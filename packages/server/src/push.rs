@@ -255,7 +255,7 @@ impl Server {
 										}
 									},
 								},
-								Ok(tg::export::Event::End) => (),
+								Ok(tg::export::Event::End) => break,
 								Err(error) => {
 									progress.error(error);
 								},
@@ -286,7 +286,7 @@ impl Server {
 									progress.increment("objects", import_progress.objects);
 									progress.increment("bytes", import_progress.bytes);
 								},
-								Ok(tg::import::Event::End) => (),
+								Ok(tg::import::Event::End) => break,
 								Err(error) => progress.error(error),
 							}
 						}
