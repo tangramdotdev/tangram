@@ -18,59 +18,11 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::task::AbortOnDropHandle;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Progress {
-	processes: Arc<AtomicU64>,
-	objects: Arc<AtomicU64>,
-	bytes: Arc<AtomicU64>,
-}
-
-impl Progress {
-	fn new() -> Self {
-		Self {
-			processes: Arc::new(AtomicU64::new(0)),
-			objects: Arc::new(AtomicU64::new(0)),
-			bytes: Arc::new(AtomicU64::new(0)),
-		}
-	}
-
-	fn get_import_progress(&self) -> tg::import::Progress {
-		tg::import::Progress {
-			processes: self.processes.load(std::sync::atomic::Ordering::SeqCst),
-			objects: self.objects.load(std::sync::atomic::Ordering::SeqCst),
-			bytes: self.bytes.load(std::sync::atomic::Ordering::SeqCst),
-		}
-	}
-
-	fn increment_processes(&self) {
-		self.processes
-			.fetch_update(
-				std::sync::atomic::Ordering::SeqCst,
-				std::sync::atomic::Ordering::SeqCst,
-				|current| Some(current.checked_add(1).expect("counter overflow")),
-			)
-			.unwrap();
-	}
-
-	fn increment_objects(&self, num_objects: u64) {
-		self.objects
-			.fetch_update(
-				std::sync::atomic::Ordering::SeqCst,
-				std::sync::atomic::Ordering::SeqCst,
-				|current| Some(current.checked_add(num_objects).expect("counter overflow")),
-			)
-			.unwrap();
-	}
-
-	fn increment_bytes(&self, bytes: u64) {
-		self.bytes
-			.fetch_update(
-				std::sync::atomic::Ordering::SeqCst,
-				std::sync::atomic::Ordering::SeqCst,
-				|current| Some(current.checked_add(bytes).expect("counter overflow")),
-			)
-			.unwrap();
-	}
+	processes: Option<AtomicU64>,
+	objects: AtomicU64,
+	bytes: AtomicU64,
 }
 
 impl Server {
@@ -91,7 +43,7 @@ impl Server {
 		}
 
 		let (progress_shutdown_sender, progress_shutdown_receiver) = oneshot::channel();
-		let progress_totals = Progress::new();
+		let progress = Arc::new(Progress::new(arg.items.iter().any(Either::is_left)));
 
 		let (import_complete_sender, import_complete_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::import::Complete>>(256);
@@ -126,7 +78,7 @@ impl Server {
 		let database_processes_task = tokio::spawn({
 			let server = self.clone();
 			let import_complete_sender = import_complete_sender.clone();
-			let progress_totals = progress_totals.clone();
+			let progress_totals = progress.clone();
 			async move {
 				let result = server
 					.import_database_processes_task(
@@ -152,7 +104,7 @@ impl Server {
 		let database_objects_task = tokio::spawn({
 			let server = self.clone();
 			let import_complete_sender = import_complete_sender.clone();
-			let progress_totals = progress_totals.clone();
+			let progress_totals = progress.clone();
 			async move {
 				let result = server
 					.import_database_objects_task(database_object_receiver, &progress_totals)
@@ -188,8 +140,7 @@ impl Server {
 			});
 
 		// Create the progress stream.
-		let progress_stream =
-			Self::import_progress_stream(&progress_totals, progress_shutdown_receiver);
+		let progress_stream = Self::import_progress_stream(&progress, progress_shutdown_receiver);
 
 		// Spawn a task that sends items from the stream to the other tasks.
 		let task = tokio::spawn({
@@ -341,46 +292,23 @@ impl Server {
 			};
 
 			// Put the process.
-			let put_arg = tg::process::put::Arg {
-				cacheable: data.cacheable,
-				checksum: data.checksum,
-				children: data.children,
-				command: data.command.clone(),
-				created_at: data.created_at,
-				cwd: data.cwd,
-				dequeued_at: data.dequeued_at,
-				enqueued_at: data.enqueued_at,
-				env: data.env,
-				error: data.error,
-				exit: data.exit,
-				finished_at: data.finished_at,
-				host: data.host,
-				id: id.clone(),
-				log: data.log.clone(),
-				network: data.network,
-				output: data.output.clone(),
-				retry: data.retry,
-				started_at: data.started_at,
-				status: data.status,
-			};
-			let put_output = self
-				.put_process(&id, put_arg)
+			let arg = tg::process::put::Arg { data };
+			self.put_process(&id, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			progress_totals.increment_processes();
 
-			if put_output.complete
-				|| put_output.commands_complete
-				|| put_output.logs_complete
-				|| put_output.outputs_complete
+			let process_complete = self
+				.try_get_import_process_complete(&id)
+				.await?
+				.ok_or_else(|| tg::error!("expected the process to exist"))?;
+
+			if process_complete.complete
+				|| process_complete.commands_complete
+				|| process_complete.logs_complete
+				|| process_complete.outputs_complete
 			{
-				let complete = tg::import::Complete::Process(tg::import::ProcessComplete {
-					id,
-					commands_complete: put_output.commands_complete,
-					complete: put_output.complete,
-					logs_complete: put_output.logs_complete,
-					outputs_complete: put_output.outputs_complete,
-				});
+				let complete = tg::import::Complete::Process(process_complete);
 				import_complete_sender.send(Ok(complete)).await.ok();
 			}
 		}
@@ -390,17 +318,17 @@ impl Server {
 	async fn import_database_objects_task(
 		&self,
 		database_object_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
-		progress_totals: &Progress,
+		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(database_object_receiver);
 		match &self.database {
 			Either::Left(database) => {
-				self.import_objects_sqlite(stream, database, progress_totals)
+				self.import_objects_sqlite(stream, database, progress)
 					.await
 					.inspect_err(|error| eprintln!("failed to insert: {error}"))?;
 			},
 			Either::Right(database) => {
-				self.import_objects_postgres(stream, database, progress_totals)
+				self.import_objects_postgres(stream, database, progress)
 					.await?;
 			},
 		}
@@ -408,7 +336,7 @@ impl Server {
 	}
 
 	fn import_progress_stream(
-		progress_totals: &Progress,
+		progress_totals: &Arc<Progress>,
 		shutdown_receiver: oneshot::Receiver<()>,
 	) -> impl Stream<Item = tg::Result<tg::import::Progress>> {
 		let progress_totals = progress_totals.clone();
@@ -434,7 +362,7 @@ impl Server {
 		&self,
 		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
 		database: &db::sqlite::Database,
-		progress_totals: &Progress,
+		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		let connection = database
 			.write_connection()
@@ -461,7 +389,7 @@ impl Server {
 
 			connection
 				.with({
-					let progress_totals = progress_totals.clone();
+					let progress = progress.clone();
 					move |connection| {
 						// Begin a transaction for the batch.
 						let transaction = connection.transaction().map_err(|source| {
@@ -471,10 +399,10 @@ impl Server {
 						// Prepare a statement for the object children
 						let children_statement = indoc!(
 							"
-							insert into object_children (object, child)
-							values (?1, ?2)
-							on conflict (object, child) do nothing;
-						"
+								insert into object_children (object, child)
+								values (?1, ?2)
+								on conflict (object, child) do nothing;
+							"
 						);
 						let mut children_statement = transaction
 							.prepare_cached(children_statement)
@@ -485,10 +413,10 @@ impl Server {
 						// Prepare a statement for the objects.
 						let objects_statement = indoc!(
 							"
-							insert into objects (id, bytes, size, touched_at)
-							values (?1, ?2, ?3, ?4)
-							on conflict (id) do update set touched_at = ?4;
-						"
+								insert into objects (id, bytes, size, touched_at)
+								values (?1, ?2, ?3, ?4)
+								on conflict (id) do update set touched_at = ?4;
+							"
 						);
 						let mut objects_statement = transaction
 							.prepare_cached(objects_statement)
@@ -517,9 +445,10 @@ impl Server {
 								tg::error!(!source, "failed to execute the statement")
 							})?;
 
-							progress_totals.increment_objects(1);
-							progress_totals.increment_bytes(size);
+							progress.increment_objects(1);
+							progress.increment_bytes(size);
 						}
+
 						drop(children_statement);
 						drop(objects_statement);
 
@@ -830,5 +759,58 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+impl Progress {
+	fn new(processes: bool) -> Self {
+		Self {
+			processes: processes.then(|| AtomicU64::new(0)),
+			objects: AtomicU64::new(0),
+			bytes: AtomicU64::new(0),
+		}
+	}
+
+	fn get_import_progress(&self) -> tg::import::Progress {
+		tg::import::Progress {
+			processes: self
+				.processes
+				.as_ref()
+				.map(|processes| processes.swap(0, std::sync::atomic::Ordering::SeqCst)),
+			objects: self.objects.swap(0, std::sync::atomic::Ordering::SeqCst),
+			bytes: self.bytes.swap(0, std::sync::atomic::Ordering::SeqCst),
+		}
+	}
+
+	fn increment_processes(&self) {
+		self.processes
+			.as_ref()
+			.unwrap()
+			.fetch_update(
+				std::sync::atomic::Ordering::SeqCst,
+				std::sync::atomic::Ordering::SeqCst,
+				|current| Some(current.checked_add(1).expect("counter overflow")),
+			)
+			.unwrap();
+	}
+
+	fn increment_objects(&self, num_objects: u64) {
+		self.objects
+			.fetch_update(
+				std::sync::atomic::Ordering::SeqCst,
+				std::sync::atomic::Ordering::SeqCst,
+				|current| Some(current.checked_add(num_objects).expect("counter overflow")),
+			)
+			.unwrap();
+	}
+
+	fn increment_bytes(&self, bytes: u64) {
+		self.bytes
+			.fetch_update(
+				std::sync::atomic::Ordering::SeqCst,
+				std::sync::atomic::Ordering::SeqCst,
+				|current| Some(current.checked_add(bytes).expect("counter overflow")),
+			)
+			.unwrap();
 	}
 }

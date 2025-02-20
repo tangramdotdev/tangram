@@ -30,6 +30,15 @@ impl Server {
 	{
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
+		if arg.items.iter().any(Either::is_left) {
+			progress.start(
+				"processes".to_owned(),
+				"processes".to_owned(),
+				tg::progress::IndicatorFormat::Normal,
+				Some(0),
+				None,
+			);
+		}
 		progress.start(
 			"objects".to_owned(),
 			"objects".to_owned(),
@@ -45,129 +54,124 @@ impl Server {
 			None,
 		);
 
-		// // Spawn a task to set the indicator totals as soon as they are ready.
-		// let indicator_total_task = tokio::spawn({
-		// 	let server = src.clone();
-		// 	let progress = progress.clone();
-		// 	let arg = arg.clone();
-		// 	async move {
-		// 		let mut metadata_futures = arg
-		// 			.items
-		// 			.iter()
-		// 			.map(|item| {
-		// 				let server = server.clone();
-		// 				async move {
-		// 					loop {
-		// 						match item {
-		// 							tangram_either::Either::Left(ref process) => {
-		// 								// let Some(tg::process::metadata::Output {
-		// 								// 	metadata, ..
-		// 								// }) =
-		// 								// 	server
-		// 								// 		.try_get_process_metadata(process)
-		// 								// 		.await
-		// 								// 		.map_err(|source| {
-		// 								// 			tg::error!(!source, "failed to get the process")
-		// 								// 		})?
-		// 								// else {
-		// 								// 	return Err(tg::error!("failed to get the process"));
-		// 								// };
-		// 								let metadata: tg::process::Metadata = todo!();
-		// 								let mut complete = metadata.count.is_some();
-		// 								if arg.commands {
-		// 									complete = complete
-		// 										&& metadata.commands_count.is_some()
-		// 										&& metadata.commands_weight.is_some();
-		// 								}
-		// 								if arg.logs {
-		// 									complete = complete
-		// 										&& metadata.logs_count.is_some() && metadata
-		// 										.logs_weight
-		// 										.is_some();
-		// 								}
-		// 								if arg.outputs {
-		// 									complete = complete
-		// 										&& metadata.outputs_count.is_some()
-		// 										&& metadata.outputs_weight.is_some();
-		// 								}
-		// 								if complete {
-		// 									break Ok::<_, tg::Error>(Either::Left(metadata));
-		// 								}
-		// 							},
-		// 							tangram_either::Either::Right(ref id) => {
-		// 								// let metadata = server
-		// 								// 	.try_get_object_metadata_local(id)
-		// 								// 	.await?
-		// 								// 	.ok_or_else(|| {
-		// 								// 		tg::error!("expected the metadata to be set")
-		// 								// 	})?;
-		// 								let metadata: tg::object::Metadata = todo!();
-
-		// 								if metadata.count.is_some() && metadata.weight.is_some() {
-		// 									break Ok::<_, tg::Error>(Either::Right(metadata));
-		// 								}
-		// 							},
-		// 						}
-		// 						tokio::time::sleep(Duration::from_secs(1)).await;
-		// 					}
-		// 				}
-		// 			})
-		// 			.collect::<FuturesUnordered<_>>();
-		// 		let mut total_processes: u64 = 0;
-		// 		let mut total_objects: u64 = 0;
-		// 		let mut total_bytes: u64 = 0;
-		// 		while let Some(Ok(metadata)) = metadata_futures.next().await {
-		// 			match metadata {
-		// 				Either::Left(metadata) => {
-		// 					if let Some(count) = metadata.count {
-		// 						total_processes += count;
-		// 						progress.set_total("processes", total_processes);
-		// 					}
-		// 					if arg.commands {
-		// 						if let Some(commands_count) = metadata.commands_count {
-		// 							total_objects += commands_count;
-		// 						}
-		// 						if let Some(commands_weight) = metadata.commands_weight {
-		// 							total_bytes += commands_weight;
-		// 						}
-		// 					}
-		// 					if arg.logs {
-		// 						if let Some(logs_count) = metadata.logs_count {
-		// 							total_objects += logs_count;
-		// 						}
-		// 						if let Some(logs_weight) = metadata.logs_weight {
-		// 							total_bytes += logs_weight;
-		// 						}
-		// 					}
-		// 					if arg.outputs {
-		// 						if let Some(outputs_count) = metadata.outputs_count {
-		// 							total_objects += outputs_count;
-		// 						}
-		// 						if let Some(outputs_weight) = metadata.outputs_weight {
-		// 							total_bytes += outputs_weight;
-		// 						}
-		// 					}
-		// 					progress.set_total("objects", total_objects);
-		// 					progress.set_total("bytes", total_bytes);
-		// 				},
-		// 				Either::Right(metadata) => {
-		// 					if let Some(count) = metadata.count {
-		// 						total_objects += count;
-		// 						progress.set_total("objects", total_objects);
-		// 					}
-		// 					if let Some(weight) = metadata.weight {
-		// 						total_bytes += weight;
-		// 						progress.set_total("bytes", total_bytes);
-		// 					}
-		// 				},
-		// 			}
-		// 		}
-		// 	}
-		// });
-		// let indicator_total_task_abort_handle = AbortOnDropHandle::new(indicator_total_task);
+		// Spawn a task to set the indicator totals as soon as they are ready.
+		let indicator_total_task = tokio::spawn({
+			let src = src.clone();
+			let progress = progress.clone();
+			let arg = arg.clone();
+			async move {
+				let mut metadata_futures = arg
+					.items
+					.iter()
+					.map(|item| {
+						let src = src.clone();
+						async move {
+							loop {
+								match item {
+									tangram_either::Either::Left(ref process) => {
+										let Some(tg::process::metadata::Output {
+											metadata, ..
+										}) = src.try_get_process_metadata(process).await.map_err(
+											|source| {
+												tg::error!(!source, "failed to get the process")
+											},
+										)?
+										else {
+											return Err(tg::error!("failed to get the process"));
+										};
+										let mut complete = metadata.count.is_some();
+										if arg.commands {
+											complete = complete
+												&& metadata.commands_count.is_some()
+												&& metadata.commands_weight.is_some();
+										}
+										if arg.logs {
+											complete = complete
+												&& metadata.logs_count.is_some() && metadata
+												.logs_weight
+												.is_some();
+										}
+										if arg.outputs {
+											complete = complete
+												&& metadata.outputs_count.is_some()
+												&& metadata.outputs_weight.is_some();
+										}
+										if complete {
+											break Ok::<_, tg::Error>(Either::Left(metadata));
+										}
+									},
+									tangram_either::Either::Right(ref id) => {
+										let metadata =
+											src.try_get_object_metadata(id).await?.ok_or_else(
+												|| tg::error!("expected the metadata to be set"),
+											)?;
+										if metadata.count.is_some() && metadata.weight.is_some() {
+											break Ok::<_, tg::Error>(Either::Right(metadata));
+										}
+									},
+								}
+								tokio::time::sleep(Duration::from_secs(1)).await;
+							}
+						}
+					})
+					.collect::<FuturesUnordered<_>>();
+				let mut total_processes: u64 = 0;
+				let mut total_objects: u64 = 0;
+				let mut total_bytes: u64 = 0;
+				while let Some(Ok(metadata)) = metadata_futures.next().await {
+					match metadata {
+						Either::Left(metadata) => {
+							if let Some(count) = metadata.count {
+								total_processes += count;
+								progress.set_total("processes", total_processes);
+							}
+							if arg.commands {
+								if let Some(commands_count) = metadata.commands_count {
+									total_objects += commands_count;
+								}
+								if let Some(commands_weight) = metadata.commands_weight {
+									total_bytes += commands_weight;
+								}
+							}
+							if arg.logs {
+								if let Some(logs_count) = metadata.logs_count {
+									total_objects += logs_count;
+								}
+								if let Some(logs_weight) = metadata.logs_weight {
+									total_bytes += logs_weight;
+								}
+							}
+							if arg.outputs {
+								if let Some(outputs_count) = metadata.outputs_count {
+									total_objects += outputs_count;
+								}
+								if let Some(outputs_weight) = metadata.outputs_weight {
+									total_bytes += outputs_weight;
+								}
+							}
+							progress.set_total("objects", total_objects);
+							progress.set_total("bytes", total_bytes);
+						},
+						Either::Right(metadata) => {
+							if let Some(count) = metadata.count {
+								total_objects += count;
+								progress.set_total("objects", total_objects);
+							}
+							if let Some(weight) = metadata.weight {
+								total_bytes += weight;
+								progress.set_total("bytes", total_bytes);
+							}
+						},
+					}
+				}
+			}
+		});
+		let indicator_total_task_abort_handle = AbortOnDropHandle::new(indicator_total_task);
 
 		let (export_item_sender, export_item_receiver) = tokio::sync::mpsc::channel(1024);
 		let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
+
+		// Start the export.
 		let export_arg = tg::export::Arg {
 			commands: arg.commands,
 			items: arg.items.clone(),
@@ -178,12 +182,16 @@ impl Server {
 		};
 		let import_event_stream = ReceiverStream::new(import_event_receiver);
 		let export_event_stream = src.export(export_arg, import_event_stream.boxed()).await?;
+
+		// Start the import.
 		let import_arg = tg::import::Arg {
 			items: arg.items.clone(),
 			remote: None,
 		};
 		let export_item_stream = ReceiverStream::new(export_item_receiver);
 		let import_event_stream = dst.import(import_arg, export_item_stream.boxed()).await?;
+
+		// Spawn the task.
 		let task = tokio::spawn({
 			let progress = progress.clone();
 			async move {
@@ -205,47 +213,38 @@ impl Server {
 								},
 								Ok(tg::export::Event::Complete(complete)) => match complete {
 									tg::export::Complete::Process(process_complete) => {
-										if progress.has_indicator("processes") {
-											progress.increment("processes", 1);
-										} else {
-											progress.start(
-												"processes".to_owned(),
-												"processes".to_owned(),
-												tg::progress::IndicatorFormat::Normal,
-												Some(1),
-												None,
-											);
+										if let Some(processes) = process_complete.count {
+											progress.increment("processes", processes);
 										}
-										let mut count = 0;
-										let mut weight = 0;
+										let mut objects = 0;
+										let mut bytes = 0;
 										if let Some(commands_count) =
 											process_complete.commands_count
 										{
-											count += commands_count;
+											objects += commands_count;
 										}
 										if let Some(commands_weight) =
 											process_complete.commands_weight
 										{
-											weight += commands_weight;
+											bytes += commands_weight;
 										}
 										if let Some(logs_count) = process_complete.logs_count {
-											count += logs_count;
+											objects += logs_count;
 										}
 										if let Some(logs_weight) = process_complete.logs_weight {
-											weight += logs_weight;
+											bytes += logs_weight;
 										}
 										if let Some(outputs_count) = process_complete.outputs_count
 										{
-											count += outputs_count;
+											objects += outputs_count;
 										}
 										if let Some(outputs_weight) =
 											process_complete.outputs_weight
 										{
-											weight += outputs_weight;
+											bytes += outputs_weight;
 										}
-
-										progress.increment("objects", count);
-										progress.increment("weight", weight);
+										progress.increment("objects", objects);
+										progress.increment("bytes", bytes);
 									},
 									tg::export::Complete::Object(object_complete) => {
 										if let Some(count) = object_complete.count {
@@ -280,21 +279,11 @@ impl Server {
 									}
 								},
 								Ok(tg::import::Event::Progress(import_progress)) => {
-									if import_progress.processes > 0 {
-										if progress.has_indicator("processes") {
-											progress.set("processes", import_progress.processes);
-										} else {
-											progress.start(
-												"processes".to_owned(),
-												"processes".to_owned(),
-												tg::progress::IndicatorFormat::Normal,
-												Some(import_progress.processes),
-												None,
-											);
-										}
+									if let Some(processes) = import_progress.processes {
+										progress.increment("processes", processes);
 									}
-									progress.set("objects", import_progress.objects);
-									progress.set("bytes", import_progress.bytes);
+									progress.increment("objects", import_progress.objects);
+									progress.increment("bytes", import_progress.bytes);
 								},
 								Err(error) => progress.error(error),
 							}
@@ -309,8 +298,10 @@ impl Server {
 			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
-		let progress_stream = progress.stream().attach(abort_handle);
-		// .attach(indicator_total_task_abort_handle);
+		let progress_stream = progress
+			.stream()
+			.attach(abort_handle)
+			.attach(indicator_total_task_abort_handle);
 		Ok(progress_stream)
 	}
 }

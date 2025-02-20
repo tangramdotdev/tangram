@@ -68,20 +68,6 @@ impl<T> Handle<T> {
 		self.indicators.write().unwrap().insert(name, indicator);
 	}
 
-	pub fn has_indicator(&self, name: &str) -> bool {
-		self.indicators.read().unwrap().get(name).is_some()
-	}
-
-	pub fn set(&self, name: &str, amount: u64) {
-		if let Some(indicator) = self.indicators.read().unwrap().get(name) {
-			indicator
-				.current
-				.as_ref()
-				.unwrap()
-				.store(amount, std::sync::atomic::Ordering::Relaxed);
-		}
-	}
-
 	pub fn increment(&self, name: &str, amount: u64) {
 		if let Some(indicator) = self.indicators.read().unwrap().get(name) {
 			indicator

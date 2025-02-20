@@ -63,7 +63,8 @@ pub struct ObjectComplete {
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Progress {
-	pub processes: u64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub processes: Option<u64>,
 	pub objects: u64,
 	pub bytes: u64,
 }
