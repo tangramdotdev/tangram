@@ -1,5 +1,4 @@
 use crate::Server;
-use async_compression::tokio::bufread::ZstdEncoder;
 use bytes::{Buf as _, Bytes};
 use futures::{future::BoxFuture, FutureExt as _, Stream, StreamExt};
 use num::ToPrimitive;
@@ -488,8 +487,6 @@ impl Server {
 				return Err(tg::error!(?accept, "invalid accept header"));
 			},
 		};
-
-		let body = Body::with_reader(ZstdEncoder::new(body.into_reader()));
 
 		// Create the response.
 		let response = http::Response::builder()
