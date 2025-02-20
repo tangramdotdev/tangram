@@ -9,8 +9,6 @@ pub mod get;
 pub mod log;
 pub mod metadata;
 pub mod output;
-pub mod pull;
-pub mod push;
 pub mod put;
 pub mod run;
 pub mod spawn;
@@ -34,8 +32,6 @@ pub enum Command {
 	Log(self::log::Args),
 	Metadata(self::metadata::Args),
 	Output(self::output::Args),
-	Pull(self::pull::Args),
-	Push(self::push::Args),
 	Put(self::put::Args),
 	Run(self::run::Args),
 	Spawn(self::spawn::Args),
@@ -66,12 +62,6 @@ impl Cli {
 			},
 			Command::Output(args) => {
 				self.command_process_output(args).await?;
-			},
-			Command::Pull(args) => {
-				self.command_process_pull(args).await?;
-			},
-			Command::Push(args) => {
-				self.command_process_push(args).await?;
 			},
 			Command::Put(args) => {
 				self.command_process_put(args).await?;

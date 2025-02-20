@@ -22,8 +22,6 @@ pub mod heartbeat;
 pub mod id;
 pub mod log;
 pub mod metadata;
-pub mod pull;
-pub mod push;
 pub mod put;
 pub mod spawn;
 pub mod start;

@@ -14,7 +14,7 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> tg::Result<tg::object::put::Output> {
+	) -> tg::Result<()> {
 		self.put_object_inner(id, arg).boxed().await
 	}
 
@@ -22,15 +22,15 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> tg::Result<tg::object::put::Output> {
+	) -> tg::Result<()> {
 		// Get the children.
 		let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 		let children = data.children();
 
 		// Create the database future.
-		let database = async {
-			let complete = match &self.database {
+		let database_future = async {
+			match &self.database {
 				Either::Left(database) => {
 					// Get a database connection.
 					let connection = database.write_connection().await.map_err(|source| {
@@ -77,8 +77,7 @@ impl Server {
 								"
 									insert into objects (id, bytes, size, touched_at)
 									values (?1, ?2, ?3, ?4)
-									on conflict (id) do update set touched_at = ?4
-									returning complete;
+									on conflict (id) do update set touched_at = ?4;
 								"
 							);
 							let bytes = bytes.as_ref().map(AsRef::as_ref);
@@ -88,11 +87,9 @@ impl Server {
 								transaction.prepare_cached(statement).map_err(|source| {
 									tg::error!(!source, "failed to prepare the statement")
 								})?;
-							let complete = statement
-								.query_row(params, |row| Ok(row.get::<_, i64>(0)? != 0))
-								.map_err(|source| {
-									tg::error!(!source, "failed to execute the statement")
-								})?;
+							statement.execute(params).map_err(|source| {
+								tg::error!(!source, "failed to execute the statement")
+							})?;
 							drop(statement);
 
 							// Commit the transaction.
@@ -100,9 +97,9 @@ impl Server {
 								tg::error!(!source, "failed to commit the transaction")
 							})?;
 
-							Ok::<_, tg::Error>(complete)
+							Ok::<_, tg::Error>(())
 						})
-						.await?
+						.await?;
 				},
 
 				Either::Right(database) => {
@@ -123,8 +120,7 @@ impl Server {
 								on conflict (id) do update set touched_at = $5
 								returning id, complete
 							)
-							select complete
-							from inserted_objects;
+							select 1;
 						"
 					);
 					let id = id.to_string();
@@ -138,13 +134,12 @@ impl Server {
 					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 					connection
 						.client()
-						.query_one(statement, &[&id, &children, &bytes, &size, &now])
+						.execute(statement, &[&id, &children, &bytes, &size, &now])
 						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-						.get::<_, i64>(0) != 0
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				},
-			};
-			Ok::<_, tg::Error>(complete)
+			}
+			Ok::<_, tg::Error>(())
 		};
 
 		// Create the store future.
@@ -156,12 +151,9 @@ impl Server {
 		};
 
 		// Await the futures.
-		let (complete, ()) = futures::try_join!(database, store)?;
+		futures::try_join!(database_future, store)?;
 
-		// Create the output.
-		let output = tg::object::put::Output { complete };
-
-		Ok(output)
+		Ok(())
 	}
 }
 
@@ -177,8 +169,8 @@ impl Server {
 		let id = id.parse()?;
 		let bytes = request.bytes().await?;
 		let arg = tg::object::put::Arg { bytes };
-		let output = handle.put_object(&id, arg).await?;
-		let response = http::Response::builder().json(output).unwrap();
+		handle.put_object(&id, arg).await?;
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

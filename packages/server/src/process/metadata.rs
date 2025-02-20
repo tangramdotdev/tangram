@@ -35,7 +35,18 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select complete, count, depth, weight
+				select
+					commands_count,
+					commands_depth,
+					commands_weight,
+					complete,
+					count,
+					logs_count,
+					logs_depth,
+					logs_weight,
+					outputs_count,
+					outputs_depth,
+					outputs_weight
 				from processes
 				where id = {p}1;
 			",

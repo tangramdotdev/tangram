@@ -13,7 +13,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> tg::Result<tg::process::put::Output> {
+	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = self
 			.database
@@ -29,13 +29,6 @@ impl Server {
 		let transaction = Arc::new(transaction);
 
 		// Insert the process.
-		#[derive(serde::Deserialize)]
-		struct Row {
-			commands_complete: bool,
-			complete: bool,
-			logs_complete: bool,
-			outputs_complete: bool,
-		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -102,12 +95,7 @@ impl Server {
 					retry = {p}17,
 					started_at = {p}18,
 					status = {p}19,
-					touched_at = {p}20
-				returning
-					commands_complete,
-					complete,
-					logs_complete,
-					outputs_complete;
+					touched_at = {p}20;
 			"
 		);
 		let params = db::params![
@@ -132,8 +120,8 @@ impl Server {
 			arg.data.status,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
-		let row = transaction
-			.query_one_into::<Row>(statement.into(), params)
+		transaction
+			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -246,15 +234,7 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Create the output.
-		let output = tg::process::put::Output {
-			commands_complete: row.commands_complete,
-			complete: row.complete,
-			logs_complete: row.logs_complete,
-			outputs_complete: row.outputs_complete,
-		};
-
-		Ok(output)
+		Ok(())
 	}
 }
 
@@ -269,8 +249,8 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		let output = handle.put_process(&id, arg).await?;
-		let response = http::Response::builder().json(output).unwrap();
+		handle.put_process(&id, arg).await?;
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

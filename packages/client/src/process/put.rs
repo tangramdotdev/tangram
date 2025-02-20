@@ -1,25 +1,10 @@
-use crate::{self as tg, util::serde::is_false};
+use crate as tg;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(flatten)]
 	pub data: tg::process::Data,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub commands_complete: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub complete: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub logs_complete: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub outputs_complete: bool,
 }
 
 impl Arg {
@@ -33,7 +18,7 @@ impl tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> tg::Result<tg::process::put::Output> {
+	) -> tg::Result<()> {
 		let method = http::Method::PUT;
 		let uri = format!("/processes/{id}");
 		let request = http::request::Builder::default()
@@ -46,7 +31,6 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.json().await?;
-		Ok(output)
+		Ok(())
 	}
 }

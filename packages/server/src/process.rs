@@ -10,8 +10,6 @@ mod get;
 mod heartbeat;
 mod log;
 mod metadata;
-mod pull;
-mod push;
 mod put;
 mod spawn;
 mod start;

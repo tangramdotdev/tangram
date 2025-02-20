@@ -232,31 +232,8 @@ impl tg::Handle for Proxy {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.server.put_object(id, arg)
-	}
-
-	async fn post_objects(
-		&self,
-		_stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Item>> + Send + 'static>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
-	async fn push_object(
-		&self,
-		_id: &tg::object::Id,
-		_arg: tg::object::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
-	async fn pull_object(
-		&self,
-		_id: &tg::object::Id,
-		_arg: tg::object::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
 	async fn check_package(
@@ -319,24 +296,8 @@ impl tg::Handle for Proxy {
 		&self,
 		_id: &tg::process::Id,
 		_arg: tg::process::put::Arg,
-	) -> tg::Result<tg::process::put::Output> {
+	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
-	}
-
-	async fn push_process(
-		&self,
-		_id: &tg::process::Id,
-		_arg: tg::process::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
-	async fn pull_process(
-		&self,
-		_id: &tg::process::Id,
-		_arg: tg::process::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
 	async fn try_dequeue_process(
@@ -448,10 +409,6 @@ impl tg::Handle for Proxy {
 	}
 
 	async fn delete_remote(&self, _name: &str) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
 		Err(tg::error!("forbidden"))
 	}
 

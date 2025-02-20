@@ -34,6 +34,10 @@ impl Cli {
 				Either::Right(object)
 			},
 		};
+		let item = match item {
+			Either::Left(process) => Either::Left(process.id().clone()),
+			Either::Right(object) => Either::Right(object.id(&handle).await?),
+		};
 
 		match item {
 			Either::Left(process) => {

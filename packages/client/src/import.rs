@@ -31,13 +31,11 @@ pub enum Event {
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ProcessOutput {
 	pub id: tg::process::Id,
-	pub output: tg::process::put::Output,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ObjectOutput {
 	pub id: tg::object::Id,
-	pub output: tg::object::put::Output,
 }
 
 impl tg::Client {

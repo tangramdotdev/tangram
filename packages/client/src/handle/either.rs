@@ -198,74 +198,10 @@ where
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.put_object(id, arg).left_future(),
 			Either::Right(s) => s.put_object(id, arg).right_future(),
-		}
-	}
-
-	fn post_objects(
-		&self,
-		stream: Pin<
-			Box<dyn Stream<Item = crate::Result<crate::object::post::Item>> + Send + 'static>,
-		>,
-	) -> impl Future<
-		Output = crate::Result<
-			impl Stream<Item = crate::Result<crate::object::post::Event>> + Send + 'static,
-		>,
-	> + Send {
-		match self {
-			Either::Left(s) => s
-				.post_objects(stream)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.post_objects(stream)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn push_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send {
-		match self {
-			Either::Left(s) => s
-				.push_object(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.push_object(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn pull_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send {
-		match self {
-			Either::Left(s) => s
-				.pull_object(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.pull_object(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
 		}
 	}
 
@@ -397,52 +333,10 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::put::Output>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.put_process(id, arg).left_future(),
 			Either::Right(s) => s.put_process(id, arg).right_future(),
-		}
-	}
-
-	fn push_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.push_process(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.push_process(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn pull_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.pull_process(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.pull_process(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
 		}
 	}
 
@@ -620,13 +514,6 @@ where
 		match self {
 			Either::Left(s) => s.delete_remote(name).left_future(),
 			Either::Right(s) => s.delete_remote(name).right_future(),
-		}
-	}
-
-	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> {
-		match self {
-			Either::Left(s) => s.get_js_runtime_doc().left_future(),
-			Either::Right(s) => s.get_js_runtime_doc().right_future(),
 		}
 	}
 

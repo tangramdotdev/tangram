@@ -42,16 +42,6 @@ impl Server {
 			cacheable: bool,
 			checksum: Option<tg::Checksum>,
 			command: tg::command::Id,
-			commands_complete: bool,
-			#[serde(default)]
-			commands_count: Option<u64>,
-			#[serde(default)]
-			commands_depth: Option<u64>,
-			#[serde(default)]
-			commands_weight: Option<u64>,
-			complete: bool,
-			#[serde(default)]
-			count: Option<u64>,
 			#[serde_as(as = "Rfc3339")]
 			created_at: time::OffsetDateTime,
 			#[serde(default)]
@@ -70,22 +60,8 @@ impl Server {
 			id: tg::process::Id,
 			#[serde(default)]
 			log: Option<tg::blob::Id>,
-			logs_complete: bool,
-			#[serde(default)]
-			logs_count: Option<u64>,
-			#[serde(default)]
-			logs_depth: Option<u64>,
-			#[serde(default)]
-			logs_weight: Option<u64>,
 			#[serde(default)]
 			output: Option<db::value::Json<tg::value::Data>>,
-			outputs_complete: bool,
-			#[serde(default)]
-			outputs_count: Option<u64>,
-			#[serde(default)]
-			outputs_depth: Option<u64>,
-			#[serde(default)]
-			outputs_weight: Option<u64>,
 			retry: bool,
 			#[serde(default)]
 			network: bool,
@@ -101,11 +77,6 @@ impl Server {
 					cacheable,
 					checksum,
 					command,
-					commands_complete,
-					commands_count,
-					commands_weight,
-					complete,
-					count,
 					created_at,
 					cwd,
 					dequeued_at,
@@ -117,17 +88,11 @@ impl Server {
 					host,
 					id,
 					log,
-					logs_complete,
-					logs_count,
-					logs_weight,
 					output,
-					outputs_complete,
-					outputs_count,
-					outputs_weight,
 					retry,
 					network,
 					started_at,
-					status,
+					status
 				from processes
 				where id = {p}1;
 			"
@@ -160,23 +125,7 @@ impl Server {
 				started_at: row.started_at,
 				status: row.status,
 			};
-			let metadata = Some(tg::process::Metadata {
-				commands_complete: row.commands_complete,
-				commands_count: row.commands_count,
-				commands_depth: row.commands_depth,
-				commands_weight: row.commands_weight,
-				complete: row.complete,
-				count: row.count,
-				logs_complete: row.logs_complete,
-				logs_count: row.logs_count,
-				logs_depth: row.logs_depth,
-				logs_weight: row.logs_weight,
-				outputs_complete: row.outputs_complete,
-				outputs_count: row.outputs_count,
-				outputs_depth: row.outputs_depth,
-				outputs_weight: row.outputs_weight,
-			});
-			tg::process::get::Output { data, metadata }
+			tg::process::get::Output { data }
 		});
 
 		// Drop the database connection.
