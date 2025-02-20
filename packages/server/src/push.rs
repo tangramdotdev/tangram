@@ -1,7 +1,8 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _};
-use std::pin::pin;
-use tangram_client as tg;
+use futures::{stream::FuturesUnordered, Stream, StreamExt as _};
+use std::{pin::pin, time::Duration};
+use tangram_client::{self as tg};
+use tangram_either::Either;
 use tangram_futures::stream::Ext;
 use tangram_http::{request::Ext as _, Body};
 use tokio_stream::wrappers::ReceiverStream;
@@ -43,6 +44,127 @@ impl Server {
 			Some(0),
 			None,
 		);
+
+		// // Spawn a task to set the indicator totals as soon as they are ready.
+		// let indicator_total_task = tokio::spawn({
+		// 	let server = src.clone();
+		// 	let progress = progress.clone();
+		// 	let arg = arg.clone();
+		// 	async move {
+		// 		let mut metadata_futures = arg
+		// 			.items
+		// 			.iter()
+		// 			.map(|item| {
+		// 				let server = server.clone();
+		// 				async move {
+		// 					loop {
+		// 						match item {
+		// 							tangram_either::Either::Left(ref process) => {
+		// 								// let Some(tg::process::metadata::Output {
+		// 								// 	metadata, ..
+		// 								// }) =
+		// 								// 	server
+		// 								// 		.try_get_process_metadata(process)
+		// 								// 		.await
+		// 								// 		.map_err(|source| {
+		// 								// 			tg::error!(!source, "failed to get the process")
+		// 								// 		})?
+		// 								// else {
+		// 								// 	return Err(tg::error!("failed to get the process"));
+		// 								// };
+		// 								let metadata: tg::process::Metadata = todo!();
+		// 								let mut complete = metadata.count.is_some();
+		// 								if arg.commands {
+		// 									complete = complete
+		// 										&& metadata.commands_count.is_some()
+		// 										&& metadata.commands_weight.is_some();
+		// 								}
+		// 								if arg.logs {
+		// 									complete = complete
+		// 										&& metadata.logs_count.is_some() && metadata
+		// 										.logs_weight
+		// 										.is_some();
+		// 								}
+		// 								if arg.outputs {
+		// 									complete = complete
+		// 										&& metadata.outputs_count.is_some()
+		// 										&& metadata.outputs_weight.is_some();
+		// 								}
+		// 								if complete {
+		// 									break Ok::<_, tg::Error>(Either::Left(metadata));
+		// 								}
+		// 							},
+		// 							tangram_either::Either::Right(ref id) => {
+		// 								// let metadata = server
+		// 								// 	.try_get_object_metadata_local(id)
+		// 								// 	.await?
+		// 								// 	.ok_or_else(|| {
+		// 								// 		tg::error!("expected the metadata to be set")
+		// 								// 	})?;
+		// 								let metadata: tg::object::Metadata = todo!();
+
+		// 								if metadata.count.is_some() && metadata.weight.is_some() {
+		// 									break Ok::<_, tg::Error>(Either::Right(metadata));
+		// 								}
+		// 							},
+		// 						}
+		// 						tokio::time::sleep(Duration::from_secs(1)).await;
+		// 					}
+		// 				}
+		// 			})
+		// 			.collect::<FuturesUnordered<_>>();
+		// 		let mut total_processes: u64 = 0;
+		// 		let mut total_objects: u64 = 0;
+		// 		let mut total_bytes: u64 = 0;
+		// 		while let Some(Ok(metadata)) = metadata_futures.next().await {
+		// 			match metadata {
+		// 				Either::Left(metadata) => {
+		// 					if let Some(count) = metadata.count {
+		// 						total_processes += count;
+		// 						progress.set_total("processes", total_processes);
+		// 					}
+		// 					if arg.commands {
+		// 						if let Some(commands_count) = metadata.commands_count {
+		// 							total_objects += commands_count;
+		// 						}
+		// 						if let Some(commands_weight) = metadata.commands_weight {
+		// 							total_bytes += commands_weight;
+		// 						}
+		// 					}
+		// 					if arg.logs {
+		// 						if let Some(logs_count) = metadata.logs_count {
+		// 							total_objects += logs_count;
+		// 						}
+		// 						if let Some(logs_weight) = metadata.logs_weight {
+		// 							total_bytes += logs_weight;
+		// 						}
+		// 					}
+		// 					if arg.outputs {
+		// 						if let Some(outputs_count) = metadata.outputs_count {
+		// 							total_objects += outputs_count;
+		// 						}
+		// 						if let Some(outputs_weight) = metadata.outputs_weight {
+		// 							total_bytes += outputs_weight;
+		// 						}
+		// 					}
+		// 					progress.set_total("objects", total_objects);
+		// 					progress.set_total("bytes", total_bytes);
+		// 				},
+		// 				Either::Right(metadata) => {
+		// 					if let Some(count) = metadata.count {
+		// 						total_objects += count;
+		// 						progress.set_total("objects", total_objects);
+		// 					}
+		// 					if let Some(weight) = metadata.weight {
+		// 						total_bytes += weight;
+		// 						progress.set_total("bytes", total_bytes);
+		// 					}
+		// 				},
+		// 			}
+		// 		}
+		// 	}
+		// });
+		// let indicator_total_task_abort_handle = AbortOnDropHandle::new(indicator_total_task);
 
 		let (export_item_sender, export_item_receiver) = tokio::sync::mpsc::channel(1024);
 		let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
@@ -180,11 +302,15 @@ impl Server {
 					}
 				};
 				futures::join!(export_future, import_future);
+				progress.finish("processes");
+				progress.finish("objects");
+				progress.finish("bytes");
 				progress.output(());
 			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
 		let progress_stream = progress.stream().attach(abort_handle);
+		// .attach(indicator_total_task_abort_handle);
 		Ok(progress_stream)
 	}
 }
