@@ -230,48 +230,48 @@ impl Server {
 				async move {
 					match item {
 						tg::export::Item::Process { id, .. } => {
-							let Some(process_complete) = server
-								.try_get_import_process_complete(&id)
-								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to get the process complete status")
-								})?
-							else {
-								return Ok(());
+							let result = server.try_get_import_process_complete(&id).await;
+							let process_complete = match result {
+								Ok(process_complete) => process_complete,
+								Err(error) => {
+									tracing::error!(?error, "failed to get process complete");
+									return;
+								},
+							};
+							let Some(process_complete) = process_complete else {
+								return;
 							};
 							if !(process_complete.complete
 								|| process_complete.commands_complete
 								|| process_complete.logs_complete
 								|| process_complete.outputs_complete)
 							{
-								return Ok(());
+								return;
 							}
 							let event = tg::import::Event::Complete(tg::import::Complete::Process(
 								process_complete,
 							));
 							event_sender.send(Ok(event)).await.ok();
-							Ok::<_, tg::Error>(())
 						},
 						tg::export::Item::Object { id, .. } => {
-							let Some(object_complete) = server
-								.try_get_import_object_complete(&id)
-								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to get object complete status")
-								})?
-							else {
-								return Ok(());
+							let result = server.try_get_import_object_complete(&id).await;
+							let object_complete = match result {
+								Ok(object_complete) => object_complete,
+								Err(error) => {
+									tracing::error!(?error, "failed to get object complete");
+									return;
+								},
+							};
+							let Some(object_complete) = object_complete else {
+								return;
 							};
 							if !object_complete {
-								tracing::debug!(?id, "import item not complete");
-								return Ok(());
+								return;
 							}
-							tracing::debug!(?id, "import sending complete");
 							let event = tg::import::Event::Complete(tg::import::Complete::Object(
 								tg::import::ObjectComplete { id },
 							));
 							event_sender.send(Ok(event)).await.ok();
-							Ok::<_, tg::Error>(())
 						},
 					}
 				}
@@ -645,11 +645,10 @@ impl Server {
 		);
 		let params = db::params![id];
 		let output = connection
-			.query_optional_into(statement.into(), params)
+			.query_optional_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		tracing::debug!(?output, ?id, "select complete from objects");
 		// Drop the database connection.
 		drop(connection);
 

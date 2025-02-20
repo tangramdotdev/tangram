@@ -271,13 +271,7 @@ impl Server {
 							match result {
 								Ok(tg::import::Event::Complete(complete)) => {
 									// Try to send the import event to the exporter. Report if this fails, but do not abort.
-									let result = import_event_sender.send(Ok(complete)).await;
-									if let Err(error) = result {
-										progress.error(tg::error!(
-											!error,
-											"failed to send import complete to exporter"
-										));
-									}
+									import_event_sender.send(Ok(complete)).await.ok();
 								},
 								Ok(tg::import::Event::Progress(import_progress)) => {
 									if let Some(processes) = import_progress.processes {
