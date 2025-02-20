@@ -48,10 +48,10 @@ impl Server {
 			tokio::sync::mpsc::channel::<tg::Result<tg::import::Event>>(256);
 		let (complete_sender, complete_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
-		let (database_process_sender, database_process_receiver) =
-			tokio::sync::mpsc::channel::<tg::export::Item>(256);
-		let (database_object_sender, database_object_receiver) =
-			tokio::sync::mpsc::channel::<tg::export::Item>(256);
+		// let (database_process_sender, database_process_receiver) =
+		// 	tokio::sync::mpsc::channel::<tg::export::Item>(256);
+		// let (database_object_sender, database_object_receiver) =
+		// 	tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (store_sender, store_receiver) = tokio::sync::mpsc::channel::<tg::export::Item>(256);
 
 		// Create the complete task.
@@ -73,53 +73,53 @@ impl Server {
 				complete_task_abort_handle.abort();
 			});
 
-		// Create the database processes task.
-		let database_processes_task = tokio::spawn({
-			let server = self.clone();
-			let event_sender = event_sender.clone();
-			let progress_totals = progress.clone();
-			async move {
-				let result = server
-					.import_database_processes_task(
-						database_process_receiver,
-						&event_sender,
-						&progress_totals,
-					)
-					.await;
-				if let Err(error) = result {
-					event_sender.send(Err(error)).await.ok();
-				}
-			}
-		});
-		let database_processes_task_abort_handle = database_processes_task.abort_handle();
-		let database_processes_task_abort_handle = scopeguard::guard(
-			database_processes_task_abort_handle,
-			|database_processes_task_abort_handle| {
-				database_processes_task_abort_handle.abort();
-			},
-		);
+		// // Create the database processes task.
+		// let database_processes_task = tokio::spawn({
+		// 	let server = self.clone();
+		// 	let event_sender = event_sender.clone();
+		// 	let progress_totals = progress.clone();
+		// 	async move {
+		// 		let result = server
+		// 			.import_database_processes_task(
+		// 				database_process_receiver,
+		// 				&event_sender,
+		// 				&progress_totals,
+		// 			)
+		// 			.await;
+		// 		if let Err(error) = result {
+		// 			event_sender.send(Err(error)).await.ok();
+		// 		}
+		// 	}
+		// });
+		// let database_processes_task_abort_handle = database_processes_task.abort_handle();
+		// let database_processes_task_abort_handle = scopeguard::guard(
+		// 	database_processes_task_abort_handle,
+		// 	|database_processes_task_abort_handle| {
+		// 		database_processes_task_abort_handle.abort();
+		// 	},
+		// );
 
-		// Create the database objects task.
-		let database_objects_task = tokio::spawn({
-			let server = self.clone();
-			let event_sender = event_sender.clone();
-			let progress_totals = progress.clone();
-			async move {
-				let result = server
-					.import_database_objects_task(database_object_receiver, &progress_totals)
-					.await;
-				if let Err(error) = result {
-					event_sender.send(Err(error)).await.ok();
-				}
-			}
-		});
-		let database_objects_task_abort_handle = database_objects_task.abort_handle();
-		let database_objects_task_abort_handle = scopeguard::guard(
-			database_objects_task_abort_handle,
-			|database_objects_task_abort_handle| {
-				database_objects_task_abort_handle.abort();
-			},
-		);
+		// // Create the database objects task.
+		// let database_objects_task = tokio::spawn({
+		// 	let server = self.clone();
+		// 	let event_sender = event_sender.clone();
+		// 	let progress_totals = progress.clone();
+		// 	async move {
+		// 		let result = server
+		// 			.import_database_objects_task(database_object_receiver, &progress_totals)
+		// 			.await;
+		// 		if let Err(error) = result {
+		// 			event_sender.send(Err(error)).await.ok();
+		// 		}
+		// 	}
+		// });
+		// let database_objects_task_abort_handle = database_objects_task.abort_handle();
+		// let database_objects_task_abort_handle = scopeguard::guard(
+		// 	database_objects_task_abort_handle,
+		// 	|database_objects_task_abort_handle| {
+		// 		database_objects_task_abort_handle.abort();
+		// 	},
+		// );
 
 		// Create the store task.
 		let store_task = tokio::spawn({
@@ -153,18 +153,18 @@ impl Server {
 						},
 					};
 					let complete_sender_future = complete_sender.send(item.clone());
-					let database_sender_future = match item {
-						tg::export::Item::Process { .. } => {
-							database_process_sender.send(item.clone())
-						},
-						tg::export::Item::Object { .. } => {
-							database_object_sender.send(item.clone())
-						},
-					};
+					// let database_sender_future = match item {
+					// 	tg::export::Item::Process { .. } => {
+					// 		database_process_sender.send(item.clone())
+					// 	},
+					// 	tg::export::Item::Object { .. } => {
+					// 		database_object_sender.send(item.clone())
+					// 	},
+					// };
 					let store_sender_future = store_sender.send(item.clone());
 					let result = futures::try_join!(
 						complete_sender_future,
-						database_sender_future,
+						// database_sender_future,
 						store_sender_future,
 					);
 					if result.is_err() {
@@ -178,13 +178,14 @@ impl Server {
 
 				// Close the channels
 				drop(complete_sender);
-				drop(database_object_sender);
-				drop(database_process_sender);
+				// drop(database_object_sender);
+				// drop(database_process_sender);
 				drop(store_sender);
 
 				// Join the database and store tasks.
-				let result =
-					futures::try_join!(database_processes_task, database_objects_task, store_task);
+				// let result =
+				// 	futures::try_join!(database_processes_task, database_objects_task, store_task);
+				let result = futures::try_join!(store_task);
 
 				match result {
 					Ok(_) => {
@@ -208,8 +209,8 @@ impl Server {
 			.take_while(|event| future::ready(!matches!(event, Ok(tg::import::Event::End))))
 			.attach(abort_handle)
 			.attach(complete_task_abort_handle)
-			.attach(database_processes_task_abort_handle)
-			.attach(database_objects_task_abort_handle)
+			// .attach(database_processes_task_abort_handle)
+			// .attach(database_objects_task_abort_handle)
 			.attach(store_task_abort_handle);
 
 		Ok(stream.right_stream())
