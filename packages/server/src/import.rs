@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{future, stream, Stream, StreamExt as _, TryStreamExt as _};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools;
 use num::ToPrimitive as _;
@@ -205,6 +205,7 @@ impl Server {
 		let progress_stream = progress.stream().map_ok(tg::import::Event::Progress);
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = stream::select(event_stream, progress_stream)
+			.take_while(|event| future::ready(!matches!(event, Ok(tg::import::Event::End))))
 			.attach(abort_handle)
 			.attach(complete_task_abort_handle)
 			.attach(database_processes_task_abort_handle)

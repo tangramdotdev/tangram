@@ -255,7 +255,7 @@ impl Server {
 										}
 									},
 								},
-								Ok(tg::export::Event::End) => break,
+								Ok(tg::export::Event::End) => (),
 								Err(error) => {
 									progress.error(error);
 								},
@@ -286,13 +286,14 @@ impl Server {
 									progress.increment("objects", import_progress.objects);
 									progress.increment("bytes", import_progress.bytes);
 								},
-								Ok(tg::import::Event::End) => break,
+								Ok(tg::import::Event::End) => (),
 								Err(error) => progress.error(error),
 							}
 						}
 					}
 				};
 				futures::join!(export_future, import_future);
+				tracing::debug!("export and import finished");
 				progress.finish("processes");
 				progress.finish("objects");
 				progress.finish("bytes");
