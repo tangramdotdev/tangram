@@ -46,7 +46,7 @@ impl Server {
 
 		let (event_sender, event_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::import::Event>>(256);
-		let (export_complete_sender, export_complete_receiver) =
+		let (complete_sender, complete_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (database_process_sender, database_process_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
@@ -60,7 +60,7 @@ impl Server {
 			let event_sender = event_sender.clone();
 			async move {
 				let result = server
-					.import_complete_task(export_complete_receiver, &event_sender)
+					.import_complete_task(complete_receiver, &event_sender)
 					.await;
 				if let Err(error) = result {
 					event_sender.send(Err(error)).await.ok();
@@ -152,7 +152,7 @@ impl Server {
 							return;
 						},
 					};
-					let complete_sender_future = export_complete_sender.send(item.clone());
+					let complete_sender_future = complete_sender.send(item.clone());
 					let database_sender_future = match item {
 						tg::export::Item::Process { .. } => {
 							database_process_sender.send(item.clone())
@@ -177,7 +177,7 @@ impl Server {
 				}
 
 				// Close the channels
-				drop(export_complete_sender);
+				drop(complete_sender);
 				drop(database_object_sender);
 				drop(database_process_sender);
 				drop(store_sender);
@@ -217,16 +217,16 @@ impl Server {
 
 	async fn import_complete_task(
 		&self,
-		export_complete_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
-		import_complete_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
+		complete_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
+		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 	) -> tg::Result<()> {
-		let stream = ReceiverStream::new(export_complete_receiver);
+		let stream = ReceiverStream::new(complete_receiver);
 		let mut stream = pin!(stream);
 		let mut join_set = JoinSet::new();
 		while let Some(item) = stream.next().await {
 			join_set.spawn({
 				let server = self.clone();
-				let import_complete_sender = import_complete_sender.clone();
+				let event_sender = event_sender.clone();
 				async move {
 					match item {
 						tg::export::Item::Process { id, .. } => {
@@ -249,7 +249,7 @@ impl Server {
 							let event = tg::import::Event::Complete(tg::import::Complete::Process(
 								process_complete,
 							));
-							import_complete_sender.send(Ok(event)).await.ok();
+							event_sender.send(Ok(event)).await.ok();
 							Ok::<_, tg::Error>(())
 						},
 						tg::export::Item::Object { id, .. } => {
@@ -263,12 +263,14 @@ impl Server {
 								return Ok(());
 							};
 							if !object_complete {
+								tracing::debug!(?id, "import item not complete");
 								return Ok(());
 							}
+							tracing::debug!(?id, "import sending complete");
 							let event = tg::import::Event::Complete(tg::import::Complete::Object(
 								tg::import::ObjectComplete { id },
 							));
-							import_complete_sender.send(Ok(event)).await.ok();
+							event_sender.send(Ok(event)).await.ok();
 							Ok::<_, tg::Error>(())
 						},
 					}
@@ -647,6 +649,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		tracing::debug!(?output, ?id, "select complete from objects");
 		// Drop the database connection.
 		drop(connection);
 

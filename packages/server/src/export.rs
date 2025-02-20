@@ -138,6 +138,7 @@ impl Server {
 							graph.update_complete(&Either::Left(process_complete));
 						},
 						tg::import::Complete::Object(ref object_complete) => {
+							tracing::debug!(?object_complete, "received import object complete");
 							graph.update_complete(&Either::Right(object_complete));
 						},
 					}
