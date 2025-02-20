@@ -157,10 +157,6 @@ impl ToV8 for tg::process::State {
 		let value = self.status.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "touched_at".as_bytes()).unwrap();
-		let value = self.touched_at.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
 		Ok(object.into())
 	}
 }
@@ -270,12 +266,6 @@ impl FromV8 for tg::process::State {
 		let status = <_>::from_v8(scope, status)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the status field"))?;
 
-		let touched_at =
-			v8::String::new_external_onebyte_static(scope, "touched_at".as_bytes()).unwrap();
-		let touched_at = value.get(scope, touched_at.into()).unwrap();
-		let touched_at = <_>::from_v8(scope, touched_at)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the touched_at field"))?;
-
 		Ok(Self {
 			cacheable,
 			checksum,
@@ -295,7 +285,6 @@ impl FromV8 for tg::process::State {
 			retry,
 			started_at,
 			status,
-			touched_at,
 		})
 	}
 }

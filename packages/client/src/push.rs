@@ -3,7 +3,7 @@ use futures::{future, Stream, TryStreamExt as _};
 use tangram_either::Either;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub commands: bool,

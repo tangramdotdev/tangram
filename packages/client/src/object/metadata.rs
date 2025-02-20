@@ -5,7 +5,6 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 	Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize,
 )]
 pub struct Metadata {
-	pub complete: bool,
 	pub count: Option<u64>,
 	pub depth: Option<u64>,
 	pub weight: Option<u64>,
@@ -16,8 +15,8 @@ impl tg::Client {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		let method = http::Method::HEAD;
-		let uri = format!("/objects/{id}");
+		let method = http::Method::GET;
+		let uri = format!("/objects/{id}/metadata");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

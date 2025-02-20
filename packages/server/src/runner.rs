@@ -140,17 +140,14 @@ impl Server {
 		// If the process is remote, then push the output.
 		if let Some(remote) = process.remote() {
 			if let Some(value) = &value {
-				let value = tg::Value::try_from(value.clone())?;
-				let object = value
-					.try_unwrap_object()
-					.map_err(|source| tg::error!(!source, "expected an object"))?;
-
-				// Push the object.
-				let object_id = object.id(self).await?;
-				let arg = tg::object::push::Arg {
+				// Push the objects.
+				let objects = value.children();
+				let arg = tg::push::Arg {
+					items: objects.into_iter().map(Either::Right).collect(),
 					remote: remote.to_owned(),
+					..Default::default()
 				};
-				let stream = self.push_object(&object_id, arg).await?;
+				let stream = self.push(arg).await?;
 
 				// Consume the stream and log progress.
 				let mut stream = pin!(stream);

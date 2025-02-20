@@ -269,8 +269,12 @@ impl Cli {
 		// If the remote is set, then push the commnad.
 		if let Some(remote) = remote.clone() {
 			let id = command.id(&handle).await?;
-			let arg = tg::object::push::Arg { remote };
-			let stream = handle.push_object(&id.into(), arg).await?;
+			let arg = tg::push::Arg {
+				items: vec![Either::Right(id.into())],
+				remote,
+				..Default::default()
+			};
+			let stream = handle.push(arg).await?;
 			self.render_progress_stream(stream).await?;
 		}
 

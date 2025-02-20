@@ -1,23 +1,22 @@
 use crate::Server;
 use dashmap::DashMap;
 use futures::{
-	future,
-	stream::{self, FuturesUnordered},
-	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+	future, stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
 };
+use indoc::formatdoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use smallvec::SmallVec;
 use std::{
 	panic::AssertUnwindSafe,
 	pin::{pin, Pin},
-	sync::{Arc, RwLock, Weak},
-	time::Duration,
+	sync::{atomic::AtomicBool, Arc, RwLock, Weak},
 };
 use tangram_client::{self as tg, handle::Ext as _};
+use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
-use tangram_http::{request::Ext, Body};
+use tangram_http::{request::Ext as _, Body};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -27,20 +26,28 @@ struct Graph {
 }
 
 struct Node {
-	output: RwLock<Either<tg::process::put::Output, tg::object::put::Output>>,
+	complete: Either<RwLock<ProcessComplete>, AtomicBool>,
 	parents: RwLock<SmallVec<[Weak<Self>; 1]>>,
 	children: RwLock<Vec<Arc<Self>>>,
 }
 
-pub(crate) struct InnerObjectOutput {
-	pub(crate) count: u64,
-	pub(crate) weight: u64,
+#[derive(Clone)]
+struct ProcessComplete {
+	pub commands_complete: bool,
+	pub complete: bool,
+	pub logs_complete: bool,
+	pub outputs_complete: bool,
 }
 
-pub(crate) struct InnerProcessOutput {
-	pub(crate) process_count: u64,
-	pub(crate) object_count: u64,
-	pub(crate) object_weight: u64,
+struct InnerObjectOutput {
+	pub count: u64,
+	pub weight: u64,
+}
+
+struct InnerProcessOutput {
+	pub process_count: u64,
+	pub object_count: u64,
+	pub object_weight: u64,
 }
 
 struct ProcessStats {
@@ -53,7 +60,7 @@ impl Server {
 	pub async fn export(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote {
@@ -66,211 +73,72 @@ impl Server {
 			return Ok(stream.left_stream());
 		}
 
-		// Create the progress handle and add the indicators.
-		let progress = crate::progress::Handle::new();
-		progress.start(
-			"processes".to_owned(),
-			"processes".to_owned(),
-			tg::progress::IndicatorFormat::Normal,
-			Some(0),
-			None,
-		);
-		progress.start(
-			"objects".to_owned(),
-			"objects".to_owned(),
-			tg::progress::IndicatorFormat::Normal,
-			Some(0),
-			None,
-		);
-		progress.start(
-			"bytes".to_owned(),
-			"bytes".to_owned(),
-			tg::progress::IndicatorFormat::Bytes,
-			Some(0),
-			None,
-		);
-
-		// Spawn a task to set the indicator totals as soon as they are ready.
-		let indicator_total_task = tokio::spawn({
-			let server = self.clone();
-			let progress = progress.clone();
-			let arg = arg.clone();
-			async move {
-				server
-					.set_export_progress_indicator_totals(&arg, &progress)
-					.await;
-			}
-		});
-		let indicator_total_task_abort_handle = AbortOnDropHandle::new(indicator_total_task);
-
 		// Create the task.
-		let (item_sender, item_receiver) = tokio::sync::mpsc::channel(256);
+		let (event_sender, event_receiver) = tokio::sync::mpsc::channel(256);
 		let task = tokio::spawn({
 			let server = self.clone();
-			let progress = progress.clone();
 			async move {
-				let result =
-					AssertUnwindSafe(server.export_inner(arg, stream, &item_sender, &progress))
-						.catch_unwind()
-						.await;
-				progress.finish("processes");
-				progress.finish("objects");
-				progress.finish("bytes");
+				let result = AssertUnwindSafe(server.export_inner(arg, stream, &event_sender))
+					.catch_unwind()
+					.await;
 				match result {
-					Ok(Ok(output)) => {
-						progress.output(output);
+					Ok(Ok(())) => {
+						event_sender
+							.send(Ok(tg::export::Event::End))
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to send the export end event")
+							})?;
 					},
 					Ok(Err(error)) => {
-						progress.error(error);
+						event_sender.send(Err(error)).await.map_err(|source| {
+							tg::error!(!source, "failed to send the export error")
+						})?;
 					},
 					Err(payload) => {
 						let message = payload
 							.downcast_ref::<String>()
 							.map(String::as_str)
 							.or(payload.downcast_ref::<&str>().copied());
-						progress.error(tg::error!(?message, "the task panicked"));
+						event_sender
+							.send(Err(tg::error!(?message, "the task panicked")))
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to send the export panic")
+							})?;
 					},
 				}
+				Ok::<_, tg::Error>(())
 			}
 		});
-		let item_receiver_stream = ReceiverStream::new(item_receiver);
+		let event_receiver_stream = ReceiverStream::new(event_receiver);
 		let abort_handle = AbortOnDropHandle::new(task);
-		let stream = stream::select(
-			item_receiver_stream.map_ok(tg::export::Event::Item),
-			progress.stream().map_ok(tg::export::Event::Progress),
-		)
-		.attach(abort_handle)
-		.attach(indicator_total_task_abort_handle);
+		let stream = event_receiver_stream.attach(abort_handle);
 
 		Ok(stream.right_stream())
-	}
-
-	async fn set_export_progress_indicator_totals(
-		&self,
-		arg: &tg::export::Arg,
-		progress: &crate::progress::Handle<()>,
-	) {
-		let mut metadata_futures = arg
-			.items
-			.iter()
-			.map(|item| {
-				let server = self.clone();
-				async move {
-					loop {
-						match item {
-							tangram_either::Either::Left(ref process) => {
-								let tg::process::get::Output { metadata, .. } =
-									server.get_process(process).await.map_err(|source| {
-										tg::error!(!source, "failed to get the process")
-									})?;
-								let metadata = metadata
-									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
-								let mut complete = metadata.count.is_some();
-								if arg.commands {
-									complete = complete
-										&& metadata.commands_count.is_some()
-										&& metadata.commands_weight.is_some();
-								}
-								if arg.logs {
-									complete = complete
-										&& metadata.logs_count.is_some()
-										&& metadata.logs_weight.is_some();
-								}
-								if arg.outputs {
-									complete = complete
-										&& metadata.outputs_count.is_some()
-										&& metadata.outputs_weight.is_some();
-								}
-								if complete {
-									break Ok::<_, tg::Error>(Either::Left(metadata));
-								}
-							},
-							tangram_either::Either::Right(ref id) => {
-								let metadata = server
-									.try_get_object_metadata_local(id)
-									.await?
-									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
-
-								if metadata.count.is_some() && metadata.weight.is_some() {
-									break Ok::<_, tg::Error>(Either::Right(metadata));
-								}
-							},
-						}
-						tokio::time::sleep(Duration::from_secs(1)).await;
-					}
-				}
-			})
-			.collect::<FuturesUnordered<_>>();
-		let mut total_processes: u64 = 0;
-		let mut total_objects: u64 = 0;
-		let mut total_bytes: u64 = 0;
-		while let Some(Ok(metadata)) = metadata_futures.next().await {
-			match metadata {
-				Either::Left(metadata) => {
-					if let Some(count) = metadata.count {
-						total_processes += count;
-						progress.set_total("processes", total_processes);
-					}
-					if arg.commands {
-						if let Some(commands_count) = metadata.commands_count {
-							total_objects += commands_count;
-						}
-						if let Some(commands_weight) = metadata.commands_weight {
-							total_bytes += commands_weight;
-						}
-					}
-					if arg.logs {
-						if let Some(logs_count) = metadata.logs_count {
-							total_objects += logs_count;
-						}
-						if let Some(logs_weight) = metadata.logs_weight {
-							total_bytes += logs_weight;
-						}
-					}
-					if arg.outputs {
-						if let Some(outputs_count) = metadata.outputs_count {
-							total_objects += outputs_count;
-						}
-						if let Some(outputs_weight) = metadata.outputs_weight {
-							total_bytes += outputs_weight;
-						}
-					}
-					progress.set_total("objects", total_objects);
-					progress.set_total("bytes", total_bytes);
-				},
-				Either::Right(metadata) => {
-					if let Some(count) = metadata.count {
-						total_objects += count;
-						progress.set_total("objects", total_objects);
-					}
-					if let Some(weight) = metadata.weight {
-						total_bytes += weight;
-						progress.set_total("bytes", total_bytes);
-					}
-				},
-			}
-		}
 	}
 
 	async fn export_inner(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
-		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
-		progress: &crate::progress::Handle<()>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
+		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<()> {
 		// Create the graph.
 		let graph = Graph::new();
 
-		// Spawn a task to receive import events and update the graphs.
+		// Spawn a task to receive import completion events and update the graph.
 		let import_event_task = tokio::spawn({
 			let graph = graph.clone();
 			async move {
 				let mut stream = pin!(stream);
-				while let Some(event) = stream.try_next().await? {
-					match event {
-						tg::import::Event::Complete(data) => {
-							graph.update_output(&data.as_ref());
+				while let Some(complete) = stream.try_next().await? {
+					match complete {
+						tg::import::Complete::Process(ref process_complete) => {
+							graph.update_complete(&Either::Left(process_complete));
+						},
+						tg::import::Complete::Object(ref object_complete) => {
+							graph.update_complete(&Either::Right(object_complete));
 						},
 					}
 				}
@@ -292,27 +160,20 @@ impl Server {
 					match item {
 						Either::Left(process) => {
 							let result = server
-								.export_inner_process(
-									None,
-									process,
-									&graph,
-									item_sender,
-									arg,
-									progress,
-								)
+								.export_inner_process(None, process, &graph, event_sender, arg)
 								.boxed()
 								.await;
 							if let Err(error) = result {
-								item_sender.send(Err(error)).await.ok();
+								event_sender.send(Err(error)).await.ok();
 							}
 						},
 						Either::Right(object) => {
 							let result = server
-								.export_inner_object(None, object, &graph, item_sender, progress)
+								.export_inner_object(None, object, &graph, event_sender)
 								.boxed()
 								.await;
 							if let Err(error) = result {
-								item_sender.send(Err(error)).await.ok();
+								event_sender.send(Err(error)).await.ok();
 							}
 						},
 					}
@@ -330,26 +191,37 @@ impl Server {
 		parent: Option<Either<&tg::process::Id, &tg::object::Id>>,
 		object: &tg::object::Id,
 		graph: &Graph,
-		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
-		progress: &crate::progress::Handle<()>,
+		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<InnerObjectOutput> {
 		// Get the object.
-		let tg::object::get::Output { bytes, metadata } = self
+		let tg::object::get::Output { bytes, .. } = self
 			.get_object(object)
 			.await
 			.map_err(|source| tg::error!(!source, %object, "failed to get the object"))?;
-		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
+		let object_complete = self
+			.get_export_object_complete(object)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the object count and weight"))?;
 		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
 		let size = bytes.len().to_u64().unwrap();
 
 		// If the object has already been sent or is complete, then update the progress and return.
-		if !graph.insert(parent.as_ref(), &Either::Right(object))
-			|| graph.is_complete(&Either::Right(object))
-		{
-			let count = metadata.count.unwrap_or(1);
-			let weight = metadata.weight.unwrap_or(size);
-			progress.increment("objects", count);
-			progress.increment("bytes", weight);
+		let inserted = graph.insert(parent.as_ref(), &Either::Right(object));
+		let is_complete = graph.is_complete(&Either::Right(object));
+		if is_complete {
+			event_sender
+				.send(Ok(tg::export::Event::Complete(
+					tg::export::Complete::Object(object_complete.clone()),
+				)))
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to send export object complete event")
+				})?;
+		}
+
+		if !inserted || is_complete {
+			let count = object_complete.count.unwrap_or(1);
+			let weight = object_complete.weight.unwrap_or(size);
 			let output = InnerObjectOutput { count, weight };
 			return Ok(output);
 		}
@@ -359,14 +231,10 @@ impl Server {
 			id: object.clone(),
 			bytes: bytes.clone(),
 		};
-		item_sender
-			.send(Ok(item))
+		event_sender
+			.send(Ok(tg::export::Event::Item(item)))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
-
-		// Increment the count and add the object's size to the weight.
-		progress.increment("objects", 1);
-		progress.increment("bytes", size);
 
 		// Recurse into the children.
 		let mut children_count = 0;
@@ -376,23 +244,18 @@ impl Server {
 				Some(Either::Right(object)),
 				&child,
 				graph,
-				item_sender,
-				progress,
+				event_sender,
 			))
 			.await?;
 			children_count += output.count;
 			children_weight += output.weight;
 		}
-		if let Some(count) = metadata.count {
-			progress.increment("objects", count - 1 - children_count);
-		}
-		if let Some(weight) = metadata.weight {
-			progress.increment("bytes", weight - size - children_weight);
-		}
 
 		// Create the output.
-		let count = metadata.count.unwrap_or_else(|| 1 + children_count);
-		let weight = metadata.weight.unwrap_or_else(|| size + children_weight);
+		let count = object_complete.count.unwrap_or_else(|| 1 + children_count);
+		let weight = object_complete
+			.weight
+			.unwrap_or_else(|| size + children_weight);
 		let output = InnerObjectOutput { count, weight };
 
 		Ok(output)
@@ -403,16 +266,20 @@ impl Server {
 		parent: Option<&tg::process::Id>,
 		process: &tg::process::Id,
 		graph: &Graph,
-		item_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
+		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 		arg: tg::export::Arg,
-		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<InnerProcessOutput> {
 		// Get the process
-		let tg::process::get::Output { data, metadata } = self
+		let tg::process::get::Output { data, .. } = self
 			.get_process(process)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the process"))?;
-		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
+		let process_complete =
+			self.get_export_process_complete(process)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to get export process complete status")
+				})?;
 
 		// Return an error if the process is not finished.
 		if !data.status.is_finished() {
@@ -420,7 +287,8 @@ impl Server {
 		}
 
 		// Get the stats.
-		let stats = Self::get_process_stats_local(&self.clone(), &arg, &data, &metadata).await?;
+		let stats =
+			Self::get_process_stats_local(&self.clone(), &arg, &data, &process_complete).await?;
 
 		if !graph.insert(parent.map(Either::Left).as_ref(), &Either::Left(process)) {
 			return Ok(InnerProcessOutput {
@@ -431,19 +299,25 @@ impl Server {
 		}
 
 		// Send the process if it is not complete.
-		if !graph.is_complete(&Either::Left(process)) {
+		if graph.is_complete(&Either::Left(process)) {
+			event_sender
+				.send(Ok(tg::export::Event::Complete(
+					tg::export::Complete::Process(process_complete.clone()),
+				)))
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to send export process complete event")
+				})?;
+		} else {
 			let item = tg::export::Item::Process {
 				id: process.clone(),
 				data: data.clone(),
 			};
-			item_sender
-				.send(Ok(item))
+			event_sender
+				.send(Ok(tg::export::Event::Item(item)))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to send"))?;
 		}
-
-		// Update the progress.
-		progress.increment("processes", 1);
 
 		// Get the children.
 		let children_arg = tg::process::children::get::Arg::default();
@@ -457,7 +331,7 @@ impl Server {
 			.collect_vec();
 
 		// Handle the command, log, and output.
-		let current_output = graph.get_output(&Either::Left(process));
+		let current_output = graph.get_complete(&Either::Left(process));
 
 		let mut objects: Vec<tg::object::Id> = Vec::new();
 		if arg.commands {
@@ -501,13 +375,7 @@ impl Server {
 			.iter()
 			.map(|object| async {
 				let output = self
-					.export_inner_object(
-						Some(Either::Left(process)),
-						object,
-						graph,
-						item_sender,
-						progress,
-					)
+					.export_inner_object(Some(Either::Left(process)), object, graph, event_sender)
 					.await?;
 				Ok::<_, tg::Error>((output.count, output.weight))
 			})
@@ -536,9 +404,8 @@ impl Server {
 						Some(process),
 						child,
 						graph,
-						item_sender,
+						event_sender,
 						arg.clone(),
-						progress,
 					)
 				})
 				.collect::<FuturesUnordered<_>>()
@@ -564,22 +431,18 @@ impl Server {
 			}
 		};
 
-		// Update the progress.
 		let process_count = stats.process_count.map_or_else(
 			|| 1 + children_process_count,
 			|process_count| process_count - 1 - children_process_count,
 		);
-		progress.increment("processes", process_count);
 		let object_count = stats.object_count.map_or_else(
 			|| self_object_count + children_object_count,
 			|object_count| object_count - self_object_count - children_object_count,
 		);
-		progress.increment("objects", object_count);
 		let object_weight = stats.object_weight.map_or_else(
 			|| self_object_weight + children_object_weight,
 			|object_weight| object_weight - self_object_weight - children_object_weight,
 		);
-		progress.increment("bytes", object_weight);
 
 		Ok(InnerProcessOutput {
 			process_count,
@@ -592,27 +455,27 @@ impl Server {
 		src: &impl tg::Handle,
 		arg: &tg::export::Arg,
 		data: &tg::process::Data,
-		metadata: &tg::process::Metadata,
+		process_complete: &tg::export::ProcessComplete,
 	) -> tg::Result<ProcessStats> {
 		let process_count = if arg.recursive {
-			metadata.count
+			process_complete.count
 		} else {
 			Some(1)
 		};
 		let (object_count, object_weight) = if arg.recursive {
 			// If the push is recursive, then use the logs', outputs', and commands' counts and weights.
 			let logs_count = if arg.logs {
-				metadata.logs_count
+				process_complete.logs_count
 			} else {
 				Some(0)
 			};
 			let outputs_count = if arg.outputs {
-				metadata.outputs_count
+				process_complete.outputs_count
 			} else {
 				Some(0)
 			};
 			let commands_count = if arg.commands {
-				metadata.commands_count
+				process_complete.commands_count
 			} else {
 				Some(0)
 			};
@@ -622,17 +485,17 @@ impl Server {
 				.chain(Some(commands_count))
 				.sum::<Option<u64>>();
 			let logs_weight = if arg.logs {
-				metadata.logs_weight
+				process_complete.logs_weight
 			} else {
 				Some(0)
 			};
 			let outputs_weight = if arg.outputs {
-				metadata.outputs_weight
+				process_complete.outputs_weight
 			} else {
 				Some(0)
 			};
 			let commands_weight = if arg.commands {
-				metadata.commands_weight
+				process_complete.commands_weight
 			} else {
 				Some(0)
 			};
@@ -712,6 +575,76 @@ impl Server {
 			object_count,
 			object_weight,
 		})
+	}
+
+	async fn get_export_object_complete(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<tg::export::ObjectComplete> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the object metadata.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id, count, weight
+				from objects
+				where id = {p}1;
+			",
+		);
+		let params = db::params![id];
+		let Some(output) = connection
+			.query_optional_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
+			return Err(tg::error!("could not find object"));
+		};
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
+	}
+
+	async fn get_export_process_complete(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<tg::export::ProcessComplete> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the object metadata.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id, count, commands_count, commands_weight, logs_count, logs_weight, outputs_count, outputs_weight
+				from processes
+				where id = {p}1;
+			",
+		);
+		let params = db::params![id];
+		let Some(output) = connection
+			.query_optional_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
+			return Err(tg::error!("could not find process"));
+		};
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
 	}
 }
 
@@ -870,10 +803,13 @@ impl Graph {
 		// if we found a path to complete, mark intermediate nodes as complete.
 		if found_complete_ancestor {
 			for node in completion_path {
-				let mut output = node.output.write().unwrap();
-				match *output {
-					Either::Left(ref mut process_output) => process_output.complete = true, // FIXME respect arg.
-					Either::Right(ref mut object_output) => object_output.complete = true,
+				match node.complete {
+					Either::Left(ref process_complete) => {
+						process_complete.write().unwrap().complete = true;
+					},
+					Either::Right(ref object_complete) => {
+						object_complete.store(true, std::sync::atomic::Ordering::SeqCst);
+					},
 				}
 			}
 			true
@@ -916,45 +852,49 @@ impl Graph {
 		false
 	}
 
-	fn get_output(
+	fn get_complete(
 		&self,
 		item: &Either<&tg::process::Id, &tg::object::Id>,
-	) -> Option<Either<tg::process::put::Output, tg::object::put::Output>> {
+	) -> Option<Either<ProcessComplete, bool>> {
 		let item = item.cloned();
 		let node = self.nodes.get(&item)?;
-		let output = node.output.read().unwrap().clone();
+		let output = match node.complete {
+			Either::Left(ref process_complete) => {
+				Either::Left(process_complete.read().unwrap().clone())
+			},
+			Either::Right(ref object_complete) => {
+				Either::Right(object_complete.load(std::sync::atomic::Ordering::SeqCst))
+			},
+		};
 		Some(output)
 	}
 
-	fn update_output(
+	fn update_complete(
 		&self,
-		output: &Either<&tg::import::ProcessOutput, &tg::import::ObjectOutput>,
-	) -> bool {
-		let (item, new_output) = match output {
+		output: &Either<&tg::import::ProcessComplete, &tg::import::ObjectComplete>,
+	) {
+		let (item, new_complete) = match output {
 			Either::Left(process) => (
 				Either::Left(process.id.clone()),
-				Either::Left(process.output.clone()),
+				Either::Left(ProcessComplete::from((*process).clone())),
 			),
-			Either::Right(object) => (
-				Either::Right(object.id.clone()),
-				Either::Right(object.output.clone()),
-			),
+			Either::Right(object) => (Either::Right(object.id.clone()), Either::Right(true)),
 		};
 		if let Some(node) = self.nodes.get(&item) {
-			let mut output = node.output.write().unwrap();
-			match (&*output, &new_output) {
-				(Either::Left(_), Either::Left(_)) | (Either::Right(_), Either::Right(_)) => {
-					*output = new_output.clone();
-					true
+			match (&node.complete, new_complete) {
+				(Either::Left(old_complete), Either::Left(new_complete)) => {
+					let mut w = old_complete.write().unwrap();
+					*w = new_complete.clone();
+				},
+				(Either::Right(old_complete), Either::Right(value)) => {
+					old_complete.store(value, std::sync::atomic::Ordering::SeqCst);
 				},
 				_ => {
-					tracing::error!("attempted to update output with mismatched type");
-					false
+					tracing::error!("attempted to update complete with mismatched type");
 				},
 			}
 		} else {
-			tracing::debug!("attempted to update output for non-existent node");
-			false
+			tracing::debug!("attempted to update complete for non-existent node");
 		}
 	}
 }
@@ -964,7 +904,7 @@ impl Node {
 		Self {
 			parents: RwLock::new(SmallVec::new()),
 			children: RwLock::new(Vec::new()),
-			output: RwLock::new(Either::Right(tg::object::put::Output { complete: false })),
+			complete: Either::Right(AtomicBool::new(false)),
 		}
 	}
 
@@ -972,23 +912,45 @@ impl Node {
 		Self {
 			parents: RwLock::new(SmallVec::new()),
 			children: RwLock::new(Vec::new()),
-			output: RwLock::new(Either::Left(tg::process::put::Output {
-				complete: false,
-				commands_complete: false,
-				logs_complete: false,
-				outputs_complete: false,
-			})),
+			complete: Either::Left(RwLock::new(ProcessComplete::new())),
 		}
 	}
 
 	fn is_complete(&self) -> bool {
-		let output = self.output.read().unwrap();
-		match *output {
-			Either::Left(ref process_output) => {
-				// TODO logs/command/outputs?
-				process_output.complete
+		match self.complete {
+			Either::Left(ref process_complete) => process_complete.read().unwrap().complete,
+			Either::Right(ref object_complete) => {
+				object_complete.load(std::sync::atomic::Ordering::SeqCst)
 			},
-			Either::Right(ref object_output) => object_output.complete,
+		}
+	}
+}
+
+impl ProcessComplete {
+	fn new() -> Self {
+		Self {
+			commands_complete: false,
+			complete: false,
+			logs_complete: false,
+			outputs_complete: false,
+		}
+	}
+}
+
+impl From<tg::import::ProcessComplete> for ProcessComplete {
+	fn from(value: tg::import::ProcessComplete) -> Self {
+		let tg::import::ProcessComplete {
+			commands_complete,
+			complete,
+			logs_complete,
+			outputs_complete,
+			..
+		} = value;
+		Self {
+			commands_complete,
+			complete,
+			logs_complete,
+			outputs_complete,
 		}
 	}
 }

@@ -22,6 +22,7 @@ mod health;
 mod import;
 mod index;
 mod lsp;
+mod metadata;
 mod object;
 mod package;
 mod process;
@@ -163,6 +164,8 @@ enum Command {
 	Log(self::process::log::Args),
 
 	Lsp(self::lsp::Args),
+
+	Metadata(self::metadata::Args),
 
 	New(self::package::new::Args),
 
@@ -929,6 +932,7 @@ impl Cli {
 			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_process_log(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),
+			Command::Metadata(args) => self.command_metadata(args).boxed(),
 			Command::New(args) => self.command_package_new(args).boxed(),
 			Command::Object(args) => self.command_object(args).boxed(),
 			Command::Outdated(args) => self.command_package_outdated(args).boxed(),

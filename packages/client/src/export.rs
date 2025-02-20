@@ -56,8 +56,53 @@ pub struct QueryArg {
 
 #[derive(Debug, Clone)]
 pub enum Event {
+	Complete(tg::export::Complete),
 	Item(tg::export::Item),
-	Progress(tg::progress::Event<()>),
+	End,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum Complete {
+	Process(ProcessComplete),
+	Object(ObjectComplete),
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ProcessComplete {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub commands_count: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub commands_weight: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u64>,
+
+	pub id: tg::process::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub logs_count: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub logs_weight: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub outputs_count: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub outputs_weight: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ObjectComplete {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u64>,
+
+	pub id: tg::object::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub weight: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,7 +121,7 @@ impl tg::Client {
 	pub async fn export(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(QueryArg::from(arg)).unwrap();
@@ -138,21 +183,14 @@ impl Event {
 
 	pub async fn to_writer(&self, mut writer: impl AsyncWrite + Unpin + Send) -> tg::Result<()> {
 		match self {
-			Event::Item(item) => {
+			Event::Complete(complete) => {
 				writer
 					.write_uvarint(0)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the tag"))?;
-				item.to_writer(writer).await?;
-			},
 
-			Event::Progress(progress) => {
-				writer
-					.write_uvarint(1)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to write the tag"))?;
-				let bytes = serde_json::to_vec(progress)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+				let bytes = serde_json::to_vec(complete)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				writer
 					.write_uvarint(bytes.len().to_u64().unwrap())
 					.await
@@ -161,6 +199,21 @@ impl Event {
 					.write_all(&bytes)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the event"))?;
+			},
+
+			Event::Item(item) => {
+				writer
+					.write_uvarint(1)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the tag"))?;
+				item.to_writer(writer).await?;
+			},
+
+			Event::End => {
+				writer
+					.write_uvarint(2)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the tag"))?;
 			},
 		}
 		Ok(())
@@ -180,13 +233,6 @@ impl Event {
 
 		let event = match tag {
 			0 => {
-				let item = Item::from_reader(reader)
-					.await?
-					.ok_or_else(|| tg::error!("expected an item"))?;
-				Event::Item(item)
-			},
-
-			1 => {
 				let len = reader
 					.read_uvarint()
 					.await
@@ -200,8 +246,17 @@ impl Event {
 					.map_err(|source| tg::error!(!source, "failed to read the event"))?;
 				let event = serde_json::from_slice(&bytes)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Event::Progress(event)
+				Event::Complete(event)
 			},
+
+			1 => {
+				let item = Item::from_reader(reader)
+					.await?
+					.ok_or_else(|| tg::error!("expected an item"))?;
+				Event::Item(item)
+			},
+
+			2 => Event::End,
 
 			_ => {
 				return Err(tg::error!("invalid tag"));

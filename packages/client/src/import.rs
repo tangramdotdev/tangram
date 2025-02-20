@@ -1,4 +1,7 @@
-use crate::{self as tg, util::serde::CommaSeparatedString};
+use crate::{
+	self as tg,
+	util::serde::{is_false, CommaSeparatedString},
+};
 use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
 use serde_with::serde_as;
 use std::pin::Pin;
@@ -25,19 +28,46 @@ pub struct QueryArg {
 
 #[derive(Debug, Clone)]
 pub enum Event {
-	Complete(Either<ProcessOutput, ObjectOutput>),
+	Complete(tg::import::Complete),
+	Progress(tg::import::Progress),
+	End,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct ProcessOutput {
+#[serde(untagged)]
+pub enum Complete {
+	Process(ProcessComplete),
+	Object(ObjectComplete),
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ProcessComplete {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub commands_complete: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub complete: bool,
+
 	pub id: tg::process::Id,
-	pub output: tg::process::put::Output,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub logs_complete: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub outputs_complete: bool,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct ObjectOutput {
+pub struct ObjectComplete {
 	pub id: tg::object::Id,
-	pub output: tg::object::put::Output,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Progress {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub processes: Option<u64>,
+	pub objects: u64,
+	pub bytes: u64,
 }
 
 impl tg::Client {
@@ -136,14 +166,19 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 
 	fn try_from(value: Event) -> Result<Self, Self::Error> {
 		let event = match value {
-			Event::Complete(data) => {
+			Event::Complete(data) => data.try_into()?,
+			Event::Progress(data) => {
 				let data = serde_json::to_string(&data)
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
-					event: Some("complete".to_owned()),
+					event: Some("progress".to_owned()),
 					data,
 					..Default::default()
 				}
+			},
+			Event::End => tangram_http::sse::Event {
+				event: Some("end".to_owned()),
+				..Default::default()
 			},
 		};
 		Ok(event)
@@ -156,9 +191,44 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
 		match value.event.as_deref() {
 			Some("complete") => {
+				let data = Complete::try_from(value)?;
+				Ok(Self::Complete(data))
+			},
+			Some("progress") => {
 				let data = serde_json::from_str(&value.data)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-				Ok(Self::Complete(data))
+				Ok(Self::Progress(data))
+			},
+			Some("end") => Ok(Self::End),
+			_ => Err(tg::error!("invalid event")),
+		}
+	}
+}
+
+impl TryFrom<Complete> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: Complete) -> Result<Self, Self::Error> {
+		let data = serde_json::to_string(&value)
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+		let event = tangram_http::sse::Event {
+			event: Some("complete".to_owned()),
+			data,
+			..Default::default()
+		};
+		Ok(event)
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for Complete {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
+		match value.event.as_deref() {
+			Some("complete") => {
+				let data = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Ok(data)
 			},
 			_ => Err(tg::error!("invalid event")),
 		}

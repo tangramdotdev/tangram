@@ -11,8 +11,5 @@ pub mod kind;
 pub mod metadata;
 #[allow(clippy::module_inception)]
 pub mod object;
-pub mod post;
-pub mod pull;
-pub mod push;
 pub mod put;
 pub mod state;

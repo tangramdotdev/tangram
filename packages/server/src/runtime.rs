@@ -1,8 +1,7 @@
-use crate::{compiler::Compiler, Server};
+use crate::Server;
 use futures::{future, FutureExt as _, TryFutureExt};
 use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_http::{response::builder::Ext as _, Body};
 use tokio_stream::StreamExt as _;
 
 mod proxy;
@@ -250,46 +249,5 @@ impl Runtime {
 		};
 
 		Ok(Some(output))
-	}
-}
-
-impl Server {
-	pub async fn get_js_runtime_doc(&self) -> tg::Result<serde_json::Value> {
-		// Create the module.
-		let module = tg::Module {
-			kind: tg::module::Kind::Dts,
-			referent: tg::Referent {
-				item: tg::module::Item::Path("tangram.d.ts".into()),
-				path: None,
-				subpath: None,
-				tag: None,
-			},
-		};
-
-		// Create the compiler.
-		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
-
-		// Document the module.
-		let document = compiler.document(&module).await?;
-
-		// Stop and await the compiler.
-		compiler.stop();
-		compiler.wait().await;
-
-		Ok(document)
-	}
-}
-
-impl Server {
-	pub(crate) async fn handle_get_js_runtime_doc_request<H>(
-		handle: &H,
-		_request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
-		let output = handle.get_js_runtime_doc().await?;
-		let response = http::Response::builder().json(output).unwrap();
-		Ok(response)
 	}
 }

@@ -1,6 +1,7 @@
 use super::State;
 use std::{pin::pin, rc::Rc, sync::Arc};
 use tangram_client::{self as tg, handle::Ext};
+use tangram_either::Either;
 use tokio_stream::StreamExt as _;
 
 pub async fn load(
@@ -35,10 +36,12 @@ pub async fn spawn(
 			if let Some(remote) = parent.remote() {
 				if let Some(command) = &arg.command {
 					// Push the command.
-					let arg = tg::object::push::Arg {
+					let arg = tg::push::Arg {
+						items: vec![Either::Right(command.clone().into())],
 						remote: remote.to_owned(),
+						..Default::default()
 					};
-					let stream = server.push_object(&command.clone().into(), arg).await?;
+					let stream = server.push(arg).await?;
 
 					// Consume the stream and log progress.
 					let mut stream = pin!(stream);

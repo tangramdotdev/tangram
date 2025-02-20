@@ -4,8 +4,6 @@ use tangram_client as tg;
 pub mod children;
 pub mod get;
 pub mod metadata;
-pub mod pull;
-pub mod push;
 pub mod put;
 
 /// Manage objects.
@@ -21,8 +19,6 @@ pub enum Command {
 	Children(self::children::Args),
 	Get(self::get::Args),
 	Metadata(self::metadata::Args),
-	Pull(self::pull::Args),
-	Push(self::push::Args),
 	Put(self::put::Args),
 }
 
@@ -37,12 +33,6 @@ impl Cli {
 			},
 			Command::Metadata(args) => {
 				self.command_object_metadata(args).await?;
-			},
-			Command::Pull(args) => {
-				self.command_object_pull(args).await?;
-			},
-			Command::Push(args) => {
-				self.command_object_push(args).await?;
 			},
 			Command::Put(args) => {
 				self.command_object_put(args).await?;

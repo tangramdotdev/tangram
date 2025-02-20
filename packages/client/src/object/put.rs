@@ -1,7 +1,4 @@
-use crate::{
-	self as tg,
-	util::serde::{is_false, BytesBase64},
-};
+use crate::{self as tg, util::serde::BytesBase64};
 use bytes::Bytes;
 use serde_with::serde_as;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
@@ -13,18 +10,12 @@ pub struct Arg {
 	pub bytes: Bytes,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub complete: bool,
-}
-
 impl tg::Client {
 	pub async fn put_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> tg::Result<tg::object::put::Output> {
+	) -> tg::Result<()> {
 		let method = http::Method::PUT;
 		let uri = format!("/objects/{id}");
 		let request = http::request::Builder::default()
@@ -37,7 +28,6 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.json().await?;
-		Ok(output)
+		Ok(())
 	}
 }

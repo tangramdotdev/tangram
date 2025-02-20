@@ -926,23 +926,14 @@ impl Server {
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 
 			// Objects.
-			(http::Method::HEAD, ["objects", object]) => {
-				Self::handle_head_object_request(handle, request, object).boxed()
+			(http::Method::GET, ["objects", object, "metadata"]) => {
+				Self::handle_get_object_metadata_request(handle, request, object).boxed()
 			},
 			(http::Method::GET, ["objects", object]) => {
 				Self::handle_get_object_request(handle, request, object).boxed()
 			},
 			(http::Method::PUT, ["objects", object]) => {
 				Self::handle_put_object_request(handle, request, object).boxed()
-			},
-			(http::Method::POST, ["objects"]) => {
-				Self::handle_post_object_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["objects", object, "push"]) => {
-				Self::handle_push_object_request(handle, request, object).boxed()
-			},
-			(http::Method::POST, ["objects", object, "pull"]) => {
-				Self::handle_pull_object_request(handle, request, object).boxed()
 			},
 
 			// Packages.
@@ -974,17 +965,14 @@ impl Server {
 			(http::Method::POST, ["processes", "spawn"]) => {
 				Self::handle_spawn_process_request(handle, request).boxed()
 			},
+			(http::Method::GET, ["processes", process, "metadata"]) => {
+				Self::handle_get_process_metadata_request(handle, request, process).boxed()
+			},
 			(http::Method::GET, ["processes", process]) => {
 				Self::handle_get_process_request(handle, request, process).boxed()
 			},
 			(http::Method::PUT, ["processes", process]) => {
 				Self::handle_put_process_request(handle, request, process).boxed()
-			},
-			(http::Method::POST, ["processes", process, "push"]) => {
-				Self::handle_push_process_request(handle, request, process).boxed()
-			},
-			(http::Method::POST, ["processes", process, "pull"]) => {
-				Self::handle_pull_process_request(handle, request, process).boxed()
 			},
 			(http::Method::POST, ["processes", "dequeue"]) => {
 				Self::handle_dequeue_process_request(handle, request).boxed()
@@ -1034,11 +1022,6 @@ impl Server {
 			},
 			(http::Method::DELETE, ["remotes", name]) => {
 				Self::handle_delete_remote_request(handle, request, name).boxed()
-			},
-
-			// Runtimes.
-			(http::Method::GET, ["runtimes", "js", "doc"]) => {
-				Self::handle_get_js_runtime_doc_request(handle, request).boxed()
 			},
 
 			// Server.
@@ -1179,7 +1162,7 @@ impl tg::Handle for Server {
 	fn export(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
 	> {
@@ -1234,43 +1217,8 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.put_object(id, arg)
-	}
-
-	fn post_objects(
-		&self,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Item>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static,
-		>,
-	> + Send {
-		self.post_objects(stream)
-	}
-
-	fn push_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.push_object(id, arg)
-	}
-
-	fn pull_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.pull_object(id, arg)
 	}
 
 	fn check_package(
@@ -1318,6 +1266,13 @@ impl tg::Handle for Server {
 		self.write_pipe(id, stream)
 	}
 
+	fn try_get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::process::metadata::Output>>> {
+		self.try_get_process_metadata(id)
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -1329,32 +1284,8 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::put::Output>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.put_process(id, arg)
-	}
-
-	fn push_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.push_process(id, arg)
-	}
-
-	fn pull_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.pull_process(id, arg)
 	}
 
 	fn try_dequeue_process(
@@ -1473,10 +1404,6 @@ impl tg::Handle for Server {
 
 	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
 		self.remove_remote(name)
-	}
-
-	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> {
-		self.get_js_runtime_doc()
 	}
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {

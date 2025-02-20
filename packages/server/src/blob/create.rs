@@ -108,7 +108,6 @@ impl Server {
 
 		// Create the metadata.
 		let metadata = tg::object::Metadata {
-			complete: true,
 			count: Some(count),
 			weight: Some(weight),
 			depth: Some(depth),
@@ -160,7 +159,6 @@ impl Server {
 
 		// Create the metadata.
 		let metadata = tg::object::Metadata {
-			complete: true,
 			count: Some(count),
 			weight: Some(weight),
 			depth: Some(depth),

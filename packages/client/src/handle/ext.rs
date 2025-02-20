@@ -86,6 +86,17 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
+	fn get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::metadata::Output>> + Send {
+		self.try_get_process_metadata(id).map(move |result| {
+			result.and_then(|option| {
+				option.ok_or_else(|| tg::error!(?id, "failed to get the process metadata"))
+			})
+		})
+	}
+
 	fn get_process(
 		&self,
 		id: &tg::process::Id,

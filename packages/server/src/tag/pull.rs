@@ -1,6 +1,7 @@
 use crate::Server;
 use futures::{stream::FuturesUnordered, TryStreamExt};
 use tangram_client as tg;
+use tangram_either::Either;
 
 impl Server {
 	pub(crate) async fn pull_tag(
@@ -19,21 +20,20 @@ impl Server {
 			.data;
 		list.into_iter()
 			.filter_map(|output| {
-				// Skip objects that can't be packages.
 				let directory = output.item.right()?.try_unwrap_directory().ok()?;
 				let server = self.clone();
 				let remote = remote.clone().unwrap_or_else(|| "default".to_owned());
-				let future = async move {
-					// Pull the object
-					let arg = tg::object::pull::Arg { remote };
-					let stream = server.pull_object(&directory.into(), arg).await?;
-
-					// Drain the stream.
+				Some(async move {
+					let arg = tg::pull::Arg {
+						items: vec![Either::Right(directory.into())],
+						remote,
+						..Default::default()
+					};
+					let stream = server.pull(arg).await?;
 					let mut stream = std::pin::pin!(stream);
-					while let Some(_event) = stream.try_next().await? {}
+					while stream.try_next().await?.is_some() {}
 					Ok::<_, tg::Error>(())
-				};
-				Some(future)
+				})
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()

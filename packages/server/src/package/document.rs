@@ -22,11 +22,8 @@ impl Server {
 		// Create the compiler.
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 
-		// Create the module.
-		let module = arg.package;
-
 		// Document the module.
-		let output = compiler.document(&module).await?;
+		let output = compiler.document(&arg.module).await?;
 
 		// Stop and await the compiler.
 		compiler.stop();

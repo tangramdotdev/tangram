@@ -37,43 +37,27 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 			// Get the object.
-			#[derive(serde::Deserialize)]
-			struct Row {
-				bytes: Option<Bytes>,
-				complete: bool,
-				count: Option<u64>,
-				depth: Option<u64>,
-				weight: Option<u64>,
-			}
 			let p = connection.p();
 			let statement = formatdoc!(
 				"
-					select bytes, complete, count, depth, weight
+					select bytes
 					from objects
 					where id = {p}1;
 				",
 			);
 			let params = db::params![id];
-			let row = connection
-				.query_optional_into::<Row>(statement.into(), params)
+			let Some(bytes) = connection
+				.query_optional_value_into(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			else {
+				return Ok(None);
+			};
 
 			// Drop the database connection.
 			drop(connection);
 
-			// Get the bytes and metadata.
-			let mut bytes = None;
-			let mut metadata = tg::object::Metadata::default();
-			if let Some(row) = row {
-				bytes = row.bytes;
-				metadata.complete = row.complete;
-				metadata.count = row.count;
-				metadata.depth = row.depth;
-				metadata.weight = row.weight;
-			}
-
-			Ok::<_, tg::Error>((bytes, metadata))
+			Ok::<_, tg::Error>(bytes)
 		};
 
 		// Create the store future.
@@ -88,7 +72,9 @@ impl Server {
 		};
 
 		// Await the futures.
-		let ((database_bytes, metadata), store_bytes) = futures::try_join!(database, store)?;
+		let (database_bytes, store_bytes) = futures::try_join!(database, store)?;
+
+		// Get the bytes.
 		let mut bytes = store_bytes.or(database_bytes);
 
 		// If the bytes were not in the database or the store, then attempt to read the bytes from a blob file.
@@ -104,10 +90,7 @@ impl Server {
 		};
 
 		// Create the output.
-		let output = tg::object::get::Output {
-			bytes,
-			metadata: Some(metadata),
-		};
+		let output = tg::object::get::Output { bytes };
 
 		Ok(Some(output))
 	}
@@ -215,11 +198,7 @@ impl Server {
 		let Some(output) = handle.try_get_object(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let response = http::Response::builder()
-			.header_json(tg::object::get::METADATA_HEADER, output.metadata)
-			.unwrap()
-			.bytes(output.bytes)
-			.unwrap();
+		let response = http::Response::builder().bytes(output.bytes).unwrap();
 		Ok(response)
 	}
 }

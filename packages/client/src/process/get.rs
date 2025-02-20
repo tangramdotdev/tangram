@@ -1,12 +1,10 @@
 use crate as tg;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
-pub const METADATA_HEADER: &str = "x-tg-process-metadata";
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(flatten)]
 	pub data: tg::process::Data,
-	pub metadata: Option<tg::process::Metadata>,
 }
 
 impl Output {
@@ -35,11 +33,7 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let metadata = response
-			.header_json(tg::process::get::METADATA_HEADER)
-			.transpose()?;
-		let data = response.json().await?;
-		let output = Output { data, metadata };
+		let output = response.json().await?;
 		Ok(Some(output))
 	}
 }

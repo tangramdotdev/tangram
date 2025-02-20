@@ -59,7 +59,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn export(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
 	> + Send;
@@ -98,40 +98,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> + Send;
 
-	fn post_objects(
-		&self,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::object::post::Item>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::object::post::Event>> + Send + 'static,
-		>,
-	> + Send;
-
 	fn put_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::object::put::Output>> + Send;
-
-	fn push_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send;
-
-	fn pull_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send;
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn check_package(
 		&self,
@@ -181,6 +152,11 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
+	fn try_get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::process::metadata::Output>>> + Send;
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -190,27 +166,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::put::Output>> + Send;
-
-	fn push_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send;
-
-	fn pull_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send;
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_dequeue_process(
 		&self,
@@ -302,8 +258,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn get_js_runtime_doc(&self) -> impl Future<Output = tg::Result<serde_json::Value>> + Send;
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> + Send;
 

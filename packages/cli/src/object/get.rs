@@ -1,5 +1,5 @@
 use crate::Cli;
-use crossterm::{style::Stylize as _, tty::IsTty};
+use crossterm::tty::IsTty as _;
 use tangram_client::{self as tg, handle::Ext as _};
 use tokio::io::AsyncWriteExt as _;
 
@@ -30,32 +30,7 @@ pub enum Format {
 impl Cli {
 	pub async fn command_object_get(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let tg::object::get::Output { bytes, metadata } = handle.get_object(&args.object).await?;
-		let metadata = metadata.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
-		eprintln!("{} complete {}", "info".blue().bold(), metadata.complete);
-		eprint!("{} count ", "info".blue().bold());
-		if let Some(count) = metadata.count {
-			eprint!("{count}");
-		} else {
-			eprint!("∅");
-		}
-		eprintln!();
-		eprint!("{} depth ", "info".blue().bold());
-		if let Some(depth) = metadata.depth {
-			eprint!("{depth}");
-		} else {
-			eprint!("∅");
-		}
-		eprintln!();
-		eprint!("{} weight ", "info".blue().bold());
-		if let Some(weight) = metadata.weight {
-			let weight = byte_unit::Byte::from_u64(weight)
-				.get_appropriate_unit(byte_unit::UnitType::Decimal);
-			eprint!("{weight}");
-		} else {
-			eprint!("∅");
-		}
-		eprintln!();
+		let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
 		let mut stdout = tokio::io::stdout();
 		let pretty = args.pretty.unwrap_or(stdout.is_tty());
 		match args.format.unwrap_or_default() {
