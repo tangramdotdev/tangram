@@ -158,11 +158,14 @@ impl S3 {
 			.unwrap();
 		let request = self.reqwest.request(method, url.as_str()).build().unwrap();
 		let request = self.sign_request(request)?;
+		let start = std::time::Instant::now();
 		let response = self
 			.reqwest
 			.execute(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let elapsed = start.elapsed();
+		tracing::debug!(?elapsed, "store/try_get request duration");
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
 		}
@@ -192,6 +195,7 @@ impl S3 {
 			.path(format!("/{id}"))
 			.build()
 			.unwrap();
+		let obj_size = bytes.len();
 		let request = self
 			.reqwest
 			.request(method, url.as_str())
@@ -201,11 +205,14 @@ impl S3 {
 			.build()
 			.unwrap();
 		let request = self.sign_request(request)?;
+		let start = std::time::Instant::now();
 		let response = self
 			.reqwest
 			.execute(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let elapsed = start.elapsed();
+		tracing::debug!(?elapsed, ?obj_size, "store/put request duration");
 		if response.status() == http::StatusCode::PRECONDITION_FAILED {
 			return Ok(());
 		}
