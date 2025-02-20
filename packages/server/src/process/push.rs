@@ -142,28 +142,7 @@ impl Server {
 			.collect_vec();
 
 		// Put the process.
-		let put_arg = tg::process::put::Arg {
-			cacheable: data.cacheable,
-			checksum: data.checksum,
-			children: Some(children.clone()),
-			command: data.command.clone(),
-			created_at: data.created_at,
-			cwd: data.cwd,
-			dequeued_at: data.dequeued_at,
-			enqueued_at: data.enqueued_at,
-			env: data.env,
-			error: data.error,
-			exit: data.exit,
-			finished_at: data.finished_at,
-			host: data.host,
-			id: process.clone(),
-			log: data.log.clone(),
-			network: data.network,
-			output: data.output.clone(),
-			retry: data.retry,
-			started_at: data.started_at,
-			status: data.status,
-		};
+		let put_arg = tg::process::put::Arg { data: data.clone() };
 		let put_output = dst
 			.put_process(process, put_arg)
 			.await

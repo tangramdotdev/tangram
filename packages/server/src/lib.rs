@@ -926,8 +926,8 @@ impl Server {
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 
 			// Objects.
-			(http::Method::HEAD, ["objects", object]) => {
-				Self::handle_head_object_request(handle, request, object).boxed()
+			(http::Method::GET, ["objects", object, "metadata"]) => {
+				Self::handle_get_object_metadata_request(handle, request, object).boxed()
 			},
 			(http::Method::GET, ["objects", object]) => {
 				Self::handle_get_object_request(handle, request, object).boxed()
@@ -1316,6 +1316,13 @@ impl tg::Handle for Server {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.write_pipe(id, stream)
+	}
+
+	fn try_get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::process::metadata::Output>>> {
+		self.try_get_process_metadata(id)
 	}
 
 	fn try_get_process(

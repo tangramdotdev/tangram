@@ -7,23 +7,23 @@ use tangram_database::{self as db, prelude::*};
 use tangram_http::{response::builder::Ext as _, Body};
 
 impl Server {
-	pub async fn try_get_object_metadata(
+	pub async fn try_get_process_metadata(
 		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::Metadata>> {
-		if let Some(metadata) = self.try_get_object_metadata_local(id).await? {
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::metadata::Output>> {
+		if let Some(metadata) = self.try_get_process_metadata_local(id).await? {
 			Ok(Some(metadata))
-		} else if let Some(metadata) = self.try_get_object_metadata_remote(id).await? {
+		} else if let Some(metadata) = self.try_get_process_metadata_remote(id).await? {
 			Ok(Some(metadata))
 		} else {
 			Ok(None)
 		}
 	}
 
-	pub(crate) async fn try_get_object_metadata_local(
+	pub(crate) async fn try_get_process_metadata_local(
 		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::Metadata>> {
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::metadata::Output>> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -31,12 +31,12 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Get the object metadata.
+		// Get the process metadata.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select count, depth, weight
-				from objects
+				select complete, count, depth, weight
+				from processes
 				where id = {p}1;
 			",
 		);
@@ -52,16 +52,16 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn try_get_object_metadata_remote(
+	async fn try_get_process_metadata_remote(
 		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::Metadata>> {
-		// Attempt to get the object metadata from the remotes.
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::metadata::Output>> {
+		// Attempt to get the process metadata from the remotes.
 		let futures = self
 			.get_remote_clients()
 			.await?
 			.into_values()
-			.map(|client| async move { client.get_object_metadata(id).await }.boxed())
+			.map(|client| async move { client.get_process_metadata(id).await }.boxed())
 			.collect_vec();
 		if futures.is_empty() {
 			return Ok(None);
@@ -75,7 +75,7 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_get_object_metadata_request<H>(
+	pub(crate) async fn handle_get_process_metadata_request<H>(
 		handle: &H,
 		_request: http::Request<Body>,
 		id: &str,
@@ -84,7 +84,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let Some(metadata) = handle.try_get_object_metadata(&id).await? else {
+		let Some(metadata) = handle.try_get_process_metadata(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder().json(metadata).unwrap();

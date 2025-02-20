@@ -70,10 +70,6 @@ pub struct Data {
 	pub started_at: Option<time::OffsetDateTime>,
 
 	pub status: tg::process::Status,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Rfc3339>")]
-	pub touched_at: Option<time::OffsetDateTime>,
 }
 
 impl Data {

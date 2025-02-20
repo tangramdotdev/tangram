@@ -7,6 +7,7 @@ pub mod children;
 pub mod exec;
 pub mod get;
 pub mod log;
+pub mod metadata;
 pub mod output;
 pub mod pull;
 pub mod push;
@@ -31,6 +32,7 @@ pub enum Command {
 	Children(self::children::Args),
 	Get(self::get::Args),
 	Log(self::log::Args),
+	Metadata(self::metadata::Args),
 	Output(self::output::Args),
 	Pull(self::pull::Args),
 	Push(self::push::Args),
@@ -58,6 +60,9 @@ impl Cli {
 			},
 			Command::Log(args) => {
 				self.command_process_log(args).await?;
+			},
+			Command::Metadata(args) => {
+				self.command_process_metadata(args).await?;
 			},
 			Command::Output(args) => {
 				self.command_process_output(args).await?;

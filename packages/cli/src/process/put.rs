@@ -7,25 +7,29 @@ use tokio::io::AsyncReadExt as _;
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub arg: Option<String>,
+	pub id: tg::process::Id,
+
+	#[arg(index = 2)]
+	pub data: Option<String>,
 }
 
 impl Cli {
 	pub async fn command_process_put(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let arg = if let Some(arg) = args.arg {
-			arg
+		let data = if let Some(data) = args.data {
+			data
 		} else {
-			let mut arg = String::new();
+			let mut data = String::new();
 			tokio::io::stdin()
-				.read_to_string(&mut arg)
+				.read_to_string(&mut data)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
-			arg
+			data
 		};
-		let arg: tg::process::put::Arg = serde_json::from_str(&arg)
-			.map_err(|source| tg::error!(!source, "failed to deseralize"))?;
-		handle.put_process(&arg.id.clone(), arg.clone()).await?;
+		let data = serde_json::from_str(&data)
+			.map_err(|source| tg::error!(!source, "failed to deseralize the data"))?;
+		let arg = tg::process::put::Arg { data };
+		handle.put_process(&args.id, arg).await?;
 		Ok(())
 	}
 }

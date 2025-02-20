@@ -112,24 +112,24 @@ impl Server {
 		);
 		let params = db::params![
 			id,
-			arg.cacheable,
-			arg.checksum,
-			arg.command,
-			arg.created_at.format(&Rfc3339).unwrap(),
-			arg.cwd,
-			arg.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
-			arg.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
-			arg.env.as_ref().map(db::value::Json),
-			arg.error.as_ref().map(db::value::Json),
-			arg.exit.as_ref().map(db::value::Json),
-			arg.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
-			arg.host,
-			arg.log,
-			arg.network,
-			arg.output.as_ref().map(db::value::Json),
-			arg.retry,
-			arg.started_at.map(|t| t.format(&Rfc3339).unwrap()),
-			arg.status,
+			arg.data.cacheable,
+			arg.data.checksum,
+			arg.data.command,
+			arg.data.created_at.format(&Rfc3339).unwrap(),
+			arg.data.cwd,
+			arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
+			arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
+			arg.data.env.as_ref().map(db::value::Json),
+			arg.data.error.as_ref().map(db::value::Json),
+			arg.data.exit.as_ref().map(db::value::Json),
+			arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
+			arg.data.host,
+			arg.data.log,
+			arg.data.network,
+			arg.data.output.as_ref().map(db::value::Json),
+			arg.data.retry,
+			arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
+			arg.data.status,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		let row = transaction
@@ -152,7 +152,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Insert the children.
-		if let Some(ref children) = arg.children {
+		if let Some(children) = &arg.data.children {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
@@ -206,17 +206,19 @@ impl Server {
 			"
 		);
 		let objects = arg
+			.data
 			.log
 			.into_iter()
 			.map_into()
 			.chain(
-				arg.output
+				arg.data
+					.output
 					.as_ref()
 					.map(tg::value::Data::children)
 					.into_iter()
 					.flatten(),
 			)
-			.chain(std::iter::once(arg.command.clone().into()));
+			.chain(std::iter::once(arg.data.command.clone().into()));
 		objects
 			.map(|object| {
 				let transaction = transaction.clone();

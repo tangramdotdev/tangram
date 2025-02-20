@@ -93,9 +93,6 @@ impl Server {
 			#[serde_as(as = "Option<Rfc3339>")]
 			started_at: Option<time::OffsetDateTime>,
 			status: tg::process::Status,
-			#[serde(default)]
-			#[serde_as(as = "Option<Rfc3339>")]
-			touched_at: Option<time::OffsetDateTime>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -131,7 +128,6 @@ impl Server {
 					network,
 					started_at,
 					status,
-					touched_at
 				from processes
 				where id = {p}1;
 			"
@@ -163,7 +159,6 @@ impl Server {
 				network: row.network,
 				started_at: row.started_at,
 				status: row.status,
-				touched_at: row.touched_at,
 			};
 			let metadata = Some(tg::process::Metadata {
 				commands_complete: row.commands_complete,
@@ -213,7 +208,7 @@ impl Server {
 			tokio::spawn({
 				let server = self.clone();
 				let id = id.clone();
-				let output = output.clone();
+				let mut data = output.data.clone();
 				async move {
 					let arg = tg::process::children::get::Arg::default();
 					let children = server
@@ -224,28 +219,8 @@ impl Server {
 						.try_flatten()
 						.try_collect()
 						.await?;
-					let arg = tg::process::put::Arg {
-						cacheable: output.data.cacheable,
-						checksum: output.data.checksum,
-						children: Some(children),
-						command: output.data.command.clone(),
-						created_at: output.data.created_at,
-						cwd: output.data.cwd,
-						dequeued_at: output.data.dequeued_at,
-						enqueued_at: output.data.enqueued_at,
-						env: output.data.env,
-						error: output.data.error,
-						exit: output.data.exit,
-						finished_at: output.data.finished_at,
-						host: output.data.host.clone(),
-						id: output.data.id.clone(),
-						log: output.data.log.clone(),
-						network: output.data.network,
-						output: output.data.output,
-						retry: output.data.retry,
-						started_at: output.data.started_at,
-						status: output.data.status,
-					};
+					data.children = Some(children);
+					let arg = tg::process::put::Arg { data };
 					server.put_process(&id, arg).await?;
 					Ok::<_, tg::Error>(())
 				}
@@ -269,11 +244,7 @@ impl Server {
 		let Some(output) = handle.try_get_process(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let response = http::Response::builder()
-			.header_json(tg::process::get::METADATA_HEADER, output.metadata)
-			.unwrap()
-			.json(output.data)
-			.unwrap();
+		let response = http::Response::builder().json(output.data).unwrap();
 		Ok(response)
 	}
 }

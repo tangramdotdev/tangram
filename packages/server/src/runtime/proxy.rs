@@ -301,6 +301,13 @@ impl tg::Handle for Proxy {
 		self.server.write_pipe(id, stream)
 	}
 
+	fn try_get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::process::metadata::Output>>> {
+		self.server.try_get_process_metadata(id)
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
