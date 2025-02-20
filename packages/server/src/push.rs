@@ -1,10 +1,7 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, Stream, StreamExt as _};
-use indoc::formatdoc;
-use std::{pin::pin, time::Duration};
-use tangram_client::{self as tg, util::serde::is_false};
-use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
+use futures::{Stream, StreamExt as _};
+use std::pin::pin;
+use tangram_client as tg;
 use tangram_futures::stream::Ext;
 use tangram_http::{request::Ext as _, Body};
 use tokio_stream::wrappers::ReceiverStream;
@@ -149,12 +146,36 @@ impl Server {
 					async move {
 						let mut import_event_stream = pin!(import_event_stream);
 						while let Some(result) = import_event_stream.next().await {
-							if let Err(error) = &result {
-								progress.error(error.clone());
+							match result {
+								Ok(tg::import::Event::Complete(complete)) => {
+									// Try to send the import event to the exporter. Report if this fails, but do not abort.
+									let result = import_event_sender.send(Ok(complete)).await;
+									if let Err(error) = result {
+										progress.error(tg::error!(
+											!error,
+											"failed to send import complete to exporter"
+										));
+									}
+								},
+								Ok(tg::import::Event::Progress(import_progress)) => {
+									if import_progress.processes > 0 {
+										if progress.has_indicator("processes") {
+											progress.set("processes", import_progress.processes);
+										} else {
+											progress.start(
+												"processes".to_owned(),
+												"processes".to_owned(),
+												tg::progress::IndicatorFormat::Normal,
+												Some(import_progress.processes),
+												None,
+											);
+										}
+									}
+									progress.set("objects", import_progress.objects);
+									progress.set("bytes", import_progress.bytes);
+								},
+								Err(error) => progress.error(error),
 							}
-
-							// TODO Filter these results. Complete events go to the sender, Progress events need a progress event sent.
-							// import_event_sender.send(result).await.ok();
 						}
 					}
 				};
