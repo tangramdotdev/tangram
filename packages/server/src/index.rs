@@ -3,6 +3,7 @@ use indoc::formatdoc;
 use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 
 impl Server {
 	pub async fn index(&self) -> tg::Result<()> {
@@ -46,20 +47,29 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let p = connection.p();
+		let locked = match connection {
+			Either::Left(_) => "",
+			Either::Right(_) => "for update skip locked",
+		};
 		let statement = formatdoc!(
 			"
-				with updates as (
+				with update_objects as (
+					select id, size
+					from objects
+					where objects.complete = 0 and objects.incomplete_children = 0
+					{locked}
+				),
+				updates as (
 					select
-						objects.id as id,
+						update_objects.id as id,
 						coalesce(min(child_objects.complete), 1) as complete,
 						1 + coalesce(sum(child_objects.count), 0) as count,
 						1 + coalesce(max(child_objects.depth), 0) as depth,
-						objects.size + coalesce(sum(child_objects.weight), 0) as weight
-					from objects
-					left join object_children on object_children.object = objects.id
+						update_objects.size + coalesce(sum(child_objects.weight), 0) as weight
+					from update_objects
+					left join object_children on object_children.object = update_objects.id
 					left join objects child_objects on child_objects.id = object_children.child
-					where objects.complete = 0 and objects.incomplete_children = 0
-					group by objects.id
+					group by update_objects.id, update_objects.size
 					limit {p}1
 				)
 				update objects
