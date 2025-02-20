@@ -68,6 +68,10 @@ impl<T> Handle<T> {
 		self.indicators.write().unwrap().insert(name, indicator);
 	}
 
+	pub fn has_indicator(&self, name: &str) -> bool {
+		self.indicators.read().unwrap().get(name).is_some()
+	}
+
 	pub fn increment(&self, name: &str, amount: u64) {
 		if let Some(indicator) = self.indicators.read().unwrap().get(name) {
 			indicator

@@ -363,7 +363,6 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			progress_totals.increment_processes();
-			// progress_totals.increment_bytes(data.len()); // FIXME data size?
 
 			if put_output.complete
 				|| put_output.commands_complete
