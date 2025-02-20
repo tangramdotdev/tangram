@@ -45,7 +45,7 @@ impl Server {
 		let (progress_shutdown_sender, progress_shutdown_receiver) = oneshot::channel();
 		let progress = Arc::new(Progress::new(arg.items.iter().any(Either::is_left)));
 
-		let (import_complete_sender, import_complete_receiver) =
+		let (event_sender, event_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::import::Event>>(256);
 		let (export_complete_sender, export_complete_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
@@ -58,7 +58,7 @@ impl Server {
 		// Create the complete task.
 		let complete_task = tokio::spawn({
 			let server = self.clone();
-			let event_sender = import_complete_sender.clone();
+			let event_sender = event_sender.clone();
 			async move {
 				let result = server
 					.import_complete_task(export_complete_receiver, &event_sender)
@@ -77,18 +77,18 @@ impl Server {
 		// Create the database processes task.
 		let database_processes_task = tokio::spawn({
 			let server = self.clone();
-			let import_complete_sender = import_complete_sender.clone();
+			let event_sender = event_sender.clone();
 			let progress_totals = progress.clone();
 			async move {
 				let result = server
 					.import_database_processes_task(
 						database_process_receiver,
-						&import_complete_sender,
+						&event_sender,
 						&progress_totals,
 					)
 					.await;
 				if let Err(error) = result {
-					import_complete_sender.send(Err(error)).await.ok();
+					event_sender.send(Err(error)).await.ok();
 				}
 			}
 		});
@@ -103,14 +103,14 @@ impl Server {
 		// Create the database objects task.
 		let database_objects_task = tokio::spawn({
 			let server = self.clone();
-			let import_complete_sender = import_complete_sender.clone();
+			let event_sender = event_sender.clone();
 			let progress_totals = progress.clone();
 			async move {
 				let result = server
 					.import_database_objects_task(database_object_receiver, &progress_totals)
 					.await;
 				if let Err(error) = result {
-					import_complete_sender.send(Err(error)).await.ok();
+					event_sender.send(Err(error)).await.ok();
 				}
 			}
 		});
@@ -125,7 +125,7 @@ impl Server {
 		// Create the store task.
 		let store_task = tokio::spawn({
 			let server = self.clone();
-			let event_sender = import_complete_sender.clone();
+			let event_sender = event_sender.clone();
 			async move {
 				let result = server.import_store_task(store_receiver).await;
 				if let Err(error) = result {
@@ -141,7 +141,7 @@ impl Server {
 
 		// Spawn a task that sends items from the stream to the other tasks.
 		let task = tokio::spawn({
-			let event_sender = import_complete_sender.clone();
+			let event_sender = event_sender.clone();
 			async move {
 				// Read the items from the stream and send them to the tasks.
 				loop {
@@ -206,10 +206,10 @@ impl Server {
 
 		// Create the stream.
 		let progress_stream = Self::import_progress_stream(&progress, progress_shutdown_receiver);
-		let import_complete_stream = ReceiverStream::new(import_complete_receiver);
+		let event_stream = ReceiverStream::new(event_receiver);
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = stream::select(
-			import_complete_stream.map_ok(tg::import::Event::Complete),
+			event_stream,
 			progress_stream.map_ok(tg::import::Event::Progress),
 		)
 		.attach(abort_handle)
@@ -224,7 +224,7 @@ impl Server {
 	async fn import_complete_task(
 		&self,
 		export_complete_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
-		import_complete_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Complete>>,
+		import_complete_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(export_complete_receiver);
 		let mut stream = pin!(stream);
@@ -252,8 +252,10 @@ impl Server {
 							{
 								return Ok(());
 							}
-							let output = tg::import::Complete::Process(process_complete);
-							import_complete_sender.send(Ok(output)).await.ok();
+							let event = tg::import::Event::Complete(tg::import::Complete::Process(
+								process_complete,
+							));
+							import_complete_sender.send(Ok(event)).await.ok();
 							Ok::<_, tg::Error>(())
 						},
 						tg::export::Item::Object { id, .. } => {
@@ -269,9 +271,10 @@ impl Server {
 							if !object_complete {
 								return Ok(());
 							}
-							let output =
-								tg::import::Complete::Object(tg::import::ObjectComplete { id });
-							import_complete_sender.send(Ok(output)).await.ok();
+							let event = tg::import::Event::Complete(tg::import::Complete::Object(
+								tg::import::ObjectComplete { id },
+							));
+							import_complete_sender.send(Ok(event)).await.ok();
 							Ok::<_, tg::Error>(())
 						},
 					}
@@ -284,7 +287,7 @@ impl Server {
 	async fn import_database_processes_task(
 		&self,
 		database_process_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
-		import_complete_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Complete>>,
+		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 		progress_totals: &Progress,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(database_process_receiver);
@@ -312,8 +315,9 @@ impl Server {
 				|| process_complete.logs_complete
 				|| process_complete.outputs_complete
 			{
-				let complete = tg::import::Complete::Process(process_complete);
-				import_complete_sender.send(Ok(complete)).await.ok();
+				let event =
+					tg::import::Event::Complete(tg::import::Complete::Process(process_complete));
+				event_sender.send(Ok(event)).await.ok();
 			}
 		}
 		Ok(())
