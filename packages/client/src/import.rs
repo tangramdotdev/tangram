@@ -30,6 +30,7 @@ pub struct QueryArg {
 pub enum Event {
 	Complete(tg::import::Complete),
 	Progress(tg::import::Progress),
+	End,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -175,6 +176,10 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 					..Default::default()
 				}
 			},
+			Event::End => tangram_http::sse::Event {
+				event: Some("end".to_owned()),
+				..Default::default()
+			},
 		};
 		Ok(event)
 	}
@@ -194,6 +199,7 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 				Ok(Self::Progress(data))
 			},
+			Some("end") => Ok(Self::End),
 			_ => Err(tg::error!("invalid event")),
 		}
 	}

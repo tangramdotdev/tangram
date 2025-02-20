@@ -58,6 +58,7 @@ pub struct QueryArg {
 pub enum Event {
 	Complete(tg::export::Complete),
 	Item(tg::export::Item),
+	End,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -207,6 +208,13 @@ impl Event {
 					.map_err(|source| tg::error!(!source, "failed to write the tag"))?;
 				item.to_writer(writer).await?;
 			},
+
+			Event::End => {
+				writer
+					.write_uvarint(2)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the tag"))?;
+			},
 		}
 		Ok(())
 	}
@@ -247,6 +255,8 @@ impl Event {
 					.ok_or_else(|| tg::error!("expected an item"))?;
 				Event::Item(item)
 			},
+
+			2 => Event::End,
 
 			_ => {
 				return Err(tg::error!("invalid tag"));

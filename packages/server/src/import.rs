@@ -46,7 +46,7 @@ impl Server {
 		let progress = Arc::new(Progress::new(arg.items.iter().any(Either::is_left)));
 
 		let (import_complete_sender, import_complete_receiver) =
-			tokio::sync::mpsc::channel::<tg::Result<tg::import::Complete>>(256);
+			tokio::sync::mpsc::channel::<tg::Result<tg::import::Event>>(256);
 		let (export_complete_sender, export_complete_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (database_process_sender, database_process_receiver) =
@@ -139,9 +139,6 @@ impl Server {
 				store_task_abort_handle.abort();
 			});
 
-		// Create the progress stream.
-		let progress_stream = Self::import_progress_stream(&progress, progress_shutdown_receiver);
-
 		// Spawn a task that sends items from the stream to the other tasks.
 		let task = tokio::spawn({
 			let event_sender = import_complete_sender.clone();
@@ -190,18 +187,25 @@ impl Server {
 				progress_shutdown_sender.send(()).unwrap();
 
 				// Join the database and store tasks.
-				if let Err(error) =
-					futures::try_join!(database_processes_task, database_objects_task, store_task)
-				{
-					event_sender
-						.send(Err(tg::error!(!error, "failed to join the task")))
-						.await
-						.ok();
+				let result =
+					futures::try_join!(database_processes_task, database_objects_task, store_task);
+
+				match result {
+					Ok(_) => {
+						event_sender.send(Ok(tg::import::Event::End)).await.ok();
+					},
+					Err(error) => {
+						event_sender
+							.send(Err(tg::error!(!error, "failed to join the task")))
+							.await
+							.ok();
+					},
 				}
 			}
 		});
 
 		// Create the stream.
+		let progress_stream = Self::import_progress_stream(&progress, progress_shutdown_receiver);
 		let import_complete_stream = ReceiverStream::new(import_complete_receiver);
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = stream::select(
