@@ -2,7 +2,7 @@ use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
 use futures::{
-	future, stream, FutureExt as _, Stream, StreamExt as _, TryFutureExt, TryStreamExt as _,
+	FutureExt as _, Stream, StreamExt as _, TryFutureExt, TryStreamExt as _, future, stream,
 };
 use std::io::{IsTerminal, Read};
 use std::pin::pin;
@@ -223,6 +223,15 @@ impl Cli {
 			async move { input_task(&handle, &pipes).await }
 		});
 
+		// Spawn a task for handling sigwinch
+		let signal_task = tokio::spawn({
+			let handle = handle.clone();
+			let pipes = pipes.clone();
+			tokio::spawn(async move {
+				window_change_task(&handle, &pipes).await;
+			})
+		});
+
 		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
 		let cancel_task = tokio::spawn({
 			let handle = handle.clone();
@@ -278,6 +287,7 @@ impl Cli {
 
 		// Abort the cancel task.
 		cancel_task.abort();
+		signal_task.abort();
 
 		// Get the output.
 		let output = result?;
@@ -433,6 +443,57 @@ fn get_window_size(fd: i32) -> tg::Result<Option<tg::pipe::WindowSize>> {
 			ypos: winsize.ws_ypixel,
 		}))
 	}
+}
+
+async fn window_change_task<H>(handle: &H, pipes: &Pipes)
+where
+	H: tg::Handle,
+{
+	// Spawn a task to listen for sigwnch
+	let (send, recv) = async_broadcast::broadcast(1);
+	let mut signal =
+		tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change()).unwrap();
+	tokio::spawn(async move {
+		while let Some(()) = signal.recv().await {
+			send.broadcast(()).await.ok();
+		}
+	});
+
+	// Create streams for stdin/stdout/stderr events.
+	let arg = tg::pipe::post::Arg { remote: pipes.remote.clone() };
+	let stderr = handle.post_pipe(
+		&pipes.stderr.writer,
+		arg.clone(),
+		window_changes(recv.clone(), libc::STDERR_FILENO).boxed(),
+	);
+	let stdin = handle.post_pipe(
+		&pipes.stdin.reader,
+		arg.clone(),
+		window_changes(recv.clone(), libc::STDIN_FILENO).boxed(),
+	);
+	let stdout = handle.post_pipe(
+		&pipes.stdout.writer,
+		arg.clone(),
+		window_changes(recv.clone(), libc::STDOUT_FILENO).boxed(),
+	);
+
+	// Join the futures.
+	future::try_join3(stderr, stdin, stdout).await.ok();
+}
+
+fn window_changes(
+	signal: async_broadcast::Receiver<()>,
+	fileno: i32,
+) -> impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static {
+	stream::unfold((signal, fileno), async move |(mut signal, fileno)| {
+		if signal.recv().await.is_err() {
+			return None;
+		}
+		let event = get_window_size(fileno)
+			.transpose()?
+			.map(tg::pipe::Event::WindowSize);
+		Some((event, (signal, fileno)))
+	})
 }
 
 fn fork_and_die(code: i32) -> std::io::Result<()> {

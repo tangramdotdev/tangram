@@ -3,9 +3,7 @@ use super::{
 	util::render,
 };
 use crate::{Server, temp::Temp};
-use futures::{
-	stream::{StreamExt as _, TryStreamExt as _, FuturesOrdered, FuturesUnordered},
-};
+use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
 use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
@@ -257,8 +255,44 @@ impl Runtime {
 			});
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
+		// Get the window sizes of the pipes.
+		let stderr = if let Some(pipe) = state.stderr.as_ref() {
+			self.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+		} else {
+			None
+		};
+		let stdin = if let Some(pipe) = state.stdin.as_ref() {
+			self.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+		} else {
+			None
+		};
+		let stdout = if let Some(pipe) = state.stdout.as_ref() {
+			self.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+		} else {
+			None
+		};
+
 		// Spawn the child.
-		let mut child = process::spawn(args, cwd, env, executable, chroot, state.network)?;
+		let mut child = process::spawn(
+			args,
+			cwd,
+			env,
+			executable,
+			chroot,
+			state.network,
+			stdin,
+			stdout,
+			stderr,
+		)?;
 
 		// Spawn the stdio task.
 		let stdio_task = tokio::spawn(super::util::stdio_task(

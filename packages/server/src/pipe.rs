@@ -11,6 +11,7 @@ mod open;
 mod post;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Pipe {
 	pub reader: tg::pipe::Id,
 	pub writer: tg::pipe::Id,
