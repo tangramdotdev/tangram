@@ -1,16 +1,14 @@
+use super::Pipe;
 use crate::Server;
 use bytes::Bytes;
 use futures::{
-	future,
+	Stream, StreamExt as _, future,
 	stream::{self, TryStreamExt as _},
-	Stream, StreamExt as _,
 };
 use http_body_util::{BodyExt as _, BodyStream};
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
-
-use super::Pipe;
+use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 
 impl Server {
 	pub async fn post_pipe(
@@ -19,19 +17,29 @@ impl Server {
 		mut arg: tg::pipe::post::Arg,
 		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
 	) -> tg::Result<()> {
+		let _id = id.clone();
+		scopeguard::defer! {
+			eprintln!("canceled or dropped post pipe: {id}");
+		}
+		eprintln!("post pipe: {id}");
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.post_pipe(id, arg, stream.boxed()).await;
 		}
-		let Pipe { writer, .. } = self
+		let Pipe { reader, writer, .. } = self
 			.try_get_pipe(id)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the pipe"))?
 			.ok_or_else(|| tg::error!(%id, "missing pipe"))?;
+		eprintln!("got pipe: {id}");
+		let pipe = if id == &reader { writer } else { reader };
+		eprintln!("pipe: {pipe}");
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			self.send_pipe_event(&writer, event).await?;
+			eprintln!("send ({id}): {event:?}");
+			self.send_pipe_event(&pipe, event).await?;
 		}
+		eprintln!("drained stream {pipe}");
 		Ok(())
 	}
 

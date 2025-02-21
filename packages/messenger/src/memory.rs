@@ -1,37 +1,102 @@
 use crate::Message;
 use bytes::Bytes;
-use futures::{FutureExt as _, Stream, StreamExt as _, future};
-use std::{convert::Infallible, ops::Deref, sync::Arc};
+use core::fmt;
+use dashmap::DashMap;
+use futures::{StreamExt, future};
+use std::{ops::Deref, sync::Arc};
 
 pub struct Messenger(Arc<Inner>);
 
+#[derive(Debug)]
+
+pub enum Error {
+	NotFound,
+}
+
+impl std::error::Error for Error {}
+
+impl fmt::Display for Error {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Error::NotFound => write!(f, "subject not found"),
+		}
+	}
+}
+
 pub struct Inner {
+	global: Stream,
+	streams: Streams,
+}
+
+pub struct Streams(DashMap<String, Stream, fnv::FnvBuildHasher>);
+
+struct Stream {
 	sender: async_broadcast::Sender<Message>,
 	receiver: async_broadcast::InactiveReceiver<Message>,
+}
+
+impl Streams {
+	pub async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
+		self.0
+			.get(&subject)
+			.ok_or(Error::NotFound)?
+			.sender
+			.broadcast(Message { subject, payload })
+			.await
+			.ok();
+		Ok(())
+	}
+
+	pub async fn create_stream(&self, subject: String) -> Result<(), Error> {
+		self.0.entry(subject).or_insert_with(|| {
+			let (sender, receiver) = async_broadcast::broadcast(128);
+			let receiver = receiver.deactivate();
+			Stream { sender, receiver }
+		});
+		Ok(())
+	}
+
+	pub async fn close_stream(&self, subject: String) -> Result<(), Error> {
+		let (_, stream) = self.0.remove(&subject).ok_or(Error::NotFound)?;
+		stream.sender.close();
+		Ok(())
+	}
 }
 
 impl Messenger {
 	#[must_use]
 	pub fn new() -> Self {
-		let (mut sender, receiver) = async_broadcast::broadcast(1024);
+		let (sender, receiver) = async_broadcast::broadcast(128);
+
 		let receiver = receiver.deactivate();
-		sender.set_overflow(true);
-		Self(Arc::new(Inner { sender, receiver }))
+		let global = Stream { sender, receiver };
+		let streams = Streams(DashMap::default());
+		Self(Arc::new(Inner { global, streams }))
 	}
 
-	async fn publish(&self, subject: String, payload: Bytes) {
-		let message = Message { subject, payload };
-		self.sender.try_broadcast(message.clone()).ok();
+	pub fn streams(&self) -> &Streams {
+		&self.streams
+	}
+
+	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
+		self.global
+			.sender
+			.broadcast_direct(Message { subject, payload })
+			.await
+			.ok();
+		Ok(())
 	}
 
 	async fn subscribe(
 		&self,
 		subject: String,
 		_group: Option<String>,
-	) -> impl Stream<Item = Message> + Send + 'static {
-		self.receiver
+	) -> Result<impl futures::Stream<Item = Message> + Send + 'static, Error> {
+		Ok(self
+			.global
+			.receiver
 			.activate_cloned()
-			.filter(move |message| future::ready(message.subject == subject))
+			.filter(move |message| future::ready(message.subject == subject)))
 	}
 }
 
@@ -42,22 +107,23 @@ impl Default for Messenger {
 }
 
 impl crate::Messenger for Messenger {
-	type Error = Infallible;
+	type Error = Error;
 
 	fn publish(
 		&self,
 		subject: String,
 		payload: Bytes,
 	) -> impl Future<Output = Result<(), Self::Error>> {
-		self.publish(subject, payload).map(Ok)
+		self.publish(subject, payload)
 	}
 
 	fn subscribe(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> impl Future<Output = Result<impl Stream<Item = Message> + 'static, Self::Error>> {
-		self.subscribe(subject, group).map(Ok)
+	) -> impl Future<Output = Result<impl futures::Stream<Item = Message> + 'static, Self::Error>>
+	{
+		self.subscribe(subject, group)
 	}
 }
 

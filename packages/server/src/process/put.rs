@@ -138,9 +138,9 @@ impl Server {
 			arg.data.retry,
 			arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.status,
-			arg.stderr,
-			arg.stdin,
-			arg.stdout,
+			arg.data.stderr,
+			arg.data.stdin,
+			arg.data.stdout,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		transaction
@@ -271,6 +271,9 @@ impl Server {
 					retry,
 					started_at,
 					status,
+					stdin,
+					stdout,
+					stderr,
 					touched_at
 				)
 				values (
@@ -293,7 +296,10 @@ impl Server {
 					$17,
 					$18,
 					$19,
-					$20
+					$20,
+					$21,
+					$22,
+					$23,
 				)
 				on conflict (id) do update set
 					cacheable = $2,
@@ -314,7 +320,10 @@ impl Server {
 					retry = $17,
 					started_at = $18,
 					status = $19,
-					touched_at = $20;
+					stdin = $20,
+					stdout = $21,
+					stderr = $22
+					touched_at = $23;
 			"
 		);
 		transaction
@@ -343,6 +352,9 @@ impl Server {
 					&i64::from(arg.data.retry),
 					&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 					&serde_json::to_string(&arg.data.status).unwrap(),
+					&serde_json::to_string(&arg.data.stdin.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.stdout.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.stderr.as_ref()).unwrap(),
 					&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 				],
 			)
@@ -365,7 +377,10 @@ impl Server {
 						&[
 							&id.to_string(),
 							&positions.as_slice(),
-							&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
+							&children
+								.iter()
+								.map(|child| child.to_string())
+								.collect::<Vec<_>>(),
 						],
 					)
 					.await
@@ -404,7 +419,10 @@ impl Server {
 					statement,
 					&[
 						&id.to_string(),
-						&objects.iter().map(ToString::to_string).collect::<Vec<_>>(),
+						&objects
+							.iter()
+							.map(|object| object.to_string())
+							.collect::<Vec<_>>(),
 					],
 				)
 				.await

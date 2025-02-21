@@ -5,7 +5,6 @@ use tangram_client::{self as tg, handle::Ext as _};
 use tokio_stream::StreamExt as _;
 
 mod proxy;
-mod stdio;
 mod util;
 
 pub mod builtin;

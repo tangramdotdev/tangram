@@ -986,6 +986,12 @@ impl Server {
 			(http::Method::POST, ["processes", process, "start"]) => {
 				Self::handle_start_process_request(handle, request, process).boxed()
 			},
+			(http::Method::POST, ["processes", process, "signal"]) => {
+				Self::handle_post_process_signal_request(handle, request, process).boxed()
+			},
+			(http::Method::GET, ["processes", process, "signal"]) => {
+				Self::handle_get_process_signal_request(handle, request, process).boxed()
+			},
 			(http::Method::GET, ["processes", process, "status"]) => {
 				Self::handle_get_process_status_request(handle, request, process).boxed()
 			},
@@ -1316,6 +1322,28 @@ impl tg::Handle for Server {
 		arg: tg::process::start::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::start::Output>> {
 		self.try_start_process(id, arg)
+	}
+
+	fn post_process_signal(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.post_process_signal(id, arg)
+	}
+
+	fn try_get_process_signal_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_get_process_signal_stream(id, arg)
 	}
 
 	fn try_get_process_status_stream(
