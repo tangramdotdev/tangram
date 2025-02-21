@@ -5,7 +5,7 @@ use self::sys::{
 	fuse_read_in, fuse_release_in,
 };
 use crate::{FileType, Provider, Result};
-use futures::{future, FutureExt as _};
+use futures::{FutureExt as _, future};
 use num::ToPrimitive as _;
 use std::{
 	ffi::CString,

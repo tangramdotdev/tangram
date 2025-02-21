@@ -1,5 +1,5 @@
 use futures::TryFutureExt as _;
-use rand::{distr::Alphanumeric, Rng as _};
+use rand::{Rng as _, distr::Alphanumeric};
 use std::{
 	ops::Deref,
 	path::{Path, PathBuf},

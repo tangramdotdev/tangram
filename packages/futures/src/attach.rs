@@ -1,4 +1,4 @@
-use futures::{Future, Stream};
+use futures::Stream;
 use std::{pin::Pin, task::Poll};
 use tokio::io::AsyncRead;
 

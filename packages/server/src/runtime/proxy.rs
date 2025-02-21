@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream, Future, Stream, TryStreamExt as _};
+use futures::{stream,  Stream, TryStreamExt as _};
 use std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;

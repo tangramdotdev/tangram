@@ -1,4 +1,4 @@
-use futures::{Future, Stream};
+use futures::Stream;
 use pin_project::pin_project;
 use std::{
 	pin::Pin,
@@ -87,7 +87,7 @@ where
 #[cfg(test)]
 mod tests {
 	use crate::stream::Ext as _;
-	use futures::{future, stream, StreamExt as _};
+	use futures::{StreamExt as _, future, stream};
 
 	#[tokio::test]
 	async fn take_while_inclusive() {

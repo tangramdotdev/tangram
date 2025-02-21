@@ -1,6 +1,6 @@
 use self::take_while_inclusive::TakeWhileInclusive;
 use crate::attach::Attach;
-use futures::{Future, Stream, StreamExt as _, TryStream, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStream, TryStreamExt as _};
 
 pub mod take_while_inclusive;
 

@@ -1,5 +1,5 @@
 use crate::{Message, Messenger};
-use futures::{Future, FutureExt as _, Stream, TryFutureExt as _};
+use futures::{FutureExt as _, Stream, TryFutureExt as _};
 use tangram_either::Either;
 
 impl<L, R> Messenger for Either<L, R>

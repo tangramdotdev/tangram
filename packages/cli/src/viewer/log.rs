@@ -1,12 +1,12 @@
 #![allow(dead_code)]
-use futures::{future, StreamExt as _, TryStreamExt as _};
+use futures::{StreamExt as _, TryStreamExt as _, future};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
 	io::SeekFrom,
 	sync::{
-		atomic::{AtomicBool, AtomicU64, Ordering},
 		Arc, Mutex,
+		atomic::{AtomicBool, AtomicU64, Ordering},
 	},
 	time::Duration,
 };

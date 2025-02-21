@@ -1,5 +1,5 @@
 use crate::{temp::Temp, Server};
-use futures::{stream::FuturesUnordered, Future, FutureExt as _, TryStreamExt as _};
+use futures::{stream::FuturesUnordered,  FutureExt as _, TryStreamExt as _};
 use num::ToPrimitive as _;
 use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc};
 use tangram_client::{self as tg, handle::Ext as _};

@@ -965,7 +965,7 @@ impl Cli {
 			Err(source) => {
 				return Err(
 					tg::error!(!source, %path = path.display(), "failed to read the config file"),
-				)
+				);
 			},
 		};
 		let config = serde_json::from_str(&config).map_err(

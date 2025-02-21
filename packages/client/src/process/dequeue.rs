@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{future, StreamExt as _, TryStreamExt as _};
+use futures::{StreamExt as _, TryStreamExt as _, future};
 use tangram_futures::stream::TryExt as _;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 

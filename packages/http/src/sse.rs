@@ -1,4 +1,4 @@
-use futures::{stream, Stream};
+use futures::{Stream, stream};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt as _};
 
 #[derive(Clone, Debug, Default)]

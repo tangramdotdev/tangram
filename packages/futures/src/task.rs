@@ -1,8 +1,8 @@
 use dashmap::DashMap;
 use futures::{
+	FutureExt as _, StreamExt as _, TryFutureExt as _,
 	future::{self, BoxFuture},
 	stream::FuturesUnordered,
-	Future, FutureExt as _, StreamExt as _, TryFutureExt as _,
 };
 use itertools::Itertools as _;
 use std::{

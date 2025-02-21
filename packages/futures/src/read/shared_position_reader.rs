@@ -1,9 +1,9 @@
 use pin_project::pin_project;
 use std::{
-	pin::{pin, Pin},
+	pin::{Pin, pin},
 	sync::{
-		atomic::{AtomicU64, Ordering},
 		Arc,
+		atomic::{AtomicU64, Ordering},
 	},
 	task::Poll,
 };

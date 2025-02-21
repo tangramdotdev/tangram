@@ -1,6 +1,6 @@
 use self::{data::Data, help::Help, log::Log, tree::Tree};
 use crossterm as ct;
-use futures::{future, TryFutureExt as _, TryStreamExt as _};
+use futures::{TryFutureExt as _, TryStreamExt as _, future};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{

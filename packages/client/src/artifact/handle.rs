@@ -1,8 +1,8 @@
 use super::{Data, Id, Object};
 use crate as tg;
 use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
+	stream::{FuturesOrdered, FuturesUnordered},
 };
 use std::{
 	collections::HashSet,
@@ -153,34 +153,36 @@ impl Artifact {
 	where
 		H: tg::Handle,
 	{
-		async fn recursive_dependencies_inner<H>(
-			handle: &H,
-			artifact: &tg::Artifact,
-			output: Arc<Mutex<HashSet<Id, std::hash::BuildHasherDefault<fnv::FnvHasher>>>>,
-		) -> tg::Result<()>
-		where
-			H: tg::Handle,
-		{
-			let dependencies = artifact.dependencies(handle).await?;
-			dependencies
-				.iter()
-				.map(|artifact| recursive_dependencies_inner(handle, artifact, output.clone()))
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<()>()
-				.await?;
-			let dependencies = dependencies
-				.into_iter()
-				.map(|artifact| async move { artifact.id(handle).await })
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
-				.await?;
-			output.lock().unwrap().extend(dependencies);
-			Ok(())
-		}
 		let output = Arc::new(Mutex::new(HashSet::default()));
-		recursive_dependencies_inner(handle, self, output.clone()).await?;
+		self.recursive_dependencies_inner(handle, output.clone())
+			.await?;
 		let output = Arc::into_inner(output).unwrap().into_inner().unwrap();
 		Ok(output)
+	}
+
+	async fn recursive_dependencies_inner<H>(
+		&self,
+		handle: &H,
+		output: Arc<Mutex<HashSet<Id, std::hash::BuildHasherDefault<fnv::FnvHasher>>>>,
+	) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		let dependencies = self.dependencies(handle).await?;
+		dependencies
+			.iter()
+			.map(|artifact| artifact.recursive_dependencies_inner(handle, output.clone()))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<()>()
+			.await?;
+		let dependencies = dependencies
+			.into_iter()
+			.map(|artifact| async move { artifact.id(handle).await })
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		output.lock().unwrap().extend(dependencies);
+		Ok(())
 	}
 }
 

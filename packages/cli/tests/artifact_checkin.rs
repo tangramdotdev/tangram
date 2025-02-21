@@ -1,6 +1,6 @@
 use indoc::indoc;
 use insta::{assert_json_snapshot, assert_snapshot};
-use std::{future::Future, path::Path};
+use std::path::Path;
 use tangram_cli::{
 	assert_success,
 	test::{Server, test},

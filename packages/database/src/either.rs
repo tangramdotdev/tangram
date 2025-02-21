@@ -1,7 +1,5 @@
 use crate::{Connection, ConnectionOptions, Database, Query, Row, Transaction, Value};
-use futures::{
-	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
-};
+use futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
 use std::borrow::Cow;
 use tangram_either::Either;
 

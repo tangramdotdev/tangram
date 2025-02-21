@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use futures::{Future, Stream};
+use futures::Stream;
 
 pub mod either;
 pub mod memory;

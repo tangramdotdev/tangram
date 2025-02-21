@@ -1,10 +1,10 @@
 use self::and_then_frame::AndThenFrame;
 use crate::Error;
 use bytes::Bytes;
-use futures::{future, Stream, TryStreamExt as _};
+use futures::{Stream, TryStreamExt as _, future};
 use http_body_util::{BodyExt, BodyStream, StreamBody};
 use std::{
-	pin::{pin, Pin},
+	pin::{Pin, pin},
 	sync::Arc,
 };
 use sync_wrapper::SyncWrapper;

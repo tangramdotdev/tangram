@@ -1,4 +1,4 @@
-use super::{data, log::Log, Item, Options};
+use super::{Item, Options, data, log::Log};
 use copypasta::ClipboardProvider as _;
 use crossterm as ct;
 use futures::TryStreamExt as _;

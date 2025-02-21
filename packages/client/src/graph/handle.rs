@@ -1,6 +1,6 @@
 use super::{Data, Id, Object};
 use crate as tg;
-use futures::{stream::FuturesOrdered, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream::FuturesOrdered};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]

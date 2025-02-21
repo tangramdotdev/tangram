@@ -1,6 +1,6 @@
 use crate::Message;
 use bytes::Bytes;
-use futures::{future, Future, FutureExt as _, Stream, StreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _, future};
 use std::{convert::Infallible, ops::Deref, sync::Arc};
 
 pub struct Messenger(Arc<Inner>);

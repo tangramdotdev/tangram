@@ -4,7 +4,7 @@ use self::{
 use async_nats as nats;
 use compiler::Compiler;
 use dashmap::{DashMap, DashSet};
-use futures::{future, stream::FuturesUnordered, Future, FutureExt as _, Stream, StreamExt as _};
+use futures::{future, stream::FuturesUnordered,  FutureExt as _, Stream, StreamExt as _};
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use indoc::{formatdoc, indoc};

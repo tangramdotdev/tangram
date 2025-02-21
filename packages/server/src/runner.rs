@@ -1,5 +1,5 @@
 use crate::{runtime, ProcessPermit, Server};
-use futures::{future, Future, FutureExt as _, TryFutureExt as _};
+use futures::{future,  FutureExt as _, TryFutureExt as _};
 use std::{pin::pin, sync::Arc, time::Duration};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;

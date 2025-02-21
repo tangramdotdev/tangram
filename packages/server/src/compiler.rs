@@ -1,7 +1,7 @@
 use self::{document::Document, syscall::syscall};
 use crate::{temp::Temp, Server};
 use dashmap::DashMap;
-use futures::{future, Future, FutureExt as _, TryFutureExt as _, TryStreamExt};
+use futures::{future,  FutureExt as _, TryFutureExt as _, TryStreamExt};
 use lsp_types::{self as lsp, notification::Notification as _, request::Request as _};
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},

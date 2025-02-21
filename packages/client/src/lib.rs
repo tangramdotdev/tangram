@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{Future, Stream, TryFutureExt as _};
+use futures::{Stream, TryFutureExt as _};
 use std::{
 	collections::VecDeque,
 	ops::Deref,
@@ -11,12 +11,12 @@ use std::{
 };
 use tangram_either::Either;
 use tangram_http::Body;
-use time::{format_description::well_known::Rfc3339, Date, Month, OffsetDateTime, Time};
+use time::{Date, Month, OffsetDateTime, Time, format_description::well_known::Rfc3339};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
 };
-use tower::{util::BoxCloneSyncService, Service as _};
+use tower::{Service as _, util::BoxCloneSyncService};
 use tower_http::ServiceBuilderExt as _;
 use url::Url;
 
@@ -28,7 +28,7 @@ pub use self::{
 	command::Handle as Command,
 	diagnostic::Diagnostic,
 	directory::Handle as Directory,
-	error::{ok, Error, Result},
+	error::{Error, Result, ok},
 	file::Handle as File,
 	graph::Handle as Graph,
 	handle::Handle,
@@ -616,8 +616,8 @@ impl tg::Handle for Client {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-				+ Send
-				+ 'static,
+			+ Send
+			+ 'static,
 		>,
 	> {
 		self.check_in_artifact(arg)
@@ -630,8 +630,8 @@ impl tg::Handle for Client {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-				+ Send
-				+ 'static,
+			+ Send
+			+ 'static,
 		>,
 	> {
 		self.check_out_artifact(id, arg)
@@ -900,9 +900,8 @@ impl tg::Handle for Client {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<
-		Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>,
-	> + Send {
+	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>>
+	+ Send {
 		self.try_get_reference(reference)
 	}
 

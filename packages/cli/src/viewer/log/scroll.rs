@@ -477,7 +477,7 @@ impl GraphemeParserState<'_, '_> {
 
 #[cfg(test)]
 mod tests {
-	use super::{next_grapheme, scroll_down_inner, scroll_up_inner, Error, Scroll};
+	use super::{Error, Scroll, next_grapheme, scroll_down_inner, scroll_up_inner};
 	use num::ToPrimitive as _;
 	use ratatui::layout::Rect;
 	use tangram_client as tg;

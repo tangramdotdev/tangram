@@ -1,6 +1,5 @@
 use indoc::indoc;
 use insta::assert_json_snapshot;
-use std::future::Future;
 use tangram_cli::{assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
 

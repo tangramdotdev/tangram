@@ -1,6 +1,4 @@
-use futures::{
-	Future, FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
-};
+use futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
 use std::{borrow::Cow, pin::pin};
 
@@ -94,7 +92,7 @@ pub trait Query {
 		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>>
-	       + Send;
+	+ Send;
 
 	fn query_value(
 		&self,
@@ -119,7 +117,7 @@ pub trait Query {
 		statement: Cow<'static, str>,
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>> + Send, Self::Error>>
-	       + Send
+	+ Send
 	where
 		T: serde::de::DeserializeOwned,
 	{

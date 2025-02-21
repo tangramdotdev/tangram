@@ -1,6 +1,6 @@
 use crate::{
-	header::{accept_encoding::AcceptEncoding, content_encoding::ContentEncoding},
 	Body, Request, Response,
+	header::{accept_encoding::AcceptEncoding, content_encoding::ContentEncoding},
 };
 use async_compression::tokio::bufread::{ZstdDecoder, ZstdEncoder};
 use http_body::Body as _;

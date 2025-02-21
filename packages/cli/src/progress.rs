@@ -1,4 +1,4 @@
-use crate::{viewer::clip, Cli};
+use crate::{Cli, viewer::clip};
 use crossterm::{self as ct, style::Stylize as _};
 use futures::{Stream, StreamExt as _};
 use indexmap::IndexMap;

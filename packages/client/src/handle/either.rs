@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{Future, FutureExt, Stream, TryFutureExt as _};
+use futures::{FutureExt, Stream, TryFutureExt as _};
 use std::pin::Pin;
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -15,8 +15,8 @@ where
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-				+ Send
-				+ 'static,
+			+ Send
+			+ 'static,
 		>,
 	> {
 		match self {
@@ -38,8 +38,8 @@ where
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-				+ Send
-				+ 'static,
+			+ Send
+			+ 'static,
 		>,
 	> {
 		match self {
@@ -470,9 +470,8 @@ where
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<
-		Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>,
-	> + Send {
+	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>>
+	+ Send {
 		match self {
 			Either::Left(s) => s.try_get_reference(reference).left_future(),
 			Either::Right(s) => s.try_get_reference(reference).right_future(),
