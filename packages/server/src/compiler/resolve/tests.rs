@@ -1,4 +1,4 @@
-use crate::{compiler::Compiler, test::test, Server};
+use crate::{Server, compiler::Compiler, test::test};
 use futures::Future;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
@@ -131,8 +131,7 @@ async fn test_path<F, Fut>(
 	F: FnOnce(Server, PathBuf, tg::Module) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send + 'static,
 {
-	test(|context| async move {
-		let mut context = context.lock().await;
+	test(async move |context| {
 		let server = context.start_server().await;
 		let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
 		let temp = Temp::new();
@@ -185,8 +184,7 @@ async fn test_object<F, Fut>(
 	F: FnOnce(Server, tg::Artifact, tg::Module) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send + 'static,
 {
-	test(|context| async move {
-		let mut context = context.lock().await;
+	test(async move |context| {
 		let server = context.start_server().await;
 		let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
 		let temp = Temp::new();

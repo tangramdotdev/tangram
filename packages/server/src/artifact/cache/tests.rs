@@ -1,5 +1,5 @@
-use crate::{test::test, Server};
-use futures::{future, Future};
+use crate::{Server, test::test};
+use futures::{Future, future};
 use insta::assert_json_snapshot;
 use std::{collections::BTreeMap, pin::pin};
 use tangram_client as tg;
@@ -440,8 +440,7 @@ where
 	F: FnOnce(Server, temp::Artifact) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send + 'static,
 {
-	test(|context| async move {
-		let mut context = context.lock().await;
+	test(async move |context| {
 		let server = context.start_server().await;
 		let arg = tg::artifact::checkout::Arg {
 			dependencies: true,

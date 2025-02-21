@@ -1,21 +1,19 @@
 use crate::{Config, Server};
-use futures::{Future, FutureExt as _};
-use std::{panic::AssertUnwindSafe, sync::Arc};
+use futures::FutureExt as _;
+use std::panic::AssertUnwindSafe;
 use tangram_temp::Temp;
 
-pub async fn test<F, Fut>(f: F)
+pub async fn test<F>(f: F)
 where
-	F: FnOnce(Arc<tokio::sync::Mutex<Context>>) -> Fut,
-	Fut: Future<Output = ()> + Send,
+	F: AsyncFnOnce(&mut Context) -> () + Send,
 {
 	// Create the context.
-	let context = Arc::new(tokio::sync::Mutex::new(Context::new()));
+	let mut context = Context::new();
 
 	// Run the test and catch a panic if one occurs.
-	let result = AssertUnwindSafe(f(context.clone())).catch_unwind().await;
+	let result = AssertUnwindSafe(f(&mut context)).catch_unwind().await;
 
 	// Handle the result.
-	let context = context.lock().await;
 	for server in &context.servers {
 		server.stop();
 		server.wait().await;
