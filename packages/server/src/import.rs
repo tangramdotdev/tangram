@@ -1,9 +1,10 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
+use futures::{Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools;
 use num::ToPrimitive as _;
 use std::{
+	collections::BTreeSet,
 	pin::{Pin, pin},
 	sync::{Arc, atomic::AtomicU64},
 	time::Duration,
@@ -13,6 +14,7 @@ use tangram_database::{self as db, Database as _, Query as _};
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext};
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
@@ -23,6 +25,13 @@ struct Progress {
 	processes: Option<AtomicU64>,
 	objects: AtomicU64,
 	bytes: AtomicU64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct InsertMessage {
+	pub(crate) id: tg::object::Id,
+	pub(crate) size: u64,
+	pub(crate) children: BTreeSet<tg::object::Id>,
 }
 
 impl Server {
@@ -47,7 +56,7 @@ impl Server {
 		let (event_sender, event_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::import::Event>>(256);
 		let (complete_sender, complete_receiver) =
-			tokio::sync::mpsc::channel::<tg::export::Item>(256);
+			tokio::sync::mpsc::channel::<Either<tg::process::Id, tg::object::Id>>(256);
 		let (database_process_sender, database_process_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (database_object_sender, database_object_receiver) =
@@ -58,6 +67,14 @@ impl Server {
 		let complete_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
+			tokio::spawn({
+				let complete_sender = complete_sender.clone();
+				async move {
+					for item in arg.items {
+						complete_sender.send(item).await.ok();
+					}
+				}
+			});
 			async move {
 				let result = server
 					.import_complete_task(complete_receiver, &event_sender)
@@ -77,13 +94,13 @@ impl Server {
 		let database_processes_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
-			let progress_totals = progress.clone();
+			let progress = progress.clone();
 			async move {
 				let result = server
 					.import_database_processes_task(
 						database_process_receiver,
 						&event_sender,
-						&progress_totals,
+						&progress,
 					)
 					.await;
 				if let Err(error) = result {
@@ -103,10 +120,10 @@ impl Server {
 		let database_objects_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
-			let progress_totals = progress.clone();
+			let progress = progress.clone();
 			async move {
 				let result = server
-					.import_database_objects_task(database_object_receiver, &progress_totals)
+					.import_database_objects_task(database_object_receiver, &progress)
 					.await;
 				if let Err(error) = result {
 					event_sender.send(Err(error)).await.ok();
@@ -125,8 +142,11 @@ impl Server {
 		let store_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
+			let progress = progress.clone();
 			async move {
-				let result = server.import_store_task(store_receiver).await;
+				let result = server
+					.import_store_task(store_receiver, &event_sender, &progress)
+					.await;
 				if let Err(error) = result {
 					event_sender.send(Err(error)).await.ok();
 				}
@@ -152,7 +172,15 @@ impl Server {
 							return;
 						},
 					};
-					let complete_sender_future = complete_sender.send(item.clone());
+					let complete_sender_future = match &item {
+						tg::export::Item::Process { id, .. } => {
+							complete_sender.send(Either::Left(id.clone()))
+						},
+						tg::export::Item::Object { id, .. } => {
+							complete_sender.send(Either::Right(id.clone()))
+						},
+					}
+					.map_err(|_| ());
 					let database_sender_future = match item {
 						tg::export::Item::Process { .. } => {
 							database_process_sender.send(item.clone())
@@ -160,8 +188,9 @@ impl Server {
 						tg::export::Item::Object { .. } => {
 							database_object_sender.send(item.clone())
 						},
-					};
-					let store_sender_future = store_sender.send(item.clone());
+					}
+					.map_err(|_| ());
+					let store_sender_future = store_sender.send(item.clone()).map_err(|_| ());
 					let result = futures::try_join!(
 						complete_sender_future,
 						database_sender_future,
@@ -169,7 +198,7 @@ impl Server {
 					);
 					if result.is_err() {
 						event_sender
-							.send(Err(tg::error!(?result, "failed to send the item")))
+							.send(Err(tg::error!("failed to send the item")))
 							.await
 							.ok();
 						return;
@@ -217,7 +246,7 @@ impl Server {
 
 	async fn import_complete_task(
 		&self,
-		complete_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
+		complete_receiver: tokio::sync::mpsc::Receiver<Either<tg::process::Id, tg::object::Id>>,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(complete_receiver);
@@ -229,7 +258,7 @@ impl Server {
 				let event_sender = event_sender.clone();
 				async move {
 					match item {
-						tg::export::Item::Process { id, .. } => {
+						Either::Left(id) => {
 							let result = server.try_get_import_process_complete(&id).await;
 							let process_complete = match result {
 								Ok(process_complete) => process_complete,
@@ -253,7 +282,7 @@ impl Server {
 							));
 							event_sender.send(Ok(event)).await.ok();
 						},
-						tg::export::Item::Object { id, .. } => {
+						Either::Right(id) => {
 							let result = server.try_get_import_object_complete(&id).await;
 							let object_complete = match result {
 								Ok(object_complete) => object_complete,
@@ -325,6 +354,13 @@ impl Server {
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(database_object_receiver);
+
+		if true {
+			let stream = pin!(stream);
+			stream.for_each(|_| std::future::ready(())).await;
+			return Ok(());
+		}
+
 		match &self.database {
 			Either::Left(database) => {
 				self.import_objects_sqlite(stream, database, progress)
@@ -336,6 +372,7 @@ impl Server {
 					.await?;
 			},
 		}
+
 		Ok(())
 	}
 
@@ -456,16 +493,17 @@ impl Server {
 		&self,
 		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
 		database: &db::postgres::Database,
-		progress_totals: &Progress,
+		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
-		let mut connection = database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		tracing::warn!("postgres insert in import");
 
 		let stream = stream.chunks(128);
 		let mut stream = pin!(stream);
 		while let Some(chunk) = stream.next().await {
+			let mut connection = database
+				.write_connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 			let chunk: Vec<_> = chunk
 				.into_iter()
 				.map(|item| {
@@ -578,7 +616,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
 
-			progress_totals.increment_objects(
+			progress.increment_objects(
 				ids.len()
 					.try_into()
 					.map_err(|source| tg::error!(!source, "too many objects"))?,
@@ -587,7 +625,7 @@ impl Server {
 			let size_sum = size_sum
 				.try_into()
 				.map_err(|source| tg::error!(!source, "objects too large"))?;
-			progress_totals.increment_bytes(size_sum);
+			progress.increment_bytes(size_sum);
 		}
 
 		Ok(())
@@ -596,6 +634,8 @@ impl Server {
 	async fn import_store_task(
 		&self,
 		mut store_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
+		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
+		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		let mut join_set = JoinSet::new();
 		loop {
@@ -603,12 +643,110 @@ impl Server {
 				break;
 			};
 			if let tg::export::Item::Object { id, bytes, .. } = item {
+				let size = bytes.len().try_into().unwrap();
+				// Store to object storage.
 				join_set.spawn({
 					let server = self.clone();
+					let id = id.clone();
+					let bytes = bytes.clone();
+					let event_sender = event_sender.clone();
+					let progress = progress.clone();
 					async move {
-						if let Some(store) = &server.store {
-							store.put(id, bytes).await?;
+						let store_future = {
+							let server = server.clone();
+							let id = id.clone();
+							let bytes = bytes.clone();
+							async move {
+								if let Some(store) = &server.store {
+									store.put(id, bytes).await?;
+								}
+								Ok::<_, tg::Error>(())
+							}
+						};
+						// Send a message to jetstream.
+						let messenger_future = {
+							let server = server.clone();
+							let id = id.clone();
+							let bytes = bytes.clone();
+							async move {
+								// Send a message with object ID, size, ids of children.
+								let children =
+									tg::object::Data::deserialize(id.kind(), &bytes)?.children();
+								let message = InsertMessage { id, size, children };
+								let result = serde_json::to_vec(&message).map_err(|source| {
+									tg::error!(!source, "failed to serialize message")
+								});
+								let data = match result {
+									Ok(data) => data,
+									Err(error) => {
+										tracing::error!(?error,);
+										return Err(error);
+									},
+								};
+								match &server.messenger {
+									Either::Left(memory) => {
+										memory
+											.publish("objects".to_string(), data.into())
+											.await
+											.ok();
+									},
+									Either::Right(nats) => {
+										// Create a JetStream instance.
+										let jetstream =
+											async_nats::jetstream::new(nats.client.clone());
+
+										// Get or create the object stream.
+										let result = jetstream
+											.get_or_create_stream(
+												async_nats::jetstream::stream::Config {
+													name: "objects".to_string(),
+													max_messages: i64::MAX,
+													..Default::default()
+												},
+											)
+											.await
+											.map_err(|source| {
+												tg::error!(
+													!source,
+													"failed to get_or_create jetstream object stream"
+												)
+											});
+										match result {
+											Ok(_) => {},
+											Err(error) => {
+												tracing::error!(?error,);
+												return Err(error);
+											},
+										}
+
+										let result = jetstream
+											.publish("objects", data.into())
+											.await
+											.map_err(|source| {
+												tg::error!(!source, "failed to publish message")
+											});
+										match result {
+											Ok(_) => {},
+											Err(error) => {
+												tracing::error!(?error,);
+												return Err(error);
+											},
+										}
+									},
+								}
+								Ok::<_, tg::Error>(())
+							}
+						};
+						let result = futures::try_join!(store_future, messenger_future);
+
+						if let Err(error) = result {
+							event_sender
+								.send(Err(tg::error!(!error, "failed to join the task")))
+								.await
+								.ok();
 						}
+						progress.increment_objects(1);
+						progress.increment_bytes(size);
 						Ok::<_, tg::Error>(())
 					}
 				});
@@ -645,7 +783,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let output = connection
-			.query_optional_value_into(statement.into(), params)
+			.query_optional_value_into(statement.into(), params.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
