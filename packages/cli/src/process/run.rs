@@ -460,7 +460,9 @@ where
 	});
 
 	// Create streams for stdin/stdout/stderr events.
-	let arg = tg::pipe::post::Arg { remote: pipes.remote.clone() };
+	let arg = tg::pipe::post::Arg {
+		remote: pipes.remote.clone(),
+	};
 	let stderr = handle.post_pipe(
 		&pipes.stderr.writer,
 		arg.clone(),

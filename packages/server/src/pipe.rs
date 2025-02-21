@@ -1,6 +1,6 @@
 use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database::{self as db, params, Database, Query};
+use tangram_database::{self as db, Database, Query, params};
 use tangram_messenger::Messenger;
 use time::format_description::well_known::Rfc3339;
 
