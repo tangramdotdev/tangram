@@ -27,10 +27,10 @@ struct Progress {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-struct InsertMessage {
-	id: tg::object::Id,
-	size: u64,
-	children: BTreeSet<tg::object::Id>,
+pub(crate) struct InsertMessage {
+	pub(crate) id: tg::object::Id,
+	pub(crate) size: u64,
+	pub(crate) children: BTreeSet<tg::object::Id>,
 }
 
 impl Server {
@@ -335,7 +335,8 @@ impl Server {
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		// We only want to store objects to the database if there is no store or we are not using NATS.
-		if self.store.is_none() || matches!(self.messenger, Either::Left(_)) {
+		if matches!(self.messenger, Either::Left(_)) {
+			// if self.store.is_none() || matches!(self.messenger, Either::Left(_)) { // FIXME also if store.is_none();
 			let stream = ReceiverStream::new(database_object_receiver);
 			match &self.database {
 				Either::Left(database) => {
@@ -670,7 +671,6 @@ impl Server {
 									}
 
 									// Send a message to a durable JetStream stream with object ID, size, ids of children.
-									// Get the children.
 									let children =
 										tg::object::Data::deserialize(id.kind(), &bytes)?
 											.children();
