@@ -21,11 +21,11 @@ resolver = "2"
 [workspace.package]
 authors = ["Tangram <root@tangram.dev"]
 description = "Tangram is a build system and package manager."
-edition = "2021"
+edition = "2024"
 homepage = "https://www.tangram.dev"
 license = "MIT"
 repository = "https://github.com/tangramdotdev/tangram"
-rust-version = "1.83"
+rust-version = "1.85"
 version = "0.0.0"
 
 [workspace.lints.clippy]

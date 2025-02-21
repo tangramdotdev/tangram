@@ -1,8 +1,8 @@
 use super::{Builder, Data, Id, Object};
 use crate::{self as tg, util::arc::Ext as _};
 use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
 	TryStreamExt as _,
+	stream::{FuturesOrdered, FuturesUnordered},
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
@@ -165,7 +165,10 @@ impl Command {
 }
 
 impl Command {
-	pub async fn args<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = Vec<tg::Value>>>
+	pub async fn args<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<impl Deref<Target = Vec<tg::Value>> + use<H>>
 	where
 		H: tg::Handle,
 	{

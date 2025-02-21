@@ -112,7 +112,10 @@ impl Process {
 		Ok(Some(state))
 	}
 
-	pub async fn command<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = tg::Command>>
+	pub async fn command<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<impl Deref<Target = tg::Command> + use<H>>
 	where
 		H: tg::Handle,
 	{

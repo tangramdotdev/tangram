@@ -7,7 +7,7 @@ impl Client {
 	pub async fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + 'static> {
 		let method = http::Method::POST;
 		let uri = format!("/pipes/{id}/read");
 		let request = http::request::Builder::default()

@@ -1,10 +1,10 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, stream::FuturesUnordered};
 use std::{pin::pin, time::Duration};
 use tangram_client::{self as tg};
 use tangram_either::Either;
 use tangram_futures::stream::Ext;
-use tangram_http::{request::Ext as _, Body};
+use tangram_http::{Body, request::Ext as _};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -21,9 +21,7 @@ impl Server {
 		src: &S,
 		dst: &D,
 		arg: &tg::push::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static + use<S, D>,
-	>
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<S, D>>
 	where
 		S: tg::Handle,
 		D: tg::Handle,
@@ -68,7 +66,7 @@ impl Server {
 						async move {
 							loop {
 								match item {
-									tangram_either::Either::Left(ref process) => {
+									tangram_either::Either::Left(process) => {
 										let Some(tg::process::metadata::Output {
 											metadata, ..
 										}) = src.try_get_process_metadata(process).await.map_err(
@@ -100,7 +98,7 @@ impl Server {
 											break Ok::<_, tg::Error>(Either::Left(metadata));
 										}
 									},
-									tangram_either::Either::Right(ref id) => {
+									tangram_either::Either::Right(id) => {
 										let metadata =
 											src.try_get_object_metadata(id).await?.ok_or_else(
 												|| tg::error!("expected the metadata to be set"),

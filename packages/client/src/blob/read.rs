@@ -1,11 +1,10 @@
 use crate::{
-	self as tg,
+	self as tg, Client,
 	handle::Ext as _,
 	util::serde::{BytesBase64, SeekFromString},
-	Client,
 };
 use bytes::Bytes;
-use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use serde_with::serde_as;
 use std::pin::pin;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
@@ -44,7 +43,7 @@ impl tg::Blob {
 		&self,
 		handle: &H,
 		arg: tg::blob::read::Arg,
-	) -> tg::Result<impl AsyncBufRead + Send + 'static>
+	) -> tg::Result<impl AsyncBufRead + Send + use<H>>
 	where
 		H: tg::Handle,
 	{

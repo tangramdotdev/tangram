@@ -1,8 +1,8 @@
 use crate::{
 	self as tg,
-	util::serde::{is_false, CommaSeparatedString},
+	util::serde::{CommaSeparatedString, is_false},
 };
-use futures::{future, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use serde_with::serde_as;
 use std::pin::Pin;
 use tangram_either::Either;
@@ -75,7 +75,7 @@ impl tg::Client {
 		&self,
 		arg: tg::import::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + use<>> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(QueryArg::from(arg)).unwrap();
 		let uri = format!("/import?{query}");

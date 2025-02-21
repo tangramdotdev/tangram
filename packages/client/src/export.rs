@@ -1,9 +1,9 @@
 use crate::{
 	self as tg,
-	util::serde::{is_false, CommaSeparatedString},
+	util::serde::{CommaSeparatedString, is_false},
 };
 use bytes::Bytes;
-use futures::{stream, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, stream};
 use num::ToPrimitive as _;
 use serde_with::serde_as;
 use std::pin::Pin;
@@ -122,7 +122,7 @@ impl tg::Client {
 		&self,
 		arg: tg::export::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + use<>> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(QueryArg::from(arg)).unwrap();
 		let uri = format!("/export?{query}");

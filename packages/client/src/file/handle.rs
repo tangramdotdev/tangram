@@ -1,6 +1,6 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, sync::Arc};
 use tangram_either::Either;
@@ -349,7 +349,7 @@ impl File {
 		&self,
 		handle: &H,
 		arg: tg::blob::read::Arg,
-	) -> tg::Result<impl AsyncBufRead + Send + 'static>
+	) -> tg::Result<impl AsyncBufRead + Send + use<H>>
 	where
 		H: tg::Handle,
 	{
