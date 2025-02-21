@@ -6,9 +6,7 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
 async fn create_from_file() {
-	test(TG, |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
 
 		let temp = Temp::new();

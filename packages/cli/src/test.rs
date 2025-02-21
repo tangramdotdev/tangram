@@ -1,23 +1,21 @@
 use crate::Config;
-use futures::{Future, FutureExt as _};
+use futures::FutureExt as _;
 use std::{panic::AssertUnwindSafe, sync::Arc};
 use tangram_client as tg;
 use tangram_temp::Temp;
 use url::Url;
 
-pub async fn test<F, Fut>(tg: &'static str, f: F)
+pub async fn test<F>(tg: &'static str, f: F)
 where
-	F: FnOnce(Arc<tokio::sync::Mutex<Context>>) -> Fut,
-	Fut: Future<Output = ()> + Send,
+	F: AsyncFnOnce(&mut Context) -> () + Send,
 {
 	// Create the context.
-	let context = Arc::new(tokio::sync::Mutex::new(Context::new(tg)));
+	let mut context = Context::new(tg);
 
 	// Run the test and catch a panic if one occurs.
-	let result = AssertUnwindSafe(f(context.clone())).catch_unwind().await;
+	let result = AssertUnwindSafe(f(&mut context)).catch_unwind().await;
 
 	// Handle the result.
-	let context = context.lock().await;
 	match result {
 		Ok(()) => {
 			// If there was no panic, then gracefully shutdown the servers.

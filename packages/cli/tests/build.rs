@@ -815,9 +815,7 @@ where
 
 #[tokio::test]
 async fn import_from_tag() {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		// Create a remote server.
 		let remote_server = context.spawn_server().await.unwrap();
 
@@ -911,8 +909,7 @@ async fn test_build<F, Fut>(
 	F: FnOnce(std::process::Output) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send,
 {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
+	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
 
 		let artifact: temp::Artifact = artifact.into();
@@ -946,9 +943,7 @@ async fn test_build_remote<F, Fut>(
 	F: FnOnce(std::process::Output, std::process::Output) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send,
 {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		let artifact: temp::Artifact = artifact.into();
 		// Create a directory with a module.
 		let temp = Temp::new();

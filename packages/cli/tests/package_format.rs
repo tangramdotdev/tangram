@@ -7,9 +7,7 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 /// Test formatting a package.
 #[tokio::test]
 async fn format() {
-	test(TG, |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		// Start the server.
 		let server = context.spawn_server().await.unwrap();
 

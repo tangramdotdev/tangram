@@ -525,8 +525,7 @@ async fn test_artifact_checkout<F, Fut>(
 	F: FnOnce(temp::Artifact) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send,
 {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
+	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
 
 		let artifact: temp::Artifact = artifact.into();

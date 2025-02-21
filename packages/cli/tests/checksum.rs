@@ -5,9 +5,7 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
 async fn download_checksum_none() {
-	test(TG, |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		// Start the server.
 		let server = context.spawn_server().await.unwrap();
 

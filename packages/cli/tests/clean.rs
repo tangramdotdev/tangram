@@ -2,7 +2,7 @@ use indoc::indoc;
 use std::path::Path;
 use tangram_cli::{
 	assert_failure, assert_success,
-	test::{test, Server},
+	test::{Server, test},
 };
 use tangram_temp::{self as temp, Temp};
 
@@ -10,7 +10,9 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
 async fn processes() {
-	test(TG, move |context| async move {
+	test(TG, async move |context| {
+		let server = context.spawn_server().await.unwrap();
+
 		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
 				export let e = tg.command(() => "e");
@@ -28,8 +30,6 @@ async fn processes() {
 				});
 			"#),
 		};
-		let mut context = context.lock().await;
-		let server = context.spawn_server().await.unwrap();
 
 		let artifact: temp::Artifact = directory.into();
 		let artifact_temp = Temp::new();
@@ -114,7 +114,9 @@ async fn processes() {
 
 #[tokio::test]
 async fn objects() {
-	test(TG, move |context| async move {
+	test(TG, async move |context| {
+		let server = context.spawn_server().await.unwrap();
+
 		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
 				export let h = tg.command(() => tg.file("h"));
@@ -138,9 +140,6 @@ async fn objects() {
 				}));
 			"#),
 		};
-
-		let mut context = context.lock().await;
-		let server = context.spawn_server().await.unwrap();
 
 		let artifact: temp::Artifact = directory.into();
 		let artifact_temp = Temp::new();

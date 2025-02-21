@@ -6,9 +6,7 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
 async fn hello_world() {
-	test(TG, |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		// Start the server.
 		let server = context.spawn_server().await.unwrap();
 
@@ -36,9 +34,7 @@ async fn hello_world() {
 
 #[tokio::test]
 async fn nonexistent_function() {
-	test(TG, |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		// Start the server.
 		let server = context.spawn_server().await.unwrap();
 

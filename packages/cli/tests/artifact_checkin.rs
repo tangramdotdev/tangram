@@ -3,7 +3,7 @@ use insta::{assert_json_snapshot, assert_snapshot};
 use std::{future::Future, path::Path};
 use tangram_cli::{
 	assert_success,
-	test::{test, Server},
+	test::{Server, test},
 };
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
@@ -2180,9 +2180,7 @@ async fn diamond_dependency() {
 
 #[tokio::test]
 async fn tagged_package_reproducible_checkin() {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		// Create a remote server.
 		let remote_server = context.spawn_server().await.unwrap();
 
@@ -2257,9 +2255,7 @@ async fn tagged_package_reproducible_checkin() {
 
 #[tokio::test]
 async fn tag_dependencies_after_clean() {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		// Create the first server.
 		let server1 = context.spawn_server().await.unwrap();
 
@@ -2348,8 +2344,7 @@ async fn test_artifact_checkin<F, Fut>(
 	F: FnOnce(String, String, Option<tg::Lockfile>) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send,
 {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
+	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
 		let (object, metadata, lockfile) =
 			test_artifact_checkin_inner(artifact, path, destructive, tags, &server).await;

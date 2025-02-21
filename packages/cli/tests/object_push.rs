@@ -34,8 +34,7 @@ async fn push_simple_directory() {
 }
 
 async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
+	test(TG, async move |context| {
 		// Create a remote server.
 		let remote_server = context.spawn_server().await.unwrap();
 

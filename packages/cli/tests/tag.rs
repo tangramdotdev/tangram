@@ -6,8 +6,7 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
 async fn list_no_results() {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
+	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
 
 		let pattern = "test";
@@ -27,8 +26,7 @@ async fn list_no_results() {
 
 #[tokio::test]
 async fn get_no_results() {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
+	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
 
 		let pattern = "test";
@@ -47,8 +45,7 @@ async fn get_no_results() {
 
 #[tokio::test]
 async fn single() {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
+	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
 
 		// Write the artifact to a temp
@@ -110,9 +107,7 @@ async fn single() {
 
 #[tokio::test]
 async fn multiple() {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
-
+	test(TG, async move |context| {
 		// Create a server.
 		let server = context.spawn_server().await.unwrap();
 
@@ -238,10 +233,7 @@ async fn multiple() {
 
 #[tokio::test]
 async fn remote_put() {
-	test(TG, move |context| async move {
-		let mut context = context.lock().await;
-
-		// Create a remote server.
+	test(TG, async move |context| {
 		let remote_server = context.spawn_server().await.unwrap();
 
 		// Tag the objects on the remote server.
