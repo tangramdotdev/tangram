@@ -334,17 +334,20 @@ impl Server {
 		database_object_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
-		let stream = ReceiverStream::new(database_object_receiver);
-		match &self.database {
-			Either::Left(database) => {
-				self.import_objects_sqlite(stream, database, progress)
-					.await
-					.inspect_err(|error| eprintln!("failed to insert: {error}"))?;
-			},
-			Either::Right(database) => {
-				self.import_objects_postgres(stream, database, progress)
-					.await?;
-			},
+		// We only want to store objects to the database if there is no store or we are not using NATS.
+		if self.store.is_none() || matches!(self.messenger, Either::Left(_)) {
+			let stream = ReceiverStream::new(database_object_receiver);
+			match &self.database {
+				Either::Left(database) => {
+					self.import_objects_sqlite(stream, database, progress)
+						.await
+						.inspect_err(|error| eprintln!("failed to insert: {error}"))?;
+				},
+				Either::Right(database) => {
+					self.import_objects_postgres(stream, database, progress)
+						.await?;
+				},
+			}
 		}
 		Ok(())
 	}

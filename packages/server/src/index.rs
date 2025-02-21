@@ -4,6 +4,7 @@ use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
+use tokio_stream::StreamExt as _;
 
 impl Server {
 	pub async fn index(&self) -> tg::Result<()> {
@@ -37,6 +38,39 @@ impl Server {
 		&self,
 		config: &crate::config::Indexer,
 	) -> tg::Result<u64> {
+		// TODO - this should be a separate task?
+		if let Either::Right(messenger) = &self.messenger {
+			let jetstream = async_nats::jetstream::new(messenger.client.clone());
+			let stream = jetstream
+				.get_or_create_stream(async_nats::jetstream::stream::Config {
+					name: "objects".to_string(),
+					..Default::default()
+				})
+				.await
+				.map_err(|source| tg::error!(!source, "could not get object stream"))?;
+
+			let consumer = stream
+				.get_or_create_consumer(
+					"object_consumer",
+					async_nats::jetstream::consumer::pull::Config {
+						durable_name: Some("object_consumer".to_string()),
+						..Default::default()
+					},
+				)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create jetstream consumer"))?;
+
+			let mut messages = consumer
+				.messages()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get consumer messages"))?
+				.take(100);
+			while let Ok(Some(message)) = messages.try_next().await {
+				tracing::debug!(?message, "received object insert message");
+				message.ack().await?;
+			}
+		}
+
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
