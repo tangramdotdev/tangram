@@ -4,7 +4,7 @@ use futures::prelude::*;
 use tangram_either::Either;
 
 pub struct Messenger {
-	client: nats::Client,
+	pub client: nats::Client,
 }
 
 impl Messenger {

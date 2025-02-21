@@ -4,6 +4,7 @@ use indoc::{formatdoc, indoc};
 use itertools::Itertools;
 use num::ToPrimitive as _;
 use std::{
+	collections::BTreeSet,
 	pin::{Pin, pin},
 	sync::{Arc, atomic::AtomicU64},
 	time::Duration,
@@ -23,6 +24,13 @@ struct Progress {
 	processes: Option<AtomicU64>,
 	objects: AtomicU64,
 	bytes: AtomicU64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+struct InsertMessage {
+	id: tg::object::Id,
+	size: u64,
+	children: BTreeSet<tg::object::Id>,
 }
 
 impl Server {
@@ -603,11 +611,74 @@ impl Server {
 				break;
 			};
 			if let tg::export::Item::Object { id, bytes, .. } = item {
+				// Store to object storage.
 				join_set.spawn({
 					let server = self.clone();
+					let id = id.clone();
+					let bytes = bytes.clone();
 					async move {
 						if let Some(store) = &server.store {
 							store.put(id, bytes).await?;
+						}
+						Ok::<_, tg::Error>(())
+					}
+				});
+				// Sent message to JetStream for indexing.
+				join_set.spawn({
+					let server = self.clone();
+					async move {
+						if let Either::Right(messenger) = &server.messenger {
+							// Create a JetStream instance. TODO -should this live in the nats messenger struct?
+							let jetstream = async_nats::jetstream::new(messenger.client.clone());
+
+							// Get or create the object stream.
+							let result = jetstream
+								.get_or_create_stream(async_nats::jetstream::stream::Config {
+									name: "objects".to_string(),
+									..Default::default()
+								})
+								.await
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to get_or_create jetsream object stream"
+									)
+								});
+							match result {
+								Ok(_) => {},
+								Err(error) => {
+									tracing::error!(?error,);
+									return Err(error);
+								},
+							}
+
+							// Send a message to a durable JetStream stream with object ID, size, ids of children.
+							// Get the children.
+							let children =
+								tg::object::Data::deserialize(id.kind(), &bytes)?.children();
+							let size = bytes.len().try_into().unwrap();
+							let message = InsertMessage { id, size, children };
+							let result = serde_json::to_vec(&message).map_err(|source| {
+								tg::error!(!source, "failed to serialize message")
+							});
+							let data = match result {
+								Ok(data) => data,
+								Err(error) => {
+									tracing::error!(?error,);
+									return Err(error);
+								},
+							};
+							let result = jetstream
+								.publish("objects", data.into())
+								.await
+								.map_err(|source| tg::error!(!source, "failed to publish message"));
+							match result {
+								Ok(_) => {},
+								Err(error) => {
+									tracing::error!(?error,);
+									return Err(error);
+								},
+							}
 						}
 						Ok::<_, tg::Error>(())
 					}
