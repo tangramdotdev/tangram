@@ -4,7 +4,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
-use tokio::io::{unix::AsyncFd, AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, unix::AsyncFd};
 
 pub struct Host(Either<host::Pty, host::Socket>);
 
@@ -29,11 +29,11 @@ pub fn pair(window_size: Option<tg::pipe::WindowSize>) -> std::io::Result<(Host,
 			}
 
 			// Open the slave terminal.
-			let mut buf = [0; 256];
-			if libc::ptsname_r(host.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) < 0 {
+			let name = libc::ptsname(host.as_raw_fd());
+			if name.is_null() {
 				return Err(std::io::Error::last_os_error());
 			}
-			let fd = libc::open(buf.as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
+			let fd = libc::open(name, libc::O_RDWR | libc::O_NOCTTY);
 			if fd < 0 {
 				return Err(std::io::Error::last_os_error());
 			}
@@ -46,7 +46,12 @@ pub fn pair(window_size: Option<tg::pipe::WindowSize>) -> std::io::Result<(Host,
 				ws_xpixel: window_size.xpos,
 				ws_ypixel: window_size.ypos,
 			};
-			if libc::ioctl(host.as_raw_fd(), libc::TIOCSWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
+			if libc::ioctl(
+				host.as_raw_fd(),
+				libc::TIOCSWINSZ,
+				std::ptr::addr_of_mut!(winsize),
+			) != 0
+			{
 				return Err(std::io::Error::last_os_error());
 			}
 
@@ -78,7 +83,7 @@ mod host {
 		os::fd::{AsRawFd, OwnedFd},
 		task::Poll,
 	};
-	use tokio::io::{unix::AsyncFd, AsyncRead, AsyncWrite};
+	use tokio::io::{AsyncRead, AsyncWrite, unix::AsyncFd};
 	pub struct Pty(pub AsyncFd<OwnedFd>);
 	pub type Socket = tokio::net::UnixStream;
 	impl AsRawFd for Pty {

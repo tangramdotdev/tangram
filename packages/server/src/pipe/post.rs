@@ -1,14 +1,13 @@
 use crate::Server;
 use bytes::Bytes;
 use futures::{
-	future,
+	Stream, StreamExt as _, future,
 	stream::{self, TryStreamExt as _},
-	Stream, StreamExt as _,
 };
 use http_body_util::{BodyExt as _, BodyStream};
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
+use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 
 use super::Pipe;
 
