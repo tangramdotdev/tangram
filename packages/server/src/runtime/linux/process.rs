@@ -1,19 +1,14 @@
-<<<<<<< HEAD
 use super::{TANGRAM_GID, TANGRAM_UID, chroot::Chroot};
-=======
 use crate::runtime::stdio;
-
-use super::{chroot::Chroot, TANGRAM_GID, TANGRAM_UID};
->>>>>>> 300b3991 (starting point)
 use itertools::Itertools;
 use std::{
 	collections::BTreeMap,
 	ffi::CString,
-	os::{fd::AsRawFd as _, unix::ffi::OsStrExt},
+	os::{fd::AsRawFd as _, unix::ffi::OsStrExt as _},
 	path::PathBuf,
 };
 use tangram_client as tg;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// A child process that may or may not be spawned within a chroot jail.
 pub struct Child {
@@ -286,6 +281,7 @@ impl Child {
 	}
 }
 
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn root(context: Context) -> ! {
 	// Ask to receive a SIGKILL signal if the host process exits.
 	let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
@@ -398,6 +394,7 @@ unsafe fn root(context: Context) -> ! {
 	std::process::exit(0)
 }
 
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn guest(context: &Context) -> ! {
 	// Ask to receive a SIGKILL signal if the root process exits.
 	let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);

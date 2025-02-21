@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures::{FutureExt as _, future};
 use indoc::formatdoc;
 use itertools::Itertools as _;
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, Handle as _, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
