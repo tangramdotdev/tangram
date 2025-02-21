@@ -1,10 +1,10 @@
 use self::syscall::syscall;
-use crate::{compiler::Compiler, Server};
+use crate::{Server, compiler::Compiler};
 use bytes::Bytes;
 use futures::{
+	FutureExt as _, StreamExt as _, TryFutureExt as _,
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
-	FutureExt as _, StreamExt as _, TryFutureExt as _,
 };
 use num::ToPrimitive;
 use sourcemap::SourceMap;

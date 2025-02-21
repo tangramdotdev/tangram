@@ -1,6 +1,6 @@
 use crate::{Pipe, Server};
 use tangram_client as tg;
-use tangram_http::{response::builder::Ext as _, Body};
+use tangram_http::{Body, response::builder::Ext as _};
 
 impl Server {
 	pub async fn open_pipe(&self) -> tg::Result<tg::pipe::open::Output> {

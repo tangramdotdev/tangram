@@ -1,4 +1,4 @@
-use crate::{util::fs::remove, Server};
+use crate::{Server, util::fs::remove};
 use std::path::{Path, PathBuf};
 
 pub struct Temp {

@@ -1,4 +1,4 @@
-use crate::{temp::Temp, Server};
+use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::TryStreamExt as _;
@@ -10,8 +10,8 @@ use std::{
 	path::PathBuf,
 	pin::pin,
 	sync::{
-		atomic::{AtomicU64, Ordering},
 		Arc,
+		atomic::{AtomicU64, Ordering},
 	},
 };
 use tangram_client::{self as tg, handle::Ext as _};

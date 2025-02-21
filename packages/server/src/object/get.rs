@@ -1,12 +1,12 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{future, FutureExt as _};
+use futures::{FutureExt as _, future};
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{response::builder::Ext as _, Body};
+use tangram_http::{Body, response::builder::Ext as _};
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 
 impl Server {

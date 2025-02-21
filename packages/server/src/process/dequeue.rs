@@ -1,11 +1,11 @@
 use crate::Server;
-use futures::{future, stream, StreamExt as _};
+use futures::{StreamExt as _, future, stream};
 use indoc::formatdoc;
 use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::task::Stop;
-use tangram_http::{request::Ext as _, Body};
+use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 use tokio_stream::wrappers::IntervalStream;

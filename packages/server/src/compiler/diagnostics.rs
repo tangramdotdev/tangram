@@ -1,5 +1,5 @@
 use super::Compiler;
-use futures::{stream, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream};
 use itertools::Itertools as _;
 use lsp_types as lsp;
 use std::collections::BTreeMap;

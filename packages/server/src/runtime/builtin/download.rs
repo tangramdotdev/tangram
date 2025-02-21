@@ -3,7 +3,7 @@ use crate::temp::Temp;
 use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use std::{
-	sync::{atomic::AtomicU64, Arc},
+	sync::{Arc, atomic::AtomicU64},
 	time::Duration,
 };
 use tangram_client as tg;

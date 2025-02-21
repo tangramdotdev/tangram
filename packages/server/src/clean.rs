@@ -4,7 +4,7 @@ use num::ToPrimitive as _;
 use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{response::builder::Ext as _, Body};
+use tangram_http::{Body, response::builder::Ext as _};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {

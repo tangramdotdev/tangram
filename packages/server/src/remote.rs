@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use std::collections::BTreeMap;
 use tangram_client as tg;
 

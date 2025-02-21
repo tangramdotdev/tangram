@@ -2,8 +2,8 @@ use super::{
 	input,
 	object::{self, Metadata},
 };
-use crate::{temp::Temp, Server};
-use futures::{stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt as _};
+use crate::{Server, temp::Temp};
+use futures::{FutureExt, StreamExt, TryStreamExt as _, stream::FuturesUnordered};
 use indoc::indoc;
 use num::ToPrimitive;
 use std::{
@@ -14,7 +14,7 @@ use std::{
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*, Transaction};
+use tangram_database::{self as db, Transaction, prelude::*};
 use tangram_either::Either;
 use time::format_description::well_known::Rfc3339;
 

@@ -1,12 +1,12 @@
 use crate::Server;
-use futures::{future, stream, FutureExt as _, StreamExt as _, TryStreamExt as _};
+use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use serde_with::serde_as;
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{response::builder::Ext as _, Body};
+use tangram_http::{Body, response::builder::Ext as _};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {

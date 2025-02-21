@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream,  Stream, TryStreamExt as _};
+use futures::{Stream, TryStreamExt as _, stream};
 use std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
@@ -89,8 +89,8 @@ impl tg::Handle for Proxy {
 		mut arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-			+ Send
-			+ 'static,
+		+ Send
+		+ 'static,
 	> {
 		// Replace the path with the host path.
 		arg.path = self.host_path_for_guest_path(arg.path.clone());
@@ -107,8 +107,8 @@ impl tg::Handle for Proxy {
 		mut arg: tg::artifact::checkout::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-			+ Send
-			+ 'static,
+		+ Send
+		+ 'static,
 	> {
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {

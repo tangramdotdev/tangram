@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{stream::FuturesUnordered, TryStreamExt};
+use futures::{TryStreamExt, stream::FuturesUnordered};
 use tangram_client as tg;
 use tangram_either::Either;
 

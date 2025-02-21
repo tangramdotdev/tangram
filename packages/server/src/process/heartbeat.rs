@@ -1,7 +1,7 @@
 use crate::Server;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_http::{request::Ext as _, response::builder::Ext as _, Body};
+use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {

@@ -1,7 +1,7 @@
-use futures::{future, stream, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, future, stream};
 use indexmap::IndexMap;
 use std::{
-	sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+	sync::{Arc, Mutex, RwLock, atomic::AtomicU64},
 	time::Duration,
 };
 use tangram_client as tg;

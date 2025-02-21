@@ -4,7 +4,7 @@ use self::{
 use async_nats as nats;
 use compiler::Compiler;
 use dashmap::{DashMap, DashSet};
-use futures::{future, stream::FuturesUnordered,  FutureExt as _, Stream, StreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _, future, stream::FuturesUnordered};
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use indoc::{formatdoc, indoc};
@@ -16,7 +16,7 @@ use std::{
 	ops::Deref,
 	os::fd::AsRawFd as _,
 	path::{Path, PathBuf},
-	pin::{pin, Pin},
+	pin::{Pin, pin},
 	sync::{Arc, Mutex, RwLock},
 	time::Duration,
 };
@@ -24,7 +24,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
-use tangram_http::{response::builder::Ext as _, Body};
+use tangram_http::{Body, response::builder::Ext as _};
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
 	net::{TcpListener, UnixListener},
@@ -1089,8 +1089,8 @@ impl tg::Handle for Server {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-				+ Send
-				+ 'static,
+			+ Send
+			+ 'static,
 		>,
 	> {
 		self.check_in_artifact(arg)
@@ -1103,8 +1103,8 @@ impl tg::Handle for Server {
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-				+ Send
-				+ 'static,
+			+ Send
+			+ 'static,
 		>,
 	> {
 		self.check_out_artifact(id, arg)

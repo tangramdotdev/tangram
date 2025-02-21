@@ -1,4 +1,4 @@
-use super::{chroot::Chroot, TANGRAM_GID, TANGRAM_UID};
+use super::{TANGRAM_GID, TANGRAM_UID, chroot::Chroot};
 use itertools::Itertools;
 use std::{
 	collections::BTreeMap,

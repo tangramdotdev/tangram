@@ -1,18 +1,18 @@
 use crate::Server;
-use futures::{future, stream, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools;
 use num::ToPrimitive as _;
 use std::{
-	pin::{pin, Pin},
-	sync::{atomic::AtomicU64, Arc},
+	pin::{Pin, pin},
+	sync::{Arc, atomic::AtomicU64},
 	time::Duration,
 };
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
-use tangram_http::{request::Ext, Body};
+use tangram_http::{Body, request::Ext};
 use time::format_description::well_known::Rfc3339;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};

@@ -1,7 +1,7 @@
 use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
-use futures::{stream::FuturesOrdered, TryStreamExt};
+use futures::{TryStreamExt, stream::FuturesOrdered};
 use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};

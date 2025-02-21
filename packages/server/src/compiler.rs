@@ -1,7 +1,7 @@
 use self::{document::Document, syscall::syscall};
-use crate::{temp::Temp, Server};
+use crate::{Server, temp::Temp};
 use dashmap::DashMap;
-use futures::{future,  FutureExt as _, TryFutureExt as _, TryStreamExt};
+use futures::{FutureExt as _, TryFutureExt as _, TryStreamExt, future};
 use lsp_types::{self as lsp, notification::Notification as _, request::Request as _};
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
@@ -12,7 +12,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::task::{Stop, Task};
-use tangram_http::{response::builder::Ext as _, Body};
+use tangram_http::{Body, response::builder::Ext as _};
 use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,

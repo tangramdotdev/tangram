@@ -1,5 +1,5 @@
-use crate::{lockfile::ParsedLockfile, Server};
-use futures::{stream::FuturesUnordered,  TryStreamExt as _};
+use crate::{Server, lockfile::ParsedLockfile};
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use std::{
 	collections::BTreeMap,
 	path::{Path, PathBuf},

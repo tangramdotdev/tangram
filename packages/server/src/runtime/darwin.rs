@@ -1,9 +1,8 @@
 use super::{proxy::Proxy, util::render};
-use crate::{temp::Temp, Server};
+use crate::{Server, temp::Temp};
 use futures::{
-	future,
+	TryStreamExt as _, future,
 	stream::{FuturesOrdered, FuturesUnordered},
-	TryStreamExt as _,
 };
 use indoc::writedoc;
 use num::ToPrimitive as _;

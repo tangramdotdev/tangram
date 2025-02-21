@@ -4,7 +4,7 @@ use indoc::indoc;
 use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_client as tg;
 use tangram_futures::stream::Ext as _;
-use tangram_http::{request::Ext as _, Body};
+use tangram_http::{Body, request::Ext as _};
 use tangram_ignore::Matcher;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -20,8 +20,8 @@ impl Server {
 		arg: tg::artifact::checkin::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-			+ Send
-			+ 'static,
+		+ Send
+		+ 'static,
 	> {
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({

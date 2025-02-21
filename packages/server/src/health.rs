@@ -3,7 +3,7 @@ use num::ToPrimitive;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-use tangram_http::{response::builder::Ext as _, Body};
+use tangram_http::{Body, response::builder::Ext as _};
 
 impl Server {
 	pub async fn health(&self) -> tg::Result<tg::Health> {

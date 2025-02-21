@@ -1,7 +1,7 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use super::{error::capture_stack_trace, FutureOutput, State};
-use futures::{ FutureExt as _};
+use super::{FutureOutput, State, error::capture_stack_trace};
+use futures::FutureExt as _;
 use itertools::Itertools as _;
 use std::rc::Rc;
 use tangram_client as tg;
