@@ -853,6 +853,28 @@ impl tg::Handle for Client {
 		self.heartbeat_process(id, arg)
 	}
 
+	fn post_process_signal(
+		&self,
+		id: &crate::process::Id,
+		arg: crate::process::signal::post::Arg,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		self.post_process_signal(id, arg)
+	}
+
+	fn try_get_process_signal_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_get_process_signal_stream(id, arg)
+	}
+
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,

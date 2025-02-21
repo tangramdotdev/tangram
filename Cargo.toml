@@ -8,7 +8,7 @@ members = [
   "packages/futures",
   "packages/http",
   "packages/ignore",
-  "packages/messenger",
+  "packages/messenger", "packages/sandbox",
   "packages/server",
   "packages/temp",
   "packages/uri",
@@ -31,6 +31,7 @@ version = "0.0.0"
 [workspace.lints.clippy]
 assigning_clones = "allow"
 bool_to_int_with_if = "allow"
+comparison_chain = "allow"
 items_after_statements = "allow"
 large_enum_variant = "allow"
 manual_async_fn = "allow"
@@ -151,6 +152,7 @@ tangram_futures = { path = "packages/futures" }
 tangram_http = { path = "packages/http" }
 tangram_ignore = { path = "packages/ignore" }
 tangram_messenger = { path = "packages/messenger" }
+tangram_sandbox = { path = "packages/sandbox" }
 tangram_server = { path = "packages/server" }
 tangram_temp = { path = "packages/temp" }
 tangram_uri = { path = "packages/uri" }

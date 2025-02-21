@@ -282,7 +282,7 @@ impl Cli {
 		}
 
 		// Handle build vs run.
-		let (cwd, env, network) = if options.sandbox {
+		let (cwd, env, network) = if options.sandbox || remote.is_some() {
 			let cwd = None;
 			let env = None;
 			let network = false;

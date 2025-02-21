@@ -205,16 +205,17 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Publish the status message.
+		// Publish the final status message and cleanup.
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
 			async move {
+				// Publish the last status update.
 				server
 					.messenger
 					.publish(format!("processes.{id}.status"), Bytes::new())
 					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
 					.ok();
 			}
 		});

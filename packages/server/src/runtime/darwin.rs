@@ -1,19 +1,15 @@
-use super::{proxy::Proxy, util::render};
+use super::{
+	proxy::Proxy,
+	util::{self, render},
+};
 use crate::{Server, temp::Temp};
 use futures::{
-	TryStreamExt as _, future,
+	TryStreamExt as _,
 	stream::{FuturesOrdered, FuturesUnordered},
-};
-use indoc::writedoc;
-use num::ToPrimitive as _;
-use std::{
-	ffi::{CStr, CString},
-	fmt::Write as _,
-	os::unix::{ffi::OsStrExt as _, process::ExitStatusExt as _},
-	path::Path,
 };
 use tangram_client as tg;
 use tangram_futures::task::Task;
+use tangram_sandbox as sandbox;
 use url::Url;
 
 const MAX_URL_LEN: usize = 100;
@@ -131,12 +127,13 @@ impl Runtime {
 		};
 		let executable = render(&self.server, &executable.into(), &artifacts_path).await?;
 
+		// Create the command
+		let mut cmd_ = sandbox::Command::new(executable);
+
 		// Render the env.
 		let command_env = command.env(&self.server).await?;
 		let process_env = state.env.as_ref();
-		let mut env =
-			super::util::merge_env(&self.server, &artifacts_path, process_env, &command_env)
-				.await?;
+		cmd_.envs(util::merge_env(&self.server, &artifacts_path, process_env, &command_env).await?);
 
 		// Render the args.
 		let args = command.args(&self.server).await?;
@@ -149,14 +146,15 @@ impl Runtime {
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
+		cmd_.args(args);
 
 		// Set `$HOME`.
 		if let Some(home) = &home {
-			env.insert("HOME".to_owned(), home.display().to_string());
+			cmd_.env("HOME", &home);
 		}
 
 		// Set `$OUTPUT`.
-		env.insert("OUTPUT".to_owned(), output.display().to_string());
+		cmd_.env("OUTUT", &output);
 
 		// Set `$TANGRAM_URL`.
 		let url = proxy.as_ref().map_or_else(
@@ -167,51 +165,81 @@ impl Runtime {
 			},
 			|(_, url)| url.to_string(),
 		);
-		env.insert("TANGRAM_URL".to_owned(), url.to_string());
+		cmd_.env("TANGRAM_URL", url.to_string());
 
-		// Create the sandbox profile.
-		let profile = create_sandbox_profile(&state, &artifacts_path, home.as_deref(), &output);
+		// Set cwd.
+		cmd_.cwd(&cwd);
 
-		// Create the command.
-		let mut command = tokio::process::Command::new(executable);
-		command
-			.args(args)
-			.current_dir(cwd)
-			.env_clear()
-			.envs(env)
-			.stdin(std::process::Stdio::piped())
-			.stdout(std::process::Stdio::piped())
-			.stderr(std::process::Stdio::piped());
-
-		// Add a pre_exec hook to initialize the sandbox.
-		unsafe {
-			command.pre_exec(move || {
-				// Call `sandbox_init`.
-				let error = std::ptr::null_mut::<*const libc::c_char>();
-				let ret = sandbox_init(profile.as_ptr(), 0, error);
-
-				// Handle an error from `sandbox_init`.
-				if ret != 0 {
-					let error = *error;
-					let _message = CStr::from_ptr(error);
-					sandbox_free_error(error);
-					return Err(std::io::Error::last_os_error());
-				}
-
-				Ok(())
-			});
+		// Configure the sandbox options.
+		if state.cwd.is_some() {
+			cmd_.sandbox(false);
+		} else {
+			cmd_.path(&artifacts_path, true);
+			cmd_.path(&cwd, false);
+			cmd_.path(&output, false);
+			if let Some(home) = &home {
+				cmd_.path(&home, false);
+			}
 		}
+		cmd_.network(state.network);
 
+		// Configure stdio
+		cmd_.stdin(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdin {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdin(sandbox::Stdio::Tty(tty));
+			}
+		}
+		cmd_.stdout(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdout {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdout(sandbox::Stdio::Tty(tty));
+			}
+		}
+		cmd_.stderr(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stderr {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stderr(sandbox::Stdio::Tty(tty));
+			}
+		}
 		// Spawn the child process.
-		let mut child = command
+		let mut child = cmd_
 			.spawn()
+			.await
 			.map_err(|source| tg::error!(!source, "failed to spawn child process"))?;
-
-		// If this future is dropped, then kill its process tree.
-		let pid = child.id().unwrap();
-		scopeguard::defer! {
-			kill_process_tree(pid);
-		}
 
 		// Spawn the stdio task.
 		let stdio_task = Task::spawn(|stop| {
@@ -225,17 +253,14 @@ impl Runtime {
 			)
 		});
 
-		// Wait for the process to exit.
-		let exit = child
+		// Wait for the child process to complete.
+		let exit = match child
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
-		let exit = if let Some(code) = exit.code() {
-			tg::process::Exit::Code { code }
-		} else if let Some(signal) = exit.signal() {
-			tg::process::Exit::Signal { signal }
-		} else {
-			return Err(tg::error!(%process = process.id(), "expected an exit code or signal"));
+			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?
+		{
+			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
+			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
 		};
 
 		// Stop the proxy task.
@@ -246,14 +271,7 @@ impl Runtime {
 
 		// Join the i/o task.
 		stdio_task.stop();
-		stdio_task
-			.wait()
-			.await
-			.unwrap()
-			.inspect_err(|error| {
-				tracing::error!(?error, "io task failed");
-			})
-			.ok();
+		stdio_task.wait().await.unwrap().ok();
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(output_parent.path().join("output"))
@@ -278,286 +296,5 @@ impl Runtime {
 		};
 
 		Ok((Some(exit), value))
-	}
-}
-
-fn create_sandbox_profile(
-	process: &tg::process::State,
-	artifacts: &Path,
-	home: Option<&Path>,
-	output: &Path,
-) -> CString {
-	// Write the default profile.
-	let mut profile = String::new();
-	writedoc!(
-		profile,
-		"
-			(version 1)
-		"
-	)
-	.unwrap();
-	if process.cwd.is_some() {
-		writedoc!(
-			profile,
-			"
-				;; Allow everything by default.
-				(allow default)
-			"
-		)
-		.unwrap();
-	} else {
-		writedoc!(
-			profile,
-			r#"
-				;; Deny everything by default.
-				(deny default)
-
-				;; Allow most system operations.
-				(allow syscall*)
-				(allow system-socket)
-				(allow mach*)
-				(allow ipc*)
-				(allow sysctl*)
-
-				;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
-				(allow process-fork process-info*)
-
-				;; Allow limited exploration of the root.
-				(allow file-read-data (literal "/"))
-				(allow file-read-metadata
-					(literal "/Library")
-					(literal "/System")
-					(literal "/Users")
-					(literal "/Volumes")
-					(literal "/etc")
-				)
-
-				;; Allow writing to common devices.
-				(allow file-read* file-write-data file-ioctl
-					(literal "/dev/null")
-					(literal "/dev/zero")
-					(literal "/dev/dtracehelper")
-				)
-
-				;; Allow reading and writing temporary files.
-				(allow file-write* file-read*
-					(subpath "/tmp")
-					(subpath "/private/tmp")
-					(subpath "/private/var")
-					(subpath "/var")
-				)
-
-				;; Allow reading some system devices and files.
-				(allow file-read*
-					(literal "/dev/autofs_nowait")
-					(literal "/dev/random")
-					(literal "/dev/urandom")
-					(literal "/private/etc/localtime")
-					(literal "/private/etc/protocols")
-					(literal "/private/etc/services")
-					(subpath "/private/etc/ssl")
-				)
-
-				;; Allow executing /usr/bin/env and /bin/sh.
-				(allow file-read* process-exec
-					(literal "/usr/bin/env")
-					(literal "/bin/sh")
-					(literal "/bin/bash")
-				)
-
-				;; Support Rosetta.
-				(allow file-read* file-test-existence
-					(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
-				)
-
-				;; Allow accessing the dyld shared cache.
-				(allow file-read* process-exec
-					(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
-					(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
-				)
-
-				;; Allow querying the macOS system version metadata.
-				(allow file-read* file-test-existence
-					(literal "/System/Library/CoreServices/SystemVersion.plist")
-				)
-
-				;; Allow bash to create and use file descriptors for pipes.
-				(allow file-read* file-write* file-ioctl process-exec
-					(literal "/dev/fd")
-					(subpath "/dev/fd")
-				)
-			"#
-		).unwrap();
-	}
-
-	// Write the network profile.
-	if process.network {
-		writedoc!(
-			profile,
-			r#"
-				;; Allow network access.
-				(allow network*)
-
-				;; Allow reading network preference files.
-				(allow file-read*
-					(literal "/Library/Preferences/com.apple.networkd.plist")
-					(literal "/private/var/db/com.apple.networkextension.tracker-info")
-					(literal "/private/var/db/nsurlstoraged/dafsaData.bin")
-				)
-				(allow user-preference-read (preference-domain "com.apple.CFNetwork"))
-			"#
-		)
-		.unwrap();
-	} else {
-		writedoc!(
-			profile,
-			r#"
-				;; Disable global network access.
-				(deny network*)
-
-				;; Allow network access to localhost and Unix sockets.
-				(allow network* (remote ip "localhost:*"))
-				(allow network* (remote unix-socket))
-			"#
-		)
-		.unwrap();
-	}
-
-	// Allow read access to the artifacts directory.
-	writedoc!(
-		profile,
-		r"
-			(allow process-exec* (subpath {0}))
-			(allow file-read* (path-ancestors {0}))
-			(allow file-read* (subpath {0}))
-		",
-		escape(artifacts.as_os_str().as_bytes())
-	)
-	.unwrap();
-
-	// Allow write access to the home directory.
-	if let Some(home) = home {
-		writedoc!(
-			profile,
-			r"
-				(allow process-exec* (subpath {0}))
-				(allow file-read* (path-ancestors {0}))
-				(allow file-read* (subpath {0}))
-				(allow file-write* (subpath {0}))
-			",
-			escape(home.as_os_str().as_bytes())
-		)
-		.unwrap();
-	}
-
-	// Allow write access to the output parent directory.
-	writedoc!(
-		profile,
-		r"
-			(allow process-exec* (subpath {0}))
-			(allow file-read* (path-ancestors {0}))
-			(allow file-read* (subpath {0}))
-			(allow file-write* (subpath {0}))
-		",
-		escape(output.as_os_str().as_bytes())
-	)
-	.unwrap();
-
-	CString::new(profile).unwrap()
-}
-
-fn kill_process_tree(pid: u32) {
-	let mut pids = vec![pid.to_i32().unwrap()];
-	let mut i = 0;
-	while i < pids.len() {
-		let ppid = pids[i];
-		let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
-		if n < 0 {
-			let error = std::io::Error::last_os_error();
-			tracing::error!(?pid, ?error);
-			return;
-		}
-		pids.resize(i + n.to_usize().unwrap() + 1, 0);
-		let n = unsafe { libc::proc_listchildpids(ppid, pids[(i + 1)..].as_mut_ptr().cast(), n) };
-		if n < 0 {
-			let error = std::io::Error::last_os_error();
-			tracing::error!(?pid, ?error);
-			return;
-		}
-		pids.truncate(i + n.to_usize().unwrap() + 1);
-		i += 1;
-	}
-	for pid in pids.iter().rev() {
-		unsafe { libc::kill(*pid, libc::SIGKILL) };
-		let mut status = 0;
-		unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
-	}
-}
-
-unsafe extern "C" {
-	fn sandbox_init(
-		profile: *const libc::c_char,
-		flags: u64,
-		errorbuf: *mut *const libc::c_char,
-	) -> libc::c_int;
-	fn sandbox_free_error(errorbuf: *const libc::c_char) -> libc::c_void;
-}
-
-/// Escape a string using the string literal syntax rules for `TinyScheme`. See <https://github.com/dchest/tinyscheme/blob/master/Manual.txt#L130>.
-fn escape(bytes: impl AsRef<[u8]>) -> String {
-	let bytes = bytes.as_ref();
-	let mut output = String::new();
-	output.push('"');
-	for byte in bytes {
-		let byte = *byte;
-		match byte {
-			b'"' => {
-				output.push('\\');
-				output.push('"');
-			},
-			b'\\' => {
-				output.push('\\');
-				output.push('\\');
-			},
-			b'\t' => {
-				output.push('\\');
-				output.push('t');
-			},
-			b'\n' => {
-				output.push('\\');
-				output.push('n');
-			},
-			b'\r' => {
-				output.push('\\');
-				output.push('r');
-			},
-			byte if char::from(byte).is_ascii_alphanumeric()
-				|| char::from(byte).is_ascii_punctuation()
-				|| byte == b' ' =>
-			{
-				output.push(byte.into());
-			},
-			byte => {
-				write!(output, "\\x{byte:02X}").unwrap();
-			},
-		}
-	}
-	output.push('"');
-	output
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn test_escape_string() {
-		assert_eq!(escape(r#"quote ""#), r#""quote \"""#);
-		assert_eq!(escape("backslash \\"), r#""backslash \\""#);
-		assert_eq!(escape("newline \n"), r#""newline \n""#);
-		assert_eq!(escape("tab \t"), r#""tab \t""#);
-		assert_eq!(escape("return \r"), r#""return \r""#);
-		assert_eq!(escape("nul \0"), r#""nul \x00""#);
-		assert_eq!(escape("many \r\t\n\\\r\n"), r#""many \r\t\n\\\r\n""#);
 	}
 }

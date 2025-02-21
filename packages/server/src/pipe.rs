@@ -1,7 +1,8 @@
 use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database::{self as db, params, Database, Query};
-use tangram_messenger::Messenger;
+use tangram_database::{self as db, Database, Query, params};
+use tangram_either::Either;
+use tangram_messenger::{self as messenger, Messenger as _};
 use time::format_description::well_known::Rfc3339;
 
 use crate::Server;
@@ -11,6 +12,7 @@ mod open;
 mod post;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Pipe {
 	pub reader: tg::pipe::Id,
 	pub writer: tg::pipe::Id,
@@ -103,7 +105,9 @@ impl Server {
 		let row = connection
 			.query_one_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
+			.map_err(
+				|source| tg::error!(!source, %pipe = id, "failed to increment the pipe ref"),
+			)?;
 
 		if row.reader_count == 0 || row.writer_count == 0 {
 			return Err(tg::error!(%id, "the pipe was closed"));
@@ -151,18 +155,64 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = params![id, now];
-		let row = connection
+		let Row {
+			reader,
+			writer,
+			writer_count,
+			..
+		} = connection
 			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
 
-		// When the writer count drops to zero, send a message to all readers to end their streams.
-		if row.writer_count == 0 {
-			self.send_pipe_event(&row.writer, tg::pipe::Event::End)
-				.await
-				.ok();
+		// When the writer count drops to zero, close the pipes.
+		if writer_count == 0 {
+			match &self.messenger {
+				Either::Left(messenger) => {
+					self.close_pipe_in_memory(messenger, &reader, &writer)
+						.await?
+				},
+				Either::Right(messenger) => {
+					self.close_pipe_nats(messenger, &reader, &writer).await?
+				},
+			};
 		}
 
+		Ok(())
+	}
+
+	async fn close_pipe_in_memory(
+		&self,
+		messenger: &messenger::memory::Messenger,
+		reader: &tg::pipe::Id,
+		writer: &tg::pipe::Id,
+	) -> tg::Result<()> {
+		messenger
+			.streams()
+			.close_stream(reader.to_string())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
+		messenger
+			.streams()
+			.close_stream(writer.to_string())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to close pipe"))?;
+		Ok(())
+	}
+
+	async fn close_pipe_nats(
+		&self,
+		messenger: &messenger::nats::Messenger,
+		reader: &tg::pipe::Id,
+		writer: &tg::pipe::Id,
+	) -> tg::Result<()> {
+		for pipe in [reader, writer] {
+			messenger
+				.jetstream
+				.delete_stream(pipe.to_string())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
+		}
 		Ok(())
 	}
 
@@ -174,10 +224,23 @@ impl Server {
 		let payload = serde_json::to_vec(&event)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?
 			.into();
-		self.messenger
-			.publish(format!("pipes.{pipe}"), payload)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?;
+		match &self.messenger {
+			Either::Left(messenger) => {
+				messenger
+					.publish(pipe.to_string(), payload)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?;
+			},
+			Either::Right(messenger) => {
+				messenger
+					.jetstream
+					.publish(pipe.to_string(), payload)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?
+					.await
+					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?;
+			},
+		}
 		Ok(())
 	}
 }
