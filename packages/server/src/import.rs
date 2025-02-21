@@ -134,7 +134,9 @@ impl Server {
 			let server = self.clone();
 			let event_sender = event_sender.clone();
 			async move {
-				let result = server.import_store_task(store_receiver).await;
+				let result = server
+					.import_store_task(store_receiver, &event_sender)
+					.await;
 				if let Err(error) = result {
 					event_sender.send(Err(error)).await.ok();
 				}
@@ -604,6 +606,7 @@ impl Server {
 	async fn import_store_task(
 		&self,
 		mut store_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
+		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 	) -> tg::Result<()> {
 		let mut join_set = JoinSet::new();
 		loop {
@@ -616,69 +619,99 @@ impl Server {
 					let server = self.clone();
 					let id = id.clone();
 					let bytes = bytes.clone();
+					let event_sender = event_sender.clone();
 					async move {
-						if let Some(store) = &server.store {
-							store.put(id, bytes).await?;
-						}
-						Ok::<_, tg::Error>(())
-					}
-				});
-				// Sent message to JetStream for indexing.
-				join_set.spawn({
-					let server = self.clone();
-					async move {
-						if let Either::Right(messenger) = &server.messenger {
-							// Create a JetStream instance. TODO -should this live in the nats messenger struct?
-							let jetstream = async_nats::jetstream::new(messenger.client.clone());
-
-							// Get or create the object stream.
-							let result = jetstream
-								.get_or_create_stream(async_nats::jetstream::stream::Config {
-									name: "objects".to_string(),
-									..Default::default()
-								})
-								.await
-								.map_err(|source| {
-									tg::error!(
-										!source,
-										"failed to get_or_create jetsream object stream"
-									)
-								});
-							match result {
-								Ok(_) => {},
-								Err(error) => {
-									tracing::error!(?error,);
-									return Err(error);
-								},
+						let store_future = {
+							let server = server.clone();
+							let id = id.clone();
+							let bytes = bytes.clone();
+							async move {
+								if let Some(store) = &server.store {
+									store.put(id, bytes).await?;
+								}
+								Ok::<_, tg::Error>(())
 							}
+						};
+						// Send a message to jetstream.
+						let jetstream_future = {
+							let server = server.clone();
+							let id = id.clone();
+							let bytes = bytes.clone();
+							async move {
+								if let Either::Right(messenger) = &server.messenger {
+									// Create a JetStream instance. TODO -should this live in the nats messenger struct?
+									let jetstream =
+										async_nats::jetstream::new(messenger.client.clone());
 
-							// Send a message to a durable JetStream stream with object ID, size, ids of children.
-							// Get the children.
-							let children =
-								tg::object::Data::deserialize(id.kind(), &bytes)?.children();
-							let size = bytes.len().try_into().unwrap();
-							let message = InsertMessage { id, size, children };
-							let result = serde_json::to_vec(&message).map_err(|source| {
-								tg::error!(!source, "failed to serialize message")
-							});
-							let data = match result {
-								Ok(data) => data,
-								Err(error) => {
-									tracing::error!(?error,);
-									return Err(error);
-								},
-							};
-							let result = jetstream
-								.publish("objects", data.into())
-								.await
-								.map_err(|source| tg::error!(!source, "failed to publish message"));
-							match result {
-								Ok(_) => {},
-								Err(error) => {
-									tracing::error!(?error,);
-									return Err(error);
-								},
+									// Get or create the object stream.
+									let result = jetstream
+										.get_or_create_stream(
+											async_nats::jetstream::stream::Config {
+												name: "objects".to_string(),
+												..Default::default()
+											},
+										)
+										.await
+										.map_err(|source| {
+											tg::error!(
+												!source,
+												"failed to get_or_create jetsream object stream"
+											)
+										});
+									match result {
+										Ok(_) => {},
+										Err(error) => {
+											tracing::error!(?error,);
+											return Err(error);
+										},
+									}
+
+									// Send a message to a durable JetStream stream with object ID, size, ids of children.
+									// Get the children.
+									let children =
+										tg::object::Data::deserialize(id.kind(), &bytes)?
+											.children();
+									let size = bytes.len().try_into().unwrap();
+									let message = InsertMessage { id, size, children };
+									let result = serde_json::to_vec(&message).map_err(|source| {
+										tg::error!(!source, "failed to serialize message")
+									});
+									let data = match result {
+										Ok(data) => data,
+										Err(error) => {
+											tracing::error!(?error,);
+											return Err(error);
+										},
+									};
+									let result = jetstream
+										.publish("objects", data.into())
+										.await
+										.map_err(|source| {
+											tg::error!(!source, "failed to publish message")
+										});
+									match result {
+										Ok(_) => {},
+										Err(error) => {
+											tracing::error!(?error,);
+											return Err(error);
+										},
+									}
+								}
+								Ok::<_, tg::Error>(())
 							}
+						};
+						let result = futures::try_join!(store_future, jetstream_future);
+
+						match result {
+							Ok(_) => {
+								event_sender.send(Ok(tg::import::Event::End)).await.ok();
+							},
+							Err(error) => {
+								event_sender
+									.send(Err(tg::error!(!error, "failed to join the task")))
+									.await
+									.ok();
+							},
 						}
 						Ok::<_, tg::Error>(())
 					}
