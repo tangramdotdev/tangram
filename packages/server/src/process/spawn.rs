@@ -31,7 +31,12 @@ impl Server {
 		}
 
 		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
+		let sandboxed = arg.cwd.is_none()
+			&& arg.env.is_none()
+			&& !arg.network
+			&& arg.stdin.is_none()
+			&& arg.stdout.is_none()
+			&& arg.stderr.is_none();
 
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some() || sandboxed;
@@ -232,10 +237,15 @@ impl Server {
 		}
 
 		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
+		let sandboxed = arg.cwd.is_none()
+			&& arg.env.is_none()
+			&& !arg.network
+			&& arg.stdin.is_none()
+			&& arg.stdout.is_none()
+			&& arg.stderr.is_none();
 
 		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some() || sandboxed || arg.stdin.is_none();
+		let cacheable = arg.checksum.is_some() || sandboxed;
 
 		// Get the host.
 		let command = tg::Command::with_id(arg.command.clone().unwrap());
@@ -301,8 +311,8 @@ impl Server {
 					retry = {p}11,
 					status = {p}12,
 					stderr = {p}13,
-					stderr = {p}14,
-					stderr = {p}15,
+					stdin = {p}14,
+					stdout = {p}15,
 					touched_at = {p}16;
 			"
 		);

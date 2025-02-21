@@ -187,6 +187,24 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::start::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::start::Output>> + Send;
 
+	fn post_process_signal(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_get_process_signal_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
+			>,
+		>,
+	> + Send;
+
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
@@ -241,17 +259,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::process::Id,
 		arg: tg::process::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send;
-
-	// fn put_process_pty(
-	// 	&self,
-	// 	id: &tg::process::Id,
-	// 	pty: tg::process::Pty,
-	// ) -> impl Future<Output = tg::Result<()>> + Send;
-
-	// fn get_process_pty_stream(
-	// 	&self,
-	// 	id: &tg::process::Id,
-	// ) -> impl Future<Output = tg::Result<impl Stream>> + Send;
 
 	fn try_get_reference(
 		&self,

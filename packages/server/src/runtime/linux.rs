@@ -3,17 +3,15 @@ use super::{
 	util::render,
 };
 use crate::{Server, temp::Temp};
-use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
-};
+use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
 use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Task;
+use tangram_sandbox as sandbox;
 use url::Url;
 
 mod chroot;
-mod process;
 
 /// The home directory guest path.
 const HOME_DIRECTORY_GUEST_PATH: &str = "/home/tangram";
@@ -257,23 +255,104 @@ impl Runtime {
 			});
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
+		let mut cmd_ = sandbox::Command::new(executable);
+
+		cmd_.args(args);
+		cmd_.cwd(cwd);
+
+		if let Some(chroot) = &chroot {
+			cmd_.chroot(&chroot.root);
+			cmd_.mounts(chroot.mounts.clone());
+		}
+
+		cmd_.stdin(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdin {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdin(sandbox::Stdio::Tty(tty));
+			}
+		}
+		cmd_.stdout(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdout {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdout(sandbox::Stdio::Tty(tty));
+			}
+		}
+		cmd_.stderr(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stderr {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stderr(sandbox::Stdio::Tty(tty));
+			}
+		}
+
 		// Spawn the child.
-		let mut child = process::spawn(args, cwd, env, executable, chroot, state.network)?;
+		let mut child = cmd_
+			.spawn()
+			.await
+			.map_err(|source| {
+				if source.raw_os_error() == Some(libc::ENOSYS) {
+					tg::error!(%errno = libc::ENOSYS, "cannot spawn within a container runtime without --privileged")
+				} else {
+					tg::error!(!source, "failed to spawn the child process")
+				}
+			})?;
 
 		// Spawn the stdio task.
-		let stdio_task = tokio::spawn(super::util::stdio_task(
-			self.server.clone(),
-			process.clone(),
-			child.stdin.take().unwrap(),
-			child.stdout.take().unwrap(),
-			child.stderr.take().unwrap(),
-		));
+		let stdin = child.stdin.take().unwrap();
+		let stdout = child.stdout.take().unwrap();
+		let stderr = child.stderr.take().unwrap();
+		let stdio_task = Task::spawn(move |stop| {
+			super::util::stdio_task(
+				self.server.clone(),
+				process.clone(),
+				stop,
+				stdin,
+				stdout,
+				stderr,
+			)
+		});
 
 		// Wait for the child process to complete.
-		let exit = child
+		let exit = match child
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
+			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?
+		{
+			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
+			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
+		};
 
 		// Stop the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
@@ -282,7 +361,8 @@ impl Runtime {
 		}
 
 		// stop the i/o task.
-		stdio_task.await.unwrap().ok();
+		stdio_task.stop();
+		stdio_task.wait().await.unwrap().ok();
 
 		// Create the output.
 		let output = output_parent.path().join("output");
@@ -306,6 +386,9 @@ impl Runtime {
 		} else {
 			None
 		};
+
+		// Drop the chroot.
+		drop(chroot);
 
 		Ok((Some(exit), output))
 	}

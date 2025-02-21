@@ -14,7 +14,7 @@ impl Client {
 		&self,
 		id: &tg::pipe::Id,
 		arg: Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/pipes/{id}?{query}");

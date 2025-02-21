@@ -54,13 +54,10 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let retry = value.retry;
 		let started_at = value.started_at;
 		let status = value.status;
-<<<<<<< HEAD
-=======
 		let stderr = value.stderr;
 		let stdin = value.stdin;
 		let stdout = value.stdout;
 		let touched_at = value.touched_at;
->>>>>>> 300b3991 (starting point)
 		Ok(State {
 			cacheable,
 			checksum,
@@ -80,13 +77,10 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			retry,
 			started_at,
 			status,
-<<<<<<< HEAD
-=======
 			stderr,
 			stdin,
 			stdout,
 			touched_at,
->>>>>>> 300b3991 (starting point)
 		})
 	}
 }

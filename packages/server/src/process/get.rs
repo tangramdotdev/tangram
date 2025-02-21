@@ -69,8 +69,6 @@ impl Server {
 			#[serde_as(as = "Option<Rfc3339>")]
 			started_at: Option<time::OffsetDateTime>,
 			status: tg::process::Status,
-<<<<<<< HEAD
-=======
 			#[serde(default)]
 			stderr: Option<tg::pipe::Id>,
 			#[serde(default)]
@@ -80,7 +78,6 @@ impl Server {
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			touched_at: Option<time::OffsetDateTime>,
->>>>>>> 300b3991 (starting point)
 		}
 		let p = connection.p();
 		let statement = formatdoc!(

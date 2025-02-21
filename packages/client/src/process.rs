@@ -8,6 +8,7 @@ pub use self::{
 	data::Data,
 	id::Id,
 	metadata::Metadata,
+	signal::Signal,
 	state::State,
 	status::Status,
 	wait::{Exit, Wait},
@@ -23,6 +24,7 @@ pub mod id;
 pub mod log;
 pub mod metadata;
 pub mod put;
+pub mod signal;
 pub mod spawn;
 pub mod start;
 pub mod state;
