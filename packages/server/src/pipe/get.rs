@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _};
-use tangram_client as tg;
+use tangram_client::{self  as tg, Handle};
 use tangram_futures::{stream::Ext, task::Stop};
 use tangram_http::{request::Ext as _, Body};
 use tangram_messenger::Messenger;
@@ -17,7 +17,10 @@ impl Server {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			let stream = remote.get_pipe_stream(id, arg).await?.left_stream();
+			let stream = remote
+				.get_pipe_stream(id, arg).await?
+				.boxed()
+				.left_stream();
 			return Ok(stream);
 		}
 		let Pipe { writer, .. } = self

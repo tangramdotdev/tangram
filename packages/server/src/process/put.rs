@@ -139,9 +139,9 @@ impl Server {
 			arg.data.retry,
 			arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.status,
-			arg.stderr,
-			arg.stdin,
-			arg.stdout,
+			arg.data.stderr,
+			arg.data.stdin,
+			arg.data.stdout,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		transaction

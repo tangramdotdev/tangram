@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{Server, temp::Temp};
 use futures::{
-	stream::{FuturesOrdered, FuturesUnordered},
+	stream::{StreamExt as _, TryStreamExt as _, FuturesOrdered, FuturesUnordered},
 };
 use std::path::Path;
 use tangram_client as tg;
