@@ -10,8 +10,8 @@ pub struct Host(Either<host::Pty, host::Socket>);
 
 pub struct Guest(Either<guest::Pty, guest::Socket>);
 
-pub fn pair(pty: bool) -> std::io::Result<(Host, Guest)> {
-	if pty {
+pub fn pair(window_size: Option<tg::pipe::WindowSize>) -> std::io::Result<(Host, Guest)> {
+	if let Some(window_size) = window_size {
 		unsafe {
 			// Open the master terminal.
 			let host = libc::posix_openpt(0);
@@ -38,6 +38,17 @@ pub fn pair(pty: bool) -> std::io::Result<(Host, Guest)> {
 				return Err(std::io::Error::last_os_error());
 			}
 			let guest = OwnedFd::from_raw_fd(fd);
+
+			// Set the window size.
+			let mut winsize = libc::winsize {
+				ws_col: window_size.cols,
+				ws_row: window_size.rows,
+				ws_xpixel: window_size.xpos,
+				ws_ypixel: window_size.ypos,
+			};
+			if libc::ioctl(host.as_raw_fd(), libc::TIOCSWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
+				return Err(std::io::Error::last_os_error());
+			}
 
 			// Set the host as nonblocking.
 			let flags = libc::fcntl(fd, libc::F_GETFL);

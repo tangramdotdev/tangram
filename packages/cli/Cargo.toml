@@ -21,6 +21,7 @@ path = "src/main.rs"
 insta = { workspace = true }
 
 [dependencies]
+async-broadcast = { workspace = true }
 byte-unit = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }

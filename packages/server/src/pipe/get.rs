@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _};
-use tangram_client::{self  as tg, Handle};
+use tangram_client::{self  as tg};
 use tangram_futures::{stream::Ext, task::Stop};
 use tangram_http::{request::Ext as _, Body};
 use tangram_messenger::Messenger;

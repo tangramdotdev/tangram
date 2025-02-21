@@ -48,6 +48,9 @@ pub fn spawn(
 	executable: String,
 	chroot: Option<Chroot>,
 	network: bool,
+	stdin: Option<tg::pipe::WindowSize>,
+	stdout: Option<tg::pipe::WindowSize>,
+	stderr: Option<tg::pipe::WindowSize>,
 ) -> tg::Result<Child> {
 	// Create the executable.
 	let executable = CString::new(executable)
@@ -86,11 +89,11 @@ pub fn spawn(
 
 	// Create sockets to redirect stdio.
 	let stdin =
-		stdio::pair(false).map_err(|source| tg::error!(!source, "failed to create stdin"))?;
-	let stderr =
-		stdio::pair(false).map_err(|source| tg::error!(!source, "failed to create stderr"))?;
+		stdio::pair(stdin).map_err(|source| tg::error!(!source, "failed to create stdin"))?;
 	let stdout =
-		stdio::pair(false).map_err(|source| tg::error!(!source, "failed to create stdout"))?;
+		stdio::pair(stdout).map_err(|source| tg::error!(!source, "failed to create stdout"))?;
+	let stderr =
+		stdio::pair(stderr).map_err(|source| tg::error!(!source, "failed to create stderr"))?;
 
 	// Create the context.
 	let context = Context {
