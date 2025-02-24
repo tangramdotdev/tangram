@@ -152,16 +152,30 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = params![id, now];
-		let row = connection
+		let Row {
+			reader,
+			writer,
+			writer_count,
+			..
+		} = connection
 			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
 
 		// When the writer count drops to zero, send a message to all readers to end their streams.
-		if row.writer_count == 0 {
-			self.send_pipe_event(&row.writer, tg::pipe::Event::End)
+		if writer_count == 0 {
+			self.send_pipe_event(&writer, tg::pipe::Event::End)
 				.await
 				.ok();
+			// Close the pipe channels.
+			self.messenger
+				.close_subject(format!("pipes.{writer}"))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the messenger channel"))?;
+			self.messenger
+				.close_subject(format!("pipes.{reader}"))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the messenger channel"))?;
 		}
 
 		Ok(())

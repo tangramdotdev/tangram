@@ -330,6 +330,14 @@ impl Server {
 			}
 		}
 
+		// Create subjects for this process.
+		for subject in ["status", "log", "children"] {
+			self.messenger
+				.create_subject(format!("processes.{id}.{subject}"))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create message channel"))?;
+		}
+
 		// Publish the message.
 		tokio::spawn({
 			let server = self.clone();
