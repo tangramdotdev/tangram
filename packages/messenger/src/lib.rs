@@ -8,6 +8,10 @@ pub mod nats;
 pub trait Messenger {
 	type Error: std::error::Error + Send + Sync + 'static;
 
+	fn create_subject(&self, subject: String) -> impl Future<Output = Result<(), Self::Error>>;
+
+	fn close_subject(&self, subject: String) -> impl Future<Output = Result<(), Self::Error>>;
+
 	fn publish(
 		&self,
 		subject: String,
