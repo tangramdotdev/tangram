@@ -3,6 +3,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database, Query, params};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tangram_messenger::Messenger;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -52,6 +53,16 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Create the messenger channels.
+		self.messenger
+			.create_subject(format!("pipes.{writer}"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the messenger channel"))?;
+		self.messenger
+			.create_subject(format!("pipes.{reader}"))
+			.await
+			.map_err(|source| tg::error!(!source, "faield to create the messenger channel"))?;
 		let output = tg::pipe::open::Output { writer, reader };
 		Ok(output)
 	}

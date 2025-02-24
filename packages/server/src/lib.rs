@@ -10,6 +10,7 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
 use rusqlite as sqlite;
+use tangram_messenger::Messenger as _;
 use std::{
 	collections::HashMap,
 	convert::Infallible,
@@ -285,6 +286,10 @@ impl Server {
 				Messenger::Right(tangram_messenger::nats::Messenger::new(client))
 			},
 		};
+		messenger
+			.create_subject("processes.created".into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to initialize the messenger"))?;
 
 		// Create the remotes.
 		let remotes = DashMap::default();
