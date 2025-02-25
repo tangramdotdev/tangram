@@ -10,12 +10,15 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[lints]
-workspace = true
-
 [[bin]]
 name = "tangram"
 path = "src/main.rs"
+
+[features]
+foundationdb = ["tangram_server/foundationdb"]
+
+[lints]
+workspace = true
 
 [dev-dependencies]
 insta = { workspace = true }
@@ -29,6 +32,7 @@ copypasta = { workspace = true }
 crossterm = { workspace = true }
 deno_core_icudata = { workspace = true }
 derive_more = { workspace = true }
+foundationdb = { workspace = true }
 futures = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }

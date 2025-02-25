@@ -109,9 +109,17 @@ pub struct Runner {
 
 #[derive(Clone, Debug)]
 pub enum Store {
-	Memory,
+	#[cfg(feature = "foundationdb")]
+	Fdb(FdbStore),
 	Lmdb(LmdbStore),
+	Memory,
 	S3(S3Store),
+}
+
+#[cfg(feature = "foundationdb")]
+#[derive(Clone, Debug)]
+pub struct FdbStore {
+	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]

@@ -305,6 +305,8 @@ impl Server {
 		let store = if let Some(store) = &config.store {
 			let store = match store {
 				config::Store::Memory => Store::new_memory(),
+				#[cfg(feature = "foundationdb")]
+				config::Store::Fdb(fdb) => Store::new_fdb(fdb)?,
 				config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
 				config::Store::S3(s3) => Store::new_s3(s3),
 			};

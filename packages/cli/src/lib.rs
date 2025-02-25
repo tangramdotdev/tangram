@@ -63,7 +63,7 @@ struct Args {
 	command: Command,
 
 	/// The path to the config file.
-	#[arg(long)]
+	#[arg(short, long)]
 	config: Option<PathBuf>,
 
 	/// The mode.
@@ -248,12 +248,15 @@ impl Cli {
 			_ => args.mode.unwrap_or_default(),
 		};
 
-		// Handle server mode initialization.
-		if matches!(mode, Mode::Server) {
-			// Initialize V8.
-			Cli::initialize_v8();
+		// Initialize FoundationDB.
+		let _fdb = if matches!(mode, Mode::Server) {
+			Some(unsafe { foundationdb::boot() })
+		} else {
+			None
+		};
 
-			// Set the file descriptor limit.
+		// Set the file descriptor limit.
+		if matches!(mode, Mode::Server) {
 			Cli::set_file_descriptor_limit()
 				.inspect_err(|_| {
 					eprintln!(
@@ -266,6 +269,11 @@ impl Cli {
 
 		// Initialize tracing.
 		Cli::initialize_tracing(config.as_ref());
+
+		// Initialize V8.
+		if matches!(mode, Mode::Server) {
+			Cli::initialize_v8();
+		}
 
 		// Create the CLI.
 		let cli = Cli {
@@ -716,6 +724,17 @@ impl Cli {
 			None => (),
 			Some(store) => {
 				config.store = Some(match store {
+					#[cfg(feature = "foundationdb")]
+					config::Store::Fdb(fdb) => {
+						tangram_server::config::Store::Fdb(tangram_server::config::FdbStore {
+							path: fdb.path,
+						})
+					},
+					config::Store::Lmdb(lmdb) => {
+						tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
+							path: lmdb.path,
+						})
+					},
 					config::Store::Memory => tangram_server::config::Store::Memory,
 					config::Store::S3(s3) => {
 						tangram_server::config::Store::S3(tangram_server::config::S3Store {

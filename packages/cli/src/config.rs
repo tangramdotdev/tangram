@@ -224,9 +224,25 @@ pub struct Runner {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Store {
+	#[cfg(feature = "foundationdb")]
+	Fdb(FdbStore),
+	Lmdb(LmdbStore),
 	#[default]
 	Memory,
 	S3(S3Store),
+}
+
+#[cfg(feature = "foundationdb")]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FdbStore {
+	pub path: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LmdbStore {
+	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

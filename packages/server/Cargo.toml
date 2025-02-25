@@ -48,6 +48,7 @@ derive_more = { workspace = true }
 fastcdc = { workspace = true }
 filetime = { workspace = true }
 fnv = { workspace = true }
+foundationdb = { workspace = true, optional = true }
 futures = { workspace = true }
 heed = { workspace = true }
 http = { workspace = true }
