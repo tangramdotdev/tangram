@@ -254,15 +254,13 @@ impl Runtime {
 		}
 
 		// Spawn the stdio task.
-		let stdio_task = tokio::spawn(
-			super::util::stdio_task(
-				self.server.clone(),
-				process.clone(),
-				stdin_host,
-				stdout_host,
-				stderr_host,
-			)
-		);
+		let stdio_task = tokio::spawn(super::util::stdio_task(
+			self.server.clone(),
+			process.clone(),
+			stdin_host,
+			stdout_host,
+			stderr_host,
+		));
 
 		// Wait for the process to exit.
 		let exit = child
@@ -284,10 +282,7 @@ impl Runtime {
 		}
 
 		// Join the i/o task.
-		stdio_task
-			.await
-			.unwrap()
-			.ok();
+		stdio_task.await.unwrap().ok();
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(output_parent.path().join("output"))

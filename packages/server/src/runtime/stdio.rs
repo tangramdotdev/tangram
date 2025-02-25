@@ -56,11 +56,11 @@ pub fn pair(window_size: Option<tg::pipe::WindowSize>) -> std::io::Result<(Host,
 			}
 
 			// Set the host as nonblocking.
-			let flags = libc::fcntl(fd, libc::F_GETFL);
+			let flags = libc::fcntl(host.as_raw_fd(), libc::F_GETFL);
 			if flags < 0 {
 				return Err(std::io::Error::last_os_error());
 			}
-			if libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
+			if libc::fcntl(host.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
 				return Err(std::io::Error::last_os_error());
 			}
 

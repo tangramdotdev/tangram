@@ -1,6 +1,7 @@
 use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
+use crossterm::tty::IsTty;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryFutureExt, TryStreamExt as _, future, stream,
 };
@@ -134,6 +135,13 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
 
+		// Set stdin into raw
+		let _guard = std::io::stdin()
+			.is_tty()
+			.then(|| RawGuard::new(libc::STDIN_FILENO))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to set stdin to raw mode"))?;
+
 		// Get the result.
 		let result = self
 			.run_process(args.options, reference, args.trailing, &pipes)
@@ -177,10 +185,10 @@ impl Cli {
 		}
 
 		// Spawn a task for stdout/stderr, before spawing the process.
-		let output_task = tokio::spawn({
+		let stdio_task = tokio::spawn({
 			let handle = handle.clone();
 			let pipes = pipes.clone();
-			async move { output_task(&handle, &pipes).await }
+			async move { stdio_task(&handle, &pipes).await }
 		});
 
 		// Spawn the process.
@@ -215,13 +223,6 @@ impl Cli {
 			.close_pipe(&pipes.stderr.writer, arg.clone())
 			.await
 			.ok();
-
-		// Spawn a task for stdin after starting the process.
-		let input_task = tokio::spawn({
-			let handle = handle.clone();
-			let pipes = pipes.clone();
-			async move { input_task(&handle, &pipes).await }
-		});
 
 		// Spawn a task for handling sigwinch
 		let signal_task = tokio::spawn({
@@ -282,8 +283,7 @@ impl Cli {
 		eprintln!("closed pipes");
 
 		// Stop and wait for stdio.
-		input_task.abort();
-		output_task.await.unwrap()?;
+		stdio_task.await.unwrap()?;
 
 		// Abort the cancel task.
 		cancel_task.abort();
@@ -333,10 +333,25 @@ impl Cli {
 	}
 }
 
-async fn output_task<H>(handle: &H, pipes: &Pipes) -> tg::Result<()>
+async fn stdio_task<H>(handle: &H, pipes: &Pipes) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
+	// Spawn a task to read from stdin.
+	let stream = stdin_stream()
+		.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
+		.chain(stream::once(future::ok(tg::pipe::Event::End)))
+		.boxed();
+	let stdin = tokio::spawn({
+		let pipe = pipes.stdin.writer.clone();
+		let remote = pipes.remote.clone();
+		let handle = handle.clone();
+		async move {
+			let arg = tg::pipe::post::Arg { remote };
+			handle.post_pipe(&pipe, arg, stream).await.ok();
+		}
+	});
+
 	// Create the stdout task.
 	let arg = tg::pipe::get::Arg {
 		remote: pipes.remote.clone(),
@@ -349,7 +364,7 @@ where
 		)?;
 	let stdout = tokio::spawn(drain_stream_to_writer(stdout, tokio::io::stdout()));
 
-	// Create the stdin task.
+	// Create the stderr task.
 	let stderr = handle
 		.read_pipe(&pipes.stderr.reader, arg.clone())
 		.await
@@ -358,23 +373,10 @@ where
 
 	// Join all tasks and return errors.
 	let (stdout, stderr) = future::try_join(stdout, stderr).await.unwrap();
+	stdin.abort();
+
 	stdout?;
 	stderr?;
-	Ok(())
-}
-
-async fn input_task<H: tg::Handle>(handle: &H, pipes: &Pipes) -> tg::Result<()> {
-	// Spawn a task to read from stdin.
-	let pipe = pipes.stdin.writer.clone();
-	let arg = tg::pipe::post::Arg {
-		remote: pipes.remote.clone(),
-	};
-	// Create the stream.
-	let stream = stdin_stream()
-		.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
-		.chain(stream::once(future::ok(tg::pipe::Event::End)))
-		.boxed();
-	handle.post_pipe(&pipe, arg, stream).await.ok();
 	Ok(())
 }
 
@@ -507,6 +509,39 @@ fn fork_and_die(code: i32) -> std::io::Result<()> {
 			return Ok(());
 		} else {
 			std::process::exit(code)
+		}
+	}
+}
+
+struct RawGuard {
+	fd: i32,
+	old: libc::termios,
+}
+
+impl RawGuard {
+	pub fn new(fd: i32) -> std::io::Result<Self> {
+		unsafe {
+			let mut old = std::mem::MaybeUninit::<libc::termios>::uninit();
+			if libc::tcgetattr(fd, old.as_mut_ptr()) != 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			let old = old.assume_init();
+			let mut new = old;
+			new.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
+			new.c_iflag &= !(libc::IXON | libc::ICRNL | libc::BRKINT | libc::INPCK | libc::ISTRIP);
+			new.c_oflag &= !(libc::OPOST);
+			if libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(new)) != 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			Ok(Self { fd, old })
+		}
+	}
+}
+
+impl Drop for RawGuard {
+	fn drop(&mut self) {
+		unsafe {
+			libc::tcsetattr(self.fd, libc::TCSANOW, std::ptr::addr_of!(self.old));
 		}
 	}
 }

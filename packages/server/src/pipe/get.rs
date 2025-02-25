@@ -58,6 +58,7 @@ impl Server {
 		let events = tokio::spawn(async move {
 			let mut stream = std::pin::pin!(stream);
 			while let Some(event) = stream.next().await {
+				eprintln!("get event: {event:?}");
 				send.send(event).await.ok();
 			}
 		});
