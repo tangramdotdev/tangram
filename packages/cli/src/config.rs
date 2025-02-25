@@ -229,6 +229,7 @@ pub enum Store {
 	Lmdb(LmdbStore),
 	#[default]
 	Memory,
+	Lmdb(LmdbStore),
 	S3(S3Store),
 }
 
@@ -243,6 +244,13 @@ pub struct FdbStore {
 #[serde(deny_unknown_fields)]
 pub struct LmdbStore {
 	pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LmdbStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

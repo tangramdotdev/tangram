@@ -736,6 +736,11 @@ impl Cli {
 						})
 					},
 					config::Store::Memory => tangram_server::config::Store::Memory,
+					config::Store::Lmdb(lmdb) => {
+						tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
+							path: lmdb.path.unwrap_or_else(|| config.path.join("store")),
+						})
+					},
 					config::Store::S3(s3) => {
 						tangram_server::config::Store::S3(tangram_server::config::S3Store {
 							access_key: s3.access_key,

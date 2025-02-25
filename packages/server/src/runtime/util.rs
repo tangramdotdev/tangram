@@ -4,6 +4,7 @@ use bytes::Bytes;
 use futures::{TryStreamExt, stream::FuturesOrdered};
 use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
+use tangram_either::Either;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Render a value.
@@ -120,10 +121,55 @@ pub async fn compute_checksum(
 		algorithm.to_string().into(),
 	];
 	let command = tg::Command::builder(host).args(args).build();
+
+	// If the process is remote, push the command.
+	let remote = process.remote();
+	if let Some(remote) = remote {
+		let arg = tg::push::Arg {
+			items: vec![Either::Right(
+				command
+					.id(runtime.server())
+					.await
+					.map_err(|source| tg::error!(!source, "could not find command id"))?
+					.into(),
+			)],
+
+			remote: remote.to_owned(),
+			..Default::default()
+		};
+		let stream = runtime.server().push(arg).await?;
+
+		// Consume the stream and log progress.
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			match event {
+				tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
+					if indicator.name == "bytes" {
+						let message = format!("{indicator}\n");
+						let arg = tg::process::log::post::Arg {
+							bytes: message.into(),
+							remote: Some(remote.to_owned()),
+						};
+						runtime
+							.server()
+							.try_post_process_log(process.id(), arg)
+							.await
+							.ok();
+					}
+				},
+				tg::progress::Event::Output(()) => {
+					break;
+				},
+				_ => {},
+			}
+		}
+	}
+
 	let arg = tg::process::spawn::Arg {
 		command: Some(command.id(runtime.server()).await?),
 		create: true,
 		parent: Some(process.id().clone()),
+		remote: remote.cloned(),
 		..Default::default()
 	};
 	let output = tg::Process::run(runtime.server(), arg).await?;

@@ -767,8 +767,8 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.try_post_process_log(&id, arg).await?;
-		let response = http::Response::builder().empty().unwrap();
+		let output = handle.try_post_process_log(&id, arg).await?;
+		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}
 }

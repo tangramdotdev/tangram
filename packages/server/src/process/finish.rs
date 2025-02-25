@@ -317,21 +317,46 @@ impl Server {
 			algorithm.to_string().into(),
 		];
 		let command = tg::Command::builder(host).args(args).build();
-		let arg = tg::process::spawn::Arg {
-			create: false,
-			command: Some(command.id(self).await?),
-			parent: Some(parent_process_id),
-			..Default::default()
-		};
-		let output = tg::Process::run(self, arg)
+		let command_id = command
+			.id(self)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
+			.map_err(|source| tg::error!(!source, "failed to get command id"))?;
+
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select processes.output
+				from processes
+				join process_children on processes.id = process_children.child
+				where processes.command = {p}1 and process_children.process = {p}2
+			"
+		);
+		let params = db::params![command_id.to_string(), parent_process_id.to_string()];
+		let result = connection
+			.query_optional_value_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let output: tg::value::Data = match result {
+			Some(output) => output,
+			None => {
+				return Err(
+					tg::error!(%parent_process_id, "failed to locate checksum process for parent"),
+				);
+			},
+		};
 
 		// Parse the checksum.
 		let checksum = output
 			.try_unwrap_string()
 			.map_err(|_| tg::error!("expected a string"))?;
 		let checksum = checksum
+			.trim_matches('"')
 			.parse::<tg::Checksum>()
 			.map_err(|_| tg::error!(%checksum, "failed to parse checksum string"))?;
 

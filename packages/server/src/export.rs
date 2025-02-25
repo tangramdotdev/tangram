@@ -201,7 +201,13 @@ impl Server {
 		let object_complete = self
 			.get_export_object_complete(object)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the object count and weight"))?;
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					?object,
+					"failed to locate the object to check count and weight"
+				)
+			})?;
 		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
 		let size = bytes.len().to_u64().unwrap();
 
@@ -598,12 +604,18 @@ impl Server {
 			",
 		);
 		let params = db::params![id];
-		let Some(output) = connection
+		let result = connection
 			.query_optional_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-		else {
-			return Err(tg::error!("could not find object"));
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		// If we couldn't find the object in the objects table, it hasn't been indexed.
+		let output = match result {
+			Some(output) => output,
+			None => tg::export::ObjectComplete {
+				id: id.clone(),
+				count: None,
+				weight: None,
+			},
 		};
 
 		// Drop the database connection.
@@ -633,12 +645,22 @@ impl Server {
 			",
 		);
 		let params = db::params![id];
-		let Some(output) = connection
+		let result = connection
 			.query_optional_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-		else {
-			return Err(tg::error!("could not find process"));
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let output = match result {
+			Some(output) => output,
+			None => tg::export::ProcessComplete {
+				commands_count: None,
+				commands_weight: None,
+				count: None,
+				id: id.clone(),
+				logs_count: None,
+				logs_weight: None,
+				outputs_count: None,
+				outputs_weight: None,
+			},
 		};
 
 		// Drop the database connection.
