@@ -212,6 +212,7 @@ async fn pipe_task(
 			while let Some(event) = stream.try_next().await? {
 				match event {
 					tg::pipe::Event::Chunk(chunk) => {
+						eprintln!("writing chunk to stdin: {chunk:?}");
 						stdin.write_all(&chunk).await.map_err(
 							|source| tg::error!(!source, %pipe, "failed to write stdin"),
 						)?;

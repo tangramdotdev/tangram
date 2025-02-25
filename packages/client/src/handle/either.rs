@@ -370,6 +370,40 @@ where
 		}
 	}
 
+	fn post_process_signal(
+		&self,
+		id: &crate::process::Id,
+		arg: crate::process::signal::post::Arg,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.post_process_signal(id, arg).left_future(),
+			Either::Right(s) => s.post_process_signal(id, arg).right_future(),
+		}
+	}
+
+	fn try_get_process_signal_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.try_get_process_signal_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			Either::Right(s) => s
+				.try_get_process_signal_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,

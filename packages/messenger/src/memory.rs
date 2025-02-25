@@ -3,10 +3,7 @@ use bytes::Bytes;
 use core::fmt;
 use dashmap::DashMap;
 use futures::{Stream, StreamExt as _, future};
-use std::{
-	ops::Deref,
-	sync::Arc,
-};
+use std::{ops::Deref, sync::Arc};
 
 pub struct Messenger(Arc<Inner>);
 
