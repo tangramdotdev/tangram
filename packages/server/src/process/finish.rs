@@ -158,32 +158,6 @@ impl Server {
 			}
 		}
 
-		// Create a blob from the log.
-		let log_path = self.logs_path().join(id.to_string());
-		let exists = tokio::fs::try_exists(&log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
-		let tg::blob::create::Output { blob: log, .. } = if exists {
-			let output = self
-				.create_blob_with_path(&log_path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?;
-			tokio::fs::remove_file(&log_path)
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to remove the log file"))
-				.ok();
-			output
-		} else {
-			let reader = crate::process::log::Reader::new(self, id)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the blob reader for the log")
-				})?;
-			self.create_blob_with_reader(reader)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?
-		};
-
 		// Get a database connection.
 		let connection = self
 			.database
@@ -200,21 +174,6 @@ impl Server {
 			"
 		);
 		let params = db::params![id];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Add the log to the process objects.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into process_objects (process, object)
-				values ({p}1, {p}2)
-				on conflict (process, object) do nothing;
-			"
-		);
-		let params = db::params![id, log];
 		connection
 			.execute(statement.into(), params)
 			.await
@@ -251,18 +210,16 @@ impl Server {
 					error = {p}1,
 					finished_at = {p}2,
 					heartbeat_at = null,
-					log = {p}3,
-					output = {p}4,
-					exit = {p}5,
-					status = {p}6
-				where id = {p}7;
+					output = {p}3,
+					exit = {p}4,
+					status = {p}5
+				where id = {p}6;
 			"
 		);
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![
 			error.map(db::value::Json),
 			finished_at,
-			log,
 			output.map(db::value::Json),
 			exit.map(db::value::Json),
 			status,
