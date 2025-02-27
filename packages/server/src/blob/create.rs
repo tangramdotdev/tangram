@@ -238,6 +238,8 @@ impl Server {
 	}
 
 	async fn create_blob_inner_empty_leaf(&self, state: &State<'_>) -> tg::Result<InnerOutput> {
+		// FIXME - store bytes, dont write to db.
+
 		let bytes = Bytes::default();
 		let id = tg::leaf::Id::new(&bytes).into();
 		let p = state.transaction.p();
@@ -269,6 +271,8 @@ impl Server {
 		state: &State<'_>,
 		chunk: fastcdc::v2020::ChunkData,
 	) -> tg::Result<InnerOutput> {
+		// FIXME - store bytes, don't write to db.
+
 		let fastcdc::v2020::ChunkData {
 			offset: position,
 			length: size,
@@ -310,6 +314,8 @@ impl Server {
 		state: &State<'_>,
 		children: Vec<InnerOutput>,
 	) -> tg::Result<InnerOutput> {
+		// FIXME - store bytes, don't write to db.
+
 		let (size, count, depth, weight) =
 			children
 				.iter()

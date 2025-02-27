@@ -1,8 +1,6 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream};
-use indoc::{formatdoc, indoc};
-use itertools::Itertools;
-use num::ToPrimitive as _;
+use indoc::formatdoc;
 use std::{
 	collections::BTreeSet,
 	pin::{Pin, pin},
@@ -15,7 +13,6 @@ use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext};
 use tangram_messenger::Messenger as _;
-use time::format_description::well_known::Rfc3339;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::task::AbortOnDropHandle;
@@ -58,8 +55,6 @@ impl Server {
 		let (complete_sender, complete_receiver) =
 			tokio::sync::mpsc::channel::<Either<tg::process::Id, tg::object::Id>>(256);
 		let (database_process_sender, database_process_receiver) =
-			tokio::sync::mpsc::channel::<tg::export::Item>(256);
-		let (database_object_sender, database_object_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (store_sender, store_receiver) = tokio::sync::mpsc::channel::<tg::export::Item>(256);
 
@@ -121,28 +116,6 @@ impl Server {
 			},
 		);
 
-		// Create the database objects task.
-		let database_objects_task = tokio::spawn({
-			let server = self.clone();
-			let event_sender = event_sender.clone();
-			let progress = progress.clone();
-			async move {
-				let result = server
-					.import_database_objects_task(database_object_receiver, &progress)
-					.await;
-				if let Err(error) = result {
-					event_sender.send(Err(error)).await.ok();
-				}
-			}
-		});
-		let database_objects_task_abort_handle = database_objects_task.abort_handle();
-		let database_objects_task_abort_handle = scopeguard::guard(
-			database_objects_task_abort_handle,
-			|database_objects_task_abort_handle| {
-				database_objects_task_abort_handle.abort();
-			},
-		);
-
 		// Create the store task.
 		let store_task = tokio::spawn({
 			let server = self.clone();
@@ -190,9 +163,7 @@ impl Server {
 						tg::export::Item::Process { .. } => {
 							database_process_sender.send(item.clone())
 						},
-						tg::export::Item::Object { .. } => {
-							database_object_sender.send(item.clone())
-						},
+						tg::export::Item::Object { .. } => todo!(), // FIXME - we dont do anything here. David already refactored.
 					}
 					.map_err(|_| ());
 					let store_sender_future = store_sender.send(item.clone()).map_err(|_| ());
@@ -212,13 +183,11 @@ impl Server {
 
 				// Close the channels
 				drop(complete_sender);
-				drop(database_object_sender);
 				drop(database_process_sender);
 				drop(store_sender);
 
 				// Join the database and store tasks.
-				let result =
-					futures::try_join!(database_processes_task, database_objects_task, store_task);
+				let result = futures::try_join!(database_processes_task, store_task);
 
 				match result {
 					Ok(_) => {
@@ -243,7 +212,6 @@ impl Server {
 			.attach(abort_handle)
 			.attach(complete_task_abort_handle)
 			.attach(database_processes_task_abort_handle)
-			.attach(database_objects_task_abort_handle)
 			.attach(store_task_abort_handle);
 
 		Ok(stream.right_stream())
@@ -350,273 +318,6 @@ impl Server {
 				event_sender.send(Ok(event)).await.ok();
 			}
 		}
-		Ok(())
-	}
-
-	async fn import_database_objects_task(
-		&self,
-		database_object_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
-		progress: &Arc<Progress>,
-	) -> tg::Result<()> {
-		let stream = ReceiverStream::new(database_object_receiver);
-
-		if true {
-			let stream = pin!(stream);
-			stream.for_each(|_| std::future::ready(())).await;
-			return Ok(());
-		}
-
-		match &self.database {
-			Either::Left(database) => {
-				self.import_objects_sqlite(stream, database, progress)
-					.await
-					.inspect_err(|error| eprintln!("failed to insert: {error}"))?;
-			},
-			Either::Right(database) => {
-				self.import_objects_postgres(stream, database, progress)
-					.await?;
-			},
-		}
-
-		Ok(())
-	}
-
-	async fn import_objects_sqlite(
-		&self,
-		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
-		database: &db::sqlite::Database,
-		progress: &Arc<Progress>,
-	) -> tg::Result<()> {
-		let connection = database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		let stream = stream.chunks(1024);
-		let mut stream = pin!(stream);
-		while let Some(chunk) = stream.next().await {
-			let chunk: Vec<_> = chunk
-				.into_iter()
-				.map(|item| {
-					// Make sure the item is an object.
-					let tg::export::Item::Object { id, bytes } = item else {
-						return Err(tg::error!(?item, "expected an object item"));
-					};
-
-					// Get the children.
-					let children = tg::object::Data::deserialize(id.kind(), &bytes)?.children();
-
-					Ok::<_, tg::Error>((id, bytes, children))
-				})
-				.try_collect()?;
-
-			connection
-				.with({
-					let progress = progress.clone();
-					move |connection| {
-						// Begin a transaction for the batch.
-						let transaction = connection.transaction().map_err(|source| {
-							tg::error!(!source, "failed to begin a transaction")
-						})?;
-
-						// Prepare a statement for the object children
-						let children_statement = indoc!(
-							"
-								insert into object_children (object, child)
-								values (?1, ?2)
-								on conflict (object, child) do nothing;
-							"
-						);
-						let mut children_statement = transaction
-							.prepare_cached(children_statement)
-							.map_err(|source| {
-								tg::error!(!source, "failed to prepare the statement")
-							})?;
-
-						// Prepare a statement for the objects.
-						let objects_statement = indoc!(
-							"
-								insert into objects (id, size, touched_at)
-								values (?1, ?2, ?3)
-								on conflict (id) do update set touched_at = ?4;
-							"
-						);
-						let mut objects_statement = transaction
-							.prepare_cached(objects_statement)
-							.map_err(|source| {
-							tg::error!(!source, "failed to prepare the statement")
-						})?;
-
-						let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-
-						// Execute inserts for each member of the batch.
-						for (id, bytes, children) in chunk {
-							// Insert the children.
-							for child in children {
-								let child = child.to_string();
-								let params = rusqlite::params![&id.to_string(), &child];
-								children_statement.execute(params).map_err(|source| {
-									tg::error!(!source, "failed to execute the statement")
-								})?;
-							}
-
-							// Insert the object.
-							let size = bytes.len().to_u64().unwrap();
-							let params = rusqlite::params![&id.to_string(), size, now];
-							objects_statement.execute(params).map_err(|source| {
-								tg::error!(!source, "failed to execute the statement")
-							})?;
-
-							progress.increment_objects(1);
-							progress.increment_bytes(size);
-						}
-
-						drop(children_statement);
-						drop(objects_statement);
-
-						// Commit the transaction.
-						transaction.commit().map_err(|source| {
-							tg::error!(!source, "failed to commit the transaction")
-						})?;
-
-						Ok::<_, tg::Error>(())
-					}
-				})
-				.await?;
-		}
-
-		Ok(())
-	}
-
-	async fn import_objects_postgres(
-		&self,
-		stream: impl Stream<Item = tg::export::Item> + Send + 'static,
-		database: &db::postgres::Database,
-		progress: &Arc<Progress>,
-	) -> tg::Result<()> {
-		let stream = stream.chunks(128);
-		let mut stream = pin!(stream);
-		while let Some(chunk) = stream.next().await {
-			// Get a database connection.
-			let mut connection = database
-				.write_connection()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-			let chunk: Vec<_> = chunk
-				.into_iter()
-				.map(|item| {
-					// Ensure the item is an object.
-					let tg::export::Item::Object { id, bytes } = item else {
-						return Err(tg::error!(?item, "expected an object"));
-					};
-
-					// Get the children.
-					let children = tg::object::Data::deserialize(id.kind(), &bytes)?.children();
-					Ok::<_, tg::Error>((id, bytes, children))
-				})
-				.try_collect()?;
-
-			let transaction = connection
-				.client_mut()
-				.transaction()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
-
-			// Insert into the objects and object_children tables.
-			let statement = indoc!(
-				"
-					with inserted_object_children as (
-						insert into object_children (object, child)
-						select ($1::text[])[object_index], child
-						from unnest($3::int8[], $2::text[]) as c (object_index, child)
-						on conflict (object, child) do nothing
-					),
-					inserted_objects as (
-						insert into objects (id, size, touched_at)
-						select id, bytes, size, $5
-						from unnest($1::text[], $4::int8[]) as t (id, size)
-						on conflict (id) do update set touched_at = $5
-					)
-					select 1;
-				"
-			);
-			let ids = chunk
-				.iter()
-				.map(|(id, _, _)| id.to_string())
-				.collect::<Vec<_>>();
-			let children = chunk
-				.iter()
-				.flat_map(|(_, _, children)| children.iter().map(ToString::to_string))
-				.collect::<Vec<_>>();
-			let parent_indices = chunk
-				.iter()
-				.enumerate()
-				.flat_map(|(index, (_, _, children))| {
-					std::iter::repeat_n((index + 1).to_i64().unwrap(), children.len())
-				})
-				.collect::<Vec<_>>();
-			let size = chunk
-				.iter()
-				.map(|(_, bytes, _)| bytes.len().to_i64().unwrap())
-				.collect::<Vec<_>>();
-			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			transaction
-				.execute(
-					statement,
-					&[
-						&ids.as_slice(),
-						&children.as_slice(),
-						&parent_indices.as_slice(),
-						&size.as_slice(),
-						&now,
-					],
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Set reference counts and incomplete children.
-			let statement = indoc!(
-				"
-				 update objects
-					set incomplete_children = (
-						select count(*)
-						from object_children
-						left join objects child_objects on child_objects.id = object_children.child
-						where object_children.object = t.id and (child_objects.complete is null or child_objects.complete = 0)
-					),
-					reference_count = (
-						(select count(*) from object_children where child = t.id) +
-						(select count(*) from process_objects where object = t.id) +
-						(select count(*) from tags where item = t.id)
-					)
-					from unnest($1::text[]) as t (id)
-					where objects.id = t.id;
-				"
-			);
-
-			transaction
-				.execute(statement, &[&ids.as_slice()])
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
-
-			progress.increment_objects(
-				ids.len()
-					.try_into()
-					.map_err(|source| tg::error!(!source, "too many objects"))?,
-			);
-			let size_sum: i64 = size.iter().sum();
-			let size_sum = size_sum
-				.try_into()
-				.map_err(|source| tg::error!(!source, "objects too large"))?;
-			progress.increment_bytes(size_sum);
-		}
-
 		Ok(())
 	}
 

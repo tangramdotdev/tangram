@@ -119,8 +119,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write objects"))?;
 
-		// Write the output to the database.
-		self.write_output_to_database(output_graph.clone(), object_graph.clone())
+		// Write the output.
+		self.write_output(output_graph.clone(), object_graph.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write to the database"))?;
 

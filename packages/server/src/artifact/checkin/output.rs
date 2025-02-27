@@ -3,6 +3,7 @@ use super::{
 	object::{self, Metadata},
 };
 use crate::{Server, temp::Temp};
+use bytes::Bytes;
 use futures::{FutureExt, StreamExt, TryStreamExt as _, stream::FuturesUnordered};
 use indoc::indoc;
 use num::ToPrimitive;
@@ -139,11 +140,13 @@ impl Server {
 		Ok(Some(output_index))
 	}
 
-	pub async fn write_output_to_database(
+	pub async fn write_output(
 		&self,
 		output: Arc<Graph>,
 		object: Arc<object::Graph>,
 	) -> tg::Result<()> {
+		// TODO - write bytes to the store.
+
 		// Get a database connection.
 		let mut connection = self
 			.database
@@ -675,6 +678,10 @@ impl Server {
 		}
 
 		Err(tg::error!(?symlink = &output.nodes[symlink], "invalid symlink"))
+	}
+
+	async fn write_bytes_to_store(&self, id: &tg::object::Id, bytes: Bytes) -> tg::Result<()> {
+		todo!()
 	}
 }
 

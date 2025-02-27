@@ -96,7 +96,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create table objects (
 				id text primary key,
-				bytes blob,
 				complete integer not null default 0,
 				count integer,
 				depth integer,

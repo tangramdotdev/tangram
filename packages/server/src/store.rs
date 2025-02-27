@@ -3,7 +3,7 @@ use tangram_client as tg;
 
 #[cfg(feature = "foundationdb")]
 mod fdb;
-mod lmdb;
+pub(crate) mod lmdb;
 mod memory;
 mod s3;
 

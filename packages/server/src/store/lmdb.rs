@@ -3,8 +3,13 @@ use heed as lmdb;
 use tangram_client as tg;
 
 pub struct Lmdb {
-	db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
-	env: lmdb::Env,
+	pub(crate) db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
+	pub(crate) env: lmdb::Env,
+}
+
+pub(crate) struct Message {
+	pub(crate) id: tg::object::Id,
+	pub(crate) bytes: Bytes,
 }
 
 impl Lmdb {
@@ -31,10 +36,7 @@ impl Lmdb {
 		Ok(Self { db, env })
 	}
 
-	pub fn try_get(
-		&self,
-		id: &tangram_client::object::Id,
-	) -> Result<Option<Bytes>, tangram_client::Error> {
+	pub fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, tangram_client::Error> {
 		let transaction = self
 			.env
 			.read_txn()
@@ -51,7 +53,7 @@ impl Lmdb {
 		Ok(Some(bytes))
 	}
 
-	pub fn put(&self, id: &tangram_client::object::Id, bytes: &Bytes) -> tg::Result<()> {
+	pub fn put(&self, id: &tg::object::Id, bytes: &Bytes) -> tg::Result<()> {
 		let mut transaction = self
 			.env
 			.write_txn()

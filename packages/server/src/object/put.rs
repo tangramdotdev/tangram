@@ -133,7 +133,53 @@ impl Server {
 
 		// Create the store future.
 		let store = async {
-			self.store.put(id.clone(), arg.bytes.clone()).await?;
+			if matches!(&*self.store, crate::Store::Lmdb(_)) {
+				let (sender, receiver) =
+					tokio::sync::oneshot::channel::<crate::store::lmdb::Message>();
+
+				let put_task = tokio::task::spawn_blocking({
+					let store = self.store.clone();
+					move || {
+						let crate::Store::Lmdb(lmdb) = &*store else {
+							panic!("expected LMDB");
+						};
+						let mut transaction = lmdb.env.write_txn().map_err(|source| {
+							tg::error!(!source, "failed to begin a write transaction")
+						})?;
+
+						let message = receiver
+							.blocking_recv()
+							.map_err(|source| tg::error!(!source, "recv error"))?;
+
+						lmdb.db
+							.put(
+								&mut transaction,
+								message.id.to_string().as_bytes(),
+								&message.bytes,
+							)
+							.map_err(|source| tg::error!(!source, "failed to put object"))?;
+
+						transaction.commit().map_err(|source| {
+							tg::error!(!source, "failed to commit the transaction")
+						})?;
+
+						Ok::<_, tg::Error>(())
+					}
+				});
+				sender
+					.send(crate::store::lmdb::Message {
+						id: id.clone(),
+						bytes: arg.bytes.clone(),
+					})
+					.map_err(|_| tg::error!("failed to send"))?;
+
+				put_task
+					.await
+					.map_err(|source| tg::error!(!source, "blocking task failed"))??;
+			} else {
+				self.store.put(id.clone(), arg.bytes.clone()).await?;
+			}
+
 			Ok::<_, tg::Error>(())
 		};
 
