@@ -128,8 +128,8 @@ impl Server {
 				}
 			},
 			Either::Right(nats) => {
-				let jetstream = async_nats::jetstream::new(nats.client.clone());
-				let stream = jetstream
+				let stream = nats
+					.jetstream
 					.get_or_create_stream(async_nats::jetstream::stream::Config {
 						name: "objects".to_string(),
 						max_messages: i64::MAX,
