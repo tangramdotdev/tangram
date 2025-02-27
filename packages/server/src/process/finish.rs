@@ -278,8 +278,6 @@ impl Server {
 			.id(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get command id"))?;
-
-		// Get the output.
 		let connection = self
 			.database
 			.connection()
@@ -288,10 +286,9 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select processes.output
+				select output
 				from processes
-				join process_children on processes.id = process_children.child
-				where processes.command = {p}1 and process_children.process = {p}2
+				where processes.command = {p}1
 				limit 1
 			"
 		);
