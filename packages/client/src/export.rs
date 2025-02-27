@@ -107,14 +107,20 @@ pub struct ObjectComplete {
 
 #[derive(Debug, Clone)]
 pub enum Item {
-	Process {
-		id: tg::process::Id,
-		data: tg::process::Data,
-	},
-	Object {
-		id: tg::object::Id,
-		bytes: Bytes,
-	},
+	Process(ProcessItem),
+	Object(ObjectItem),
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessItem {
+	pub id: tg::process::Id,
+	pub data: tg::process::Data,
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectItem {
+	pub id: tg::object::Id,
+	pub bytes: Bytes,
 }
 
 impl tg::Client {
@@ -276,7 +282,7 @@ impl Item {
 
 	pub async fn to_writer(&self, mut writer: impl AsyncWrite + Unpin + Send) -> tg::Result<()> {
 		match self {
-			Item::Process { id, data } => {
+			Item::Process(ProcessItem { id, data }) => {
 				let id = id.to_string();
 				writer
 					.write_uvarint(id.len().to_u64().unwrap())
@@ -298,7 +304,7 @@ impl Item {
 					.map_err(|source| tg::error!(!source, "failed to write the data"))?;
 			},
 
-			Item::Object { id, bytes } => {
+			Item::Object(ObjectItem { id, bytes }) => {
 				let id = id.to_string();
 				writer
 					.write_uvarint(id.len().to_u64().unwrap())
@@ -360,7 +366,7 @@ impl Item {
 				let data = serde_json::from_slice(&data)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 
-				Item::Process { id, data }
+				Item::Process(ProcessItem { id, data })
 			},
 			Either::Right(id) => {
 				// Read the data.
@@ -377,7 +383,7 @@ impl Item {
 					.map_err(|source| tg::error!(!source, "failed to read the data"))?;
 				let bytes = Bytes::from(bytes);
 
-				Item::Object { id, bytes }
+				Item::Object(ObjectItem { id, bytes })
 			},
 		};
 

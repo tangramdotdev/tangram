@@ -22,8 +22,9 @@ struct Request<T> {
 
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Priority {
-	#[default]
 	Low,
+	#[default]
+	Medium,
 	High,
 }
 

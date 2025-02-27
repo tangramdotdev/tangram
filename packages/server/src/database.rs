@@ -109,7 +109,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index objects_complete_incomplete_children_index on objects (complete, incomplete_children);
 
-			create index objects_reference_count_zero_index on objects ((1)) where reference_count = 0;
+			create index objects_reference_count_zero_index on objects (touched_at) where reference_count = 0;
 
 			create trigger objects_set_reference_count_trigger
 			after insert on objects
@@ -223,7 +223,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index processes_status_index on processes (status);
 
-			create index processes_reference_count_zero_index on processes ((1)) where reference_count = 0;
+			create index processes_reference_count_zero_index on processes (touched_at) where reference_count = 0;
 
 			create trigger processes_set_reference_count_trigger
 			after insert on processes

@@ -4,13 +4,15 @@ use futures::prelude::*;
 use tangram_either::Either;
 
 pub struct Messenger {
-	client: nats::Client,
+	pub client: nats::Client,
+	pub jetstream: nats::jetstream::Context,
 }
 
 impl Messenger {
 	#[must_use]
 	pub fn new(client: nats::Client) -> Self {
-		Self { client }
+		let jetstream = nats::jetstream::new(client.clone());
+		Self { client, jetstream }
 	}
 }
 
