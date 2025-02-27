@@ -63,18 +63,23 @@ impl Server {
 			tokio::sync::mpsc::channel::<tg::export::Item>(256);
 		let (store_sender, store_receiver) = tokio::sync::mpsc::channel::<tg::export::Item>(256);
 
+		// Send the items to the complete sender.
+		for item in arg.items.iter().cloned() {
+			let sent = complete_sender.try_send(item.clone()).is_ok();
+			if !sent {
+				tokio::spawn({
+					let complete_sender = complete_sender.clone();
+					async move {
+						complete_sender.send(item).await.ok();
+					}
+				});
+			}
+		}
+
 		// Create the complete task.
 		let complete_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
-			tokio::spawn({
-				let complete_sender = complete_sender.clone();
-				async move {
-					for item in arg.items {
-						complete_sender.send(item).await.ok();
-					}
-				}
-			});
 			async move {
 				let result = server
 					.import_complete_task(complete_receiver, &event_sender)
