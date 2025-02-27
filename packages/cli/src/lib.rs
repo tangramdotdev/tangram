@@ -732,7 +732,7 @@ impl Cli {
 					},
 					config::Store::Lmdb(lmdb) => {
 						tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
-							path: lmdb.path,
+							path: lmdb.path.unwrap_or_else(|| config.path.join("store")),
 						})
 					},
 					config::Store::Memory => tangram_server::config::Store::Memory,

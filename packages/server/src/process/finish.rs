@@ -158,32 +158,6 @@ impl Server {
 			}
 		}
 
-		// Create a blob from the log.
-		let log_path = self.logs_path().join(id.to_string());
-		let exists = tokio::fs::try_exists(&log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
-		let tg::blob::create::Output { blob: log, .. } = if exists {
-			let output = self
-				.create_blob_with_path(&log_path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?;
-			tokio::fs::remove_file(&log_path)
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to remove the log file"))
-				.ok();
-			output
-		} else {
-			let reader = crate::process::log::Reader::new(self, id)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the blob reader for the log")
-				})?;
-			self.create_blob_with_reader(reader)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the blob for the log"))?
-		};
-
 		// Get a database connection.
 		let connection = self
 			.database
@@ -200,21 +174,6 @@ impl Server {
 			"
 		);
 		let params = db::params![id];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Add the log to the process objects.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into process_objects (process, object)
-				values ({p}1, {p}2)
-				on conflict (process, object) do nothing;
-			"
-		);
-		let params = db::params![id, log];
 		connection
 			.execute(statement.into(), params)
 			.await
@@ -251,18 +210,16 @@ impl Server {
 					error = {p}1,
 					finished_at = {p}2,
 					heartbeat_at = null,
-					log = {p}3,
-					output = {p}4,
-					exit = {p}5,
-					status = {p}6
-				where id = {p}7;
+					output = {p}3,
+					exit = {p}4,
+					status = {p}5
+				where id = {p}6;
 			"
 		);
 		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = db::params![
 			error.map(db::value::Json),
 			finished_at,
-			log,
 			output.map(db::value::Json),
 			exit.map(db::value::Json),
 			status,
@@ -317,15 +274,33 @@ impl Server {
 			algorithm.to_string().into(),
 		];
 		let command = tg::Command::builder(host).args(args).build();
-		let arg = tg::process::spawn::Arg {
-			create: false,
-			command: Some(command.id(self).await?),
-			parent: Some(parent_process_id),
-			..Default::default()
-		};
-		let output = tg::Process::run(self, arg)
+		let command_id = command
+			.id(self)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
+			.map_err(|source| tg::error!(!source, "failed to get command id"))?;
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select output
+				from processes
+				where processes.command = {p}1
+				limit 1
+			"
+		);
+		let params = db::params![command_id.to_string(), parent_process_id.to_string()];
+		let Some(output) = connection
+			.query_optional_value_into::<db::value::Json<tg::value::Data>>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|value| value.0)
+		else {
+			return Err(tg::error!(%parent_process_id, "failed to find the checksum process"));
+		};
 
 		// Parse the checksum.
 		let checksum = output

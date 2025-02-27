@@ -40,9 +40,12 @@ impl Server {
 		if !cacheable {
 			let id = self.spawn_local_process(&arg).await?;
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id).await.map_err(
+				let added = self.try_add_process_child(parent, &id).await.map_err(
 					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 				)?;
+				if !added {
+					return Err(tg::error!(%parent, %id, "failed to add child to parent"));
+				}
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
@@ -53,11 +56,6 @@ impl Server {
 
 		// Return a matching local process if one exists.
 		if let Some(id) = self.try_get_cached_process_local(&arg).await? {
-			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id).await.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-				)?;
-			}
 			let output = tg::process::spawn::Output {
 				process: id,
 				remote: None,
@@ -71,9 +69,12 @@ impl Server {
 				return Ok(None);
 			};
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id).await.map_err(
+				let added = self.try_add_process_child(parent, &id).await.map_err(
 					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 				)?;
+				if !added {
+					return Err(tg::error!(%parent, %id, "failed to add child to parent"));
+				}
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
@@ -119,9 +120,12 @@ impl Server {
 
 		// Add the process to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.try_add_process_child(parent, &id).await.map_err(
+			let added = self.try_add_process_child(parent, &id).await.map_err(
 				|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 			)?;
+			if !added {
+				return Err(tg::error!(%parent, %id, "failed to add child to parent"));
+			}
 		}
 
 		// Create the output.
@@ -187,9 +191,12 @@ impl Server {
 
 		// Attempt to add the process as a child of the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.try_add_process_child(parent, &id).await.map_err(
+			let added = self.try_add_process_child(parent, &id).await.map_err(
 				|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 			)?;
+			if !added {
+				return Err(tg::error!(%parent, %id, "failed to add child to parent"));
+			}
 		}
 
 		// Touch the process.

@@ -201,7 +201,13 @@ impl Server {
 		let object_complete = self
 			.get_export_object_complete(object)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the object count and weight"))?;
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					?object,
+					"failed to locate the object to check count and weight"
+				)
+			})?;
 		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
 		let size = bytes.len().to_u64().unwrap();
 
@@ -598,12 +604,17 @@ impl Server {
 			",
 		);
 		let params = db::params![id];
-		let Some(output) = connection
+		let output = connection
 			.query_optional_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-		else {
-			return Err(tg::error!("could not find object"));
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let output = match output {
+			Some(output) => output,
+			None => tg::export::ObjectComplete {
+				id: id.clone(),
+				count: None,
+				weight: None,
+			},
 		};
 
 		// Drop the database connection.
@@ -627,18 +638,36 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id, count, commands_count, commands_weight, logs_count, logs_weight, outputs_count, outputs_weight
+				select
+					commands_count,
+					commands_weight,
+					count,
+					id,
+					logs_count,
+					logs_weight,
+					outputs_count,
+					outputs_weight
 				from processes
 				where id = {p}1;
 			",
 		);
 		let params = db::params![id];
-		let Some(output) = connection
+		let output = connection
 			.query_optional_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-		else {
-			return Err(tg::error!("could not find process"));
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let output = match output {
+			Some(output) => output,
+			None => tg::export::ProcessComplete {
+				commands_count: None,
+				commands_weight: None,
+				count: None,
+				id: id.clone(),
+				logs_count: None,
+				logs_weight: None,
+				outputs_count: None,
+				outputs_weight: None,
+			},
 		};
 
 		// Drop the database connection.
