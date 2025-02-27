@@ -3,10 +3,7 @@ use super::{
 	util::render,
 };
 use crate::{Server, temp::Temp};
-use futures::{
-	TryStreamExt as _, future,
-	stream::{FuturesOrdered, FuturesUnordered},
-};
+use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
 use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
@@ -66,9 +63,7 @@ impl Runtime {
 			.put_tag(&"internal/runtime/linux/env".parse().unwrap(), arg)
 			.await?;
 
-		let sh = tg::Blob::with_reader(server, DASH)
-			.await
-			.inspect_err(|error| eprintln!("{error}"))?;
+		let sh = tg::Blob::with_reader(server, DASH).await?;
 		let sh = tg::File::builder(sh).executable(true).build();
 		let arg = tg::tag::put::Arg {
 			force: true,
@@ -260,17 +255,53 @@ impl Runtime {
 			});
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
-		// Spawn the child.
-		let mut child = process::spawn(args, cwd, env, executable, chroot, state.network)?;
+		// Get the window sizes of the pipes.
+		let stderr = if let Some(pipe) = state.stderr.as_ref() {
+			self.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+		} else {
+			None
+		};
+		let stdin = if let Some(pipe) = state.stdin.as_ref() {
+			self.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+		} else {
+			None
+		};
+		let stdout = if let Some(pipe) = state.stdout.as_ref() {
+			self.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+		} else {
+			None
+		};
 
-		// Spawn the log task.
-		let log_task = super::util::post_log_task(
-			&self.server,
-			process,
-			remote,
+		// Spawn the child.
+		let mut child = process::spawn(
+			args,
+			cwd,
+			env,
+			executable,
+			chroot,
+			state.network,
+			stdin,
+			stdout,
+			stderr,
+		)?;
+
+		// Spawn the stdio task.
+		let stdio_task = tokio::spawn(super::util::stdio_task(
+			self.server.clone(),
+			process.clone(),
+			child.stdin.take().unwrap(),
 			child.stdout.take().unwrap(),
 			child.stderr.take().unwrap(),
-		);
+		));
 
 		// Wait for the child process to complete.
 		let exit = child
@@ -284,12 +315,8 @@ impl Runtime {
 			task.wait().await.unwrap();
 		}
 
-		// Join the i/o tasks.
-		let (input, output) = future::try_join(future::ok(Ok::<_, tg::Error>(())), log_task)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to join the i/o tasks"))?;
-		input.map_err(|source| tg::error!(!source, "the stdin task failed"))?;
-		output.map_err(|source| tg::error!(!source, "the log task failed"))?;
+		// stop the i/o task.
+		stdio_task.await.unwrap().ok();
 
 		// Create the output.
 		let output = output_parent.path().join("output");

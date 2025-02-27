@@ -1,7 +1,7 @@
-use super::{proxy::Proxy, util::render};
+use super::{proxy::Proxy, stdio, util::render};
 use crate::{Server, temp::Temp};
 use futures::{
-	TryStreamExt as _, future,
+	TryStreamExt as _,
 	stream::{FuturesOrdered, FuturesUnordered},
 };
 use indoc::writedoc;
@@ -9,6 +9,7 @@ use num::ToPrimitive as _;
 use std::{
 	ffi::{CStr, CString},
 	fmt::Write as _,
+	os::fd::AsRawFd,
 	os::unix::{ffi::OsStrExt as _, process::ExitStatusExt as _},
 	path::Path,
 };
@@ -172,6 +173,40 @@ impl Runtime {
 		// Create the sandbox profile.
 		let profile = create_sandbox_profile(&state, &artifacts_path, home.as_deref(), &output);
 
+		// Get the window sizes of the pipes.
+		let stderr = if let Some(pipe) = state.stderr.as_ref() {
+			self.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+		} else {
+			None
+		};
+		let stdin = if let Some(pipe) = state.stdin.as_ref() {
+			self.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+		} else {
+			None
+		};
+		let stdout = if let Some(pipe) = state.stdout.as_ref() {
+			self.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+		} else {
+			None
+		};
+
+		// Create the pipes.
+		let (stderr_host, stderr_guest) = stdio::pair(stderr)
+			.map_err(|source| tg::error!(!source, "failed to create stderr stream"))?;
+		let (stdin_host, stdin_guest) = stdio::pair(stdin)
+			.map_err(|source| tg::error!(!source, "failed to create stdin stream"))?;
+		let (stdout_host, stdout_guest) = stdio::pair(stdout)
+			.map_err(|source| tg::error!(!source, "failed to create stdout stream"))?;
+
 		// Create the command.
 		let mut command = tokio::process::Command::new(executable);
 		command
@@ -179,13 +214,18 @@ impl Runtime {
 			.current_dir(cwd)
 			.env_clear()
 			.envs(env)
-			.stdin(std::process::Stdio::piped())
-			.stdout(std::process::Stdio::piped())
-			.stderr(std::process::Stdio::piped());
+			.stdin(std::process::Stdio::null())
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null());
 
 		// Add a pre_exec hook to initialize the sandbox.
 		unsafe {
 			command.pre_exec(move || {
+				// Dup i/o.
+				libc::dup2(stderr_guest.as_raw_fd(), libc::STDERR_FILENO);
+				libc::dup2(stdin_guest.as_raw_fd(), libc::STDIN_FILENO);
+				libc::dup2(stdout_guest.as_raw_fd(), libc::STDOUT_FILENO);
+
 				// Call `sandbox_init`.
 				let error = std::ptr::null_mut::<*const libc::c_char>();
 				let ret = sandbox_init(profile.as_ptr(), 0, error);
@@ -213,13 +253,15 @@ impl Runtime {
 			kill_process_tree(pid);
 		}
 
-		// Spawn the log task.
-		let log_task = super::util::post_log_task(
-			&self.server,
-			process,
-			remote,
-			child.stdout.take().unwrap(),
-			child.stderr.take().unwrap(),
+		// Spawn the stdio task.
+		let stdio_task = tokio::spawn(
+			super::util::stdio_task(
+				self.server.clone(),
+				process.clone(),
+				stdin_host,
+				stdout_host,
+				stderr_host,
+			)
 		);
 
 		// Wait for the process to exit.
@@ -241,12 +283,11 @@ impl Runtime {
 			task.wait().await.unwrap();
 		}
 
-		// Join the i/o tasks.
-		let (input, output) = future::try_join(future::ok(Ok::<_, tg::Error>(())), log_task)
+		// Join the i/o task.
+		stdio_task
 			.await
-			.map_err(|source| tg::error!(!source, "failed to join the i/o tasks"))?;
-		input.map_err(|source| tg::error!(!source, "the stdin task failed"))?;
-		output.map_err(|source| tg::error!(!source, "the log task failed"))?;
+			.unwrap()
+			.ok();
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(output_parent.path().join("output"))
