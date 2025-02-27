@@ -145,7 +145,37 @@ impl Server {
 		output: Arc<Graph>,
 		object: Arc<object::Graph>,
 	) -> tg::Result<()> {
-		// TODO - write bytes to the store.
+		// TODO - write bytes to the store. Collect objects first
+		// TODO - would be nice to send the bytes to the store and just the sizes to the databases, instead of making them serialize.
+
+		// Collect objects to write. // TODO - is there a capacity i can know up front?
+		let mut objects_to_write = Vec::new();
+
+		// Add graph objects.
+		for (id, (data, metadata)) in &object.graphs {
+			objects_to_write.push((id.clone().into(), data.clone().into(), metadata.clone()));
+		}
+
+		// Add output nodes in reverse-topological order.
+		let mut stack = vec![0];
+		let mut visited = vec![false; output.nodes.len()];
+		while let Some(output_index) = stack.pop() {
+			// Check if we've visited this node yet.
+			if visited[output_index] {
+				continue;
+			}
+			visited[output_index] = true;
+
+			// Get the output data.
+			let output = &output.nodes[output_index];
+			objects_to_write.push((
+				output.id.clone().into(),
+				output.data.clone().into(),
+				output.metadata.clone(),
+			));
+
+			stack.extend(output.edges.iter().map(|edge| edge.node));
+		}
 
 		// Get a database connection.
 		let mut connection = self
@@ -164,38 +194,9 @@ impl Server {
 			Either::Left(sqlite) => {
 				sqlite
 					.with(move |transaction| {
-						for (id, (data, metadata)) in &object.graphs {
-							write_object_sqlite(
-								transaction,
-								&id.clone().into(),
-								&data.clone().into(),
-								metadata,
-							)?;
+						for (id, data, metadata) in &objects_to_write {
+							write_object_sqlite(transaction, id, data, metadata)?;
 						}
-
-						// Get the output in reverse-topological order.
-						let mut stack = vec![0];
-						let mut visited = vec![false; output.nodes.len()];
-						while let Some(output_index) = stack.pop() {
-							// Check if we've visited this node yet.
-							if visited[output_index] {
-								continue;
-							}
-							visited[output_index] = true;
-
-							// Get the output data.
-							let output = &output.nodes[output_index];
-
-							// Write the object.
-							write_object_sqlite(
-								transaction,
-								&output.id.clone().into(),
-								&output.data.clone().into(),
-								&output.metadata,
-							)?;
-							stack.extend(output.edges.iter().map(|edge| edge.node));
-						}
-
 						Ok::<_, tg::Error>(())
 					})
 					.await?;
@@ -679,10 +680,6 @@ impl Server {
 
 		Err(tg::error!(?symlink = &output.nodes[symlink], "invalid symlink"))
 	}
-
-	async fn write_bytes_to_store(&self, id: &tg::object::Id, bytes: Bytes) -> tg::Result<()> {
-		todo!()
-	}
 }
 
 fn set_file_times_to_epoch_inner(
@@ -776,17 +773,15 @@ async fn write_object_postgres(
 ) -> tg::Result<()> {
 	let statement = indoc!(
 		"
-			insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			on conflict (id) do update set touched_at = $8;
+			insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
+			values ($1, $2, $3, $4, $5, $6, $7, $8)
+			on conflict (id) do update set touched_at = $7;
 		"
 	);
 	let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-	let bytes = data.serialize()?;
-	let size = bytes.len().to_u64().unwrap();
+	let size = data.serialize()?.len().to_u64().unwrap();
 	let params = db::params![
 		id,
-		bytes,
 		metadata.complete,
 		metadata.count,
 		metadata.depth,

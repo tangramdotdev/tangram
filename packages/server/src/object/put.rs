@@ -166,6 +166,11 @@ impl Server {
 						Ok::<_, tg::Error>(())
 					}
 				});
+				let put_task_abort_handle = put_task.abort_handle();
+				let _guard = scopeguard::guard(put_task_abort_handle, |handle| {
+					handle.abort();
+				});
+
 				sender
 					.send(crate::store::lmdb::Message {
 						id: id.clone(),
