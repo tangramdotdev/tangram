@@ -62,10 +62,7 @@ impl Server {
 
 		// Create the store future.
 		let store = async {
-			let Some(store) = &self.store else {
-				return Ok(None);
-			};
-			let Some(bytes) = store.try_get(id).await? else {
+			let Some(bytes) = self.store.try_get(id).await? else {
 				return Ok(None);
 			};
 			Ok(Some(bytes))

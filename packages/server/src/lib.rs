@@ -90,7 +90,7 @@ pub struct Inner {
 	pipes: DashMap<tg::pipe::Id, Pipe, fnv::FnvBuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
-	store: Option<Arc<Store>>,
+	store: Arc<Store>,
 	task: Mutex<Option<Task<()>>>,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -302,18 +302,14 @@ impl Server {
 		let runtimes = RwLock::new(HashMap::default());
 
 		// Create the store.
-		let store = if let Some(store) = &config.store {
-			let store = match store {
-				config::Store::Memory => Store::new_memory(),
-				#[cfg(feature = "foundationdb")]
-				config::Store::Fdb(fdb) => Store::new_fdb(fdb)?,
-				config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
-				config::Store::S3(s3) => Store::new_s3(s3),
-			};
-			Some(Arc::new(store))
-		} else {
-			None
+		let store = match &config.store {
+			config::Store::Memory => Store::new_memory(),
+			#[cfg(feature = "foundationdb")]
+			config::Store::Fdb(fdb) => Store::new_fdb(fdb)?,
+			config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
+			config::Store::S3(s3) => Store::new_s3(s3),
 		};
+		let store = Arc::new(store);
 
 		// Create the task.
 		let task = Mutex::new(None);

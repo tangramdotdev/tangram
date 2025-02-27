@@ -501,7 +501,9 @@ impl Cli {
 			heartbeat_interval: Duration::from_secs(1),
 			remotes: Vec::new(),
 		});
-		let store = None;
+		let store = tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
+			path: path.join("store"),
+		});
 		let vfs = if cfg!(target_os = "linux") {
 			Some(tangram_server::config::Vfs::default())
 		} else {
@@ -723,7 +725,7 @@ impl Cli {
 		match self.config.as_ref().and_then(|config| config.store.clone()) {
 			None => (),
 			Some(store) => {
-				config.store = Some(match store {
+				config.store = match store {
 					#[cfg(feature = "foundationdb")]
 					config::Store::Fdb(fdb) => {
 						tangram_server::config::Store::Fdb(tangram_server::config::FdbStore {
@@ -745,7 +747,7 @@ impl Cli {
 							url: s3.url,
 						})
 					},
-				});
+				};
 			},
 		}
 

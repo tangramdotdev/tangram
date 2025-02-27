@@ -13,7 +13,7 @@ pub struct Config {
 	pub path: PathBuf,
 	pub remotes: Option<Vec<Remote>>,
 	pub runner: Option<Runner>,
-	pub store: Option<Store>,
+	pub store: Store,
 	pub vfs: Option<Vfs>,
 	pub watchdog: Option<Watchdog>,
 }
@@ -164,7 +164,9 @@ impl Config {
 		let messenger = Messenger::default();
 		let remotes = None;
 		let runner = Some(Runner::default());
-		let store = None;
+		let store = Store::Lmdb(LmdbStore {
+			path: path.join("store"),
+		});
 		let http = Some(Http::default());
 		let vfs = None;
 		let watchdog = Some(Watchdog::default());

@@ -38,11 +38,6 @@ impl Server {
 					})?;
 
 					let id = id.to_string();
-					let bytes = if self.store.is_none() {
-						Some(arg.bytes.clone())
-					} else {
-						None
-					};
 					let size = arg.bytes.len().to_u64().unwrap();
 					connection
 						.with(move |connection| {
@@ -75,14 +70,13 @@ impl Server {
 							// Insert the object.
 							let statement = indoc!(
 								"
-									insert into objects (id, bytes, size, touched_at)
-									values (?1, ?2, ?3, ?4)
-									on conflict (id) do update set touched_at = ?4;
+									insert into objects (id, size, touched_at)
+									values (?1, ?2, ?3)
+									on conflict (id) do update set touched_at = ?3;
 								"
 							);
-							let bytes = bytes.as_ref().map(AsRef::as_ref);
 							let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-							let params = rusqlite::params![id, bytes, size, now];
+							let params = rusqlite::params![id, size, now];
 							let mut statement =
 								transaction.prepare_cached(statement).map_err(|source| {
 									tg::error!(!source, "failed to prepare the statement")
@@ -115,9 +109,9 @@ impl Server {
 								returning child
 							),
 							inserted_objects as (
-								insert into objects (id, bytes, size, touched_at)
-								values ($1, $3, $4, $5)
-								on conflict (id) do update set touched_at = $5
+								insert into objects (id, size, touched_at)
+								values ($1, $3, $4)
+								on conflict (id) do update set touched_at = $4
 								returning id, complete
 							)
 							select 1;
@@ -125,16 +119,11 @@ impl Server {
 					);
 					let id = id.to_string();
 					let children = children.iter().map(ToString::to_string).collect_vec();
-					let bytes = if self.store.is_none() {
-						Some(arg.bytes.as_ref())
-					} else {
-						None
-					};
 					let size = arg.bytes.len().to_i64().unwrap();
 					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 					connection
 						.client()
-						.execute(statement, &[&id, &children, &bytes, &size, &now])
+						.execute(statement, &[&id, &children, &size, &now])
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				},
@@ -144,9 +133,7 @@ impl Server {
 
 		// Create the store future.
 		let store = async {
-			if let Some(store) = &self.store {
-				store.put(id.clone(), arg.bytes.clone()).await?;
-			}
+			self.store.put(id.clone(), arg.bytes.clone()).await?;
 			Ok::<_, tg::Error>(())
 		};
 

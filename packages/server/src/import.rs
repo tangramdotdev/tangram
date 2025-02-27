@@ -412,7 +412,6 @@ impl Server {
 
 			connection
 				.with({
-					let server = self.clone();
 					let progress = progress.clone();
 					move |connection| {
 						// Begin a transaction for the batch.
@@ -437,8 +436,8 @@ impl Server {
 						// Prepare a statement for the objects.
 						let objects_statement = indoc!(
 							"
-								insert into objects (id, bytes, size, touched_at)
-								values (?1, ?2, ?3, ?4)
+								insert into objects (id, size, touched_at)
+								values (?1, ?2, ?3)
 								on conflict (id) do update set touched_at = ?4;
 							"
 						);
@@ -463,12 +462,7 @@ impl Server {
 
 							// Insert the object.
 							let size = bytes.len().to_u64().unwrap();
-							let bytes = if server.store.is_none() {
-								Some(bytes.as_ref())
-							} else {
-								None
-							};
-							let params = rusqlite::params![&id.to_string(), bytes, size, now];
+							let params = rusqlite::params![&id.to_string(), size, now];
 							objects_statement.execute(params).map_err(|source| {
 								tg::error!(!source, "failed to execute the statement")
 							})?;
@@ -539,10 +533,10 @@ impl Server {
 						on conflict (object, child) do nothing
 					),
 					inserted_objects as (
-						insert into objects (id, bytes, size, touched_at)
-						select id, bytes, size, $6
-						from unnest($1::text[], $4::bytea[], $5::int8[]) as t (id, bytes, size)
-						on conflict (id) do update set touched_at = $6
+						insert into objects (id, size, touched_at)
+						select id, bytes, size, $5
+						from unnest($1::text[], $4::int8[]) as t (id, size)
+						on conflict (id) do update set touched_at = $5
 					)
 					select 1;
 				"
@@ -562,16 +556,6 @@ impl Server {
 					std::iter::repeat_n((index + 1).to_i64().unwrap(), children.len())
 				})
 				.collect::<Vec<_>>();
-			let bytes = chunk
-				.iter()
-				.map(|(_, bytes, _)| {
-					if self.store.is_none() {
-						Some(bytes.as_ref())
-					} else {
-						None
-					}
-				})
-				.collect::<Vec<_>>();
 			let size = chunk
 				.iter()
 				.map(|(_, bytes, _)| bytes.len().to_i64().unwrap())
@@ -584,7 +568,6 @@ impl Server {
 						&ids.as_slice(),
 						&children.as_slice(),
 						&parent_indices.as_slice(),
-						&bytes.as_slice(),
 						&size.as_slice(),
 						&now,
 					],
@@ -662,9 +645,7 @@ impl Server {
 							let id = id.clone();
 							let bytes = bytes.clone();
 							async move {
-								if let Some(store) = &server.store {
-									store.put(id, bytes).await?;
-								}
+								server.store.put(id, bytes).await?;
 								Ok::<_, tg::Error>(())
 							}
 						};

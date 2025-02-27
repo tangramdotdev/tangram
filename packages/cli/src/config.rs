@@ -221,13 +221,12 @@ pub struct Runner {
 	pub remotes: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Store {
 	#[cfg(feature = "foundationdb")]
 	Fdb(FdbStore),
 	Lmdb(LmdbStore),
-	#[default]
 	Memory,
 	S3(S3Store),
 }
@@ -239,7 +238,7 @@ pub struct FdbStore {
 	pub path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LmdbStore {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
