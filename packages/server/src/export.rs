@@ -638,17 +638,25 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id, count, commands_count, commands_weight, logs_count, logs_weight, outputs_count, outputs_weight
+				select
+					commands_count,
+					commands_weight,
+					count,
+					id,
+					logs_count,
+					logs_weight,
+					outputs_count,
+					outputs_weight
 				from processes
 				where id = {p}1;
 			",
 		);
 		let params = db::params![id];
-		let result = connection
+		let output = connection
 			.query_optional_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let output = match result {
+		let output = match output {
 			Some(output) => output,
 			None => tg::export::ProcessComplete {
 				commands_count: None,
