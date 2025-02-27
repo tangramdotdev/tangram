@@ -279,7 +279,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get command id"))?;
 
-		// Get a database connection.
+		// Get the output.
 		let connection = self
 			.database
 			.connection()
@@ -295,17 +295,13 @@ impl Server {
 			"
 		);
 		let params = db::params![command_id.to_string(), parent_process_id.to_string()];
-		let result = connection
-			.query_optional_value_into(statement.into(), params)
+		let Some(output) = connection
+			.query_optional_value_into::<db::value::Json<tg::value::Data>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let output: tg::value::Data = match result {
-			Some(output) => output,
-			None => {
-				return Err(
-					tg::error!(%parent_process_id, "failed to locate checksum process for parent"),
-				);
-			},
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|value| value.0)
+		else {
+			return Err(tg::error!(%parent_process_id, "failed to find the checksum process"));
 		};
 
 		// Parse the checksum.
@@ -313,7 +309,6 @@ impl Server {
 			.try_unwrap_string()
 			.map_err(|_| tg::error!("expected a string"))?;
 		let checksum = checksum
-			.trim_matches('"')
 			.parse::<tg::Checksum>()
 			.map_err(|_| tg::error!(%checksum, "failed to parse checksum string"))?;
 
