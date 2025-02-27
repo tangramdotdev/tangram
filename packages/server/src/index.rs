@@ -10,7 +10,7 @@ use tangram_messenger::Messenger;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone)]
-pub(crate) struct InsertMessage {
+pub(crate) struct Message {
 	pub(crate) acker: Option<Arc<async_nats::jetstream::message::Acker>>,
 	pub(crate) id: tg::object::Id,
 	pub(crate) size: u64,
@@ -31,18 +31,18 @@ impl Server {
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
 		let (object_insert_sender, mut object_insert_receiver) =
-			tokio::sync::mpsc::channel::<InsertMessage>(config.batch_size);
+			tokio::sync::mpsc::channel::<Message>(config.batch_size);
 
-		// Create a task to listen for object insert messages.
+		// Create a task to listen for messages.
 		let object_insert_task = tokio::spawn({
 			let server = self.clone();
 			let object_insert_sender = object_insert_sender.clone();
 			async move {
 				let result = server
-					.indexer_object_insert_listener_task(&object_insert_sender)
+					.indexer_message_consumer_task(&object_insert_sender)
 					.await;
 				if let Err(error) = result {
-					tracing::error!(?error, "object insert message listener failed");
+					tracing::error!(?error, "the message listener task failed");
 				}
 			}
 		});
@@ -52,6 +52,7 @@ impl Server {
 		});
 
 		loop {
+			// Get a batch of messages.
 			let mut batch = Vec::with_capacity(config.batch_size);
 			while batch.len() < config.batch_size {
 				match object_insert_receiver.try_recv() {
@@ -79,10 +80,10 @@ impl Server {
 	pub(crate) async fn indexer_task_inner(
 		&self,
 		config: &crate::config::Indexer,
-		insert_messages: Vec<InsertMessage>,
+		messages: Vec<Message>,
 	) -> tg::Result<u64> {
 		// Insert objects.
-		let inserted = self.indexer_task_insert_objects(insert_messages).await?;
+		let inserted = self.indexer_task_insert_objects(messages).await?;
 
 		// Update complete objects.
 		let updated = self.indexer_task_update_complete_objects(config).await?;
@@ -90,9 +91,9 @@ impl Server {
 		Ok(inserted + updated)
 	}
 
-	async fn indexer_object_insert_listener_task(
+	async fn indexer_message_consumer_task(
 		&self,
-		object_insert_sender: &tokio::sync::mpsc::Sender<InsertMessage>,
+		object_insert_sender: &tokio::sync::mpsc::Sender<Message>,
 	) -> tg::Result<()> {
 		match &self.messenger {
 			Either::Left(memory) => {
@@ -107,14 +108,14 @@ impl Server {
 					let payload = serde_json::from_slice(&message.payload).map_err(|source| {
 						tg::error!(!source, "failed to deserialize message payload")
 					});
-					let payload: crate::import::InsertMessage = match payload {
+					let payload: crate::import::Message = match payload {
 						Ok(payload) => payload,
 						Err(error) => {
 							tracing::error!("{error}");
 							continue;
 						},
 					};
-					let message = InsertMessage {
+					let message = Message {
 						acker: None,
 						id: payload.id,
 						size: payload.size,
@@ -159,14 +160,14 @@ impl Server {
 					let payload = serde_json::from_slice(&message.payload).map_err(|source| {
 						tg::error!(!source, "failed to deserialize message payload")
 					});
-					let payload: crate::import::InsertMessage = match payload {
+					let payload: crate::import::Message = match payload {
 						Ok(payload) => payload,
 						Err(error) => {
 							tracing::error!("{error}");
 							continue;
 						},
 					};
-					let message = InsertMessage {
+					let message = Message {
 						acker: Some(Arc::new(acker)),
 						id: payload.id,
 						size: payload.size,
@@ -183,21 +184,18 @@ impl Server {
 		Ok(())
 	}
 
-	async fn indexer_task_insert_objects(
-		&self,
-		insert_messages: Vec<InsertMessage>,
-	) -> tg::Result<u64> {
-		if insert_messages.is_empty() {
+	async fn indexer_task_insert_objects(&self, messages: Vec<Message>) -> tg::Result<u64> {
+		if messages.is_empty() {
 			return Ok(0);
 		}
-		let n = insert_messages.len().to_u64().unwrap();
+		let n = messages.len().to_u64().unwrap();
 		match &self.database {
 			Either::Left(database) => {
-				self.indexer_insert_objects_sqlite(insert_messages, database)
+				self.indexer_insert_objects_sqlite(messages, database)
 					.await?;
 			},
 			Either::Right(database) => {
-				self.indexer_insert_objects_postgres(insert_messages, database)
+				self.indexer_insert_objects_postgres(messages, database)
 					.await?;
 			},
 		}
@@ -206,15 +204,15 @@ impl Server {
 
 	async fn indexer_insert_objects_sqlite(
 		&self,
-		insert_messages: Vec<InsertMessage>,
+		messages: Vec<Message>,
 		database: &db::sqlite::Database,
 	) -> tg::Result<()> {
 		// Split the acker from the payload.
-		let chunk = insert_messages
+		let chunk = messages
 			.iter()
 			.cloned()
 			.map(|message| {
-				let payload = crate::import::InsertMessage {
+				let payload = crate::import::Message {
 					id: message.id,
 					size: message.size,
 					children: message.children,
@@ -304,7 +302,7 @@ impl Server {
 			})
 			.await?;
 
-		// Acknowledge all messages.
+		// Acknowledge the messages.
 		let ackers = chunk
 			.iter()
 			.filter_map(|(acker, _)| acker.as_ref())
@@ -321,7 +319,7 @@ impl Server {
 
 	async fn indexer_insert_objects_postgres(
 		&self,
-		insert_messages: Vec<InsertMessage>,
+		messages: Vec<Message>,
 		database: &db::postgres::Database,
 	) -> tg::Result<()> {
 		let options = db::ConnectionOptions {
@@ -333,7 +331,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		for chunk in insert_messages.chunks(128) {
+		for chunk in messages.chunks(128) {
 			let transaction = connection
 				.client_mut()
 				.transaction()
@@ -481,15 +479,13 @@ impl Server {
 					complete = updates.complete,
 					count = updates.count,
 					depth = updates.depth,
-					touched_at = {p}2,
 					weight = updates.weight
 				from updates
 				where objects.id = updates.id;
 			"
 		);
 		let batch_size = config.batch_size;
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![batch_size, now];
+		let params = db::params![batch_size];
 		let n = connection
 			.execute(statement.into(), params)
 			.await

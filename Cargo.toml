@@ -50,7 +50,7 @@ unused_async = "allow"
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
-async-nats = "0.38"
+async-nats = "0.39"
 async-tar = "0.5"
 async_zip = { version = "0.0.17", features = ["full"] }
 aws-credential-types = "1"
@@ -126,7 +126,7 @@ serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-swc_core = { version = "14", features = [
+swc_core = { version = "16", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",

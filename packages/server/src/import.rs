@@ -28,7 +28,7 @@ struct Progress {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(crate) struct InsertMessage {
+pub(crate) struct Message {
 	pub(crate) id: tg::object::Id,
 	pub(crate) size: u64,
 	pub(crate) children: BTreeSet<tg::object::Id>,
@@ -158,7 +158,7 @@ impl Server {
 				store_task_abort_handle.abort();
 			});
 
-		// Spawn a task that sends items from the stream to the other tasks.
+		// Spawn a task that sends items from the stream to the tasks.
 		let task = tokio::spawn({
 			let event_sender = event_sender.clone();
 			async move {
@@ -313,7 +313,7 @@ impl Server {
 		&self,
 		database_process_receiver: tokio::sync::mpsc::Receiver<tg::export::Item>,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
-		progress_totals: &Progress,
+		progress: &Progress,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(database_process_receiver);
 		let mut stream = pin!(stream);
@@ -328,7 +328,7 @@ impl Server {
 			self.put_process(&id, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
-			progress_totals.increment_processes();
+			progress.increment_processes();
 
 			let process_complete = self
 				.try_get_import_process_complete(&id)
@@ -495,15 +495,15 @@ impl Server {
 		database: &db::postgres::Database,
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
-		tracing::warn!("postgres insert in import");
-
 		let stream = stream.chunks(128);
 		let mut stream = pin!(stream);
 		while let Some(chunk) = stream.next().await {
+			// Get a database connection.
 			let mut connection = database
 				.write_connection()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
 			let chunk: Vec<_> = chunk
 				.into_iter()
 				.map(|item| {
@@ -524,6 +524,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
 
+			// Insert into the objects and object_children tables.
 			let statement = indoc!(
 				"
 					with inserted_object_children as (
@@ -644,7 +645,6 @@ impl Server {
 			};
 			if let tg::export::Item::Object { id, bytes, .. } = item {
 				let size = bytes.len().try_into().unwrap();
-				// Store to object storage.
 				join_set.spawn({
 					let server = self.clone();
 					let id = id.clone();
@@ -663,23 +663,20 @@ impl Server {
 								Ok::<_, tg::Error>(())
 							}
 						};
-						// Send a message to jetstream.
 						let messenger_future = {
 							let server = server.clone();
 							let id = id.clone();
 							let bytes = bytes.clone();
 							async move {
-								// Send a message with object ID, size, ids of children.
 								let children =
 									tg::object::Data::deserialize(id.kind(), &bytes)?.children();
-								let message = InsertMessage { id, size, children };
+								let message = Message { id, size, children };
 								let result = serde_json::to_vec(&message).map_err(|source| {
 									tg::error!(!source, "failed to serialize message")
 								});
 								let data = match result {
 									Ok(data) => data,
 									Err(error) => {
-										tracing::error!(?error,);
 										return Err(error);
 									},
 								};
@@ -691,11 +688,8 @@ impl Server {
 											.ok();
 									},
 									Either::Right(nats) => {
-										// Create a JetStream instance.
 										let jetstream =
 											async_nats::jetstream::new(nats.client.clone());
-
-										// Get or create the object stream.
 										let result = jetstream
 											.get_or_create_stream(
 												async_nats::jetstream::stream::Config {
@@ -708,17 +702,15 @@ impl Server {
 											.map_err(|source| {
 												tg::error!(
 													!source,
-													"failed to get_or_create jetstream object stream"
+													"failed to get or create the jetstream object stream"
 												)
 											});
 										match result {
-											Ok(_) => {},
+											Ok(_) => (),
 											Err(error) => {
-												tracing::error!(?error,);
 												return Err(error);
 											},
-										}
-
+										};
 										let result = jetstream
 											.publish("objects", data.into())
 											.await
@@ -728,7 +720,6 @@ impl Server {
 										match result {
 											Ok(_) => {},
 											Err(error) => {
-												tracing::error!(?error,);
 												return Err(error);
 											},
 										}
@@ -737,16 +728,18 @@ impl Server {
 								Ok::<_, tg::Error>(())
 							}
 						};
-						let result = futures::try_join!(store_future, messenger_future);
 
+						let result = futures::try_join!(store_future, messenger_future);
 						if let Err(error) = result {
 							event_sender
-								.send(Err(tg::error!(!error, "failed to join the task")))
+								.send(Err(tg::error!(!error, "failed to join the futures")))
 								.await
 								.ok();
 						}
+
 						progress.increment_objects(1);
 						progress.increment_bytes(size);
+
 						Ok::<_, tg::Error>(())
 					}
 				});
