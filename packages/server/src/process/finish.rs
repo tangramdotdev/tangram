@@ -292,6 +292,7 @@ impl Server {
 				from processes
 				join process_children on processes.id = process_children.child
 				where processes.command = {p}1 and process_children.process = {p}2
+				limit 1
 			"
 		);
 		let params = db::params![command_id.to_string(), parent_process_id.to_string()];
