@@ -604,12 +604,11 @@ impl Server {
 			",
 		);
 		let params = db::params![id];
-		let result = connection
+		let output = connection
 			.query_optional_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		// If we couldn't find the object in the objects table, it hasn't been indexed.
-		let output = match result {
+		let output = match output {
 			Some(output) => output,
 			None => tg::export::ObjectComplete {
 				id: id.clone(),

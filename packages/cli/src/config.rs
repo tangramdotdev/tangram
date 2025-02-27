@@ -229,7 +229,6 @@ pub enum Store {
 	Lmdb(LmdbStore),
 	#[default]
 	Memory,
-	Lmdb(LmdbStore),
 	S3(S3Store),
 }
 
@@ -238,12 +237,6 @@ pub enum Store {
 #[serde(deny_unknown_fields)]
 pub struct FdbStore {
 	pub path: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LmdbStore {
-	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
