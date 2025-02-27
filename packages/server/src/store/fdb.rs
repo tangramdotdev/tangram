@@ -3,6 +3,12 @@ use foundationdb as fdb;
 use std::time::Instant;
 use tangram_client as tg;
 
+/// The maximum size of a transaction.
+const TRANSACTION_SIZE_LIMIT: usize = 1_048_576;
+
+/// The maximum size of a value.
+const VALUE_SIZE_LIMIT: usize = 10_240;
+
 pub struct Fdb {
 	database: fdb::Database,
 }
@@ -23,11 +29,18 @@ impl Fdb {
 		let bytes = self
 			.database
 			.run(|transaction, _| async move {
-				let bytes = transaction
-					.get(id.to_string().as_bytes(), false)
-					.await?
-					.map(|bytes| Bytes::copy_from_slice(&bytes));
-				Ok(bytes)
+				let subspace = fdb::tuple::Subspace::all().subspace(&id.to_string());
+				let entries = transaction
+					.get_range(&subspace.range().into(), 0, false)
+					.await?;
+				if entries.is_empty() {
+					return Ok(None);
+				}
+				let mut bytes = Vec::new();
+				for entry in entries {
+					bytes.extend_from_slice(entry.value());
+				}
+				Ok(Some(bytes.into()))
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
@@ -40,7 +53,16 @@ impl Fdb {
 		let start = Instant::now();
 		self.database
 			.run(|transaction, _| async move {
-				transaction.set(id.to_string().as_bytes(), bytes);
+				let subspace = fdb::tuple::Subspace::all().subspace(&id.to_string());
+				if bytes.is_empty() {
+					transaction.set(&subspace.pack(&0), &[]);
+				} else {
+					let mut start = 0;
+					for chunk in bytes.chunks(VALUE_SIZE_LIMIT) {
+						transaction.set(&subspace.pack(&start), chunk);
+						start += chunk.len();
+					}
+				}
 				Ok(())
 			})
 			.await

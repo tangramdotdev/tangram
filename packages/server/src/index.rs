@@ -98,7 +98,7 @@ impl Server {
 		match &self.messenger {
 			Either::Left(memory) => {
 				let stream = memory
-					.subscribe("objects".to_string(), None)
+					.subscribe("index".to_string(), None)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to subscribe to objects stream"))
 					.unwrap();
@@ -131,7 +131,7 @@ impl Server {
 				let stream = nats
 					.jetstream
 					.get_or_create_stream(async_nats::jetstream::stream::Config {
-						name: "objects".to_string(),
+						name: "index".to_string(),
 						max_messages: i64::MAX,
 						..Default::default()
 					})
@@ -140,9 +140,9 @@ impl Server {
 
 				let consumer = stream
 					.get_or_create_consumer(
-						"object_consumer",
+						"index_consumer",
 						async_nats::jetstream::consumer::pull::Config {
-							durable_name: Some("object_consumer".to_string()),
+							durable_name: Some("index_consumer".to_string()),
 							..Default::default()
 						},
 					)
@@ -178,6 +178,7 @@ impl Server {
 						.await
 						.expect("failed to send");
 				}
+
 				tracing::warn!("the listener hung up");
 			},
 		}

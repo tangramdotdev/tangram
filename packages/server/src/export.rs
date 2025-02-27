@@ -233,10 +233,10 @@ impl Server {
 		}
 
 		// Send the object.
-		let item = tg::export::Item::Object {
+		let item = tg::export::Item::Object(tg::export::ObjectItem {
 			id: object.clone(),
 			bytes: bytes.clone(),
-		};
+		});
 		event_sender
 			.send(Ok(tg::export::Event::Item(item)))
 			.await
@@ -315,10 +315,10 @@ impl Server {
 					tg::error!(!source, "failed to send export process complete event")
 				})?;
 		} else {
-			let item = tg::export::Item::Process {
+			let item = tg::export::Item::Process(tg::export::ProcessItem {
 				id: process.clone(),
 				data: data.clone(),
-			};
+			});
 			event_sender
 				.send(Ok(tg::export::Event::Item(item)))
 				.await
@@ -595,30 +595,34 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the object metadata.
+		#[derive(serde::Deserialize)]
+		struct Row {
+			count: Option<u64>,
+			weight: Option<u64>,
+		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id, count, weight
+				select count, weight
 				from objects
 				where id = {p}1;
 			",
 		);
 		let params = db::params![id];
-		let output = connection
-			.query_optional_into(statement.into(), params)
+		let row = connection
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let output = match output {
-			Some(output) => output,
-			None => tg::export::ObjectComplete {
-				id: id.clone(),
-				count: None,
-				weight: None,
-			},
-		};
 
 		// Drop the database connection.
 		drop(connection);
+
+		// Create the output.
+		let output = tg::export::ObjectComplete {
+			id: id.clone(),
+			count: row.as_ref().and_then(|row| row.count),
+			weight: row.as_ref().and_then(|row| row.weight),
+		};
 
 		Ok(output)
 	}
@@ -635,6 +639,16 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the object metadata.
+		#[derive(serde::Deserialize)]
+		struct Row {
+			commands_count: Option<u64>,
+			commands_weight: Option<u64>,
+			count: Option<u64>,
+			logs_count: Option<u64>,
+			logs_weight: Option<u64>,
+			outputs_count: Option<u64>,
+			outputs_weight: Option<u64>,
+		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -642,7 +656,6 @@ impl Server {
 					commands_count,
 					commands_weight,
 					count,
-					id,
 					logs_count,
 					logs_weight,
 					outputs_count,
@@ -652,26 +665,25 @@ impl Server {
 			",
 		);
 		let params = db::params![id];
-		let output = connection
-			.query_optional_into(statement.into(), params)
+		let row = connection
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let output = match output {
-			Some(output) => output,
-			None => tg::export::ProcessComplete {
-				commands_count: None,
-				commands_weight: None,
-				count: None,
-				id: id.clone(),
-				logs_count: None,
-				logs_weight: None,
-				outputs_count: None,
-				outputs_weight: None,
-			},
-		};
 
 		// Drop the database connection.
 		drop(connection);
+
+		// Create the output.
+		let output = tg::export::ProcessComplete {
+			commands_count: row.as_ref().and_then(|row| row.commands_count),
+			commands_weight: row.as_ref().and_then(|row| row.commands_weight),
+			count: row.as_ref().and_then(|row| row.count),
+			id: id.clone(),
+			logs_count: row.as_ref().and_then(|row| row.logs_count),
+			logs_weight: row.as_ref().and_then(|row| row.logs_weight),
+			outputs_count: row.as_ref().and_then(|row| row.outputs_count),
+			outputs_weight: row.as_ref().and_then(|row| row.outputs_weight),
+		};
 
 		Ok(output)
 	}
