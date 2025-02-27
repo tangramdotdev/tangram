@@ -688,9 +688,8 @@ impl Server {
 											.ok();
 									},
 									Either::Right(nats) => {
-										let jetstream =
-											async_nats::jetstream::new(nats.client.clone());
-										let result = jetstream
+										let result = nats
+											.jetstream
 											.get_or_create_stream(
 												async_nats::jetstream::stream::Config {
 													name: "objects".to_string(),
@@ -711,7 +710,8 @@ impl Server {
 												return Err(error);
 											},
 										};
-										let result = jetstream
+										let result = nats
+											.jetstream
 											.publish("objects", data.into())
 											.await
 											.map_err(|source| {
