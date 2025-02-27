@@ -148,11 +148,7 @@ impl Server {
 		// Verify the checksum if one was provided.
 		if let (Some(output), Some(expected)) = (output.clone(), data.checksum.as_ref()) {
 			let value: tg::Value = output.try_into()?;
-			if let Err(checksum_error) = self
-				.verify_checksum(id.clone(), &value, expected)
-				.boxed()
-				.await
-			{
+			if let Err(checksum_error) = self.verify_checksum(&value, expected).boxed().await {
 				status = tg::process::status::Status::Failed;
 				error = Some(checksum_error);
 			}
@@ -251,12 +247,7 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn verify_checksum(
-		&self,
-		parent_process_id: tg::process::Id,
-		value: &tg::Value,
-		expected: &tg::Checksum,
-	) -> tg::Result<()> {
+	async fn verify_checksum(&self, value: &tg::Value, expected: &tg::Checksum) -> tg::Result<()> {
 		if matches!(expected, tg::Checksum::Any) {
 			return Ok(());
 		}
@@ -292,14 +283,14 @@ impl Server {
 				limit 1
 			"
 		);
-		let params = db::params![command_id.to_string(), parent_process_id.to_string()];
+		let params = db::params![command_id.to_string()];
 		let Some(output) = connection
 			.query_optional_value_into::<db::value::Json<tg::value::Data>>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|value| value.0)
 		else {
-			return Err(tg::error!(%parent_process_id, "failed to find the checksum process"));
+			return Err(tg::error!(%command_id, "failed to find a matching checksum process"));
 		};
 
 		// Parse the checksum.
