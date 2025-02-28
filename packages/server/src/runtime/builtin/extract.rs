@@ -265,7 +265,7 @@ where
 			let artifact = tg::Artifact::Symlink(symlink);
 			entries.push((path, artifact));
 		} else {
-			let output = server.create_blob_with_reader(reader.compat()).await?;
+			let output = server.create_blob(reader.compat()).await?;
 			let blob = tg::Blob::with_id(output.blob);
 			let file = tg::File::builder(blob).executable(is_executable).build();
 			let artifact = tg::Artifact::File(file);

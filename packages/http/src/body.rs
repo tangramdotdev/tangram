@@ -24,7 +24,9 @@ pub trait Ext: http_body::Body {
 	}
 }
 
+#[derive(Default)]
 pub enum Body {
+	#[default]
 	Empty,
 	Bytes(Option<Bytes>),
 	Json(Option<Arc<dyn erased_serde::Serialize + Send + Sync + 'static>>),

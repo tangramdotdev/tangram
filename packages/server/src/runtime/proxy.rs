@@ -137,7 +137,7 @@ impl tg::Handle for Proxy {
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
-		self.server.create_blob_with_reader(reader)
+		self.server.create_blob(reader)
 	}
 
 	fn try_read_blob_stream(

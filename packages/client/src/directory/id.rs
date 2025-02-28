@@ -1,5 +1,4 @@
 use crate as tg;
-use bytes::Bytes;
 
 #[derive(
 	Clone,
@@ -18,7 +17,8 @@ use bytes::Bytes;
 pub struct Id(crate::Id);
 
 impl Id {
-	pub fn new(bytes: &Bytes) -> Self {
+	#[must_use]
+	pub fn new(bytes: &[u8]) -> Self {
 		Self(crate::Id::new_blake3(tg::id::Kind::Directory, bytes))
 	}
 }

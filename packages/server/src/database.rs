@@ -89,14 +89,36 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 		r#"
 			create table blobs (
 				id text primary key,
-				entry text not null,
+				reference_count integer
+			);
+
+			create index blobs_reference_count_zero_index on blobs ((1)) where reference_count = 0;
+
+			create table blob_references (
+				id text primary key,
+				blob text not null,
 				position integer not null,
 				length integer not null
 			);
 
+			create trigger blobs_increment_reference_count_trigger
+			after insert on blob_references
+			for each row
+			begin
+				update blobs set reference_count = reference_count + 1
+				where id = new.blob;
+			end;
+
+			create trigger blobs_decrement_reference_count_trigger
+			after delete on blob_references
+			for each row
+			begin
+				update blobs set reference_count = reference_count - 1
+				where id = old.blob;
+			end;
+
 			create table objects (
 				id text primary key,
-				bytes blob,
 				complete integer not null default 0,
 				count integer,
 				depth integer,
@@ -107,7 +129,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				weight integer
 			);
 
-			create index objects_complete_incomplete_children_index on objects (complete, incomplete_children);
+			create index objects_complete_incomplete_children_index on objects ((1)) where complete = 0 and incomplete_children = 0;
 
 			create index objects_reference_count_zero_index on objects (touched_at) where reference_count = 0;
 

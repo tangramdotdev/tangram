@@ -138,6 +138,8 @@ impl Client {
 		});
 		let service = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
+			.map_err(|source| tg::error!(!source, "the request timed out"))
+			.layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60)))
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
 				http::HeaderValue::from_str(&Self::compatibility_date().format(&Rfc3339).unwrap())
@@ -582,10 +584,8 @@ impl Client {
 		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>> {
 		let future = self.service.clone().call(request);
-		let timeout = Duration::from_secs(60);
-		let response = tokio::time::timeout(timeout, future)
+		let response = future
 			.await
-			.map_err(|source| tg::error!(!source, "the request timed out"))?
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		let response = response.map(Into::into);
 		Ok(response)

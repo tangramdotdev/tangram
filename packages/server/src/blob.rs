@@ -1,4 +1,4 @@
 pub use self::read::Reader;
 
-mod create;
+pub(crate) mod create;
 mod read;

@@ -1,3 +1,4 @@
+use futures::{FutureExt as _, future};
 use std::{
 	collections::BinaryHeap,
 	ops::{Deref, DerefMut},
@@ -17,7 +18,7 @@ struct State<T> {
 struct Request<T> {
 	priority: Priority,
 	order: usize,
-	sender: tokio::sync::oneshot::Sender<T>,
+	sender: tokio::sync::oneshot::Sender<Guard<T>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
@@ -47,41 +48,40 @@ impl<T> Pool<T> {
 
 	pub fn add(&self, value: T) {
 		let mut state = self.state.lock().unwrap();
-		if let Some(request) = state.requests.pop() {
-			let result = request.sender.send(value);
-			if let Err(value) = result {
-				state.values.push(value);
-			}
-		} else {
-			state.values.push(value);
-		}
-	}
-
-	pub async fn get(&self, priority: Priority) -> Guard<T> {
-		let receiver = {
-			let mut state = self.state.lock().unwrap();
-			if let Some(value) = state.values.pop() {
-				return Guard {
-					value: Some(value),
-					pool: self.clone(),
-				};
-			}
-			let (sender, receiver) = tokio::sync::oneshot::channel();
-			let order = state.order;
-			let request = Request {
-				priority,
-				order,
-				sender,
-			};
-			state.order += 1;
-			state.requests.push(request);
-			receiver
-		};
-		let value = receiver.await.unwrap();
-		Guard {
+		let mut guard = Guard {
 			value: Some(value),
 			pool: self.clone(),
+		};
+		while let Some(request) = state.requests.pop() {
+			match request.sender.send(guard) {
+				Ok(()) => return,
+				Err(guard_) => {
+					guard = guard_;
+				},
+			}
 		}
+		state.values.push(guard.value.take().unwrap());
+	}
+
+	pub fn get(&self, priority: Priority) -> impl Future<Output = Guard<T>> {
+		let mut state = self.state.lock().unwrap();
+		if let Some(value) = state.values.pop() {
+			return future::ready(Guard {
+				value: Some(value),
+				pool: self.clone(),
+			})
+			.left_future();
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let order = state.order;
+		let request = Request {
+			priority,
+			order,
+			sender,
+		};
+		state.order += 1;
+		state.requests.push(request);
+		receiver.map(move |result| result.unwrap()).right_future()
 	}
 
 	#[must_use]
@@ -132,15 +132,8 @@ impl<T> AsMut<T> for Guard<T> {
 
 impl<T> Drop for Guard<T> {
 	fn drop(&mut self) {
-		let value = self.value.take().unwrap();
-		let mut state = self.pool.state.lock().unwrap();
-		if let Some(request) = state.requests.pop() {
-			let result = request.sender.send(value);
-			if let Err(value) = result {
-				state.values.push(value);
-			}
-		} else {
-			state.values.push(value);
+		if let Some(value) = self.value.take() {
+			self.pool.add(value);
 		}
 	}
 }
@@ -153,19 +146,16 @@ impl<T> PartialEq for Request<T> {
 
 impl<T> Eq for Request<T> {}
 
-#[allow(clippy::non_canonical_partial_ord_impl)]
 impl<T> PartialOrd for Request<T> {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		Some(
-			self.priority
-				.cmp(&other.priority)
-				.then_with(|| self.order.cmp(&other.order).reverse()),
-		)
+		Some(self.cmp(other))
 	}
 }
 
 impl<T> Ord for Request<T> {
 	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		self.partial_cmp(other).unwrap()
+		self.priority
+			.cmp(&other.priority)
+			.then_with(|| self.order.cmp(&other.order).reverse())
 	}
 }

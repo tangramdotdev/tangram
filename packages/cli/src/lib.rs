@@ -502,7 +502,9 @@ impl Cli {
 			heartbeat_interval: Duration::from_secs(1),
 			remotes: Vec::new(),
 		});
-		let store = None;
+		let store = tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
+			path: path.join("store"),
+		});
 		let vfs = if cfg!(target_os = "linux") {
 			Some(tangram_server::config::Vfs::default())
 		} else {
@@ -650,8 +652,17 @@ impl Cli {
 			},
 			Some(Either::Right(indexer)) => {
 				let mut indexer_ = config.indexer.unwrap_or_default();
-				if let Some(batch_size) = indexer.batch_size {
-					indexer_.batch_size = batch_size;
+				if let Some(message_batch_size) = indexer.message_batch_size {
+					indexer_.message_batch_size = message_batch_size;
+				}
+				if let Some(message_batch_timeout) = indexer.message_batch_timeout {
+					indexer_.message_batch_timeout = message_batch_timeout;
+				}
+				if let Some(insert_batch_size) = indexer.insert_batch_size {
+					indexer_.insert_batch_size = insert_batch_size;
+				}
+				if let Some(update_complete_batch_size) = indexer.update_complete_batch_size {
+					indexer_.update_complete_batch_size = update_complete_batch_size;
 				}
 				config.indexer = Some(indexer_);
 			},
@@ -721,33 +732,30 @@ impl Cli {
 		}
 
 		// Set the store config.
-		match self.config.as_ref().and_then(|config| config.store.clone()) {
-			None => (),
-			Some(store) => {
-				config.store = Some(match store {
-					#[cfg(feature = "foundationdb")]
-					config::Store::Fdb(fdb) => {
-						tangram_server::config::Store::Fdb(tangram_server::config::FdbStore {
-							path: fdb.path,
-						})
-					},
-					config::Store::Lmdb(lmdb) => {
-						tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
-							path: lmdb.path.unwrap_or_else(|| config.path.join("store")),
-						})
-					},
-					config::Store::Memory => tangram_server::config::Store::Memory,
-					config::Store::S3(s3) => {
-						tangram_server::config::Store::S3(tangram_server::config::S3Store {
-							access_key: s3.access_key,
-							bucket: s3.bucket,
-							region: s3.region,
-							secret_key: s3.secret_key,
-							url: s3.url,
-						})
-					},
-				});
-			},
+		if let Some(store) = self.config.as_ref().and_then(|config| config.store.clone()) {
+			config.store = match store {
+				#[cfg(feature = "foundationdb")]
+				config::Store::Fdb(fdb) => {
+					tangram_server::config::Store::Fdb(tangram_server::config::FdbStore {
+						path: fdb.path,
+					})
+				},
+				config::Store::Lmdb(lmdb) => {
+					tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
+						path: lmdb.path.unwrap_or_else(|| config.path.join("store")),
+					})
+				},
+				config::Store::Memory => tangram_server::config::Store::Memory,
+				config::Store::S3(s3) => {
+					tangram_server::config::Store::S3(tangram_server::config::S3Store {
+						access_key: s3.access_key,
+						bucket: s3.bucket,
+						region: s3.region,
+						secret_key: s3.secret_key,
+						url: s3.url,
+					})
+				},
+			};
 		}
 
 		// Set the vfs config.

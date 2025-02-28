@@ -1,13 +1,22 @@
 use crate::Server;
 use bytes::{Buf as _, Bytes};
 use futures::{FutureExt as _, Stream, StreamExt, future::BoxFuture};
+use indoc::formatdoc;
 use num::ToPrimitive;
-use std::{io::Cursor, pin::pin};
+use std::{
+	io::Cursor,
+	panic::AssertUnwindSafe,
+	pin::{Pin, pin},
+	task::Poll,
+};
 use sync_wrapper::SyncWrapper;
 use tangram_client::{self as tg, handle::Ext as _};
+use tangram_database::{self as db, prelude::*};
 use tangram_futures::{stream::Ext, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _};
+use tokio::io::{
+	AsyncBufRead, AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _,
+};
 use tokio_util::task::AbortOnDropHandle;
 
 pub enum Reader {
@@ -16,7 +25,11 @@ pub enum Reader {
 }
 
 pub struct File {
+	current: u64,
+	length: u64,
+	position: u64,
 	reader: tokio::io::BufReader<tokio::fs::File>,
+	seeking: bool,
 }
 
 pub struct Object {
@@ -48,9 +61,34 @@ impl Server {
 		let task = tokio::spawn({
 			let server = self.clone();
 			async move {
-				let result = server.try_read_blob_task(arg, reader, sender.clone()).await;
-				if let Err(error) = result {
-					sender.try_send(Err(error)).ok();
+				let result =
+					AssertUnwindSafe(server.try_read_blob_task(arg, reader, sender.clone()))
+						.catch_unwind()
+						.await;
+				match result {
+					Ok(Ok(())) => (),
+					Ok(Err(error)) => {
+						sender
+							.send(Err(error))
+							.await
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to send the export error");
+							})
+							.ok();
+					},
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						sender
+							.send(Err(tg::error!(?message, "the task panicked")))
+							.await
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to send the export panic");
+							})
+							.ok();
+					},
 				}
 			}
 		});
@@ -113,18 +151,41 @@ impl Server {
 
 impl Reader {
 	pub async fn new(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
-		let blob_path = server.blobs_path().join(blob.id(server).await?.to_string());
-		let file = match tokio::fs::File::open(blob_path).await {
-			Ok(file) => Some(file),
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to open the file"));
-			},
-		};
-		let reader = if let Some(file) = file {
-			Self::File(File::new(file))
+		let id = blob.id(server).await?;
+		let connection = server
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+		#[derive(Debug, serde::Deserialize)]
+		struct Row {
+			blob: tg::blob::Id,
+			position: u64,
+			length: u64,
+		}
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select blob, position, length
+				from blob_references
+				where id = {p}1;
+			",
+		);
+		let params = db::params![&id];
+		let row = connection
+			.query_optional_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?;
+		let reader = if let Some(row) = row {
+			let blob_path = server.blobs_path().join(row.blob.to_string());
+			let file = tokio::fs::File::open(blob_path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to open the file"))?;
+			let reader = File::new(file, row.position, row.length).await?;
+			Self::File(reader)
 		} else {
-			Self::Object(Object::new(server, blob).await?)
+			let reader = Object::new(server, blob).await?;
+			Self::Object(reader)
 		};
 		Ok(reader)
 	}
@@ -132,101 +193,159 @@ impl Reader {
 
 impl AsyncRead for Reader {
 	fn poll_read(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
 		buf: &mut tokio::io::ReadBuf<'_>,
-	) -> std::task::Poll<std::io::Result<()>> {
+	) -> Poll<std::io::Result<()>> {
 		match self.get_mut() {
-			Reader::File(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
-			Reader::Object(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
+			Reader::File(reader) => Pin::new(reader).poll_read(cx, buf),
+			Reader::Object(reader) => Pin::new(reader).poll_read(cx, buf),
 		}
 	}
 }
 
 impl AsyncBufRead for Reader {
 	fn poll_fill_buf(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<std::io::Result<&[u8]>> {
+	) -> Poll<std::io::Result<&[u8]>> {
 		match self.get_mut() {
-			Reader::File(reader) => std::pin::Pin::new(reader).poll_fill_buf(cx),
-			Reader::Object(reader) => std::pin::Pin::new(reader).poll_fill_buf(cx),
+			Reader::File(reader) => Pin::new(reader).poll_fill_buf(cx),
+			Reader::Object(reader) => Pin::new(reader).poll_fill_buf(cx),
 		}
 	}
 
-	fn consume(self: std::pin::Pin<&mut Self>, amt: usize) {
+	fn consume(self: Pin<&mut Self>, amt: usize) {
 		match self.get_mut() {
-			Reader::File(reader) => std::pin::Pin::new(reader).consume(amt),
-			Reader::Object(reader) => std::pin::Pin::new(reader).consume(amt),
+			Reader::File(reader) => Pin::new(reader).consume(amt),
+			Reader::Object(reader) => Pin::new(reader).consume(amt),
 		}
 	}
 }
 
 impl AsyncSeek for Reader {
-	fn start_seek(
-		self: std::pin::Pin<&mut Self>,
-		position: std::io::SeekFrom,
-	) -> std::io::Result<()> {
+	fn start_seek(self: Pin<&mut Self>, position: std::io::SeekFrom) -> std::io::Result<()> {
 		match self.get_mut() {
-			Reader::File(reader) => std::pin::Pin::new(reader).start_seek(position),
-			Reader::Object(reader) => std::pin::Pin::new(reader).start_seek(position),
+			Reader::File(reader) => Pin::new(reader).start_seek(position),
+			Reader::Object(reader) => Pin::new(reader).start_seek(position),
 		}
 	}
 
 	fn poll_complete(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<std::io::Result<u64>> {
+	) -> Poll<std::io::Result<u64>> {
 		match self.get_mut() {
-			Reader::File(reader) => std::pin::Pin::new(reader).poll_complete(cx),
-			Reader::Object(reader) => std::pin::Pin::new(reader).poll_complete(cx),
+			Reader::File(reader) => Pin::new(reader).poll_complete(cx),
+			Reader::Object(reader) => Pin::new(reader).poll_complete(cx),
 		}
 	}
 }
 
 impl File {
-	fn new(file: tokio::fs::File) -> Self {
-		let reader = tokio::io::BufReader::new(file);
-		Self { reader }
+	async fn new(file: tokio::fs::File, position: u64, length: u64) -> tg::Result<Self> {
+		let mut reader = tokio::io::BufReader::new(file);
+		reader
+			.seek(std::io::SeekFrom::Start(position))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to seek the file"))?;
+		Ok(Self {
+			current: 0,
+			length,
+			position,
+			reader,
+			seeking: false,
+		})
 	}
 }
 
 impl AsyncRead for File {
 	fn poll_read(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
 		buf: &mut tokio::io::ReadBuf<'_>,
-	) -> std::task::Poll<std::io::Result<()>> {
-		std::pin::Pin::new(&mut self.get_mut().reader).poll_read(cx, buf)
+	) -> Poll<std::io::Result<()>> {
+		let this = self.get_mut();
+		if this.current >= this.length {
+			return Poll::Ready(Ok(()));
+		}
+		let poll = Pin::new(&mut this.reader).poll_read(cx, buf);
+		if let Poll::Ready(Ok(())) = poll {
+			let n = buf.filled().len();
+			let n = n.min((this.length - this.current).to_usize().unwrap());
+			buf.set_filled(n);
+			this.current += n.to_u64().unwrap();
+			return Poll::Ready(Ok(()));
+		}
+		poll
 	}
 }
 
 impl AsyncBufRead for File {
 	fn poll_fill_buf(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<std::io::Result<&[u8]>> {
-		std::pin::Pin::new(&mut self.get_mut().reader).poll_fill_buf(cx)
+	) -> Poll<std::io::Result<&[u8]>> {
+		let this = self.get_mut();
+		if this.current >= this.length {
+			return Poll::Ready(Ok(&[]));
+		}
+		let poll = Pin::new(&mut this.reader).poll_fill_buf(cx);
+		if let Poll::Ready(Ok(mut buf)) = poll {
+			let n = buf.len();
+			let n = n.min((this.length - this.current).to_usize().unwrap());
+			buf = &buf[..n];
+			return Poll::Ready(Ok(buf));
+		}
+		poll
 	}
 
-	fn consume(self: std::pin::Pin<&mut Self>, amt: usize) {
-		std::pin::Pin::new(&mut self.get_mut().reader).consume(amt);
+	fn consume(self: Pin<&mut Self>, amt: usize) {
+		let this = self.get_mut();
+		let amt = amt.min((this.length - this.current).to_usize().unwrap());
+		this.current += amt.to_u64().unwrap();
+		this.reader.consume(amt);
 	}
 }
 
 impl AsyncSeek for File {
-	fn start_seek(
-		self: std::pin::Pin<&mut Self>,
-		position: std::io::SeekFrom,
-	) -> std::io::Result<()> {
-		std::pin::Pin::new(&mut self.get_mut().reader).start_seek(position)
+	fn start_seek(self: Pin<&mut Self>, position: std::io::SeekFrom) -> std::io::Result<()> {
+		let this = self.get_mut();
+		this.seeking = true;
+		let position = match position {
+			std::io::SeekFrom::Start(n) => {
+				let n = this.position + n;
+				std::io::SeekFrom::Start(n)
+			},
+			std::io::SeekFrom::End(n) => {
+				let n = this.position + this.length + n.to_u64().unwrap();
+				std::io::SeekFrom::Start(n)
+			},
+			std::io::SeekFrom::Current(n) => std::io::SeekFrom::Current(n),
+		};
+		Pin::new(&mut this.reader).start_seek(position)
 	}
 
 	fn poll_complete(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<std::io::Result<u64>> {
-		std::pin::Pin::new(&mut self.get_mut().reader).poll_complete(cx)
+	) -> Poll<std::io::Result<u64>> {
+		let this = self.get_mut();
+		match Pin::new(&mut this.reader).poll_complete(cx) {
+			Poll::Ready(Ok(n)) => {
+				if !this.seeking {
+					return Poll::Ready(Ok(0));
+				}
+				this.seeking = false;
+				this.current = n - this.position;
+				Poll::Ready(Ok(this.current))
+			},
+			Poll::Ready(Err(error)) => {
+				this.seeking = false;
+				Poll::Ready(Err(error))
+			},
+			Poll::Pending => Poll::Pending,
+		}
 	}
 }
 
@@ -250,10 +369,10 @@ impl Object {
 
 impl AsyncRead for Object {
 	fn poll_read(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
 		buf: &mut tokio::io::ReadBuf<'_>,
-	) -> std::task::Poll<std::io::Result<()>> {
+	) -> Poll<std::io::Result<()>> {
 		let this = self.get_mut();
 
 		// Create the read future if necessary.
@@ -270,16 +389,16 @@ impl AsyncRead for Object {
 		// Poll the read future if necessary.
 		if let Some(read) = this.read.as_mut() {
 			match read.get_mut().as_mut().poll(cx) {
-				std::task::Poll::Pending => return std::task::Poll::Pending,
-				std::task::Poll::Ready(Err(error)) => {
+				Poll::Pending => return Poll::Pending,
+				Poll::Ready(Err(error)) => {
 					this.read.take();
-					return std::task::Poll::Ready(Err(std::io::Error::other(error)));
+					return Poll::Ready(Err(std::io::Error::other(error)));
 				},
-				std::task::Poll::Ready(Ok(None)) => {
+				Poll::Ready(Ok(None)) => {
 					this.read.take();
-					return std::task::Poll::Ready(Ok(()));
+					return Poll::Ready(Ok(()));
 				},
-				std::task::Poll::Ready(Ok(Some(cursor))) => {
+				Poll::Ready(Ok(Some(cursor))) => {
 					this.read.take();
 					this.cursor.replace(cursor);
 				},
@@ -299,15 +418,15 @@ impl AsyncRead for Object {
 			this.cursor.take();
 		}
 
-		std::task::Poll::Ready(Ok(()))
+		Poll::Ready(Ok(()))
 	}
 }
 
 impl AsyncBufRead for Object {
 	fn poll_fill_buf(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<std::io::Result<&[u8]>> {
+	) -> Poll<std::io::Result<&[u8]>> {
 		let this = self.get_mut();
 
 		// Create the read future if necessary.
@@ -324,16 +443,16 @@ impl AsyncBufRead for Object {
 		// Poll the read future if necessary.
 		if let Some(read) = this.read.as_mut() {
 			match read.get_mut().as_mut().poll(cx) {
-				std::task::Poll::Pending => return std::task::Poll::Pending,
-				std::task::Poll::Ready(Err(error)) => {
+				Poll::Pending => return Poll::Pending,
+				Poll::Ready(Err(error)) => {
 					this.read.take();
-					return std::task::Poll::Ready(Err(std::io::Error::other(error)));
+					return Poll::Ready(Err(std::io::Error::other(error)));
 				},
-				std::task::Poll::Ready(Ok(None)) => {
+				Poll::Ready(Ok(None)) => {
 					this.read.take();
-					return std::task::Poll::Ready(Ok(&[]));
+					return Poll::Ready(Ok(&[]));
 				},
-				std::task::Poll::Ready(Ok(Some(cursor))) => {
+				Poll::Ready(Ok(Some(cursor))) => {
 					this.read.take();
 					this.cursor.replace(cursor);
 				},
@@ -344,10 +463,10 @@ impl AsyncBufRead for Object {
 		let cursor = this.cursor.as_ref().unwrap();
 		let bytes = &cursor.get_ref()[cursor.position().to_usize().unwrap()..];
 
-		std::task::Poll::Ready(Ok(bytes))
+		Poll::Ready(Ok(bytes))
 	}
 
-	fn consume(self: std::pin::Pin<&mut Self>, amt: usize) {
+	fn consume(self: Pin<&mut Self>, amt: usize) {
 		let this = self.get_mut();
 		this.position += amt.to_u64().unwrap();
 		let cursor = this.cursor.as_mut().unwrap();
@@ -360,7 +479,7 @@ impl AsyncBufRead for Object {
 }
 
 impl AsyncSeek for Object {
-	fn start_seek(self: std::pin::Pin<&mut Self>, seek: std::io::SeekFrom) -> std::io::Result<()> {
+	fn start_seek(self: Pin<&mut Self>, seek: std::io::SeekFrom) -> std::io::Result<()> {
 		let this = self.get_mut();
 		this.read.take();
 		let position = match seek {
@@ -390,10 +509,10 @@ impl AsyncSeek for Object {
 	}
 
 	fn poll_complete(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		_cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<std::io::Result<u64>> {
-		std::task::Poll::Ready(Ok(self.position))
+	) -> Poll<std::io::Result<u64>> {
+		Poll::Ready(Ok(self.position))
 	}
 }
 

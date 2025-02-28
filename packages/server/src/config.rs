@@ -13,7 +13,7 @@ pub struct Config {
 	pub path: PathBuf,
 	pub remotes: Option<Vec<Remote>>,
 	pub runner: Option<Runner>,
-	pub store: Option<Store>,
+	pub store: Store,
 	pub vfs: Option<Vfs>,
 	pub watchdog: Option<Watchdog>,
 }
@@ -79,7 +79,10 @@ pub struct Http {
 
 #[derive(Clone, Debug)]
 pub struct Indexer {
-	pub batch_size: usize,
+	pub message_batch_size: usize,
+	pub message_batch_timeout: Duration,
+	pub insert_batch_size: usize,
+	pub update_complete_batch_size: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -164,7 +167,9 @@ impl Config {
 		let messenger = Messenger::default();
 		let remotes = None;
 		let runner = Some(Runner::default());
-		let store = None;
+		let store = Store::Lmdb(LmdbStore {
+			path: path.join("store"),
+		});
 		let http = Some(Http::default());
 		let vfs = None;
 		let watchdog = Some(Watchdog::default());
@@ -220,7 +225,12 @@ impl Default for PostgresDatabase {
 
 impl Default for Indexer {
 	fn default() -> Self {
-		Self { batch_size: 1024 }
+		Self {
+			insert_batch_size: 128,
+			message_batch_size: 128,
+			message_batch_timeout: Duration::from_millis(100),
+			update_complete_batch_size: 128,
+		}
 	}
 }
 
