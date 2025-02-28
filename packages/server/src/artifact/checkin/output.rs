@@ -152,14 +152,14 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Begin a transaction.
-		let transaction = connection
+		let mut transaction = connection
 			.transaction()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
 
-		match transaction {
-			Either::Left(sqlite) => {
-				sqlite
+		match &mut transaction {
+			Either::Left(transaction) => {
+				transaction
 					.with(move |transaction| {
 						for (id, (data, metadata)) in &object.graphs {
 							write_object_sqlite(
@@ -190,22 +190,19 @@ impl Server {
 								&output.data.clone().into(),
 								&output.metadata,
 							)?;
+
 							stack.extend(output.edges.iter().map(|edge| edge.node));
 						}
 
 						Ok::<_, tg::Error>(())
 					})
 					.await?;
-				sqlite
-					.commit()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 			},
 			Either::Right(transaction) => {
 				// Write graphs.
 				for (id, (data, metadata)) in &object.graphs {
 					write_object_postgres(
-						&transaction,
+						transaction,
 						&id.clone().into(),
 						&data.clone().into(),
 						metadata,
@@ -228,22 +225,23 @@ impl Server {
 
 					// Write the object.
 					write_object_postgres(
-						&transaction,
+						transaction,
 						&output.id.clone().into(),
 						&output.data.clone().into(),
 						&output.metadata,
 					)
 					.await?;
+
 					stack.extend(output.edges.iter().map(|edge| edge.node));
 				}
-
-				// Commit the transaction.
-				transaction
-					.commit()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 			},
 		}
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		Ok(())
 	}

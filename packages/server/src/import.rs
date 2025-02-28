@@ -432,14 +432,15 @@ impl Server {
 				let id = id.clone();
 				let bytes = bytes.clone();
 				async move {
-					let children = tg::object::Data::deserialize(id.kind(), &bytes)?.children();
+					let data = tg::object::Data::deserialize(id.kind(), &bytes)?;
+					let children = data.children();
 					let message = Message {
 						id: id.clone(),
 						size,
 						children,
 					};
 					let payload = serde_json::to_vec(&message)
-						.map_err(|source| tg::error!(!source, "failed to serialize message"))?;
+						.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
 					messenger
 						.jetstream
 						.publish("index", payload.into())
@@ -460,6 +461,7 @@ impl Server {
 			progress.increment_objects(1);
 			progress.increment_bytes(size);
 		}
+
 		Ok(())
 	}
 

@@ -30,9 +30,9 @@ impl Fdb {
 			.database
 			.run(|transaction, _| async move {
 				let subspace = fdb::tuple::Subspace::all().subspace(&id.to_string());
-				let entries = transaction
-					.get_range(&subspace.range().into(), 0, false)
-					.await?;
+				let mut range_option = fdb::RangeOption::from(subspace.range());
+				range_option.mode = fdb::options::StreamingMode::WantAll;
+				let entries = transaction.get_range(&range_option, 0, false).await?;
 				if entries.is_empty() {
 					return Ok(None);
 				}

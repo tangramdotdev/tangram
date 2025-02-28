@@ -7,10 +7,10 @@ use tokio::io::AsyncReadExt as _;
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	bytes: Option<String>,
+	pub bytes: Option<String>,
 
 	#[arg(short, long)]
-	kind: tg::object::Kind,
+	pub kind: tg::object::Kind,
 }
 
 impl Cli {
