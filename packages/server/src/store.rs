@@ -44,7 +44,7 @@ impl Store {
 			Self::Memory(memory) => Ok(memory.try_get(id)),
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.try_get(id).await,
-			Self::Lmdb(lmdb) => lmdb.try_get(id),
+			Self::Lmdb(lmdb) => lmdb.try_get(id).await,
 			Self::S3(s3) => s3.try_get(id).await,
 		}
 	}
@@ -59,7 +59,7 @@ impl Store {
 				fdb.put(id, bytes).await?;
 			},
 			Self::Lmdb(lmdb) => {
-				lmdb.put(id, bytes)?;
+				lmdb.put(id, bytes).await?;
 			},
 			Self::S3(s3) => {
 				s3.put(id, bytes).await?;
@@ -78,7 +78,7 @@ impl Store {
 				fdb.put_batch(items).await?;
 			},
 			Self::Lmdb(lmdb) => {
-				lmdb.put_batch(items)?;
+				lmdb.put_batch(items).await?;
 			},
 			Self::S3(s3) => {
 				s3.put_batch(items).await?;
