@@ -279,10 +279,18 @@ impl super::Database for Database {
 		&self,
 		options: super::ConnectionOptions,
 	) -> Result<Self::T, Self::Error> {
-		let connection = match options.kind {
-			crate::ConnectionKind::Read => self.read_pool.get(options.priority).await,
-			crate::ConnectionKind::Write => self.write_pool.get(options.priority).await,
+		let connection_fut = match options.kind {
+			crate::ConnectionKind::Read => self.read_pool.get(options.priority),
+			crate::ConnectionKind::Write => self.write_pool.get(options.priority),
 		};
+		let connection = crate::with_timeout_logging(
+			connection_fut,
+			options.timeout_threshold,
+			&options
+				.timeout_warning_name
+				.unwrap_or("sqlite connection get".to_string()),
+		)
+		.await;
 		Ok(connection)
 	}
 }

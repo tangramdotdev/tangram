@@ -151,10 +151,21 @@ impl super::Database for Database {
 		&self,
 		options: super::ConnectionOptions,
 	) -> Result<Self::T, Self::Error> {
-		let mut connection = self.pool.get(options.priority).await;
-		if connection.client.is_closed() {
-			connection.reconnect().await?;
-		}
+		let connection_fut = async {
+			let mut connection = self.pool.get(options.priority).await;
+			if connection.client.is_closed() {
+				connection.reconnect().await?;
+			}
+			Ok::<_, Self::Error>(connection)
+		};
+		let connection = crate::with_timeout_logging(
+			connection_fut,
+			options.timeout_threshold,
+			&options
+				.timeout_warning_name
+				.unwrap_or("postgres connection get".to_string()),
+		)
+		.await?;
 		Ok(connection)
 	}
 }

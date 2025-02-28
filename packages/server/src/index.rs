@@ -225,6 +225,8 @@ impl Server {
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
+			timeout_warning_name: Some("indexer insert objects connection get".to_string()),
+			..Default::default()
 		};
 		let connection = database
 			.connection_with_options(options)
@@ -326,6 +328,8 @@ impl Server {
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
+			timeout_warning_name: Some("indexer insert objects connection get".to_string()),
+			..Default::default()
 		};
 		let mut connection = database
 			.connection_with_options(options)
@@ -443,6 +447,10 @@ impl Server {
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
+			timeout_warning_name: Some(
+				"indexer update complete objects connection get".to_string(),
+			),
+			..Default::default()
 		};
 		let connection = self
 			.database

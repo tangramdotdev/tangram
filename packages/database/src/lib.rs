@@ -43,10 +43,23 @@ pub trait Database {
 	) -> impl Future<Output = Result<Self::T, Self::Error>> + Send;
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ConnectionOptions {
 	pub kind: ConnectionKind,
 	pub priority: Priority,
+	pub timeout_threshold: std::time::Duration,
+	pub timeout_warning_name: Option<String>,
+}
+
+impl Default for ConnectionOptions {
+	fn default() -> Self {
+		Self {
+			kind: ConnectionKind::default(),
+			priority: Priority::default(),
+			timeout_threshold: std::time::Duration::from_secs(2),
+			timeout_warning_name: None,
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default)]
@@ -320,4 +333,30 @@ macro_rules! params {
 	($($v:expr),* $(,)?) => {
 		vec![$(::serde::Serialize::serialize(&$v, $crate::value::ser::Serializer).unwrap(),)*]
 	};
+}
+pub(crate) async fn with_timeout_logging<F, T>(
+	future: F,
+	threshold: std::time::Duration,
+	name: &str,
+) -> T
+where
+	F: Future<Output = T>,
+{
+	let start = std::time::Instant::now();
+
+	let timeout_future = tokio::spawn({
+		let name = name.to_owned();
+		async move {
+			tokio::time::sleep(threshold).await;
+			tracing::warn!("Operation '{name}' is taking longer than threshold: {threshold:?}");
+		}
+	});
+
+	let result = future.await;
+	timeout_future.abort();
+	let elapsed = start.elapsed();
+	if elapsed > threshold {
+		tracing::debug!(?elapsed, "Operation '{name}' completed");
+	}
+	result
 }
