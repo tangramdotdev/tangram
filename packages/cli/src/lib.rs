@@ -249,6 +249,7 @@ impl Cli {
 		};
 
 		// Initialize FoundationDB.
+		#[cfg(feature = "foundationdb")]
 		let _fdb = if matches!(mode, Mode::Server) {
 			Some(unsafe { foundationdb::boot() })
 		} else {

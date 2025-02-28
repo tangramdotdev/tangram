@@ -15,7 +15,7 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-foundationdb = ["tangram_server/foundationdb"]
+foundationdb = ["dep:foundationdb", "tangram_server/foundationdb"]
 
 [lints]
 workspace = true
@@ -32,7 +32,7 @@ copypasta = { workspace = true }
 crossterm = { workspace = true }
 deno_core_icudata = { workspace = true }
 derive_more = { workspace = true }
-foundationdb = { workspace = true }
+foundationdb = { workspace = true, optional = true }
 futures = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
