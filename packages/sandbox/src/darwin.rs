@@ -1,0 +1,560 @@
+use crate::{Child, Command, ExitStatus, Stderr, Stdin, Stdio, Stdout, pty::Pty};
+use indoc::writedoc;
+use num::ToPrimitive;
+use std::{
+	ffi::{CStr, CString, OsStr},
+	fmt::Write,
+	os::{
+		fd::{IntoRawFd, RawFd},
+		unix::ffi::OsStrExt,
+	},
+};
+use tangram_either::Either;
+
+struct Context {
+	argv: CStringVec,
+	cwd: CString,
+	envp: CStringVec,
+	executable: CString,
+	profile: CString,
+	stdio: Either<Pty, (Option<RawFd>, Option<RawFd>, Option<RawFd>)>,
+}
+
+impl Child {
+	pub(crate) async fn wait_darwin(&mut self) -> std::io::Result<ExitStatus> {
+		let pid = self.pid;
+
+		// Defer closing the process.
+		scopeguard::defer! {
+			// Kill the root process.
+			let ret = unsafe { libc::kill(pid, libc::SIGKILL) };
+			if ret != 0 {
+				return;
+			}
+
+			// Wait for the root process to exit.
+			tokio::task::spawn_blocking(move || {
+				// Wait for exit.
+				let mut status = 0;
+				unsafe {
+					libc::waitpid(
+						pid,
+						std::ptr::addr_of_mut!(status),
+						libc::WEXITED,
+					);
+				}
+
+				// Reap all its children.
+				kill_process_tree(pid);
+			});
+		};
+
+		// Spawn a blocking task to wait for the output.
+		tokio::task::spawn_blocking(move || unsafe {
+			let mut status = 0;
+			if libc::waitpid(pid, std::ptr::addr_of_mut!(status), libc::WEXITED) != 0 {
+				return Err(std::io::Error::last_os_error());
+			};
+			if libc::WIFEXITED(status) {
+				let code = libc::WEXITSTATUS(status);
+				Ok(ExitStatus::Code(code))
+			} else if libc::WIFSIGNALED(status) {
+				let signal = libc::WTERMSIG(status);
+				Ok(ExitStatus::Signal(signal))
+			} else {
+				unreachable!();
+			}
+		})
+		.await
+		.unwrap()
+	}
+}
+
+pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
+	// Create argv, cwd, and envp strings.
+	let argv = std::iter::once(cstring(&command.executable))
+		.chain(command.args.iter().map(cstring))
+		.collect::<CStringVec>();
+	let cwd = cstring(&command.cwd);
+	let envp = command
+		.envs
+		.iter()
+		.map(|(k, v)| envstring(k, v))
+		.collect::<CStringVec>();
+	let executable = cstring(&command.executable);
+
+	// Check that the caller didn't request something that requires root or disabling SIP...
+	if command.chroot.is_some() {
+		return Err(std::io::Error::other(
+			"chroot unsupported on darwin targets",
+		));
+	}
+	if !command.mounts.is_empty() {
+		return Err(std::io::Error::other(
+			"mount is unsupported on darwin targets",
+		));
+	}
+
+	// Create stdio.
+	let (parent_stdio, child_stdio) = if let Some(tty) = command.tty {
+		let (parent, child) = Pty::open(tty).await?;
+		(Either::Left(parent), Either::Left(child))
+	} else {
+		let (stdin_parent, stdin_child) = stdio_pair(command.stdin)?;
+		let (stdout_parent, stdout_child) = stdio_pair(command.stdout)?;
+		let (stderr_parent, stderr_child) = stdio_pair(command.stderr)?;
+		(
+			Either::Right((stdin_parent, stdout_parent, stderr_parent)),
+			Either::Right((stdin_child, stdout_child, stderr_child)),
+		)
+	};
+
+	// Create the sandbox profile.
+	let profile = create_sandbox_profile(command);
+
+	// Create the context.
+	let context = Context {
+		argv,
+		cwd,
+		envp,
+		executable,
+		profile,
+		stdio: child_stdio,
+	};
+
+	// Fork.
+	let pid = unsafe { libc::fork() };
+	if pid < 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	if pid != 0 {
+		guest_process(context);
+	}
+
+	// Create stdio
+	let (stdin, stdout, stderr) = match parent_stdio {
+		Either::Left(pty) => {
+			let (stdin, stdout, stderr) = pty.into_stdio()?;
+			(Some(stdin), Some(stdout), Some(stderr))
+		},
+		Either::Right((stdin, stdout, stderr)) => {
+			let stdin = stdin.map(|inner| Stdin {
+				inner: Either::Right(inner),
+			});
+			let stdout = stdout.map(|inner| Stdout {
+				inner: Either::Right(inner),
+			});
+			let stderr = stderr.map(|inner| Stderr {
+				inner: Either::Right(inner),
+			});
+			(stdin, stdout, stderr)
+		},
+	};
+
+	// Create the child.
+	let child = Child {
+		pid,
+		stdin,
+		stdout,
+		stderr,
+	};
+
+	Ok(child)
+}
+
+fn guest_process(mut context: Context) -> ! {
+	// Redirect
+	redirect_stdio(&mut context);
+
+	// Initialize the sandbox.
+	unsafe {
+		let error = std::ptr::null_mut::<*const libc::c_char>();
+		let ret = sandbox_init(context.profile.as_ptr(), 0, error);
+
+		// Handle an error from `sandbox_init`.
+		if ret != 0 {
+			let error = *error;
+			let message = CStr::from_ptr(error);
+			sandbox_free_error(error);
+			abort_errno!("failed to setup the sandbox: {}", message.to_string_lossy());
+		}
+	}
+
+	// Change directories if necessary.
+	if unsafe { libc::chdir(context.cwd.as_ptr()) } != 0 {
+		abort_errno!("failed to change working directory");
+	}
+
+	// Exec.
+	unsafe {
+		libc::execve(
+			context.executable.as_ptr(),
+			context.argv.as_ptr(),
+			context.envp.as_ptr(),
+		);
+		abort_errno!("failed to exec");
+	}
+}
+
+fn stdio_pair(stdio: Stdio) -> std::io::Result<(Option<tokio::net::UnixStream>, Option<RawFd>)> {
+	match stdio {
+		Stdio::Inherit => Ok((None, None)),
+		Stdio::Null => {
+			let fd = unsafe { libc::open(c"/dev/null".as_ptr(), libc::O_RDWR) };
+			if fd < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			Ok((None, Some(fd)))
+		},
+		Stdio::Piped => {
+			let (host, guest) = socket_pair()?;
+			Ok((Some(host), Some(guest.into_raw_fd())))
+		},
+	}
+}
+
+fn socket_pair() -> std::io::Result<(tokio::net::UnixStream, std::os::unix::net::UnixStream)> {
+	let (r#async, sync) = tokio::net::UnixStream::pair()?;
+	let sync = sync.into_std()?;
+	sync.set_nonblocking(false)?;
+	Ok((r#async, sync))
+}
+
+fn cstring(s: impl AsRef<OsStr>) -> CString {
+	CString::new(s.as_ref().as_bytes()).unwrap()
+}
+
+fn envstring(k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> CString {
+	let string = format!(
+		"{}={}",
+		k.as_ref().to_string_lossy(),
+		v.as_ref().to_string_lossy()
+	);
+	CString::new(string).unwrap()
+}
+
+fn create_sandbox_profile(command: &Command) -> CString {
+	// Write the default profile.
+	let mut profile = String::new();
+	writedoc!(
+		profile,
+		"
+			(version 1)
+		"
+	)
+	.unwrap();
+	if !command.sandbox {
+		writedoc!(
+			profile,
+			"
+				;; Allow everything by default.
+				(allow default)
+			"
+		)
+		.unwrap();
+	} else {
+		writedoc!(
+			profile,
+			r#"
+				;; Deny everything by default.
+				(deny default)
+
+				;; Allow most system operations.
+				(allow syscall*)
+				(allow system-socket)
+				(allow mach*)
+				(allow ipc*)
+				(allow sysctl*)
+
+				;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
+				(allow process-fork process-info*)
+
+				;; Allow limited exploration of the root.
+				(allow file-read-data (literal "/"))
+				(allow file-read-metadata
+					(literal "/Library")
+					(literal "/System")
+					(literal "/Users")
+					(literal "/Volumes")
+					(literal "/etc")
+				)
+
+				;; Allow writing to common devices.
+				(allow file-read* file-write-data file-ioctl
+					(literal "/dev/null")
+					(literal "/dev/zero")
+					(literal "/dev/dtracehelper")
+				)
+
+				;; Allow reading and writing temporary files.
+				(allow file-write* file-read*
+					(subpath "/tmp")
+					(subpath "/private/tmp")
+					(subpath "/private/var")
+					(subpath "/var")
+				)
+
+				;; Allow reading some system devices and files.
+				(allow file-read*
+					(literal "/dev/autofs_nowait")
+					(literal "/dev/random")
+					(literal "/dev/urandom")
+					(literal "/private/etc/localtime")
+					(literal "/private/etc/protocols")
+					(literal "/private/etc/services")
+					(subpath "/private/etc/ssl")
+				)
+
+				;; Allow executing /usr/bin/env and /bin/sh.
+				(allow file-read* process-exec
+					(literal "/usr/bin/env")
+					(literal "/bin/sh")
+					(literal "/bin/bash")
+				)
+
+				;; Support Rosetta.
+				(allow file-read* file-test-existence
+					(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
+				)
+
+				;; Allow accessing the dyld shared cache.
+				(allow file-read* process-exec
+					(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
+					(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
+				)
+
+				;; Allow querying the macOS system version metadata.
+				(allow file-read* file-test-existence
+					(literal "/System/Library/CoreServices/SystemVersion.plist")
+				)
+
+				;; Allow bash to create and use file descriptors for pipes.
+				(allow file-read* file-write* file-ioctl process-exec
+					(literal "/dev/fd")
+					(subpath "/dev/fd")
+				)
+			"#
+		).unwrap();
+	}
+
+	// Write the network profile.
+	if command.network {
+		writedoc!(
+			profile,
+			r#"
+				;; Allow network access.
+				(allow network*)
+
+				;; Allow reading network preference files.
+				(allow file-read*
+					(literal "/Library/Preferences/com.apple.networkd.plist")
+					(literal "/private/var/db/com.apple.networkextension.tracker-info")
+					(literal "/private/var/db/nsurlstoraged/dafsaData.bin")
+				)
+				(allow user-preference-read (preference-domain "com.apple.CFNetwork"))
+			"#
+		)
+		.unwrap();
+	} else {
+		writedoc!(
+			profile,
+			r#"
+				;; Disable global network access.
+				(deny network*)
+
+				;; Allow network access to localhost and Unix sockets.
+				(allow network* (remote ip "localhost:*"))
+				(allow network* (remote unix-socket))
+			"#
+		)
+		.unwrap();
+	}
+
+	// Allow write access to the home directory.
+	for path in &command.paths {
+		if path.readonly {
+			writedoc!(
+				profile,
+				r"
+                        (allow process-exec* (subpath {0}))
+                        (allow file-read* (path-ancestors {0}))
+                        (allow file-read* (subpath {0}))
+                ",
+				escape(path.path.as_os_str().as_bytes()),
+			)
+			.unwrap()
+		} else {
+			writedoc!(
+				profile,
+				r"
+                        (allow process-exec* (subpath {0}))
+                        (allow file-read* (path-ancestors {0}))
+                        (allow file-read* (subpath {0}))
+                        (allow file-write* (subpath {0}))
+                ",
+				escape(path.path.as_os_str().as_bytes()),
+			)
+			.unwrap()
+		}
+	}
+
+	CString::new(profile).unwrap()
+}
+
+fn kill_process_tree(pid: i32) {
+	let mut pids = vec![pid];
+	let mut i = 0;
+	while i < pids.len() {
+		let ppid = pids[i];
+		let n = unsafe { libc::proc_listchildpids(ppid, std::ptr::null_mut(), 0) };
+		if n < 0 {
+			return;
+		}
+		pids.resize(i + n.to_usize().unwrap() + 1, 0);
+		let n = unsafe { libc::proc_listchildpids(ppid, pids[(i + 1)..].as_mut_ptr().cast(), n) };
+		if n < 0 {
+			return;
+		}
+		pids.truncate(i + n.to_usize().unwrap() + 1);
+		i += 1;
+	}
+	for pid in pids.iter().rev() {
+		unsafe { libc::kill(*pid, libc::SIGKILL) };
+		let mut status = 0;
+		unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
+	}
+}
+
+unsafe extern "C" {
+	fn sandbox_init(
+		profile: *const libc::c_char,
+		flags: u64,
+		errorbuf: *mut *const libc::c_char,
+	) -> libc::c_int;
+	fn sandbox_free_error(errorbuf: *const libc::c_char) -> libc::c_void;
+}
+
+/// Escape a string using the string literal syntax rules for `TinyScheme`. See <https://github.com/dchest/tinyscheme/blob/master/Manual.txt#L130>.
+fn escape(bytes: impl AsRef<[u8]>) -> String {
+	let bytes = bytes.as_ref();
+	let mut output = String::new();
+	output.push('"');
+	for byte in bytes {
+		let byte = *byte;
+		match byte {
+			b'"' => {
+				output.push('\\');
+				output.push('"');
+			},
+			b'\\' => {
+				output.push('\\');
+				output.push('\\');
+			},
+			b'\t' => {
+				output.push('\\');
+				output.push('t');
+			},
+			b'\n' => {
+				output.push('\\');
+				output.push('n');
+			},
+			b'\r' => {
+				output.push('\\');
+				output.push('r');
+			},
+			byte if char::from(byte).is_ascii_alphanumeric()
+				|| char::from(byte).is_ascii_punctuation()
+				|| byte == b' ' =>
+			{
+				output.push(byte.into());
+			},
+			byte => {
+				write!(output, "\\x{byte:02X}").unwrap();
+			},
+		}
+	}
+	output.push('"');
+	output
+}
+
+// TODO: share with linux
+struct CStringVec {
+	_strings: Vec<CString>,
+	pointers: Vec<*const libc::c_char>,
+}
+
+impl CStringVec {
+	fn as_ptr(&self) -> *const *const libc::c_char {
+		self.pointers.as_ptr()
+	}
+}
+
+impl FromIterator<CString> for CStringVec {
+	fn from_iter<T: IntoIterator<Item = CString>>(iter: T) -> Self {
+		let mut _strings = Vec::new();
+		let mut pointers = Vec::new();
+		for cstr in iter {
+			pointers.push(cstr.as_ptr());
+			_strings.push(cstr);
+		}
+		pointers.push(std::ptr::null());
+		Self { _strings, pointers }
+	}
+}
+
+fn redirect_stdio(context: &mut Context) {
+	unsafe {
+		match &mut context.stdio {
+			Either::Left(pty) => {
+				// Close the master.
+				pty.close_pty();
+
+				// Set the tty as the controlling terminal
+				// if let Err(error) = pty.set_controlling_terminal() {
+				// 	abort!("failed to set the controlling terminal: {error}");
+				// }
+
+				// Redirect stdin/stdout/stderr.
+				let ttyfd = pty.tty_fd.take().unwrap();
+				libc::dup2(ttyfd, libc::STDIN_FILENO);
+				libc::dup2(ttyfd, libc::STDOUT_FILENO);
+				libc::dup2(ttyfd, libc::STDERR_FILENO);
+
+				// Close the child.
+				libc::close(ttyfd);
+			},
+			Either::Right((stdin, stdout, stderr)) => {
+				for (fd, fileno) in [
+					(stdin, libc::STDIN_FILENO),
+					(stdout, libc::STDOUT_FILENO),
+					(stderr, libc::STDERR_FILENO),
+				] {
+					if let Some(fd) = *fd {
+						libc::dup2(fd, fileno);
+					}
+				}
+			},
+		}
+	}
+}
+
+macro_rules! abort {
+	($($t:tt)*) => {{
+		eprintln!("an error occurred in the guest process");
+		eprintln!("{}", format_args!($($t)*));
+		std::process::exit(1)
+	}};
+}
+
+use abort;
+
+macro_rules! abort_errno {
+	($($t:tt)*) => {{
+		eprintln!("an error occurred in the guest process");
+		eprintln!("{}", format_args!($($t)*));
+		eprintln!("{}", std::io::Error::last_os_error());
+		std::process::exit(1)
+	}};
+}
+
+use abort_errno;
