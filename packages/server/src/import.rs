@@ -80,7 +80,7 @@ impl Server {
 			}
 		}
 
-		// Create the complete task.
+		// Spawn the complete task.
 		let complete_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
@@ -99,7 +99,7 @@ impl Server {
 				complete_task_abort_handle.abort();
 			});
 
-		// Create the processes task.
+		// Spawn the processes task.
 		let processes_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
@@ -119,7 +119,7 @@ impl Server {
 				processes_task_abort_handle.abort();
 			});
 
-		// Create the objects task.
+		// Spawn the objects task.
 		let objects_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
