@@ -1,6 +1,6 @@
 use super::{
 	proxy::{self, Proxy},
-	util::render,
+	util::{self, render},
 };
 use crate::{Server, temp::Temp};
 use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
@@ -8,10 +8,10 @@ use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Task;
+use tangram_sandbox as sandbox;
 use url::Url;
 
 mod chroot;
-mod process;
 
 /// The home directory guest path.
 const HOME_DIRECTORY_GUEST_PATH: &str = "/home/tangram";
@@ -255,44 +255,34 @@ impl Runtime {
 			});
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
-		// Get the window sizes of the pipes.
-		let stderr = if let Some(pipe) = state.stderr.as_ref() {
-			self.server
-				.try_get_pipe(pipe)
-				.await?
-				.and_then(|pipe| pipe.window_size)
+		let mut cmd_ = sandbox::Command::new(executable);
+
+		cmd_.args(args);
+		cmd_.cwd(cwd);
+		if let Some(chroot) = chroot {
+			cmd_.chroot(&chroot.root);
+			cmd_.mounts(chroot.mounts);
+		}
+		if let Some(tty) = util::try_get_window_size(&self.server, process)
+			.await?
+			.map(|ws| sandbox::Tty {
+				rows: ws.rows,
+				cols: ws.cols,
+				x: ws.xpos,
+				y: ws.ypos,
+			}) {
+			cmd_.tty(tty);
 		} else {
-			None
-		};
-		let stdin = if let Some(pipe) = state.stdin.as_ref() {
-			self.server
-				.try_get_pipe(pipe)
-				.await?
-				.and_then(|pipe| pipe.window_size)
-		} else {
-			None
-		};
-		let stdout = if let Some(pipe) = state.stdout.as_ref() {
-			self.server
-				.try_get_pipe(pipe)
-				.await?
-				.and_then(|pipe| pipe.window_size)
-		} else {
-			None
-		};
+			cmd_.stdin(sandbox::Stdio::Piped);
+			cmd_.stdout(sandbox::Stdio::Piped);
+			cmd_.stderr(sandbox::Stdio::Piped);
+		}
 
 		// Spawn the child.
-		let mut child = process::spawn(
-			args,
-			cwd,
-			env,
-			executable,
-			chroot,
-			state.network,
-			stdin,
-			stdout,
-			stderr,
-		)?;
+		let mut child = cmd_
+			.spawn()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to spawn the child process"))?;
 
 		// Spawn the stdio task.
 		let stdio_task = tokio::spawn(super::util::stdio_task(
@@ -304,10 +294,14 @@ impl Runtime {
 		));
 
 		// Wait for the child process to complete.
-		let exit = child
+		let exit = match child
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
+			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?
+		{
+			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
+			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
+		};
 
 		// Stop the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
