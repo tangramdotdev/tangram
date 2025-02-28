@@ -90,7 +90,7 @@ pub struct Inner {
 	pipes: DashMap<tg::pipe::Id, Pipe, fnv::FnvBuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
-	store: Option<Arc<Store>>,
+	store: Store,
 	task: Mutex<Option<Task<()>>>,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -302,17 +302,12 @@ impl Server {
 		let runtimes = RwLock::new(HashMap::default());
 
 		// Create the store.
-		let store = if let Some(store) = &config.store {
-			let store = match store {
-				config::Store::Memory => Store::new_memory(),
-				#[cfg(feature = "foundationdb")]
-				config::Store::Fdb(fdb) => Store::new_fdb(fdb)?,
-				config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
-				config::Store::S3(s3) => Store::new_s3(s3),
-			};
-			Some(Arc::new(store))
-		} else {
-			None
+		let store = match &config.store {
+			config::Store::Memory => Store::new_memory(),
+			#[cfg(feature = "foundationdb")]
+			config::Store::Fdb(fdb) => Store::new_fdb(fdb)?,
+			config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
+			config::Store::S3(s3) => Store::new_s3(s3),
 		};
 
 		// Create the task.
@@ -464,48 +459,50 @@ impl Server {
 				})?;
 		}
 
-		// Add the runtimes.
-		{
-			let triple = "builtin".to_owned();
-			let runtime = self::runtime::builtin::Runtime::new(&server);
-			let runtime = self::runtime::Runtime::Builtin(runtime);
-			server.runtimes.write().unwrap().insert(triple, runtime);
-		}
-		{
-			let triple = "js".to_owned();
-			let runtime = self::runtime::js::Runtime::new(&server);
-			let runtime = self::runtime::Runtime::Js(runtime);
-			server.runtimes.write().unwrap().insert(triple, runtime);
-		}
-		#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-		{
-			let triple = "aarch64-darwin".to_owned();
-			let runtime = self::runtime::darwin::Runtime::new(&server);
-			let runtime = self::runtime::Runtime::Darwin(runtime);
-			server.runtimes.write().unwrap().insert(triple, runtime);
-		}
-		#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
-		{
-			let triple = "aarch64-linux".to_owned();
-			let runtime = self::runtime::linux::Runtime::new(&server).await?;
-			let runtime = self::runtime::Runtime::Linux(runtime);
-			server.runtimes.write().unwrap().insert(triple, runtime);
-		}
-		#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
-		{
-			let triple = "x86_64-darwin".to_owned();
-			let runtime = self::runtime::darwin::Runtime::new(&server);
-			let runtime = self::runtime::Runtime::Darwin(runtime);
-			server.runtimes.write().unwrap().insert(triple, runtime);
-		}
-		#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
-		{
-			let triple = "x86_64-linux".to_owned();
-			let runtime = self::runtime::linux::Runtime::new(&server)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the linux runtime"))?;
-			let runtime = self::runtime::Runtime::Linux(runtime);
-			server.runtimes.write().unwrap().insert(triple, runtime);
+		// Add the runtimes if the runner is enabled.
+		if server.config.runner.is_some() {
+			{
+				let triple = "builtin".to_owned();
+				let runtime = self::runtime::builtin::Runtime::new(&server);
+				let runtime = self::runtime::Runtime::Builtin(runtime);
+				server.runtimes.write().unwrap().insert(triple, runtime);
+			}
+			{
+				let triple = "js".to_owned();
+				let runtime = self::runtime::js::Runtime::new(&server);
+				let runtime = self::runtime::Runtime::Js(runtime);
+				server.runtimes.write().unwrap().insert(triple, runtime);
+			}
+			#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+			{
+				let triple = "aarch64-darwin".to_owned();
+				let runtime = self::runtime::darwin::Runtime::new(&server);
+				let runtime = self::runtime::Runtime::Darwin(runtime);
+				server.runtimes.write().unwrap().insert(triple, runtime);
+			}
+			#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+			{
+				let triple = "aarch64-linux".to_owned();
+				let runtime = self::runtime::linux::Runtime::new(&server).await?;
+				let runtime = self::runtime::Runtime::Linux(runtime);
+				server.runtimes.write().unwrap().insert(triple, runtime);
+			}
+			#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+			{
+				let triple = "x86_64-darwin".to_owned();
+				let runtime = self::runtime::darwin::Runtime::new(&server);
+				let runtime = self::runtime::Runtime::Darwin(runtime);
+				server.runtimes.write().unwrap().insert(triple, runtime);
+			}
+			#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+			{
+				let triple = "x86_64-linux".to_owned();
+				let runtime = self::runtime::linux::Runtime::new(&server)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the linux runtime"))?;
+				let runtime = self::runtime::Runtime::Linux(runtime);
+				server.runtimes.write().unwrap().insert(triple, runtime);
+			}
 		}
 
 		// Spawn the cleaner task.
@@ -831,6 +828,9 @@ impl Server {
 			let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
 			let service = tower::ServiceBuilder::new()
 				.layer(tangram_http::layer::tracing::TracingLayer::new())
+				.layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
+					60,
+				)))
 				.add_extension(stop.clone())
 				.map_response_body({
 					let idle = idle.clone();
@@ -1116,7 +1116,7 @@ impl tg::Handle for Server {
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
-		self.create_blob_with_reader(reader)
+		self.create_blob(reader)
 	}
 
 	fn try_read_blob_stream(

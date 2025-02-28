@@ -23,6 +23,7 @@ proptest = { workspace = true }
 [dependencies]
 blake3 = { workspace = true }
 byte-unit = { workspace = true }
+byteorder = { workspace = true }
 bytes = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }

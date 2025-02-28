@@ -13,7 +13,13 @@ impl Memory {
 		self.0.get(id).map(|value| value.clone())
 	}
 
-	pub fn put(&self, id: tg::object::Id, bytes: Bytes) {
-		self.0.insert(id, bytes);
+	pub fn put(&self, id: &tg::object::Id, bytes: Bytes) {
+		self.0.insert(id.clone(), bytes);
+	}
+
+	pub fn put_batch(&self, items: &[(tg::object::Id, Bytes)]) {
+		for (id, bytes) in items {
+			self.put(id, bytes.clone());
+		}
 	}
 }

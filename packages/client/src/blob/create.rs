@@ -5,7 +5,6 @@ use tokio::io::AsyncRead;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub blob: tg::blob::Id,
-	pub metadata: tg::object::Metadata,
 }
 
 impl tg::Client {

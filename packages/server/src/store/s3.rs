@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use tangram_client as tg;
 
 pub struct S3 {
@@ -70,7 +71,7 @@ impl S3 {
 		Ok(Some(bytes))
 	}
 
-	pub async fn put(&self, id: tg::object::Id, bytes: Bytes) -> tg::Result<()> {
+	pub async fn put(&self, id: &tg::object::Id, bytes: Bytes) -> tg::Result<()> {
 		let _permit = self.semaphore.acquire().await;
 		let method = reqwest::Method::PUT;
 		let url = tangram_uri::Reference::parse(self.config.url.as_str()).unwrap();
@@ -107,6 +108,15 @@ impl S3 {
 			return Err(tg::error!(%text, "the request failed"));
 		}
 		Ok(())
+	}
+
+	pub async fn put_batch(&self, items: &[(tg::object::Id, Bytes)]) -> tg::Result<()> {
+		items
+			.iter()
+			.map(|(id, bytes)| self.put(id, bytes.clone()))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await
 	}
 
 	fn sign_request(&self, request: reqwest::Request) -> tg::Result<reqwest::Request> {

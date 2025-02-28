@@ -86,14 +86,19 @@ impl Server {
 						event_sender
 							.send(Ok(tg::export::Event::End))
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to send the export end event")
-							})?;
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to send the export end event");
+							})
+							.ok();
 					},
 					Ok(Err(error)) => {
-						event_sender.send(Err(error)).await.map_err(|source| {
-							tg::error!(!source, "failed to send the export error")
-						})?;
+						event_sender
+							.send(Err(error))
+							.await
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to send the export error");
+							})
+							.ok();
 					},
 					Err(payload) => {
 						let message = payload
@@ -103,12 +108,12 @@ impl Server {
 						event_sender
 							.send(Err(tg::error!(?message, "the task panicked")))
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to send the export panic")
-							})?;
+							.inspect_err(|error| {
+								tracing::error!(?error, "failed to send the export panic");
+							})
+							.ok();
 					},
 				}
-				Ok::<_, tg::Error>(())
 			}
 		});
 		let event_receiver_stream = ReceiverStream::new(event_receiver);

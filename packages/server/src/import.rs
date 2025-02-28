@@ -1,11 +1,12 @@
-use crate::Server;
+use crate::{Server, store::Store};
+use bytes::Bytes;
 use futures::{
-	FutureExt, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
+	FutureExt, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+	stream::{self, FuturesUnordered},
 };
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
-	collections::BTreeSet,
 	pin::{Pin, pin},
 	sync::{Arc, atomic::AtomicU64},
 	time::Duration,
@@ -15,6 +16,7 @@ use tangram_database::{self as db, Database as _, Query as _};
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext};
+use tangram_messenger::Messenger as _;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::task::AbortOnDropHandle;
@@ -24,13 +26,6 @@ struct Progress {
 	processes: Option<AtomicU64>,
 	objects: AtomicU64,
 	bytes: AtomicU64,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(crate) struct Message {
-	pub(crate) id: tg::object::Id,
-	pub(crate) size: u64,
-	pub(crate) children: BTreeSet<tg::object::Id>,
 }
 
 impl Server {
@@ -77,7 +72,7 @@ impl Server {
 			}
 		}
 
-		// Create the complete task.
+		// Spawn the complete task.
 		let complete_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
@@ -96,14 +91,14 @@ impl Server {
 				complete_task_abort_handle.abort();
 			});
 
-		// Create the processes task.
+		// Spawn the processes task.
 		let processes_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
 			let progress = progress.clone();
 			async move {
 				let result = server
-					.import_processes_task(process_receiver, &event_sender, &progress)
+					.import_processes_task(process_receiver, &progress)
 					.await;
 				if let Err(error) = result {
 					event_sender.send(Err(error)).await.ok();
@@ -116,7 +111,7 @@ impl Server {
 				processes_task_abort_handle.abort();
 			});
 
-		// Create the objects task.
+		// Spawn the objects task.
 		let objects_task = tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
@@ -190,7 +185,7 @@ impl Server {
 						event_sender.send(Ok(event)).await.ok();
 					},
 					Err(error) => {
-						let error = tg::error!(!error, "failed to join the task");
+						let error = tg::error!(!error, "the task panicked");
 						event_sender.send(Err(error)).await.ok();
 					},
 				}
@@ -220,59 +215,58 @@ impl Server {
 		let mut stream = pin!(stream);
 		let mut join_set = JoinSet::new();
 		while let Some(item) = stream.next().await {
-			join_set.spawn({
-				let server = self.clone();
-				let event_sender = event_sender.clone();
-				async move {
-					match item {
-						Either::Left(id) => {
-							let result = server.try_get_import_process_complete(&id).await;
-							let process_complete = match result {
-								Ok(process_complete) => process_complete,
-								Err(error) => {
-									tracing::error!(?error, "failed to get process complete");
-									return;
-								},
-							};
-							let Some(process_complete) = process_complete else {
+			let server = self.clone();
+			let event_sender = event_sender.clone();
+			join_set.spawn(async move {
+				match item {
+					Either::Left(id) => {
+						let result = server.try_get_import_process_complete(&id).await;
+						let process_complete = match result {
+							Ok(process_complete) => process_complete,
+							Err(error) => {
+								tracing::error!(?error, "failed to get process complete");
 								return;
-							};
-							if !(process_complete.complete
-								|| process_complete.commands_complete
-								|| process_complete.logs_complete
-								|| process_complete.outputs_complete)
-							{
+							},
+						};
+						let Some(process_complete) = process_complete else {
+							return;
+						};
+						if !(process_complete.complete
+							|| process_complete.commands_complete
+							|| process_complete.logs_complete
+							|| process_complete.outputs_complete)
+						{
+							return;
+						}
+						let event = tg::import::Event::Complete(tg::import::Complete::Process(
+							process_complete,
+						));
+						event_sender.send(Ok(event)).await.ok();
+					},
+					Either::Right(id) => {
+						let result = server.try_get_import_object_complete(&id).await;
+						let object_complete = match result {
+							Ok(object_complete) => object_complete,
+							Err(error) => {
+								tracing::error!(?error, "failed to get object complete");
 								return;
-							}
-							let event = tg::import::Event::Complete(tg::import::Complete::Process(
-								process_complete,
-							));
-							event_sender.send(Ok(event)).await.ok();
-						},
-						Either::Right(id) => {
-							let result = server.try_get_import_object_complete(&id).await;
-							let object_complete = match result {
-								Ok(object_complete) => object_complete,
-								Err(error) => {
-									tracing::error!(?error, "failed to get object complete");
-									return;
-								},
-							};
-							let Some(object_complete) = object_complete else {
-								return;
-							};
-							if !object_complete {
-								return;
-							}
-							let event = tg::import::Event::Complete(tg::import::Complete::Object(
-								tg::import::ObjectComplete { id },
-							));
-							event_sender.send(Ok(event)).await.ok();
-						},
-					}
+							},
+						};
+						let Some(object_complete) = object_complete else {
+							return;
+						};
+						if !object_complete {
+							return;
+						}
+						let event = tg::import::Event::Complete(tg::import::Complete::Object(
+							tg::import::ObjectComplete { id },
+						));
+						event_sender.send(Ok(event)).await.ok();
+					},
 				}
 			});
 		}
+		// join_set.join_all().await;
 		Ok(())
 	}
 
@@ -366,32 +360,16 @@ impl Server {
 	async fn import_processes_task(
 		&self,
 		database_process_receiver: tokio::sync::mpsc::Receiver<tg::export::ProcessItem>,
-		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 		progress: &Progress,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(database_process_receiver);
 		let mut stream = pin!(stream);
 		while let Some(item) = stream.next().await {
-			// Put the process.
 			let arg = tg::process::put::Arg { data: item.data };
 			self.put_process(&item.id, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			progress.increment_processes();
-
-			let process_complete = self
-				.try_get_import_process_complete(&item.id)
-				.await?
-				.ok_or_else(|| tg::error!("expected the process to exist"))?;
-			if process_complete.complete
-				|| process_complete.commands_complete
-				|| process_complete.logs_complete
-				|| process_complete.outputs_complete
-			{
-				let event =
-					tg::import::Event::Complete(tg::import::Complete::Process(process_complete));
-				event_sender.send(Ok(event)).await.ok();
-			}
 		}
 		Ok(())
 	}
@@ -403,49 +381,112 @@ impl Server {
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		// Ensure the stream exists.
-		let messenger = self.messenger.as_ref().unwrap_right();
-		messenger
-			.jetstream
-			.get_or_create_stream(async_nats::jetstream::stream::Config {
-				name: "index".to_string(),
-				max_messages: i64::MAX,
-				..Default::default()
-			})
-			.await
-			.map_err(|source| tg::error!(!source, "failed to ensure the stream exists"))?;
+		if let Either::Right(messenger) = self.messenger.as_ref() {
+			messenger
+				.jetstream
+				.get_or_create_stream(async_nats::jetstream::stream::Config {
+					name: "index".to_string(),
+					max_messages: i64::MAX,
+					..Default::default()
+				})
+				.await
+				.map_err(|source| tg::error!(!source, "failed to ensure the stream exists"))?;
+		}
 
+		// Choose the parameters.
+		let (n_batch_tasks, max_objects_per_batch, max_bytes_per_batch) = match &self.store {
+			#[cfg(feature = "foundationdb")]
+			Store::Fdb(_) => (10, 1_000, 5_000_000),
+			Store::Lmdb(_) => (1, 1_000, 5_000_000),
+			Store::Memory(_) | Store::S3(_) => (1, 1, u64::MAX),
+		};
+
+		// Spawn tasks that receive batches and write them to the store and messenger.
+		let (batch_sender, batch_receiver) =
+			async_channel::bounded::<Vec<(tg::object::Id, Bytes)>>(1);
+		let mut tasks = JoinSet::new();
+		for _ in 0..n_batch_tasks {
+			tasks.spawn({
+				let server = self.clone();
+				let batch_receiver = batch_receiver.clone();
+				let event_sender = event_sender.clone();
+				let progress = progress.clone();
+				async move {
+					server
+						.import_objects_task_batch_task(batch_receiver, &event_sender, &progress)
+						.await;
+				}
+			});
+		}
+
+		// Receive the objects in batches and send them to the tasks.
+		let mut batch_bytes = 0;
+		let mut batch = Vec::new();
 		let stream = ReceiverStream::new(object_receiver);
 		let mut stream = pin!(stream);
 		while let Some(tangram_client::export::ObjectItem { id, bytes }) = stream.next().await {
-			let size = bytes.len().to_u64().unwrap();
+			if !batch.is_empty()
+				&& (batch.len() > max_objects_per_batch || batch_bytes > max_bytes_per_batch)
+			{
+				batch_bytes = 0;
+				batch_sender.send(std::mem::take(&mut batch)).await.unwrap();
+			}
+			batch_bytes += bytes.len().to_u64().unwrap();
+			batch.push((id, bytes));
+		}
+		batch_sender.send(batch).await.unwrap();
 
+		// Drop the batch sender.
+		drop(batch_sender);
+
+		// Join the tasks.
+		tasks.join_all().await;
+
+		Ok(())
+	}
+
+	async fn import_objects_task_batch_task(
+		&self,
+		batch_receiver: async_channel::Receiver<Vec<(tg::object::Id, Bytes)>>,
+		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
+		progress: &Arc<Progress>,
+	) {
+		while let Ok(batch) = batch_receiver.recv().await {
+			// Create the store future.
 			let store_future = {
-				let id = id.clone();
-				let bytes = bytes.clone();
-				async move {
-					self.store.as_ref().unwrap().put(id, bytes).await?;
+				async {
+					self.store.put_batch(&batch).await?;
 					Ok::<_, tg::Error>(())
 				}
 			};
 
+			// Create the messenger future.
 			let messenger_future = {
-				let id = id.clone();
-				let bytes = bytes.clone();
-				async move {
-					let data = tg::object::Data::deserialize(id.kind(), &bytes)?;
-					let children = data.children();
-					let message = Message {
-						id: id.clone(),
-						size,
-						children,
-					};
-					let payload = serde_json::to_vec(&message)
-						.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-					messenger
-						.jetstream
-						.publish("index", payload.into())
-						.await
-						.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+				async {
+					batch
+						.iter()
+						.map(|(id, bytes)| async {
+							let data = tg::object::Data::deserialize(id.kind(), bytes)?;
+							let children = data.children();
+							let message = crate::index::Message {
+								id: id.clone(),
+								size: bytes.len().to_u64().unwrap(),
+								children,
+							};
+							let message = serde_json::to_vec(&message).map_err(|source| {
+								tg::error!(!source, "failed to serialize the message")
+							})?;
+							self.messenger
+								.publish("index".to_owned(), message.into())
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to publish the message")
+								})?;
+							Ok::<_, tg::Error>(())
+						})
+						.collect::<FuturesUnordered<_>>()
+						.try_collect::<()>()
+						.await?;
 					Ok::<_, tg::Error>(())
 				}
 			};
@@ -458,11 +499,14 @@ impl Server {
 			}
 
 			// Update the progress.
-			progress.increment_objects(1);
-			progress.increment_bytes(size);
+			let objects = batch.len().to_u64().unwrap();
+			let bytes = batch
+				.iter()
+				.map(|(_, bytes)| bytes.len().to_u64().unwrap())
+				.sum();
+			progress.increment_objects(objects);
+			progress.increment_bytes(bytes);
 		}
-
-		Ok(())
 	}
 
 	pub(crate) async fn handle_import_request<H>(

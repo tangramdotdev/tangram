@@ -44,25 +44,44 @@ impl Store {
 			Self::Memory(memory) => Ok(memory.try_get(id)),
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.try_get(id).await,
-			Self::Lmdb(lmdb) => lmdb.try_get(id),
+			Self::Lmdb(lmdb) => lmdb.try_get(id).await,
 			Self::S3(s3) => s3.try_get(id).await,
 		}
 	}
 
-	pub async fn put(&self, id: tg::object::Id, bytes: Bytes) -> tg::Result<()> {
+	pub async fn put(&self, id: &tg::object::Id, bytes: Bytes) -> tg::Result<()> {
 		match self {
 			Self::Memory(memory) => {
 				memory.put(id, bytes);
 			},
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => {
-				fdb.put(&id, &bytes).await?;
+				fdb.put(id, bytes).await?;
 			},
 			Self::Lmdb(lmdb) => {
-				lmdb.put(&id, &bytes)?;
+				lmdb.put(id, bytes).await?;
 			},
 			Self::S3(s3) => {
 				s3.put(id, bytes).await?;
+			},
+		}
+		Ok(())
+	}
+
+	pub async fn put_batch(&self, items: &[(tg::object::Id, Bytes)]) -> tg::Result<()> {
+		match self {
+			Self::Memory(memory) => {
+				memory.put_batch(items);
+			},
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => {
+				fdb.put_batch(items).await?;
+			},
+			Self::Lmdb(lmdb) => {
+				lmdb.put_batch(items).await?;
+			},
+			Self::S3(s3) => {
+				s3.put_batch(items).await?;
 			},
 		}
 		Ok(())

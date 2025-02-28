@@ -1,4 +1,6 @@
+use super::Kind;
 use crate as tg;
+use bytes::Bytes;
 use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
@@ -9,6 +11,21 @@ pub enum Blob {
 }
 
 impl Blob {
+	#[must_use]
+	pub fn kind(&self) -> Kind {
+		match self {
+			Self::Leaf(_) => Kind::Leaf,
+			Self::Branch(_) => Kind::Branch,
+		}
+	}
+
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		match self {
+			Self::Leaf(leaf) => leaf.serialize(),
+			Self::Branch(branch) => branch.serialize(),
+		}
+	}
+
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {

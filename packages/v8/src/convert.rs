@@ -1,4 +1,3 @@
-pub use self::serde::Serde;
 use bytes::Bytes;
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
@@ -28,6 +27,8 @@ mod serde;
 mod symlink;
 mod template;
 mod value;
+
+pub use self::serde::Serde;
 
 pub trait ToV8 {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>>;

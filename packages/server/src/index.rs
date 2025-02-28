@@ -1,195 +1,167 @@
 use crate::Server;
-use futures::StreamExt as _;
+use async_nats as nats;
+use futures::{Stream, StreamExt as _, TryStreamExt, future, stream};
 use indoc::{formatdoc, indoc};
 use num::ToPrimitive as _;
-use std::{collections::BTreeSet, pin::pin, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, pin::pin, time::Duration};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-use tangram_messenger::Messenger;
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct Message {
-	pub(crate) acker: Option<Arc<async_nats::jetstream::message::Acker>>,
 	pub(crate) id: tg::object::Id,
 	pub(crate) size: u64,
 	pub(crate) children: BTreeSet<tg::object::Id>,
 }
 
+type Acker = nats::jetstream::message::Acker;
+
 impl Server {
 	pub async fn index(&self) -> tg::Result<()> {
-		let config = self.config.indexer.clone().unwrap_or_default();
-		loop {
-			let n = self.indexer_task_inner(&config, vec![]).await?;
-			if n == 0 {
-				break;
-			}
-		}
-		Ok(())
+		Err(tg::error!("unimplemented"))
 	}
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
-		let (object_insert_sender, mut object_insert_receiver) =
-			tokio::sync::mpsc::channel::<Message>(config.batch_size);
-
-		// Create a task to listen for messages.
-		let object_insert_task = tokio::spawn({
-			let server = self.clone();
-			let object_insert_sender = object_insert_sender.clone();
-			async move {
-				let result = server
-					.indexer_message_consumer_task(&object_insert_sender)
-					.await;
-				if let Err(error) = result {
-					tracing::error!(?error, "the message listener task failed");
-				}
-			}
-		});
-		let object_insert_task_abort_handle = object_insert_task.abort_handle();
-		let _guard = scopeguard::guard(object_insert_task_abort_handle, |handle| {
-			handle.abort();
-		});
+		// Get the messages stream.
+		let stream = self.indexer_task_create_message_stream(config).await?;
+		let mut stream = pin!(stream);
 
 		loop {
-			// Get a batch of messages.
-			let mut batch = Vec::with_capacity(config.batch_size);
-			while batch.len() < config.batch_size {
-				match object_insert_receiver.try_recv() {
-					Ok(message) => batch.push(message),
-					Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
-					Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-						panic!("the sender was dropped");
-					},
+			// Update complete objects until there are no more updates.
+			loop {
+				let updated = self.indexer_task_update_complete_objects(config).await?;
+				if updated == 0 {
+					break;
 				}
 			}
-			let result = self.indexer_task_inner(config, batch).await;
-			match result {
-				Ok(0) => {
-					tokio::time::sleep(Duration::from_millis(100)).await;
-				},
-				Ok(_) => (),
+
+			// Get a batch of messages.
+			let result = stream.try_next().await;
+			let messages = match result {
+				Ok(Some(messages)) => messages,
+				Ok(None) => panic!("the stream ended"),
 				Err(error) => {
-					tracing::error!(?error, "failed to index the objects");
+					tracing::error!(?error, "failed to get a batch of messages");
 					tokio::time::sleep(Duration::from_secs(1)).await;
+					continue;
 				},
+			};
+
+			// Insert objects from the messages.
+			let result = self.indexer_task_insert_objects(messages).await;
+			if let Err(error) = result {
+				tracing::error!(?error, "failed to get a batch of messages");
+				tokio::time::sleep(Duration::from_secs(1)).await;
+				continue;
 			}
 		}
 	}
 
-	pub(crate) async fn indexer_task_inner(
+	async fn indexer_task_create_message_stream(
 		&self,
 		config: &crate::config::Indexer,
-		messages: Vec<Message>,
-	) -> tg::Result<u64> {
-		// Insert objects.
-		let inserted = self.indexer_task_insert_objects(messages).await?;
-
-		// Update complete objects.
-		let updated = self.indexer_task_update_complete_objects(config).await?;
-
-		Ok(inserted + updated)
-	}
-
-	async fn indexer_message_consumer_task(
-		&self,
-		object_insert_sender: &tokio::sync::mpsc::Sender<Message>,
-	) -> tg::Result<()> {
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Option<Acker>)>>>> {
 		match &self.messenger {
-			Either::Left(memory) => {
-				let stream = memory
-					.subscribe("index".to_string(), None)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to subscribe to objects stream"))
-					.unwrap();
-
-				let mut stream = pin!(stream);
-				while let Some(message) = stream.next().await {
-					let payload = serde_json::from_slice(&message.payload).map_err(|source| {
-						tg::error!(!source, "failed to deserialize message payload")
-					});
-					let payload: crate::import::Message = match payload {
-						Ok(payload) => payload,
-						Err(error) => {
-							tracing::error!("{error}");
-							continue;
-						},
-					};
-					let message = Message {
-						acker: None,
-						id: payload.id,
-						size: payload.size,
-						children: payload.children,
-					};
-					object_insert_sender
-						.send(message)
-						.await
-						.expect("failed to send");
-				}
-			},
-			Either::Right(nats) => {
-				let stream = nats
-					.jetstream
-					.get_or_create_stream(async_nats::jetstream::stream::Config {
-						name: "index".to_string(),
-						max_messages: i64::MAX,
-						..Default::default()
-					})
-					.await
-					.map_err(|source| tg::error!(!source, "could not get object stream"))?;
-
-				let consumer = stream
-					.get_or_create_consumer(
-						"index_consumer",
-						async_nats::jetstream::consumer::pull::Config {
-							durable_name: Some("index_consumer".to_string()),
-							..Default::default()
-						},
-					)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create jetstream consumer"))?;
-
-				// Create messages stream.
-				let mut messages = consumer
-					.messages()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get consumer messages"))?;
-
-				while let Some(Ok(message)) = messages.next().await {
-					let (message, acker) = message.split();
-					let payload = serde_json::from_slice(&message.payload).map_err(|source| {
-						tg::error!(!source, "failed to deserialize message payload")
-					});
-					let payload: crate::import::Message = match payload {
-						Ok(payload) => payload,
-						Err(error) => {
-							tracing::error!("{error}");
-							continue;
-						},
-					};
-					let message = Message {
-						acker: Some(Arc::new(acker)),
-						id: payload.id,
-						size: payload.size,
-						children: payload.children,
-					};
-					object_insert_sender
-						.send(message)
-						.await
-						.expect("failed to send");
-				}
-
-				tracing::warn!("the listener hung up");
-			},
+			Either::Left(messenger) => self
+				.indexer_task_create_message_stream_memory(config, messenger)
+				.await
+				.map(futures::StreamExt::left_stream),
+			Either::Right(messenger) => self
+				.indexer_task_create_message_stream_nats(config, messenger)
+				.await
+				.map(futures::StreamExt::right_stream),
 		}
-		Ok(())
 	}
 
-	async fn indexer_task_insert_objects(&self, messages: Vec<Message>) -> tg::Result<u64> {
+	async fn indexer_task_create_message_stream_memory(
+		&self,
+		config: &crate::config::Indexer,
+		messenger: &tangram_messenger::memory::Messenger,
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Option<Acker>)>>>> {
+		let stream = messenger
+			.subscribe("index".to_string(), None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe to the objects stream"))?
+			.map(|message| {
+				let message =
+					serde_json::from_slice::<Message>(&message.payload).map_err(|source| {
+						tg::error!(!source, "failed to deserialize the message payload")
+					})?;
+				Ok::<_, tg::Error>((message, None))
+			})
+			.filter_map(|result| future::ready(result.ok()))
+			.ready_chunks(config.message_batch_size)
+			.map(Ok);
+		Ok(stream)
+	}
+
+	async fn indexer_task_create_message_stream_nats(
+		&self,
+		config: &crate::config::Indexer,
+		messenger: &tangram_messenger::nats::Messenger,
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Option<Acker>)>>>> {
+		// Get the stream.
+		let stream_config = async_nats::jetstream::stream::Config {
+			name: "index".to_string(),
+			max_messages: i64::MAX,
+			..Default::default()
+		};
+		let stream = messenger
+			.jetstream
+			.get_or_create_stream(stream_config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
+
+		// Get the consumer.
+		let consumer_config = async_nats::jetstream::consumer::pull::Config {
+			durable_name: Some("index".to_string()),
+			..Default::default()
+		};
+		let consumer = stream
+			.get_or_create_consumer("index", consumer_config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the index consumer"))?;
+
+		// Create the stream.
+		let stream = stream::try_unfold(consumer, |consumer| async {
+			let mut batch = consumer
+				.batch()
+				.max_messages(config.message_batch_size)
+				.expires(config.message_batch_timeout)
+				.messages()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the batch"))?;
+			let mut messages = Vec::new();
+			while let Some(message) = batch.try_next().await? {
+				let (message, acker) = message.split();
+				let result = serde_json::from_slice::<Message>(&message.payload);
+				let message = match result {
+					Ok(message) => message,
+					Err(source) => {
+						tracing::error!(?source, "failed to deserialize the message payload");
+						acker.ack().await?;
+						continue;
+					},
+				};
+				messages.push((message, Some(acker)));
+			}
+			Ok(Some((messages, consumer)))
+		})
+		.try_filter(|messages| future::ready(!messages.is_empty()));
+
+		Ok(stream)
+	}
+
+	async fn indexer_task_insert_objects(
+		&self,
+		messages: Vec<(Message, Option<Acker>)>,
+	) -> tg::Result<()> {
 		if messages.is_empty() {
-			return Ok(0);
+			return Ok(());
 		}
-		let n = messages.len().to_u64().unwrap();
 		match &self.database {
 			Either::Left(database) => {
 				self.indexer_insert_objects_sqlite(messages, database)
@@ -200,27 +172,16 @@ impl Server {
 					.await?;
 			},
 		}
-		Ok(n)
+		Ok(())
 	}
 
 	async fn indexer_insert_objects_sqlite(
 		&self,
-		messages: Vec<Message>,
+		messages: Vec<(Message, Option<Acker>)>,
 		database: &db::sqlite::Database,
 	) -> tg::Result<()> {
-		// Split the acker from the payload.
-		let chunk = messages
-			.iter()
-			.cloned()
-			.map(|message| {
-				let payload = crate::import::Message {
-					id: message.id,
-					size: message.size,
-					children: message.children,
-				};
-				(message.acker, payload)
-			})
-			.collect::<Vec<_>>();
+		// Split the messages and ackers.
+		let (messages, ackers) = messages.into_iter().collect::<(Vec<_>, Vec<_>)>();
 
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
@@ -231,14 +192,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		let payloads = chunk
-			.iter()
-			.map(|(_, payload)| payload.clone())
-			.collect::<Vec<_>>();
 		connection
 			.with({
 				move |connection| {
-					// Begin a transaction for the batch.
+					// Begin a transaction.
 					let transaction = connection
 						.transaction()
 						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
@@ -267,13 +224,15 @@ impl Server {
 						.prepare_cached(objects_statement)
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
+					// Get the current time.
 					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 
-					// Execute inserts for each member of the batch.
-					for payload in payloads {
-						let id = payload.id;
-						let size = payload.size;
-						let children = payload.children;
+					// Execute inserts for each object in the batch.
+					for message in messages {
+						let id = message.id;
+						let size = message.size;
+						let children = message.children;
+
 						// Insert the children.
 						for child in children {
 							let child = child.to_string();
@@ -290,6 +249,7 @@ impl Server {
 						})?;
 					}
 
+					// Drop the statements.
 					drop(children_statement);
 					drop(objects_statement);
 
@@ -304,25 +264,26 @@ impl Server {
 			.await?;
 
 		// Acknowledge the messages.
-		let ackers = chunk
-			.iter()
-			.filter_map(|(acker, _)| acker.as_ref())
-			.collect::<Vec<_>>();
-		let result =
-			futures::future::try_join_all(ackers.into_iter().map(async |acker| acker.ack().await))
-				.await;
-		if let Err(error) = result {
-			tracing::error!("{error}");
-		}
+		futures::future::try_join_all(ackers.into_iter().map(async |acker| {
+			if let Some(acker) = acker {
+				acker
+					.ack()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to acknowledge the message"))?;
+			}
+			Ok::<_, tg::Error>(())
+		}))
+		.await?;
 
 		Ok(())
 	}
 
 	async fn indexer_insert_objects_postgres(
 		&self,
-		messages: Vec<Message>,
+		messages: Vec<(Message, Option<Acker>)>,
 		database: &db::postgres::Database,
 	) -> tg::Result<()> {
+		// Get a database connection.
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
@@ -332,13 +293,15 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		for chunk in messages.chunks(128) {
+		for messages in messages.chunks(128) {
+			// Begin a transaction.
 			let transaction = connection
 				.client_mut()
 				.transaction()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
+				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
+			// Insert into the object children and objects tables.
 			let statement = indoc!(
 				"
 					with inserted_object_children as (
@@ -356,24 +319,25 @@ impl Server {
 					select 1;
 				"
 			);
-			let ids = chunk
+			let ids = messages
 				.iter()
-				.map(|message| message.id.to_string())
+				.map(|(message, _)| message.id.to_string())
 				.collect::<Vec<_>>();
-			let children = chunk
+			let children = messages
 				.iter()
-				.flat_map(|message| message.children.iter().map(ToString::to_string))
+				.flat_map(|(message, _)| message.children.iter().map(ToString::to_string))
 				.collect::<Vec<_>>();
-			let parent_indices = chunk
+			let parent_indices = messages
 				.iter()
+				.map(|(message, _)| message)
 				.enumerate()
 				.flat_map(|(index, message)| {
 					std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
 				})
 				.collect::<Vec<_>>();
-			let size = chunk
+			let size = messages
 				.iter()
-				.map(|message| message.size.to_i64().unwrap())
+				.map(|(message, _)| message.size.to_i64().unwrap())
 				.collect::<Vec<_>>();
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 			transaction
@@ -414,23 +378,20 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+			// Commit the transaction.
 			transaction
 				.commit()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
+				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-			// Acknowledge all messages.
-			let ackers = chunk
-				.iter()
-				.filter_map(|message| message.acker.as_ref())
-				.collect::<Vec<_>>();
-			let result = futures::future::try_join_all(
-				ackers.into_iter().map(async |acker| acker.ack().await),
+			// Acknowledge the messages.
+			futures::future::try_join_all(
+				messages
+					.iter()
+					.filter_map(|(_, acker)| acker.as_ref())
+					.map(async |acker| acker.ack().await),
 			)
-			.await;
-			if let Err(error) = result {
-				tracing::error!("{error}");
-			}
+			.await?;
 		}
 
 		Ok(())
@@ -485,12 +446,12 @@ impl Server {
 				where objects.id = updates.id;
 			"
 		);
-		let batch_size = config.batch_size;
+		let batch_size = config.update_complete_batch_size;
 		let params = db::params![batch_size];
 		let n = connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		Ok(n)
 	}
 }

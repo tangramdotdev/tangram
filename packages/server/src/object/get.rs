@@ -27,57 +27,9 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		// Create the database future.
-		let database = async {
-			// Get a database connection.
-			let connection = self
-				.database
-				.connection()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let mut bytes = self.store.try_get(id).await?;
 
-			// Get the object.
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					select bytes
-					from objects
-					where id = {p}1;
-				",
-			);
-			let params = db::params![id];
-			let Some(bytes) = connection
-				.query_optional_value_into(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			else {
-				return Ok(None);
-			};
-
-			// Drop the database connection.
-			drop(connection);
-
-			Ok::<_, tg::Error>(bytes)
-		};
-
-		// Create the store future.
-		let store = async {
-			let Some(store) = &self.store else {
-				return Ok(None);
-			};
-			let Some(bytes) = store.try_get(id).await? else {
-				return Ok(None);
-			};
-			Ok(Some(bytes))
-		};
-
-		// Await the futures.
-		let (database_bytes, store_bytes) = futures::try_join!(database, store)?;
-
-		// Get the bytes.
-		let mut bytes = store_bytes.or(database_bytes);
-
-		// If the bytes were not in the database or the store, then attempt to read the bytes from a blob file.
+		// If the bytes were not in the store, then attempt to read the bytes from a blob file.
 		if bytes.is_none() {
 			if let Ok(id) = id.try_unwrap_leaf_ref() {
 				bytes = self.try_read_leaf_from_blobs_directory(id).await?;
@@ -143,15 +95,15 @@ impl Server {
 
 		#[derive(Debug, serde::Deserialize)]
 		struct Row {
-			entry: tg::blob::Id,
+			blob: tg::blob::Id,
 			position: u64,
 			length: u64,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select entry, position, length 
-				from blobs 
+				select blob, position, length 
+				from blob_references 
 				where id = {p}1
 			"
 		);
@@ -168,7 +120,7 @@ impl Server {
 		drop(connection);
 
 		// Read the leaf from the file.
-		let mut file = tokio::fs::File::open(self.blobs_path().join(row.entry.to_string()))
+		let mut file = tokio::fs::File::open(self.blobs_path().join(row.blob.to_string()))
 			.await
 			.map_err(|source| {
 				tg::error!(!source, "failed to find the entry in the blobs directory")

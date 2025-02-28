@@ -2,9 +2,10 @@ use super::{
 	input,
 	object::{self, Metadata},
 };
-use crate::{Server, temp::Temp};
+use crate::{Server, blob::create::Blob, temp::Temp};
 use futures::{FutureExt, StreamExt, TryStreamExt as _, stream::FuturesUnordered};
 use indoc::indoc;
+use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::{
 	collections::BTreeSet,
@@ -17,6 +18,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, Transaction, prelude::*};
 use tangram_either::Either;
 use time::format_description::well_known::Rfc3339;
+use tokio::task::JoinSet;
 
 #[derive(Debug)]
 pub struct Graph {
@@ -25,11 +27,12 @@ pub struct Graph {
 
 #[derive(Clone, Debug)]
 pub struct Node {
-	pub input: Option<usize>,
-	pub id: tg::artifact::Id,
+	pub blob: Option<Arc<Blob>>,
 	pub data: tg::artifact::Data,
-	pub metadata: Metadata,
 	pub edges: Vec<Edge>,
+	pub id: tg::artifact::Id,
+	pub input: Option<usize>,
+	pub metadata: Metadata,
 }
 
 #[derive(Clone, Debug)]
@@ -99,6 +102,7 @@ impl Server {
 			};
 
 			let node = Node {
+				blob: object.nodes[object_index].blob.clone(),
 				input: input_index,
 				id,
 				data: object.nodes[object_index].data.clone().unwrap(),
@@ -137,6 +141,104 @@ impl Server {
 
 		// Return the created node.
 		Ok(Some(output_index))
+	}
+
+	pub async fn copy_blobs(&self, output: &Graph, input: &input::Graph) -> tg::Result<()> {
+		let mut stack = vec![0];
+		let mut visited = vec![false; output.nodes.len()];
+		let mut join_set = JoinSet::new();
+		while let Some(output_index) = stack.pop() {
+			if visited[output_index] {
+				continue;
+			}
+			visited[output_index] = true;
+			let output = &output.nodes[output_index];
+			stack.extend(output.edges.iter().map(|edge| edge.node));
+			let Some(input_index) = output.input else {
+				continue;
+			};
+			let Some(blob) = &output.blob else {
+				continue;
+			};
+			let input = &input.nodes[input_index];
+			let path = input.arg.path.clone();
+			let blob_path = self.blobs_path().join(blob.id.to_string());
+			let temp = Temp::new(self);
+			join_set.spawn(async move {
+				if !tokio::fs::try_exists(&blob_path).await.map_err(|source| {
+					tg::error!(!source, "failed to check if the blob path exists")
+				})? {
+					tokio::fs::copy(path, temp.path())
+						.await
+						.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+					let permissions = std::fs::Permissions::from_mode(0o644);
+					tokio::fs::set_permissions(temp.path(), permissions)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+					tokio::fs::rename(temp.path(), blob_path)
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to rename the file to the blobs directory")
+						})?;
+				}
+				Ok::<_, tg::Error>(())
+			});
+		}
+		join_set
+			.join_all()
+			.await
+			.into_iter()
+			.try_collect::<_, (), _>()?;
+		Ok(())
+	}
+
+	pub async fn write_output_to_store(
+		&self,
+		output: Arc<Graph>,
+		object: Arc<object::Graph>,
+	) -> tg::Result<()> {
+		let mut batch = Vec::new();
+
+		for (id, (data, _)) in &object.graphs {
+			batch.push((id.clone().into(), data.serialize()?));
+		}
+
+		// Get the output in reverse-topological order.
+		let mut stack = vec![0];
+		let mut visited = vec![false; output.nodes.len()];
+		while let Some(output_index) = stack.pop() {
+			// Check if we've visited this node yet.
+			if visited[output_index] {
+				continue;
+			}
+			visited[output_index] = true;
+
+			// Get the output data.
+			let output = &output.nodes[output_index];
+
+			// Add the blob if the node has one.
+			if let Some(blob) = &output.blob {
+				let mut stack = vec![blob.as_ref()];
+				while let Some(blob) = stack.pop() {
+					if let Some(data) = &blob.data {
+						let bytes = data.serialize()?;
+						batch.push((blob.id.clone().into(), bytes));
+					}
+					stack.extend(&blob.children);
+				}
+			}
+
+			batch.push((output.id.clone().into(), output.data.serialize()?));
+
+			stack.extend(output.edges.iter().map(|edge| edge.node));
+		}
+
+		self.store
+			.put_batch(&batch)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
+
+		Ok(())
 	}
 
 	pub async fn write_output_to_database(
@@ -182,6 +284,12 @@ impl Server {
 
 							// Get the output data.
 							let output = &output.nodes[output_index];
+
+							// Write the blob if the object has one.
+							if let Some(blob) = &output.blob {
+								Self::insert_blob_sqlite(blob, transaction)?;
+								Self::insert_blob_objects_sqlite(blob, transaction)?;
+							}
 
 							// Write the object.
 							write_object_sqlite(
@@ -715,9 +823,9 @@ fn write_object_sqlite(
 ) -> tg::Result<()> {
 	let statement = indoc!(
 		"
-			insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
-			values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-			on conflict (id) do update set touched_at = ?8;
+			insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
+			values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+			on conflict (id) do update set touched_at = ?7;
 		"
 	);
 	let mut statement = transaction
@@ -728,7 +836,6 @@ fn write_object_sqlite(
 	let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 	let params = rusqlite::params![
 		id.to_string(),
-		bytes.as_ref(),
 		metadata.complete,
 		metadata.count,
 		metadata.depth,
@@ -767,9 +874,9 @@ async fn write_object_postgres(
 ) -> tg::Result<()> {
 	let statement = indoc!(
 		"
-			insert into objects (id, bytes, complete, count, depth, incomplete_children, size, touched_at, weight)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			on conflict (id) do update set touched_at = $8;
+			insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
+			values ($1, $2, $3, $4, $5, $6, $7, $8)
+			on conflict (id) do update set touched_at = $7;
 		"
 	);
 	let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -777,7 +884,6 @@ async fn write_object_postgres(
 	let size = bytes.len().to_u64().unwrap();
 	let params = db::params![
 		id,
-		bytes,
 		metadata.complete,
 		metadata.count,
 		metadata.depth,

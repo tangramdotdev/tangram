@@ -46,18 +46,46 @@ impl Fdb {
 		Ok(bytes)
 	}
 
-	pub async fn put(&self, id: &tangram_client::object::Id, bytes: &Bytes) -> tg::Result<()> {
+	pub async fn put(&self, id: &tangram_client::object::Id, bytes: Bytes) -> tg::Result<()> {
+		let start = Instant::now();
+		self.database
+			.run(|transaction, _| {
+				let bytes = &bytes;
+				async move {
+					let subspace = fdb::tuple::Subspace::all().subspace(&id.to_string());
+					if bytes.is_empty() {
+						transaction.set(&subspace.pack(&0), &[]);
+					} else {
+						let mut start = 0;
+						for chunk in bytes.chunks(VALUE_SIZE_LIMIT) {
+							transaction.set(&subspace.pack(&start), chunk);
+							start += chunk.len();
+						}
+					}
+					Ok(())
+				}
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+		let elapsed = start.elapsed();
+		tracing::debug!(?elapsed, "put");
+		Ok(())
+	}
+
+	pub async fn put_batch(&self, items: &[(tg::object::Id, Bytes)]) -> tg::Result<()> {
 		let start = Instant::now();
 		self.database
 			.run(|transaction, _| async move {
-				let subspace = fdb::tuple::Subspace::all().subspace(&id.to_string());
-				if bytes.is_empty() {
-					transaction.set(&subspace.pack(&0), &[]);
-				} else {
-					let mut start = 0;
-					for chunk in bytes.chunks(VALUE_SIZE_LIMIT) {
-						transaction.set(&subspace.pack(&start), chunk);
-						start += chunk.len();
+				for (id, bytes) in items {
+					let subspace = fdb::tuple::Subspace::all().subspace(&id.to_string());
+					if bytes.is_empty() {
+						transaction.set(&subspace.pack(&0), &[]);
+					} else {
+						let mut start = 0;
+						for chunk in bytes.chunks(VALUE_SIZE_LIMIT) {
+							transaction.set(&subspace.pack(&start), chunk);
+							start += chunk.len();
+						}
 					}
 				}
 				Ok(())
@@ -65,7 +93,7 @@ impl Fdb {
 			.await
 			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
 		let elapsed = start.elapsed();
-		tracing::debug!(?elapsed, "put");
+		tracing::debug!(?elapsed, "put_batch");
 		Ok(())
 	}
 }

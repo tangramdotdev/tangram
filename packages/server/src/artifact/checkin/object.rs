@@ -1,5 +1,5 @@
 use super::{input, unify};
-use crate::Server;
+use crate::{Server, blob::create::Blob};
 use indoc::formatdoc;
 use num::ToPrimitive;
 use std::{
@@ -23,6 +23,7 @@ pub struct Graph {
 
 #[derive(Debug)]
 pub struct Node {
+	pub blob: Option<Arc<Blob>>,
 	pub data: Option<tg::artifact::Data>,
 	pub id: Option<tg::object::Id>,
 	pub edges: Vec<Edge>,
@@ -110,6 +111,7 @@ impl Server {
 		// Create the node.
 		nodes.push(Node {
 			id: None,
+			blob: None,
 			data: None,
 			edges: Vec::new(),
 			metadata: None,
@@ -354,9 +356,10 @@ impl Server {
 			let directory = tg::graph::data::Directory { entries };
 			tg::graph::data::Node::Directory(directory)
 		} else if metadata.is_file() {
-			let file = self
+			let (file, blob) = self
 				.create_graph_file_node_data(path.as_ref(), index, metadata, edges, file_metadata)
 				.await?;
+			graph.nodes[index].blob = Some(Arc::new(blob));
 			tg::graph::data::Node::File(file)
 		} else if metadata.is_symlink() {
 			if let Some(edge) = edges.first().cloned() {
@@ -540,7 +543,7 @@ impl Server {
 		metadata: std::fs::Metadata,
 		edges: Vec<RemappedEdge>,
 		file_metadata: &mut BTreeMap<usize, Metadata>,
-	) -> tg::Result<tg::graph::data::File> {
+	) -> tg::Result<(tg::graph::data::File, Blob)> {
 		// Compute the dependencies, which will be shared in all cases.
 		let dependencies = edges
 			.into_iter()
@@ -557,30 +560,32 @@ impl Server {
 
 		// Read the file contents.
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let tg::blob::create::Output {
-			blob,
-			metadata: blob_metadata,
-		} = self.create_blob_with_path(path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to create blob"),
+		let mut file = tokio::fs::File::open(path).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
 		)?;
+		let blob = self.create_blob_inner(&mut file, None).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
+		)?;
+		drop(file);
 		drop(permit);
 
 		// For files only, we need to keep track of the count, depth, and weight when reading the file.
 		let file_metadata_ = Metadata {
 			complete: false,
-			count: blob_metadata.count,
-			depth: blob_metadata.depth,
-			weight: blob_metadata.weight,
+			count: Some(blob.count),
+			depth: Some(blob.depth),
+			weight: Some(blob.weight),
 		};
 		file_metadata.insert(index, file_metadata_);
 
 		let executable = metadata.permissions().mode() & 0o111 != 0;
 		let file = tg::graph::data::File {
-			contents: blob,
+			contents: blob.id.clone(),
 			dependencies,
 			executable,
 		};
-		Ok(file)
+
+		Ok((file, blob))
 	}
 
 	#[allow(clippy::unused_self)]

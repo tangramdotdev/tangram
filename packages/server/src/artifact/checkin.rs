@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{FutureExt as _, Stream, StreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _};
 use indoc::indoc;
 use std::{panic::AssertUnwindSafe, path::PathBuf};
 use tangram_client as tg;
@@ -119,10 +119,21 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write objects"))?;
 
-		// Write the output to the database.
-		self.write_output_to_database(output_graph.clone(), object_graph.clone())
+		// Copy the blobs.
+		self.copy_blobs(&output_graph, &input_graph)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write to the database"))?;
+			.map_err(|source| tg::error!(!source, "failed to copy the blobs"))?;
+
+		// Write the output to the database and the store.
+		futures::try_join!(
+			self.write_output_to_database(output_graph.clone(), object_graph.clone())
+				.map_err(|source| tg::error!(
+					!source,
+					"failed to write the objects to the database"
+				)),
+			self.write_output_to_store(output_graph.clone(), object_graph.clone())
+				.map_err(|source| tg::error!(!source, "failed to store the objects"))
+		)?;
 
 		// Copy or move to the cache directory.
 		if arg.cache || arg.destructive {
