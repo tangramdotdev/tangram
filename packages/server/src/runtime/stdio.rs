@@ -7,14 +7,13 @@ use tangram_either::Either;
 use tokio::io::{AsyncRead, AsyncWrite, unix::AsyncFd};
 
 pub struct Host(Either<host::Pty, host::Socket>);
-
 pub struct Guest(Either<guest::Pty, guest::Socket>);
 
 pub fn pair(window_size: Option<tg::pipe::WindowSize>) -> std::io::Result<(Host, Guest)> {
 	if let Some(window_size) = window_size {
 		unsafe {
 			// Open the master terminal.
-			let host = libc::posix_openpt(0);
+			let host = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
 			if host < 0 {
 				return Err(std::io::Error::last_os_error());
 			}
