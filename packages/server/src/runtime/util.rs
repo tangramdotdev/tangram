@@ -1,4 +1,4 @@
-use super::{Runtime, stdio};
+use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
 use futures::{
@@ -8,6 +8,7 @@ use futures::{
 use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
+use tangram_sandbox as sandbox;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Render a value.
@@ -161,9 +162,9 @@ pub async fn merge_env(
 pub async fn stdio_task(
 	server: Server,
 	process: tg::Process,
-	stdin: stdio::Host,
-	stdout: stdio::Host,
-	stderr: stdio::Host,
+	stdin: sandbox::Stdin,
+	stdout: sandbox::Stdout,
+	stderr: sandbox::Stderr,
 ) -> tg::Result<()> {
 	let state = process.load(&server).await?;
 	if state.cacheable {
@@ -236,9 +237,9 @@ async fn log_task(
 async fn pipe_task(
 	server: &Server,
 	process: &tg::Process,
-	stdin: stdio::Host,
-	stdout: stdio::Host,
-	stderr: stdio::Host,
+	stdin: sandbox::Stdin,
+	stdout: sandbox::Stdout,
+	stderr: sandbox::Stderr,
 ) -> tg::Result<()> {
 	// Create a task for stdin.
 	let stdin = tokio::spawn({
@@ -264,8 +265,15 @@ async fn pipe_task(
 						)?;
 					},
 					tg::pipe::Event::WindowSize(window_size) => {
+						let tty = sandbox::Tty {
+							rows: window_size.rows,
+							cols: window_size.cols,
+							x: window_size.xpos,
+							y: window_size.ypos,
+						};
 						stdin
-							.set_window_size(window_size)
+							.change_window_size(tty)
+							.await
 							.map_err(|source| tg::error!(!source, "failed to set window size"))?;
 					},
 					tg::pipe::Event::End => break,
@@ -343,4 +351,23 @@ fn chunk_stream_from_reader(
 		Ok(Some((event, (reader, buffer))))
 	})
 	.chain(stream::once(future::ok(tg::pipe::Event::End)))
+}
+
+pub async fn try_get_window_size(
+	server: &Server,
+	process: &tg::Process,
+) -> tg::Result<Option<tg::pipe::WindowSize>> {
+	let state = process.load(server).await?;
+	let pipes = [
+		state.stdin.clone(),
+		state.stdout.clone(),
+		state.stderr.clone(),
+	];
+	for pipe in pipes.into_iter().flatten() {
+		let pipe = server.try_get_pipe(&pipe).await?.unwrap();
+		if let Some(ws) = pipe.window_size {
+			return Ok(Some(ws));
+		}
+	}
+	Ok(None)
 }

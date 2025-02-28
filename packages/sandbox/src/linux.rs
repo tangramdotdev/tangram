@@ -338,6 +338,7 @@ struct CStringVec {
 	_strings: Vec<CString>,
 	pointers: Vec<*const libc::c_char>,
 }
+unsafe impl Send for CStringVec {}
 
 impl CStringVec {
 	fn as_ptr(&self) -> *const *const libc::c_char {
