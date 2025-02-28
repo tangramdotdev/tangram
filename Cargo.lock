@@ -5980,6 +5980,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_sandbox"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "dashmap 6.1.0",
+ "futures",
+ "libc",
+ "num",
+ "scopeguard",
+ "tangram_either",
+ "tangram_futures",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "tangram_server"
 version = "0.0.0"
 dependencies = [

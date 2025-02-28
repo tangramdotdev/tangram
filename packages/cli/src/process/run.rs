@@ -136,11 +136,11 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
 
 		// Set stdin into raw
-		let _guard = std::io::stdin()
-			.is_tty()
-			.then(|| RawGuard::new(libc::STDIN_FILENO))
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to set stdin to raw mode"))?;
+		// let _guard = std::io::stdin()
+		// 	.is_tty()
+		// 	.then(|| RawGuard::new(libc::STDIN_FILENO))
+		// 	.transpose()
+		// 	.map_err(|source| tg::error!(!source, "failed to set stdin to raw mode"))?;
 
 		// Get the result.
 		let result = self
