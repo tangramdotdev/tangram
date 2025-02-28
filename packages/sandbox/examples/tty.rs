@@ -5,7 +5,7 @@ use std::{
 	process::ExitCode,
 };
 use tangram_futures::task::{Stop, Task};
-use tangram_sandbox::{self as sandbox, ExitStatus, Tty};
+use tangram_sandbox::{self as sandbox, ExitStatus, Stdio, Tty};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[tokio::main]
@@ -26,8 +26,16 @@ async fn main() -> std::io::Result<ExitCode> {
 		let mut command = sandbox::Command::new("/usr/bin/cat");
 		if let Some(tty) = get_window_size(libc::STDIN_FILENO)? {
 			command.tty(tty);
+		} else {
+			command
+				.stdin(Stdio::Inherit)
+				.stdout(Stdio::Inherit)
+				.stderr(Stdio::Inherit);
 		}
 		command.envs(std::env::vars_os());
+
+		#[cfg(target_os = "macos")]
+		command.sandbox(false);
 
 		// Spawn the command.
 		let mut child = command.spawn().await?;

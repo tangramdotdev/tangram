@@ -44,6 +44,8 @@ impl Drop for Reader {
 }
 
 impl Pty {
+	// Identical to the darwin implementation, with different mutability the argument pointers.
+	#[cfg(target_os = "linux")]
 	pub(crate) async fn open(tty: Tty) -> std::io::Result<(Self, Self)> {
 		tokio::task::spawn_blocking(move || unsafe {
 			let win_size = libc::winsize {
@@ -61,6 +63,46 @@ impl Pty {
 				tty_name.as_mut_ptr(),
 				std::ptr::null(),
 				std::ptr::addr_of!(win_size),
+			) < 0
+			{
+				return Err(std::io::Error::last_os_error());
+			}
+			let tty_path = CStr::from_ptr(tty_name.as_ptr()).to_owned();
+			let parent = Self {
+				pty_fd: Some(pty_fd),
+				tty_fd: Some(tty_fd),
+				tty_path: tty_path.clone(),
+			};
+			let child = Self {
+				pty_fd: Some(pty_fd),
+				tty_fd: Some(tty_fd),
+				tty_path,
+			};
+			Ok((parent, child))
+		})
+		.await
+		.unwrap()
+	}
+
+	// Identical to the linux implementation, with different mutability the argument pointers.
+	#[cfg(target_os = "macos")]
+	pub(crate) async fn open(tty: Tty) -> std::io::Result<(Self, Self)> {
+		tokio::task::spawn_blocking(move || unsafe {
+			let mut win_size = libc::winsize {
+				ws_col: tty.cols,
+				ws_row: tty.rows,
+				ws_xpixel: tty.x,
+				ws_ypixel: tty.y,
+			};
+			let mut pty_fd = 0;
+			let mut tty_fd = 0;
+			let mut tty_name = [0; 256];
+			if libc::openpty(
+				std::ptr::addr_of_mut!(pty_fd),
+				std::ptr::addr_of_mut!(tty_fd),
+				tty_name.as_mut_ptr(),
+				std::ptr::null_mut(),
+				std::ptr::addr_of_mut!(win_size),
 			) < 0
 			{
 				return Err(std::io::Error::last_os_error());
@@ -187,12 +229,20 @@ impl Pty {
 			// Disconnect from the old controlling terminal.
 			let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
 			if fd > 0 {
-				libc::ioctl(fd, libc::TIOCNOTTY, std::ptr::null_mut::<()>());
+				if libc::ioctl(fd, libc::TIOCNOTTY as _, std::ptr::null_mut::<()>()) != 0 {
+					eprintln!("ioctl: {}", std::io::Error::last_os_error());
+				}
 				libc::close(fd);
 			}
 
 			// Set the current process as session leader.
+			#[cfg(target_os = "linux")]
 			if libc::setsid() == -1 {
+				return Err(std::io::Error::last_os_error());
+			}
+
+			#[cfg(target_os = "macos")]
+			if libc::setpgid(0, libc::getpid()) != 0 {
 				return Err(std::io::Error::last_os_error());
 			}
 
@@ -206,12 +256,12 @@ impl Pty {
 			// Set the slave as the controlling tty.
 			if libc::ioctl(
 				self.tty_fd.as_ref().unwrap().as_raw_fd(),
-				libc::TIOCSCTTY,
+				libc::TIOCSCTTY as _,
 				0,
 			) < 0
 			{
 				eprintln!("failed to set controlling tty");
-				return Err(std::io::Error::other("failed to set controlling fd"));
+				return Err(std::io::Error::last_os_error());
 			}
 
 			Ok(())

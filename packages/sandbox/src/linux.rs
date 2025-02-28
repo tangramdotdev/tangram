@@ -58,7 +58,7 @@
 //!
 //! If this future returned by wait() is dropped before completion, the root/guest processes
 //! are killed.
-use crate::{pty::Pty, Child, Command, ExitStatus, Stderr, Stdin, Stdio, Stdout};
+use crate::{Child, Command, ExitStatus, Stderr, Stdin, Stdio, Stdout, pty::Pty};
 use num::ToPrimitive;
 use std::{
 	ffi::{CString, OsStr},

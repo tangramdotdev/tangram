@@ -1,6 +1,6 @@
 use std::{
 	ffi::{OsStr, OsString},
-	path::{Path, PathBuf},
+	path::PathBuf,
 };
 use tangram_either::Either;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -11,6 +11,7 @@ mod darwin;
 mod linux;
 mod pty;
 
+#[allow(dead_code)]
 pub struct Command {
 	args: Vec<OsString>,
 	chroot: Option<PathBuf>,
@@ -20,6 +21,8 @@ pub struct Command {
 	gid: u32,
 	mounts: Vec<Mount>,
 	network: bool,
+	paths: Vec<Path>,
+	sandbox: bool,
 	stdin: Stdio,
 	stdout: Stdio,
 	stderr: Stdio,
@@ -28,14 +31,28 @@ pub struct Command {
 }
 
 pub struct Child {
-	chroot: bool,
 	pid: libc::pid_t,
+
+	#[cfg(target_os = "linux")]
+	chroot: bool,
+
+	#[cfg(target_os = "linux")]
 	gid: libc::gid_t,
+
+	#[cfg(target_os = "linux")]
 	uid: libc::gid_t,
+
+	#[cfg(target_os = "linux")]
 	socket: tokio::net::UnixStream,
+
 	pub stdin: Option<Stdin>,
 	pub stdout: Option<Stdout>,
 	pub stderr: Option<Stderr>,
+}
+
+pub struct Path {
+	pub path: PathBuf,
+	pub readonly: bool,
 }
 
 pub struct Mount {
@@ -80,7 +97,7 @@ pub enum ExitStatus {
 }
 
 impl Command {
-	pub fn new(executable: impl AsRef<Path>) -> Self {
+	pub fn new(executable: impl AsRef<std::path::Path>) -> Self {
 		Self {
 			args: Vec::new(),
 			chroot: None,
@@ -89,7 +106,9 @@ impl Command {
 			executable: executable.as_ref().to_owned(),
 			gid: unsafe { libc::getgid() },
 			mounts: Vec::new(),
-			network: false,
+			network: true,
+			paths: Vec::new(),
+			sandbox: false,
 			stdin: Stdio::Inherit,
 			stdout: Stdio::Inherit,
 			stderr: Stdio::Inherit,
@@ -108,12 +127,12 @@ impl Command {
 		self
 	}
 
-	pub fn chroot(&mut self, p: impl AsRef<Path>) -> &mut Self {
+	pub fn chroot(&mut self, p: impl AsRef<std::path::Path>) -> &mut Self {
 		self.chroot.replace(p.as_ref().to_owned());
 		self
 	}
 
-	pub fn cwd(&mut self, cwd: impl AsRef<Path>) -> &mut Self {
+	pub fn cwd(&mut self, cwd: impl AsRef<std::path::Path>) -> &mut Self {
 		self.cwd = cwd.as_ref().to_owned();
 		self
 	}
@@ -147,6 +166,19 @@ impl Command {
 		self
 	}
 
+	pub fn path(&mut self, path: impl AsRef<std::path::Path>, readonly: bool) -> &mut Self {
+		self.paths.push(Path {
+			path: path.as_ref().to_owned(),
+			readonly,
+		});
+		self
+	}
+
+	pub fn sandbox(&mut self, enable: bool) -> &mut Self {
+		self.sandbox = enable;
+		self
+	}
+
 	pub fn stdin(&mut self, stdio: Stdio) -> &mut Self {
 		self.stdin = stdio;
 		self
@@ -173,6 +205,11 @@ impl Command {
 			let child = linux::spawn(self).await?;
 			return Ok(child);
 		}
+		#[cfg(target_os = "macos")]
+		{
+			let child = darwin::spawn(self).await?;
+			return Ok(child);
+		}
 	}
 }
 
@@ -181,6 +218,10 @@ impl Child {
 		#[cfg(target_os = "linux")]
 		{
 			self.wait_linux().await
+		}
+		#[cfg(target_os = "macos")]
+		{
+			self.wait_darwin().await
 		}
 	}
 }
@@ -193,7 +234,6 @@ impl Stdin {
 		pty.change_window_size(tty).await
 	}
 }
-
 
 impl AsyncWrite for Stdin {
 	fn is_write_vectored(&self) -> bool {
@@ -274,12 +314,18 @@ impl AsyncRead for Stderr {
 
 impl Drop for Child {
 	fn drop(&mut self) {
+		#[cfg(target_os = "linux")]
+		let options = libc::__WALL;
+
+		#[cfg(not(target_os = "linux"))]
+		let options = libc::WEXITED;
+
 		let pid = self.pid;
 		tokio::task::spawn_blocking(move || {
 			unsafe { libc::kill(pid, libc::SIGKILL) };
 			let mut status = 0;
 			unsafe {
-				libc::waitpid(pid, std::ptr::addr_of_mut!(status), libc::__WALL);
+				libc::waitpid(pid, std::ptr::addr_of_mut!(status), options);
 			}
 		});
 	}
