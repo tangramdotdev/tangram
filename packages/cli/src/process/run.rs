@@ -1,16 +1,16 @@
 use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
-use crossterm::tty::IsTty;
-use futures::{
-	FutureExt as _, Stream, StreamExt as _, TryFutureExt, TryStreamExt as _, future, stream,
-};
+use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use std::io::{IsTerminal, Read};
 use std::pin::pin;
-use tangram_client::{self as tg, Handle};
+use stdio::Stdio;
+use tangram_client as tg;
 use tg::handle::Ext as _;
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use tokio_stream::wrappers::ReceiverStream;
+
+mod stdio;
 
 /// Spawn and await an unsandboxed process.
 #[derive(Clone, Debug, clap::Args)]
@@ -39,87 +39,6 @@ pub struct Options {
 	pub spawn: crate::process::spawn::Options,
 }
 
-#[derive(Clone)]
-struct Pipes {
-	remote: Option<String>,
-	stdin: tg::pipe::open::Output,
-	stderr: tg::pipe::open::Output,
-	stdout: tg::pipe::open::Output,
-}
-
-impl Pipes {
-	async fn open<H>(handle: &H, remote: Option<String>) -> tg::Result<Self>
-	where
-		H: tg::Handle,
-	{
-		// Try to get the window sizes.
-		let stderr = get_window_size(libc::STDERR_FILENO)?;
-		let stdin = get_window_size(libc::STDIN_FILENO)?;
-		let stdout = get_window_size(libc::STDOUT_FILENO)?;
-
-		// Open the pipes.
-		let stderr = handle
-			.open_pipe(tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: stderr,
-			})
-			.map_err(|source| tg::error!(!source, "failed to create stderr"))
-			.await;
-		let stdin = handle
-			.open_pipe(tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: stdin,
-			})
-			.map_err(|source| tg::error!(!source, "failed to create stdin"))
-			.await;
-		let stdout = handle
-			.open_pipe(tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: stdout,
-			})
-			.map_err(|source| tg::error!(!source, "failed to create stdout"))
-			.await;
-
-		// Handle any errors that occured when opening the pipes.
-		let errored = stderr.is_err() || stdin.is_err() || stdout.is_err();
-		if errored {
-			for pipe in [&stderr, &stdin, &stdout] {
-				let arg = tg::pipe::close::Arg {
-					remote: remote.clone(),
-				};
-				if let Ok(pipe) = pipe {
-					handle.close_pipe(&pipe.reader, arg.clone()).await.ok();
-					handle.close_pipe(&pipe.writer, arg).await.ok();
-				}
-			}
-		}
-
-		// Return the pipes.
-		Ok(Self {
-			remote,
-			stderr: stderr?,
-			stdin: stdin?,
-			stdout: stdout?,
-		})
-	}
-
-	async fn close<H>(&self, handle: &H) -> tg::Result<()>
-	where
-		H: tg::Handle,
-	{
-		let arg = tg::pipe::close::Arg {
-			remote: self.remote.clone(),
-		};
-		let (_stderr, _stdin, _stdout) = future::join3(
-			handle.close_pipe(&self.stderr.reader, arg.clone()),
-			handle.close_pipe(&self.stdin.writer, arg.clone()),
-			handle.close_pipe(&self.stdout.reader, arg.clone()),
-		)
-		.await;
-		Ok(())
-	}
-}
-
 impl Cli {
 	pub async fn command_process_run(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
@@ -131,24 +50,17 @@ impl Cli {
 		let remote = reference
 			.options()
 			.and_then(|options| options.remote.clone());
-		let pipes = Pipes::open(&handle, remote)
+		let stdio = self
+			.init_stdio(remote)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
-
-		// Set stdin into raw
-		// let _guard = std::io::stdin()
-		// 	.is_tty()
-		// 	.then(|| RawGuard::new(libc::STDIN_FILENO))
-		// 	.transpose()
-		// 	.map_err(|source| tg::error!(!source, "failed to set stdin to raw mode"))?;
-
 		// Get the result.
 		let result = self
-			.run_process(args.options, reference, args.trailing, &pipes)
+			.run_process(args.options, reference, args.trailing, &stdio)
 			.await;
 
 		// Close the pipes.
-		pipes.close(&handle).await.ok();
+		stdio.close_client_half(&handle).await;
 
 		// Return the result.
 		result
@@ -160,7 +72,7 @@ impl Cli {
 		mut options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
-		pipes: &Pipes,
+		stdio: &Stdio,
 	) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
@@ -187,8 +99,11 @@ impl Cli {
 		// Spawn a task for stdout/stderr, before spawing the process.
 		let stdio_task = tokio::spawn({
 			let handle = handle.clone();
-			let pipes = pipes.clone();
-			async move { stdio_task(&handle, &pipes).await }
+			let stdin = stdio.stdin.writer.clone();
+			let stdout = stdio.stdout.reader.clone();
+			let stderr = stdio.stderr.reader.clone();
+			let remote = stdio.remote.clone();
+			async move { stdio_task(&handle, stdin, stdout, stderr, remote).await }
 		});
 
 		// Spawn the process.
@@ -197,9 +112,9 @@ impl Cli {
 				options.spawn,
 				reference,
 				trailing,
-				Some(pipes.stderr.writer.clone()),
-				Some(pipes.stdin.reader.clone()),
-				Some(pipes.stdout.writer.clone()),
+				Some(stdio.stderr.writer.clone()),
+				Some(stdio.stdin.reader.clone()),
+				Some(stdio.stdout.writer.clone()),
 			)
 			.boxed()
 			.await?;
@@ -208,31 +123,10 @@ impl Cli {
 		eprintln!("{} process {}", "info".blue().bold(), process.id());
 
 		// Close unnused pipes.
-		let arg = tg::pipe::close::Arg {
-			remote: pipes.remote.clone(),
-		};
-		handle
-			.close_pipe(&pipes.stdin.reader, arg.clone())
-			.await
-			.ok();
-		handle
-			.close_pipe(&pipes.stdout.writer, arg.clone())
-			.await
-			.ok();
-		handle
-			.close_pipe(&pipes.stderr.writer, arg.clone())
-			.await
-			.ok();
+		stdio.close_server_half(&handle).await;
 
 		// Spawn a task for handling sigwinch
-		let signal_task = tokio::spawn({
-			let handle = handle.clone();
-			let pipes = pipes.clone();
-			tokio::spawn(async move {
-				window_change_task(&handle, &pipes).await;
-			})
-		});
-
+		// TODO
 		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
 		let cancel_task = tokio::spawn({
 			let handle = handle.clone();
@@ -279,15 +173,13 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
 
 		// Close pipes.
-		pipes.close(&handle).await.ok();
-		eprintln!("closed pipes");
+		stdio.close_client_half(&handle).await;
 
 		// Stop and wait for stdio.
 		stdio_task.await.unwrap()?;
 
 		// Abort the cancel task.
 		cancel_task.abort();
-		signal_task.abort();
 
 		// Get the output.
 		let output = result?;
@@ -333,7 +225,13 @@ impl Cli {
 	}
 }
 
-async fn stdio_task<H>(handle: &H, pipes: &Pipes) -> tg::Result<()>
+async fn stdio_task<H>(
+	handle: &H,
+	stdin: tg::pipe::Id,
+	stdout: tg::pipe::Id,
+	stderr: tg::pipe::Id,
+	remote: Option<String>,
+) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
@@ -343,8 +241,8 @@ where
 		.chain(stream::once(future::ok(tg::pipe::Event::End)))
 		.boxed();
 	let stdin = tokio::spawn({
-		let pipe = pipes.stdin.writer.clone();
-		let remote = pipes.remote.clone();
+		let pipe = stdin;
+		let remote = remote.clone();
 		let handle = handle.clone();
 		async move {
 			let arg = tg::pipe::post::Arg { remote };
@@ -354,21 +252,19 @@ where
 
 	// Create the stdout task.
 	let arg = tg::pipe::get::Arg {
-		remote: pipes.remote.clone(),
+		remote: remote.clone(),
 	};
 	let stdout = handle
-		.read_pipe(&pipes.stdout.reader, arg.clone())
+		.read_pipe(&stdout, arg.clone())
 		.await
-		.map_err(
-			|source| tg::error!(!source, %stdout = pipes.stdout.reader, "failed to open stdout stream"),
-		)?;
+		.map_err(|source| tg::error!(!source, %stdout, "failed to open stdout stream"))?;
 	let stdout = tokio::spawn(drain_stream_to_writer(stdout, tokio::io::stdout()));
 
 	// Create the stderr task.
 	let stderr = handle
-		.read_pipe(&pipes.stderr.reader, arg.clone())
+		.read_pipe(&stderr, arg.clone())
 		.await
-		.map_err(|source| tg::error!(!source, "failed to open stderr stream"))?;
+		.map_err(|source| tg::error!(!source, %stderr, "failed to open stderr stream"))?;
 	let stderr = tokio::spawn(drain_stream_to_writer(stderr, tokio::io::stderr()));
 
 	// Join all tasks and return errors.
@@ -421,84 +317,84 @@ fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
 	ReceiverStream::new(recv)
 }
 
-fn get_window_size(fd: i32) -> tg::Result<Option<tg::pipe::WindowSize>> {
-	unsafe {
-		if libc::isatty(fd) == 0 {
-			return Ok(None);
-		}
-		let mut winsize = libc::winsize {
-			ws_col: 0,
-			ws_row: 0,
-			ws_xpixel: 0,
-			ws_ypixel: 0,
-		};
-		if libc::ioctl(fd, libc::TIOCGWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to get the window size"
-			));
-		}
-		Ok(Some(tg::pipe::WindowSize {
-			rows: winsize.ws_row,
-			cols: winsize.ws_col,
-			xpos: winsize.ws_xpixel,
-			ypos: winsize.ws_ypixel,
-		}))
-	}
-}
+// fn get_window_size(fd: i32) -> tg::Result<Option<tg::pipe::WindowSize>> {
+// 	unsafe {
+// 		if libc::isatty(fd) == 0 {
+// 			return Ok(None);
+// 		}
+// 		let mut winsize = libc::winsize {
+// 			ws_col: 0,
+// 			ws_row: 0,
+// 			ws_xpixel: 0,
+// 			ws_ypixel: 0,
+// 		};
+// 		if libc::ioctl(fd, libc::TIOCGWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
+// 			return Err(tg::error!(
+// 				source = std::io::Error::last_os_error(),
+// 				"failed to get the window size"
+// 			));
+// 		}
+// 		Ok(Some(tg::pipe::WindowSize {
+// 			rows: winsize.ws_row,
+// 			cols: winsize.ws_col,
+// 			xpos: winsize.ws_xpixel,
+// 			ypos: winsize.ws_ypixel,
+// 		}))
+// 	}
+// }
 
-async fn window_change_task<H>(handle: &H, pipes: &Pipes)
-where
-	H: tg::Handle,
-{
-	// Spawn a task to listen for sigwnch
-	let (send, recv) = async_broadcast::broadcast(1);
-	let mut signal =
-		tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change()).unwrap();
-	tokio::spawn(async move {
-		while let Some(()) = signal.recv().await {
-			send.broadcast(()).await.ok();
-		}
-	});
+// async fn window_change_task<H>(handle: &H, stdio: &Stdio)
+// where
+// 	H: tg::Handle,
+// {
+// 	// Spawn a task to listen for sigwnch
+// 	let (send, recv) = async_broadcast::broadcast(1);
+// 	let mut signal =
+// 		tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change()).unwrap();
+// 	tokio::spawn(async move {
+// 		while let Some(()) = signal.recv().await {
+// 			send.broadcast(()).await.ok();
+// 		}
+// 	});
 
-	// Create streams for stdin/stdout/stderr events.
-	let arg = tg::pipe::post::Arg {
-		remote: pipes.remote.clone(),
-	};
-	let stderr = handle.post_pipe(
-		&pipes.stderr.writer,
-		arg.clone(),
-		window_changes(recv.clone(), libc::STDERR_FILENO).boxed(),
-	);
-	let stdin = handle.post_pipe(
-		&pipes.stdin.reader,
-		arg.clone(),
-		window_changes(recv.clone(), libc::STDIN_FILENO).boxed(),
-	);
-	let stdout = handle.post_pipe(
-		&pipes.stdout.writer,
-		arg.clone(),
-		window_changes(recv.clone(), libc::STDOUT_FILENO).boxed(),
-	);
+// 	// Create streams for stdin/stdout/stderr events.
+// 	let arg = tg::pipe::post::Arg {
+// 		remote: stdio.remote.clone(),
+// 	};
+// 	let stderr = handle.post_pipe(
+// 		&stdio.stderr.writer,
+// 		arg.clone(),
+// 		window_changes(recv.clone(), libc::STDERR_FILENO).boxed(),
+// 	);
+// 	let stdin = handle.post_pipe(
+// 		&stdio.stdin.reader,
+// 		arg.clone(),
+// 		window_changes(recv.clone(), libc::STDIN_FILENO).boxed(),
+// 	);
+// 	let stdout = handle.post_pipe(
+// 		&stdio.stdout.writer,
+// 		arg.clone(),
+// 		window_changes(recv.clone(), libc::STDOUT_FILENO).boxed(),
+// 	);
 
-	// Join the futures.
-	future::try_join3(stderr, stdin, stdout).await.ok();
-}
+// 	// Join the futures.
+// 	future::try_join3(stderr, stdin, stdout).await.ok();
+// }
 
-fn window_changes(
-	signal: async_broadcast::Receiver<()>,
-	fileno: i32,
-) -> impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static {
-	stream::unfold((signal, fileno), async move |(mut signal, fileno)| {
-		if signal.recv().await.is_err() {
-			return None;
-		}
-		let event = get_window_size(fileno)
-			.transpose()?
-			.map(tg::pipe::Event::WindowSize);
-		Some((event, (signal, fileno)))
-	})
-}
+// fn window_changes(
+// 	signal: async_broadcast::Receiver<()>,
+// 	fileno: i32,
+// ) -> impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static {
+// 	stream::unfold((signal, fileno), async move |(mut signal, fileno)| {
+// 		if signal.recv().await.is_err() {
+// 			return None;
+// 		}
+// 		let event = get_window_size(fileno)
+// 			.transpose()?
+// 			.map(tg::pipe::Event::WindowSize);
+// 		Some((event, (signal, fileno)))
+// 	})
+// }
 
 fn fork_and_die(code: i32) -> std::io::Result<()> {
 	unsafe {
@@ -509,39 +405,6 @@ fn fork_and_die(code: i32) -> std::io::Result<()> {
 			return Ok(());
 		} else {
 			std::process::exit(code)
-		}
-	}
-}
-
-struct RawGuard {
-	fd: i32,
-	old: libc::termios,
-}
-
-impl RawGuard {
-	pub fn new(fd: i32) -> std::io::Result<Self> {
-		unsafe {
-			let mut old = std::mem::MaybeUninit::<libc::termios>::uninit();
-			if libc::tcgetattr(fd, old.as_mut_ptr()) != 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let old = old.assume_init();
-			let mut new = old;
-			new.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
-			new.c_iflag &= !(libc::IXON | libc::ICRNL | libc::BRKINT | libc::INPCK | libc::ISTRIP);
-			new.c_oflag &= !(libc::OPOST);
-			if libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(new)) != 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			Ok(Self { fd, old })
-		}
-	}
-}
-
-impl Drop for RawGuard {
-	fn drop(&mut self) {
-		unsafe {
-			libc::tcsetattr(self.fd, libc::TCSANOW, std::ptr::addr_of!(self.old));
 		}
 	}
 }
