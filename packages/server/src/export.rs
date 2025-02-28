@@ -133,6 +133,7 @@ impl Server {
 			async move {
 				let mut stream = pin!(stream);
 				while let Some(complete) = stream.try_next().await? {
+					dbg!(&complete);
 					match complete {
 						tg::import::Complete::Process(ref process_complete) => {
 							graph.update_complete(&Either::Left(process_complete));

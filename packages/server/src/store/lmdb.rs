@@ -51,17 +51,21 @@ impl Lmdb {
 		Ok(Some(bytes))
 	}
 
-	pub fn put(&self, id: &tangram_client::object::Id, bytes: &Bytes) -> tg::Result<()> {
+	pub fn put(&self, id: &tangram_client::object::Id, bytes: Bytes) -> tg::Result<()> {
 		let mut transaction = self
 			.env
 			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		self.db
-			.put(&mut transaction, id.to_string().as_bytes(), bytes)
+			.put(&mut transaction, id.to_string().as_bytes(), &bytes)
 			.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 		transaction
 			.commit()
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		Ok(())
+	}
+
+	pub fn put_batch(&self, items: &[(tg::object::Id, Bytes)]) -> tg::Result<()> {
+		todo!()
 	}
 }

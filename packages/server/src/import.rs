@@ -1,8 +1,11 @@
 use crate::Server;
+use bytes::Bytes;
 use futures::{
-	FutureExt, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
+	FutureExt, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+	stream::{self, FuturesUnordered},
 };
 use indoc::formatdoc;
+use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::{
 	collections::BTreeSet,
@@ -414,38 +417,100 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to ensure the stream exists"))?;
 
+		let (batch_sender, batch_receiver) =
+			async_channel::bounded::<Vec<(tg::object::Id, Bytes)>>(1);
+
+		// Spawn tasks that receive batches and write them to the store and messenger.
+		let mut tasks = JoinSet::new();
+		for _ in 0..10 {
+			tasks.spawn({
+				let server = self.clone();
+				let batch_receiver = batch_receiver.clone();
+				let event_sender = event_sender.clone();
+				let progress = progress.clone();
+				async move {
+					server
+						.import_objects_task_batch_task(batch_receiver, &event_sender, &progress)
+						.await;
+				}
+			});
+		}
+
+		// Receive the objects in batches and send them to the batch tasks.
+		let mut batch_bytes = 0;
+		let mut batch = Vec::new();
 		let stream = ReceiverStream::new(object_receiver);
 		let mut stream = pin!(stream);
 		while let Some(tangram_client::export::ObjectItem { id, bytes }) = stream.next().await {
-			let size = bytes.len().to_u64().unwrap();
+			if batch_bytes > 5_000_000 {
+				batch_bytes = 0;
+				batch_sender.send(std::mem::take(&mut batch)).await.unwrap();
+			}
+			batch_bytes += 100 + 58 + bytes.len();
+			batch.push((id, bytes));
+		}
+		batch_sender.send(batch).await.unwrap();
 
+		// Drop the batch sender.
+		drop(batch_sender);
+
+		// Join the batch tasks.
+		tasks.join_all().await;
+
+		Ok(())
+	}
+
+	async fn import_objects_task_batch_task(
+		&self,
+		batch_receiver: async_channel::Receiver<Vec<(tg::object::Id, Bytes)>>,
+		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
+		progress: &Arc<Progress>,
+	) {
+		while let Ok(batch) = batch_receiver.recv().await {
+			// Create the store future.
 			let store_future = {
-				let id = id.clone();
-				let bytes = bytes.clone();
-				async move {
-					self.store.as_ref().unwrap().put(id, bytes).await?;
+				async {
+					self.store.as_ref().unwrap().put_batch(&batch).await?;
 					Ok::<_, tg::Error>(())
 				}
 			};
 
+			// Create the messenger future.
 			let messenger_future = {
-				let id = id.clone();
-				let bytes = bytes.clone();
-				async move {
-					let data = tg::object::Data::deserialize(id.kind(), &bytes)?;
-					let children = data.children();
-					let message = Message {
-						id: id.clone(),
-						size,
-						children,
-					};
-					let payload = serde_json::to_vec(&message)
-						.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-					messenger
-						.jetstream
-						.publish("index", payload.into())
-						.await
-						.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+				async {
+					let payloads = batch
+						.iter()
+						.map(|(id, bytes)| {
+							let data = tg::object::Data::deserialize(id.kind(), bytes)?;
+							let children = data.children();
+							let message = Message {
+								id: id.clone(),
+								size: bytes.len().to_u64().unwrap(),
+								children,
+							};
+							let payload = serde_json::to_vec(&message).map_err(|source| {
+								tg::error!(!source, "failed to serialize the message")
+							})?;
+							Ok::<_, tg::Error>(payload)
+						})
+						.try_collect::<_, Vec<_>, _>()?;
+					payloads
+						.into_iter()
+						.map(|payload| async {
+							self.messenger
+								.as_ref()
+								.unwrap_right()
+								.jetstream
+								.publish("index", payload.into())
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to publish the message")
+								})?;
+							Ok::<_, tg::Error>(())
+						})
+						.collect::<FuturesUnordered<_>>()
+						.try_collect::<()>()
+						.await?;
 					Ok::<_, tg::Error>(())
 				}
 			};
@@ -458,11 +523,14 @@ impl Server {
 			}
 
 			// Update the progress.
-			progress.increment_objects(1);
-			progress.increment_bytes(size);
+			let objects = batch.len().to_u64().unwrap();
+			let bytes = batch
+				.iter()
+				.map(|(_, bytes)| bytes.len().to_u64().unwrap())
+				.sum();
+			progress.increment_objects(objects);
+			progress.increment_bytes(bytes);
 		}
-
-		Ok(())
 	}
 
 	pub(crate) async fn handle_import_request<H>(

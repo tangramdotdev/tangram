@@ -145,7 +145,7 @@ impl Server {
 		// Create the store future.
 		let store = async {
 			if let Some(store) = &self.store {
-				store.put(id.clone(), arg.bytes.clone()).await?;
+				store.put(id, arg.bytes.clone()).await?;
 			}
 			Ok::<_, tg::Error>(())
 		};
