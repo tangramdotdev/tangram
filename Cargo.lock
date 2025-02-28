@@ -5908,6 +5908,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
+ "async-broadcast",
  "byte-unit",
  "bytes",
  "clap",
@@ -6080,8 +6081,26 @@ dependencies = [
  "async-broadcast",
  "async-nats",
  "bytes",
+ "dashmap 6.1.0",
+ "fnv",
  "futures",
  "tangram_either",
+]
+
+[[package]]
+name = "tangram_sandbox"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "dashmap 6.1.0",
+ "futures",
+ "libc",
+ "num",
+ "scopeguard",
+ "tangram_either",
+ "tangram_futures",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
