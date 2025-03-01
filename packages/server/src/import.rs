@@ -106,7 +106,7 @@ impl Server {
 			let progress = progress.clone();
 			async move {
 				let result = server
-					.import_processes_task(process_receiver, &event_sender, &progress)
+					.import_processes_task(process_receiver, &progress)
 					.await;
 				if let Err(error) = result {
 					event_sender.send(Err(error)).await.ok();
@@ -223,59 +223,58 @@ impl Server {
 		let mut stream = pin!(stream);
 		let mut join_set = JoinSet::new();
 		while let Some(item) = stream.next().await {
-			join_set.spawn({
-				let server = self.clone();
-				let event_sender = event_sender.clone();
-				async move {
-					match item {
-						Either::Left(id) => {
-							let result = server.try_get_import_process_complete(&id).await;
-							let process_complete = match result {
-								Ok(process_complete) => process_complete,
-								Err(error) => {
-									tracing::error!(?error, "failed to get process complete");
-									return;
-								},
-							};
-							let Some(process_complete) = process_complete else {
+			let server = self.clone();
+			let event_sender = event_sender.clone();
+			join_set.spawn(async move {
+				match item {
+					Either::Left(id) => {
+						let result = server.try_get_import_process_complete(&id).await;
+						let process_complete = match result {
+							Ok(process_complete) => process_complete,
+							Err(error) => {
+								tracing::error!(?error, "failed to get process complete");
 								return;
-							};
-							if !(process_complete.complete
-								|| process_complete.commands_complete
-								|| process_complete.logs_complete
-								|| process_complete.outputs_complete)
-							{
+							},
+						};
+						let Some(process_complete) = process_complete else {
+							return;
+						};
+						if !(process_complete.complete
+							|| process_complete.commands_complete
+							|| process_complete.logs_complete
+							|| process_complete.outputs_complete)
+						{
+							return;
+						}
+						let event = tg::import::Event::Complete(tg::import::Complete::Process(
+							process_complete,
+						));
+						event_sender.send(Ok(event)).await.ok();
+					},
+					Either::Right(id) => {
+						let result = server.try_get_import_object_complete(&id).await;
+						let object_complete = match result {
+							Ok(object_complete) => object_complete,
+							Err(error) => {
+								tracing::error!(?error, "failed to get object complete");
 								return;
-							}
-							let event = tg::import::Event::Complete(tg::import::Complete::Process(
-								process_complete,
-							));
-							event_sender.send(Ok(event)).await.ok();
-						},
-						Either::Right(id) => {
-							let result = server.try_get_import_object_complete(&id).await;
-							let object_complete = match result {
-								Ok(object_complete) => object_complete,
-								Err(error) => {
-									tracing::error!(?error, "failed to get object complete");
-									return;
-								},
-							};
-							let Some(object_complete) = object_complete else {
-								return;
-							};
-							if !object_complete {
-								return;
-							}
-							let event = tg::import::Event::Complete(tg::import::Complete::Object(
-								tg::import::ObjectComplete { id },
-							));
-							event_sender.send(Ok(event)).await.ok();
-						},
-					}
+							},
+						};
+						let Some(object_complete) = object_complete else {
+							return;
+						};
+						if !object_complete {
+							return;
+						}
+						let event = tg::import::Event::Complete(tg::import::Complete::Object(
+							tg::import::ObjectComplete { id },
+						));
+						event_sender.send(Ok(event)).await.ok();
+					},
 				}
 			});
 		}
+		// join_set.join_all().await;
 		Ok(())
 	}
 
@@ -369,32 +368,16 @@ impl Server {
 	async fn import_processes_task(
 		&self,
 		database_process_receiver: tokio::sync::mpsc::Receiver<tg::export::ProcessItem>,
-		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 		progress: &Progress,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(database_process_receiver);
 		let mut stream = pin!(stream);
 		while let Some(item) = stream.next().await {
-			// Put the process.
 			let arg = tg::process::put::Arg { data: item.data };
 			self.put_process(&item.id, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			progress.increment_processes();
-
-			let process_complete = self
-				.try_get_import_process_complete(&item.id)
-				.await?
-				.ok_or_else(|| tg::error!("expected the process to exist"))?;
-			if process_complete.complete
-				|| process_complete.commands_complete
-				|| process_complete.logs_complete
-				|| process_complete.outputs_complete
-			{
-				let event =
-					tg::import::Event::Complete(tg::import::Complete::Process(process_complete));
-				event_sender.send(Ok(event)).await.ok();
-			}
 		}
 		Ok(())
 	}
