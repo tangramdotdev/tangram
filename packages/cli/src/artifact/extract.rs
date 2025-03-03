@@ -13,6 +13,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub format: Option<tg::artifact::archive::Format>,
+
+	#[arg(long)]
+	pub compression_format: Option<tg::blob::compress::Format>,
 }
 
 impl Cli {
@@ -20,7 +23,8 @@ impl Cli {
 		let handle = self.handle().await?;
 		let blob = tg::Blob::with_id(args.blob);
 		let format = args.format;
-		let command = tg::Artifact::extract_command(&blob, format);
+		let compression_format = args.compression_format;
+		let command = tg::Artifact::extract_command(&blob, format, compression_format);
 		let command = command.id(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
 		self.build_process(args.build, reference, vec![]).await?;
