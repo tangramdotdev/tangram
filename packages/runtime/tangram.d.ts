@@ -99,7 +99,6 @@ declare namespace tg {
 	/** Decompress a blob. **/
 	export let decompress: (
 		blob: tg.Blob,
-		format: tg.Blob.CompressionFormat,
 	) => Promise<tg.Blob>;
 
 	/** Download the contents of a URL. */
@@ -133,7 +132,6 @@ declare namespace tg {
 		/** Decompress a blob. **/
 		export let decompress: (
 			blob: tg.Blob,
-			format: tg.Blob.CompressionFormat,
 		) => Promise<tg.Blob>;
 
 		/** Download a blob. **/
@@ -235,12 +233,12 @@ declare namespace tg {
 	export let archive: (
 		artifact: tg.Artifact,
 		format: tg.Artifact.ArchiveFormat,
+		compression?: tg.Blob.CompressionFormat,
 	) => Promise<tg.Blob>;
 
 	/** Extract an artifact from an archive. **/
 	export let extract: (
 		blob: tg.Blob,
-		format: tg.Artifact.ArchiveFormat,
 	) => Promise<tg.Artifact>;
 
 	/** Bundle an artifact. **/
@@ -268,12 +266,12 @@ declare namespace tg {
 		export let archive: (
 			artifact: tg.Artifact,
 			format: tg.Artifact.ArchiveFormat,
+			compression?: tg.Blob.CompressionFormat,
 		) => Promise<tg.Blob>;
 
 		/** Extract an artifact from an archive. **/
 		export let extract: (
 			blob: tg.Blob,
-			format: tg.Artifact.ArchiveFormat,
 		) => Promise<tg.Artifact>;
 
 		/** Bundle an artifact. **/

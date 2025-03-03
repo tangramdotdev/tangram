@@ -10,17 +10,13 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
-
-	#[arg(short, long)]
-	pub format: tg::blob::compress::Format,
 }
 
 impl Cli {
 	pub async fn command_blob_decompress(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let blob = tg::Blob::with_id(args.blob);
-		let format = args.format;
-		let command = blob.decompress_command(format);
+		let command = blob.decompress_command();
 		let command = command.id(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
 		self.build_process(args.build, reference, vec![]).await?;

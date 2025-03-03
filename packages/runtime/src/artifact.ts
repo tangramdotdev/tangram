@@ -40,21 +40,27 @@ export namespace Artifact {
 	export let archive = async (
 		artifact: Artifact,
 		format: ArchiveFormat,
+		compression?: tg.Blob.CompressionFormat,
 	): Promise<tg.Blob> => {
+		const args = ["archive", artifact, format];
+		if (compression !== undefined) {
+			if (format === "zip") {
+				throw new Error("compression is not supported for zip archives");
+			}
+			args.push(compression);
+		}
 		let value = await tg.build({
-			args: ["archive", artifact, format],
+			args,
+			env: undefined,
 			host: "builtin",
 		});
 		tg.assert(tg.Blob.is(value));
 		return value;
 	};
 
-	export let extract = async (
-		blob: tg.Blob,
-		format: ArchiveFormat,
-	): Promise<Artifact> => {
+	export let extract = async (blob: tg.Blob): Promise<Artifact> => {
 		let value = await tg.build({
-			args: ["extract", blob, format],
+			args: ["extract", blob],
 			env: undefined,
 			host: "builtin",
 		});

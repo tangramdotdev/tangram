@@ -82,12 +82,9 @@ export namespace Blob {
 		return value;
 	};
 
-	export let decompress = async (
-		blob: Blob,
-		format: CompressionFormat,
-	): Promise<Blob> => {
+	export let decompress = async (blob: Blob): Promise<Blob> => {
 		let value = await tg.build({
-			args: ["decompress", blob, format],
+			args: ["decompress", blob],
 			env: undefined,
 			host: "builtin",
 		});

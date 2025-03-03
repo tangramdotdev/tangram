@@ -3,11 +3,12 @@ use crate::Server;
 use futures::{AsyncReadExt as _, StreamExt as _};
 use std::{
 	path::{Path, PathBuf},
+	pin::Pin,
 	time::Duration,
 };
 use tangram_client as tg;
 use tangram_futures::read::shared_position_reader::SharedPositionReader;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncSeek};
 use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
 
 impl Runtime {
@@ -27,18 +28,8 @@ impl Runtime {
 			.ok()
 			.ok_or_else(|| tg::error!("expected a blob"))?;
 
-		// Get the format.
-		let format = if let Some(value) = args.get(2) {
-			let format = value
-				.try_unwrap_string_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a string"))?
-				.parse::<tg::artifact::archive::Format>()
-				.map_err(|source| tg::error!(!source, "invalid format"))?;
-			Some(format)
-		} else {
-			None
-		};
+		// Detect archive format.
+		let (format, compression) = detect_archive_format(server, &blob).await?;
 
 		// Create the reader.
 		let reader = crate::blob::Reader::new(&self.server, blob.clone()).await?;
@@ -83,12 +74,27 @@ impl Runtime {
 			log_task_abort_handle.abort();
 		};
 
-		let format =
-			format.ok_or_else(|| tg::error!("archive format detection is unimplemented"))?;
-
 		// Extract the artifact.
 		let artifact = match format {
-			tg::artifact::archive::Format::Tar => tar(server, reader).await?,
+			tg::artifact::archive::Format::Tar => {
+				// If there is a compression format, wrap the reader.
+				let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression {
+					Some(tg::blob::compress::Format::Bz2) => {
+						Box::pin(async_compression::tokio::bufread::BzDecoder::new(reader))
+					},
+					Some(tg::blob::compress::Format::Gz) => {
+						Box::pin(async_compression::tokio::bufread::GzipDecoder::new(reader))
+					},
+					Some(tg::blob::compress::Format::Xz) => {
+						Box::pin(async_compression::tokio::bufread::XzDecoder::new(reader))
+					},
+					Some(tg::blob::compress::Format::Zstd) => {
+						Box::pin(async_compression::tokio::bufread::ZstdDecoder::new(reader))
+					},
+					None => Box::pin(reader),
+				};
+				tar(server, reader).await?
+			},
 			tg::artifact::archive::Format::Zip => zip(server, reader).await?,
 		};
 
@@ -118,7 +124,7 @@ where
 	R: AsyncRead + Unpin + Send + 'static,
 {
 	// Create the reader.
-	let reader = async_tar::Archive::new(reader.compat());
+	let mut reader = tokio_tar::Archive::new(reader);
 
 	// Get the entries.
 	let mut entries: Vec<(PathBuf, tg::Artifact)> = Vec::new();
@@ -136,12 +142,12 @@ where
 				.as_ref(),
 		);
 		match header.entry_type() {
-			async_tar::EntryType::Directory => {
+			tokio_tar::EntryType::Directory => {
 				let directory = tg::Directory::with_entries([].into());
 				let artifact = tg::Artifact::Directory(directory);
 				entries.push((path, artifact));
 			},
-			async_tar::EntryType::Symlink => {
+			tokio_tar::EntryType::Symlink => {
 				let target = header
 					.link_name()
 					.map_err(|source| tg::error!(!source, "failed to read the symlink target"))?
@@ -150,7 +156,7 @@ where
 				let artifact = tg::Artifact::Symlink(symlink);
 				entries.push((path, artifact));
 			},
-			async_tar::EntryType::Link => {
+			tokio_tar::EntryType::Link => {
 				let target = header
 					.link_name()
 					.map_err(|source| {
@@ -166,16 +172,16 @@ where
 					));
 				}
 			},
-			async_tar::EntryType::XGlobalHeader
-			| async_tar::EntryType::XHeader
-			| async_tar::EntryType::GNULongName
-			| async_tar::EntryType::GNULongLink => (),
+			tokio_tar::EntryType::XGlobalHeader
+			| tokio_tar::EntryType::XHeader
+			| tokio_tar::EntryType::GNULongName
+			| tokio_tar::EntryType::GNULongLink => (),
 			_ => {
 				let mode = header
 					.mode()
 					.map_err(|source| tg::error!(!source, "failed to read the entry mode"))?;
 				let executable = mode & 0o111 != 0;
-				let blob = tg::Blob::with_reader(server, entry.compat()).await?;
+				let blob = tg::Blob::with_reader(server, entry).await?;
 				let file = tg::File::builder(blob).executable(executable).build();
 				let artifact = tg::Artifact::File(file);
 				entries.push((path, artifact));
@@ -280,4 +286,133 @@ where
 	let directory = builder.build();
 
 	Ok(directory.into())
+}
+
+async fn detect_archive_format(
+	server: &Server,
+	blob: &tg::Blob,
+) -> tg::Result<(
+	tg::artifact::archive::Format,
+	Option<tg::blob::compress::Format>,
+)> {
+	// Read first 6 bytes.
+	let mut magic_reader = blob
+		.read(
+			server,
+			tg::blob::read::Arg {
+				length: Some(6),
+				..Default::default()
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create magic bytes reader"))?;
+	let mut magic_bytes = [0u8; 6];
+	let bytes_read = magic_reader
+		.read(&mut magic_bytes)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to read magic bytes"))?;
+
+	if bytes_read < 2 {
+		return Err(tg::error!("blob too small to be an archive"));
+	}
+
+	// .zip
+	if magic_bytes[0] == 0x50 && magic_bytes[1] == 0x4B {
+		return Ok((tg::artifact::archive::Format::Zip, None));
+	}
+
+	// If we can detect a compression format from the magic bytes, assume tar.
+	if let Some(compression) = tg::blob::compress::Format::from_magic(&magic_bytes) {
+		return Ok((tg::artifact::archive::Format::Tar, Some(compression)));
+	}
+
+	// Otherwise, check for uncompressed ustar.
+	let mut ustar_reader = blob
+		.read(
+			server,
+			tg::blob::read::Arg {
+				position: Some(std::io::SeekFrom::Start(257)),
+				length: Some(5),
+				..Default::default()
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create ustar reader"))?;
+	let mut ustar_bytes = [0u8; 5];
+	let ustar_bytes_read_result = ustar_reader.read(&mut ustar_bytes).await.ok();
+
+	// If we successfully read the bytes "ustar" from position 257, it's a tar archive.
+	if let Some(bytes_read) = ustar_bytes_read_result {
+		if bytes_read == 5 && &ustar_bytes == b"ustar" {
+			return Ok((tg::artifact::archive::Format::Tar, None));
+		}
+	}
+
+	// If not ustar, check for a valid tar checksum.
+	if valid_tar_checksum(server, blob).await? {
+		return Ok((tg::artifact::archive::Format::Tar, None));
+	}
+
+	Err(tg::error!(?magic_bytes, "unrecognized archive format"))
+}
+
+async fn valid_tar_checksum(server: &Server, blob: &tg::Blob) -> tg::Result<bool> {
+	let mut reader = blob
+		.read(
+			server,
+			tg::blob::read::Arg {
+				length: Some(512),
+				..Default::default()
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create the tar header reader"))?;
+
+	let mut header = [0u8; 512];
+	let Some(bytes_read) = reader.read(&mut header).await.ok() else {
+		// We couldn't read bytes, not a tar archive.
+		return Ok(false);
+	};
+	// We expected to be able to read the full 512 bytes. If not, it's not a tar archive.
+	if bytes_read != 512 {
+		return Ok(false);
+	}
+
+	// Parse the checksum for the header record. This is an 8-byte field at offset 148.
+	// See <https://en.wikipedia.org/wiki/Tar_(computing)#File_format>
+	// "The checksum is calculated by taking the sum of the unsigned byte values of the header record with the eight checksum bytes taken to be ASCII spaces (decimal value 32). It is stored as a six digit octal number with leading zeroes followed by a NUL and then a space."
+	let offset = 148;
+	let field_size = 8;
+	let recorded_checksum = parse_octal_checksum(&header[offset..offset + field_size])?;
+
+	let mut checksum_calc = 0u32;
+	for (i, item) in header.iter().enumerate() {
+		// If we're in the checksum field, add ASCII space value.
+		if i >= offset && i < offset + field_size {
+			checksum_calc += 32;
+		} else {
+			checksum_calc += u32::from(*item);
+		}
+	}
+
+	let result = checksum_calc == recorded_checksum;
+	Ok(result)
+}
+
+fn parse_octal_checksum(bytes: &[u8]) -> tg::Result<u32> {
+	// Checksums are stored as octal ASCII digits terminated by a NUL or space.
+	let mut checksum_str = String::new();
+
+	for &byte in bytes {
+		if byte == 0 || byte == b' ' {
+			break;
+		}
+		checksum_str.push(byte as char);
+	}
+
+	// Convert octal string to u32
+	match u32::from_str_radix(checksum_str.trim(), 8) {
+		Ok(value) => Ok(value),
+		Err(_) => Err(tg::error!("Invalid tar checksum format")),
+	}
 }

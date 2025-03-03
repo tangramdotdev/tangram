@@ -39,6 +39,46 @@ impl tg::Blob {
 	}
 }
 
+impl Format {
+	#[must_use]
+	pub fn from_magic(bytes: &[u8]) -> Option<Self> {
+		let len = bytes.len();
+		if len < 2 {
+			return None;
+		}
+
+		// Gz
+		if bytes[0] == 0x1F && bytes[1] == 0x8B {
+			return Some(tg::blob::compress::Format::Gz);
+		}
+
+		// Zstd
+		if len >= 4 && bytes[0] == 0x28 && bytes[1] == 0xB5 && bytes[2] == 0x2F && bytes[3] == 0xFD
+		{
+			return Some(tg::blob::compress::Format::Zstd);
+		}
+
+		// Bz2
+		if len >= 3 && bytes[0] == 0x42 && bytes[1] == 0x5A && bytes[2] == 0x68 {
+			return Some(tg::blob::compress::Format::Bz2);
+		}
+
+		// Xz
+		if len >= 6
+			&& bytes[0] == 0xFD
+			&& bytes[1] == 0x37
+			&& bytes[2] == 0x7A
+			&& bytes[3] == 0x58
+			&& bytes[4] == 0x5A
+			&& bytes[5] == 0x00
+		{
+			return Some(tg::blob::compress::Format::Xz);
+		}
+
+		None
+	}
+}
+
 impl std::fmt::Display for Format {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let s = match self {
