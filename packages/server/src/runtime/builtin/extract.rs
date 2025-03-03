@@ -59,7 +59,9 @@ impl Runtime {
 
 		// If there is a compression format, make sure the format is tar.
 		if compression_format.is_some() && matches!(format, tg::artifact::archive::Format::Zip) {
-			return Err(tg::error!("compression is only supported for tar archives"));
+			return Err(tg::error!(
+				"compression_format is not supported for zip archives"
+			));
 		}
 
 		// Create the reader.

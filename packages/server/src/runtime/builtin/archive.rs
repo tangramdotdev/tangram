@@ -1,7 +1,8 @@
 use super::Runtime;
 use crate::Server;
-use std::path::Path;
+use std::{path::Path, pin::Pin};
 use tangram_client as tg;
+use tokio::io::AsyncRead;
 use tokio_util::compat::{
 	FuturesAsyncWriteCompatExt as _, TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _,
 };
@@ -33,9 +34,32 @@ impl Runtime {
 			.parse::<tg::artifact::archive::Format>()
 			.map_err(|source| tg::error!(!source, "invalid format"))?;
 
+		// Get the compression format.
+		let compression_format = if let Some(value) = args.get(3) {
+			let compression_format = value
+				.try_unwrap_string_ref()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a string"))?
+				.parse::<tg::blob::compress::Format>()
+				.map_err(|source| tg::error!(!source, "invalid compression format"))?;
+			Some(compression_format)
+		} else {
+			None
+		};
+
+		if compression_format.is_some()
+			&& matches!(format, tangram_client::artifact::archive::Format::Zip)
+		{
+			return Err(tg::error!(
+				"compression_format is not supported for zip archives"
+			));
+		}
+
 		// Create the archive task.
 		let blob = match format {
-			tg::artifact::archive::Format::Tar => tar(server, &artifact).await?,
+			tg::artifact::archive::Format::Tar => {
+				tar(server, &artifact, compression_format).await?
+			},
 			tg::artifact::archive::Format::Zip => zip(server, &artifact).await?,
 		};
 
@@ -43,7 +67,11 @@ impl Runtime {
 	}
 }
 
-async fn tar(server: &Server, artifact: &tg::Artifact) -> tg::Result<tg::Blob> {
+async fn tar(
+	server: &Server,
+	artifact: &tg::Artifact,
+	compression_format: Option<tg::blob::compress::Format>,
+) -> tg::Result<tg::Blob> {
 	// Create a duplex stream.
 	let (reader, writer) = tokio::io::duplex(8192);
 
@@ -68,6 +96,23 @@ async fn tar(server: &Server, artifact: &tg::Artifact) -> tg::Result<tg::Blob> {
 			.map_err(|source| tg::error!(!source, "failed to finish the archive"))?;
 
 		Ok::<_, tg::Error>(())
+	};
+
+	// If compression is requested, use the appropriate encoder.
+	let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression_format {
+		Some(tg::blob::compress::Format::Bz2) => Box::pin(
+			async_compression::tokio::bufread::BzEncoder::new(tokio::io::BufReader::new(reader)),
+		),
+		Some(tg::blob::compress::Format::Gz) => Box::pin(
+			async_compression::tokio::bufread::GzipEncoder::new(tokio::io::BufReader::new(reader)),
+		),
+		Some(tg::blob::compress::Format::Xz) => Box::pin(
+			async_compression::tokio::bufread::XzEncoder::new(tokio::io::BufReader::new(reader)),
+		),
+		Some(tg::blob::compress::Format::Zstd) => Box::pin(
+			async_compression::tokio::bufread::ZstdEncoder::new(tokio::io::BufReader::new(reader)),
+		),
+		None => Box::pin(reader),
 	};
 
 	// Create the blob future.
