@@ -1,8 +1,9 @@
 use super::Runtime;
+use crate::Server;
 use std::{pin::Pin, time::Duration};
 use tangram_client as tg;
 use tangram_futures::read::shared_position_reader::SharedPositionReader;
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncReadExt as _};
 
 impl Runtime {
 	pub async fn decompress(&self, process: &tg::Process) -> tg::Result<tg::Value> {
@@ -21,15 +22,8 @@ impl Runtime {
 			.ok()
 			.ok_or_else(|| tg::error!("expected a blob"))?;
 
-		// Get the format.
-		let format = args
-			.get(2)
-			.ok_or_else(|| tg::error!("invalid number of arguments"))?
-			.try_unwrap_string_ref()
-			.ok()
-			.ok_or_else(|| tg::error!("expected a string"))?
-			.parse::<tg::blob::compress::Format>()
-			.map_err(|source| tg::error!(!source, "invalid format"))?;
+		// Detect the format.
+		let format = detect_compression(server, &blob).await?;
 
 		// Create the reader.
 		let reader = blob.read(server, tg::blob::read::Arg::default()).await?;
@@ -103,5 +97,33 @@ impl Runtime {
 		server.try_post_process_log(process.id(), arg).await.ok();
 
 		Ok(blob.into())
+	}
+}
+
+async fn detect_compression(
+	server: &Server,
+	blob: &tg::Blob,
+) -> tg::Result<tg::blob::compress::Format> {
+	// Read first 6 bytes.
+	let mut magic_reader = blob
+		.read(
+			server,
+			tg::blob::read::Arg {
+				length: Some(6),
+				..Default::default()
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create magic bytes reader"))?;
+	let mut magic_bytes = [0u8; 6];
+	let bytes_read = magic_reader
+		.read(&mut magic_bytes)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to read magic bytes"))?;
+
+	let result = tg::blob::compress::Format::from_magic(&magic_bytes[..bytes_read]);
+	match result {
+		Some(format) => Ok(format),
+		None => Err(tg::error!(%id = blob.id(server).await?, "unrecognized compression format")),
 	}
 }

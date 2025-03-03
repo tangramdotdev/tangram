@@ -11,12 +11,12 @@ impl tg::Artifact {
 		&self,
 		handle: &H,
 		format: Format,
-		compression_format: Option<tg::blob::compress::Format>,
+		compression: Option<tg::blob::compress::Format>,
 	) -> tg::Result<tg::Blob>
 	where
 		H: tg::Handle,
 	{
-		let command = self.archive_command(format, compression_format);
+		let command = self.archive_command(format, compression);
 		let arg = tg::process::spawn::Arg {
 			command: Some(command.id(handle).await?),
 			..Default::default()
@@ -30,15 +30,15 @@ impl tg::Artifact {
 	pub fn archive_command(
 		&self,
 		format: Format,
-		compression_format: Option<tg::blob::compress::Format>,
+		compression: Option<tg::blob::compress::Format>,
 	) -> tg::Command {
 		let host = "builtin";
 		let args = vec![
 			"archive".into(),
 			self.clone().into(),
 			format.to_string().into(),
-			compression_format
-				.map(|compression_format| compression_format.to_string())
+			compression
+				.map(|compression| compression.to_string())
 				.into(),
 		];
 		tg::Command::builder(host).args(args).build()

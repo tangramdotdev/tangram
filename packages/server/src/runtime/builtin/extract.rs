@@ -321,52 +321,12 @@ async fn detect_archive_format(
 		return Ok((tg::artifact::archive::Format::Zip, None));
 	}
 
-	// .tar.gz
-	if magic_bytes[0] == 0x1F && magic_bytes[1] == 0x8B {
-		return Ok((
-			tg::artifact::archive::Format::Tar,
-			Some(tg::blob::compress::Format::Gz),
-		));
+	// If we can detect a compression format from the magic bytes, assume tar.
+	if let Some(compression) = tg::blob::compress::Format::from_magic(&magic_bytes) {
+		return Ok((tg::artifact::archive::Format::Tar, Some(compression)));
 	}
 
-	// .tar.zst
-	if bytes_read >= 4
-		&& magic_bytes[0] == 0x28
-		&& magic_bytes[1] == 0xB5
-		&& magic_bytes[2] == 0x2F
-		&& magic_bytes[3] == 0xFD
-	{
-		return Ok((
-			tg::artifact::archive::Format::Tar,
-			Some(tg::blob::compress::Format::Zstd),
-		));
-	}
-
-	// .tar.bz2
-	if bytes_read >= 3 && magic_bytes[0] == 0x42 && magic_bytes[1] == 0x5A && magic_bytes[2] == 0x68
-	{
-		return Ok((
-			tg::artifact::archive::Format::Tar,
-			Some(tg::blob::compress::Format::Bz2),
-		));
-	}
-
-	// .tar.xz
-	if bytes_read >= 6
-		&& magic_bytes[0] == 0xFD
-		&& magic_bytes[1] == 0x37
-		&& magic_bytes[2] == 0x7A
-		&& magic_bytes[3] == 0x58
-		&& magic_bytes[4] == 0x5A
-		&& magic_bytes[5] == 0x00
-	{
-		return Ok((
-			tg::artifact::archive::Format::Tar,
-			Some(tg::blob::compress::Format::Xz),
-		));
-	}
-
-	// Check if this is a ustar.
+	// Otherwise, check for uncompressed ustar.
 	let mut ustar_reader = blob
 		.read(
 			server,
@@ -388,7 +348,7 @@ async fn detect_archive_format(
 		}
 	}
 
-	// Check for a valid tar checksum.
+	// If not ustar, check for a valid tar checksum.
 	if valid_tar_checksum(server, blob).await? {
 		return Ok((tg::artifact::archive::Format::Tar, None));
 	}
