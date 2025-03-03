@@ -3,6 +3,7 @@ use crate::Server;
 use futures::{AsyncReadExt as _, StreamExt as _};
 use std::{
 	path::{Path, PathBuf},
+	pin::Pin,
 	time::Duration,
 };
 use tangram_client as tg;
@@ -39,6 +40,27 @@ impl Runtime {
 		} else {
 			None
 		};
+
+		let format =
+			format.ok_or_else(|| tg::error!("archive format detection is unimplemented"))?;
+
+		// Get the compression format.
+		let compression_format = if let Some(value) = args.get(3) {
+			let compression_format = value
+				.try_unwrap_string_ref()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a string"))?
+				.parse::<tg::blob::compress::Format>()
+				.map_err(|source| tg::error!(!source, "invalid compression format"))?;
+			Some(compression_format)
+		} else {
+			None
+		};
+
+		// If there is a compression format, make sure the format is tar.
+		if compression_format.is_some() && matches!(format, tg::artifact::archive::Format::Zip) {
+			return Err(tg::error!("compression is only supported for tar archives"));
+		}
 
 		// Create the reader.
 		let reader = crate::blob::Reader::new(&self.server, blob.clone()).await?;
@@ -83,12 +105,27 @@ impl Runtime {
 			log_task_abort_handle.abort();
 		};
 
-		let format =
-			format.ok_or_else(|| tg::error!("archive format detection is unimplemented"))?;
-
 		// Extract the artifact.
 		let artifact = match format {
-			tg::artifact::archive::Format::Tar => tar(server, reader).await?,
+			tg::artifact::archive::Format::Tar => {
+				// If there is a compression format, wrap the reader.
+				let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression_format {
+					Some(tg::blob::compress::Format::Bz2) => {
+						Box::pin(async_compression::tokio::bufread::BzDecoder::new(reader))
+					},
+					Some(tg::blob::compress::Format::Gz) => {
+						Box::pin(async_compression::tokio::bufread::GzipDecoder::new(reader))
+					},
+					Some(tg::blob::compress::Format::Xz) => {
+						Box::pin(async_compression::tokio::bufread::XzDecoder::new(reader))
+					},
+					Some(tg::blob::compress::Format::Zstd) => {
+						Box::pin(async_compression::tokio::bufread::ZstdDecoder::new(reader))
+					},
+					None => Box::pin(reader),
+				};
+				tar(server, reader).await?
+			},
 			tg::artifact::archive::Format::Zip => zip(server, reader).await?,
 		};
 
