@@ -1,5 +1,5 @@
-use std::path::Path;
-use std::process::Command;
+#[cfg(feature = "foundationdb")]
+use std::{path::Path, process::Command};
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
