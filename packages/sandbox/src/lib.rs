@@ -203,7 +203,7 @@ impl Command {
 	pub fn spawn(&self) -> impl Future<Output = std::io::Result<Child>> {
 		#[cfg(target_os = "linux")]
 		{
-			linux::spawn(self).await?
+			linux::spawn(self)
 		}
 		#[cfg(target_os = "macos")]
 		{
