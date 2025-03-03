@@ -45,7 +45,7 @@ export namespace Artifact {
 		const args = ["archive", artifact, format];
 		if (compression !== undefined) {
 			if (format === "zip") {
-				throw new Error("compressionFormat is not supported for zip archives");
+				throw new Error("compression is not supported for zip archives");
 			}
 			args.push(compression);
 		}

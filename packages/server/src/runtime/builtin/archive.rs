@@ -48,9 +48,7 @@ impl Runtime {
 		if compression_format.is_some()
 			&& matches!(format, tangram_client::artifact::archive::Format::Zip)
 		{
-			return Err(tg::error!(
-				"compression_format is not supported for zip archives"
-			));
+			return Err(tg::error!("compression is not supported for zip archives"));
 		}
 
 		// Create the archive task.
