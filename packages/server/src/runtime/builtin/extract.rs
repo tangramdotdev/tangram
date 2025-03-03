@@ -29,7 +29,7 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected a blob"))?;
 
 		// Detect archive format.
-		let (format, compression_format) = detect_archive_format(server, &blob).await?;
+		let (format, compression) = detect_archive_format(server, &blob).await?;
 
 		// Create the reader.
 		let reader = crate::blob::Reader::new(&self.server, blob.clone()).await?;
@@ -78,7 +78,7 @@ impl Runtime {
 		let artifact = match format {
 			tg::artifact::archive::Format::Tar => {
 				// If there is a compression format, wrap the reader.
-				let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression_format {
+				let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression {
 					Some(tg::blob::compress::Format::Bz2) => {
 						Box::pin(async_compression::tokio::bufread::BzDecoder::new(reader))
 					},
