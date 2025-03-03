@@ -1,17 +1,11 @@
-use super::{proxy::Proxy, stdio, util::render};
+use super::{
+	proxy::Proxy,
+	util::{self, render},
+};
 use crate::{Server, temp::Temp};
 use futures::{
 	TryStreamExt as _,
 	stream::{FuturesOrdered, FuturesUnordered},
-};
-use indoc::writedoc;
-use num::ToPrimitive as _;
-use std::{
-	ffi::{CStr, CString},
-	fmt::Write as _,
-	os::fd::AsRawFd,
-	os::unix::{ffi::OsStrExt as _, process::ExitStatusExt as _},
-	path::Path,
 };
 use tangram_client as tg;
 use tangram_futures::task::Task;
@@ -139,7 +133,7 @@ impl Runtime {
 		// Render the env.
 		let command_env = command.env(&self.server).await?;
 		let process_env = state.env.as_ref();
-		cmd_.env(util::merge_env(&self.server, &artifacts_path, process_env, &command_env).await?);
+		cmd_.envs(util::merge_env(&self.server, &artifacts_path, process_env, &command_env).await?);
 
 		// Render the args.
 		let args = command.args(&self.server).await?;
@@ -173,14 +167,11 @@ impl Runtime {
 		);
 		cmd_.env("TANGRAM_URL", url.to_string());
 
-		// Add the artifacts directory.
-		cmd_.path(&artifacts_path);
-
 		// Set cwd.
 		cmd_.cwd(&cwd);
 
 		// Get the window sizes of the pipes.
-		if let Some(tty) = util::try_get_window_size(&self.server, process)
+		if let Some(tty) = super::util::try_get_window_size(&self.server, process)
 			.await?
 			.map(|ws| sandbox::Tty {
 				rows: ws.rows,
@@ -199,17 +190,20 @@ impl Runtime {
 		if state.cwd.is_some() {
 			cmd_.sandbox(false);
 		} else {
-			cmd_.path(&cwd);
-			cmd_.path(&output);
-			cmd_.path(&home);
+			cmd_.path(&artifacts_path, true);
+			cmd_.path(&cwd, false);
+			cmd_.path(&output, false);
+			if let Some(home) = &home {
+				cmd_.path(&home, false);
+			}
 		}
 		cmd_.network(state.network);
 
 		// Spawn the child process.
-		let mut child = command
+		let mut child = cmd_
 			.spawn()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to spawn child process"));
+			.map_err(|source| tg::error!(!source, "failed to spawn child process"))?;
 
 		// Spawn the stdio task.
 		let stdio_task = tokio::spawn(super::util::stdio_task(
