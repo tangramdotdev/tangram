@@ -5,6 +5,7 @@ use std::{
 use tangram_either::Either;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+mod common;
 #[cfg(target_os = "macos")]
 mod darwin;
 #[cfg(target_os = "linux")]
@@ -157,7 +158,7 @@ impl Command {
 	}
 
 	pub fn mounts(&mut self, mounts: impl IntoIterator<Item = Mount>) -> &mut Self {
-		self.mounts.extend(mounts.into_iter());
+		self.mounts.extend(mounts);
 		self
 	}
 
@@ -199,29 +200,27 @@ impl Command {
 		self
 	}
 
-	pub async fn spawn(&self) -> std::io::Result<Child> {
+	pub fn spawn(&self) -> impl Future<Output = std::io::Result<Child>> {
 		#[cfg(target_os = "linux")]
 		{
-			let child = linux::spawn(self).await?;
-			return Ok(child);
+			linux::spawn(self).await?
 		}
 		#[cfg(target_os = "macos")]
 		{
-			let child = darwin::spawn(self).await?;
-			return Ok(child);
+			darwin::spawn(self)
 		}
 	}
 }
 
 impl Child {
-	pub async fn wait(&mut self) -> std::io::Result<ExitStatus> {
+	pub fn wait(&mut self) -> impl Future<Output = std::io::Result<ExitStatus>> {
 		#[cfg(target_os = "linux")]
 		{
-			self.wait_linux().await
+			linux::wait(self)
 		}
 		#[cfg(target_os = "macos")]
 		{
-			self.wait_darwin().await
+			darwin::wait(self)
 		}
 	}
 }

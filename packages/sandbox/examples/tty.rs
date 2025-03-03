@@ -23,7 +23,7 @@ async fn main() -> std::io::Result<ExitCode> {
 		}
 
 		// Create the command.
-		let mut command = sandbox::Command::new("/usr/bin/cat");
+		let mut command = sandbox::Command::new("/bin/cat");
 		if let Some(tty) = get_window_size(libc::STDIN_FILENO)? {
 			command.tty(tty);
 		} else {

@@ -6094,6 +6094,7 @@ dependencies = [
  "bytes",
  "dashmap 6.1.0",
  "futures",
+ "indoc",
  "libc",
  "num",
  "scopeguard",
