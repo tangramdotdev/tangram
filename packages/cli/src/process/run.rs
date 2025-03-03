@@ -1,7 +1,6 @@
 use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
-use crossterm::tty::IsTty;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryFutureExt, TryStreamExt as _, future, stream,
 };
@@ -134,13 +133,6 @@ impl Cli {
 		let pipes = Pipes::open(&handle, remote)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
-
-		// Set stdin into raw
-		// let _guard = std::io::stdin()
-		// 	.is_tty()
-		// 	.then(|| RawGuard::new(libc::STDIN_FILENO))
-		// 	.transpose()
-		// 	.map_err(|source| tg::error!(!source, "failed to set stdin to raw mode"))?;
 
 		// Get the result.
 		let result = self
@@ -280,7 +272,6 @@ impl Cli {
 
 		// Close pipes.
 		pipes.close(&handle).await.ok();
-		eprintln!("closed pipes");
 
 		// Stop and wait for stdio.
 		stdio_task.await.unwrap()?;
@@ -509,39 +500,6 @@ fn fork_and_die(code: i32) -> std::io::Result<()> {
 			return Ok(());
 		} else {
 			std::process::exit(code)
-		}
-	}
-}
-
-struct RawGuard {
-	fd: i32,
-	old: libc::termios,
-}
-
-impl RawGuard {
-	pub fn new(fd: i32) -> std::io::Result<Self> {
-		unsafe {
-			let mut old = std::mem::MaybeUninit::<libc::termios>::uninit();
-			if libc::tcgetattr(fd, old.as_mut_ptr()) != 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let old = old.assume_init();
-			let mut new = old;
-			new.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
-			new.c_iflag &= !(libc::IXON | libc::ICRNL | libc::BRKINT | libc::INPCK | libc::ISTRIP);
-			new.c_oflag &= !(libc::OPOST);
-			if libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(new)) != 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			Ok(Self { fd, old })
-		}
-	}
-}
-
-impl Drop for RawGuard {
-	fn drop(&mut self) {
-		unsafe {
-			libc::tcsetattr(self.fd, libc::TCSANOW, std::ptr::addr_of!(self.old));
 		}
 	}
 }

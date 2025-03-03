@@ -1,6 +1,6 @@
 use crate::{
 	Child, Command, ExitStatus, Stderr, Stdin, Stdout,
-	common::{GuestIo, abort_errno, cstring, envstring, redirect_stdio, stdio_pair},
+	common::{CStringVec, GuestIo, abort_errno, cstring, envstring, redirect_stdio, stdio_pair},
 	pty::Pty,
 };
 use indoc::writedoc;
@@ -438,32 +438,4 @@ fn escape(bytes: impl AsRef<[u8]>) -> String {
 	}
 	output.push('"');
 	output
-}
-
-// TODO: share with linux
-struct CStringVec {
-	_strings: Vec<CString>,
-	pointers: Vec<*const libc::c_char>,
-}
-
-impl CStringVec {
-	fn as_ptr(&self) -> *const *const libc::c_char {
-		self.pointers.as_ptr()
-	}
-}
-
-impl FromIterator<CString> for CStringVec {
-	fn from_iter<T: IntoIterator<Item = CString>>(iter: T) -> Self {
-		let mut strings = Vec::new();
-		let mut pointers = Vec::new();
-		for cstr in iter {
-			pointers.push(cstr.as_ptr());
-			strings.push(cstr);
-		}
-		pointers.push(std::ptr::null());
-		Self {
-			_strings: strings,
-			pointers,
-		}
-	}
 }

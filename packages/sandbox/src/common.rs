@@ -10,6 +10,19 @@ use tangram_either::Either;
 
 pub type GuestIo = Either<Pty, (Option<RawFd>, Option<RawFd>, Option<RawFd>)>;
 
+pub struct CStringVec {
+	_strings: Vec<CString>,
+	pointers: Vec<*const libc::c_char>,
+}
+
+unsafe impl Send for CStringVec {}
+
+impl CStringVec {
+	pub fn as_ptr(&self) -> *const *const libc::c_char {
+		self.pointers.as_ptr()
+	}
+}
+
 pub fn redirect_stdio(stdio: &mut GuestIo) {
 	unsafe {
 		match stdio {
@@ -83,6 +96,22 @@ pub fn envstring(k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> CString {
 		v.as_ref().to_string_lossy()
 	);
 	CString::new(string).unwrap()
+}
+
+impl FromIterator<CString> for CStringVec {
+	fn from_iter<T: IntoIterator<Item = CString>>(iter: T) -> Self {
+		let mut strings = Vec::new();
+		let mut pointers = Vec::new();
+		for cstr in iter {
+			pointers.push(cstr.as_ptr());
+			strings.push(cstr);
+		}
+		pointers.push(std::ptr::null());
+		Self {
+			_strings: strings,
+			pointers,
+		}
+	}
 }
 
 #[macro_export]
