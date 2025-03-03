@@ -172,9 +172,6 @@ impl Cli {
 			.unwrap()
 			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
 
-		// Close pipes.
-		stdio.close_client_half(&handle).await;
-
 		// Stop and wait for stdio.
 		stdio_task.await.unwrap()?;
 
