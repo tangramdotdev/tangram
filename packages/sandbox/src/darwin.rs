@@ -1,13 +1,14 @@
-use crate::{Child, Command, ExitStatus, Stderr, Stdin, Stdio, Stdout, pty::Pty};
+use crate::{
+	Child, Command, ExitStatus, Stderr, Stdin, Stdout,
+	common::{GuestIo, abort_errno, cstring, envstring, redirect_stdio, stdio_pair},
+	pty::Pty,
+};
 use indoc::writedoc;
 use num::ToPrimitive;
 use std::{
-	ffi::{CStr, CString, OsStr},
+	ffi::{CStr, CString},
 	fmt::Write,
-	os::{
-		fd::{IntoRawFd, RawFd},
-		unix::ffi::OsStrExt,
-	},
+	os::unix::ffi::OsStrExt,
 };
 use tangram_either::Either;
 
@@ -17,57 +18,7 @@ struct Context {
 	envp: CStringVec,
 	executable: CString,
 	profile: CString,
-	stdio: Either<Pty, (Option<RawFd>, Option<RawFd>, Option<RawFd>)>,
-}
-
-impl Child {
-	pub(crate) async fn wait_darwin(&mut self) -> std::io::Result<ExitStatus> {
-		let pid = self.pid;
-
-		// Defer closing the process.
-		scopeguard::defer! {
-			// Kill the root process.
-			let ret = unsafe { libc::kill(pid, libc::SIGKILL) };
-			if ret != 0 {
-				return;
-			}
-
-			// Wait for the root process to exit.
-			tokio::task::spawn_blocking(move || {
-				// Wait for exit.
-				let mut status = 0;
-				unsafe {
-					libc::waitpid(
-						pid,
-						std::ptr::addr_of_mut!(status),
-						libc::WEXITED,
-					);
-				}
-
-				// Reap all its children.
-				kill_process_tree(pid);
-			});
-		};
-
-		// Spawn a blocking task to wait for the output.
-		tokio::task::spawn_blocking(move || unsafe {
-			let mut status = 0;
-			if libc::waitpid(pid, std::ptr::addr_of_mut!(status), libc::WEXITED) != 0 {
-				return Err(std::io::Error::last_os_error());
-			};
-			if libc::WIFEXITED(status) {
-				let code = libc::WEXITSTATUS(status);
-				Ok(ExitStatus::Code(code))
-			} else if libc::WIFSIGNALED(status) {
-				let signal = libc::WTERMSIG(status);
-				Ok(ExitStatus::Signal(signal))
-			} else {
-				unreachable!();
-			}
-		})
-		.await
-		.unwrap()
-	}
+	stdio: GuestIo,
 }
 
 pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
@@ -127,7 +78,7 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	if pid < 0 {
 		return Err(std::io::Error::last_os_error());
 	}
-	if pid != 0 {
+	if pid == 0 {
 		guest_process(context);
 	}
 
@@ -162,9 +113,58 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	Ok(child)
 }
 
+pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
+	let pid = child.pid;
+
+	// Defer closing the process.
+	scopeguard::defer! {
+		// Kill the root process.
+		let ret = unsafe { libc::kill(pid, libc::SIGKILL) };
+		if ret != 0 {
+			return;
+		}
+
+		// Wait for the root process to exit.
+		tokio::task::spawn_blocking(move || {
+			// Wait for exit.
+			let mut status = 0;
+			unsafe {
+				libc::waitpid(
+					pid,
+					std::ptr::addr_of_mut!(status),
+					libc::WEXITED,
+				);
+			}
+
+			// Reap all its children.
+			kill_process_tree(pid);
+		});
+	};
+
+	// Spawn a blocking task to wait for the output.
+	tokio::task::spawn_blocking(move || unsafe {
+		let mut status = 0;
+		if libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0) == -1 {
+			eprintln!("waitpid failed");
+			return Err(std::io::Error::last_os_error());
+		};
+		if libc::WIFEXITED(status) {
+			let code = libc::WEXITSTATUS(status);
+			Ok(ExitStatus::Code(code))
+		} else if libc::WIFSIGNALED(status) {
+			let signal = libc::WTERMSIG(status);
+			Ok(ExitStatus::Signal(signal))
+		} else {
+			unreachable!();
+		}
+	})
+	.await
+	.unwrap()
+}
+
 fn guest_process(mut context: Context) -> ! {
 	// Redirect
-	redirect_stdio(&mut context);
+	redirect_stdio(&mut context.stdio);
 
 	// Initialize the sandbox.
 	unsafe {
@@ -196,43 +196,6 @@ fn guest_process(mut context: Context) -> ! {
 	}
 }
 
-fn stdio_pair(stdio: Stdio) -> std::io::Result<(Option<tokio::net::UnixStream>, Option<RawFd>)> {
-	match stdio {
-		Stdio::Inherit => Ok((None, None)),
-		Stdio::Null => {
-			let fd = unsafe { libc::open(c"/dev/null".as_ptr(), libc::O_RDWR) };
-			if fd < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			Ok((None, Some(fd)))
-		},
-		Stdio::Piped => {
-			let (host, guest) = socket_pair()?;
-			Ok((Some(host), Some(guest.into_raw_fd())))
-		},
-	}
-}
-
-fn socket_pair() -> std::io::Result<(tokio::net::UnixStream, std::os::unix::net::UnixStream)> {
-	let (r#async, sync) = tokio::net::UnixStream::pair()?;
-	let sync = sync.into_std()?;
-	sync.set_nonblocking(false)?;
-	Ok((r#async, sync))
-}
-
-fn cstring(s: impl AsRef<OsStr>) -> CString {
-	CString::new(s.as_ref().as_bytes()).unwrap()
-}
-
-fn envstring(k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> CString {
-	let string = format!(
-		"{}={}",
-		k.as_ref().to_string_lossy(),
-		v.as_ref().to_string_lossy()
-	);
-	CString::new(string).unwrap()
-}
-
 fn create_sandbox_profile(command: &Command) -> CString {
 	// Write the default profile.
 	let mut profile = String::new();
@@ -243,16 +206,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 		"
 	)
 	.unwrap();
-	if !command.sandbox {
-		writedoc!(
-			profile,
-			"
-				;; Allow everything by default.
-				(allow default)
-			"
-		)
-		.unwrap();
-	} else {
+	if command.sandbox {
 		writedoc!(
 			profile,
 			r#"
@@ -335,6 +289,15 @@ fn create_sandbox_profile(command: &Command) -> CString {
 				)
 			"#
 		).unwrap();
+	} else {
+		writedoc!(
+			profile,
+			"
+				;; Allow everything by default.
+				(allow default)
+			"
+		)
+		.unwrap();
 	}
 
 	// Write the network profile.
@@ -382,7 +345,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
                 ",
 				escape(path.path.as_os_str().as_bytes()),
 			)
-			.unwrap()
+			.unwrap();
 		} else {
 			writedoc!(
 				profile,
@@ -394,7 +357,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
                 ",
 				escape(path.path.as_os_str().as_bytes()),
 			)
-			.unwrap()
+			.unwrap();
 		}
 	}
 
@@ -491,70 +454,16 @@ impl CStringVec {
 
 impl FromIterator<CString> for CStringVec {
 	fn from_iter<T: IntoIterator<Item = CString>>(iter: T) -> Self {
-		let mut _strings = Vec::new();
+		let mut strings = Vec::new();
 		let mut pointers = Vec::new();
 		for cstr in iter {
 			pointers.push(cstr.as_ptr());
-			_strings.push(cstr);
+			strings.push(cstr);
 		}
 		pointers.push(std::ptr::null());
-		Self { _strings, pointers }
-	}
-}
-
-fn redirect_stdio(context: &mut Context) {
-	unsafe {
-		match &mut context.stdio {
-			Either::Left(pty) => {
-				// Close the master.
-				pty.close_pty();
-
-				// Set the tty as the controlling terminal
-				// if let Err(error) = pty.set_controlling_terminal() {
-				// 	abort!("failed to set the controlling terminal: {error}");
-				// }
-
-				// Redirect stdin/stdout/stderr.
-				let ttyfd = pty.tty_fd.take().unwrap();
-				libc::dup2(ttyfd, libc::STDIN_FILENO);
-				libc::dup2(ttyfd, libc::STDOUT_FILENO);
-				libc::dup2(ttyfd, libc::STDERR_FILENO);
-
-				// Close the child.
-				libc::close(ttyfd);
-			},
-			Either::Right((stdin, stdout, stderr)) => {
-				for (fd, fileno) in [
-					(stdin, libc::STDIN_FILENO),
-					(stdout, libc::STDOUT_FILENO),
-					(stderr, libc::STDERR_FILENO),
-				] {
-					if let Some(fd) = *fd {
-						libc::dup2(fd, fileno);
-					}
-				}
-			},
+		Self {
+			_strings: strings,
+			pointers,
 		}
 	}
 }
-
-macro_rules! abort {
-	($($t:tt)*) => {{
-		eprintln!("an error occurred in the guest process");
-		eprintln!("{}", format_args!($($t)*));
-		std::process::exit(1)
-	}};
-}
-
-use abort;
-
-macro_rules! abort_errno {
-	($($t:tt)*) => {{
-		eprintln!("an error occurred in the guest process");
-		eprintln!("{}", format_args!($($t)*));
-		eprintln!("{}", std::io::Error::last_os_error());
-		std::process::exit(1)
-	}};
-}
-
-use abort_errno;

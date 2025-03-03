@@ -9,6 +9,7 @@ use num::ToPrimitive;
 use tangram_either::Either;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
 
+#[allow(clippy::struct_field_names)]
 pub(crate) struct Pty {
 	pub(crate) pty_fd: Option<RawFd>,
 	pub(crate) tty_fd: Option<RawFd>,
@@ -187,7 +188,8 @@ impl Pty {
 						let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len());
 						if n == 0 {
 							break;
-						} else if n < 0 {
+						}
+						if n < 0 {
 							return Err(std::io::Error::last_os_error());
 						}
 						let n = n.to_usize().unwrap();
@@ -229,20 +231,12 @@ impl Pty {
 			// Disconnect from the old controlling terminal.
 			let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
 			if fd > 0 {
-				if libc::ioctl(fd, libc::TIOCNOTTY as _, std::ptr::null_mut::<()>()) != 0 {
-					eprintln!("ioctl: {}", std::io::Error::last_os_error());
-				}
+				libc::ioctl(fd, libc::TIOCNOTTY.into(), std::ptr::null_mut::<()>());
 				libc::close(fd);
 			}
 
 			// Set the current process as session leader.
-			#[cfg(target_os = "linux")]
 			if libc::setsid() == -1 {
-				return Err(std::io::Error::last_os_error());
-			}
-
-			#[cfg(target_os = "macos")]
-			if libc::setpgid(0, libc::getpid()) != 0 {
 				return Err(std::io::Error::last_os_error());
 			}
 
@@ -256,11 +250,10 @@ impl Pty {
 			// Set the slave as the controlling tty.
 			if libc::ioctl(
 				self.tty_fd.as_ref().unwrap().as_raw_fd(),
-				libc::TIOCSCTTY as _,
+				libc::TIOCSCTTY.into(),
 				0,
 			) < 0
 			{
-				eprintln!("failed to set controlling tty");
 				return Err(std::io::Error::last_os_error());
 			}
 
@@ -338,7 +331,6 @@ impl Writer {
 				ws_ypixel: tty.y,
 			};
 			if libc::ioctl(fd, libc::TIOCSWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
-				eprintln!("failed to change window size");
 				return Err(std::io::Error::last_os_error());
 			}
 			Ok(())
