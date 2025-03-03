@@ -8,7 +8,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_futures::read::shared_position_reader::SharedPositionReader;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncSeek};
 use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
 
 impl Runtime {
@@ -28,41 +28,8 @@ impl Runtime {
 			.ok()
 			.ok_or_else(|| tg::error!("expected a blob"))?;
 
-		// Get the format.
-		let format = if let Some(value) = args.get(2) {
-			let format = value
-				.try_unwrap_string_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a string"))?
-				.parse::<tg::artifact::archive::Format>()
-				.map_err(|source| tg::error!(!source, "invalid format"))?;
-			Some(format)
-		} else {
-			None
-		};
-
-		let format =
-			format.ok_or_else(|| tg::error!("archive format detection is unimplemented"))?;
-
-		// Get the compression format.
-		let compression_format = if let Some(value) = args.get(3) {
-			let compression_format = value
-				.try_unwrap_string_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a string"))?
-				.parse::<tg::blob::compress::Format>()
-				.map_err(|source| tg::error!(!source, "invalid compression format"))?;
-			Some(compression_format)
-		} else {
-			None
-		};
-
-		// If there is a compression format, make sure the format is tar.
-		if compression_format.is_some() && matches!(format, tg::artifact::archive::Format::Zip) {
-			return Err(tg::error!(
-				"compression_format is not supported for zip archives"
-			));
-		}
+		// Detect archive format.
+		let (format, compression_format) = detect_archive_format(server, &blob).await?;
 
 		// Create the reader.
 		let reader = crate::blob::Reader::new(&self.server, blob.clone()).await?;
@@ -319,4 +286,116 @@ where
 	let directory = builder.build();
 
 	Ok(directory.into())
+}
+
+async fn detect_archive_format(
+	server: &Server,
+	blob: &tg::Blob,
+) -> tg::Result<(
+	tg::artifact::archive::Format,
+	Option<tg::blob::compress::Format>,
+)> {
+	// Read first 6 bytes.
+	let mut magic_reader = blob
+		.read(
+			server,
+			tg::blob::read::Arg {
+				length: Some(6),
+				..Default::default()
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create magic bytes reader"))?;
+	let mut magic_bytes = [0u8; 6];
+	let bytes_read = magic_reader
+		.read(&mut magic_bytes)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to read magic bytes"))?;
+
+	if bytes_read < 2 {
+		return Err(tg::error!("blob too small to be an archive"));
+	}
+
+	// .zip
+	if magic_bytes[0] == 0x50 && magic_bytes[1] == 0x4B {
+		return Ok((tg::artifact::archive::Format::Zip, None));
+	}
+
+	// .tar.gz
+	if magic_bytes[0] == 0x1F && magic_bytes[1] == 0x8B {
+		return Ok((
+			tg::artifact::archive::Format::Tar,
+			Some(tg::blob::compress::Format::Gz),
+		));
+	}
+
+	// .tar.zst
+	if bytes_read >= 4
+		&& magic_bytes[0] == 0x28
+		&& magic_bytes[1] == 0xB5
+		&& magic_bytes[2] == 0x2F
+		&& magic_bytes[3] == 0xFD
+	{
+		return Ok((
+			tg::artifact::archive::Format::Tar,
+			Some(tg::blob::compress::Format::Zstd),
+		));
+	}
+
+	// .tar.bz2
+	if bytes_read >= 3 && magic_bytes[0] == 0x42 && magic_bytes[1] == 0x5A && magic_bytes[2] == 0x68
+	{
+		return Ok((
+			tg::artifact::archive::Format::Tar,
+			Some(tg::blob::compress::Format::Bz2),
+		));
+	}
+
+	// .tar.xz
+	if bytes_read >= 6
+		&& magic_bytes[0] == 0xFD
+		&& magic_bytes[1] == 0x37
+		&& magic_bytes[2] == 0x7A
+		&& magic_bytes[3] == 0x58
+		&& magic_bytes[4] == 0x5A
+		&& magic_bytes[5] == 0x00
+	{
+		return Ok((
+			tg::artifact::archive::Format::Tar,
+			Some(tg::blob::compress::Format::Xz),
+		));
+	}
+
+	// Check if this is a ustar.
+	let mut ustar_reader = blob
+		.read(
+			server,
+			tg::blob::read::Arg {
+				position: Some(std::io::SeekFrom::Start(257)),
+				length: Some(5),
+				..Default::default()
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create ustar reader"))?;
+	let mut ustar_bytes = [0u8; 5];
+	let ustar_bytes_read_result = ustar_reader.read(&mut ustar_bytes).await.ok();
+
+	// If we successfully read the bytes "ustar" from position 257, it's a tar archive.
+	if let Some(bytes_read) = ustar_bytes_read_result {
+		if bytes_read == 5 && &ustar_bytes == b"ustar" {
+			return Ok((tg::artifact::archive::Format::Tar, None));
+		}
+	}
+
+	// Check for a valid tar checksum.
+	if valid_tar_checksum(server, blob).await? {
+		return Ok((tg::artifact::archive::Format::Tar, None));
+	}
+
+	Err(tg::error!(?magic_bytes, "unrecognized archive format"))
+}
+
+async fn valid_tar_checksum(server: &Server, blob: &tg::Blob) -> tg::Result<bool> {
+	todo!()
 }

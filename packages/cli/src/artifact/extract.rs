@@ -10,21 +10,13 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
-
-	#[arg(long)]
-	pub format: Option<tg::artifact::archive::Format>,
-
-	#[arg(long)]
-	pub compression_format: Option<tg::blob::compress::Format>,
 }
 
 impl Cli {
 	pub async fn command_artifact_extract(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let blob = tg::Blob::with_id(args.blob);
-		let format = args.format;
-		let compression_format = args.compression_format;
-		let command = tg::Artifact::extract_command(&blob, format, compression_format);
+		let command = tg::Artifact::extract_command(&blob);
 		let command = command.id(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
 		self.build_process(args.build, reference, vec![]).await?;

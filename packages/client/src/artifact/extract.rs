@@ -1,16 +1,11 @@
 use crate as tg;
 
 impl tg::Artifact {
-	pub async fn extract<H>(
-		handle: &H,
-		blob: &tg::Blob,
-		format: Option<tg::artifact::archive::Format>,
-		compression_format: Option<tg::blob::compress::Format>,
-	) -> tg::Result<Self>
+	pub async fn extract<H>(handle: &H, blob: &tg::Blob) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
-		let command = Self::extract_command(blob, format, compression_format);
+		let command = Self::extract_command(blob);
 		let arg = tg::process::spawn::Arg {
 			command: Some(command.id(handle).await?),
 			..Default::default()
@@ -21,20 +16,9 @@ impl tg::Artifact {
 	}
 
 	#[must_use]
-	pub fn extract_command(
-		blob: &tg::Blob,
-		format: Option<tg::artifact::archive::Format>,
-		compression_format: Option<tg::blob::compress::Format>,
-	) -> tg::Command {
+	pub fn extract_command(blob: &tg::Blob) -> tg::Command {
 		let host = "builtin";
-		let args = vec![
-			"extract".into(),
-			blob.clone().into(),
-			format.map(|format| format.to_string()).into(),
-			compression_format
-				.map(|compression_format| compression_format.to_string())
-				.into(),
-		];
+		let args = vec!["extract".into(), blob.clone().into()];
 		tg::Command::builder(host).args(args).build()
 	}
 }

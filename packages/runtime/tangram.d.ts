@@ -241,8 +241,6 @@ declare namespace tg {
 	/** Extract an artifact from an archive. **/
 	export let extract: (
 		blob: tg.Blob,
-		format: tg.Artifact.ArchiveFormat,
-		compressionFormat?: tg.Blob.CompressionFormat,
 	) => Promise<tg.Artifact>;
 
 	/** Bundle an artifact. **/
@@ -276,8 +274,6 @@ declare namespace tg {
 		/** Extract an artifact from an archive. **/
 		export let extract: (
 			blob: tg.Blob,
-			format: tg.Artifact.ArchiveFormat,
-			compressionFormat?: tg.Blob.CompressionFormat,
 		) => Promise<tg.Artifact>;
 
 		/** Bundle an artifact. **/
