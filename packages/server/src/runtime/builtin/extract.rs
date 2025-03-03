@@ -397,5 +397,62 @@ async fn detect_archive_format(
 }
 
 async fn valid_tar_checksum(server: &Server, blob: &tg::Blob) -> tg::Result<bool> {
-	todo!()
+	let mut reader = blob
+		.read(
+			server,
+			tg::blob::read::Arg {
+				length: Some(512),
+				..Default::default()
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create the tar header reader"))?;
+
+	let mut header = [0u8; 512];
+	let Some(bytes_read) = reader.read(&mut header).await.ok() else {
+		// We couldn't read bytes, not a tar archive.
+		return Ok(false);
+	};
+	// We expected to be able to read the full 512 bytes. If not, it's not a tar archive.
+	if bytes_read != 512 {
+		return Ok(false);
+	}
+
+	// Parse the checksum for the header record. This is an 8-byte field at offset 148.
+	// See <https://en.wikipedia.org/wiki/Tar_(computing)#File_format>
+	// "The checksum is calculated by taking the sum of the unsigned byte values of the header record with the eight checksum bytes taken to be ASCII spaces (decimal value 32). It is stored as a six digit octal number with leading zeroes followed by a NUL and then a space."
+	let offset = 148;
+	let field_size = 8;
+	let recorded_checksum = parse_octal_checksum(&header[offset..offset + field_size])?;
+
+	let mut checksum_calc = 0u32;
+	for (i, item) in header.iter().enumerate() {
+		// If we're in the checksum field, add ASCII space value.
+		if i >= offset && i < offset + field_size {
+			checksum_calc += 32;
+		} else {
+			checksum_calc += u32::from(*item);
+		}
+	}
+
+	let result = checksum_calc == recorded_checksum;
+	Ok(result)
+}
+
+fn parse_octal_checksum(bytes: &[u8]) -> tg::Result<u32> {
+	// Checksums are stored as octal ASCII digits terminated by a NUL or space.
+	let mut checksum_str = String::new();
+
+	for &byte in bytes {
+		if byte == 0 || byte == b' ' {
+			break;
+		}
+		checksum_str.push(byte as char);
+	}
+
+	// Convert octal string to u32
+	match u32::from_str_radix(checksum_str.trim(), 8) {
+		Ok(value) => Ok(value),
+		Err(_) => Err(tg::error!("Invalid tar checksum format")),
+	}
 }
