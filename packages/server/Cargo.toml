@@ -28,10 +28,10 @@ pretty_assertions = { workspace = true }
 insta = { workspace = true }
 
 [dependencies]
+astral-tokio-tar = { workspace = true }
 async-channel = { workspace = true }
 async-compression = { workspace = true }
 async-nats = { workspace = true }
-async-tar = { workspace = true }
 async_zip = { workspace = true }
 aws-credential-types = { workspace = true }
 aws-sigv4 = { workspace = true }

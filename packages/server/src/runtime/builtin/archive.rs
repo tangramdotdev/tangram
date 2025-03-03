@@ -3,9 +3,7 @@ use crate::Server;
 use std::{path::Path, pin::Pin};
 use tangram_client as tg;
 use tokio::io::AsyncRead;
-use tokio_util::compat::{
-	FuturesAsyncWriteCompatExt as _, TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _,
-};
+use tokio_util::compat::{FuturesAsyncWriteCompatExt as _, TokioAsyncWriteCompatExt as _};
 
 impl Runtime {
 	pub async fn archive(&self, process: &tg::Process) -> tg::Result<tg::Value> {
@@ -78,7 +76,7 @@ async fn tar(
 	// Create the archive future.
 	let archive_future = async move {
 		// Create the tar builder.
-		let mut builder = async_tar::Builder::new(writer.compat_write());
+		let mut builder = tokio_tar::Builder::new(writer);
 
 		// Archive the artifact.
 		let directory = artifact
@@ -134,18 +132,18 @@ async fn tar(
 
 async fn tar_inner<W>(
 	server: &Server,
-	builder: &mut async_tar::Builder<W>,
+	builder: &mut tokio_tar::Builder<W>,
 	path: &Path,
 	artifact: &tg::Artifact,
 ) -> tg::Result<()>
 where
-	W: futures::io::AsyncWrite + Unpin + Send + Sync,
+	W: tokio::io::AsyncWrite + Unpin + Send,
 {
 	match artifact {
 		tg::Artifact::Directory(directory) => {
-			let mut header = async_tar::Header::new_gnu();
+			let mut header = tokio_tar::Header::new_gnu();
 			header.set_size(0);
-			header.set_entry_type(async_tar::EntryType::Directory);
+			header.set_entry_type(tokio_tar::EntryType::Directory);
 			header.set_mode(0o755);
 			builder
 				.append_data(&mut header, path, &[][..])
@@ -163,10 +161,9 @@ where
 			let size = file.size(server).await?;
 			let reader = file.read(server, tg::blob::read::Arg::default()).await?;
 			let executable = file.executable(server).await?;
-			let reader = reader.compat();
-			let mut header = async_tar::Header::new_gnu();
+			let mut header = tokio_tar::Header::new_gnu();
 			header.set_size(size);
-			header.set_entry_type(async_tar::EntryType::Regular);
+			header.set_entry_type(tokio_tar::EntryType::Regular);
 			let permissions = if executable { 0o0755 } else { 0o0644 };
 			header.set_mode(permissions);
 			builder
@@ -179,9 +176,9 @@ where
 				.target(server)
 				.await?
 				.ok_or_else(|| tg::error!("cannot archive a symlink without a target"))?;
-			let mut header = async_tar::Header::new_gnu();
+			let mut header = tokio_tar::Header::new_gnu();
 			header.set_size(0);
-			header.set_entry_type(async_tar::EntryType::Symlink);
+			header.set_entry_type(tokio_tar::EntryType::Symlink);
 			header.set_mode(0o777);
 			header
 				.set_link_name(target.to_string_lossy().as_ref())

@@ -47,11 +47,11 @@ type_complexity = "allow"
 unused_async = "allow"
 
 [workspace.dependencies]
+astral-tokio-tar = "0.5"
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.39"
-async-tar = "0.5"
 async_zip = { version = "0.0.17", features = ["full"] }
 aws-credential-types = "1"
 aws-sigv4 = "1"
@@ -182,7 +182,6 @@ zerocopy = { version = "0.8", features = ["derive"] }
 zstd = "0.13"
 
 [patch.crates-io]
-async-tar = { git = "https://github.com/tangramdotdev/async-tar" }
 async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip" }
 biome_js_formatter = { git = "https://github.com/biomejs/biome" }
 biome_js_parser = { git = "https://github.com/biomejs/biome" }

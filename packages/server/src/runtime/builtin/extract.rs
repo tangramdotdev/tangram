@@ -157,7 +157,7 @@ where
 	R: AsyncRead + Unpin + Send + 'static,
 {
 	// Create the reader.
-	let reader = async_tar::Archive::new(reader.compat());
+	let mut reader = tokio_tar::Archive::new(reader);
 
 	// Get the entries.
 	let mut entries: Vec<(PathBuf, tg::Artifact)> = Vec::new();
@@ -175,12 +175,12 @@ where
 				.as_ref(),
 		);
 		match header.entry_type() {
-			async_tar::EntryType::Directory => {
+			tokio_tar::EntryType::Directory => {
 				let directory = tg::Directory::with_entries([].into());
 				let artifact = tg::Artifact::Directory(directory);
 				entries.push((path, artifact));
 			},
-			async_tar::EntryType::Symlink => {
+			tokio_tar::EntryType::Symlink => {
 				let target = header
 					.link_name()
 					.map_err(|source| tg::error!(!source, "failed to read the symlink target"))?
@@ -189,7 +189,7 @@ where
 				let artifact = tg::Artifact::Symlink(symlink);
 				entries.push((path, artifact));
 			},
-			async_tar::EntryType::Link => {
+			tokio_tar::EntryType::Link => {
 				let target = header
 					.link_name()
 					.map_err(|source| {
@@ -205,16 +205,16 @@ where
 					));
 				}
 			},
-			async_tar::EntryType::XGlobalHeader
-			| async_tar::EntryType::XHeader
-			| async_tar::EntryType::GNULongName
-			| async_tar::EntryType::GNULongLink => (),
+			tokio_tar::EntryType::XGlobalHeader
+			| tokio_tar::EntryType::XHeader
+			| tokio_tar::EntryType::GNULongName
+			| tokio_tar::EntryType::GNULongLink => (),
 			_ => {
 				let mode = header
 					.mode()
 					.map_err(|source| tg::error!(!source, "failed to read the entry mode"))?;
 				let executable = mode & 0o111 != 0;
-				let blob = tg::Blob::with_reader(server, entry.compat()).await?;
+				let blob = tg::Blob::with_reader(server, entry).await?;
 				let file = tg::File::builder(blob).executable(executable).build();
 				let artifact = tg::Artifact::File(file);
 				entries.push((path, artifact));
