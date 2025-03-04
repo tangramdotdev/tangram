@@ -33,7 +33,7 @@ impl Runtime {
 
 		// Spawn a task to log progress.
 		let position = reader.shared_position();
-		let size = blob.size(server).await?;
+		let size = blob.length(server).await?;
 		let log_task = tokio::spawn({
 			let server = server.clone();
 			let process = process.clone();

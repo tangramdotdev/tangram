@@ -10,7 +10,7 @@ pub struct Branch {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Child {
 	pub blob: tg::blob::Id,
-	pub size: u64,
+	pub length: u64,
 }
 
 impl Branch {

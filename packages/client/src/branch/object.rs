@@ -9,7 +9,7 @@ pub struct Branch {
 #[derive(Clone, Debug)]
 pub struct Child {
 	pub blob: tg::Blob,
-	pub size: u64,
+	pub length: u64,
 }
 
 impl Branch {
@@ -31,7 +31,7 @@ impl TryFrom<Data> for Branch {
 			.into_iter()
 			.map(|child| tg::branch::Child {
 				blob: tg::Blob::with_id(child.blob),
-				size: child.size,
+				length: child.length,
 			})
 			.collect();
 		Ok(Self { children })

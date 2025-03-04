@@ -83,7 +83,7 @@ export class Leaf {
 		}
 	}
 
-	async size(): Promise<number> {
+	async length(): Promise<number> {
 		return (await this.object()).bytes.byteLength;
 	}
 

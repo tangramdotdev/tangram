@@ -23,10 +23,11 @@ pub struct Blob {
 	pub children: Vec<Blob>,
 	pub count: u64,
 	pub data: Option<tg::blob::Data>,
+	pub size: u64,
 	pub depth: u64,
 	pub id: tg::blob::Id,
 	pub position: u64,
-	pub size: u64,
+	pub length: u64,
 	pub weight: u64,
 }
 
@@ -229,8 +230,9 @@ impl Server {
 			weight: 0,
 			children: Vec::new(),
 			data: None,
-			id: id.into(),
 			size: 0,
+			id: id.into(),
+			length: 0,
 			position: 0,
 		})
 	}
@@ -238,23 +240,25 @@ impl Server {
 	async fn create_blob_inner_leaf(&self, chunk: &fastcdc::v2020::ChunkData) -> tg::Result<Blob> {
 		let fastcdc::v2020::ChunkData {
 			offset: position,
-			length: size,
+			length,
 			data,
 			..
 		} = chunk;
-		let size = size.to_u64().unwrap();
+		let length = length.to_u64().unwrap();
+		let size = length;
 		let id = tg::leaf::Id::new(data);
 		let count = 1;
 		let depth = 1;
-		let weight = size;
+		let weight = length;
 		let output = Blob {
 			children: Vec::new(),
 			count,
 			data: None,
+			size,
 			depth,
 			id: id.into(),
 			position: *position,
-			size,
+			length,
 			weight,
 		};
 		Ok(output)
@@ -265,19 +269,19 @@ impl Server {
 			.iter()
 			.map(|child| tg::branch::data::Child {
 				blob: child.id.clone(),
-				size: child.size,
+				length: child.length,
 			})
 			.collect();
 		let data = tg::branch::Data {
 			children: children_,
 		};
 		let bytes = data.serialize()?;
-		let size_ = bytes.len().to_u64().unwrap();
+		let size = bytes.len().to_u64().unwrap();
 		let id = tg::branch::Id::new(&bytes);
 		let (count, depth, weight) =
 			children
 				.iter()
-				.fold((1, 1, size_), |(count, depth, weight), child| {
+				.fold((1, 1, size), |(count, depth, weight), child| {
 					(
 						count + child.count,
 						depth.max(child.depth),
@@ -285,15 +289,16 @@ impl Server {
 					)
 				});
 		let position = children.first().unwrap().position;
-		let size = children.iter().map(|child| child.size).sum();
+		let length = children.iter().map(|child| child.length).sum();
 		let output = Blob {
 			children,
 			count,
 			data: Some(data.into()),
+			size,
 			depth,
 			id: id.into(),
 			position,
-			size,
+			length,
 			weight,
 		};
 		Ok(output)
@@ -406,7 +411,7 @@ impl Server {
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
 			let params =
-				rusqlite::params![&blob.id.to_string(), &blob_id, blob.position, blob.size];
+				rusqlite::params![&blob.id.to_string(), &blob_id, blob.position, blob.length];
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -445,7 +450,7 @@ impl Server {
 				blob.id.to_string(),
 				blob_id.to_string(),
 				blob.position.to_i64().unwrap(),
-				blob.size.to_i64().unwrap(),
+				blob.length.to_i64().unwrap(),
 			));
 			stack.extend(&blob.children);
 		}

@@ -38,7 +38,7 @@ pub struct Object {
 	position: u64,
 	read: Option<SyncWrapper<ReadFuture>>,
 	server: Server,
-	size: u64,
+	length: u64,
 }
 
 type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
@@ -354,7 +354,7 @@ impl Object {
 		let cursor = None;
 		let position = 0;
 		let read = None;
-		let size = blob.size(server).await?;
+		let size = blob.length(server).await?;
 		let server = server.clone();
 		Ok(Self {
 			blob,
@@ -362,7 +362,7 @@ impl Object {
 			position,
 			read,
 			server,
-			size,
+			length: size,
 		})
 	}
 }
@@ -484,13 +484,13 @@ impl AsyncSeek for Object {
 		this.read.take();
 		let position = match seek {
 			std::io::SeekFrom::Start(seek) => seek.to_i64().unwrap(),
-			std::io::SeekFrom::End(seek) => this.size.to_i64().unwrap() + seek,
+			std::io::SeekFrom::End(seek) => this.length.to_i64().unwrap() + seek,
 			std::io::SeekFrom::Current(seek) => this.position.to_i64().unwrap() + seek,
 		};
 		let position = position.to_u64().ok_or(std::io::Error::other(
 			"attempted to seek to a negative or overflowing position",
 		))?;
-		if position > this.size {
+		if position > this.length {
 			return Err(std::io::Error::other(
 				"attempted to seek to a position beyond the end",
 			));
@@ -547,11 +547,11 @@ async fn poll_read_inner(
 			},
 			tg::Blob::Branch(branch) => {
 				for child in branch.children(server).await?.iter() {
-					if position < current_blob_position + child.size {
+					if position < current_blob_position + child.length {
 						current_blob = child.blob.clone();
 						continue 'a;
 					}
-					current_blob_position += child.size;
+					current_blob_position += child.length;
 				}
 				return Ok(None);
 			},

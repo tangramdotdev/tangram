@@ -212,8 +212,8 @@ export class File {
 		}
 	}
 
-	async size(): Promise<number> {
-		return (await this.contents()).size();
+	async length(): Promise<number> {
+		return (await this.contents()).length();
 	}
 
 	async bytes(): Promise<Uint8Array> {

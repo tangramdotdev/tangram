@@ -120,7 +120,7 @@ impl Branch {
 			.map(|child| async {
 				Ok::<_, tg::Error>(tg::branch::data::Child {
 					blob: child.blob.id(handle).await?,
-					size: child.size,
+					length: child.length,
 				})
 			})
 			.collect::<FuturesOrdered<_>>()

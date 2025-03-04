@@ -338,11 +338,11 @@ impl File {
 		}
 	}
 
-	pub async fn size<H>(&self, handle: &H) -> tg::Result<u64>
+	pub async fn length<H>(&self, handle: &H) -> tg::Result<u64>
 	where
 		H: tg::Handle,
 	{
-		self.contents(handle).await?.size(handle).await
+		self.contents(handle).await?.length(handle).await
 	}
 
 	pub async fn read<H>(

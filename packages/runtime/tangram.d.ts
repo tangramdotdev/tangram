@@ -166,8 +166,8 @@ declare namespace tg {
 		/** Get this leaf's ID. */
 		id(): Promise<tg.Leaf.Id>;
 
-		/** Get this leaf's size. */
-		size(): Promise<number>;
+		/** Get this leaf's length. */
+		length(): Promise<number>;
 
 		/** Get this leaf as a `Uint8Array`. */
 		bytes(): Promise<Uint8Array>;
@@ -204,8 +204,8 @@ declare namespace tg {
 
 		children(): Promise<Array<tg.Branch.Child>>;
 
-		/** Get this branch's size. */
-		size(): Promise<number>;
+		/** Get this branch's length. */
+		length(): Promise<number>;
 
 		/** Get this branch as a `Uint8Array`. */
 		bytes(): Promise<Uint8Array>;
@@ -365,8 +365,8 @@ declare namespace tg {
 		/** Get this file's contents. */
 		contents(): Promise<tg.Blob>;
 
-		/** Get the size of this file's contents. */
-		size(): Promise<number>;
+		/** Get the length of this file's contents. */
+		length(): Promise<number>;
 
 		/** Get this file's contents as a `Uint8Array`. */
 		bytes(): Promise<Uint8Array>;
