@@ -48,6 +48,11 @@ impl FromV8 for tg::Error {
 		}
 		let value = value.to_object(scope).unwrap();
 
+		let code = v8::String::new_external_onebyte_static(scope, "code".as_bytes()).unwrap();
+		let code = value.get(scope, code.into()).unwrap();
+		let code = <_>::from_v8(scope, code)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the code"))?;
+
 		let message = v8::String::new_external_onebyte_static(scope, "message".as_bytes()).unwrap();
 		let message = value.get(scope, message.into()).unwrap();
 		let message = <_>::from_v8(scope, message)
@@ -74,12 +79,31 @@ impl FromV8 for tg::Error {
 			<Option<BTreeMap<String, String>>>::from_v8(scope, values)?.unwrap_or_default();
 
 		Ok(tg::Error {
+			code,
 			message,
 			location,
 			stack,
 			source,
 			values,
 		})
+	}
+}
+
+impl ToV8 for tg::error::Code {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let value = Serde::new(self);
+		let value = value.to_v8(scope)?;
+		Ok(value)
+	}
+}
+
+impl FromV8 for tg::error::Code {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		let value = Serde::from_v8(scope, value)?.into_inner();
+		Ok(value)
 	}
 }
 

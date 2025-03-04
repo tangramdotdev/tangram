@@ -1,10 +1,8 @@
-use std::pin::pin;
-
 use crate::Server;
 use bytes::Bytes;
 use futures::{FutureExt as _, TryStreamExt as _, future, stream::FuturesUnordered};
 use indoc::formatdoc;
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::Messenger as _;
@@ -110,11 +108,14 @@ impl Server {
 			.into_iter()
 			.map(|child| async move {
 				let arg = tg::process::finish::Arg {
-					error: Some(tg::error!("the parent was finished")),
+					error: Some(tg::error!(
+						code = tg::error::Code::Cancelation,
+						"the parent was finished"
+					)),
 					exit: None,
 					output: None,
 					remote: None,
-					status: tg::process::Status::Canceled,
+					status: tg::process::Status::Failed,
 				};
 				let output = self.try_finish_process(&child, arg).await?;
 				Ok::<_, tg::Error>((child, output.finished))
@@ -123,27 +124,6 @@ impl Server {
 			.try_filter_map(|(child, finished)| future::ready(Ok(finished.then_some(child))))
 			.try_collect::<Vec<_>>()
 			.await?;
-
-		// If any of the children were canceled, then this process should be canceled.
-		let children_statuses = children
-			.iter()
-			.map(|child| async {
-				let stream = self.get_process_status(child).await?;
-				let status = pin!(stream).try_next().await?.unwrap();
-				Ok::<_, tg::Error>(status)
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-		if children_statuses
-			.iter()
-			.any(tg::process::Status::is_canceled)
-		{
-			if error.is_none() {
-				error = Some(tg::error!("one of the process's children was canceled"));
-			}
-			status = tg::process::Status::Canceled;
-		}
 
 		// Verify the checksum if one was provided.
 		if let (Some(output), Some(expected)) = (output.clone(), data.checksum.as_ref()) {

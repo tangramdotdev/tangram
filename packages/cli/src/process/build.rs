@@ -159,11 +159,14 @@ impl Cli {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
 						let arg = tg::process::finish::Arg {
-							error: Some(tg::error!("the process was explicitly canceled")),
+							error: Some(tg::error!(
+								code = tg::error::Code::Cancelation,
+								"the process was explicitly canceled"
+							)),
 							exit: None,
 							output: None,
 							remote,
-							status: tg::process::Status::Canceled,
+							status: tg::process::Status::Failed,
 						};
 						process
 							.finish(&handle, arg)
@@ -198,11 +201,18 @@ impl Cli {
 			result.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
 
 		// Return an error if appropriate.
+		if output
+			.error
+			.as_ref()
+			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancelation)))
+		{
+			return Err(tg::error!(
+				code = tg::error::Code::Cancelation,
+				"the process was canceled"
+			));
+		}
 		if let Some(source) = output.error {
 			return Err(tg::error!(!source, "the process failed"));
-		}
-		if matches!(output.status, tg::process::Status::Canceled) {
-			return Err(tg::error!("the process was canceled"));
 		}
 		match &output.exit {
 			Some(tg::process::Exit::Code { code }) if *code != 0 => {
