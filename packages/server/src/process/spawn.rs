@@ -184,7 +184,7 @@ impl Server {
 		drop(connection);
 
 		// If the process is canceled, then return.
-		if error.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancelation))) {
+		if error.is_some_and(|error| matches!(error.0.code, Some(tg::error::Code::Cancelation))) {
 			return Ok(None);
 		}
 
