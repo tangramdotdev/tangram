@@ -503,10 +503,9 @@ where
 		if handle
 			.try_get_process(process.id())
 			.await?
-			.and_then(|output| output.error)
-			.map_or(false, |error| {
-				matches!(error.code, Some(tg::error::code::CANCELED))
-			}) {
+			.and_then(|output| output.data.error)
+			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancelation)))
+		{
 			let update = move |node: Rc<RefCell<Node>>| {
 				node.borrow_mut().indicator.replace(Indicator::Canceled);
 			};

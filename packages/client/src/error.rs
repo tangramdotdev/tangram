@@ -2,16 +2,15 @@ use crate::{self as tg, util::serde::is_false};
 use serde_with::serde_as;
 use std::{collections::BTreeMap, fmt::Debug, path::PathBuf, sync::Arc};
 
-pub mod code;
-
 /// A result alias that defaults to `Error` as the error type.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An error.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Error {
-	/// An optional error code.
-	pub code: Option<i32>,
+	/// The error code.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub code: Option<Code>,
 
 	/// The error's message.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -32,6 +31,12 @@ pub struct Error {
 	/// Values associated with the error.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub values: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Code {
+	Cancelation,
 }
 
 /// An error location.
@@ -113,7 +118,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 		match value.downcast::<Error>() {
 			Ok(error) => *error,
 			Err(error) => Self {
-				code: Some(code::UNKNOWN),
+				code: None,
 				message: Some(error.to_string()),
 				location: None,
 				stack: None,
@@ -127,7 +132,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 impl From<&(dyn std::error::Error + 'static)> for Error {
 	fn from(value: &(dyn std::error::Error + 'static)) -> Self {
 		Self {
-			code: Some(code::UNKNOWN),
+			code: None,
 			message: Some(value.to_string()),
 			location: None,
 			stack: None,
@@ -307,12 +312,7 @@ macro_rules! error {
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, code = $code:expr, $($arg:tt)*) => {
-		$error.code.replace(code);
-		$crate::error!({ $error }, $($arg)*)
-	};
-	({ $error:ident }, canceled = $canceled:expr, $($arg:tt)*) => {
-		let code = ($canceled).then_some($crate::error::code::CANCELED);
-		$error.code = code;
+		$error.code.replace($code);
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, stack = $stack:expr, $($arg:tt)*) => {

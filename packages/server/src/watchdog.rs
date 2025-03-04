@@ -60,7 +60,7 @@ impl Server {
 				let server = self.clone();
 				async move {
 					let error = Some(tg::error!(
-						canceled = true,
+						code = tg::error::Code::Cancelation,
 						"the process's heartbeat expired"
 					));
 					let arg = tg::process::finish::Arg {

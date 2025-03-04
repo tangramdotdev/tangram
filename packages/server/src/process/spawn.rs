@@ -103,7 +103,7 @@ impl Server {
 						async move {
 							let arg = tg::process::finish::Arg {
 								error: Some(tg::error!(
-									canceled = true,
+									code = tg::error::Code::Cancelation,
 									"the process was canceled"
 								)),
 								exit: None,
@@ -184,9 +184,7 @@ impl Server {
 		drop(connection);
 
 		// If the process is canceled, then return.
-		if error.map_or(false, |error| {
-			matches!(error.code, Some(tg::error::code::CANCELED))
-		}) {
+		if error.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancelation))) {
 			return Ok(None);
 		}
 

@@ -3,9 +3,6 @@ use foundationdb as fdb;
 use std::time::Instant;
 use tangram_client as tg;
 
-/// The maximum size of a transaction.
-const TRANSACTION_SIZE_LIMIT: usize = 1_048_576;
-
 /// The maximum size of a value.
 const VALUE_SIZE_LIMIT: usize = 10_240;
 

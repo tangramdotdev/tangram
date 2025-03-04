@@ -108,7 +108,10 @@ impl Server {
 			.into_iter()
 			.map(|child| async move {
 				let arg = tg::process::finish::Arg {
-					error: Some(tg::error!(canceled = true, "the parent was finished")),
+					error: Some(tg::error!(
+						code = tg::error::Code::Cancelation,
+						"the parent was finished"
+					)),
 					exit: None,
 					output: None,
 					remote: None,
