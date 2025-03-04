@@ -451,11 +451,51 @@ pub trait Ext: tg::Handle {
 	fn get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<tg::Referent<Either<tg::process::Id, tg::object::Id>>>> + Send
-	{
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<
+				Item = tg::Result<
+					tg::progress::Event<tg::Referent<Either<tg::Process, tg::Object>>>,
+				>,
+			> + Send
+			+ 'static,
+		>,
+	> + Send {
 		self.try_get_reference(reference).map(|result| {
-			result.and_then(|option| {
-				option.ok_or_else(|| tg::error!(%reference, "failed to get the reference"))
+			result.map(|stream| {
+				stream.map(|event_result| {
+					event_result.and_then(|event| match event {
+						crate::progress::Event::Log(log) => Ok(tg::progress::Event::Log(log)),
+						crate::progress::Event::Diagnostic(diagnostic) => {
+							Ok(tg::progress::Event::Diagnostic(diagnostic))
+						},
+						crate::progress::Event::Start(indicator) => {
+							Ok(tg::progress::Event::Start(indicator))
+						},
+						crate::progress::Event::Update(indicator) => {
+							Ok(tg::progress::Event::Update(indicator))
+						},
+						crate::progress::Event::Finish(indicator) => {
+							Ok(tg::progress::Event::Finish(indicator))
+						},
+						crate::progress::Event::Output(output) => output
+							.map(|output| {
+								let item = output
+									.referent
+									.item
+									.map_left(|id| tg::Process::new(id, None, None, None, None))
+									.map_right(tg::Object::with_id);
+								let referent = tg::Referent {
+									item,
+									path: output.referent.path,
+									subpath: output.referent.subpath,
+									tag: output.referent.tag,
+								};
+								crate::progress::Event::Output(referent)
+							})
+							.ok_or_else(|| tg::error!("failed to get reference")),
+					})
+				})
 			})
 		})
 	}

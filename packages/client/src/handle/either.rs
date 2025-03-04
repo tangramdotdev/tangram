@@ -470,11 +470,22 @@ where
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>>
-	+ Send {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::reference::get::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send {
 		match self {
-			Either::Left(s) => s.try_get_reference(reference).left_future(),
-			Either::Right(s) => s.try_get_reference(reference).right_future(),
+			Either::Left(s) => s
+				.try_get_reference(reference)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.try_get_reference(reference)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 

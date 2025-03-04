@@ -9,7 +9,6 @@ use std::{
 	sync::Arc,
 	time::Duration,
 };
-use tangram_either::Either;
 use tangram_http::Body;
 use time::{Date, Month, OffsetDateTime, Time, format_description::well_known::Rfc3339};
 use tokio::{
@@ -900,8 +899,13 @@ impl tg::Handle for Client {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>>
-	+ Send {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::reference::get::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send {
 		self.try_get_reference(reference)
 	}
 

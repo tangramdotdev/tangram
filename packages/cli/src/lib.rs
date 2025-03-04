@@ -3,7 +3,7 @@ use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
-use tangram_client::{self as tg, Client};
+use tangram_client::{self as tg, Client, handle::Ext};
 use tangram_either::Either;
 use tangram_server::Server;
 use tokio::io::AsyncWriteExt as _;
@@ -1134,8 +1134,9 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 		}
 		let reference = tg::Reference::with_item_and_options(&item, options.as_ref());
-		let referent = reference.get(&handle).await?;
-		Ok(referent)
+		let stream = handle.get_reference(&reference).await?;
+		let output = self.render_progress_stream(stream).await?;
+		Ok(output)
 	}
 
 	/// Initialize V8.
