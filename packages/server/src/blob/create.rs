@@ -89,6 +89,7 @@ impl Server {
 
 		// Create the blob.
 		let blob = self.create_blob_inner(file, None).await?;
+		let blob = Arc::new(blob);
 
 		// Copy the file to the blobs directory through a temp if it is not already present.
 		let blob_path = self.blobs_path().join(blob.id.to_string());
@@ -111,8 +112,13 @@ impl Server {
 				})?;
 		}
 
+		// Insert the blob.
+		self.insert_blob(&blob).await?;
+
 		// Create the output.
-		let output = tg::blob::create::Output { blob: blob.id };
+		let output = tg::blob::create::Output {
+			blob: blob.id.clone(),
+		};
 
 		Ok(output)
 	}
