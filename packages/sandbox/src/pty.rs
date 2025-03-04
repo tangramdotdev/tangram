@@ -1,15 +1,14 @@
+use crate::Tty;
+use num::ToPrimitive;
 use std::{
 	ffi::{CStr, CString},
 	os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
 	task::{Context, Poll},
 };
-
-use crate::{Stderr, Stdin, Stdout, Tty};
-use num::ToPrimitive;
-use tangram_either::Either;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
 
 #[allow(clippy::struct_field_names)]
+#[derive(Clone)]
 pub(crate) struct Pty {
 	pub(crate) pty_fd: Option<RawFd>,
 	pub(crate) tty_fd: Option<RawFd>,
@@ -44,10 +43,76 @@ impl Drop for Reader {
 	}
 }
 
+impl Writer {
+	pub fn get_reader(&self) -> std::io::Result<Reader> {
+		let pty_fd = self.pty_fd.as_ref().unwrap().try_clone()?;
+		let (mut send, recv) = tokio::io::duplex(256);
+		tokio::task::spawn_blocking({
+			let fd = pty_fd.as_raw_fd();
+			move || {
+				let mut buf = vec![0u8; 256];
+				unsafe {
+					loop {
+						let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len());
+						if n == 0 {
+							break;
+						}
+						if n < 0 {
+							return Err(std::io::Error::last_os_error());
+						}
+						let n = n.to_usize().unwrap();
+						tokio::runtime::Handle::current().block_on(async {
+							send.write_all(&buf[0..n]).await?;
+							Ok::<_, std::io::Error>(())
+						})?;
+					}
+					Ok(())
+				}
+			}
+		});
+		Ok(Reader {
+			pty_fd: Some(pty_fd),
+			reader: recv,
+		})
+	}
+}
+
 impl Pty {
+	pub(crate) fn into_writer(mut self) -> Writer {
+		self.close_tty();
+		let (send, mut recv) = tokio::io::duplex(256);
+		let fd = unsafe { OwnedFd::from_raw_fd(self.pty_fd.take().unwrap()) };
+		tokio::task::spawn_blocking({
+			let fd = fd.as_raw_fd();
+			move || {
+				'outer: loop {
+					let mut buf = vec![0u8; 256];
+					let mut n = tokio::runtime::Handle::current().block_on(recv.read(&mut buf))?;
+					if n == 0 {
+						break;
+					}
+					unsafe {
+						while n > 0 {
+							let m = libc::write(fd.as_raw_fd(), buf.as_ptr().cast(), n);
+							if m <= 0 {
+								break 'outer;
+							}
+							n -= m.to_usize().unwrap();
+						}
+					}
+				}
+				Ok::<_, std::io::Error>(())
+			}
+		});
+		Writer {
+			pty_fd: Some(fd),
+			writer: send,
+		}
+	}
+
 	// Identical to the darwin implementation, with different mutability the argument pointers.
 	#[cfg(target_os = "linux")]
-	pub(crate) async fn open(tty: Tty) -> std::io::Result<(Self, Self)> {
+	pub(crate) async fn open(tty: Tty) -> std::io::Result<Self> {
 		tokio::task::spawn_blocking(move || unsafe {
 			let win_size = libc::winsize {
 				ws_col: tty.cols,
@@ -69,17 +134,12 @@ impl Pty {
 				return Err(std::io::Error::last_os_error());
 			}
 			let tty_path = CStr::from_ptr(tty_name.as_ptr()).to_owned();
-			let parent = Self {
+			let pty = Self {
 				pty_fd: Some(pty_fd),
 				tty_fd: Some(tty_fd),
 				tty_path: tty_path.clone(),
 			};
-			let child = Self {
-				pty_fd: Some(pty_fd),
-				tty_fd: Some(tty_fd),
-				tty_path,
-			};
-			Ok((parent, child))
+			Ok(pty)
 		})
 		.await
 		.unwrap()
@@ -139,97 +199,11 @@ impl Pty {
 		unsafe { libc::close(fd) };
 	}
 
-	pub(crate) fn into_stdio(mut self) -> std::io::Result<(Stdin, Stdout, Stderr)> {
-		// Close the slave device.
-		self.close_tty();
-
-		// Get the master fd.
-		let stdin = unsafe { OwnedFd::from_raw_fd(self.pty_fd.take().unwrap()) };
-		let stdout = stdin.try_clone()?;
-		let stderr = stdin.try_clone()?;
-
-		// Create the io/channels.
-		let (stdin_send, mut stdin_recv) = tokio::io::duplex(256);
-		let (mut stdout_send, stdout_recv) = tokio::io::duplex(256);
-		let (mut stderr_send, stderr_recv) = tokio::io::duplex(256);
-
-		// Drain from stdin.
-		tokio::task::spawn_blocking({
-			let fd = stdin.as_raw_fd();
-			move || {
-				'outer: loop {
-					let mut buf = vec![0u8; 256];
-					let mut n =
-						tokio::runtime::Handle::current().block_on(stdin_recv.read(&mut buf))?;
-					if n == 0 {
-						break;
-					}
-					unsafe {
-						while n > 0 {
-							let m = libc::write(fd.as_raw_fd(), buf.as_ptr().cast(), n);
-							if m <= 0 {
-								break 'outer;
-							}
-							n -= m.to_usize().unwrap();
-						}
-					}
-				}
-				Ok::<_, std::io::Error>(())
-			}
-		});
-
-		// Read from stdout/stderr.
-		tokio::task::spawn_blocking({
-			let fd = stdin.as_raw_fd();
-			move || {
-				let mut buf = vec![0u8; 256];
-				unsafe {
-					loop {
-						let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len());
-						if n == 0 {
-							break;
-						}
-						if n < 0 {
-							return Err(std::io::Error::last_os_error());
-						}
-						let n = n.to_usize().unwrap();
-						tokio::runtime::Handle::current().block_on(async {
-							stdout_send.write_all(&buf[0..n]).await?;
-							stderr_send.write_all(&buf[0..n]).await?;
-							Ok::<_, std::io::Error>(())
-						})?;
-					}
-					Ok(())
-				}
-			}
-		});
-
-		let stdin = Stdin {
-			inner: Either::Left(Writer {
-				pty_fd: Some(stdin),
-				writer: stdin_send,
-			}),
-		};
-		let stdout = Stdout {
-			inner: Either::Left(Reader {
-				pty_fd: Some(stdout),
-				reader: stdout_recv,
-			}),
-		};
-		let stderr = Stderr {
-			inner: Either::Left(Reader {
-				pty_fd: Some(stderr),
-				reader: stderr_recv,
-			}),
-		};
-
-		Ok((stdin, stdout, stderr))
-	}
-
 	pub(crate) fn set_controlling_terminal(&self) -> std::io::Result<()> {
 		unsafe {
 			// Disconnect from the old controlling terminal.
 			let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
+			#[allow(clippy::useless_conversion)]
 			if fd > 0 {
 				libc::ioctl(fd, libc::TIOCNOTTY.into(), std::ptr::null_mut::<()>());
 				libc::close(fd);
@@ -248,6 +222,7 @@ impl Pty {
 			}
 
 			// Set the slave as the controlling tty.
+			#[allow(clippy::useless_conversion)]
 			if libc::ioctl(
 				self.tty_fd.as_ref().unwrap().as_raw_fd(),
 				libc::TIOCSCTTY.into(),

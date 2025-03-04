@@ -29,7 +29,9 @@ struct Context {
 	mounts: Vec<Mount>,
 	network: bool,
 	socket: std::os::unix::net::UnixStream,
-	stdio: GuestIo,
+	stdin: GuestIo,
+	stdout: GuestIo,
+	stderr: GuestIo,
 }
 
 pub async fn spawn(command: &Command) -> std::io::Result<Child> {
@@ -62,18 +64,10 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 	let (parent_socket, child_socket) = socket_pair()?;
 
 	// Create stdio.
-	let (parent_stdio, child_stdio) = if let Some(tty) = command.tty {
-		let (parent, child) = Pty::open(tty).await?;
-		(Either::Left(parent), Either::Left(child))
-	} else {
-		let (stdin_parent, stdin_child) = stdio_pair(command.stdin)?;
-		let (stdout_parent, stdout_child) = stdio_pair(command.stdout)?;
-		let (stderr_parent, stderr_child) = stdio_pair(command.stderr)?;
-		(
-			Either::Right((stdin_parent, stdout_parent, stderr_parent)),
-			Either::Right((stdin_child, stdout_child, stderr_child)),
-		)
-	};
+	let mut pty = None;
+	let (parent_stdin, child_stdin) = stdio_pair(command.stdin, &mut pty).await?;
+	let (parent_stdout, child_stdout) = stdio_pair(command.stdout, &mut pty).await?;
+	let (parent_stderr, child_stderr) = stdio_pair(command.stderr, &mut pty).await?;
 
 	// Create the context.
 	let context = Context {
@@ -85,7 +79,9 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 		mounts,
 		network: command.network,
 		socket: child_socket,
-		stdio: child_stdio,
+		stdin: child_stdin,
+		stdout: child_stdout,
+		stderr: child_stderr,
 	};
 
 	// Fork.
@@ -122,32 +118,36 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 		self::root_process(context);
 	}
 
-	// Split stdio.
-	let (stdin, stdout, stderr) = match parent_stdio {
-		Either::Left(pty) => {
-			let (stdin, stdout, stderr) = pty.into_stdio()?;
-			(Some(stdin), Some(stdout), Some(stderr))
-		},
-		Either::Right((stdin, stdout, stderr)) => {
-			let stdin = stdin.map(|inner| Stdin {
-				inner: Either::Right(inner),
-			});
-			let stdout = stdout.map(|inner| Stdout {
-				inner: Either::Right(inner),
-			});
-			let stderr = stderr.map(|inner| Stderr {
-				inner: Either::Right(inner),
-			});
-			(stdin, stdout, stderr)
-		},
-	};
-
 	// Close unused fds.
-	if let Either::Right((stdin, stdout, stderr)) = context.stdio {
-		for fd in [stdin, stdout, stderr].into_iter().flatten() {
-			unsafe { libc::close(fd) };
+	for io in [context.stdin, context.stdout, context.stderr] {
+		match io {
+			Either::Left(mut pty) => {
+				pty.close_tty();
+			},
+			Either::Right(Some(raw)) => {
+				unsafe { libc::close(raw) };
+			},
+			Either::Right(None) => (),
 		}
 	}
+
+	// Split stdio.
+	let pty = pty.map(Pty::into_writer);
+	let stdout = match parent_stdout {
+		Either::Left(_) => Some(Either::Left(pty.as_ref().unwrap().get_reader()?)),
+		Either::Right(Some(io)) => Some(Either::Right(io)),
+		Either::Right(None) => None,
+	};
+	let stderr = match parent_stderr {
+		Either::Left(_) => Some(Either::Left(pty.as_ref().unwrap().get_reader()?)),
+		Either::Right(Some(io)) => Some(Either::Right(io)),
+		Either::Right(None) => None,
+	};
+	let stdin = match parent_stdin {
+		Either::Left(_) => Some(Either::Left(pty.unwrap())),
+		Either::Right(Some(io)) => Some(Either::Right(io)),
+		Either::Right(None) => None,
+	};
 
 	// Create the child.
 	let child = Child {
@@ -156,9 +156,9 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 		pid,
 		socket: parent_socket,
 		uid: command.uid,
-		stdin,
-		stdout,
-		stderr,
+		stdin: stdin.map(|inner| Stdin { inner }),
+		stdout: stdout.map(|inner| Stdout { inner }),
+		stderr: stderr.map(|inner| Stderr { inner }),
 	};
 
 	Ok(child)
@@ -259,7 +259,7 @@ pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 	Ok(exit)
 }
 
-fn root_process(mut context: Context) -> ! {
+fn root_process(context: Context) -> ! {
 	unsafe {
 		// Ask to receive a SIGKILL signal if the host process exits.
 		let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0);
@@ -303,12 +303,6 @@ fn root_process(mut context: Context) -> ! {
 		} else if pid == 0 {
 			guest_process(context);
 		} else {
-			// Close the unused master/slave FDs if necessary.
-			if let Either::Left(pty) = &mut context.stdio {
-				pty.close_pty();
-				pty.close_tty();
-			}
-
 			// Send the guest process's PID to the host process, so the host process can write the UID and GID maps.
 			if context.root.is_some() {
 				let ret = libc::send(
@@ -373,7 +367,7 @@ fn guest_process(mut context: Context) -> ! {
 		}
 
 		// Redirect stdio.
-		redirect_stdio(&mut context.stdio);
+		redirect_stdio(&mut context.stdin, &mut context.stdout, &mut context.stderr);
 
 		// Wait for the notification from the host process to continue.
 		let mut notification = 0u8;
@@ -410,7 +404,7 @@ fn guest_process(mut context: Context) -> ! {
 	}
 
 	// If execve returns then abort.
-	abort_errno!(r#"failed to call execve"#);
+	abort_errno!("failed to call execve");
 }
 
 fn mount_and_chroot(context: &mut Context) {

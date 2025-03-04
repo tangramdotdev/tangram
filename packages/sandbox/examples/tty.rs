@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use futures::future;
 use std::{
 	io::{IsTerminal, Read, Write},
@@ -25,12 +26,11 @@ async fn main() -> std::io::Result<ExitCode> {
 		// Create the command.
 		let mut command = sandbox::Command::new("/bin/cat");
 		if let Some(tty) = get_window_size(libc::STDIN_FILENO)? {
-			command.tty(tty);
+			command.stdin(Stdio::Tty(tty)).stdout(Stdio::Tty(tty));
+			// .stderr(Stdio::Piped);
 		} else {
-			command
-				.stdin(Stdio::Inherit)
-				.stdout(Stdio::Inherit)
-				.stderr(Stdio::Inherit);
+			command.stdin(Stdio::Piped).stdout(Stdio::Piped);
+			// .stderr(Stdio::Piped);
 		}
 		command.envs(std::env::vars_os());
 
@@ -48,8 +48,8 @@ async fn main() -> std::io::Result<ExitCode> {
 		let result = child.wait().await;
 
 		// Await i/o tasks.
-		stdout.await.unwrap();
 		stdin.stop();
+		stdout.await.unwrap();
 		stdin.wait().await.unwrap();
 		result?
 	};
@@ -82,7 +82,7 @@ fn enable_raw_mode(fd: i32) -> std::io::Result<libc::termios> {
 		new.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
 		new.c_iflag &= !(libc::IXON | libc::ICRNL | libc::BRKINT | libc::INPCK | libc::ISTRIP);
 		new.c_oflag &= !(libc::OPOST);
-		if libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(new)) != 0 {
+		if libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(new)) != 0 {
 			return Err(std::io::Error::last_os_error());
 		}
 		return Ok(old);
@@ -133,7 +133,7 @@ async fn stdin(mut stdin: impl AsyncWrite + Unpin, stop: Stop) {
 			match std::io::stdin().read(&mut buf) {
 				Ok(0) => break,
 				Ok(n) => {
-					let message = buf[0..n].to_vec();
+					let message = Bytes::from(buf[0..n].to_vec());
 					if sender.blocking_send(message).is_err() {
 						break;
 					}
@@ -154,7 +154,7 @@ async fn stdin(mut stdin: impl AsyncWrite + Unpin, stop: Stop) {
 }
 
 async fn stdout(mut stdout: impl AsyncRead + Unpin) {
-	let (sender, mut receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+	let (sender, mut receiver) = tokio::sync::mpsc::channel::<Bytes>(1);
 	tokio::task::spawn_blocking(move || {
 		while let Some(message) = receiver.blocking_recv() {
 			std::io::stdout().write_all(&message).unwrap();
@@ -166,7 +166,8 @@ async fn stdout(mut stdout: impl AsyncRead + Unpin) {
 		match stdout.read(&mut buf).await {
 			Ok(0) => break,
 			Ok(n) => {
-				sender.send(buf[0..n].to_vec()).await.ok();
+				let chunk = Bytes::from(buf[0..n].to_vec());
+				sender.send(chunk).await.ok();
 			},
 			Err(_) => break,
 		}

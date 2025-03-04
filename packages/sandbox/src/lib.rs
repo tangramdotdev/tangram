@@ -27,7 +27,6 @@ pub struct Command {
 	stdin: Stdio,
 	stdout: Stdio,
 	stderr: Stdio,
-	tty: Option<Tty>,
 	uid: u32,
 }
 
@@ -82,6 +81,7 @@ pub enum Stdio {
 	Inherit,
 	Piped,
 	Null,
+	Tty(Tty),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -113,7 +113,6 @@ impl Command {
 			stdin: Stdio::Inherit,
 			stdout: Stdio::Inherit,
 			stderr: Stdio::Inherit,
-			tty: None,
 			uid: unsafe { libc::getuid() },
 		}
 	}
@@ -192,11 +191,6 @@ impl Command {
 
 	pub fn stderr(&mut self, stdio: Stdio) -> &mut Self {
 		self.stderr = stdio;
-		self
-	}
-
-	pub fn tty(&mut self, tty: Tty) -> &mut Self {
-		self.tty.replace(tty);
 		self
 	}
 
