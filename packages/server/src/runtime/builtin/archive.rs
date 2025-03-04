@@ -153,7 +153,7 @@ where
 			if !file.dependencies(server).await?.is_empty() {
 				return Err(tg::error!("cannot archive a file with dependencies"));
 			}
-			let size = file.size(server).await?;
+			let size = file.length(server).await?;
 			let reader = file.read(server, tg::blob::read::Arg::default()).await?;
 			let executable = file.executable(server).await?;
 			let mut header = tokio_tar::Header::new_gnu();

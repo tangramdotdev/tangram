@@ -35,7 +35,7 @@ export class Branch {
 				if (arg === undefined) {
 					return {};
 				} else if (arg instanceof Branch) {
-					let child = { blob: arg, size: await arg.size() };
+					let child = { blob: arg, size: await arg.length() };
 					return {
 						children: [child],
 					};
@@ -91,9 +91,9 @@ export class Branch {
 		return (await this.object()).children;
 	}
 
-	async size(): Promise<number> {
+	async length(): Promise<number> {
 		return (await this.children())
-			.map(({ size }) => size)
+			.map(({ length }) => length)
 			.reduce((a, b) => a + b, 0);
 	}
 
@@ -113,7 +113,7 @@ export namespace Branch {
 		children?: Array<Child> | undefined;
 	};
 
-	export type Child = { blob: tg.Blob; size: number };
+	export type Child = { blob: tg.Blob; length: number };
 
 	export type Id = string;
 

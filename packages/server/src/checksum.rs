@@ -60,7 +60,7 @@ impl Server {
 					return Err(tg::error!("cannot checksum a file with dependencies"));
 				}
 				let executable = file.executable(self).await?;
-				let size = file.size(self).await?;
+				let length = file.length(self).await?;
 				let mut reader = file.read(self, tg::blob::read::Arg::default()).await?;
 				writer
 					.write_uvarint(1)
@@ -71,9 +71,9 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the executable bit"))?;
 				writer
-					.write_uvarint(size)
+					.write_uvarint(length)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the file size"))?;
+					.map_err(|source| tg::error!(!source, "failed to write the file length"))?;
 				tokio::io::copy(&mut reader, writer)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;

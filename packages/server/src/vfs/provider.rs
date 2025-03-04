@@ -184,7 +184,7 @@ impl vfs::Provider for Provider {
 					tracing::error!(%error, "failed to get file's executable bit");
 					std::io::Error::from_raw_os_error(libc::EIO)
 				})?;
-				let size = file.size(&self.server).await.map_err(|error| {
+				let size = file.length(&self.server).await.map_err(|error| {
 					tracing::error!(%error, "failed to get file's size");
 					std::io::Error::from_raw_os_error(libc::EIO)
 				})?;

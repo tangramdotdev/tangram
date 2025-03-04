@@ -97,20 +97,20 @@ impl Blob {
 		Ok(blob)
 	}
 
-	pub async fn size<H>(&self, handle: &H) -> tg::Result<u64>
+	pub async fn length<H>(&self, handle: &H) -> tg::Result<u64>
 	where
 		H: tg::Handle,
 	{
 		match self {
 			Self::Leaf(leaf) => {
 				let bytes = &leaf.bytes(handle).await?;
-				let size = bytes.len().to_u64().unwrap();
-				Ok(size)
+				let length = bytes.len().to_u64().unwrap();
+				Ok(length)
 			},
 			Self::Branch(branch) => {
 				let children = &branch.children(handle).await?;
-				let size = children.iter().map(|child| child.size).sum();
-				Ok(size)
+				let length = children.iter().map(|child| child.length).sum();
+				Ok(length)
 			},
 		}
 	}

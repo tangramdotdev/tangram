@@ -26,7 +26,7 @@ pub struct Blob {
 	pub depth: u64,
 	pub id: tg::blob::Id,
 	pub position: u64,
-	pub size: u64,
+	pub length: u64,
 	pub weight: u64,
 }
 
@@ -230,7 +230,7 @@ impl Server {
 			children: Vec::new(),
 			data: None,
 			id: id.into(),
-			size: 0,
+			length: 0,
 			position: 0,
 		})
 	}
@@ -238,15 +238,15 @@ impl Server {
 	async fn create_blob_inner_leaf(&self, chunk: &fastcdc::v2020::ChunkData) -> tg::Result<Blob> {
 		let fastcdc::v2020::ChunkData {
 			offset: position,
-			length: size,
+			length,
 			data,
 			..
 		} = chunk;
-		let size = size.to_u64().unwrap();
+		let length = length.to_u64().unwrap();
 		let id = tg::leaf::Id::new(data);
 		let count = 1;
 		let depth = 1;
-		let weight = size;
+		let weight = length;
 		let output = Blob {
 			children: Vec::new(),
 			count,
@@ -254,7 +254,7 @@ impl Server {
 			depth,
 			id: id.into(),
 			position: *position,
-			size,
+			length,
 			weight,
 		};
 		Ok(output)
@@ -265,7 +265,7 @@ impl Server {
 			.iter()
 			.map(|child| tg::branch::data::Child {
 				blob: child.id.clone(),
-				size: child.size,
+				length: child.length,
 			})
 			.collect();
 		let data = tg::branch::Data {
@@ -285,7 +285,7 @@ impl Server {
 					)
 				});
 		let position = children.first().unwrap().position;
-		let size = children.iter().map(|child| child.size).sum();
+		let length = children.iter().map(|child| child.length).sum();
 		let output = Blob {
 			children,
 			count,
@@ -293,7 +293,7 @@ impl Server {
 			depth,
 			id: id.into(),
 			position,
-			size,
+			length,
 			weight,
 		};
 		Ok(output)
@@ -406,7 +406,7 @@ impl Server {
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
 			let params =
-				rusqlite::params![&blob.id.to_string(), &blob_id, blob.position, blob.size];
+				rusqlite::params![&blob.id.to_string(), &blob_id, blob.position, blob.length];
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -445,7 +445,7 @@ impl Server {
 				blob.id.to_string(),
 				blob_id.to_string(),
 				blob.position.to_i64().unwrap(),
-				blob.size.to_i64().unwrap(),
+				blob.length.to_i64().unwrap(),
 			));
 			stack.extend(&blob.children);
 		}
@@ -524,13 +524,17 @@ impl Server {
 			}
 
 			// Insert the object.
+			let size = blob.data.as_ref().map_or(0, |data| {
+				data.serialize()
+					.map_or(0, |bytes| bytes.len().to_u64().unwrap())
+			});
 			let params = rusqlite::params![
 				&blob.id.to_string(),
 				true,
 				blob.count,
 				blob.depth,
 				0,
-				blob.size,
+				size,
 				&now,
 				blob.weight
 			];
@@ -555,12 +559,16 @@ impl Server {
 		let mut children = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
+			let size = blob.data.as_ref().map_or(0, |data| {
+				data.serialize()
+					.map_or(0, |bytes| bytes.len().to_u64().unwrap())
+			});
 			// Collect object data.
 			objects.push((
 				blob.id.to_string(),
 				blob.count.to_i64().unwrap(),
 				blob.depth.to_i64().unwrap(),
-				blob.size.to_i64().unwrap(),
+				size.to_i64().unwrap(),
 				blob.weight.to_i64().unwrap(),
 			));
 

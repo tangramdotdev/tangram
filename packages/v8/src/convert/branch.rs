@@ -104,8 +104,8 @@ impl ToV8 for tg::branch::Child {
 		let value = self.blob.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "size".as_bytes()).unwrap();
-		let value = self.size.to_v8(scope)?;
+		let key = v8::String::new_external_onebyte_static(scope, "length".as_bytes()).unwrap();
+		let value = self.length.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
@@ -124,11 +124,11 @@ impl FromV8 for tg::branch::Child {
 		let blob = <_>::from_v8(scope, blob)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the blob"))?;
 
-		let size = v8::String::new_external_onebyte_static(scope, "size".as_bytes()).unwrap();
-		let size = value.get(scope, size.into()).unwrap();
-		let size = <_>::from_v8(scope, size)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the size"))?;
+		let length = v8::String::new_external_onebyte_static(scope, "length".as_bytes()).unwrap();
+		let length = value.get(scope, length.into()).unwrap();
+		let length = <_>::from_v8(scope, length)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the length"))?;
 
-		Ok(Self { blob, size })
+		Ok(Self { blob, length })
 	}
 }

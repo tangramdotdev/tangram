@@ -45,7 +45,7 @@ export namespace Blob {
 		} else {
 			let children_ = await Promise.all(
 				children.map(async (blob) => {
-					return { blob, size: await blob.size() };
+					return { blob, length: await blob.length() };
 				}),
 			);
 			blob = new tg.Branch({
