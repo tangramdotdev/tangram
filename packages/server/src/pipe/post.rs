@@ -29,6 +29,7 @@ impl Server {
 			.ok_or_else(|| tg::error!(%id, "missing pipe"))?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
+			eprintln!("post event({id}): {event:?}");
 			self.send_pipe_event(&writer, event).await?;
 		}
 		Ok(())

@@ -7,10 +7,8 @@ use futures::{
 };
 use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
-<<<<<<< HEAD
 use tangram_either::Either;
-=======
->>>>>>> 71dae68f (wip: use sandbox crate in linux runtime)
+use tangram_futures::task::Stop;
 use tangram_sandbox as sandbox;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 
@@ -165,6 +163,7 @@ pub async fn merge_env(
 pub async fn stdio_task(
 	server: Server,
 	process: tg::Process,
+	stop: Stop,
 	stdin: sandbox::Stdin,
 	stdout: sandbox::Stdout,
 	stderr: sandbox::Stderr,
@@ -173,7 +172,7 @@ pub async fn stdio_task(
 	if state.cacheable {
 		log_task(&server, &process, stdout, stderr).await?;
 	} else {
-		pipe_task(&server, &process, stdin, stdout, stderr).await?;
+		pipe_task(&server, &process, stop, stdin, stdout, stderr).await?;
 	};
 	Ok(())
 }
@@ -240,6 +239,7 @@ async fn log_task(
 async fn pipe_task(
 	server: &Server,
 	process: &tg::Process,
+	stop: Stop,
 	stdin: sandbox::Stdin,
 	stdout: sandbox::Stdout,
 	stderr: sandbox::Stderr,
@@ -259,27 +259,33 @@ async fn pipe_task(
 			let stream = server.get_pipe_stream(pipe, arg).await?;
 			let mut stream = pin!(stream);
 			let mut stdin = pin!(stdin);
-			while let Some(event) = stream.try_next().await? {
-				match event {
-					tg::pipe::Event::Chunk(chunk) => {
-						eprintln!("writing chunk to stdin: {chunk:?}");
-						stdin.write_all(&chunk).await.map_err(
-							|source| tg::error!(!source, %pipe, "failed to write stdin"),
-						)?;
+			loop {
+				let stop = pin!(stop.wait());
+				let next = pin!(stream.try_next());
+				let fut = future::select(stop, next);
+				match fut.await {
+					future::Either::Left(_) => break,
+					future::Either::Right((Ok(Some(event)), _)) => match event {
+						tg::pipe::Event::Chunk(chunk) => {
+							eprintln!("writing chunk to stdin: {chunk:?}");
+							stdin.write_all(&chunk).await.map_err(
+								|source| tg::error!(!source, %pipe, "failed to write stdin"),
+							)?;
+						},
+						tg::pipe::Event::WindowSize(window_size) => {
+							let tty = sandbox::Tty {
+								rows: window_size.rows,
+								cols: window_size.cols,
+								x: window_size.xpos,
+								y: window_size.ypos,
+							};
+							stdin.change_window_size(tty).await.map_err(|source| {
+								tg::error!(!source, "failed to set window size")
+							})?;
+						},
+						tg::pipe::Event::End => break,
 					},
-					tg::pipe::Event::WindowSize(window_size) => {
-						let tty = sandbox::Tty {
-							rows: window_size.rows,
-							cols: window_size.cols,
-							x: window_size.xpos,
-							y: window_size.ypos,
-						};
-						stdin
-							.change_window_size(tty)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to set window size"))?;
-					},
-					tg::pipe::Event::End => break,
+					future::Either::Right(_) => break,
 				}
 			}
 			stdin.shutdown().await.ok();
@@ -312,6 +318,11 @@ async fn pipe_task(
 		let state = process.load(&server).await?;
 		let process = process.clone();
 		async move {
+			if state.stderr == state.stdout {
+				eprintln!("stdout == stderr, exiting.");
+				std::mem::forget(stderr);
+				return Ok(());
+			}
 			let Some(pipe) = state.stderr.as_ref() else {
 				return Ok(());
 			};
@@ -359,17 +370,17 @@ fn chunk_stream_from_reader(
 pub async fn try_get_window_size(
 	server: &Server,
 	process: &tg::Process,
-) -> tg::Result<Option<tg::pipe::WindowSize>> {
+) -> tg::Result<Option<(tg::pipe::WindowSize, usize)>> {
 	let state = process.load(server).await?;
 	let pipes = [
 		state.stdin.clone(),
 		state.stdout.clone(),
 		state.stderr.clone(),
 	];
-	for pipe in pipes.into_iter().flatten() {
+	for (n, pipe) in pipes.into_iter().flatten().enumerate() {
 		let pipe = server.try_get_pipe(&pipe).await?.unwrap();
 		if let Some(ws) = pipe.window_size {
-			return Ok(Some(ws));
+			return Ok(Some((ws, n)));
 		}
 	}
 	Ok(None)

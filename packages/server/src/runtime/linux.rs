@@ -1,6 +1,6 @@
 use super::{
 	proxy::{self, Proxy},
-	util::{self, render},
+	util::render,
 };
 use crate::{Server, temp::Temp};
 use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
@@ -259,41 +259,90 @@ impl Runtime {
 
 		cmd_.args(args);
 		cmd_.cwd(cwd);
+
 		if let Some(chroot) = chroot {
 			cmd_.chroot(&chroot.root);
 			cmd_.mounts(chroot.mounts);
 		}
-		if let Some(tty) = util::try_get_window_size(&self.server, process)
-			.await?
-			.map(|ws| sandbox::Tty {
-				rows: ws.rows,
-				cols: ws.cols,
-				x: ws.xpos,
-				y: ws.ypos,
-			}) {
-			cmd_.tty(tty);
-		} else {
-			cmd_.stdin(sandbox::Stdio::Piped);
-			cmd_.stdout(sandbox::Stdio::Piped);
-			cmd_.stderr(sandbox::Stdio::Piped);
+
+		cmd_.stdin(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdin {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdin(sandbox::Stdio::Tty(tty));
+			}
+		}
+		cmd_.stdout(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdout {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdout(sandbox::Stdio::Tty(tty));
+			}
+		}
+		cmd_.stderr(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stderr {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stderr(sandbox::Stdio::Tty(tty));
+			}
 		}
 
 		// Spawn the child.
+		eprintln!("spawning child");
 		let mut child = cmd_
 			.spawn()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to spawn the child process"))?;
+		eprintln!("child was spawned");
 
 		// Spawn the stdio task.
-		let stdio_task = tokio::spawn(super::util::stdio_task(
-			self.server.clone(),
-			process.clone(),
-			child.stdin.take().unwrap(),
-			child.stdout.take().unwrap(),
-			child.stderr.take().unwrap(),
-		));
+		let stdin = child.stdin.take().unwrap();
+		let stdout = child.stdout.take().unwrap();
+		let stderr = child.stderr.take().unwrap();
+		let stdio_task = Task::spawn(move |stop| {
+			super::util::stdio_task(
+				self.server.clone(),
+				process.clone(),
+				stop,
+				stdin,
+				stdout,
+				stderr,
+			)
+		});
+		eprintln!("stdio task was spawned");
 
 		// Wait for the child process to complete.
+		eprintln!("waiting for child");
 		let exit = match child
 			.wait()
 			.await
@@ -302,6 +351,7 @@ impl Runtime {
 			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
 			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
 		};
+		eprintln!("child exited: {exit:?}");
 
 		// Stop the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
@@ -310,7 +360,10 @@ impl Runtime {
 		}
 
 		// stop the i/o task.
-		stdio_task.await.unwrap().ok();
+		eprintln!("stopping stdio");
+		stdio_task.stop();
+		stdio_task.wait().await.unwrap().ok();
+		eprintln!("stdio stopped");
 
 		// Create the output.
 		let output = output_parent.path().join("output");

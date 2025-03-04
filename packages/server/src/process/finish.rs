@@ -234,7 +234,7 @@ impl Server {
 					.messenger
 					.publish(format!("processes.{id}.status"), Bytes::new())
 					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
 					.ok();
 
 				// Close the subjects.
