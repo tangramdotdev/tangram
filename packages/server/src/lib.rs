@@ -1377,8 +1377,13 @@ impl tg::Handle for Server {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>>
-	{
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::reference::get::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send {
 		self.try_get_reference(reference)
 	}
 

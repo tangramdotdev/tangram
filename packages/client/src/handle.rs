@@ -1,7 +1,6 @@
 use crate as tg;
 use futures::Stream;
 use std::pin::Pin;
-use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 mod either;
@@ -237,8 +236,13 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_reference(
 		&self,
 		reference: &tg::Reference,
-	) -> impl Future<Output = tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>>>
-	+ Send;
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::reference::get::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send;
 
 	fn list_remotes(
 		&self,

@@ -2,7 +2,6 @@ use crate::Server;
 use futures::{Stream, TryStreamExt as _, stream};
 use std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc};
 use tangram_client as tg;
-use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 #[derive(Clone)]
@@ -389,8 +388,12 @@ impl tg::Handle for Proxy {
 	async fn try_get_reference(
 		&self,
 		_reference: &tg::Reference,
-	) -> tg::Result<Option<tg::Referent<Either<tg::process::Id, tg::object::Id>>>> {
-		Err(tg::error!("forbidden"))
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::reference::get::Output>>>>
+		+ Send
+		+ 'static,
+	> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
 	async fn list_remotes(

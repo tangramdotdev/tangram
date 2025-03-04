@@ -4,8 +4,10 @@ use std::{
 	collections::BTreeMap,
 	os::unix::ffi::OsStrExt,
 	path::{Path, PathBuf},
+	pin::pin,
 };
 use tangram_either::Either;
+use tangram_futures::stream::TryExt;
 use tangram_uri as uri;
 
 pub mod get;
@@ -140,18 +142,19 @@ impl Reference {
 	where
 		H: tg::Handle,
 	{
-		handle
+		let stream = handle
 			.get_reference(self)
 			.await
-			.map(|referent| tg::Referent {
-				item: referent
-					.item
-					.map_left(|id| tg::Process::new(id, None, None, None, None))
-					.map_right(tg::Object::with_id),
-				path: referent.path,
-				subpath: referent.subpath,
-				tag: referent.tag,
-			})
+			.map_err(|source| tg::error!(!source, "failed to get stream"))?;
+		let stream = pin!(stream);
+		let output = stream.try_last().await?;
+		match output {
+			Some(output) => match output {
+				crate::progress::Event::Output(output) => Ok(output),
+				_ => Err(tg::error!("expected output")),
+			},
+			None => Err(tg::error!("failed to get output")),
+		}
 	}
 }
 
