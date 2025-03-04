@@ -32,30 +32,27 @@ impl Runtime {
 			.parse::<tg::artifact::archive::Format>()
 			.map_err(|source| tg::error!(!source, "invalid format"))?;
 
-		// Get the compression format.
-		let compression_format = if let Some(value) = args.get(3) {
-			let compression_format = value
+		// Get the compression.
+		let compression = if let Some(value) = args.get(3) {
+			let compression = value
 				.try_unwrap_string_ref()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a string"))?
 				.parse::<tg::blob::compress::Format>()
 				.map_err(|source| tg::error!(!source, "invalid compression format"))?;
-			Some(compression_format)
+			Some(compression)
 		} else {
 			None
 		};
 
-		if compression_format.is_some()
-			&& matches!(format, tangram_client::artifact::archive::Format::Zip)
+		if compression.is_some() && matches!(format, tangram_client::artifact::archive::Format::Zip)
 		{
 			return Err(tg::error!("compression is not supported for zip archives"));
 		}
 
 		// Create the archive task.
 		let blob = match format {
-			tg::artifact::archive::Format::Tar => {
-				tar(server, &artifact, compression_format).await?
-			},
+			tg::artifact::archive::Format::Tar => tar(server, &artifact, compression).await?,
 			tg::artifact::archive::Format::Zip => zip(server, &artifact).await?,
 		};
 
@@ -66,7 +63,7 @@ impl Runtime {
 async fn tar(
 	server: &Server,
 	artifact: &tg::Artifact,
-	compression_format: Option<tg::blob::compress::Format>,
+	compression: Option<tg::blob::compress::Format>,
 ) -> tg::Result<tg::Blob> {
 	// Create a duplex stream.
 	let (reader, writer) = tokio::io::duplex(8192);
@@ -95,7 +92,7 @@ async fn tar(
 	};
 
 	// If compression is requested, use the appropriate encoder.
-	let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression_format {
+	let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression {
 		Some(tg::blob::compress::Format::Bz2) => Box::pin(
 			async_compression::tokio::bufread::BzEncoder::new(tokio::io::BufReader::new(reader)),
 		),
