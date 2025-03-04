@@ -155,7 +155,7 @@ impl Server {
 		#[derive(serde::Deserialize)]
 		struct Row {
 			id: tg::process::Id,
-			error: Option<tg::Error>,
+			error: Option<db::value::Json<tg::Error>>,
 			status: tg::process::Status,
 		}
 		let p = connection.p();
