@@ -23,6 +23,7 @@ pub struct Blob {
 	pub children: Vec<Blob>,
 	pub count: u64,
 	pub data: Option<tg::blob::Data>,
+	pub size: u64,
 	pub depth: u64,
 	pub id: tg::blob::Id,
 	pub position: u64,
@@ -229,6 +230,7 @@ impl Server {
 			weight: 0,
 			children: Vec::new(),
 			data: None,
+			size: 0,
 			id: id.into(),
 			length: 0,
 			position: 0,
@@ -243,6 +245,7 @@ impl Server {
 			..
 		} = chunk;
 		let length = length.to_u64().unwrap();
+		let size = length;
 		let id = tg::leaf::Id::new(data);
 		let count = 1;
 		let depth = 1;
@@ -251,6 +254,7 @@ impl Server {
 			children: Vec::new(),
 			count,
 			data: None,
+			size,
 			depth,
 			id: id.into(),
 			position: *position,
@@ -272,12 +276,12 @@ impl Server {
 			children: children_,
 		};
 		let bytes = data.serialize()?;
-		let size_ = bytes.len().to_u64().unwrap();
+		let size = bytes.len().to_u64().unwrap();
 		let id = tg::branch::Id::new(&bytes);
 		let (count, depth, weight) =
 			children
 				.iter()
-				.fold((1, 1, size_), |(count, depth, weight), child| {
+				.fold((1, 1, size), |(count, depth, weight), child| {
 					(
 						count + child.count,
 						depth.max(child.depth),
@@ -290,6 +294,7 @@ impl Server {
 			children,
 			count,
 			data: Some(data.into()),
+			size,
 			depth,
 			id: id.into(),
 			position,
@@ -524,17 +529,13 @@ impl Server {
 			}
 
 			// Insert the object.
-			let size = blob.data.as_ref().map_or(0, |data| {
-				data.serialize()
-					.map_or(0, |bytes| bytes.len().to_u64().unwrap())
-			});
 			let params = rusqlite::params![
 				&blob.id.to_string(),
 				true,
 				blob.count,
 				blob.depth,
 				0,
-				size,
+				blob.size,
 				&now,
 				blob.weight
 			];
@@ -559,16 +560,12 @@ impl Server {
 		let mut children = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
-			let size = blob.data.as_ref().map_or(0, |data| {
-				data.serialize()
-					.map_or(0, |bytes| bytes.len().to_u64().unwrap())
-			});
 			// Collect object data.
 			objects.push((
 				blob.id.to_string(),
 				blob.count.to_i64().unwrap(),
 				blob.depth.to_i64().unwrap(),
-				size.to_i64().unwrap(),
+				blob.size.to_i64().unwrap(),
 				blob.weight.to_i64().unwrap(),
 			));
 

@@ -234,7 +234,7 @@ where
 		write!(self.writer, "tg.branch(")?;
 		self.start_map()?;
 		for child in &object.children {
-			self.map_entry("size", |s| s.number(child.length.to_f64().unwrap()))?;
+			self.map_entry("length", |s| s.number(child.length.to_f64().unwrap()))?;
 			self.map_entry("blob", |s| s.blob(&child.blob))?;
 		}
 		self.finish_map()?;
