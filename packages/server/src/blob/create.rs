@@ -112,8 +112,14 @@ impl Server {
 				})?;
 		}
 
-		// Insert the blob.
-		self.insert_blob(&blob).await?;
+		// Create the database future.
+		let database_future = async { self.insert_blob(&blob).await };
+
+		// Create the store future.
+		let store_future = async { self.store_blob(&blob).await };
+
+		// Join the database and store futures.
+		futures::try_join!(database_future, store_future)?;
 
 		// Create the output.
 		let output = tg::blob::create::Output {
