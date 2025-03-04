@@ -74,14 +74,18 @@ where
 		let Some(item) = self.selected.borrow().item.clone() else {
 			return;
 		};
-		let contents = match item {
+		let contents = match &item {
 			Item::Process(process) => process.id().to_string(),
 			Item::Value(value) => {
-				let options = tg::value::print::Options {
-					recursive: true,
-					style: tg::value::print::Style::Compact,
-				};
-				value.print(options)
+				if let tg::Value::Object(object) = value {
+					Self::object_id(object)
+				} else {
+					let options = tg::value::print::Options {
+						recursive: true,
+						style: tg::value::print::Style::Compact,
+					};
+					value.print(options)
+				}
 			},
 		};
 		let Ok(mut context) = copypasta::ClipboardContext::new() else {
@@ -1269,61 +1273,65 @@ where
 				tg::Value::String(string) => format!("\"{string}\""),
 				tg::Value::Array(_) => "array".to_owned(),
 				tg::Value::Map(_) => "map".to_owned(),
-				tg::Value::Object(object) => match object {
-					tg::Object::Leaf(leaf) => leaf
-						.state()
-						.read()
-						.unwrap()
-						.id
-						.as_ref()
-						.map_or_else(|| "object".to_owned(), ToString::to_string),
-					tg::Object::Branch(branch) => branch
-						.state()
-						.read()
-						.unwrap()
-						.id
-						.as_ref()
-						.map_or_else(|| "object".to_owned(), ToString::to_string),
-					tg::Object::Directory(directory) => directory
-						.state()
-						.read()
-						.unwrap()
-						.id
-						.as_ref()
-						.map_or_else(|| "object".to_owned(), ToString::to_string),
-					tg::Object::File(file) => file
-						.state()
-						.read()
-						.unwrap()
-						.id
-						.as_ref()
-						.map_or_else(|| "object".to_owned(), ToString::to_string),
-					tg::Object::Symlink(symlink) => symlink
-						.state()
-						.read()
-						.unwrap()
-						.id
-						.as_ref()
-						.map_or_else(|| "object".to_owned(), ToString::to_string),
-					tg::Object::Graph(graph) => graph
-						.state()
-						.read()
-						.unwrap()
-						.id
-						.as_ref()
-						.map_or_else(|| "object".to_owned(), ToString::to_string),
-					tg::Object::Command(command) => command
-						.state()
-						.read()
-						.unwrap()
-						.id
-						.as_ref()
-						.map_or_else(|| "object".to_owned(), ToString::to_string),
-				},
+				tg::Value::Object(object) => Self::object_id(object),
 				tg::Value::Bytes(_) => "bytes".to_owned(),
 				tg::Value::Mutation(_) => "mutation".to_owned(),
 				tg::Value::Template(_) => "template".to_owned(),
 			},
+		}
+	}
+
+	fn object_id(object: &tg::Object) -> String {
+		match object {
+			tg::Object::Leaf(leaf) => leaf
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::Branch(branch) => branch
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::Directory(directory) => directory
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::File(file) => file
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::Symlink(symlink) => symlink
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::Graph(graph) => graph
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::Command(command) => command
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
 		}
 	}
 
