@@ -19,6 +19,7 @@ use std::{
 	pin::pin,
 	sync::{Arc, Mutex},
 };
+use sys::fuse_interrupt_in;
 use tangram_futures::task::{Stop, Task};
 use zerocopy::{FromBytes as _, IntoBytes as _};
 
@@ -58,6 +59,7 @@ enum RequestData {
 	ReadLink,
 	Release(sys::fuse_release_in),
 	ReleaseDir(sys::fuse_release_in),
+	Interrupt(sys::fuse_interrupt_in),
 	Unsupported(u32),
 }
 
@@ -285,6 +287,7 @@ where
 			sys::fuse_opcode::FUSE_READLINK => RequestData::ReadLink,
 			sys::fuse_opcode::FUSE_RELEASE => RequestData::Release(read_data(data)?),
 			sys::fuse_opcode::FUSE_RELEASEDIR => RequestData::ReleaseDir(read_data(data)?),
+			sys::fuse_opcode::FUSE_INTERRUPT => RequestData::Interrupt(read_data(data)?),
 			_ => RequestData::Unsupported(header.opcode),
 		};
 		let request = Request { header, data };
@@ -324,6 +327,9 @@ where
 			RequestData::Release(data) => self.handle_release_request(request.header, data).await,
 			RequestData::ReleaseDir(data) => {
 				self.handle_release_dir_request(request.header, data).await
+			},
+			RequestData::Interrupt(data) => {
+				self.handle_interrupt_request(request.header, data).await
 			},
 			RequestData::Unsupported(opcode) => {
 				self.handle_unsupported_request(request.header, opcode)
@@ -588,6 +594,14 @@ where
 	) -> Result<Option<Response>> {
 		self.provider.close(request.fh).await;
 		Ok(Some(Response::ReleaseDir))
+	}
+
+	async fn handle_interrupt_request(
+		&self,
+		_header: fuse_in_header,
+		_request: fuse_interrupt_in,
+	) -> Result<Option<Response>> {
+		Ok(None)
 	}
 
 	async fn handle_unsupported_request(
