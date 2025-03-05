@@ -94,7 +94,19 @@ impl Server {
 		reader: &tg::pipe::Id,
 		writer: &tg::pipe::Id,
 	) -> tg::Result<()> {
-		todo!()
+		for pipe in [reader, writer] {
+			let stream_config = async_nats::jetstream::stream::Config {
+				name: format!("pipes.{pipe}"),
+				max_messages: 256,
+				..Default::default()
+			};
+			messenger
+				.jetstream
+				.create_stream(stream_config)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the pipe stream"))?;
+		}
+		Ok(())
 	}
 }
 

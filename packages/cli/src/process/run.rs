@@ -192,7 +192,7 @@ impl Cli {
 						.ok();
 				});
 				tokio::signal::ctrl_c().await.unwrap();
-				std::process::exit(130);
+				fork_and_exit(130).ok();
 			}
 		});
 

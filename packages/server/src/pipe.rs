@@ -188,11 +188,11 @@ impl Server {
 		messenger
 			.close_subject(format!("pipes.{reader}"))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+			.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
 		messenger
 			.close_subject(format!("pipes.{writer}"))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+			.map_err(|source| tg::error!(!source, "failed to close pipe"))?;
 		Ok(())
 	}
 
@@ -202,7 +202,14 @@ impl Server {
 		reader: &tg::pipe::Id,
 		writer: &tg::pipe::Id,
 	) -> tg::Result<()> {
-		todo!()
+		for pipe in [reader, writer] {
+			messenger
+				.jetstream
+				.delete_stream(format!("pipes.{pipe}"))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
+		}
+		Ok(())
 	}
 
 	pub(crate) async fn send_pipe_event(
@@ -213,10 +220,23 @@ impl Server {
 		let payload = serde_json::to_vec(&event)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?
 			.into();
-		self.messenger
-			.publish(format!("pipes.{pipe}"), payload)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?;
+		match &self.messenger {
+			Either::Left(messenger) => {
+				messenger
+					.publish(format!("pipes.{pipe}"), payload)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?;
+			},
+			Either::Right(messenger) => {
+				messenger
+					.jetstream
+					.publish(format!("pipes.{pipe}"), payload)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?
+					.await
+					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?;
+			},
+		}
 		Ok(())
 	}
 }
