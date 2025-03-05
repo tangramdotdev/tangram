@@ -1147,6 +1147,18 @@ impl Cli {
 		Ok(output)
 	}
 
+	async fn get_references(
+		&self,
+		references: &[tg::Reference],
+	) -> tg::Result<Vec<tg::Referent<Either<tg::Process, tg::Object>>>> {
+		let mut referents = Vec::with_capacity(references.len());
+		for reference in references {
+			let referent = self.get_reference(reference).await?;
+			referents.push(referent);
+		}
+		Ok(referents)
+	}
+
 	/// Initialize V8.
 	fn initialize_v8() {
 		// Set the ICU data.
