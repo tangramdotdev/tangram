@@ -2,8 +2,9 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database, Query, params};
+use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger;
+use tangram_messenger as messenger;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -54,17 +55,46 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Create the messenger channels.
-		self.messenger
-			.create_subject(format!("pipes.{writer}"))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the messenger channel"))?;
-		self.messenger
-			.create_subject(format!("pipes.{reader}"))
-			.await
-			.map_err(|source| tg::error!(!source, "faield to create the messenger channel"))?;
+		match &self.messenger {
+			Either::Left(messenger) => {
+				self.create_pipe_in_memory(messenger, &reader, &writer)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+			},
+			Either::Right(messenger) => {
+				self.create_pipe_nats(messenger, &reader, &writer)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+			},
+		}
 		let output = tg::pipe::open::Output { writer, reader };
 		Ok(output)
+	}
+
+	async fn create_pipe_in_memory(
+		&self,
+		messenger: &messenger::memory::Messenger,
+		reader: &tg::pipe::Id,
+		writer: &tg::pipe::Id,
+	) -> tg::Result<()> {
+		messenger
+			.create_subject(format!("pipes.{reader}"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+		messenger
+			.create_subject(format!("pipes.{writer}"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+		Ok(())
+	}
+
+	async fn create_pipe_nats(
+		&self,
+		messenger: &messenger::nats::Messenger,
+		reader: &tg::pipe::Id,
+		writer: &tg::pipe::Id,
+	) -> tg::Result<()> {
+		todo!()
 	}
 }
 

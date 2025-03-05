@@ -286,10 +286,12 @@ impl Server {
 				Messenger::Right(tangram_messenger::nats::Messenger::new(client))
 			},
 		};
-		messenger
-			.create_subject("processes.created".into())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to initialize the messenger"))?;
+		if let Either::Left(messenger) = &messenger {
+			messenger
+				.create_subject("processes.created".into())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to initialize the messenger"))?;
+		}
 
 		// Create the remotes.
 		let remotes = DashMap::default();

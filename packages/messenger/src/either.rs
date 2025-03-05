@@ -9,29 +9,6 @@ where
 {
 	type Error = Either<L::Error, R::Error>;
 
-	fn create_subject(&self, subject: String) -> impl Future<Output = Result<(), Self::Error>> {
-		match self {
-			Either::Left(s) => s
-				.create_subject(subject)
-				.map_err(Either::Left)
-				.left_future(),
-			Either::Right(s) => s
-				.create_subject(subject)
-				.map_err(Either::Right)
-				.right_future(),
-		}
-	}
-
-	fn close_subject(&self, subject: String) -> impl Future<Output = Result<(), Self::Error>> {
-		match self {
-			Either::Left(s) => s.close_subject(subject).map_err(Either::Left).left_future(),
-			Either::Right(s) => s
-				.close_subject(subject)
-				.map_err(Either::Right)
-				.right_future(),
-		}
-	}
-
 	fn publish(
 		&self,
 		subject: String,

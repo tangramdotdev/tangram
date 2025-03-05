@@ -39,7 +39,7 @@ impl Messenger {
 		Self(Arc::new(Inner { subjects }))
 	}
 
-	async fn create_subject(&self, subject: String) -> Result<(), Error> {
+	pub async fn create_subject(&self, subject: String) -> Result<(), Error> {
 		self.subjects.entry(subject).or_insert_with(|| {
 			let (sender, receiver) = async_broadcast::broadcast(128);
 			let receiver = receiver.deactivate();
@@ -48,7 +48,7 @@ impl Messenger {
 		Ok(())
 	}
 
-	async fn close_subject(&self, subject: String) -> Result<(), Error> {
+	pub async fn close_subject(&self, subject: String) -> Result<(), Error> {
 		self.subjects.remove(&subject);
 		Ok(())
 	}
@@ -82,14 +82,6 @@ impl Default for Messenger {
 
 impl crate::Messenger for Messenger {
 	type Error = Error;
-
-	fn create_subject(&self, subject: String) -> impl Future<Output = Result<(), Self::Error>> {
-		self.create_subject(subject)
-	}
-
-	fn close_subject(&self, subject: String) -> impl Future<Output = Result<(), Self::Error>> {
-		self.close_subject(subject)
-	}
 
 	fn publish(
 		&self,

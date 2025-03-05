@@ -54,7 +54,6 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	let (parent_stdout, child_stdout) = stdio_pair(command.stdout, &mut pty).await?;
 	let (parent_stderr, child_stderr) = stdio_pair(command.stderr, &mut pty).await?;
 
-
 	// Create the sandbox profile.
 	let profile = create_sandbox_profile(command);
 
@@ -68,7 +67,6 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 		stdin: child_stdin,
 		stdout: child_stdout,
 		stderr: child_stderr,
-
 	};
 
 	// Fork.

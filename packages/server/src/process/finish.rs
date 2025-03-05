@@ -4,6 +4,7 @@ use futures::{FutureExt as _, TryStreamExt as _, future, stream::FuturesUnordere
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
@@ -238,12 +239,13 @@ impl Server {
 					.ok();
 
 				// Close the subjects.
-				for subject in ["status", "log", "children"] {
-					server
-						.messenger
-						.close_subject(format!("processes.{id}.{subject}"))
-						.await
-						.ok();
+				if let Either::Left(messenger) = &server.messenger {
+					for subject in ["status", "log", "children"] {
+						messenger
+							.close_subject(format!("processes.{id}.{subject}"))
+							.await
+							.ok();
+					}
 				}
 			}
 		});

@@ -19,14 +19,6 @@ impl Messenger {
 impl crate::Messenger for Messenger {
 	type Error = Either<nats::PublishError, nats::SubscribeError>;
 
-	fn create_subject(&self, _subject: String) -> impl Future<Output = Result<(), Self::Error>> {
-		future::ready(todo!())
-	}
-
-	fn close_subject(&self, _subject: String) -> impl Future<Output = Result<(), Self::Error>> {
-		future::ready(todo!())
-	}
-
 	fn publish(
 		&self,
 		subject: String,

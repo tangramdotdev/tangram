@@ -1,7 +1,8 @@
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database, Query, params};
-use tangram_messenger::Messenger;
+use tangram_either::Either;
+use tangram_messenger::{self as messenger, Messenger as _};
 use time::format_description::well_known::Rfc3339;
 
 use crate::Server;
@@ -162,23 +163,46 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
 
-		// When the writer count drops to zero, send a message to all readers to end their streams.
+		// When the writer count drops to zero, close the pipes.
 		if writer_count == 0 {
-			self.send_pipe_event(&writer, tg::pipe::Event::End)
-				.await
-				.ok();
-			// Close the pipe channels.
-			self.messenger
-				.close_subject(format!("pipes.{writer}"))
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the messenger channel"))?;
-			self.messenger
-				.close_subject(format!("pipes.{reader}"))
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the messenger channel"))?;
+			match &self.messenger {
+				Either::Left(messenger) => {
+					self.close_pipe_in_memory(messenger, &reader, &writer)
+						.await?
+				},
+				Either::Right(messenger) => {
+					self.close_pipe_nats(messenger, &reader, &writer).await?
+				},
+			};
 		}
 
 		Ok(())
+	}
+
+	async fn close_pipe_in_memory(
+		&self,
+		messenger: &messenger::memory::Messenger,
+		reader: &tg::pipe::Id,
+		writer: &tg::pipe::Id,
+	) -> tg::Result<()> {
+		messenger
+			.close_subject(format!("pipes.{reader}"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+		messenger
+			.close_subject(format!("pipes.{writer}"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+		Ok(())
+	}
+
+	async fn close_pipe_nats(
+		&self,
+		messenger: &messenger::nats::Messenger,
+		reader: &tg::pipe::Id,
+		writer: &tg::pipe::Id,
+	) -> tg::Result<()> {
+		todo!()
 	}
 
 	pub(crate) async fn send_pipe_event(
