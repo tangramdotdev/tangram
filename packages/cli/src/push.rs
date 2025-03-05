@@ -18,11 +18,11 @@ pub struct Args {
 	#[arg(long)]
 	pub recursive: bool,
 
-	#[arg(index = 1)]
-	pub reference: tg::Reference,
-
 	#[arg(short, long)]
 	pub remote: Option<String>,
+
+	#[arg(required = true)]
+	pub references: Vec<tg::Reference>,
 }
 
 impl Cli {
@@ -32,31 +32,35 @@ impl Cli {
 		// Get the remote.
 		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 
-		// Get the reference.
-		let referent = self.get_reference(&args.reference).await?;
-		let item = match referent.item {
-			Either::Left(process) => Either::Left(process),
-			Either::Right(object) => {
-				let object = if let Some(subpath) = &referent.subpath {
-					let directory = object
-						.try_unwrap_directory()
-						.ok()
-						.ok_or_else(|| tg::error!("expected a directory"))?;
-					directory.get(&handle, subpath).await?.into()
-				} else {
-					object
-				};
-				Either::Right(object)
-			},
-		};
-		let item = match item {
-			Either::Left(process) => Either::Left(process.id().clone()),
-			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
-		};
+		// Get the references.
+		let items = futures::future::try_join_all(args.references.iter().map(async |reference| {
+			let referent = self.get_reference(reference).await?;
+			let item = match referent.item {
+				Either::Left(process) => Either::Left(process),
+				Either::Right(object) => {
+					let object = if let Some(subpath) = &referent.subpath {
+						let directory = object
+							.try_unwrap_directory()
+							.ok()
+							.ok_or_else(|| tg::error!("expected a directory"))?;
+						directory.get(&handle, subpath).await?.into()
+					} else {
+						object
+					};
+					Either::Right(object)
+				},
+			};
+			let item = match item {
+				Either::Left(process) => Either::Left(process.id().clone()),
+				Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
+			};
+			Ok::<_, tg::Error>(item)
+		}))
+		.await?;
 
 		// Push the item.
 		let arg = tg::push::Arg {
-			items: vec![item.clone()],
+			items: items.clone(),
 			logs: args.logs,
 			outputs: true,
 			recursive: args.recursive,
@@ -66,17 +70,23 @@ impl Cli {
 		let stream = handle.push(arg).await?;
 		self.render_progress_stream(stream).await?;
 
-		// If the reference has a tag, then put it.
-		if let tg::reference::Item::Tag(pattern) = args.reference.item() {
-			if let Ok(tag) = pattern.clone().try_into() {
-				let arg = tg::tag::put::Arg {
-					force: args.force,
-					item,
-					remote: Some(remote),
-				};
-				handle.put_tag(&tag, arg).await?;
-			}
-		}
+		// If any reference has a tag, then put it.
+		futures::future::try_join_all(args.references.iter().enumerate().map(
+			async |(idx, reference)| {
+				if let tg::reference::Item::Tag(pattern) = reference.item() {
+					if let Ok(tag) = pattern.clone().try_into() {
+						let arg = tg::tag::put::Arg {
+							force: args.force,
+							item: items[idx].clone(),
+							remote: Some(remote.clone()),
+						};
+						handle.put_tag(&tag, arg).await?;
+					}
+				}
+				Ok::<_, tg::Error>(())
+			},
+		))
+		.await?;
 
 		Ok(())
 	}
