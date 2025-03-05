@@ -113,7 +113,7 @@ impl Runtime {
 				.into_iter()
 				.filter_map(|id| id.try_into().ok())
 				.map(tg::Artifact::with_id)
-				// .chain([self.env.clone().into(), self.sh.clone().into()])
+				.chain([self.env.clone().into(), self.sh.clone().into()])
 				.map(|artifact| async move {
 					let arg = tg::artifact::checkout::Arg::default();
 					artifact.check_out(&self.server, arg).await?;
