@@ -342,9 +342,9 @@ impl Server {
 
 				let statement = indoc!(
 					"
-					insert into process_children (process, position, child)
-					select $1, unnest($2::integer[]), unnest($3::text[]);
-				"
+						insert into process_children (process, position, child)
+						select $1, unnest($2::integer[]), unnest($3::text[]);
+					"
 				);
 
 				transaction
