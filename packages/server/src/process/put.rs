@@ -8,8 +8,6 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use time::format_description::well_known::Rfc3339;
-use tokio_postgres as postgres;
-use tokio_postgres::types::ToSql as _;
 
 impl Server {
 	pub async fn put_process(
@@ -64,6 +62,9 @@ impl Server {
 					retry,
 					started_at,
 					status,
+					stderr,
+					stdin,
+					stdout,
 					touched_at
 				)
 				values (
@@ -86,7 +87,10 @@ impl Server {
 					?17,
 					?18,
 					?19,
-					?20
+					?20,
+					?21,
+					?22,
+					?23
 				)
 				on conflict (id) do update set
 					cacheable = ?2,
@@ -107,7 +111,10 @@ impl Server {
 					retry = ?17,
 					started_at = ?18,
 					status = ?19,
-					touched_at = ?20;
+					stderr = ?20,
+					stdin = ?21,
+					stdout = ?22,
+					touched_at = ?23;
 			"
 		);
 		let params = db::params![
@@ -130,6 +137,9 @@ impl Server {
 			arg.data.retry,
 			arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.status,
+			arg.data.stderr,
+			arg.data.stdin,
+			arg.data.stdout,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		transaction
@@ -260,6 +270,9 @@ impl Server {
 					retry,
 					started_at,
 					status,
+					stdin,
+					stdout,
+					stderr,
 					touched_at
 				)
 				values (
@@ -282,7 +295,10 @@ impl Server {
 					$17,
 					$18,
 					$19,
-					$20
+					$20,
+					$21,
+					$22,
+					$23,
 				)
 				on conflict (id) do update set
 					cacheable = $2,
@@ -303,35 +319,44 @@ impl Server {
 					retry = $17,
 					started_at = $18,
 					status = $19,
-					touched_at = $20;
+					stdin = $20,
+					stdout = $21,
+					stderr = $22
+					touched_at = $23;
 			"
 		);
 		transaction
-			.execute(statement, &[
-				&id.to_string(),
-				&i64::from(arg.data.cacheable),
-				&arg.data.checksum.map(|checksum| checksum.to_string()),
-				&arg.data.command.to_string(),
-				&arg.data.created_at.format(&Rfc3339).unwrap(),
-				&arg.data.cwd.map(|cwd| cwd.to_string_lossy().to_string()),
-				&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&serde_json::to_string(&arg.data.env.as_ref()).unwrap(),
-				&serde_json::to_string(&arg.data.error.as_ref()).unwrap(),
-				&serde_json::to_string(&arg.data.exit.as_ref()).unwrap(),
-				&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&arg.data.host,
-				&arg.data
-					.log
-					.as_ref()
-					.map(|log| serde_json::to_string(&log).unwrap()),
-				&i64::from(arg.data.network),
-				&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
-				&i64::from(arg.data.retry),
-				&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&serde_json::to_string(&arg.data.status).unwrap(),
-				&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
-			])
+			.execute(
+				statement,
+				&[
+					&id.to_string(),
+					&i64::from(arg.data.cacheable),
+					&arg.data.checksum.map(|checksum| checksum.to_string()),
+					&arg.data.command.to_string(),
+					&arg.data.created_at.format(&Rfc3339).unwrap(),
+					&arg.data.cwd.map(|cwd| cwd.to_string_lossy().to_string()),
+					&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&serde_json::to_string(&arg.data.env.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.error.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.exit.as_ref()).unwrap(),
+					&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&arg.data.host,
+					&arg.data
+						.log
+						.as_ref()
+						.map(|log| serde_json::to_string(&log).unwrap()),
+					&i64::from(arg.data.network),
+					&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
+					&i64::from(arg.data.retry),
+					&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&serde_json::to_string(&arg.data.status).unwrap(),
+					&serde_json::to_string(&arg.data.stdin.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.stdout.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.stderr.as_ref()).unwrap(),
+					&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+				],
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -348,14 +373,17 @@ impl Server {
 				);
 
 				transaction
-					.execute(statement, &[
-						&id.to_string(),
-						&positions.as_slice(),
-						&children
-							.iter()
-							.map(|child| child.to_string())
-							.collect::<Vec<_>>(),
-					])
+					.execute(
+						statement,
+						&[
+							&id.to_string(),
+							&positions.as_slice(),
+							&children
+								.iter()
+								.map(|child| child.to_string())
+								.collect::<Vec<_>>(),
+						],
+					)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
@@ -388,13 +416,16 @@ impl Server {
 			);
 
 			transaction
-				.execute(statement, &[
-					&id.to_string(),
-					&objects
-						.iter()
-						.map(|object| object.to_string())
-						.collect::<Vec<_>>(),
-				])
+				.execute(
+					statement,
+					&[
+						&id.to_string(),
+						&objects
+							.iter()
+							.map(|object| object.to_string())
+							.collect::<Vec<_>>(),
+					],
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}

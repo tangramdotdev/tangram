@@ -4,6 +4,7 @@ use futures::{FutureExt as _, TryStreamExt as _, future, stream::FuturesUnordere
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
@@ -75,6 +76,21 @@ impl Server {
 		else {
 			return Err(tg::error!("failed to find the process"));
 		};
+
+		// Close pipes.
+		for pipe in [
+			data.stdin.as_ref(),
+			data.stdout.as_ref(),
+			data.stderr.as_ref(),
+		]
+		.into_iter()
+		.flatten()
+		{
+			let arg = tg::pipe::close::Arg {
+				remote: remote.cloned(),
+			};
+			self.close_pipe(pipe, arg).await.ok();
+		}
 
 		// Get a database connection.
 		let connection = self
@@ -209,17 +225,28 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Publish the status message.
+		// Publish the final status message and cleanup.
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
 			async move {
+				// Publish the last status update.
 				server
 					.messenger
 					.publish(format!("processes.{id}.status"), Bytes::new())
 					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
 					.ok();
+
+				// Close the subjects.
+				if let Either::Left(messenger) = &server.messenger {
+					for subject in ["status", "log", "children"] {
+						messenger
+							.close_subject(format!("processes.{id}.{subject}"))
+							.await
+							.ok();
+					}
+				}
 			}
 		});
 
