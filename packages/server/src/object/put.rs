@@ -1,7 +1,10 @@
 use crate::Server;
 use futures::FutureExt as _;
+use num::ToPrimitive as _;
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub async fn put_object(
@@ -17,7 +20,41 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
-		self.store.put(id, arg.bytes.clone()).await?;
+		let store_future = async {
+			self.store.put(id, arg.bytes.clone()).await?;
+			Ok::<_, tg::Error>(())
+		};
+
+		let messenger_future = async {
+			if let Either::Right(messenger) = self.messenger.as_ref() {
+				messenger
+					.jetstream
+					.get_or_create_stream(async_nats::jetstream::stream::Config {
+						name: "index".to_string(),
+						max_messages: i64::MAX,
+						..Default::default()
+					})
+					.await
+					.map_err(|source| tg::error!(!source, "failed to ensure the stream exists"))?;
+			}
+			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)?;
+			let children = data.children();
+			let message = crate::index::Message {
+				id: id.clone(),
+				size: arg.bytes.len().to_u64().unwrap(),
+				children,
+			};
+			let message = serde_json::to_vec(&message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			self.messenger
+				.publish("index".to_owned(), message.into())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			Ok::<_, tg::Error>(())
+		};
+
+		// Join the store and messenger futures.
+		futures::try_join!(store_future, messenger_future)?;
 		Ok(())
 	}
 }
