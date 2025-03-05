@@ -33,8 +33,8 @@ impl Cli {
 		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 
 		// Get the references.
-		let items = futures::future::try_join_all(args.references.iter().map(async |reference| {
-			let referent = self.get_reference(reference).await?;
+		let referents = self.get_references(&args.references).await?;
+		let items = futures::future::try_join_all(referents.into_iter().map(async |referent| {
 			let item = match referent.item {
 				Either::Left(process) => Either::Left(process),
 				Either::Right(object) => {
