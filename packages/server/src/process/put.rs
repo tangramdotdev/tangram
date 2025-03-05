@@ -1,12 +1,15 @@
 use crate::Server;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use time::format_description::well_known::Rfc3339;
+use tokio_postgres as postgres;
+use tokio_postgres::types::ToSql as _;
 
 impl Server {
 	pub async fn put_process(
@@ -14,9 +17,19 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		match &self.database {
+			Either::Left(database) => Self::put_process_sqlite(database, id, arg).await,
+			Either::Right(database) => Self::put_process_postgres(database, id, arg).await,
+		}
+	}
+
+	pub(crate) async fn put_process_sqlite(
+		database: &db::sqlite::Database,
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> tg::Result<()> {
 		// Get a database connection.
-		let mut connection = self
-			.database
+		let mut connection = database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -29,8 +42,7 @@ impl Server {
 		let transaction = Arc::new(transaction);
 
 		// Insert the process.
-		let p = transaction.p();
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				insert into processes (
 					id,
@@ -55,47 +67,47 @@ impl Server {
 					touched_at
 				)
 				values (
-					{p}1,
-					{p}2,
-					{p}3,
-					{p}4,
-					{p}5,
-					{p}6,
-					{p}7,
-					{p}8,
-					{p}9,
-					{p}10,
-					{p}11,
-					{p}12,
-					{p}13,
-					{p}14,
-					{p}15,
-					{p}16,
-					{p}17,
-					{p}18,
-					{p}19,
-					{p}20
+					?1,
+					?2,
+					?3,
+					?4,
+					?5,
+					?6,
+					?7,
+					?8,
+					?9,
+					?10,
+					?11,
+					?12,
+					?13,
+					?14,
+					?15,
+					?16,
+					?17,
+					?18,
+					?19,
+					?20
 				)
 				on conflict (id) do update set
-					cacheable = {p}2,
-					checksum = {p}3,
-					command = {p}4,
-					created_at = {p}5,
-					cwd = {p}6,
-					dequeued_at = {p}7,
-					enqueued_at = {p}8,
-					env = {p}9,
-					error = {p}10,
-					exit = {p}11,
-					finished_at = {p}12,
-					host = {p}13,
-					log = {p}14,
-					network = {p}15,
-					output = {p}16,
-					retry = {p}17,
-					started_at = {p}18,
-					status = {p}19,
-					touched_at = {p}20;
+					cacheable = ?2,
+					checksum = ?3,
+					command = ?4,
+					created_at = ?5,
+					cwd = ?6,
+					dequeued_at = ?7,
+					enqueued_at = ?8,
+					env = ?9,
+					error = ?10,
+					exit = ?11,
+					finished_at = ?12,
+					host = ?13,
+					log = ?14,
+					network = ?15,
+					output = ?16,
+					retry = ?17,
+					started_at = ?18,
+					status = ?19,
+					touched_at = ?20;
 			"
 		);
 		let params = db::params![
@@ -125,27 +137,12 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Delete any existing children.
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				delete from process_children
-				where process = {p}1;
-			"
-		);
-		let params = db::params![id];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
 		// Insert the children.
 		if let Some(children) = &arg.data.children {
-			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-				insert into process_children (process, position, child)
-				values ({p}1, {p}2, {p}3);
+					insert into process_children (process, position, child)
+					values (?1, ?2, ?3);
 			"
 			);
 			children
@@ -170,26 +167,11 @@ impl Server {
 				.await?;
 		}
 
-		// Delete any existing objects.
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				delete from process_objects
-				where process = {p}1;
-			"
-		);
-		let params = db::params![id];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
 		// Insert the objects.
-		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				insert into process_objects (process, object)
-				values ({p}1, {p}2)
+				values (?1, ?2)
 				on conflict (process, object) do nothing;
 			"
 		);
@@ -227,6 +209,198 @@ impl Server {
 		// Commit the transaction.
 		Arc::into_inner(transaction)
 			.unwrap()
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Drop the connection.
+		drop(connection);
+
+		Ok(())
+	}
+
+	pub(crate) async fn put_process_postgres(
+		database: &db::postgres::Database,
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> tg::Result<()> {
+		// Get a database connection.
+		let mut connection = database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
+		let transaction = connection
+			.client_mut()
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+		// Insert the process.
+		let statement = indoc!(
+			"
+				insert into processes (
+					id,
+					cacheable,
+					checksum,
+					command,
+					created_at,
+					cwd,
+					dequeued_at,
+					enqueued_at,
+					env,
+					error,
+					exit,
+					finished_at,
+					host,
+					log,
+					network,
+					output,
+					retry,
+					started_at,
+					status,
+					touched_at
+				)
+				values (
+					$1,
+					$2,
+					$3,
+					$4,
+					$5,
+					$6,
+					$7,
+					$8,
+					$9,
+					$10,
+					$11,
+					$12,
+					$13,
+					$14,
+					$15,
+					$16,
+					$17,
+					$18,
+					$19,
+					$20
+				)
+				on conflict (id) do update set
+					cacheable = $2,
+					checksum = $3,
+					command = $4,
+					created_at = $5,
+					cwd = $6,
+					dequeued_at = $7,
+					enqueued_at = $8,
+					env = $9,
+					error = $10,
+					exit = $11,
+					finished_at = $12,
+					host = $13,
+					log = $14,
+					network = $15,
+					output = $16,
+					retry = $17,
+					started_at = $18,
+					status = $19,
+					touched_at = $20;
+			"
+		);
+		transaction
+			.execute(statement, &[
+				&id.to_string(),
+				&i64::from(arg.data.cacheable),
+				&arg.data.checksum.map(|checksum| checksum.to_string()),
+				&arg.data.command.to_string(),
+				&arg.data.created_at.format(&Rfc3339).unwrap(),
+				&arg.data.cwd.map(|cwd| cwd.to_string_lossy().to_string()),
+				&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
+				&arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
+				&serde_json::to_string(&arg.data.env.as_ref()).unwrap(),
+				&serde_json::to_string(&arg.data.error.as_ref()).unwrap(),
+				&serde_json::to_string(&arg.data.exit.as_ref()).unwrap(),
+				&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
+				&arg.data.host,
+				&arg.data
+					.log
+					.as_ref()
+					.map(|log| serde_json::to_string(&log).unwrap()),
+				&i64::from(arg.data.network),
+				&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
+				&i64::from(arg.data.retry),
+				&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
+				&serde_json::to_string(&arg.data.status).unwrap(),
+				&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+			])
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Insert the children.
+		if let Some(children) = &arg.data.children {
+			if !children.is_empty() {
+				let positions: Vec<i32> = (0..children.len() as i32).collect();
+
+				let statement = indoc!(
+					"
+						insert into process_children (process, position, child)
+						select $1, unnest($2::integer[]), unnest($3::text[]);
+					"
+				);
+
+				transaction
+					.execute(statement, &[
+						&id.to_string(),
+						&positions.as_slice(),
+						&children
+							.iter()
+							.map(|child| child.to_string())
+							.collect::<Vec<_>>(),
+					])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+		}
+
+		// Insert the objects.
+		let objects: Vec<tg::object::Id> = arg
+			.data
+			.log
+			.into_iter()
+			.map_into()
+			.chain(
+				arg.data
+					.output
+					.as_ref()
+					.map(tg::value::Data::children)
+					.into_iter()
+					.flatten(),
+			)
+			.chain(std::iter::once(arg.data.command.clone().into()))
+			.collect();
+
+		if !objects.is_empty() {
+			let statement = indoc!(
+				"
+					insert into process_objects (process, object)
+					select $1, unnest($2::text[])
+					on conflict (process, object) do nothing;
+				"
+			);
+
+			transaction
+				.execute(statement, &[
+					&id.to_string(),
+					&objects
+						.iter()
+						.map(|object| object.to_string())
+						.collect::<Vec<_>>(),
+				])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Commit the transaction.
+		transaction
 			.commit()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
