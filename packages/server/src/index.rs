@@ -292,15 +292,6 @@ impl Server {
 		// Get list of unique message indices
 		let unique_indices: Vec<_> = unique_indices.values().copied().collect();
 
-		// Log summary of deduplication if any duplicates were found
-		if unique_indices.len() < messages.len() {
-			tracing::warn!(
-				"Found {} duplicate message(s) out of {} total messages",
-				messages.len() - unique_indices.len(),
-				messages.len()
-			);
-		}
-
 		// Get a database connection.
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
