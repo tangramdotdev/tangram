@@ -148,7 +148,7 @@ impl Pty {
 
 	// Identical to the linux implementation, with different mutability the argument pointers.
 	#[cfg(target_os = "macos")]
-	pub(crate) async fn open(tty: Tty) -> std::io::Result<(Self, Self)> {
+	pub(crate) async fn open(tty: Tty) -> std::io::Result<Self> {
 		tokio::task::spawn_blocking(move || unsafe {
 			let mut win_size = libc::winsize {
 				ws_col: tty.cols,
@@ -170,17 +170,12 @@ impl Pty {
 				return Err(std::io::Error::last_os_error());
 			}
 			let tty_path = CStr::from_ptr(tty_name.as_ptr()).to_owned();
-			let parent = Self {
+			let pty = Self {
 				pty_fd: Some(pty_fd),
 				tty_fd: Some(tty_fd),
 				tty_path: tty_path.clone(),
 			};
-			let child = Self {
-				pty_fd: Some(pty_fd),
-				tty_fd: Some(tty_fd),
-				tty_path,
-			};
-			Ok((parent, child))
+			Ok(pty)
 		})
 		.await
 		.unwrap()

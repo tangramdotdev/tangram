@@ -18,7 +18,9 @@ struct Context {
 	envp: CStringVec,
 	executable: CString,
 	profile: CString,
-	stdio: GuestIo,
+	stdin: GuestIo,
+	stdout: GuestIo,
+	stderr: GuestIo,
 }
 
 pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
@@ -47,18 +49,11 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	}
 
 	// Create stdio.
-	let (parent_stdio, child_stdio) = if let Some(tty) = command.tty {
-		let (parent, child) = Pty::open(tty).await?;
-		(Either::Left(parent), Either::Left(child))
-	} else {
-		let (stdin_parent, stdin_child) = stdio_pair(command.stdin)?;
-		let (stdout_parent, stdout_child) = stdio_pair(command.stdout)?;
-		let (stderr_parent, stderr_child) = stdio_pair(command.stderr)?;
-		(
-			Either::Right((stdin_parent, stdout_parent, stderr_parent)),
-			Either::Right((stdin_child, stdout_child, stderr_child)),
-		)
-	};
+	let mut pty = None;
+	let (parent_stdin, child_stdin) = stdio_pair(command.stdin, &mut pty).await?;
+	let (parent_stdout, child_stdout) = stdio_pair(command.stdout, &mut pty).await?;
+	let (parent_stderr, child_stderr) = stdio_pair(command.stderr, &mut pty).await?;
+
 
 	// Create the sandbox profile.
 	let profile = create_sandbox_profile(command);
@@ -70,7 +65,10 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 		envp,
 		executable,
 		profile,
-		stdio: child_stdio,
+		stdin: child_stdin,
+		stdout: child_stdout,
+		stderr: child_stderr,
+
 	};
 
 	// Fork.
@@ -83,31 +81,30 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	}
 
 	// Create stdio
-	let (stdin, stdout, stderr) = match parent_stdio {
-		Either::Left(pty) => {
-			let (stdin, stdout, stderr) = pty.into_stdio()?;
-			(Some(stdin), Some(stdout), Some(stderr))
-		},
-		Either::Right((stdin, stdout, stderr)) => {
-			let stdin = stdin.map(|inner| Stdin {
-				inner: Either::Right(inner),
-			});
-			let stdout = stdout.map(|inner| Stdout {
-				inner: Either::Right(inner),
-			});
-			let stderr = stderr.map(|inner| Stderr {
-				inner: Either::Right(inner),
-			});
-			(stdin, stdout, stderr)
-		},
+	// Split stdio.
+	let pty = pty.map(Pty::into_writer);
+	let stdout = match parent_stdout {
+		Either::Left(_) => Some(Either::Left(pty.as_ref().unwrap().get_reader()?)),
+		Either::Right(Some(io)) => Some(Either::Right(io)),
+		Either::Right(None) => None,
+	};
+	let stderr = match parent_stderr {
+		Either::Left(_) => Some(Either::Left(pty.as_ref().unwrap().get_reader()?)),
+		Either::Right(Some(io)) => Some(Either::Right(io)),
+		Either::Right(None) => None,
+	};
+	let stdin = match parent_stdin {
+		Either::Left(_) => Some(Either::Left(pty.unwrap())),
+		Either::Right(Some(io)) => Some(Either::Right(io)),
+		Either::Right(None) => None,
 	};
 
 	// Create the child.
 	let child = Child {
 		pid,
-		stdin,
-		stdout,
-		stderr,
+		stdin: stdin.map(|inner| Stdin { inner }),
+		stdout: stdout.map(|inner| Stdout { inner }),
+		stderr: stderr.map(|inner| Stderr { inner }),
 	};
 
 	Ok(child)
@@ -164,7 +161,7 @@ pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 
 fn guest_process(mut context: Context) -> ! {
 	// Redirect
-	redirect_stdio(&mut context.stdio);
+	redirect_stdio(&mut context.stdin, &mut context.stdout, &mut context.stderr);
 
 	// Initialize the sandbox.
 	unsafe {

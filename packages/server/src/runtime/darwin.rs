@@ -170,22 +170,6 @@ impl Runtime {
 		// Set cwd.
 		cmd_.cwd(&cwd);
 
-		// Get the window sizes of the pipes.
-		if let Some(tty) = super::util::try_get_window_size(&self.server, process)
-			.await?
-			.map(|ws| sandbox::Tty {
-				rows: ws.rows,
-				cols: ws.cols,
-				x: ws.xpos,
-				y: ws.ypos,
-			}) {
-			cmd_.tty(tty);
-		} else {
-			cmd_.stdin(sandbox::Stdio::Piped);
-			cmd_.stdout(sandbox::Stdio::Piped);
-			cmd_.stderr(sandbox::Stdio::Piped);
-		}
-
 		// Configure the sandbox options.
 		if state.cwd.is_some() {
 			cmd_.sandbox(false);
@@ -199,6 +183,58 @@ impl Runtime {
 		}
 		cmd_.network(state.network);
 
+		// Configure stdio
+		cmd_.stdin(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdin {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdin(sandbox::Stdio::Tty(tty));
+			}
+		}
+		cmd_.stdout(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdout {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdout(sandbox::Stdio::Tty(tty));
+			}
+		}
+		cmd_.stderr(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stderr {
+			if let Some(ws) = self
+				.server
+				.try_get_pipe(pipe)
+				.await?
+				.and_then(|pipe| pipe.window_size)
+			{
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stderr(sandbox::Stdio::Tty(tty));
+			}
+		}
 		// Spawn the child process.
 		let mut child = cmd_
 			.spawn()
@@ -206,13 +242,16 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to spawn child process"))?;
 
 		// Spawn the stdio task.
-		let stdio_task = tokio::spawn(super::util::stdio_task(
-			self.server.clone(),
-			process.clone(),
-			child.stdin.take().unwrap(),
-			child.stdout.take().unwrap(),
-			child.stderr.take().unwrap(),
-		));
+		let stdio_task = Task::spawn(|stop| {
+			super::util::stdio_task(
+				self.server.clone(),
+				process.clone(),
+				stop,
+				child.stdin.take().unwrap(),
+				child.stdout.take().unwrap(),
+				child.stderr.take().unwrap(),
+			)
+		});
 
 		// Wait for the child process to complete.
 		let exit = match child
@@ -231,7 +270,8 @@ impl Runtime {
 		}
 
 		// Join the i/o task.
-		stdio_task.await.unwrap().ok();
+		stdio_task.stop();
+		stdio_task.wait().await.unwrap().ok();
 
 		// Create the output.
 		let value = if tokio::fs::try_exists(output_parent.path().join("output"))

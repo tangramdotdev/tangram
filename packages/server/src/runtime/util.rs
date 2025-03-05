@@ -244,8 +244,6 @@ async fn pipe_task(
 	stdout: sandbox::Stdout,
 	stderr: sandbox::Stderr,
 ) -> tg::Result<()> {
-	let state = process.load(server).await?;
-
 	// Create a task for stdin.
 	let stdin = tokio::spawn({
 		let server = server.clone();
@@ -270,7 +268,6 @@ async fn pipe_task(
 					future::Either::Left(_) => break,
 					future::Either::Right((Ok(Some(event)), _)) => match event {
 						tg::pipe::Event::Chunk(chunk) => {
-							eprintln!("writing chunk to stdin: {chunk:?}");
 							stdin.write_all(&chunk).await.map_err(
 								|source| tg::error!(!source, %pipe, "failed to write stdin"),
 							)?;
