@@ -264,7 +264,7 @@ impl Server {
 			.await?;
 
 		// Acknowledge the messages.
-		future::try_join_all(ackers.into_iter().map(async |acker| {
+		futures::future::try_join_all(ackers.into_iter().map(async |acker| {
 			if let Some(acker) = acker {
 				acker
 					.ack()
@@ -283,6 +283,24 @@ impl Server {
 		messages: Vec<(Message, Option<Acker>)>,
 		database: &db::postgres::Database,
 	) -> tg::Result<()> {
+		// Store the indices of the unique messages.
+		let mut unique_indices = std::collections::HashMap::new();
+		for (i, (message, _)) in messages.iter().enumerate() {
+			unique_indices.entry(message.id.clone()).or_insert(i);
+		}
+
+		// Get list of unique message indices
+		let unique_indices: Vec<_> = unique_indices.values().copied().collect();
+
+		// Log summary of deduplication if any duplicates were found
+		if unique_indices.len() < messages.len() {
+			tracing::warn!(
+				"Found {} duplicate message(s) out of {} total messages",
+				messages.len() - unique_indices.len(),
+				messages.len()
+			);
+		}
+
 		// Get a database connection.
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
@@ -293,7 +311,11 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		for messages in messages.chunks(128) {
+		for unique_chunk in unique_indices.chunks(128) {
+			// Get the actual messages for this chunk.
+			let messages: Vec<&(Message, Option<Acker>)> =
+				unique_chunk.iter().map(|&idx| &messages[idx]).collect();
+
 			// Begin a transaction.
 			let transaction = connection
 				.client_mut()
@@ -384,8 +406,8 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-			// Acknowledge the messages.
-			future::try_join_all(
+			// Acknowledge the messages, including dropped duplicates.
+			futures::future::try_join_all(
 				messages
 					.iter()
 					.filter_map(|(_, acker)| acker.as_ref())
