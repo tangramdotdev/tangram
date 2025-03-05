@@ -18,11 +18,11 @@ pub struct Args {
 	#[arg(long)]
 	pub recursive: bool,
 
-	#[arg(short, long)]
-	pub remote: Option<String>,
-
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
+
+	#[arg(short, long)]
+	pub remote: Option<String>,
 }
 
 impl Cli {

@@ -1151,12 +1151,12 @@ impl Cli {
 		&self,
 		references: &[tg::Reference],
 	) -> tg::Result<Vec<tg::Referent<Either<tg::Process, tg::Object>>>> {
-		let mut results = Vec::with_capacity(references.len());
+		let mut referents = Vec::with_capacity(references.len());
 		for reference in references {
-			let result = self.get_reference(reference).await?;
-			results.push(result);
+			let referent = self.get_reference(reference).await?;
+			referents.push(referent);
 		}
-		Ok(results)
+		Ok(referents)
 	}
 
 	/// Initialize V8.

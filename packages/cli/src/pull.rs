@@ -7,19 +7,19 @@ use tangram_either::Either;
 #[group(skip)]
 pub struct Args {
 	#[arg(long)]
+	pub commands: bool,
+
+	#[arg(long)]
 	pub logs: bool,
 
 	#[arg(long)]
 	pub recursive: bool,
 
-	#[arg(short, long)]
-	pub remote: Option<String>,
-
-	#[arg(long)]
-	pub commands: bool,
-
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
+
+	#[arg(short, long)]
+	pub remote: Option<String>,
 }
 
 impl Cli {
