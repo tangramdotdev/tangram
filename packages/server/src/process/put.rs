@@ -8,8 +8,6 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use time::format_description::well_known::Rfc3339;
-use tokio_postgres as postgres;
-use tokio_postgres::types::ToSql as _;
 
 impl Server {
 	pub async fn put_process(
@@ -272,6 +270,9 @@ impl Server {
 					retry,
 					started_at,
 					status,
+					stdin,
+					stdout,
+					stderr,
 					touched_at
 				)
 				values (
@@ -294,7 +295,10 @@ impl Server {
 					$17,
 					$18,
 					$19,
-					$20
+					$20,
+					$21,
+					$22,
+					$23,
 				)
 				on conflict (id) do update set
 					cacheable = $2,
@@ -315,7 +319,10 @@ impl Server {
 					retry = $17,
 					started_at = $18,
 					status = $19,
-					touched_at = $20;
+					stdin = $20,
+					stdout = $21,
+					stderr = $22
+					touched_at = $23;
 			"
 		);
 		transaction
@@ -342,6 +349,9 @@ impl Server {
 				&i64::from(arg.data.retry),
 				&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 				&serde_json::to_string(&arg.data.status).unwrap(),
+				&serde_json::to_string(&arg.data.stdin.as_ref()).unwrap(),
+				&serde_json::to_string(&arg.data.stdout.as_ref()).unwrap(),
+				&serde_json::to_string(&arg.data.stderr.as_ref()).unwrap(),
 				&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 			])
 			.await

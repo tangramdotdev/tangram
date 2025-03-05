@@ -25,7 +25,6 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{Body, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
 	net::{TcpListener, UnixListener},

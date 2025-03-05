@@ -73,11 +73,6 @@ impl Cli {
 			return Ok(());
 		};
 
-		// Check if the process was canceled.
-		if matches!(output.status, tg::process::Status::Canceled) {
-			return Err(tg::error!("the process was canceled"));
-		}
-
 		// Print a value if it exists and is non-null.
 		if let Some(value) = output.output {
 			let value =
@@ -186,7 +181,7 @@ impl Cli {
 						exit: None,
 						output: None,
 						remote,
-						status: tg::process::Status::Canceled,
+						status: tg::process::Status::Failed,
 					};
 					process
 						.finish(&handle, arg)
