@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate as tg;
 use bytes::Bytes;
 
@@ -66,7 +68,7 @@ where
 	where
 		D: serde::Deserializer<'de>,
 	{
-		let s: &str = serde::Deserialize::deserialize(deserializer)?;
+		let s: Cow<'_, str> = serde::Deserialize::deserialize(deserializer)?;
 		if s.is_empty() {
 			return Ok(Vec::new());
 		}
