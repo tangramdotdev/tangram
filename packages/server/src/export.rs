@@ -949,7 +949,24 @@ impl Graph {
 				},
 			}
 		} else {
-			tracing::debug!("attempted to update complete for non-existent node");
+			// Insert the node, and set it complete.
+			self.insert(None, &item.as_ref());
+			let Some(node) = self.nodes.get(&item) else {
+				tracing::error!(?item, "could not get node after insertion");
+				return;
+			};
+			match (&node.complete, new_complete) {
+				(Either::Left(old_complete), Either::Left(new_complete)) => {
+					let mut w = old_complete.write().unwrap();
+					*w = new_complete.clone();
+				},
+				(Either::Right(old_complete), Either::Right(value)) => {
+					old_complete.store(value, std::sync::atomic::Ordering::SeqCst);
+				},
+				_ => {
+					tracing::error!("attempted to update complete with mismatched type");
+				},
+			}
 		}
 	}
 }
