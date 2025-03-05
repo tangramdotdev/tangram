@@ -7,7 +7,7 @@ use std::{
 	pin::pin,
 };
 use tangram_either::Either;
-use tangram_futures::stream::TryExt;
+use tangram_futures::stream::TryExt as _;
 use tangram_uri as uri;
 
 pub mod get;

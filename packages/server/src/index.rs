@@ -264,7 +264,7 @@ impl Server {
 			.await?;
 
 		// Acknowledge the messages.
-		futures::future::try_join_all(ackers.into_iter().map(async |acker| {
+		future::try_join_all(ackers.into_iter().map(async |acker| {
 			if let Some(acker) = acker {
 				acker
 					.ack()
@@ -385,7 +385,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 			// Acknowledge the messages.
-			futures::future::try_join_all(
+			future::try_join_all(
 				messages
 					.iter()
 					.filter_map(|(_, acker)| acker.as_ref())

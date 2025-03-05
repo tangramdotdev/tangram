@@ -248,19 +248,28 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
 		// Recurse into the children.
-		let mut children_count = 0;
-		let mut children_weight = 0;
-		for child in data.children() {
-			let output = Box::pin(self.export_inner_object(
-				Some(Either::Right(object)),
-				&child,
-				graph,
-				event_sender,
-			))
-			.await?;
-			children_count += output.count;
-			children_weight += output.weight;
-		}
+		let (children_count, children_weight) = data
+			.children()
+			.iter()
+			.map(|child| {
+				let server = self.clone();
+				async move {
+					let output = server
+						.export_inner_object(
+							Some(Either::Right(object)),
+							child,
+							graph,
+							event_sender,
+						)
+						.await?;
+					Ok::<_, tg::Error>(output)
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.fold((0, 0), |a, b| (a.0 + b.count, a.1 + b.weight));
 
 		// Create the output.
 		let count = object_complete.count.unwrap_or_else(|| 1 + children_count);

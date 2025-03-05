@@ -3,7 +3,7 @@ use futures::{Stream, StreamExt as _, stream::FuturesUnordered};
 use std::{pin::pin, time::Duration};
 use tangram_client::{self as tg};
 use tangram_either::Either;
-use tangram_futures::stream::Ext;
+use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;

@@ -1,6 +1,5 @@
 use bytes::Bytes;
 use foundationdb as fdb;
-use std::time::Instant;
 use tangram_client as tg;
 
 /// The maximum size of a value.
@@ -22,7 +21,6 @@ impl Fdb {
 	}
 
 	pub async fn try_get(&self, id: &tangram_client::object::Id) -> tg::Result<Option<Bytes>> {
-		let start = Instant::now();
 		let bytes = self
 			.database
 			.run(|transaction, _| async move {
@@ -41,13 +39,10 @@ impl Fdb {
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
-		let elapsed = start.elapsed();
-		tracing::debug!(?elapsed, "get");
 		Ok(bytes)
 	}
 
 	pub async fn put(&self, id: &tangram_client::object::Id, bytes: Bytes) -> tg::Result<()> {
-		let start = Instant::now();
 		self.database
 			.run(|transaction, _| {
 				let bytes = &bytes;
@@ -67,13 +62,10 @@ impl Fdb {
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
-		let elapsed = start.elapsed();
-		tracing::debug!(?elapsed, "put");
 		Ok(())
 	}
 
 	pub async fn put_batch(&self, items: &[(tg::object::Id, Bytes)]) -> tg::Result<()> {
-		let start = Instant::now();
 		self.database
 			.run(|transaction, _| async move {
 				for (id, bytes) in items {
@@ -92,8 +84,6 @@ impl Fdb {
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
-		let elapsed = start.elapsed();
-		tracing::debug!(?elapsed, "put_batch");
 		Ok(())
 	}
 }

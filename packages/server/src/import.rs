@@ -398,7 +398,8 @@ impl Server {
 			#[cfg(feature = "foundationdb")]
 			Store::Fdb(_) => (10, 1_000, 5_000_000),
 			Store::Lmdb(_) => (1, 1_000, 5_000_000),
-			Store::Memory(_) | Store::S3(_) => (1, 1, u64::MAX),
+			Store::Memory(_) => (1, 1, u64::MAX),
+			Store::S3(_) => (256, 1, u64::MAX),
 		};
 
 		// Spawn tasks that receive batches and write them to the store and messenger.

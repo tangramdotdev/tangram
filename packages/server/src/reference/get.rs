@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{Stream, StreamExt, TryStreamExt as _};
+use futures::{Stream, StreamExt, TryStreamExt as _, future, stream};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _};
@@ -26,7 +26,7 @@ impl Server {
 					},
 				};
 				let event = tg::progress::Event::Output(Some(output));
-				let stream = futures::stream::once(futures::future::ok(event));
+				let stream = stream::once(future::ok(event));
 				Ok::<_, tg::Error>(stream.boxed())
 			},
 			tg::reference::Item::Object(object) => {
@@ -43,7 +43,7 @@ impl Server {
 					},
 				};
 				let event = tg::progress::Event::Output(Some(output));
-				let stream = futures::stream::once(futures::future::ok(event));
+				let stream = stream::once(future::ok(event));
 				Ok::<_, tg::Error>(stream.boxed())
 			},
 			tg::reference::Item::Path(path) => {
@@ -93,9 +93,7 @@ impl Server {
 			},
 			tg::reference::Item::Tag(tag) => {
 				let Some(tg::tag::get::Output { item, .. }) = self.try_get_tag(tag).await? else {
-					let stream = futures::stream::once(futures::future::ok(
-						tg::progress::Event::Output(None),
-					));
+					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok::<_, tg::Error>(stream.boxed());
 				};
 				let subpath = reference
@@ -110,7 +108,7 @@ impl Server {
 					},
 				};
 				let event = tg::progress::Event::Output(Some(output));
-				let stream = futures::stream::once(futures::future::ok(event));
+				let stream = stream::once(future::ok(event));
 				Ok::<_, tg::Error>(stream.boxed())
 			},
 		}

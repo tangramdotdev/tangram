@@ -1,4 +1,5 @@
 use crate::Cli;
+use futures::future;
 use tangram_client::{self as tg, Handle};
 use tangram_either::Either;
 
@@ -34,7 +35,7 @@ impl Cli {
 
 		// Get the references.
 		let referents = self.get_references(&args.references).await?;
-		let items = futures::future::try_join_all(referents.into_iter().map(async |referent| {
+		let items = future::try_join_all(referents.into_iter().map(async |referent| {
 			let item = match referent.item {
 				Either::Left(process) => Either::Left(process),
 				Either::Right(object) => {
@@ -71,21 +72,24 @@ impl Cli {
 		self.render_progress_stream(stream).await?;
 
 		// If any reference has a tag, then put it.
-		futures::future::try_join_all(args.references.iter().enumerate().map(
-			async |(idx, reference)| {
-				if let tg::reference::Item::Tag(pattern) = reference.item() {
-					if let Ok(tag) = pattern.clone().try_into() {
-						let arg = tg::tag::put::Arg {
-							force: args.force,
-							item: items[idx].clone(),
-							remote: Some(remote.clone()),
-						};
-						handle.put_tag(&tag, arg).await?;
+		future::try_join_all(
+			args.references
+				.iter()
+				.enumerate()
+				.map(async |(idx, reference)| {
+					if let tg::reference::Item::Tag(pattern) = reference.item() {
+						if let Ok(tag) = pattern.clone().try_into() {
+							let arg = tg::tag::put::Arg {
+								force: args.force,
+								item: items[idx].clone(),
+								remote: Some(remote.clone()),
+							};
+							handle.put_tag(&tag, arg).await?;
+						}
 					}
-				}
-				Ok::<_, tg::Error>(())
-			},
-		))
+					Ok::<_, tg::Error>(())
+				}),
+		)
 		.await?;
 
 		Ok(())

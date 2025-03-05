@@ -87,7 +87,6 @@ impl S3 {
 			.reqwest
 			.request(method, url.as_str())
 			.header(http::header::CONTENT_LENGTH, bytes.len().to_string())
-			.header(http::header::IF_MATCH, "")
 			.body(bytes)
 			.build()
 			.unwrap();
@@ -97,9 +96,6 @@ impl S3 {
 			.execute(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		if response.status() == http::StatusCode::PRECONDITION_FAILED {
-			return Ok(());
-		}
 		if !response.status().is_success() {
 			let text = response
 				.text()

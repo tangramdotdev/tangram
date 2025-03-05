@@ -1,5 +1,6 @@
 use super::Runtime;
 use crate::Server;
+use futures::future;
 use std::{path::Path, pin::Pin};
 use tangram_client as tg;
 use tokio::io::AsyncRead;
@@ -112,7 +113,7 @@ async fn tar(
 	let blob_future = tg::Blob::with_reader(server, reader);
 
 	// Join the futures.
-	let blob = match futures::future::join(archive_future, blob_future).await {
+	let blob = match future::join(archive_future, blob_future).await {
 		(_, Ok(blob)) => blob,
 		(Err(source), _) | (_, Err(source)) => {
 			return Err(tg::error!(
@@ -218,7 +219,7 @@ async fn zip(server: &Server, artifact: &tg::Artifact) -> tg::Result<tg::Blob> {
 	let blob_future = tg::Blob::with_reader(server, reader);
 
 	// Join the futures.
-	let blob = match futures::future::join(archive_future, blob_future).await {
+	let blob = match future::join(archive_future, blob_future).await {
 		(_, Ok(blob)) => blob,
 		(Err(source), _) | (_, Err(source)) => {
 			return Err(tg::error!(
