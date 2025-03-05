@@ -4,16 +4,22 @@ use std::{
 	mem::MaybeUninit,
 	os::fd::{AsRawFd, RawFd},
 };
-use tangram_client::{self as tg, Handle};
+use tangram_client as tg;
 
 use crate::Cli;
 
 pub struct Stdio {
 	pub termios: Option<(RawFd, libc::termios)>,
 	pub remote: Option<String>,
-	pub stdin: tg::pipe::open::Output,
-	pub stdout: tg::pipe::open::Output,
-	pub stderr: tg::pipe::open::Output,
+	pub stdin: Pipe,
+	pub stdout: Pipe,
+	pub stderr: Pipe,
+}
+
+#[derive(Clone, Debug)]
+pub struct Pipe {
+	pub client: tg::pipe::Id,
+	pub server: tg::pipe::Id,
 }
 
 impl Stdio {
@@ -21,7 +27,7 @@ impl Stdio {
 		let arg = tg::pipe::close::Arg {
 			remote: self.remote.clone(),
 		};
-		let pipes = [&self.stdin.reader, &self.stdout.writer, &self.stderr.writer]
+		let pipes = [&self.stdin.server, &self.stdout.server, &self.stderr.server]
 			.into_iter()
 			.unique();
 		for pipe in pipes {
@@ -33,7 +39,7 @@ impl Stdio {
 		let arg = tg::pipe::close::Arg {
 			remote: self.remote.clone(),
 		};
-		let pipes = [&self.stdin.writer, &self.stdout.reader, &self.stderr.reader]
+		let pipes = [&self.stdin.client, &self.stdout.client, &self.stderr.client]
 			.into_iter()
 			.unique();
 		for pipe in pipes {
@@ -61,102 +67,69 @@ impl Cli {
 	) -> tg::Result<Stdio> {
 		let handle = self.handle().await?;
 
-		let (termios, stdin, stdout, stderr) = if std::io::stdin().is_terminal() && !detached {
-			// If stdin is a tty, create a pipe with a window size attached.
-			let (termios, window_size) = get_termios_and_window_size(&std::io::stdin())
-				.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
-			let arg = tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: Some(window_size),
-			};
-			let stdin = handle.open_pipe(arg).await?;
-
-			// Open a pipe for stdout.
-			let arg = tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: None,
-			};
-			let stdout = handle.open_pipe(arg.clone()).await?;
-
-			// Dup stdout to stderr if necessarsy.
-			let stderr = if std::io::stdout().is_terminal() && std::io::stderr().is_terminal() {
-				stdout.clone()
-			} else {
-				handle.open_pipe(arg.clone()).await?
-			};
-			(
-				Some((std::io::stdin().as_raw_fd(), termios)),
+		// If the process is detached, don't create any interactive i/o.
+		if detached {
+			let stdin = pair(&handle, remote.clone(), None).await?;
+			let stdout = pair(&handle, remote.clone(), None).await?;
+			let stderr = pair(&handle, remote.clone(), None).await?;
+			let stdio = Stdio {
+				termios: None,
+				remote,
 				stdin,
 				stdout,
 				stderr,
-			)
-		} else if std::io::stdout().is_terminal() && !detached {
-			// If stdout is a tty but stdin is not, open the pipe and dup to stdout while creating a unique pipe for stdin.
-			let (termios, window_size) = get_termios_and_window_size(&std::io::stdout())
+			};
+			return Ok(stdio);
+		}
+
+		// Open stdin.
+		let (termios, stdin) = if std::io::stdin().is_terminal() {
+			let fd = std::io::stdin().as_raw_fd();
+			let (termios, window_size) = get_termios_and_window_size(fd)
 				.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
-			let arg = tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: Some(window_size),
-			};
-			let stdout = handle.open_pipe(arg).await?;
-
-			// Dup stderr to stdout if necessarsy.
-			let stderr = if std::io::stderr().is_terminal() {
-				stdout.clone()
-			} else {
-				let arg = tg::pipe::open::Arg {
-					remote: remote.clone(),
-					window_size: None,
-				};
-				handle.open_pipe(arg.clone()).await?
-			};
-
-			// Create a pipe for stdin.
-			let arg = tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: None,
-			};
-			let stdin = handle.open_pipe(arg.clone()).await?;
-			(
-				Some((std::io::stdout().as_raw_fd(), termios)),
-				stdin,
-				stdout,
-				stderr,
-			)
-		} else if std::io::stderr().is_terminal() && !detached {
-			// If stderr is a tty but stdin and stdout are not, open the pipe and create unique pipes for stdout and stdin.
-			let (termios, window_size) = get_termios_and_window_size(&std::io::stderr())
-				.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
-
-			// Open stderr.
-			let arg = tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: Some(window_size),
-			};
-			let stderr = handle.open_pipe(arg).await?;
-
-			// Open stdin and stdout.
-			let arg = tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: None,
-			};
-			let stdin = handle.open_pipe(arg.clone()).await?;
-			let stdout = handle.open_pipe(arg.clone()).await?;
-			(
-				Some((std::io::stderr().as_raw_fd(), termios)),
-				stdin,
-				stdout,
-				stderr,
-			)
+			let stdin = pair(&handle, remote.clone(), Some(window_size)).await?;
+			(Some((fd, termios)), stdin)
 		} else {
-			let arg = tg::pipe::open::Arg {
-				remote: remote.clone(),
-				window_size: None,
-			};
-			let stdin = handle.open_pipe(arg.clone()).await?;
-			let stdout = handle.open_pipe(arg.clone()).await?;
-			let stderr = handle.open_pipe(arg.clone()).await?;
-			(None, stdin, stdout, stderr)
+			let stdin = pair(&handle, remote.clone(), None).await?;
+			(None, stdin)
+		};
+
+		// Open stdout.
+		let (termios, stdout) = match (termios, std::io::stdout().is_terminal()) {
+			(Some(termios), true) => {
+				let stdout = stdin.clone();
+				(Some(termios), stdout)
+			},
+			(None, true) => {
+				let fd = std::io::stdout().as_raw_fd();
+				let (termios, window_size) = get_termios_and_window_size(fd)
+					.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
+				let stdout = pair(&handle, remote.clone(), Some(window_size)).await?;
+				(Some((fd, termios)), stdout)
+			},
+			(termios, false) => {
+				let stdout = pair(&handle, remote.clone(), None).await?;
+				(termios, stdout)
+			},
+		};
+
+		// Open stderr.
+		let (termios, stderr) = match (termios, std::io::stdout().is_terminal()) {
+			(Some(termios), true) => {
+				let stderr = stdout.clone();
+				(Some(termios), stderr)
+			},
+			(None, true) => {
+				let fd = std::io::stderr().as_raw_fd();
+				let (termios, window_size) = get_termios_and_window_size(fd)
+					.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
+				let stderr = pair(&handle, remote.clone(), Some(window_size)).await?;
+				(Some((fd, termios)), stderr)
+			},
+			(termios, false) => {
+				let stderr = pair(&handle, remote.clone(), None).await?;
+				(termios, stderr)
+			},
 		};
 
 		// Set raw mode.
@@ -183,13 +156,33 @@ impl Cli {
 	}
 }
 
+async fn pair<H>(
+	handle: &H,
+	remote: Option<String>,
+	window_size: Option<tg::pipe::WindowSize>,
+) -> tg::Result<Pipe>
+where
+	H: tg::Handle,
+{
+	let arg = tg::pipe::open::Arg {
+		remote,
+		window_size,
+	};
+	let output = handle
+		.open_pipe(arg)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to open pipe"))?;
+	Ok(Pipe {
+		client: output.reader,
+		server: output.writer,
+	})
+}
+
 fn get_termios_and_window_size(
-	fd: &impl AsRawFd,
+	fd: RawFd,
 ) -> std::io::Result<(libc::termios, tg::pipe::WindowSize)> {
 	// Get the window size.
 	unsafe {
-		let fd = fd.as_raw_fd();
-
 		// Get the termio modes.
 		let mut termio = MaybeUninit::zeroed();
 		if libc::tcgetattr(fd, termio.as_mut_ptr()) != 0 {

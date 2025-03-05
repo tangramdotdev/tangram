@@ -2,7 +2,7 @@ use crate::Message;
 use bytes::Bytes;
 use core::fmt;
 use dashmap::DashMap;
-use futures::{Stream, StreamExt as _, future};
+use futures::Stream;
 use std::{ops::Deref, sync::Arc};
 
 pub struct Messenger(Arc<Inner>);
@@ -70,8 +70,7 @@ impl Messenger {
 			.get(&subject)
 			.ok_or(Error::NotFound)?
 			.receiver
-			.activate_cloned()
-			.filter(move |message| future::ready(message.subject == subject)))
+			.activate_cloned())
 	}
 }
 

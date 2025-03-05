@@ -63,6 +63,7 @@ impl Writer {
 						let n = n.to_usize().unwrap();
 						tokio::runtime::Handle::current().block_on(async {
 							send.write_all(&buf[0..n]).await?;
+							send.flush().await?;
 							Ok::<_, std::io::Error>(())
 						})?;
 					}

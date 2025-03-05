@@ -1,3 +1,4 @@
+use super::Pipe;
 use crate::Server;
 use bytes::Bytes;
 use futures::{
@@ -8,8 +9,6 @@ use http_body_util::{BodyExt as _, BodyStream};
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-
-use super::Pipe;
 
 impl Server {
 	pub async fn post_pipe(
@@ -22,15 +21,15 @@ impl Server {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.post_pipe(id, arg, stream.boxed()).await;
 		}
-		let Pipe { writer, .. } = self
+		let Pipe { reader, writer, .. } = self
 			.try_get_pipe(id)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the pipe"))?
 			.ok_or_else(|| tg::error!(%id, "missing pipe"))?;
+		let pipe = if id == &reader { writer } else { reader };
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			eprintln!("post event({id}): {event:?}");
-			self.send_pipe_event(&writer, event).await?;
+			self.send_pipe_event(&pipe, event).await?;
 		}
 		Ok(())
 	}

@@ -10,6 +10,7 @@ use tg::handle::Ext as _;
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use tokio_stream::wrappers::ReceiverStream;
 
+mod signal;
 mod stdio;
 
 /// Spawn and await an unsandboxed process.
@@ -147,9 +148,9 @@ impl Cli {
 		// Spawn a task for stdout/stderr, before spawing the process.
 		let stdio_task = tokio::spawn({
 			let handle = handle.clone();
-			let stdin = stdio.stdin.writer.clone();
-			let stdout = stdio.stdout.reader.clone();
-			let stderr = stdio.stderr.reader.clone();
+			let stdin = stdio.stdin.client.clone();
+			let stdout = stdio.stdout.client.clone();
+			let stderr = stdio.stderr.client.clone();
 			let remote = stdio.remote.clone();
 			async move { stdio_task(&handle, stdin, stdout, stderr, remote).await }
 		});
@@ -160,9 +161,9 @@ impl Cli {
 				options.spawn,
 				reference,
 				trailing,
-				Some(stdio.stderr.writer.clone()),
-				Some(stdio.stdin.reader.clone()),
-				Some(stdio.stdout.writer.clone()),
+				Some(stdio.stderr.server.clone()),
+				Some(stdio.stdin.server.clone()),
+				Some(stdio.stdout.server.clone()),
 			)
 			.boxed()
 			.await?;
@@ -300,6 +301,7 @@ async fn drain_stream_to_writer(
 			.write_all(&chunk)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write chunk"))?;
+		writer.flush().await.ok();
 	}
 	Ok(())
 }
@@ -330,85 +332,6 @@ fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
 	// Convert to a stream.
 	ReceiverStream::new(recv)
 }
-
-// fn get_window_size(fd: i32) -> tg::Result<Option<tg::pipe::WindowSize>> {
-// 	unsafe {
-// 		if libc::isatty(fd) == 0 {
-// 			return Ok(None);
-// 		}
-// 		let mut winsize = libc::winsize {
-// 			ws_col: 0,
-// 			ws_row: 0,
-// 			ws_xpixel: 0,
-// 			ws_ypixel: 0,
-// 		};
-// 		if libc::ioctl(fd, libc::TIOCGWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
-// 			return Err(tg::error!(
-// 				source = std::io::Error::last_os_error(),
-// 				"failed to get the window size"
-// 			));
-// 		}
-// 		Ok(Some(tg::pipe::WindowSize {
-// 			rows: winsize.ws_row,
-// 			cols: winsize.ws_col,
-// 			xpos: winsize.ws_xpixel,
-// 			ypos: winsize.ws_ypixel,
-// 		}))
-// 	}
-// }
-
-// async fn window_change_task<H>(handle: &H, stdio: &Stdio)
-// where
-// 	H: tg::Handle,
-// {
-// 	// Spawn a task to listen for sigwnch
-// 	let (send, recv) = async_broadcast::broadcast(1);
-// 	let mut signal =
-// 		tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change()).unwrap();
-// 	tokio::spawn(async move {
-// 		while let Some(()) = signal.recv().await {
-// 			send.broadcast(()).await.ok();
-// 		}
-// 	});
-
-// 	// Create streams for stdin/stdout/stderr events.
-// 	let arg = tg::pipe::post::Arg {
-// 		remote: stdio.remote.clone(),
-// 	};
-// 	let stderr = handle.post_pipe(
-// 		&stdio.stderr.writer,
-// 		arg.clone(),
-// 		window_changes(recv.clone(), libc::STDERR_FILENO).boxed(),
-// 	);
-// 	let stdin = handle.post_pipe(
-// 		&stdio.stdin.reader,
-// 		arg.clone(),
-// 		window_changes(recv.clone(), libc::STDIN_FILENO).boxed(),
-// 	);
-// 	let stdout = handle.post_pipe(
-// 		&stdio.stdout.writer,
-// 		arg.clone(),
-// 		window_changes(recv.clone(), libc::STDOUT_FILENO).boxed(),
-// 	);
-
-// 	// Join the futures.
-// 	future::try_join3(stderr, stdin, stdout).await.ok();
-// }
-
-// fn window_changes(
-// 	signal: async_broadcast::Receiver<()>,
-// 	fileno: i32,
-// ) -> impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static {
-// 	stream::unfold((signal, fileno), async move |(mut signal, fileno)| {
-// 		if signal.recv().await.is_err() {
-// 			return None;
-// 		}
-// 		let event = get_window_size(fileno)
-// 			.transpose()?
-// 			.map(tg::pipe::Event::WindowSize);
-// 		Some((event, (signal, fileno)))
-// 	})
-// }
 
 fn fork_and_exit(code: i32) -> std::io::Result<()> {
 	unsafe {

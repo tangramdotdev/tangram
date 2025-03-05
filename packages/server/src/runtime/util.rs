@@ -244,6 +244,8 @@ async fn pipe_task(
 	stdout: sandbox::Stdout,
 	stderr: sandbox::Stderr,
 ) -> tg::Result<()> {
+	let state = process.load(server).await?;
+
 	// Create a task for stdin.
 	let stdin = tokio::spawn({
 		let server = server.clone();
@@ -256,6 +258,7 @@ async fn pipe_task(
 			let arg = tg::pipe::get::Arg {
 				remote: process.remote().cloned(),
 			};
+
 			let stream = server.get_pipe_stream(pipe, arg).await?;
 			let mut stream = pin!(stream);
 			let mut stdin = pin!(stdin);
@@ -318,11 +321,6 @@ async fn pipe_task(
 		let state = process.load(&server).await?;
 		let process = process.clone();
 		async move {
-			if state.stderr == state.stdout {
-				eprintln!("stdout == stderr, exiting.");
-				std::mem::forget(stderr);
-				return Ok(());
-			}
 			let Some(pipe) = state.stderr.as_ref() else {
 				return Ok(());
 			};
@@ -365,23 +363,4 @@ fn chunk_stream_from_reader(
 		Ok(Some((event, (reader, buffer))))
 	})
 	.chain(stream::once(future::ok(tg::pipe::Event::End)))
-}
-
-pub async fn try_get_window_size(
-	server: &Server,
-	process: &tg::Process,
-) -> tg::Result<Option<(tg::pipe::WindowSize, usize)>> {
-	let state = process.load(server).await?;
-	let pipes = [
-		state.stdin.clone(),
-		state.stdout.clone(),
-		state.stderr.clone(),
-	];
-	for (n, pipe) in pipes.into_iter().flatten().enumerate() {
-		let pipe = server.try_get_pipe(&pipe).await?.unwrap();
-		if let Some(ws) = pipe.window_size {
-			return Ok(Some((ws, n)));
-		}
-	}
-	Ok(None)
 }

@@ -7,8 +7,6 @@ use tangram_messenger::Messenger;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
-use super::Pipe;
-
 impl Server {
 	pub async fn get_pipe_stream(
 		&self,
@@ -20,11 +18,6 @@ impl Server {
 			let stream = remote.get_pipe_stream(id, arg).await?.boxed().left_stream();
 			return Ok(stream);
 		}
-		let Pipe { writer, .. } = self
-			.try_get_pipe(id)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the pipe"))?
-			.ok_or_else(|| tg::error!(%id, "missing pipe"))?;
 
 		let (send, recv) = tokio::sync::mpsc::channel(8);
 		let timer = tokio::spawn({
@@ -46,7 +39,7 @@ impl Server {
 		});
 		let stream = self
 			.messenger
-			.subscribe(format!("pipes.{writer}"), None)
+			.subscribe(format!("pipes.{id}"), None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the pipe message"))?
 			.map(|message| {
@@ -55,11 +48,9 @@ impl Server {
 				event
 			})
 			.boxed();
-		let id = id.clone();
 		let events = tokio::spawn(async move {
 			let mut stream = std::pin::pin!(stream);
 			while let Some(event) = stream.next().await {
-				eprintln!("get event({id}): {event:?}");
 				send.send(event).await.ok();
 			}
 		});

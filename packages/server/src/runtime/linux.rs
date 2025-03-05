@@ -318,12 +318,10 @@ impl Runtime {
 		}
 
 		// Spawn the child.
-		eprintln!("spawning child");
 		let mut child = cmd_
 			.spawn()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to spawn the child process"))?;
-		eprintln!("child was spawned");
 
 		// Spawn the stdio task.
 		let stdin = child.stdin.take().unwrap();
@@ -339,10 +337,8 @@ impl Runtime {
 				stderr,
 			)
 		});
-		eprintln!("stdio task was spawned");
 
 		// Wait for the child process to complete.
-		eprintln!("waiting for child");
 		let exit = match child
 			.wait()
 			.await
@@ -351,7 +347,6 @@ impl Runtime {
 			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
 			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
 		};
-		eprintln!("child exited: {exit:?}");
 
 		// Stop the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
@@ -360,10 +355,8 @@ impl Runtime {
 		}
 
 		// stop the i/o task.
-		eprintln!("stopping stdio");
 		stdio_task.stop();
 		stdio_task.wait().await.unwrap().ok();
-		eprintln!("stdio stopped");
 
 		// Create the output.
 		let output = output_parent.path().join("output");
