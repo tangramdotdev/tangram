@@ -2,14 +2,13 @@ use crate::Server;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
+use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use time::format_description::well_known::Rfc3339;
-use tokio_postgres as postgres;
-use tokio_postgres::types::ToSql as _;
 
 impl Server {
 	pub async fn put_process(
@@ -341,25 +340,20 @@ impl Server {
 		// Insert the children.
 		if let Some(children) = &arg.data.children {
 			if !children.is_empty() {
-				let positions: Vec<i32> = (0..children.len() as i32).collect();
-
+				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
 				let statement = indoc!(
 					"
 						insert into process_children (process, position, child)
-						select $1, unnest($2::integer[]), unnest($3::text[]);
+						select $1, unnest($2::int8[]), unnest($3::text[]);
 					"
 				);
-
 				transaction
 					.execute(
 						statement,
 						&[
 							&id.to_string(),
 							&positions.as_slice(),
-							&children
-								.iter()
-								.map(|child| child.to_string())
-								.collect::<Vec<_>>(),
+							&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
 						],
 					)
 					.await
@@ -398,10 +392,7 @@ impl Server {
 					statement,
 					&[
 						&id.to_string(),
-						&objects
-							.iter()
-							.map(|object| object.to_string())
-							.collect::<Vec<_>>(),
+						&objects.iter().map(ToString::to_string).collect::<Vec<_>>(),
 					],
 				)
 				.await
