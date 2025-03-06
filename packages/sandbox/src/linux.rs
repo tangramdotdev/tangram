@@ -34,7 +34,32 @@ struct Context {
 	stderr: GuestIo,
 }
 
+pub async fn validate(command: &Command) -> std::io::Result<()> {
+	if !tokio::fs::try_exists(&command.cwd).await? {
+		return Err(std::io::Error::other(format!(
+			"the working directory \"{}\" does not exist",
+			command.cwd.display()
+		)));
+	}
+
+	if !command.paths.is_empty() {
+		return Err(std::io::Error::other(
+			".path() and .paths() are meaningless on linux",
+		));
+	}
+
+	if !command.sandbox && command.chroot.is_some() {
+		return Err(std::io::Error::other(
+			"cannot chroot without enabling the sandbox",
+		));
+	}
+
+	Ok(())
+}
+
 pub async fn spawn(command: &Command) -> std::io::Result<Child> {
+	validate(command).await?;
+
 	// Create argv, cwd, and envp strings.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.args.iter().map(cstring))

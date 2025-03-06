@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{future, stream, Stream, StreamExt as _, TryStreamExt};
+use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use tangram_client::{self as tg};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext, task::Stop};
@@ -14,12 +14,14 @@ impl Server {
 		id: &tg::pipe::Id,
 		mut arg: tg::pipe::get::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
+		// Forward to a remote if requested.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
 			let stream = remote.get_pipe_stream(id, arg).await?.boxed();
 			return Ok(stream);
 		}
 
+		// Create a timer to continuously check for the pipe.
 		let (send, recv) = tokio::sync::mpsc::channel(8);
 		let timer = tokio::spawn({
 			let send = send.clone();
@@ -38,6 +40,8 @@ impl Server {
 					.ok();
 			}
 		});
+
+		// Create the stream from the messenger.
 		let stream = match &self.messenger {
 			Either::Left(messenger) => self
 				.get_pipe_stream_memory(messenger, id)
@@ -50,15 +54,20 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to get pipe stream"))?
 				.right_stream(),
 		};
+
+		// Merge with the timer.
 		let events = tokio::spawn(async move {
 			let mut stream = std::pin::pin!(stream);
 			while let Some(event) = stream.next().await {
 				send.send(event).await.ok();
 			}
 		});
+
+		// Create the stream with abort handlers.
 		let stream = ReceiverStream::new(recv)
 			.attach(AbortOnDropHandle::new(timer))
 			.attach(AbortOnDropHandle::new(events));
+
 		Ok(stream.boxed())
 	}
 
@@ -70,7 +79,7 @@ impl Server {
 		let stream = messenger
 			.subscribe(format!("pipes.{id}"), None)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the pipe message"))?
+			.map_err(|source| tg::error!(!source, "the pipe was closed or does not exist"))?
 			.map(|message| {
 				let event = serde_json::from_slice::<tg::pipe::Event>(&message.payload)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"));
@@ -85,50 +94,40 @@ impl Server {
 		messenger: &messenger::nats::Messenger,
 		id: &tg::pipe::Id,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
-		let message_batch_size = 256;
-		let message_batch_timeout = std::time::Duration::from_secs(1);
-
 		let stream = messenger
 			.jetstream
-			.get_stream(format!("pipes.{id}"))
+			.get_stream(id.to_string())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
+
 		// Get the consumer.
 		let consumer_config = async_nats::jetstream::consumer::pull::Config {
-			durable_name: Some(format!("pipes.{id}")),
+			durable_name: Some(id.to_string()),
 			..Default::default()
 		};
 		let consumer = stream
-			.get_or_create_consumer(&format!("pipes.{id}"), consumer_config)
+			.get_or_create_consumer(&id.to_string(), consumer_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the index consumer"))?;
 
 		// Create the stream.
-		let stream = stream::try_unfold(consumer, |consumer| async {
-			let mut batch = consumer
-				.batch()
-				.max_messages(message_batch_size)
-				.expires(message_batch_timeout)
-				.messages()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the batch"))?;
-			let mut messages = Vec::new();
-			while let Some(message) = batch.try_next().await? {
-				let (message, acker) = message.split();
-				let result = serde_json::from_slice::<tg::pipe::Event>(&message.payload);
-				acker.ack().await?;
-				let message = match result {
-					Ok(message) => Ok::<_, tg::Error>(message),
-					Err(source) => Err(tg::error!(!source, "failed to deserialize the payload")),
-				};
-				messages.push((message, Some(acker)));
-			}
-			if messages.is_empty() {
-				return Ok::<_, tg::Error>(None);
-			}
-			Ok(Some((messages, consumer)))
-		});
-		Ok(stream::empty())
+		let stream = consumer
+			.stream()
+			.messages()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the stream"))?
+			.map_err(|source| tg::error!(!source, "failed to get message"))
+			.and_then(|message| async move {
+				message
+					.ack()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to ack message"))?;
+				let event = serde_json::from_slice::<tg::pipe::Event>(&message.payload)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+				Ok::<_, tg::Error>(event)
+			});
+
+		Ok(stream)
 	}
 }
 

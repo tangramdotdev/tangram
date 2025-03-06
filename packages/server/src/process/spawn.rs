@@ -301,8 +301,8 @@ impl Server {
 					retry = {p}11,
 					status = {p}12,
 					stderr = {p}13,
-					stderr = {p}14,
-					stderr = {p}15,
+					stdin = {p}14,
+					stdout = {p}15,
 					touched_at = {p}16;
 			"
 		);

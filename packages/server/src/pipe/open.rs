@@ -13,6 +13,7 @@ impl Server {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.open_pipe(tg::pipe::open::Arg::default()).await;
 		}
+
 		// Create the pipe data.
 		let reader = tg::pipe::Id::new();
 		let writer = tg::pipe::Id::new();
@@ -95,8 +96,9 @@ impl Server {
 		writer: &tg::pipe::Id,
 	) -> tg::Result<()> {
 		for pipe in [reader, writer] {
+			let stream_name = pipe.to_string();
 			let stream_config = async_nats::jetstream::stream::Config {
-				name: format!("pipes.{pipe}"),
+				name: stream_name.clone(),
 				max_messages: 256,
 				..Default::default()
 			};
@@ -104,7 +106,9 @@ impl Server {
 				.jetstream
 				.create_stream(stream_config)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the pipe stream"))?;
+				.map_err(|source| {
+					tg::error!(!source, ?stream_name, "failed to get the pipe stream")
+				})?;
 		}
 		Ok(())
 	}

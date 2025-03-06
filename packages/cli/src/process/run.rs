@@ -48,9 +48,8 @@ impl Cli {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Open pipes. This has to happen first to avoid leaving pipes dangling if run_inner fails.
-		let remote = reference
-			.options()
-			.and_then(|options| options.remote.clone());
+		let remote = args.options.spawn.remote.clone().flatten();
+
 		let stdio = self
 			.init_stdio(remote, args.options.detach)
 			.await
@@ -113,15 +112,12 @@ impl Cli {
 	#[allow(dead_code)]
 	async fn run_process_inner(
 		&self,
-		mut options: Options,
+		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
 		stdio: &Stdio,
 	) -> tg::Result<Option<tg::process::wait::Wait>> {
 		let handle = self.handle().await?;
-
-		// Override the sandbox arg.
-		options.spawn.sandbox = false;
 
 		// Get the remote.
 		let remote = options

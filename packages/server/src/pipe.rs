@@ -105,7 +105,9 @@ impl Server {
 		let row = connection
 			.query_one_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
+			.map_err(
+				|source| tg::error!(!source, %pipe = id, "failed to increment the pipe ref"),
+			)?;
 
 		if row.reader_count == 0 || row.writer_count == 0 {
 			return Err(tg::error!(%id, "the pipe was closed"));
@@ -205,7 +207,7 @@ impl Server {
 		for pipe in [reader, writer] {
 			messenger
 				.jetstream
-				.delete_stream(format!("pipes.{pipe}"))
+				.delete_stream(pipe.to_string())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
 		}
@@ -230,7 +232,7 @@ impl Server {
 			Either::Right(messenger) => {
 				messenger
 					.jetstream
-					.publish(format!("pipes.{pipe}"), payload)
+					.publish(pipe.to_string(), payload)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?
 					.await

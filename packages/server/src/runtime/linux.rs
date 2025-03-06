@@ -321,7 +321,13 @@ impl Runtime {
 		let mut child = cmd_
 			.spawn()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to spawn the child process"))?;
+			.map_err(|source| {
+				if source.raw_os_error() == Some(libc::ENOSYS) {
+					tg::error!(%errno = libc::ENOSYS, "cannot spawn within a container runtime without --privileged")
+				} else {
+					tg::error!(!source, "failed to spawn the child process")
+				}
+			})?;
 
 		// Spawn the stdio task.
 		let stdin = child.stdin.take().unwrap();
