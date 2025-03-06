@@ -41,6 +41,24 @@ impl Id {
 			Kind::Symlink => tg::symlink::Id::new(bytes).into(),
 		}
 	}
+
+	#[must_use]
+	pub fn to_bytes(&self) -> Vec<u8> {
+		self.as_id().to_bytes()
+	}
+
+	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {
+		tg::Id::from_reader(bytes)?.try_into()
+	}
+
+	#[must_use]
+	fn as_id(&self) -> &tg::Id {
+		match self {
+			Self::Directory(id) => &id.0,
+			Self::File(id) => &id.0,
+			Self::Symlink(id) => &id.0,
+		}
+	}
 }
 
 impl std::fmt::Display for Id {

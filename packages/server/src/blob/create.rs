@@ -33,7 +33,7 @@ pub struct Blob {
 
 pub enum Destination {
 	Temp(Temp),
-	Store,
+	Store { touched_at: i64 },
 }
 
 impl Server {
@@ -41,11 +41,14 @@ impl Server {
 		&self,
 		reader: impl AsyncRead,
 	) -> tg::Result<tg::blob::create::Output> {
+		// Get the touch time.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+
 		// Create the destination.
 		let destination = if self.config.advanced.write_blobs_to_blobs_directory {
 			Destination::Temp(Temp::new(self))
 		} else {
-			Destination::Store
+			Destination::Store { touched_at }
 		};
 
 		// Create the blob.
@@ -63,10 +66,10 @@ impl Server {
 		}
 
 		// Create the database future.
-		let database_future = async { self.insert_blob(&blob).await };
+		let database_future = async { self.insert_blob(&blob, touched_at).await };
 
 		// Create the store future.
-		let store_future = async { self.store_blob(&blob).await };
+		let store_future = async { self.store_blob(&blob, touched_at).await };
 
 		// Join the database and store futures.
 		futures::try_join!(database_future, store_future)?;
@@ -113,11 +116,14 @@ impl Server {
 				})?;
 		}
 
+		// Get the touch time.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+
 		// Create the database future.
-		let database_future = async { self.insert_blob(&blob).await };
+		let database_future = async { self.insert_blob(&blob, touched_at).await };
 
 		// Create the store future.
-		let store_future = async { self.store_blob(&blob).await };
+		let store_future = async { self.store_blob(&blob, touched_at).await };
 
 		// Join the database and store futures.
 		futures::try_join!(database_future, store_future)?;
@@ -177,9 +183,14 @@ impl Server {
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
 				},
-				Some(Destination::Store) => {
+				Some(Destination::Store { touched_at }) => {
+					let arg = crate::store::PutArg {
+						id: blob.id.clone().into(),
+						bytes: chunk.data.into(),
+						touched_at: *touched_at,
+					};
 					self.store
-						.put(&blob.id.clone().into(), chunk.data.into())
+						.put(arg)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
 				},
@@ -304,7 +315,7 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn insert_blob(&self, blob: &Arc<Blob>) -> tg::Result<()> {
+	async fn insert_blob(&self, blob: &Arc<Blob>, touched_at: i64) -> tg::Result<()> {
 		let write_blobs_to_blobs_directory = self.config.advanced.write_blobs_to_blobs_directory;
 		match &self.database {
 			Either::Left(database) => {
@@ -328,7 +339,7 @@ impl Server {
 							}
 
 							// Insert the objects.
-							Self::insert_blob_objects_sqlite(&blob, &transaction)?;
+							Self::insert_blob_objects_sqlite(&blob, &transaction, touched_at)?;
 
 							// Commit the transaction.
 							transaction.commit().map_err(|source| {
@@ -363,7 +374,7 @@ impl Server {
 				}
 
 				// Insert the objects.
-				Self::insert_blob_objects_postgres(blob, &transaction).await?;
+				Self::insert_blob_objects_postgres(blob, &transaction, touched_at).await?;
 
 				// Commit the transaction.
 				transaction
@@ -489,7 +500,13 @@ impl Server {
 	pub(crate) fn insert_blob_objects_sqlite(
 		blob: &Blob,
 		transaction: &sqlite::Transaction<'_>,
+		touched_at: i64,
 	) -> tg::Result<()> {
+		let touched_at = time::OffsetDateTime::from_unix_timestamp(touched_at)
+			.unwrap()
+			.format(&Rfc3339)
+			.unwrap();
+
 		// Prepare a statement for the object children.
 		let children_statement = indoc!(
 			"
@@ -514,9 +531,6 @@ impl Server {
 			.prepare_cached(objects_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
-		// Get the current time.
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
 			// Insert the children.
@@ -536,7 +550,7 @@ impl Server {
 				blob.depth,
 				0,
 				blob.size,
-				&now,
+				&touched_at,
 				blob.weight
 			];
 			objects_statement
@@ -554,7 +568,13 @@ impl Server {
 	pub(crate) async fn insert_blob_objects_postgres(
 		blob: &Blob,
 		transaction: &postgres::Transaction<'_>,
+		touched_at: i64,
 	) -> tg::Result<()> {
+		let touched_at = time::OffsetDateTime::from_unix_timestamp(touched_at)
+			.unwrap()
+			.format(&Rfc3339)
+			.unwrap();
+
 		// Collect all the object data and children.
 		let mut objects = Vec::new();
 		let mut children = Vec::new();
@@ -575,9 +595,6 @@ impl Server {
 				stack.push(child);
 			}
 		}
-
-		// Get the current time.
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 
 		// Insert object children using batch insert.
 		if !children.is_empty() {
@@ -624,7 +641,7 @@ impl Server {
 						&depths.as_slice(),
 						&sizes.as_slice(),
 						&weights.as_slice(),
-						&now,
+						&touched_at,
 					],
 				)
 				.await
@@ -634,7 +651,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn store_blob(&self, blob: &Blob) -> tg::Result<()> {
+	async fn store_blob(&self, blob: &Blob, touched_at: i64) -> tg::Result<()> {
 		let mut batch = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
@@ -644,8 +661,12 @@ impl Server {
 			}
 			stack.extend(&blob.children);
 		}
+		let arg = crate::store::PutBatchArg {
+			objects: batch,
+			touched_at,
+		};
 		self.store
-			.put_batch(&batch)
+			.put_batch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
 		Ok(())

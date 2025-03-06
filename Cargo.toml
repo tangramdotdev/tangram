@@ -77,6 +77,7 @@ fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
 fnv = "1"
 foundationdb = { version = "0.9", features = ["fdb-7_3", "embedded-fdb-include"] }
+foundationdb-tuple = "0.9"
 futures = "0.3"
 glob = "0.3"
 globset = "0.4"

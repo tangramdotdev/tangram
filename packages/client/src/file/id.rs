@@ -14,7 +14,7 @@ use crate as tg;
 	serde::Serialize,
 )]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
-pub struct Id(crate::Id);
+pub struct Id(pub(crate) crate::Id);
 
 impl Id {
 	#[must_use]

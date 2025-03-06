@@ -1,4 +1,5 @@
 use super::Server;
+use futures::future;
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::time::Duration;
@@ -6,6 +7,12 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
 use time::format_description::well_known::Rfc3339;
+
+struct InnerOutput {
+	processes: Vec<tg::process::Id>,
+	objects: Vec<tg::object::Id>,
+	blobs: Vec<tg::blob::Id>,
+}
 
 impl Server {
 	pub async fn clean(&self) -> tg::Result<()> {
@@ -22,7 +29,8 @@ impl Server {
 		// Clean until there are no more processes or objects to remove.
 		let config = self.config.cleaner.clone().unwrap_or_default();
 		loop {
-			let n = self.cleaner_task_inner(&config).await?;
+			let output = self.cleaner_task_inner(&config).await?;
+			let n = output.processes.len() + output.objects.len() + output.blobs.len();
 			if n == 0 {
 				break;
 			}
@@ -31,14 +39,16 @@ impl Server {
 		Ok(())
 	}
 
-	pub async fn cleaner_task(&self, config: &crate::config::Cleaner) -> tg::Result<()> {
+	pub(crate) async fn cleaner_task(&self, config: &crate::config::Cleaner) -> tg::Result<()> {
 		loop {
 			let result = self.cleaner_task_inner(config).await;
 			match result {
-				Ok(0) => {
-					tokio::time::sleep(Duration::from_secs(1)).await;
+				Ok(output) => {
+					let n = output.processes.len() + output.objects.len() + output.blobs.len();
+					if n == 0 {
+						tokio::time::sleep(Duration::from_secs(1)).await;
+					}
 				},
-				Ok(_) => (),
 				Err(error) => {
 					tracing::error!(?error, "failed to clean");
 					tokio::time::sleep(Duration::from_secs(1)).await;
@@ -47,141 +57,105 @@ impl Server {
 		}
 	}
 
-	pub async fn cleaner_task_inner(&self, config: &crate::config::Cleaner) -> tg::Result<u64> {
+	async fn cleaner_task_inner(&self, config: &crate::config::Cleaner) -> tg::Result<InnerOutput> {
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+
 		// Get a database connection.
-		let mut connection = self
+		let connection = self
 			.database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-
-		// Get processes to remove.
-		let p = transaction.p();
+		// Delete processes.
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id
-				from processes
-				where reference_count = 0 and touched_at <= {p}1
-				limit {p}2;
+				delete from processes
+				where id in (
+					select id from processes
+					where reference_count = 0 and touched_at <= {p}1
+					limit {p}2
+				)
+				returning id;
 			"
 		);
-		let max_touched_at = (time::OffsetDateTime::now_utc() - config.touch_timeout)
-			.format(&Rfc3339)
-			.unwrap();
+		let max_touched_at =
+			time::OffsetDateTime::from_unix_timestamp(now - config.ttl.as_secs().to_i64().unwrap())
+				.unwrap()
+				.format(&Rfc3339)
+				.unwrap();
 		let params = db::params![max_touched_at, config.batch_size];
-		let processes = transaction
-			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+		let processes = connection
+			.query_all_value_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
-		for id in &processes {
-			// Remove the process.
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					delete from processes
-					where id = {p}1;
-				"
-			);
-			let params = db::params![id];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Remove the process children.
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					delete from process_children
-					where process = {p}1;
-				"
-			);
-			let params = db::params![id];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Remove the process objects.
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					delete from process_objects
-					where process = {p}1;
-				"
-			);
-			let params = db::params![id];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		// Get objects to remove.
-		let p = transaction.p();
+		// Delete objects.
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id
-				from objects
-				where reference_count = 0 and touched_at <= {p}1
-				limit {p}2;
+				delete from objects
+				where id in (
+					select id from objects 
+					where reference_count = 0 and touched_at <= {p}1
+					limit {p}2
+				)
+				returning id;
 			"
 		);
-		let max_touched_at = (time::OffsetDateTime::now_utc() - config.touch_timeout)
-			.format(&Rfc3339)
-			.unwrap();
+		let max_touched_at =
+			time::OffsetDateTime::from_unix_timestamp(now - config.ttl.as_secs().to_i64().unwrap())
+				.unwrap()
+				.format(&Rfc3339)
+				.unwrap();
 		let params = db::params![max_touched_at, config.batch_size];
-		let objects = transaction
-			.query_all_value_into::<tg::object::Id>(statement.into(), params)
+		let objects = connection
+			.query_all_value_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 
-		for id in &objects {
-			// Remove the object.
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					delete from objects
-					where id = {p}1;
-				"
-			);
-			let params = db::params![id];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Remove the object children.
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					delete from object_children
-					where object = {p}1;
-				"
-			);
-			let params = db::params![id];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		// Commit the transaction.
-		transaction
-			.commit()
+		// Delete blobs.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from blobs
+				where id in (
+					select id from blobs
+					where reference_count = 0
+					limit {p}1
+				)
+				returning id;
+			"
+		);
+		let params = db::params![config.batch_size];
+		let blobs = connection
+			.query_all_value_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 
-		let n = processes.len().to_u64().unwrap() + objects.len().to_u64().unwrap();
+		let arg = crate::store::DeleteBatchArg {
+			ids: objects.clone(),
+			now,
+			ttl: config.ttl.as_secs(),
+		};
+		self.store.delete_batch(arg).await?;
+		future::try_join_all(blobs.iter().map(|blob: &tg::blob::Id| async {
+			let path = self.blobs_path().join(blob.to_string());
+			tokio::fs::remove_file(&path)
+				.await
+				.map_err(|source| tg::error!(!source, ?path, "failed to remove the blob"))?;
+			Ok::<_, tg::Error>(())
+		}))
+		.await?;
 
-		Ok(n)
+		let output = InnerOutput {
+			processes,
+			objects,
+			blobs,
+		};
+
+		Ok(output)
 	}
 }
 

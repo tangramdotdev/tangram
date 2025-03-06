@@ -51,7 +51,7 @@ pub struct Oauth {
 #[derive(Clone, Debug)]
 pub struct Cleaner {
 	pub batch_size: usize,
-	pub touch_timeout: Duration,
+	pub ttl: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -209,7 +209,7 @@ impl Default for Cleaner {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
-			touch_timeout: Duration::from_secs(0),
+			ttl: Duration::from_secs(0),
 		}
 	}
 }

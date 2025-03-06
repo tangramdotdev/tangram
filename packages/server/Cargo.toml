@@ -49,6 +49,7 @@ fastcdc = { workspace = true }
 filetime = { workspace = true }
 fnv = { workspace = true }
 foundationdb = { workspace = true, optional = true }
+foundationdb-tuple = { workspace = true }
 futures = { workspace = true }
 heed = { workspace = true }
 http = { workspace = true }

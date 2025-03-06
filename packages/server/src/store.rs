@@ -19,6 +19,29 @@ pub enum Store {
 	S3(S3),
 }
 
+pub struct PutArg {
+	pub id: tg::object::Id,
+	pub bytes: Bytes,
+	pub touched_at: i64,
+}
+
+pub struct PutBatchArg {
+	pub objects: Vec<(tg::object::Id, Bytes)>,
+	pub touched_at: i64,
+}
+
+pub struct DeleteArg {
+	pub id: tg::object::Id,
+	pub now: i64,
+	pub ttl: u64,
+}
+
+pub struct DeleteBatchArg {
+	pub ids: Vec<tg::object::Id>,
+	pub now: i64,
+	pub ttl: u64,
+}
+
 impl Store {
 	#[cfg(feature = "foundationdb")]
 	pub fn new_fdb(config: &crate::config::FdbStore) -> tg::Result<Self> {
@@ -49,39 +72,58 @@ impl Store {
 		}
 	}
 
-	pub async fn put(&self, id: &tg::object::Id, bytes: Bytes) -> tg::Result<()> {
+	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		match self {
 			Self::Memory(memory) => {
-				memory.put(id, bytes);
+				memory.put(arg);
 			},
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => {
-				fdb.put(id, bytes).await?;
+				fdb.put(arg).await?;
 			},
 			Self::Lmdb(lmdb) => {
-				lmdb.put(id, bytes).await?;
+				lmdb.put(arg).await?;
 			},
 			Self::S3(s3) => {
-				s3.put(id, bytes).await?;
+				s3.put(arg).await?;
 			},
 		}
 		Ok(())
 	}
 
-	pub async fn put_batch(&self, items: &[(tg::object::Id, Bytes)]) -> tg::Result<()> {
+	pub async fn put_batch(&self, arg: PutBatchArg) -> tg::Result<()> {
 		match self {
 			Self::Memory(memory) => {
-				memory.put_batch(items);
+				memory.put_batch(arg);
 			},
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => {
-				fdb.put_batch(items).await?;
+				fdb.put_batch(arg).await?;
 			},
 			Self::Lmdb(lmdb) => {
-				lmdb.put_batch(items).await?;
+				lmdb.put_batch(arg).await?;
 			},
 			Self::S3(s3) => {
-				s3.put_batch(items).await?;
+				s3.put_batch(arg).await?;
+			},
+		}
+		Ok(())
+	}
+
+	pub async fn delete_batch(&self, arg: DeleteBatchArg) -> tg::Result<()> {
+		match self {
+			Self::Memory(memory) => {
+				memory.delete_batch(arg);
+			},
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => {
+				fdb.delete_batch(arg).await?;
+			},
+			Self::Lmdb(lmdb) => {
+				lmdb.delete_batch(arg).await?;
+			},
+			Self::S3(s3) => {
+				s3.delete_batch(arg).await?;
 			},
 		}
 		Ok(())

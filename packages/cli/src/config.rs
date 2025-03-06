@@ -130,11 +130,16 @@ pub struct Oauth {
 	pub token_url: String,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Cleaner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -176,12 +181,14 @@ pub struct Http {
 	pub url: Option<Url>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub message_batch_size: Option<usize>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub message_batch_timeout: Option<Duration>,
 
@@ -214,6 +221,7 @@ pub struct Remote {
 	pub url: Url,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Runner {
@@ -222,6 +230,7 @@ pub struct Runner {
 	pub concurrency: Option<usize>,
 
 	/// The interval at which heartbeats will be sent.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub heartbeat_interval: Option<Duration>,
 

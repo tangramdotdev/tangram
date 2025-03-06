@@ -19,8 +19,15 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+
 		let store_future = async {
-			self.store.put(id, arg.bytes.clone()).await?;
+			let arg = crate::store::PutArg {
+				id: id.clone(),
+				bytes: arg.bytes.clone(),
+				touched_at: now,
+			};
+			self.store.put(arg).await?;
 			Ok::<_, tg::Error>(())
 		};
 

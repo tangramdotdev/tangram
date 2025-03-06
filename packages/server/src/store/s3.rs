@@ -1,6 +1,8 @@
 use bytes::Bytes;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use num::ToPrimitive;
 use tangram_client as tg;
+use time::format_description::well_known::Rfc2822;
 
 pub struct S3 {
 	credentials: Option<aws_credential_types::Credentials>,
@@ -71,7 +73,7 @@ impl S3 {
 		Ok(Some(bytes))
 	}
 
-	pub async fn put(&self, id: &tg::object::Id, bytes: Bytes) -> tg::Result<()> {
+	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let _permit = self.semaphore.acquire().await;
 		let method = reqwest::Method::PUT;
 		let url = tangram_uri::Reference::parse(self.config.url.as_str()).unwrap();
@@ -80,14 +82,14 @@ impl S3 {
 		let url = url
 			.to_builder()
 			.authority(format!("{bucket}.{authority}"))
-			.path(format!("/{id}"))
+			.path(format!("/{id}", id = arg.id))
 			.build()
 			.unwrap();
 		let request = self
 			.reqwest
 			.request(method, url.as_str())
-			.header(http::header::CONTENT_LENGTH, bytes.len().to_string())
-			.body(bytes)
+			.header(http::header::CONTENT_LENGTH, arg.bytes.len().to_string())
+			.body(arg.bytes)
 			.build()
 			.unwrap();
 		let request = self.sign_request(request)?;
@@ -106,10 +108,71 @@ impl S3 {
 		Ok(())
 	}
 
-	pub async fn put_batch(&self, items: &[(tg::object::Id, Bytes)]) -> tg::Result<()> {
-		items
+	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
+		arg.objects
 			.iter()
-			.map(|(id, bytes)| self.put(id, bytes.clone()))
+			.map(|(id, bytes)| {
+				self.put(super::PutArg {
+					id: id.clone(),
+					bytes: bytes.clone(),
+					touched_at: arg.touched_at,
+				})
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await
+	}
+
+	pub async fn delete(&self, arg: super::DeleteArg) -> tg::Result<()> {
+		let _permit = self.semaphore.acquire().await;
+		let method = reqwest::Method::DELETE;
+		let url = tangram_uri::Reference::parse(self.config.url.as_str()).unwrap();
+		let authority = url.authority().ok_or_else(|| tg::error!("invalid url"))?;
+		let bucket = &self.config.bucket;
+		let url = url
+			.to_builder()
+			.authority(format!("{bucket}.{authority}"))
+			.path(format!("/{id}", id = arg.id))
+			.build()
+			.unwrap();
+		let if_unmodified_since =
+			time::OffsetDateTime::from_unix_timestamp(arg.now - arg.ttl.to_i64().unwrap())
+				.unwrap()
+				.format(&Rfc2822)
+				.unwrap();
+		let request = self
+			.reqwest
+			.request(method, url.as_str())
+			.header(http::header::IF_UNMODIFIED_SINCE, if_unmodified_since)
+			.build()
+			.unwrap();
+		let request = self.sign_request(request)?;
+		let response = self
+			.reqwest
+			.execute(request)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		if !response.status().is_success() {
+			let text = response
+				.text()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read the response body"))?;
+			return Err(tg::error!(%text, "the request failed"));
+		}
+		Ok(())
+	}
+
+	pub async fn delete_batch(&self, arg: super::DeleteBatchArg) -> tg::Result<()> {
+		arg.ids
+			.iter()
+			.map(|id| {
+				let arg = super::DeleteArg {
+					id: id.clone(),
+					now: arg.now,
+					ttl: arg.ttl,
+				};
+				self.delete(arg)
+			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await
