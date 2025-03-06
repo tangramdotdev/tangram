@@ -380,19 +380,6 @@ impl Server {
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
-		// Ensure the stream exists.
-		if let Either::Right(messenger) = self.messenger.as_ref() {
-			messenger
-				.jetstream
-				.get_or_create_stream(async_nats::jetstream::stream::Config {
-					name: "index".to_string(),
-					max_messages: i64::MAX,
-					..Default::default()
-				})
-				.await
-				.map_err(|source| tg::error!(!source, "failed to ensure the stream exists"))?;
-		}
-
 		// Choose the parameters.
 		let (n_batch_tasks, max_objects_per_batch, max_bytes_per_batch) = match &self.store {
 			#[cfg(feature = "foundationdb")]

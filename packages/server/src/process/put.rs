@@ -307,31 +307,34 @@ impl Server {
 			"
 		);
 		transaction
-			.execute(statement, &[
-				&id.to_string(),
-				&i64::from(arg.data.cacheable),
-				&arg.data.checksum.map(|checksum| checksum.to_string()),
-				&arg.data.command.to_string(),
-				&arg.data.created_at.format(&Rfc3339).unwrap(),
-				&arg.data.cwd.map(|cwd| cwd.to_string_lossy().to_string()),
-				&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&serde_json::to_string(&arg.data.env.as_ref()).unwrap(),
-				&serde_json::to_string(&arg.data.error.as_ref()).unwrap(),
-				&serde_json::to_string(&arg.data.exit.as_ref()).unwrap(),
-				&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&arg.data.host,
-				&arg.data
-					.log
-					.as_ref()
-					.map(|log| serde_json::to_string(&log).unwrap()),
-				&i64::from(arg.data.network),
-				&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
-				&i64::from(arg.data.retry),
-				&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&serde_json::to_string(&arg.data.status).unwrap(),
-				&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
-			])
+			.execute(
+				statement,
+				&[
+					&id.to_string(),
+					&i64::from(arg.data.cacheable),
+					&arg.data.checksum.map(|checksum| checksum.to_string()),
+					&arg.data.command.to_string(),
+					&arg.data.created_at.format(&Rfc3339).unwrap(),
+					&arg.data.cwd.map(|cwd| cwd.to_string_lossy().to_string()),
+					&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&serde_json::to_string(&arg.data.env.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.error.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.exit.as_ref()).unwrap(),
+					&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&arg.data.host,
+					&arg.data
+						.log
+						.as_ref()
+						.map(|log| serde_json::to_string(&log).unwrap()),
+					&i64::from(arg.data.network),
+					&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
+					&i64::from(arg.data.retry),
+					&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&serde_json::to_string(&arg.data.status).unwrap(),
+					&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+				],
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -348,14 +351,17 @@ impl Server {
 				);
 
 				transaction
-					.execute(statement, &[
-						&id.to_string(),
-						&positions.as_slice(),
-						&children
-							.iter()
-							.map(|child| child.to_string())
-							.collect::<Vec<_>>(),
-					])
+					.execute(
+						statement,
+						&[
+							&id.to_string(),
+							&positions.as_slice(),
+							&children
+								.iter()
+								.map(|child| child.to_string())
+								.collect::<Vec<_>>(),
+						],
+					)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
@@ -388,13 +394,16 @@ impl Server {
 			);
 
 			transaction
-				.execute(statement, &[
-					&id.to_string(),
-					&objects
-						.iter()
-						.map(|object| object.to_string())
-						.collect::<Vec<_>>(),
-				])
+				.execute(
+					statement,
+					&[
+						&id.to_string(),
+						&objects
+							.iter()
+							.map(|object| object.to_string())
+							.collect::<Vec<_>>(),
+					],
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}

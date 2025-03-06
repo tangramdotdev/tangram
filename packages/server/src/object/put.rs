@@ -1,7 +1,9 @@
 use crate::Server;
 use futures::FutureExt as _;
+use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub async fn put_object(
@@ -17,7 +19,30 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
-		self.store.put(id, arg.bytes.clone()).await?;
+		let store_future = async {
+			self.store.put(id, arg.bytes.clone()).await?;
+			Ok::<_, tg::Error>(())
+		};
+
+		let messenger_future = async {
+			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)?;
+			let children = data.children();
+			let message = crate::index::Message {
+				id: id.clone(),
+				size: arg.bytes.len().to_u64().unwrap(),
+				children,
+			};
+			let message = serde_json::to_vec(&message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			self.messenger
+				.publish("index".to_owned(), message.into())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			Ok::<_, tg::Error>(())
+		};
+
+		futures::try_join!(store_future, messenger_future)?;
+
 		Ok(())
 	}
 }
