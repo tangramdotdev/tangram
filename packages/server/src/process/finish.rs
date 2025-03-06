@@ -51,7 +51,6 @@ impl Server {
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -76,14 +75,12 @@ impl Server {
 			return Err(tg::error!("failed to find the process"));
 		};
 
-		// Get a database connection.
+		// Get the children.
 		let connection = self
 			.database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Get the children.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -98,8 +95,6 @@ impl Server {
 			.query_all_value_into::<tg::process::Id>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the connection.
 		drop(connection);
 
 		// Cancel unfinished children.
@@ -140,20 +135,6 @@ impl Server {
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Remove the log from the database.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from process_logs
-				where process = {p}1;
-			"
-		);
-		let params = db::params![id];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Add the output's children to the process objects.
 		let objects = output

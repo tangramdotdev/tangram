@@ -203,10 +203,10 @@ impl Server {
 					// Prepare a statement for the object children
 					let children_statement = indoc!(
 						"
-								insert into object_children (object, child)
-								values (?1, ?2)
-								on conflict (object, child) do nothing;
-							"
+							insert into object_children (object, child)
+							values (?1, ?2)
+							on conflict (object, child) do nothing;
+						"
 					);
 					let mut children_statement = transaction
 						.prepare_cached(children_statement)
@@ -215,10 +215,10 @@ impl Server {
 					// Prepare a statement for the objects.
 					let objects_statement = indoc!(
 						"
-								insert into objects (id, size, touched_at)
-								values (?1, ?2, ?3)
-								on conflict (id) do update set touched_at = ?3;
-							"
+							insert into objects (id, size, touched_at)
+							values (?1, ?2, ?3)
+							on conflict (id) do update set touched_at = ?3;
+						"
 					);
 					let mut objects_statement = transaction
 						.prepare_cached(objects_statement)
