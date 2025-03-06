@@ -71,7 +71,6 @@ async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) 
 		// Push the object.
 		let output = local_server
 			.tg()
-			.arg("object")
 			.arg("push")
 			.arg(id)
 			.output()
@@ -82,7 +81,6 @@ async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) 
 		// Confirm the object is on the remote and the same.
 		let local_object_output = local_server
 			.tg()
-			.arg("object")
 			.arg("get")
 			.arg(id)
 			.arg("--format")
@@ -96,7 +94,6 @@ async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) 
 		assert_success!(local_object_output);
 		let remote_object_output = remote_server
 			.tg()
-			.arg("object")
 			.arg("get")
 			.arg(id)
 			.arg("--format")

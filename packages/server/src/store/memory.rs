@@ -22,4 +22,10 @@ impl Memory {
 			self.put(id, bytes.clone());
 		}
 	}
+
+	pub fn delete_batch(&self, ids: &[tg::object::Id]) {
+		for id in ids {
+			self.0.remove(id);
+		}
+	}
 }

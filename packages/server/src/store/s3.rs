@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use tangram_client as tg;
+use time::format_description::well_known::Rfc2822;
 
 pub struct S3 {
 	credentials: Option<aws_credential_types::Credentials>,
@@ -110,6 +111,51 @@ impl S3 {
 		items
 			.iter()
 			.map(|(id, bytes)| self.put(id, bytes.clone()))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await
+	}
+
+	pub async fn delete(&self, id: &tg::object::Id) -> tg::Result<()> {
+		let _permit = self.semaphore.acquire().await;
+		let method = reqwest::Method::DELETE;
+		let url = tangram_uri::Reference::parse(self.config.url.as_str()).unwrap();
+		let authority = url.authority().ok_or_else(|| tg::error!("invalid url"))?;
+		let bucket = &self.config.bucket;
+		let url = url
+			.to_builder()
+			.authority(format!("{bucket}.{authority}"))
+			.path(format!("/{id}"))
+			.build()
+			.unwrap();
+		let if_unmodified_since = (time::OffsetDateTime::now_utc() - time::Duration::hours(1))
+			.format(&Rfc2822)
+			.unwrap();
+		let request = self
+			.reqwest
+			.request(method, url.as_str())
+			.header(http::header::IF_UNMODIFIED_SINCE, if_unmodified_since)
+			.build()
+			.unwrap();
+		let request = self.sign_request(request)?;
+		let response = self
+			.reqwest
+			.execute(request)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		if !response.status().is_success() {
+			let text = response
+				.text()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read the response body"))?;
+			return Err(tg::error!(%text, "the request failed"));
+		}
+		Ok(())
+	}
+
+	pub async fn delete_batch(&self, ids: &[tg::object::Id]) -> tg::Result<()> {
+		ids.iter()
+			.map(|id| self.delete(id))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await

@@ -6001,6 +6001,7 @@ dependencies = [
  "filetime",
  "fnv",
  "foundationdb",
+ "foundationdb-tuple",
  "futures",
  "glob",
  "heed",

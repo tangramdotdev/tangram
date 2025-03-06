@@ -86,4 +86,23 @@ impl Store {
 		}
 		Ok(())
 	}
+
+	pub async fn delete_batch(&self, ids: &[tg::object::Id]) -> tg::Result<()> {
+		match self {
+			Self::Memory(memory) => {
+				memory.delete_batch(ids);
+			},
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => {
+				fdb.delete_batch(ids).await?;
+			},
+			Self::Lmdb(lmdb) => {
+				lmdb.delete_batch(ids).await?;
+			},
+			Self::S3(s3) => {
+				s3.delete_batch(ids).await?;
+			},
+		}
+		Ok(())
+	}
 }
