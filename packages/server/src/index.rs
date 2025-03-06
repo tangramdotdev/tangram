@@ -3,7 +3,11 @@ use async_nats as nats;
 use futures::{Stream, StreamExt as _, TryStreamExt, future, stream};
 use indoc::{formatdoc, indoc};
 use num::ToPrimitive as _;
-use std::{collections::BTreeSet, pin::pin, time::Duration};
+use std::{
+	collections::{BTreeSet, HashMap},
+	pin::pin,
+	time::Duration,
+};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
@@ -283,15 +287,6 @@ impl Server {
 		messages: Vec<(Message, Option<Acker>)>,
 		database: &db::postgres::Database,
 	) -> tg::Result<()> {
-		// Store the indices of the unique messages.
-		let mut unique_indices = std::collections::HashMap::new();
-		for (i, (message, _)) in messages.iter().enumerate() {
-			unique_indices.entry(message.id.clone()).or_insert(i);
-		}
-
-		// Get list of unique message indices
-		let unique_indices: Vec<_> = unique_indices.values().copied().collect();
-
 		// Get a database connection.
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
@@ -302,10 +297,12 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		for unique_chunk in unique_indices.chunks(128) {
-			// Get the actual messages for this chunk.
-			let messages: Vec<&(Message, Option<Acker>)> =
-				unique_chunk.iter().map(|&idx| &messages[idx]).collect();
+		for messages in messages.chunks(128) {
+			// Get the unique messages.
+			let unique_messages: HashMap<&tg::object::Id, &Message, fnv::FnvBuildHasher> = messages
+				.iter()
+				.map(|(message, _)| (&message.id, message))
+				.collect();
 
 			// Begin a transaction.
 			let transaction = connection
@@ -332,25 +329,24 @@ impl Server {
 					select 1;
 				"
 			);
-			let ids = messages
-				.iter()
-				.map(|(message, _)| message.id.to_string())
+			let ids = unique_messages
+				.values()
+				.map(|message| message.id.to_string())
 				.collect::<Vec<_>>();
-			let children = messages
-				.iter()
-				.flat_map(|(message, _)| message.children.iter().map(ToString::to_string))
+			let children = unique_messages
+				.values()
+				.flat_map(|message| message.children.iter().map(ToString::to_string))
 				.collect::<Vec<_>>();
-			let parent_indices = messages
-				.iter()
-				.map(|(message, _)| message)
+			let parent_indices = unique_messages
+				.values()
 				.enumerate()
 				.flat_map(|(index, message)| {
 					std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
 				})
 				.collect::<Vec<_>>();
-			let size = messages
-				.iter()
-				.map(|(message, _)| message.size.to_i64().unwrap())
+			let size = unique_messages
+				.values()
+				.map(|message| message.size.to_i64().unwrap())
 				.collect::<Vec<_>>();
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 			transaction
@@ -397,7 +393,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-			// Acknowledge the messages, including dropped duplicates.
+			// Acknowledge the messages.
 			future::try_join_all(
 				messages
 					.iter()

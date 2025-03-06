@@ -291,6 +291,20 @@ impl Server {
 				Messenger::Right(tangram_messenger::nats::Messenger::new(client))
 			},
 		};
+		if let Either::Right(messenger) = messenger.as_ref() {
+			let stream_config = async_nats::jetstream::stream::Config {
+				name: "index".to_string(),
+				max_messages: i64::MAX,
+				..Default::default()
+			};
+			messenger
+				.jetstream
+				.get_or_create_stream(stream_config)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to ensure the index stream exists")
+				})?;
+		}
 
 		// Create the pipes.
 		let pipes = DashMap::default();
