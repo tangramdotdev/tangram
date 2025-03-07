@@ -574,9 +574,9 @@ impl Provider {
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
-					insert into nodes (id, parent, name, artifact, depth)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5)
-				"
+						insert into nodes (id, parent, name, artifact, depth)
+						values ({p}1, {p}2, {p}3, {p}4, {p}5)
+					"
 				);
 				let params = db::params![id, parent, name, artifact, depth];
 				if let Err(error) = connection.execute(statement.into(), params).await {

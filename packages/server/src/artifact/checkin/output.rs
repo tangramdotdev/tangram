@@ -3,7 +3,7 @@ use super::{
 	object::{self, Metadata},
 };
 use crate::{Server, blob::create::Blob, temp::Temp};
-use futures::{FutureExt, StreamExt, TryStreamExt as _, stream::FuturesUnordered};
+use futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered};
 use indoc::indoc;
 use itertools::Itertools as _;
 use num::ToPrimitive;
@@ -15,7 +15,7 @@ use std::{
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
-use tangram_database::{self as db, Transaction, prelude::*};
+use tangram_database::prelude::*;
 use tangram_either::Either;
 use time::format_description::well_known::Rfc3339;
 use tokio::task::JoinSet;
@@ -196,6 +196,7 @@ impl Server {
 		&self,
 		output: Arc<Graph>,
 		object: Arc<object::Graph>,
+		touched_at: i64,
 	) -> tg::Result<()> {
 		let mut batch = Vec::new();
 
@@ -233,8 +234,12 @@ impl Server {
 			stack.extend(output.edges.iter().map(|edge| edge.node));
 		}
 
+		let arg = crate::store::PutBatchArg {
+			objects: batch,
+			touched_at,
+		};
 		self.store
-			.put_batch(&batch)
+			.put_batch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
 
@@ -245,6 +250,7 @@ impl Server {
 		&self,
 		output: Arc<Graph>,
 		object: Arc<object::Graph>,
+		touched_at: i64,
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = self
@@ -288,7 +294,7 @@ impl Server {
 							// Write the blob if the object has one.
 							if let Some(blob) = &output.blob {
 								Self::insert_blob_sqlite(blob, transaction)?;
-								Self::insert_blob_objects_sqlite(blob, transaction)?;
+								Self::insert_blob_objects_sqlite(blob, transaction, touched_at)?;
 							}
 
 							// Write the object.
@@ -306,42 +312,8 @@ impl Server {
 					})
 					.await?;
 			},
-			Either::Right(transaction) => {
-				// Write graphs.
-				for (id, (data, metadata)) in &object.graphs {
-					write_object_postgres(
-						transaction,
-						&id.clone().into(),
-						&data.clone().into(),
-						metadata,
-					)
-					.await?;
-				}
-
-				// Get the output in reverse-topological order.
-				let mut stack = vec![0];
-				let mut visited = vec![false; output.nodes.len()];
-				while let Some(output_index) = stack.pop() {
-					// Check if we've visited this node yet.
-					if visited[output_index] {
-						continue;
-					}
-					visited[output_index] = true;
-
-					// Get the output data.
-					let output = &output.nodes[output_index];
-
-					// Write the object.
-					write_object_postgres(
-						transaction,
-						&output.id.clone().into(),
-						&output.data.clone().into(),
-						&output.metadata,
-					)
-					.await?;
-
-					stack.extend(output.edges.iter().map(|edge| edge.node));
-				}
+			Either::Right(_) => {
+				return Err(tg::error!("unimplemented"));
 			},
 		}
 
@@ -863,67 +835,5 @@ fn write_object_sqlite(
 			.execute(params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 	}
-	Ok(())
-}
-
-async fn write_object_postgres(
-	transaction: &db::postgres::Transaction<'_>,
-	id: &tg::object::Id,
-	data: &tg::object::Data,
-	metadata: &Metadata,
-) -> tg::Result<()> {
-	let statement = indoc!(
-		"
-			insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
-			values ($1, $2, $3, $4, $5, $6, $7, $8)
-			on conflict (id) do update set touched_at = $7;
-		"
-	);
-	let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-	let bytes = data.serialize()?;
-	let size = bytes.len().to_u64().unwrap();
-	let params = db::params![
-		id,
-		metadata.complete,
-		metadata.count,
-		metadata.depth,
-		0,
-		size,
-		now,
-		metadata.weight,
-	];
-	transaction
-		.execute(statement.into(), params)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to put the artifact into the database"))?;
-	data.children()
-		.iter()
-		.map(|child| {
-			let id = id.clone();
-			let transaction = &transaction;
-			async move {
-				let statement = indoc!(
-					"
-						insert into object_children (object, child)
-						values ($1, $2)
-						on conflict (object, child) do nothing;
-					"
-				);
-				let params = db::params![id, child];
-				transaction
-					.execute(statement.into(), params)
-					.await
-					.map_err(|source| {
-						tg::error!(
-							!source,
-							"failed to put the object children into the database"
-						)
-					})
-					.ok()
-			}
-		})
-		.collect::<FuturesUnordered<_>>()
-		.collect::<Vec<_>>()
-		.await;
 	Ok(())
 }

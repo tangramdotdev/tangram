@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use foundationdb_tuple::TuplePack as _;
 use heed as lmdb;
+use num::ToPrimitive;
 use tangram_client as tg;
 
 pub struct Lmdb {
@@ -17,7 +18,9 @@ enum Message {
 
 struct Delete {
 	ids: Vec<tg::object::Id>,
+	now: i64,
 	response_sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
+	ttl: u64,
 }
 
 struct Put {
@@ -93,10 +96,10 @@ impl Lmdb {
 		Ok(bytes)
 	}
 
-	pub async fn put(&self, id: &tangram_client::object::Id, bytes: Bytes) -> tg::Result<()> {
+	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = Message::Put(Put {
-			items: vec![(id.clone(), bytes)],
+			items: vec![(arg.id, arg.bytes)],
 			response_sender: sender,
 		});
 		self.sender
@@ -109,13 +112,13 @@ impl Lmdb {
 		Ok(())
 	}
 
-	pub async fn put_batch(&self, items: &[(tg::object::Id, Bytes)]) -> tg::Result<()> {
-		if items.is_empty() {
+	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
+		if arg.objects.is_empty() {
 			return Ok(());
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = Message::Put(Put {
-			items: items.to_owned(),
+			items: arg.objects.clone(),
 			response_sender: sender,
 		});
 		self.sender
@@ -128,13 +131,15 @@ impl Lmdb {
 		Ok(())
 	}
 
-	pub async fn delete_batch(&self, ids: &[tg::object::Id]) -> tg::Result<()> {
-		if ids.is_empty() {
+	pub async fn delete_batch(&self, arg: super::DeleteBatchArg) -> tg::Result<()> {
+		if arg.ids.is_empty() {
 			return Ok(());
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = Message::Delete(Delete {
-			ids: ids.to_owned(),
+			ids: arg.ids,
+			now: arg.now,
+			ttl: arg.ttl,
 			response_sender: sender,
 		});
 		self.sender
@@ -172,10 +177,7 @@ impl Lmdb {
 								.try_into()
 								.map_err(|source| tg::error!(!source, "invalid touch time"))?;
 							let touched_at = i64::from_le_bytes(touched_at);
-							let touched_at = time::OffsetDateTime::from_unix_timestamp(touched_at)
-								.map_err(|source| tg::error!(!source, "invalid touch time"))?;
-							let now = time::OffsetDateTime::now_utc();
-							if now - touched_at > time::Duration::hours(1) {
+							if message.now - touched_at > message.ttl.to_i64().unwrap() {
 								let key = (0, id.to_bytes(), 0);
 								db.delete(&mut transaction, &key.pack_to_vec()).map_err(
 									|source| tg::error!(!source, "failed to delete the object"),

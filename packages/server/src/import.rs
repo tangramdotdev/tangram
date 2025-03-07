@@ -440,10 +440,16 @@ impl Server {
 		progress: &Arc<Progress>,
 	) {
 		while let Ok(batch) = batch_receiver.recv().await {
+			let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+
 			// Create the store future.
 			let store_future = {
 				async {
-					self.store.put_batch(&batch).await?;
+					let arg = crate::store::PutBatchArg {
+						objects: batch.clone(),
+						touched_at,
+					};
+					self.store.put_batch(arg).await?;
 					Ok::<_, tg::Error>(())
 				}
 			};

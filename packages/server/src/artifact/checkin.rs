@@ -125,13 +125,14 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to copy the blobs"))?;
 
 		// Write the output to the database and the store.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		futures::try_join!(
-			self.write_output_to_database(output_graph.clone(), object_graph.clone())
+			self.write_output_to_database(output_graph.clone(), object_graph.clone(), touched_at)
 				.map_err(|source| tg::error!(
 					!source,
 					"failed to write the objects to the database"
 				)),
-			self.write_output_to_store(output_graph.clone(), object_graph.clone())
+			self.write_output_to_store(output_graph.clone(), object_graph.clone(), touched_at)
 				.map_err(|source| tg::error!(!source, "failed to store the objects"))
 		)?;
 

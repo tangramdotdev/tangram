@@ -175,6 +175,17 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				);
 			end;
 
+			create trigger objects_delete_trigger
+			after delete on objects
+			for each row
+			begin
+				delete from object_children
+				where object = old.id;
+
+				delete from blob_references
+				where id = old.id;
+			end;
+
 			create table object_children (
 				object text not null,
 				child text not null
@@ -257,6 +268,20 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					(select count(*) from tags where item = new.id)
 				)
 				where id = new.id;
+			end;
+
+			create trigger processes_delete_trigger
+			after delete on processes
+			for each row
+			begin
+				delete from process_children
+				where process = old.id;
+
+				delete from process_logs
+				where process = old.id;
+
+				delete from process_objects
+				where process = old.id;
 			end;
 
 			create table process_children (

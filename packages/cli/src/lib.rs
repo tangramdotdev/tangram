@@ -583,6 +583,31 @@ impl Cli {
 			},
 		}
 
+		// Set the cleaner config.
+		match self
+			.config
+			.as_ref()
+			.and_then(|config| config.cleaner.clone())
+		{
+			None => (),
+			Some(Either::Left(false)) => {
+				config.cleaner = None;
+			},
+			Some(Either::Left(true)) => {
+				config.cleaner = Some(tangram_server::config::Cleaner::default());
+			},
+			Some(Either::Right(cleaner)) => {
+				let mut cleaner_ = config.cleaner.unwrap_or_default();
+				if let Some(batch_size) = cleaner.batch_size {
+					cleaner_.batch_size = batch_size;
+				}
+				if let Some(ttl) = cleaner.ttl {
+					cleaner_.ttl = ttl;
+				}
+				config.cleaner = Some(cleaner_);
+			},
+		}
+
 		// Set the database config.
 		if let Some(database) = self
 			.config
