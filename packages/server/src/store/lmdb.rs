@@ -25,6 +25,7 @@ struct Delete {
 
 struct Put {
 	items: Vec<(tg::object::Id, Bytes)>,
+	touched_at: i64,
 	response_sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 
@@ -100,6 +101,7 @@ impl Lmdb {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = Message::Put(Put {
 			items: vec![(arg.id, arg.bytes)],
+			touched_at: arg.touched_at,
 			response_sender: sender,
 		});
 		self.sender
@@ -119,6 +121,7 @@ impl Lmdb {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = Message::Put(Put {
 			items: arg.objects.clone(),
+			touched_at: arg.touched_at,
 			response_sender: sender,
 		});
 		self.sender
@@ -168,7 +171,7 @@ impl Lmdb {
 							let key = (0, id.to_bytes(), 1);
 							let Some(touched_at) =
 								db.get(&transaction, &key.pack_to_vec()).map_err(|source| {
-									tg::error!(!source, "failed to get The touch time")
+									tg::error!(!source, "failed to get the touch time")
 								})?
 							else {
 								continue;
@@ -204,6 +207,10 @@ impl Lmdb {
 						for (id, bytes) in message.items {
 							let key = (0, id.to_bytes(), 0);
 							db.put(&mut transaction, &key.pack_to_vec(), &bytes)
+								.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+							let key = (0, id.to_bytes(), 1);
+							let touched_at = message.touched_at.to_le_bytes();
+							db.put(&mut transaction, &key.pack_to_vec(), &touched_at)
 								.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 						}
 						transaction.commit().map_err(|source| {
