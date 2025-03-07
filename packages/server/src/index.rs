@@ -1,7 +1,7 @@
 use crate::Server;
 use async_nats as nats;
 use futures::{Stream, StreamExt as _, TryStreamExt, future, stream};
-use indoc::{formatdoc, indoc};
+use indoc::indoc;
 use num::ToPrimitive as _;
 use std::{
 	collections::{BTreeSet, HashMap},
@@ -34,14 +34,6 @@ impl Server {
 		let mut stream = pin!(stream);
 
 		loop {
-			// Update complete objects until there are no more updates.
-			loop {
-				let updated = self.indexer_task_update_complete_objects(config).await?;
-				if updated == 0 {
-					break;
-				}
-			}
-
 			// Get a batch of messages.
 			let result = stream.try_next().await;
 			let messages = match result {
@@ -350,16 +342,13 @@ impl Server {
 				.collect::<Vec<_>>();
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 			transaction
-				.execute(
-					statement,
-					&[
-						&ids.as_slice(),
-						&children.as_slice(),
-						&parent_indices.as_slice(),
-						&size.as_slice(),
-						&now,
-					],
-				)
+				.execute(statement, &[
+					&ids.as_slice(),
+					&children.as_slice(),
+					&parent_indices.as_slice(),
+					&size.as_slice(),
+					&now,
+				])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -404,63 +393,5 @@ impl Server {
 		}
 
 		Ok(())
-	}
-
-	async fn indexer_task_update_complete_objects(
-		&self,
-		config: &crate::config::Indexer,
-	) -> tg::Result<u64> {
-		let options = db::ConnectionOptions {
-			kind: db::ConnectionKind::Write,
-			priority: db::Priority::Low,
-		};
-		let connection = self
-			.database
-			.connection_with_options(options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let locked = match connection {
-			Either::Left(_) => "",
-			Either::Right(_) => "for update skip locked",
-		};
-		let statement = formatdoc!(
-			"
-				with update_objects as (
-					select id, size
-					from objects
-					where objects.complete = 0 and objects.incomplete_children = 0
-					{locked}
-				),
-				updates as (
-					select
-						update_objects.id as id,
-						coalesce(min(child_objects.complete), 1) as complete,
-						1 + coalesce(sum(child_objects.count), 0) as count,
-						1 + coalesce(max(child_objects.depth), 0) as depth,
-						update_objects.size + coalesce(sum(child_objects.weight), 0) as weight
-					from update_objects
-					left join object_children on object_children.object = update_objects.id
-					left join objects child_objects on child_objects.id = object_children.child
-					group by update_objects.id, update_objects.size
-					limit {p}1
-				)
-				update objects
-				set
-					complete = updates.complete,
-					count = updates.count,
-					depth = updates.depth,
-					weight = updates.weight
-				from updates
-				where objects.id = updates.id;
-			"
-		);
-		let batch_size = config.update_complete_batch_size;
-		let params = db::params![batch_size];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		Ok(n)
 	}
 }

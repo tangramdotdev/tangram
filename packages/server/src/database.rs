@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use futures::FutureExt as _;
-use indoc::indoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _};
 use tangram_either::Either;
@@ -85,8 +84,7 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 }
 
 async fn migration_0000(database: &Database) -> tg::Result<()> {
-	let sql = indoc!(
-		r#"
+	let sql = r#"
 			create table blobs (
 				id text primary key,
 				reference_count integer
@@ -132,6 +130,58 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index objects_complete_incomplete_children_index on objects ((1)) where complete = 0 and incomplete_children = 0;
 
 			create index objects_reference_count_zero_index on objects (touched_at) where reference_count = 0;
+
+			create trigger index_objects_insert_trigger
+			after insert on objects
+			when new.complete = 0 and new.incomplete_children = 0
+			begin
+				update objects
+				set
+					complete = updates.complete,
+					count = updates.count,
+					depth = updates.depth,
+					weight = updates.weight
+				from (
+					select
+						objects.id,
+						coalesce(min(child_objects.complete), 1) as complete,
+						1 + coalesce(sum(child_objects.count), 0) as count,
+						1 + coalesce(max(child_objects.depth), 0) as depth,
+						objects.size + coalesce(sum(child_objects.weight), 0) as weight
+					from objects
+					left join object_children on object_children.object = objects.id
+					left join objects as child_objects on child_objects.id = object_children.child
+					where objects.id = new.id 
+					group by objects.id, objects.size
+				) as updates
+				where objects.id = updates.id;
+			end;
+
+			create trigger index_objects_update_trigger
+			after update of complete, incomplete_children on objects
+			when new.complete = 0 and new.incomplete_children = 0
+			begin
+				update objects
+				set
+					complete = updates.complete,
+					count = updates.count,
+					depth = updates.depth,
+					weight = updates.weight
+				from (
+					select
+						objects.id,
+						coalesce(min(child_objects.complete), 1) as complete,
+						1 + coalesce(sum(child_objects.count), 0) as count,
+						1 + coalesce(max(child_objects.depth), 0) as depth,
+						objects.size + coalesce(sum(child_objects.weight), 0) as weight
+					from objects
+					left join object_children on object_children.object = objects.id
+					left join objects as child_objects on child_objects.id = object_children.child
+					where objects.id = new.id 
+					group by objects.id, objects.size
+				) as updates
+				where objects.id = updates.id;
+			end;
 
 			create trigger objects_set_reference_count_trigger
 			after insert on objects
@@ -388,8 +438,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				id text primary key,
 				"user" text not null
 			);
-		"#
-	);
+		"#;
 	let database = database.as_ref().unwrap_left();
 	let connection = database
 		.write_connection()
