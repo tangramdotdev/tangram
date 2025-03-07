@@ -79,11 +79,13 @@ impl Server {
 		writer: &tg::pipe::Id,
 	) -> tg::Result<()> {
 		messenger
-			.create_subject(format!("pipes.{reader}"))
+			.streams()
+			.create_stream(reader.to_string())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
 		messenger
-			.create_subject(format!("pipes.{writer}"))
+			.streams()
+			.create_stream(writer.to_string())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
 		Ok(())

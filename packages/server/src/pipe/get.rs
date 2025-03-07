@@ -79,7 +79,7 @@ impl Server {
 		id: &tg::pipe::Id,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
 		let stream = messenger
-			.subscribe(format!("pipes.{id}"), None)
+			.subscribe(id.to_string(), None)
 			.await
 			.map_err(|source| tg::error!(!source, "the pipe was closed or does not exist"))?
 			.map(|message| {

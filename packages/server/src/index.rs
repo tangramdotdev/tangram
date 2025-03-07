@@ -82,7 +82,8 @@ impl Server {
 		messenger: &tangram_messenger::memory::Messenger,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Option<Acker>)>>>> {
 		messenger
-			.create_subject("index".into())
+			.streams()
+			.create_stream("index".into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the subject"))?;
 		let stream = messenger

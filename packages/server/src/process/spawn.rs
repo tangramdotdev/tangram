@@ -351,16 +351,6 @@ impl Server {
 			}
 		}
 
-		// Create subjects for this process.
-		if let Either::Left(messenger) = &self.messenger {
-			for subject in ["status", "log", "children"] {
-				messenger
-					.create_subject(format!("processes.{id}.{subject}"))
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create message channel"))?;
-			}
-		}
-
 		// Publish the message.
 		tokio::spawn({
 			let server = self.clone();

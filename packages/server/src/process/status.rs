@@ -39,7 +39,6 @@ impl Server {
 		}
 
 		// Subscribe to status events.
-		eprintln!("subscribe to status: {id}");
 		let subject = format!("processes.{id}.status");
 		let status = self
 			.messenger
