@@ -575,10 +575,11 @@ impl Provider {
 			let pending_nodes = self.pending_nodes.clone();
 			let name = name.to_owned();
 			async move {
-				let connection = database.write_connection().await.map_err(|error| {
+				let Ok(connection) = database.write_connection().await.map_err(|error| {
 					tracing::error!(%error, "failed to get database a connection");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
+				}) else {
+					return;
+				};
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
