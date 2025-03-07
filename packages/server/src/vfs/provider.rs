@@ -22,7 +22,7 @@ pub struct Provider {
 	node_cache: moka::sync::Cache<u64, Node, fnv::FnvBuildHasher>,
 	node_count: AtomicU64,
 	file_handle_count: AtomicU64,
-	database: db::sqlite::Database,
+	database: Arc<db::sqlite::Database>,
 	directory_handles: DashMap<u64, DirectoryHandle, fnv::FnvBuildHasher>,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	pending_nodes: Arc<DashMap<u64, Node, fnv::FnvBuildHasher>>,
@@ -143,7 +143,13 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
+		// Lookup the parent in the cache.
 		if let Some(node) = self.node_cache.get(&id) {
+			return Ok(node.parent);
+		}
+
+		// Lookup the node in the pending nodes.
+		if let Some(node) = self.pending_nodes.get(&id) {
 			return Ok(node.parent);
 		}
 
@@ -416,6 +422,7 @@ impl Provider {
 		let database = db::sqlite::Database::new(database_options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create database"))?;
+		let database = Arc::new(database);
 		let connection = database
 			.write_connection()
 			.await
@@ -430,7 +437,7 @@ impl Provider {
 					depth integer not null
 				);
 
-				create index node_parent_name_index on nodes (id, parent);
+				create index node_parent_name_index on nodes (parent, name);
 			"
 		);
 		connection
@@ -564,19 +571,20 @@ impl Provider {
 
 		// Insert the node.
 		tokio::spawn({
-			let connection = self.database.write_connection().await.map_err(|error| {
-				tracing::error!(%error, "failed to get database a connection");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+			let database = self.database.clone();
 			let pending_nodes = self.pending_nodes.clone();
 			let name = name.to_owned();
 			async move {
+				let connection = database.write_connection().await.map_err(|error| {
+					tracing::error!(%error, "failed to get database a connection");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
-					insert into nodes (id, parent, name, artifact, depth)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5)
-				"
+						insert into nodes (id, parent, name, artifact, depth)
+						values ({p}1, {p}2, {p}3, {p}4, {p}5)
+					"
 				);
 				let params = db::params![id, parent, name, artifact, depth];
 				if let Err(error) = connection.execute(statement.into(), params).await {
