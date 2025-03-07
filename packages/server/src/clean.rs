@@ -59,21 +59,16 @@ impl Server {
 
 	async fn cleaner_task_inner(&self, config: &crate::config::Cleaner) -> tg::Result<InnerOutput> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let mut connection = self
+
+		// Get a database connection.
+		let connection = self
 			.database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let config = config.clone();
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Delete processes.
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				delete from processes
@@ -91,12 +86,13 @@ impl Server {
 				.format(&Rfc3339)
 				.unwrap();
 		let params = db::params![max_touched_at, config.batch_size];
-		let processes = transaction
+		let processes = connection
 			.query_all_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
-		// Get objects to remove.
+		// Delete objects.
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				delete from objects
@@ -114,41 +110,37 @@ impl Server {
 				.format(&Rfc3339)
 				.unwrap();
 		let params = db::params![max_touched_at, config.batch_size];
-		let objects = transaction
+		let objects = connection
 			.query_all_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 
-		// Get blobs to remove.
+		// Delete blobs.
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				delete from blobs
 				where id in (
-					select id from blobs where reference_count = 0
+					select id from blobs
+					where reference_count = 0
 					limit {p}1
 				)
 				returning id;
 			"
 		);
 		let params = db::params![config.batch_size];
-		let blobs = transaction
+		let blobs = connection
 			.query_all_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 
-		let output = InnerOutput {
-			processes,
-			objects,
-			blobs,
-		};
-
 		let arg = crate::store::DeleteBatchArg {
-			ids: output.objects.clone(),
+			ids: objects.clone(),
 			now,
 			ttl: config.ttl.as_secs(),
 		};
 		self.store.delete_batch(arg).await?;
-		future::try_join_all(output.blobs.iter().map(|blob| async {
+		future::try_join_all(blobs.iter().map(|blob: &tg::blob::Id| async {
 			let path = self.blobs_path().join(blob.to_string());
 			tokio::fs::remove_file(&path)
 				.await
@@ -157,11 +149,11 @@ impl Server {
 		}))
 		.await?;
 
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		let output = InnerOutput {
+			processes,
+			objects,
+			blobs,
+		};
 
 		Ok(output)
 	}
