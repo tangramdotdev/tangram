@@ -41,6 +41,7 @@ impl Drop for Temp {
 			tokio::spawn({
 				let server = self.server.clone();
 				let path = self.path.clone();
+				eprintln!("removing {path:?}");
 				async move {
 					remove(&path).await.ok();
 					server.temp_paths.remove(&path);

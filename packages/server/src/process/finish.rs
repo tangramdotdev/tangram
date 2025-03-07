@@ -15,6 +15,8 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> tg::Result<tg::process::finish::Output> {
+		eprintln!("finish: {id} {arg:?}");
+
 		// If the remote arg is set, then forward the request.
 		let remote = arg.remote.as_ref();
 		if let Some(remote) = remote {

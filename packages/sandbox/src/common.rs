@@ -131,7 +131,7 @@ macro_rules! abort {
 	($($t:tt)*) => {{
 		eprintln!("an error occurred in the guest process");
 		eprintln!("{}", format_args!($($t)*));
-		std::process::exit(1)
+		std::process::exit(105)
 	}};
 }
 
@@ -144,7 +144,7 @@ macro_rules! abort_errno {
 		eprintln!("an error occurred in the guest process");
 		eprintln!("{}", format_args!($($t)*));
 		eprintln!("{}", std::io::Error::last_os_error());
-		std::process::exit(1)
+		std::process::exit(std::io::Error::last_os_error().raw_os_error().unwrap_or(1));
 	}};
 }
 

@@ -260,9 +260,9 @@ impl Runtime {
 		cmd_.args(args);
 		cmd_.cwd(cwd);
 
-		if let Some(chroot) = chroot {
+		if let Some(chroot) = &chroot {
 			cmd_.chroot(&chroot.root);
-			cmd_.mounts(chroot.mounts);
+			cmd_.mounts(chroot.mounts.clone());
 		}
 
 		cmd_.stdin(sandbox::Stdio::Piped);
@@ -386,6 +386,9 @@ impl Runtime {
 		} else {
 			None
 		};
+
+		// Drop the chroot.
+		drop(chroot);
 
 		Ok((Some(exit), output))
 	}

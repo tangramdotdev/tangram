@@ -55,6 +55,7 @@ pub struct Path {
 	pub readonly: bool,
 }
 
+#[derive(Clone, Debug)]
 pub struct Mount {
 	pub source: PathBuf,
 	pub target: PathBuf,

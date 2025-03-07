@@ -15,6 +15,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		eprintln!("put process: {id}");
 		match &self.database {
 			Either::Left(database) => Self::put_process_sqlite(database, id, arg).await,
 			Either::Right(database) => Self::put_process_postgres(database, id, arg).await,
@@ -40,6 +41,7 @@ impl Server {
 		let transaction = Arc::new(transaction);
 
 		// Insert the process.
+		eprintln!("inserting {id} (sqlite)");
 		let statement = indoc!(
 			"
 				insert into processes (
@@ -248,6 +250,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Insert the process.
+		eprintln!("inserting {id} (postgres)");
 		let statement = indoc!(
 			"
 				insert into processes (

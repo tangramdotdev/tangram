@@ -356,6 +356,7 @@ fn chunk_stream_from_reader(
 			return Ok(None);
 		}
 		let chunk = Bytes::copy_from_slice(&buffer[0..size]);
+		eprintln!("chunk: {chunk:?}");
 		let event = tg::pipe::Event::Chunk(chunk);
 		Ok(Some((event, (reader, buffer))))
 	})
