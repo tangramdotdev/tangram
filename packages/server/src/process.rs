@@ -31,18 +31,17 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select count(*)
+				select count(*) != 0
 				from processes
 				where id = {p}1;
 			"
 		);
 		let params = db::params![id];
 		let exists = connection
-			.query_one_value_into::<i64>(statement.into(), params)
+			.query_one_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let exists = exists != 0;
-		eprintln!("exists: {exists}");
+
 		// Drop the database connection.
 		drop(connection);
 

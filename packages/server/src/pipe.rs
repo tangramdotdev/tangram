@@ -159,16 +159,22 @@ impl Server {
 			reader,
 			writer,
 			writer_count,
-			..
+			reader_count,
 		} = connection
 			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
 
+		eprintln!(
+			"release: {}.{} {}.{}",
+			reader, reader_count, writer, writer_count
+		);
+
 		// When the writer count drops to zero, close the pipes.
 		if writer_count == 0 {
 			match &self.messenger {
 				Either::Left(messenger) => {
+					eprintln!("releasing pipes: {reader} {writer}");
 					self.close_pipe_in_memory(messenger, &reader, &writer)
 						.await?
 				},

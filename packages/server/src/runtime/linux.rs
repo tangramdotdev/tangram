@@ -361,8 +361,10 @@ impl Runtime {
 		}
 
 		// stop the i/o task.
+		eprintln!("stopping i/o");
 		stdio_task.stop();
 		stdio_task.wait().await.unwrap().ok();
+		eprintln!("awaited io");
 
 		// Create the output.
 		let output = output_parent.path().join("output");

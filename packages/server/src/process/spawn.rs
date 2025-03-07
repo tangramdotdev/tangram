@@ -237,10 +237,15 @@ impl Server {
 		}
 
 		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
+		let sandboxed = arg.cwd.is_none()
+			&& arg.env.is_none()
+			&& !arg.network
+			&& arg.stdin.is_none()
+			&& arg.stdout.is_none()
+			&& arg.stderr.is_none();
 
 		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some() || sandboxed || arg.stdin.is_none();
+		let cacheable = arg.checksum.is_some() || sandboxed;
 
 		// Get the host.
 		let command = tg::Command::with_id(arg.command.clone().unwrap());
@@ -354,8 +359,6 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create message channel"))?;
 			}
-		} else {
-			eprintln!("skipping creating subjects: {id}");
 		}
 
 		// Publish the message.

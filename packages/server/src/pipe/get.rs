@@ -56,9 +56,11 @@ impl Server {
 		};
 
 		// Merge with the timer.
+		let id = id.clone();
 		let events = tokio::spawn(async move {
 			let mut stream = std::pin::pin!(stream);
 			while let Some(event) = stream.next().await {
+				eprintln!("{id}: {event:?}");
 				send.send(event).await.ok();
 			}
 		});
@@ -142,6 +144,7 @@ impl Server {
 	{
 		// Parse the ID.
 		let id = id.parse()?;
+		eprintln!("GET /pipes/{id}");
 
 		// Get the query.
 		let arg = request.query_params().transpose()?.unwrap_or_default();
