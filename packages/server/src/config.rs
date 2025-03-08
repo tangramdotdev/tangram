@@ -82,7 +82,6 @@ pub struct Indexer {
 	pub message_batch_size: usize,
 	pub message_batch_timeout: Duration,
 	pub insert_batch_size: usize,
-	pub update_complete_batch_size: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -229,7 +228,6 @@ impl Default for Indexer {
 			insert_batch_size: 128,
 			message_batch_size: 128,
 			message_batch_timeout: Duration::from_millis(100),
-			update_complete_batch_size: 128,
 		}
 	}
 }

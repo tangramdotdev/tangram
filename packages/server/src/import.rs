@@ -466,6 +466,7 @@ impl Server {
 								id: id.clone(),
 								size: bytes.len().to_u64().unwrap(),
 								children,
+								touched_at,
 							};
 							let message = serde_json::to_vec(&message).map_err(|source| {
 								tg::error!(!source, "failed to serialize the message")

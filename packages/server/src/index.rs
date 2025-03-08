@@ -19,6 +19,7 @@ pub(crate) struct Message {
 	pub(crate) id: tg::object::Id,
 	pub(crate) size: u64,
 	pub(crate) children: BTreeSet<tg::object::Id>,
+	pub(crate) touched_at: i64,
 }
 
 type Acker = nats::jetstream::message::Acker;
@@ -220,14 +221,16 @@ impl Server {
 						.prepare_cached(objects_statement)
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
-					// Get the current time.
-					let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-
 					// Execute inserts for each object in the batch.
 					for message in messages {
 						let id = message.id;
 						let size = message.size;
 						let children = message.children;
+						let touched_at =
+							time::OffsetDateTime::from_unix_timestamp(message.touched_at)
+								.unwrap()
+								.format(&Rfc3339)
+								.unwrap();
 
 						// Insert the children.
 						for child in children {
@@ -239,7 +242,7 @@ impl Server {
 						}
 
 						// Insert the object.
-						let params = rusqlite::params![&id.to_string(), size, now];
+						let params = rusqlite::params![&id.to_string(), size, touched_at];
 						objects_statement.execute(params).map_err(|source| {
 							tg::error!(!source, "failed to execute the statement")
 						})?;
@@ -342,13 +345,16 @@ impl Server {
 				.collect::<Vec<_>>();
 			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 			transaction
-				.execute(statement, &[
-					&ids.as_slice(),
-					&children.as_slice(),
-					&parent_indices.as_slice(),
-					&size.as_slice(),
-					&now,
-				])
+				.execute(
+					statement,
+					&[
+						&ids.as_slice(),
+						&children.as_slice(),
+						&parent_indices.as_slice(),
+						&size.as_slice(),
+						&now,
+					],
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 

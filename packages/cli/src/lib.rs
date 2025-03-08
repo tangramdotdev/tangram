@@ -686,9 +686,6 @@ impl Cli {
 				if let Some(insert_batch_size) = indexer.insert_batch_size {
 					indexer_.insert_batch_size = insert_batch_size;
 				}
-				if let Some(update_complete_batch_size) = indexer.update_complete_batch_size {
-					indexer_.update_complete_batch_size = update_complete_batch_size;
-				}
 				config.indexer = Some(indexer_);
 			},
 		}
