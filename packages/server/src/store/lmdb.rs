@@ -180,7 +180,7 @@ impl Lmdb {
 								.try_into()
 								.map_err(|source| tg::error!(!source, "invalid touch time"))?;
 							let touched_at = i64::from_le_bytes(touched_at);
-							if message.now - touched_at > message.ttl.to_i64().unwrap() {
+							if message.now - touched_at >= message.ttl.to_i64().unwrap() {
 								let key = (0, id.to_bytes(), 0);
 								db.delete(&mut transaction, &key.pack_to_vec()).map_err(
 									|source| tg::error!(!source, "failed to delete the object"),

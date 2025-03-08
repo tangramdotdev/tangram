@@ -108,7 +108,7 @@ impl Fdb {
 						fdb::FdbBindingError::new_custom_error("invalid touch time".into())
 					})?;
 					let touched_at = i64::from_le_bytes(touched_at);
-					if arg.now - touched_at > arg.ttl.to_i64().unwrap() {
+					if arg.now - touched_at >= arg.ttl.to_i64().unwrap() {
 						let subspace = fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes()));
 						transaction.clear_subspace_range(&subspace);
 					}
