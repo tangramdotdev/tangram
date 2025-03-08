@@ -115,7 +115,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "stream",
   "rustls-tls",
 ] }
-rusqlite = { version = "0.33", features = ["blob", "bundled"] }
+rusqlite = { version = "0.34", features = ["blob", "bundled"] }
 rustls = "0.23"
 scopeguard = "1"
 serde = { version = "1", features = ["rc", "derive"] }
