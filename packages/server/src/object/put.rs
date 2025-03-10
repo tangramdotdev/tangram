@@ -27,6 +27,7 @@ impl Server {
 				bytes: arg.bytes.clone(),
 				touched_at: now,
 			};
+			tracing::trace!(bytes_len = ?arg.bytes.len(), "arg");
 			self.store.put(arg).await?;
 			Ok::<_, tg::Error>(())
 		};

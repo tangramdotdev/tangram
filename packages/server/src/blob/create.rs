@@ -69,10 +69,12 @@ impl Server {
 		let database_future = async { self.insert_blob(&blob, touched_at).await };
 
 		// Create the store future.
-		let store_future = async { self.store_blob(&blob, touched_at).await };
+		// let store_future = async { self.store_blob(&blob, touched_at).await };
 
 		// Join the database and store futures.
-		futures::try_join!(database_future, store_future)?;
+		// futures::try_join!(store_future)?;
+		futures::try_join!(database_future)?;
+		// futures::try_join!(database_future, store_future)?;
 
 		// Create the output.
 		let output = tg::blob::create::Output {
@@ -184,15 +186,15 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
 				},
 				Some(Destination::Store { touched_at }) => {
-					let arg = crate::store::PutArg {
-						id: blob.id.clone().into(),
-						bytes: chunk.data.into(),
-						touched_at: *touched_at,
-					};
-					self.store
-						.put(arg)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
+					// let arg = crate::store::PutArg {
+					// 	id: blob.id.clone().into(),
+					// 	bytes: chunk.data.into(),
+					// 	touched_at: *touched_at,
+					// };
+					// self.store
+					// 	.put(arg)
+					// 	.await
+					// 	.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
 				},
 			}
 

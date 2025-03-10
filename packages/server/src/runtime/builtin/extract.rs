@@ -13,6 +13,7 @@ use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt
 
 impl Runtime {
 	pub async fn extract(&self, process: &tg::Process) -> tg::Result<tg::Value> {
+		let start = std::time::Instant::now();
 		let server = &self.server;
 		let command = process.command(server).await?;
 
@@ -114,6 +115,8 @@ impl Runtime {
 			remote: process.remote().cloned(),
 		};
 		server.try_post_process_log(process.id(), arg).await.ok();
+		let extract_complete = start.elapsed();
+		tracing::debug!(?extract_complete, "builtin extract elapsed");
 
 		Ok(artifact.into())
 	}
@@ -131,6 +134,7 @@ where
 	let mut iter = reader
 		.entries()
 		.map_err(|source| tg::error!(!source, "failed to get the entries from the archive"))?;
+	let loop_start = std::time::Instant::now();
 	while let Some(entry) = iter.next().await {
 		let entry = entry
 			.map_err(|source| tg::error!(!source, "failed to get the entry from the archive"))?;
@@ -181,13 +185,17 @@ where
 					.mode()
 					.map_err(|source| tg::error!(!source, "failed to read the entry mode"))?;
 				let executable = mode & 0o111 != 0;
+				// NOTE - writing empty blobs drops the loop from 84s to 4s.
 				let blob = tg::Blob::with_reader(server, entry).await?;
+				// let blob = tg::Blob::default();
 				let file = tg::File::builder(blob).executable(executable).build();
 				let artifact = tg::Artifact::File(file);
 				entries.push((path, artifact));
 			},
 		}
 	}
+	let loop_end = loop_start.elapsed();
+	tracing::debug!(?loop_end, "extract inner tar entry loop elapsed");
 
 	// Build the directory.
 	let mut builder = tg::directory::Builder::default();
