@@ -306,28 +306,16 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-			// Insert into the object children and objects tables.
-			let statement = indoc!(
-				"
-					with inserted_object_children as (
-						insert into object_children (object, child)
-						select ($1::text[])[object_index], child
-						from unnest($3::int8[], $2::text[]) as c (object_index, child)
-						on conflict (object, child) do nothing
-					),
-					inserted_objects as (
-						insert into objects (id, size, touched_at)
-						select id, size, $5
-						from unnest($1::text[], $4::int8[]) as t (id, size)
-						on conflict (id) do update set touched_at = $5
-					)
-					select 1;
-				"
-			);
+			// Insert into the objects and object_children tables.
 			let ids = unique_messages
 				.values()
 				.map(|message| message.id.to_string())
 				.collect::<Vec<_>>();
+			let size = unique_messages
+				.values()
+				.map(|message| message.size.to_i64().unwrap())
+				.collect::<Vec<_>>();
+			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 			let children = unique_messages
 				.values()
 				.flat_map(|message| message.children.iter().map(ToString::to_string))
@@ -339,48 +327,19 @@ impl Server {
 					std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
 				})
 				.collect::<Vec<_>>();
-			let size = unique_messages
-				.values()
-				.map(|message| message.size.to_i64().unwrap())
-				.collect::<Vec<_>>();
-			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 			transaction
 				.execute(
-					statement,
+					"CALL insert_objects_and_children($1::text[], $2::int8[], $3::text, $4::text[], $5::int8[])",
 					&[
 						&ids.as_slice(),
-						&children.as_slice(),
-						&parent_indices.as_slice(),
 						&size.as_slice(),
 						&now,
+						&children.as_slice(),
+						&parent_indices.as_slice(),
 					],
 				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Set reference counts and incomplete children.
-			let statement = indoc!(
-				"
-					update objects
-					set incomplete_children = (
-						select count(*)
-						from object_children
-						left join objects child_objects on child_objects.id = object_children.child
-						where object_children.object = t.id and (child_objects.complete is null or child_objects.complete = 0)
-					),
-					reference_count = (
-						(select count(*) from object_children where child = t.id) +
-						(select count(*) from process_objects where object = t.id) +
-						(select count(*) from tags where item = t.id)
-					)
-					from unnest($1::text[]) as t (id)
-					where objects.id = t.id;
-				"
-			);
-			transaction
-				.execute(statement, &[&ids.as_slice()])
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
 
 			// Commit the transaction.
 			transaction
