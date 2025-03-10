@@ -178,9 +178,9 @@ impl Reader {
 			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?;
 		let reader = if let Some(row) = row {
 			let blob_path = server.blobs_path().join(row.blob.to_string());
-			let file = tokio::fs::File::open(blob_path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to open the file"))?;
+			let file = tokio::fs::File::open(&blob_path).await.map_err(
+				|source| tg::error!(!source, %path = blob_path.display(), "failed to open the file"),
+			)?;
 			let reader = File::new(file, row.position, row.length).await?;
 			Self::File(reader)
 		} else {
