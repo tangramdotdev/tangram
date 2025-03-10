@@ -1,8 +1,9 @@
 use bytes::Bytes;
 use foundationdb as fdb;
 use foundationdb_tuple::TuplePack as _;
-use futures::future;
+use futures::{TryStreamExt as _, future};
 use num::ToPrimitive;
+use std::pin::pin;
 use tangram_client as tg;
 
 /// The maximum size of a value.
@@ -28,15 +29,20 @@ impl Fdb {
 			.database
 			.run(|transaction, _| async move {
 				let subspace = fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes(), 0));
-				let mut range_option = fdb::RangeOption::from(subspace.range());
-				range_option.mode = fdb::options::StreamingMode::WantAll;
-				let entries = transaction.get_range(&range_option, 0, false).await?;
-				if entries.is_empty() {
-					return Ok(None);
-				}
+				let mut range = fdb::RangeOption::from(subspace.range());
+				range.mode = fdb::options::StreamingMode::WantAll;
+				let stream = transaction.get_ranges(range, false);
+				let mut stream = pin!(stream);
+				let mut empty = true;
 				let mut bytes = Vec::new();
-				for entry in entries {
-					bytes.extend_from_slice(entry.value());
+				while let Some(entries) = stream.try_next().await? {
+					empty = false;
+					for entry in entries {
+						bytes.extend_from_slice(entry.value());
+					}
+				}
+				if empty {
+					return Ok(None);
 				}
 				Ok(Some(bytes.into()))
 			})
