@@ -306,19 +306,16 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-			// Insert into the object children table.
-			let statement = indoc!(
-				"
-					insert into object_children (object, child)
-					select ($1::text[])[object_index], child
-					from unnest($3::int8[], $2::text[]) as c (object_index, child)
-					on conflict (object, child) do nothing
-				"
-			);
+			// Insert into the objects and object_children tables.
 			let ids = unique_messages
 				.values()
 				.map(|message| message.id.to_string())
 				.collect::<Vec<_>>();
+			let size = unique_messages
+				.values()
+				.map(|message| message.size.to_i64().unwrap())
+				.collect::<Vec<_>>();
+			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 			let children = unique_messages
 				.values()
 				.flat_map(|message| message.children.iter().map(ToString::to_string))
@@ -331,32 +328,18 @@ impl Server {
 				})
 				.collect::<Vec<_>>();
 			transaction
-				.execute(statement, &[
-					&ids.as_slice(),
-					&children.as_slice(),
-					&parent_indices.as_slice(),
-				])
+				.execute(
+					"CALL insert_objects_and_children($1::text[], $2::int8[], $3::text, $4::text[], $5::int8[])",
+					&[
+						&ids.as_slice(),
+						&size.as_slice(),
+						&now,
+						&children.as_slice(),
+						&parent_indices.as_slice(),
+					],
+				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Insert into the objects tables.
-			let statement = indoc!(
-				"
-					insert into objects (id, size, touched_at)
-					select id, size, $3
-					from unnest($1::text[], $2::int8[]) as t (id, size)
-					on conflict (id) do update set touched_at = $3
-				"
-			);
-			let size = unique_messages
-				.values()
-				.map(|message| message.size.to_i64().unwrap())
-				.collect::<Vec<_>>();
-			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			transaction
-				.execute(statement, &[&ids.as_slice(), &size.as_slice(), &now])
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
 
 			// Commit the transaction.
 			transaction
