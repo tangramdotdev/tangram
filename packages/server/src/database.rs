@@ -127,11 +127,9 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				weight integer
 			);
 
-			create index objects_complete_incomplete_children_index on objects ((1)) where complete = 0 and incomplete_children = 0;
-
 			create index objects_reference_count_zero_index on objects (touched_at) where reference_count = 0;
 
-			create trigger index_objects_insert_trigger
+			create trigger objects_insert_complete_trigger
 			after insert on objects
 			when new.complete = 0 and new.incomplete_children = 0
 			begin
@@ -157,7 +155,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where objects.id = updates.id;
 			end;
 
-			create trigger index_objects_update_trigger
+			create trigger objects_update_complete_trigger
 			after update of complete, incomplete_children on objects
 			when new.complete = 0 and new.incomplete_children = 0
 			begin
@@ -183,20 +181,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where objects.id = updates.id;
 			end;
 
-			create trigger objects_set_reference_count_trigger
-			after insert on objects
-			for each row
-			begin
-				update objects
-				set reference_count = (
-					(select count(*) from object_children where child = new.id) +
-					(select count(*) from process_objects where object = new.id) +
-					(select count(*) from tags where item = new.id)
-				)
-				where id = new.id;
-			end;
-
-			create trigger objects_set_incomplete_children_trigger
+			create trigger objects_insert_incomplete_children_trigger
 			after insert on objects
 			for each row
 			when (new.incomplete_children is null)
@@ -207,6 +192,20 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					from object_children
 					left join objects child_objects on child_objects.id = object_children.child
 					where object_children.object = new.id and (child_objects.complete is null or child_objects.complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger objects_insert_reference_count_trigger
+			after insert on objects
+			for each row
+			when (new.reference_count is null)
+			begin
+				update objects
+				set reference_count = (
+					(select count(*) from object_children where child = new.id) +
+					(select count(*) from process_objects where object = new.id) +
+					(select count(*) from tags where item = new.id)
 				)
 				where id = new.id;
 			end;
@@ -245,7 +244,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index object_children_child_index on object_children (child);
 
-			create trigger object_children_increment_reference_count_trigger
+			create trigger object_children_insert_trigger
 			after insert on object_children
 			for each row
 			begin
@@ -254,7 +253,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = new.child;
 			end;
 
-			create trigger object_children_decrement_reference_count_trigger
+			create trigger object_children_delete_trigger
 			after delete on object_children
 			for each row
 			begin
@@ -308,9 +307,10 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index processes_reference_count_zero_index on processes (touched_at) where reference_count = 0;
 
-			create trigger processes_set_reference_count_trigger
+			create trigger processes_insert_reference_count_trigger
 			after insert on processes
 			for each row
+			when (new.reference_count is null)
 			begin
 				update processes
 				set reference_count = (
@@ -346,7 +346,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index process_children_child_process_index on process_children (child, process);
 
-			create trigger process_children_increment_reference_count_trigger
+			create trigger process_children_insert_trigger
 			after insert on process_children
 			for each row
 			begin
@@ -355,7 +355,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = new.child;
 			end;
 
-			create trigger process_children_decrement_reference_count_trigger
+			create trigger process_children_delete_trigger
 			after delete on process_children
 			for each row
 			begin
@@ -381,7 +381,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index process_objects_object_index on process_objects (object);
 
-			create trigger process_objects_increment_reference_count_trigger
+			create trigger process_objects_insert_trigger
 			after insert on process_objects
 			begin
 				update objects
@@ -389,7 +389,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = new.object;
 			end;
 
-			create trigger process_objects_decrement_reference_count_trigger
+			create trigger process_objects_delete_trigger
 			after delete on process_objects
 			begin
 				update objects
@@ -407,7 +407,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				item text not null
 			);
 
-			create trigger tags_increment_reference_count_trigger
+			create trigger tags_insert_trigger
 			after insert on tags
 			for each row
 			begin
@@ -418,7 +418,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = new.item;
 			end;
 
-			create trigger tags_decrement_reference_count_trigger
+			create trigger tags_delete_trigger
 			after delete on tags
 			for each row
 			begin
