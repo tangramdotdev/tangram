@@ -27,6 +27,8 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		eprintln!("put(sqlite) {id}");
+
 		// Get a database connection.
 		let mut connection = database
 			.write_connection()
@@ -235,6 +237,8 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		eprintln!("put(postgres) {id}");
+
 		// Get a database connection.
 		let mut connection = database
 			.write_connection()
