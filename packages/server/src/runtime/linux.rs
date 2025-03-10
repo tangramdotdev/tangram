@@ -54,6 +54,7 @@ impl Runtime {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
 		let env = tg::Blob::with_reader(server, ENV).await?;
 		let env = tg::File::builder(env).executable(true).build();
+		let id = env.id(server).await?;
 		let arg = tg::tag::put::Arg {
 			force: true,
 			item: Either::Right(env.id(server).await?.into()),

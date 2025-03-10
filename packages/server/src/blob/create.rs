@@ -66,10 +66,16 @@ impl Server {
 		}
 
 		// Create the database future.
-		let database_future = async { self.insert_blob(&blob, touched_at).await };
+		let database_future = async {
+			self.insert_blob(&blob, touched_at).await?;
+			Ok::<_, tg::Error>(())
+		};
 
 		// Create the store future.
-		let store_future = async { self.store_blob(&blob, touched_at).await };
+		let store_future = async {
+			self.store_blob(&blob, touched_at).await?;
+			Ok::<_, tg::Error>(())
+		 };
 
 		// Join the database and store futures.
 		futures::try_join!(database_future, store_future)?;

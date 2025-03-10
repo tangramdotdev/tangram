@@ -66,9 +66,10 @@ impl Streams {
 impl Messenger {
 	#[must_use]
 	pub fn new() -> Self {
-		let (sender, receiver) = async_broadcast::broadcast(128);
-
+		let (mut sender, receiver) = async_broadcast::broadcast(1_000_000);
 		let receiver = receiver.deactivate();
+		sender.set_overflow(true);
+
 		let global = Stream { sender, receiver };
 		let streams = Streams(DashMap::default());
 		Self(Arc::new(Inner { global, streams }))
@@ -81,8 +82,7 @@ impl Messenger {
 	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
 		self.global
 			.sender
-			.broadcast_direct(Message { subject, payload })
-			.await
+			.try_broadcast(Message { subject, payload })
 			.ok();
 		Ok(())
 	}
