@@ -213,7 +213,7 @@ impl Server {
 					"failed to locate the object to check count and weight"
 				)
 			})?;
-		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
+		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
 		let size = bytes.len().to_u64().unwrap();
 
 		// If the object has already been sent or is complete, then update the progress and return.
@@ -828,7 +828,7 @@ impl Graph {
 					.unwrap()
 					.push(Arc::downgrade(&parent_node));
 			} else {
-				tracing::debug!("parent not found");
+				tracing::error!("parent not found");
 			}
 		}
 
@@ -900,7 +900,7 @@ impl Graph {
 				// If not, remove ourselves from the path and try again.
 				completion_path.pop();
 			} else {
-				tracing::debug!("failed to upgrade weak pointer");
+				tracing::error!("failed to upgrade weak pointer");
 			}
 		}
 

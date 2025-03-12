@@ -1,3 +1,4 @@
+use super::ignore;
 use crate::{Server, lockfile::ParsedLockfile};
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use std::{
@@ -7,7 +8,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_ignore::Matcher;
 use tokio::sync::RwLock;
 
 #[derive(Debug)]
@@ -37,7 +37,7 @@ pub struct Edge {
 }
 
 struct State {
-	ignore_matcher: Matcher,
+	ignore_matcher: ignore::Matcher,
 	graph: Graph,
 	lockfiles: BTreeMap<PathBuf, Arc<ParsedLockfile>>,
 	visited: BTreeMap<PathBuf, usize>,
@@ -50,7 +50,7 @@ impl Server {
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
 	) -> tg::Result<Graph> {
 		// Create the ignore matcher.
-		let ignore_matcher = self.ignore_matcher_for_checkin().await?;
+		let ignore_matcher = Self::ignore_matcher_for_checkin().await?;
 
 		// Create the state.
 		let state = RwLock::new(State {

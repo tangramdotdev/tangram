@@ -54,6 +54,7 @@ pub use self::{
 pub mod artifact;
 pub mod blob;
 pub mod branch;
+pub mod bytes;
 pub mod checksum;
 pub mod clean;
 pub mod command;
@@ -352,8 +353,10 @@ impl Client {
 		port: u16,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
 		// Connect via TCP.
-		let stream = TcpStream::connect(format!("{host}:{port}"))
+		let addr = format!("{host}:{port}");
+		let stream = tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
 			.await
+			.map_err(|_| tg::error!("connection timeout"))?
 			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Perform the HTTP handshake.
@@ -389,8 +392,10 @@ impl Client {
 		port: u16,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
 		// Connect via TCP.
-		let stream = TcpStream::connect(format!("{host}:{port}"))
+		let addr = format!("{host}:{port}");
+		let stream = tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
 			.await
+			.map_err(|_| tg::error!("connection timeout"))?
 			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Perform the HTTP handshake.
@@ -520,8 +525,10 @@ impl Client {
 		protocols: Vec<Vec<u8>>,
 	) -> tg::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
 		// Connect via TCP.
-		let stream = TcpStream::connect(format!("{host}:{port}"))
+		let addr = format!("{host}:{port}");
+		let stream = tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
 			.await
+			.map_err(|_| tg::error!("connection timeout"))?
 			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Create the connector.

@@ -32,4 +32,12 @@ impl Memory {
 			self.0.remove(&id);
 		}
 	}
+
+	pub fn try_get_object_data(&self, id: &tg::object::Id) -> tg::Result<Option<tg::object::Data>> {
+		let Some(bytes) = self.0.get(id) else {
+			return Ok(None);
+		};
+		let data = tg::object::Data::deserialize(id.kind(), bytes.value().clone())?;
+		Ok(Some(data))
+	}
 }

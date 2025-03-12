@@ -42,6 +42,7 @@ pub struct File {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
 pub enum Symlink {
 	Target {
 		#[serde(default, skip_serializing_if = "Option::is_none")]

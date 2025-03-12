@@ -410,6 +410,7 @@ impl Provider {
 			connection.pragma_update(None, "foreign_keys", "on")?;
 			connection.pragma_update(None, "journal_mode", "wal")?;
 			connection.pragma_update(None, "mmap_size", "2147483648")?;
+			connection.pragma_update(None, "recursive_triggers", "on")?;
 			connection.pragma_update(None, "synchronous", "normal")?;
 			connection.pragma_update(None, "temp_store", "memory")?;
 			Ok(())

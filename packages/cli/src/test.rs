@@ -82,7 +82,10 @@ impl Context {
 
 impl Server {
 	async fn new(tg: &'static str) -> tg::Result<Self> {
-		let config = Config::default();
+		let config = Config {
+			remotes: Some(Vec::new()),
+			..Default::default()
+		};
 		Self::with_config(tg, config).await
 	}
 
@@ -116,8 +119,6 @@ impl Server {
 
 		// Create the command.
 		let mut command = tokio::process::Command::new(tg);
-		command.stdout(std::process::Stdio::piped());
-		command.stderr(std::process::Stdio::piped());
 		command.arg("--config");
 		command.arg(&config_path);
 		command.arg("--path");

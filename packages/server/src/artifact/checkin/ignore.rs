@@ -1,12 +1,10 @@
 use globset::{Candidate, GlobBuilder, GlobSet, GlobSetBuilder};
 use std::{
-	collections::HashMap,
+	collections::BTreeMap,
 	ffi::OsString,
 	path::{Path, PathBuf},
+	sync::{Arc, RwLock},
 };
-
-#[cfg(test)]
-mod tests;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
@@ -16,15 +14,15 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct Ignorer {
+pub struct Matcher {
 	file_names: Vec<OsString>,
 	global: Option<File>,
-	nodes: Vec<Node>,
+	root: Arc<RwLock<Node>>,
 }
 
 #[derive(Debug)]
 struct Node {
-	children: HashMap<OsString, usize, fnv::FnvBuildHasher>,
+	children: BTreeMap<OsString, Arc<RwLock<Self>>>,
 	files: Vec<File>,
 }
 
@@ -42,10 +40,9 @@ struct Pattern {
 	trailing_slash: bool,
 }
 
-impl Ignorer {
-	pub fn new(file_names: Vec<OsString>, global: Option<&str>) -> Result<Self, Error> {
-		let root = Self::node_with_path_and_file_names(Path::new("/"), &file_names)?;
-		let nodes = vec![root];
+impl Matcher {
+	pub async fn new(file_names: Vec<OsString>, global: Option<&str>) -> Result<Self, Error> {
+		let root = Self::node_with_path_and_file_names(Path::new("/"), &file_names).await?;
 		let global = if let Some(global) = global {
 			Some(Self::file_with_contents(global)?)
 		} else {
@@ -54,16 +51,16 @@ impl Ignorer {
 		Ok(Self {
 			file_names,
 			global,
-			nodes,
+			root,
 		})
 	}
 
-	pub fn matches(&mut self, path: &Path, is_directory: Option<bool>) -> Result<bool, Error> {
+	pub async fn matches(&self, path: &Path, is_directory: Option<bool>) -> Result<bool, Error> {
 		// Check if the path is a directory if necessary.
 		let is_directory = if let Some(is_directory) = is_directory {
 			is_directory
 		} else {
-			std::fs::symlink_metadata(path)?.is_dir()
+			tokio::fs::symlink_metadata(path).await?.is_dir()
 		};
 
 		// Split the path into components.
@@ -75,40 +72,37 @@ impl Ignorer {
 
 		// Get or create the nodes.
 		let mut path = PathBuf::from("/");
-		let mut indexes = vec![0];
+		let mut nodes = vec![self.root.clone()];
 		while let Some(component) = components.next() {
 			path.push(component);
 			let std::path::Component::Normal(name) = component else {
 				return Err(Error::Path);
 			};
-			let index = if let Some(child) = self.nodes[*indexes.last().unwrap()]
-				.children
-				.get(name)
-				.copied()
-			{
+			let node = nodes.last().unwrap();
+			let option = node.read().unwrap().children.get(name).cloned();
+			let child = if let Some(child) = option {
 				child
 			} else if components.peek().is_some() {
-				let child = Self::node_with_path_and_file_names(&path, &self.file_names)?;
-				let index = self.nodes.len();
-				self.nodes.push(child);
-				self.nodes[*indexes.last().unwrap()]
+				let child = Self::node_with_path_and_file_names(&path, &self.file_names).await?;
+				let child = node
+					.write()
+					.unwrap()
 					.children
-					.insert(name.to_owned(), index);
-				index
+					.entry(name.to_owned())
+					.or_insert(child)
+					.clone();
+				child
 			} else {
 				break;
 			};
-			indexes.push(index);
+			nodes.push(child);
 		}
 
 		// Match.
 		let mut matches = Vec::new();
-		for (index, node_path) in
-			std::iter::zip(indexes.into_iter().rev(), path.ancestors().skip(1))
-		{
-			let node = &self.nodes[index];
+		for (node, node_path) in std::iter::zip(nodes.iter().rev(), path.ancestors().skip(1)) {
 			let candidate = Candidate::new(path.strip_prefix(node_path).unwrap());
-			let files = &node.files;
+			let files = &node.read().unwrap().files;
 			for file in files {
 				file.glob_set
 					.matches_candidate_into(&candidate, &mut matches);
@@ -136,10 +130,13 @@ impl Ignorer {
 		Ok(false)
 	}
 
-	fn node_with_path_and_file_names(path: &Path, file_names: &[OsString]) -> Result<Node, Error> {
+	async fn node_with_path_and_file_names(
+		path: &Path,
+		file_names: &[OsString],
+	) -> Result<Arc<RwLock<Node>>, Error> {
 		let mut files = Vec::new();
 		for name in file_names {
-			let contents = match std::fs::read_to_string(path.join(name)) {
+			let contents = match tokio::fs::read_to_string(path.join(name)).await {
 				Ok(contents) => contents,
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 					continue;
@@ -149,10 +146,10 @@ impl Ignorer {
 			let file = Self::file_with_contents(&contents)?;
 			files.push(file);
 		}
-		let node = Node {
-			children: HashMap::default(),
+		let node = Arc::new(RwLock::new(Node {
+			children: BTreeMap::new(),
 			files,
-		};
+		}));
 		Ok(node)
 	}
 

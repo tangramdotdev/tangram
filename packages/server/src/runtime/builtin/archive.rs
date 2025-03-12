@@ -34,11 +34,8 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "invalid format"))?;
 
 		// Get the compression.
-		let compression = if let Some(value) = args.get(3) {
+		let compression = if let Some(tg::Value::String(value)) = args.get(3) {
 			let compression = value
-				.try_unwrap_string_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a string"))?
 				.parse::<tg::blob::compress::Format>()
 				.map_err(|source| tg::error!(!source, "invalid compression format"))?;
 			Some(compression)
@@ -200,7 +197,7 @@ async fn zip(server: &Server, artifact: &tg::Artifact) -> tg::Result<tg::Blob> {
 		let directory = artifact
 			.try_unwrap_directory_ref()
 			.ok()
-			.ok_or_else(|| tg::error!("can only zip a directory"))?;
+			.ok_or_else(|| tg::error!("expected a directory"))?;
 		for (name, artifact) in directory.entries(server).await? {
 			zip_inner(server, &mut builder, Path::new(&name), &artifact).await?;
 		}

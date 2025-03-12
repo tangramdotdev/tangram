@@ -155,7 +155,10 @@ pub struct Watchdog {
 impl Config {
 	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {
-		let advanced = Advanced::default();
+		let advanced = Advanced {
+			file_descriptor_semaphore_size: 1,
+			..Default::default()
+		};
 		let authentication = None;
 		let cleaner = None;
 		let database = Database::Sqlite(SqliteDatabase {
@@ -196,7 +199,7 @@ impl Default for Advanced {
 	fn default() -> Self {
 		Self {
 			process_dequeue_timeout: Duration::from_secs(3600),
-			file_descriptor_semaphore_size: 1_000_000_000,
+			file_descriptor_semaphore_size: 100,
 			preserve_temp_directories: false,
 			write_blobs_to_blobs_directory: true,
 			write_process_logs_to_database: false,
@@ -209,7 +212,7 @@ impl Default for Cleaner {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
-			ttl: Duration::from_secs(0),
+			ttl: Duration::from_secs(86400),
 		}
 	}
 }

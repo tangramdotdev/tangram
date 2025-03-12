@@ -5,8 +5,8 @@ use num::ToPrimitive;
 use tangram_client as tg;
 
 pub struct Lmdb {
-	db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
-	env: lmdb::Env,
+	pub db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
+	pub env: lmdb::Env,
 	sender: tokio::sync::mpsc::Sender<Message>,
 	task: tokio::task::JoinHandle<()>,
 }
@@ -223,6 +223,21 @@ impl Lmdb {
 				},
 			}
 		}
+	}
+
+	pub fn try_get_object_data(&self, id: &tg::object::Id) -> tg::Result<Option<tg::object::Data>> {
+		let transaction = self.env.read_txn().unwrap();
+		let key = (0, id.to_bytes(), 0);
+		let Some(bytes) = self
+			.db
+			.get(&transaction, &key.pack_to_vec())
+			.map_err(|source| tg::error!(!source, "failed to get the value"))?
+		else {
+			return Ok(None);
+		};
+		let data = tg::object::Data::deserialize(id.kind(), bytes)?;
+		drop(transaction);
+		Ok(Some(data))
 	}
 }
 

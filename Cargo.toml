@@ -106,8 +106,11 @@ petgraph = "0.7"
 pin-project = "1"
 pretty_assertions = "1"
 proptest = "1"
+radix_trie = "0.2"
 rand = "0.9"
 ratatui = "0.29"
+rayon = "1"
+reflink-copy = "0.1"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = [
   "blocking",

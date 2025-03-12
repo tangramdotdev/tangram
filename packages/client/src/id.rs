@@ -184,6 +184,23 @@ impl Id {
 
 		Ok(Self::V0(V0 { kind, body }))
 	}
+
+	#[must_use]
+	pub fn body(&self) -> &Body {
+		match self {
+			Self::V0(s) => &s.body,
+		}
+	}
+}
+
+impl Body {
+	#[must_use]
+	pub fn as_slice(&self) -> &[u8] {
+		match self {
+			Self::UuidV7(s) => s.as_slice(),
+			Self::Blake3(s) => s.as_slice(),
+		}
+	}
 }
 
 impl std::fmt::Debug for Id {

@@ -104,11 +104,11 @@ where
 		// Create the request channel.
 		let (request_sender, request_receiver) = async_channel::unbounded();
 
-		// Spawn the request reader task.
-		tokio::task::spawn_blocking({
+		// Spawn the request reader thread.
+		std::thread::spawn({
 			let fd = fd.clone();
 			move || {
-				Self::request_reader_task(fd.as_ref(), &request_sender)
+				Self::request_reader_thread(fd.as_ref(), &request_sender)
 					.inspect_err(|error| tracing::error!(%error))
 			}
 		});
@@ -148,7 +148,7 @@ where
 		task.wait().await.unwrap();
 	}
 
-	fn request_reader_task(fd: &OwnedFd, sender: &async_channel::Sender<Request>) -> Result<()> {
+	fn request_reader_thread(fd: &OwnedFd, sender: &async_channel::Sender<Request>) -> Result<()> {
 		// Create the request buffer.
 		let mut buffer = vec![0u8; 1024 * 1024 + 4096];
 

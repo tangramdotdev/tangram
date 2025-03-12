@@ -155,7 +155,7 @@ impl Connection {
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let connection = sqlite::Connection::open_with_flags(&options.path, options.flags)?;
 		(options.initialize)(&connection)?;
-		tokio::task::spawn_blocking(|| Self::run(connection, receiver));
+		std::thread::spawn(|| Self::run(connection, receiver));
 		let connection = Self { options, sender };
 		Ok(connection)
 	}

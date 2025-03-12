@@ -43,6 +43,15 @@ impl Id {
 	}
 
 	#[must_use]
+	pub fn kind(&self) -> Kind {
+		match self {
+			Self::Directory(_) => Kind::Directory,
+			Self::File(_) => Kind::File,
+			Self::Symlink(_) => Kind::Symlink,
+		}
+	}
+
+	#[must_use]
 	pub fn to_bytes(&self) -> Vec<u8> {
 		self.as_id().to_bytes()
 	}

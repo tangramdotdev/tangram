@@ -293,7 +293,7 @@ impl Server {
 
 							// Write the blob if the object has one.
 							if let Some(blob) = &output.blob {
-								Self::insert_blob_sqlite(blob, transaction)?;
+								Self::blob_create_sqlite(blob, transaction)?;
 								Self::insert_blob_objects_sqlite(blob, transaction, touched_at)?;
 							}
 

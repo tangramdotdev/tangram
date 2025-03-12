@@ -11,8 +11,12 @@ pub struct Graph {
 	pub nodes: Vec<tg::graph::data::Node>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, derive_more::TryUnwrap)]
+#[derive(
+	Clone, Debug, serde::Deserialize, serde::Serialize, derive_more::TryUnwrap, derive_more::Unwrap,
+)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Node {
 	Directory(Directory),
 	File(File),
@@ -36,10 +40,12 @@ pub struct File {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
 pub enum Symlink {
 	Target {
 		target: PathBuf,
 	},
+
 	Artifact {
 		artifact: Either<usize, tg::artifact::Id>,
 
@@ -55,8 +61,8 @@ impl Graph {
 			.map_err(|source| tg::error!(!source, "failed to serialize the data"))
 	}
 
-	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
-		serde_json::from_reader(bytes.as_ref())
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+		serde_json::from_reader(bytes.into().as_ref())
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 

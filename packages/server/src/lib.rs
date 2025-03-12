@@ -74,7 +74,7 @@ pub mod test;
 pub struct Server(pub Arc<Inner>);
 
 pub struct Inner {
-	artifact_cache_task_map: ArtifactCacheTaskMap,
+	cache_task_map: ArtifactCacheTaskMap,
 	compilers: RwLock<Vec<Compiler>>,
 	config: Config,
 	database: Database,
@@ -97,8 +97,7 @@ pub struct Inner {
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
 
-type ArtifactCacheTaskMap =
-	TaskMap<tg::artifact::Id, tg::Result<crate::artifact::cache::Output>, fnv::FnvBuildHasher>;
+type ArtifactCacheTaskMap = TaskMap<tg::artifact::Id, tg::Result<()>, fnv::FnvBuildHasher>;
 
 struct Http {
 	url: Url,
@@ -244,6 +243,7 @@ impl Server {
 					connection.pragma_update(None, "foreign_keys", "on")?;
 					connection.pragma_update(None, "journal_mode", "wal")?;
 					connection.pragma_update(None, "mmap_size", "2147483648")?;
+					connection.pragma_update(None, "recursive_triggers", "on")?;
 					connection.pragma_update(None, "synchronous", "normal")?;
 					connection.pragma_update(None, "temp_store", "memory")?;
 					Ok(())
@@ -342,7 +342,7 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
-			artifact_cache_task_map,
+			cache_task_map: artifact_cache_task_map,
 			compilers,
 			config,
 			database,
@@ -678,8 +678,8 @@ impl Server {
 				server.runtimes.write().unwrap().clear();
 
 				// Abort the artifact cache tasks.
-				server.artifact_cache_task_map.abort_all();
-				let results = server.artifact_cache_task_map.wait().await;
+				server.cache_task_map.abort_all();
+				let results = server.cache_task_map.wait().await;
 				for result in results {
 					if let Err(error) = result {
 						if !error.is_cancelled() {

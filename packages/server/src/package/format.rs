@@ -1,9 +1,8 @@
-use crate::Server;
+use crate::{Server, artifact::checkin::ignore::Matcher};
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use std::path::Path;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_ignore::Matcher;
 
 impl Server {
 	pub async fn format_package(&self, arg: tg::package::format::Arg) -> tg::Result<()> {
@@ -21,10 +20,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
 		// Create the ignore matcher.
-		let ignore_matcher = self.ignore_matcher_for_checkin().await?;
+		let ignore = Self::ignore_matcher_for_checkin().await?;
 
 		// Format.
-		self.format_package_inner(&path, &ignore_matcher).await?;
+		self.format_package_inner(&path, &ignore).await?;
 
 		Ok(())
 	}
