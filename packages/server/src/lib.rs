@@ -960,6 +960,10 @@ impl Server {
 			(http::Method::POST, ["pipes", pipe, "close"]) => {
 				Self::handle_close_pipe_request(handle, request, pipe).boxed()
 			},
+			(http::Method::GET, ["pipes", pipe, "window"]) => {
+				Self::handle_get_pipe_window_request(handle, request, pipe).boxed()
+			},
+
 			(http::Method::GET, ["pipes", pipe]) => {
 				Self::handle_get_pipe_request(handle, request, pipe).boxed()
 			},
@@ -1267,6 +1271,14 @@ impl tg::Handle for Server {
 		arg: tg::pipe::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.close_pipe(id, arg)
+	}
+
+	fn get_pipe_window_size(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> + Send {
+		self.get_pipe_window_size(id, arg)
 	}
 
 	fn get_pipe_stream(

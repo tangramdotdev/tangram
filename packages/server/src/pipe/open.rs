@@ -8,15 +8,20 @@ use tangram_messenger as messenger;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn open_pipe(&self, arg: tg::pipe::open::Arg) -> tg::Result<tg::pipe::open::Output> {
-		if let Some(remote) = arg.remote {
+	pub async fn open_pipe(
+		&self,
+		mut arg: tg::pipe::open::Arg,
+	) -> tg::Result<tg::pipe::open::Output> {
+		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			return remote.open_pipe(tg::pipe::open::Arg::default()).await;
+			return remote.open_pipe(arg).await;
 		}
 
 		// Create the pipe data.
 		let reader = tg::pipe::Id::new();
 		let writer = tg::pipe::Id::new();
+
+		eprintln!("insert {reader},{writer} {arg:#?}");
 
 		let connection = self
 			.database

@@ -256,6 +256,17 @@ where
 		}
 	}
 
+	fn get_pipe_window_size(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> {
+		match self {
+			Either::Left(s) => s.get_pipe_window_size(id, arg).left_future(),
+			Either::Right(s) => s.get_pipe_window_size(id, arg).right_future(),
+		}
+	}
+
 	fn get_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,

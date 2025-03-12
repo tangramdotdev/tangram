@@ -10,6 +10,26 @@ pub struct Arg {
 }
 
 impl Client {
+	pub async fn get_pipe_window_size(
+		&self,
+		id: &tg::pipe::Id,
+		arg: Arg,
+	) -> tg::Result<Option<tg::pipe::WindowSize>> {
+		let method = http::Method::GET;
+		let uri = format!("/pipes/{id}/window");
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.json(arg)
+			.unwrap();
+		self.send(request)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the response"))?
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))
+	}
+
 	pub async fn get_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,
@@ -25,6 +45,9 @@ impl Client {
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
+			if matches!(response.status(), http::StatusCode::NOT_FOUND) {
+				return Err(tg::error!(%id, "not found"));
+			}
 			let error = response
 				.json()
 				.await

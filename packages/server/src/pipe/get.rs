@@ -2,13 +2,32 @@ use crate::Server;
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use tangram_client::{self as tg};
 use tangram_either::Either;
-use tangram_futures::{stream::Ext, task::Stop};
-use tangram_http::{Body, request::Ext as _};
+use tangram_futures::{stream::Ext as _, task::Stop};
+use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::{self as messenger, Messenger as _};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
 impl Server {
+	pub async fn get_pipe_window_size(
+		&self,
+		id: &tg::pipe::Id,
+		mut arg: tg::pipe::get::Arg,
+	) -> tg::Result<Option<tg::pipe::WindowSize>> {
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote).await?;
+			return remote.get_pipe_window_size(id, arg).await;
+		}
+
+		let pipe = self
+			.try_get_pipe(id)
+			.await?
+			.ok_or_else(|| tg::error!("pipe was closed or destroyed"))?;
+
+		eprintln!("GET pipes/{id}/window: {pipe:#?}");
+		Ok(pipe.window_size)
+	}
+
 	pub async fn get_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,
@@ -60,7 +79,7 @@ impl Server {
 		let events = tokio::spawn(async move {
 			let mut stream = std::pin::pin!(stream);
 			while let Some(event) = stream.next().await {
-				eprintln!("{id}: {event:?}");
+				eprintln!("GET {id}: {event:?}");
 				send.send(event).await.ok();
 			}
 		});
@@ -134,6 +153,25 @@ impl Server {
 }
 
 impl Server {
+	pub(crate) async fn handle_get_pipe_window_request<H>(
+		handle: &H,
+		request: http::Request<Body>,
+		id: &str,
+	) -> tg::Result<http::Response<Body>>
+	where
+		H: tg::Handle,
+	{
+		// Parse the ID.
+		let id = id.parse()?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
+		let window_size = handle.get_pipe_window_size(&id, arg).await?;
+		let response = http::Response::builder().json(window_size).unwrap();
+		Ok(response)
+	}
+
 	pub(crate) async fn handle_get_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

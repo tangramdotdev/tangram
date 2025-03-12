@@ -261,6 +261,14 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	fn get_pipe_window_size(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> {
+		self.server.get_pipe_window_size(id, arg)
+	}
+
 	fn get_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,

@@ -106,6 +106,7 @@ where
 			(Some(()), 7, ..) => tg::process::Signal::SIGUSR2,
 			_ => break,
 		};
+		eprintln!("posting signal: {signal}");
 		let arg = tg::process::signal::post::Arg {
 			remote: remote.clone(),
 			signal,
@@ -113,7 +114,8 @@ where
 		handle
 			.post_process_signal(process, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to post signal"))?;
+			.map_err(|source| tg::error!(!source, "failed to post signal"))
+			.inspect_err(|e| eprintln!("error: {e:?}"))?;
 	}
 
 	Ok(())

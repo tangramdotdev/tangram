@@ -1,6 +1,6 @@
 use super::{
 	proxy::{self, Proxy},
-	util::render,
+	util,
 };
 use crate::{Server, temp::Temp};
 use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
@@ -54,7 +54,6 @@ impl Runtime {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
 		let env = tg::Blob::with_reader(server, ENV).await?;
 		let env = tg::File::builder(env).executable(true).build();
-		let id = env.id(server).await?;
 		let arg = tg::tag::put::Arg {
 			force: true,
 			item: Either::Right(env.id(server).await?.into()),
@@ -189,7 +188,7 @@ impl Runtime {
 		let args: Vec<String> = args
 			.iter()
 			.map(|value| async {
-				let value = render(&self.server, value, &artifacts_path).await?;
+				let value = util::render(&self.server, value, &artifacts_path).await?;
 				Ok::<_, tg::Error>(value)
 			})
 			.collect::<FuturesOrdered<_>>()
@@ -220,7 +219,7 @@ impl Runtime {
 		else {
 			return Err(tg::error!("invalid executable"));
 		};
-		let executable = render(&self.server, &executable.into(), &artifacts_path).await?;
+		let executable = util::render(&self.server, &executable.into(), &artifacts_path).await?;
 
 		if chroot.is_some() {
 			// Set `$HOME`.
@@ -270,10 +269,15 @@ impl Runtime {
 		if let Some(pipe) = &state.stdin {
 			if let Some(ws) = self
 				.server
-				.try_get_pipe(pipe)
+				.get_pipe_window_size(
+					pipe,
+					tg::pipe::get::Arg {
+						remote: process.remote().cloned(),
+					},
+				)
 				.await?
-				.and_then(|pipe| pipe.window_size)
 			{
+				eprintln!("stdin isatty");
 				let tty = sandbox::Tty {
 					rows: ws.rows,
 					cols: ws.cols,
@@ -281,16 +285,23 @@ impl Runtime {
 					y: ws.ypos,
 				};
 				cmd_.stdin(sandbox::Stdio::Tty(tty));
+			} else {
+				eprintln!("stdin !isatty");
 			}
 		}
 		cmd_.stdout(sandbox::Stdio::Piped);
 		if let Some(pipe) = &state.stdout {
 			if let Some(ws) = self
 				.server
-				.try_get_pipe(pipe)
+				.get_pipe_window_size(
+					pipe,
+					tg::pipe::get::Arg {
+						remote: process.remote().cloned(),
+					},
+				)
 				.await?
-				.and_then(|pipe| pipe.window_size)
 			{
+				eprintln!("stdout isatty");
 				let tty = sandbox::Tty {
 					rows: ws.rows,
 					cols: ws.cols,
@@ -298,16 +309,23 @@ impl Runtime {
 					y: ws.ypos,
 				};
 				cmd_.stdout(sandbox::Stdio::Tty(tty));
+			} else {
+				eprintln!("stdout !isatty");
 			}
 		}
 		cmd_.stderr(sandbox::Stdio::Piped);
 		if let Some(pipe) = &state.stderr {
 			if let Some(ws) = self
 				.server
-				.try_get_pipe(pipe)
+				.get_pipe_window_size(
+					pipe,
+					tg::pipe::get::Arg {
+						remote: process.remote().cloned(),
+					},
+				)
 				.await?
-				.and_then(|pipe| pipe.window_size)
 			{
+				eprintln!("stderr isatty");
 				let tty = sandbox::Tty {
 					rows: ws.rows,
 					cols: ws.cols,
@@ -315,6 +333,8 @@ impl Runtime {
 					y: ws.ypos,
 				};
 				cmd_.stderr(sandbox::Stdio::Tty(tty));
+			} else {
+				eprintln!("stderr !isatty");
 			}
 		}
 
@@ -345,21 +365,35 @@ impl Runtime {
 			)
 		});
 
+		// Spawn the signal task.
+		let signal_task = tokio::spawn({
+			let server = self.server.clone();
+			let process = process.clone();
+			let pid = child.pid();
+			async move {
+				util::signal_task(&server, pid, &process).await
+					.inspect_err(|source| tracing::error!(?source, "signal task failed"))
+					.ok();
+			}
+		});
+
 		// Wait for the child process to complete.
-		let exit = match child
-			.wait()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?
-		{
-			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
-			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
-		};
+		let exit = child.wait().await;
+		let exit =
+			// Wrap the error and return.
+			match exit.map_err(|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"))? {
+				sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
+				sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
+			};
 
 		// Stop the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
 			task.stop();
 			task.wait().await.unwrap();
 		}
+
+		// Stop the signal task.
+		signal_task.abort();
 
 		// stop the i/o task.
 		stdio_task.stop();
