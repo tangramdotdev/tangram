@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 pub mod get;
 pub mod post;
 
-#[derive(serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 #[repr(i32)]
 pub enum Signal {
 	SIGABRT = 6,

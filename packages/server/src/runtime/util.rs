@@ -268,6 +268,7 @@ async fn pipe_task(
 					future::Either::Left(_) => break,
 					future::Either::Right((Ok(Some(event)), _)) => match event {
 						tg::pipe::Event::Chunk(chunk) => {
+							eprintln!("write {chunk:?} to stdin");
 							stdin.write_all(&chunk).await.map_err(
 								|source| tg::error!(!source, %pipe, "failed to write stdin"),
 							)?;
@@ -356,9 +357,55 @@ fn chunk_stream_from_reader(
 			return Ok(None);
 		}
 		let chunk = Bytes::copy_from_slice(&buffer[0..size]);
-		eprintln!("chunk: {chunk:?}");
+		eprintln!("read stdout/stderr: {chunk:?}");
 		let event = tg::pipe::Event::Chunk(chunk);
 		Ok(Some((event, (reader, buffer))))
 	})
 	.chain(stream::once(future::ok(tg::pipe::Event::End)))
+}
+
+pub async fn signal_task(
+	server: &Server,
+	pid: libc::pid_t,
+	process: &tg::Process,
+) -> tg::Result<()> {
+	// Get the signal stream for the process.
+	let arg = tg::process::signal::get::Arg {
+		remote: process.remote().cloned(),
+	};
+	let mut stream = server.try_get_process_signal_stream(process.id(), arg).await
+		.map_err(|source| tg::error!(!source, %process = process.id(), "failed to get the process's signal stream"))?
+		.ok_or_else(|| tg::error!(%process = process.id(), "the process was destroyed before it could be waited"))?;
+
+	while let Some(event) = stream.try_next().await? {
+		match event {
+			tg::process::signal::get::Event::Signal(signal) => unsafe {
+				if  libc::kill(pid, signal_number(signal)) != 0 {
+					let error = std::io::Error::last_os_error();
+					tracing::error!(?error, "failed to send signal");
+				}
+			}
+			tg::process::signal::get::Event::End => break,
+		}
+	}
+	Ok(())
+}
+
+fn signal_number(signal: tg::process::Signal) -> i32 {
+	// Convert a tg::process::Signal to an OS signal.
+	match signal {
+		tg::process::Signal::SIGABRT => libc::SIGABRT,
+		tg::process::Signal::SIGFPE => libc::SIGFPE,
+		tg::process::Signal::SIGILL => libc::SIGILL,
+		tg::process::Signal::SIGALRM => libc::SIGALRM,
+		tg::process::Signal::SIGHUP => libc::SIGHUP,
+		tg::process::Signal::SIGINT => libc::SIGABRT,
+		tg::process::Signal::SIGKILL => libc::SIGKILL,
+		tg::process::Signal::SIGPIPE => libc::SIGPIPE,
+		tg::process::Signal::SIGQUIT => libc::SIGQUIT,
+		tg::process::Signal::SIGSEGV => libc::SIGSEGV,
+		tg::process::Signal::SIGTERM => libc::SIGTERM,
+		tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
+		tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
+	}
 }

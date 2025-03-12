@@ -8,6 +8,8 @@ use tangram_client as tg;
 
 use crate::Cli;
 
+use super::signal::handle_sigwinch;
+
 pub struct Stdio {
 	pub termios: Option<(RawFd, libc::termios)>,
 	pub remote: Option<String>,
@@ -88,6 +90,14 @@ impl Cli {
 			let (termios, window_size) = get_termios_and_window_size(fd)
 				.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
 			let stdin = pair(&handle, remote.clone(), Some(window_size)).await?;
+			tokio::spawn({
+				let pipe = stdin.client.clone();
+				let handle = handle.clone();
+				let remote = remote.clone();
+				async move {
+					handle_sigwinch(&handle, fd, &pipe, remote).await.ok();
+				}
+			});
 			(Some((fd, termios)), stdin)
 		} else {
 			let stdin = pair(&handle, remote.clone(), None).await?;
@@ -105,6 +115,14 @@ impl Cli {
 				let (termios, window_size) = get_termios_and_window_size(fd)
 					.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
 				let stdout = pair(&handle, remote.clone(), Some(window_size)).await?;
+				tokio::spawn({
+					let pipe = stdout.client.clone();
+					let handle = handle.clone();
+					let remote = remote.clone();
+					async move {
+						handle_sigwinch(&handle, fd, &pipe, remote).await.ok();
+					}
+				});
 				(Some((fd, termios)), stdout)
 			},
 			(termios, false) => {
@@ -124,6 +142,14 @@ impl Cli {
 				let (termios, window_size) = get_termios_and_window_size(fd)
 					.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
 				let stderr = pair(&handle, remote.clone(), Some(window_size)).await?;
+				tokio::spawn({
+					let pipe = stderr.client.clone();
+					let handle = handle.clone();
+					let remote = remote.clone();
+					async move {
+						handle_sigwinch(&handle, fd, &pipe, remote).await.ok();
+					}
+				});
 				(Some((fd, termios)), stderr)
 			},
 			(termios, false) => {

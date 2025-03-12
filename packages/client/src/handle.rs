@@ -136,6 +136,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn get_pipe_window_size(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> + Send;
+
 	fn get_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,

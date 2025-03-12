@@ -4,14 +4,14 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _, sse};
 
 use crate as tg;
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Event {
 	Signal(tg::process::Signal),
 	End,
 }
 
-#[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,

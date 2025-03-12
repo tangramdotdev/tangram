@@ -140,7 +140,6 @@ pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 	tokio::task::spawn_blocking(move || unsafe {
 		let mut status = 0;
 		if libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0) == -1 {
-			eprintln!("waitpid failed");
 			return Err(std::io::Error::last_os_error());
 		};
 		if libc::WIFEXITED(status) {

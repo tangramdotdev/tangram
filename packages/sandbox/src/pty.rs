@@ -115,6 +115,7 @@ impl Pty {
 	#[cfg(target_os = "linux")]
 	pub(crate) async fn open(tty: Tty) -> std::io::Result<Self> {
 		tokio::task::spawn_blocking(move || unsafe {
+			eprintln!("opening tty");
 			let win_size = libc::winsize {
 				ws_col: tty.cols,
 				ws_row: tty.rows,

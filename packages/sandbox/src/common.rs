@@ -33,7 +33,7 @@ pub fn redirect_stdio(stdin: &mut GuestIo, stdout: &mut GuestIo, stderr: &mut Gu
 		for (fd, io) in [
 			(libc::STDIN_FILENO, stdin),
 			(libc::STDOUT_FILENO, stdout),
-			// (libc::STDERR_FILENO, stderr),
+			(libc::STDERR_FILENO, stderr),
 		] {
 			match io {
 				Either::Left(pty) => {

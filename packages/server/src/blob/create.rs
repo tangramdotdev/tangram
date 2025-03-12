@@ -75,7 +75,7 @@ impl Server {
 		let store_future = async {
 			self.store_blob(&blob, touched_at).await?;
 			Ok::<_, tg::Error>(())
-		 };
+		};
 
 		// Join the database and store futures.
 		futures::try_join!(database_future, store_future)?;
