@@ -70,9 +70,12 @@ export namespace Blob {
 	};
 
 	export let compress = async (
-		blob: Blob,
+		blob: Blob | tg.File,
 		format: CompressionFormat,
 	): Promise<Blob> => {
+		if (blob instanceof tg.File) {
+			blob = await blob.contents();
+		}
 		let value = await tg.build({
 			args: ["compress", blob, format],
 			env: undefined,
@@ -82,7 +85,10 @@ export namespace Blob {
 		return value;
 	};
 
-	export let decompress = async (blob: Blob): Promise<Blob> => {
+	export let decompress = async (blob: Blob | tg.File): Promise<Blob> => {
+		if (blob instanceof tg.File) {
+			blob = await blob.contents();
+		}
 		let value = await tg.build({
 			args: ["decompress", blob],
 			env: undefined,
