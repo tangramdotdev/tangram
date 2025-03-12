@@ -31,16 +31,14 @@ pub struct Command {
 }
 
 pub struct Child {
+	#[cfg(target_os = "macos")]
 	pid: libc::pid_t,
 
 	#[cfg(target_os = "linux")]
-	chroot: bool,
+	guest_pid: libc::pid_t,
 
 	#[cfg(target_os = "linux")]
-	gid: libc::gid_t,
-
-	#[cfg(target_os = "linux")]
-	uid: libc::gid_t,
+	root_pid: libc::pid_t,
 
 	#[cfg(target_os = "linux")]
 	socket: tokio::net::UnixStream,
@@ -93,6 +91,7 @@ pub struct Tty {
 	pub y: u16,
 }
 
+#[derive(Debug)]
 pub enum ExitStatus {
 	Code(i32),
 	Signal(i32),
@@ -153,25 +152,18 @@ impl Command {
 		self
 	}
 
-	pub fn mount(&mut self, mount: Mount) -> &mut Self {
+	pub fn mount(&mut self, mount: impl Into<Mount>) -> &mut Self {
 		self.mounts(std::iter::once(mount))
 	}
 
-	pub fn mounts(&mut self, mounts: impl IntoIterator<Item = Mount>) -> &mut Self {
-		self.mounts.extend(mounts);
+	pub fn mounts(&mut self, mounts: impl IntoIterator<Item = impl Into<Mount>>) -> &mut Self {
+		self.mounts
+			.extend(mounts.into_iter().map(Into::into));
 		self
 	}
 
 	pub fn network(&mut self, enable: bool) -> &mut Self {
 		self.network = enable;
-		self
-	}
-
-	pub fn path(&mut self, path: impl AsRef<std::path::Path>, readonly: bool) -> &mut Self {
-		self.paths.push(Path {
-			path: path.as_ref().to_owned(),
-			readonly,
-		});
 		self
 	}
 
@@ -208,6 +200,17 @@ impl Command {
 }
 
 impl Child {
+	pub fn pid(&self) -> libc::pid_t {
+		#[cfg(target_os = "linux")]
+		{
+			self.guest_pid
+		}
+		#[cfg(target_os = "macos")]
+		{
+			self.pid
+		}
+	}
+
 	pub fn wait(&mut self) -> impl Future<Output = std::io::Result<ExitStatus>> {
 		#[cfg(target_os = "linux")]
 		{
@@ -314,7 +317,7 @@ impl Drop for Child {
 		#[cfg(not(target_os = "linux"))]
 		let options = libc::WEXITED;
 
-		let pid = self.pid;
+		let pid = self.pid();
 		tokio::task::spawn_blocking(move || {
 			unsafe { libc::kill(pid, libc::SIGKILL) };
 			let mut status = 0;
@@ -322,5 +325,34 @@ impl Drop for Child {
 				libc::waitpid(pid, std::ptr::addr_of_mut!(status), options);
 			}
 		});
+	}
+}
+
+impl<S, T> From<(S, T)> for Mount
+where
+	S: AsRef<std::path::Path>,
+	T: AsRef<std::path::Path>,
+{
+	fn from(value: (S, T)) -> Self {
+		let (source, target) = value;
+		Mount::from((source, target, true))
+	}
+}
+
+impl<S, T> From<(S, T, bool)> for Mount
+where
+	S: AsRef<std::path::Path>,
+	T: AsRef<std::path::Path>,
+{
+	fn from(value: (S, T, bool)) -> Mount {
+		let (source, target, readonly) = value;
+		Mount {
+			source: source.as_ref().to_owned(),
+			target: target.as_ref().to_owned(),
+			flags: libc::MS_BIND | libc::MS_REC,
+			fstype: None,
+			data: None,
+			readonly,
+		}
 	}
 }

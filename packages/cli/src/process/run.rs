@@ -2,6 +2,7 @@ use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
+use signal::handle_signals;
 use std::io::{IsTerminal, Read};
 use std::pin::pin;
 use stdio::Stdio;
@@ -103,7 +104,8 @@ impl Cli {
 				Ok(())
 			},
 			Some(tg::process::Exit::Signal { signal }) => {
-				Err(tg::error!(%signal, "the process exited with a signal"))
+				fork_and_exit(128 + signal).ok();
+				Ok(())
 			},
 			None => Ok(()),
 		}
@@ -117,6 +119,8 @@ impl Cli {
 		trailing: Vec<String>,
 		stdio: &Stdio,
 	) -> tg::Result<Option<tg::process::wait::Wait>> {
+		eprintln!("client pid: {}", unsafe { libc::getpid() });
+
 		let handle = self.handle().await?;
 
 		// Get the remote.
@@ -169,6 +173,7 @@ impl Cli {
 		let cancel_task = tokio::spawn({
 			let handle = handle.clone();
 			let process = process.clone();
+			let remote = remote.clone();
 			async move {
 				tokio::signal::ctrl_c().await.unwrap();
 				tokio::spawn(async move {
@@ -189,6 +194,16 @@ impl Cli {
 				});
 				tokio::signal::ctrl_c().await.unwrap();
 				fork_and_exit(130).ok();
+			}
+		});
+
+		// Spawn a task to handle signals.
+		let signal_task = tokio::spawn({
+			let handle = handle.clone();
+			let process = process.id().clone();
+			let remote = remote.clone();
+			async move {
+				handle_signals(&handle, &process, remote).await.ok();
 			}
 		});
 
@@ -218,6 +233,9 @@ impl Cli {
 
 		// Abort the cancel task.
 		cancel_task.abort();
+
+		// Abort the signal task.
+		signal_task.abort();
 
 		// Return the output.
 		result.map(Some)

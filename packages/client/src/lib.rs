@@ -770,6 +770,14 @@ impl tg::Handle for Client {
 		self.close_pipe(id, arg)
 	}
 
+	fn get_pipe_window_size(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> {
+		self.get_pipe_window_size(id, arg)
+	}
+
 	fn get_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,

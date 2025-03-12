@@ -18,11 +18,8 @@ impl Server {
 		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
 	) -> tg::Result<()> {
 		let _id = id.clone();
-		scopeguard::defer! {
-			eprintln!("canceled or dropped post pipe: {id}");
-		}
-		eprintln!("post pipe: {id}");
 		if let Some(remote) = arg.remote.take() {
+			eprintln!("POST stream {remote}.{id}");
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.post_pipe(id, arg, stream.boxed()).await;
 		}
@@ -31,15 +28,12 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the pipe"))?
 			.ok_or_else(|| tg::error!(%id, "missing pipe"))?;
-		eprintln!("got pipe: {id}");
 		let pipe = if id == &reader { writer } else { reader };
-		eprintln!("pipe: {pipe}");
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			eprintln!("send ({id}): {event:?}");
+			eprintln!("POST {id}: {event:?}");
 			self.send_pipe_event(&pipe, event).await?;
 		}
-		eprintln!("drained stream {pipe}");
 		Ok(())
 	}
 

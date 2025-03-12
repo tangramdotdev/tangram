@@ -254,14 +254,7 @@ impl Runtime {
 		});
 
 		// Wait for the child process to complete.
-		let exit = match child
-			.wait()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?
-		{
-			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
-			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
-		};
+		let exit = util::wait_or_signal(&self.server, &mut child, process).await?;
 
 		// Stop the proxy task.
 		if let Some(task) = proxy.as_ref().map(|(proxy, _)| proxy) {
