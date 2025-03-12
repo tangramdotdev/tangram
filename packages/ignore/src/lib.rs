@@ -1,9 +1,8 @@
 use globset::{Candidate, GlobBuilder, GlobSet, GlobSetBuilder};
 use std::{
-	collections::BTreeMap,
+	collections::HashMap,
 	ffi::OsString,
 	path::{Path, PathBuf},
-	sync::{Arc, RwLock},
 };
 
 #[cfg(test)]
@@ -20,12 +19,12 @@ pub enum Error {
 pub struct Matcher {
 	file_names: Vec<OsString>,
 	global: Option<File>,
-	root: Arc<RwLock<Node>>,
+	nodes: Vec<Node>,
 }
 
 #[derive(Debug)]
 struct Node {
-	children: BTreeMap<OsString, Arc<RwLock<Self>>>,
+	children: HashMap<OsString, usize, fnv::FnvBuildHasher>,
 	files: Vec<File>,
 }
 
@@ -44,8 +43,9 @@ struct Pattern {
 }
 
 impl Matcher {
-	pub async fn new(file_names: Vec<OsString>, global: Option<&str>) -> Result<Self, Error> {
-		let root = Self::node_with_path_and_file_names(Path::new("/"), &file_names).await?;
+	pub fn new(file_names: Vec<OsString>, global: Option<&str>) -> Result<Self, Error> {
+		let root = Self::node_with_path_and_file_names(Path::new("/"), &file_names)?;
+		let nodes = vec![root];
 		let global = if let Some(global) = global {
 			Some(Self::file_with_contents(global)?)
 		} else {
@@ -54,16 +54,16 @@ impl Matcher {
 		Ok(Self {
 			file_names,
 			global,
-			root,
+			nodes,
 		})
 	}
 
-	pub async fn matches(&self, path: &Path, is_directory: Option<bool>) -> Result<bool, Error> {
+	pub fn matches(&mut self, path: &Path, is_directory: Option<bool>) -> Result<bool, Error> {
 		// Check if the path is a directory if necessary.
 		let is_directory = if let Some(is_directory) = is_directory {
 			is_directory
 		} else {
-			tokio::fs::symlink_metadata(path).await?.is_dir()
+			std::fs::symlink_metadata(path)?.is_dir()
 		};
 
 		// Split the path into components.
@@ -75,37 +75,40 @@ impl Matcher {
 
 		// Get or create the nodes.
 		let mut path = PathBuf::from("/");
-		let mut nodes = vec![self.root.clone()];
+		let mut indexes = vec![0];
 		while let Some(component) = components.next() {
 			path.push(component);
 			let std::path::Component::Normal(name) = component else {
 				return Err(Error::Path);
 			};
-			let node = nodes.last().unwrap();
-			let option = node.read().unwrap().children.get(name).cloned();
-			let child = if let Some(child) = option {
+			let index = if let Some(child) = self.nodes[*indexes.last().unwrap()]
+				.children
+				.get(name)
+				.copied()
+			{
 				child
 			} else if components.peek().is_some() {
-				let child = Self::node_with_path_and_file_names(&path, &self.file_names).await?;
-				let child = node
-					.write()
-					.unwrap()
+				let child = Self::node_with_path_and_file_names(&path, &self.file_names)?;
+				let index = self.nodes.len();
+				self.nodes.push(child);
+				self.nodes[*indexes.last().unwrap()]
 					.children
-					.entry(name.to_owned())
-					.or_insert(child)
-					.clone();
-				child
+					.insert(name.to_owned(), index);
+				index
 			} else {
 				break;
 			};
-			nodes.push(child);
+			indexes.push(index);
 		}
 
 		// Match.
 		let mut matches = Vec::new();
-		for (node, node_path) in std::iter::zip(nodes.iter().rev(), path.ancestors().skip(1)) {
+		for (index, node_path) in
+			std::iter::zip(indexes.into_iter().rev(), path.ancestors().skip(1))
+		{
+			let node = &self.nodes[index];
 			let candidate = Candidate::new(path.strip_prefix(node_path).unwrap());
-			let files = &node.read().unwrap().files;
+			let files = &node.files;
 			for file in files {
 				file.glob_set
 					.matches_candidate_into(&candidate, &mut matches);
@@ -133,13 +136,10 @@ impl Matcher {
 		Ok(false)
 	}
 
-	async fn node_with_path_and_file_names(
-		path: &Path,
-		file_names: &[OsString],
-	) -> Result<Arc<RwLock<Node>>, Error> {
+	fn node_with_path_and_file_names(path: &Path, file_names: &[OsString]) -> Result<Node, Error> {
 		let mut files = Vec::new();
 		for name in file_names {
-			let contents = match tokio::fs::read_to_string(path.join(name)).await {
+			let contents = match std::fs::read_to_string(path.join(name)) {
 				Ok(contents) => contents,
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 					continue;
@@ -149,10 +149,10 @@ impl Matcher {
 			let file = Self::file_with_contents(&contents)?;
 			files.push(file);
 		}
-		let node = Arc::new(RwLock::new(Node {
-			children: BTreeMap::new(),
+		let node = Node {
+			children: HashMap::default(),
 			files,
-		}));
+		};
 		Ok(node)
 	}
 

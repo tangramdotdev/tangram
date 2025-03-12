@@ -194,7 +194,7 @@ impl Default for Advanced {
 	fn default() -> Self {
 		Self {
 			process_dequeue_timeout: Duration::from_secs(3600),
-			file_descriptor_semaphore_size: 1_000_000_000,
+			file_descriptor_semaphore_size: 100,
 			preserve_temp_directories: false,
 			version: None,
 			write_blobs_to_blobs_directory: true,
