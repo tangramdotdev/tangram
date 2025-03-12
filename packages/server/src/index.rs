@@ -16,10 +16,13 @@ use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct Message {
+	pub(crate) children: BTreeSet<tg::object::Id>,
+	pub(crate) count: Option<u64>,
+	pub(crate) depth: Option<u64>,
 	pub(crate) id: tg::object::Id,
 	pub(crate) size: u64,
-	pub(crate) children: BTreeSet<tg::object::Id>,
 	pub(crate) touched_at: i64,
+	pub(crate) weight: Option<u64>,
 }
 
 type Acker = nats::jetstream::message::Acker;
@@ -212,9 +215,13 @@ impl Server {
 					// Prepare a statement for the objects.
 					let objects_statement = indoc!(
 						"
-							insert into objects (id, size, touched_at)
-							values (?1, ?2, ?3)
-							on conflict (id) do update set touched_at = ?3;
+							insert into objects (id, size, touched_at, count, depth, weight)
+							values (?1, ?2, ?3, ?4, ?5, ?6)
+							on conflict (id) do update set 
+								touched_at = ?3,
+								count = coalesce(?4, count),
+								depth = coalesce(?5, depth),
+								weight = coalesce(?6, weight);
 						"
 					);
 					let mut objects_statement = transaction
@@ -242,7 +249,14 @@ impl Server {
 						}
 
 						// Insert the object.
-						let params = rusqlite::params![&id.to_string(), size, touched_at];
+						let params = rusqlite::params![
+							&id.to_string(),
+							size,
+							touched_at,
+							message.count.map(|c| c.to_i64().unwrap()),
+							message.depth.map(|d| d.to_i64().unwrap()),
+							message.weight.map(|w| w.to_i64().unwrap())
+						];
 						objects_statement.execute(params).map_err(|source| {
 							tg::error!(!source, "failed to execute the statement")
 						})?;
@@ -327,15 +341,30 @@ impl Server {
 					std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
 				})
 				.collect::<Vec<_>>();
+			let count = unique_messages
+				.values()
+				.map(|message| message.count.map(|c| c.to_i64().unwrap()))
+				.collect::<Vec<_>>();
+			let depth = unique_messages
+				.values()
+				.map(|message| message.depth.map(|d| d.to_i64().unwrap()))
+				.collect::<Vec<_>>();
+			let weight = unique_messages
+				.values()
+				.map(|message| message.weight.map(|w| w.to_i64().unwrap()))
+				.collect::<Vec<_>>();
 			transaction
 				.execute(
-					"CALL insert_objects_and_children($1::text[], $2::int8[], $3::text, $4::text[], $5::int8[])",
+					"CALL insert_objects_and_children($1::text[], $2::int8[], $3::text, $4::text[], $5::int8[], $7::int8[], $8::int8[], $9::int8[])",
 					&[
 						&ids.as_slice(),
 						&size.as_slice(),
 						&now,
 						&children.as_slice(),
 						&parent_indices.as_slice(),
+						&count.as_slice(),
+						&depth.as_slice(),
+						&weight.as_slice(),
 					],
 				)
 				.await

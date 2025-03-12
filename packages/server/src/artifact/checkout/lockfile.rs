@@ -35,8 +35,8 @@ impl Server {
 			})
 			.try_collect()?;
 
-		// Strip nodes.
-		let nodes = self.strip_lockfile_nodes(&nodes, root)?;
+		// // Strip nodes. TODO
+		// let nodes = self.strip_lockfile_nodes(&nodes, root)?;
 
 		// Create the lockfile.
 		let lockfile = tg::Lockfile { nodes };

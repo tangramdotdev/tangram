@@ -463,10 +463,13 @@ impl Server {
 							let data = tg::object::Data::deserialize(id.kind(), bytes)?;
 							let children = data.children();
 							let message = crate::index::Message {
+								children,
+								count: None,
+								depth: None,
 								id: id.clone(),
 								size: bytes.len().to_u64().unwrap(),
-								children,
 								touched_at,
+								weight: None,
 							};
 							let message = serde_json::to_vec(&message).map_err(|source| {
 								tg::error!(!source, "failed to serialize the message")

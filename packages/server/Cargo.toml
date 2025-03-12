@@ -70,6 +70,7 @@ num = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
 petgraph = { workspace = true }
+reflink-copy = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }

@@ -9,8 +9,8 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use time::format_description::well_known::Rfc3339;
-use tokio::io::{AsyncRead, AsyncWriteExt};
+use tangram_messenger::Messenger as _;
+use tokio::io::{AsyncRead, AsyncWriteExt as _};
 use tokio_postgres as postgres;
 
 const MAX_BRANCH_CHILDREN: usize = 1_024;
@@ -23,11 +23,11 @@ pub struct Blob {
 	pub children: Vec<Blob>,
 	pub count: u64,
 	pub data: Option<tg::blob::Data>,
-	pub size: u64,
 	pub depth: u64,
 	pub id: tg::blob::Id,
-	pub position: u64,
 	pub length: u64,
+	pub position: u64,
+	pub size: u64,
 	pub weight: u64,
 }
 
@@ -66,13 +66,16 @@ impl Server {
 		}
 
 		// Create the database future.
-		let database_future = async { self.insert_blob(&blob, touched_at).await };
+		let database_future = async { self.blob_create_database(&blob).await };
+
+		// Create the messenger future.
+		let messenger_future = async { self.blob_create_messenger(&blob, touched_at).await };
 
 		// Create the store future.
-		let store_future = async { self.store_blob(&blob, touched_at).await };
+		let store_future = async { self.blob_create_store(&blob, touched_at).await };
 
-		// Join the database and store futures.
-		futures::try_join!(database_future, store_future)?;
+		// Join the database, messenger, and store futures.
+		futures::try_join!(database_future, messenger_future, store_future)?;
 
 		// Create the output.
 		let output = tg::blob::create::Output {
@@ -120,10 +123,10 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Create the database future.
-		let database_future = async { self.insert_blob(&blob, touched_at).await };
+		let database_future = async { self.blob_create_database(&blob).await };
 
 		// Create the store future.
-		let store_future = async { self.store_blob(&blob, touched_at).await };
+		let store_future = async { self.blob_create_store(&blob, touched_at).await };
 
 		// Join the database and store futures.
 		futures::try_join!(database_future, store_future)?;
@@ -315,7 +318,7 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn insert_blob(&self, blob: &Arc<Blob>, touched_at: i64) -> tg::Result<()> {
+	async fn blob_create_database(&self, blob: &Arc<Blob>) -> tg::Result<()> {
 		let write_blobs_to_blobs_directory = self.config.advanced.write_blobs_to_blobs_directory;
 		match &self.database {
 			Either::Left(database) => {
@@ -335,11 +338,8 @@ impl Server {
 
 							// Insert the blob.
 							if write_blobs_to_blobs_directory {
-								Self::insert_blob_sqlite(&blob, &transaction)?;
+								Self::blob_create_sqlite(&blob, &transaction)?;
 							}
-
-							// Insert the objects.
-							Self::insert_blob_objects_sqlite(&blob, &transaction, touched_at)?;
 
 							// Commit the transaction.
 							transaction.commit().map_err(|source| {
@@ -370,11 +370,8 @@ impl Server {
 
 				// Insert the blob.
 				if write_blobs_to_blobs_directory {
-					Self::insert_blob_postgres(blob, &transaction).await?;
+					Self::blob_create_postgres(blob, &transaction).await?;
 				}
-
-				// Insert the objects.
-				Self::insert_blob_objects_postgres(blob, &transaction, touched_at).await?;
 
 				// Commit the transaction.
 				transaction
@@ -386,7 +383,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) fn insert_blob_sqlite(
+	pub(crate) fn blob_create_sqlite(
 		blob: &Blob,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
@@ -433,7 +430,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn insert_blob_postgres(
+	pub(crate) async fn blob_create_postgres(
 		blob: &Blob,
 		transaction: &postgres::Transaction<'_>,
 	) -> tg::Result<()> {
@@ -497,161 +494,42 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) fn insert_blob_objects_sqlite(
-		blob: &Blob,
-		transaction: &sqlite::Transaction<'_>,
-		touched_at: i64,
-	) -> tg::Result<()> {
-		let touched_at = time::OffsetDateTime::from_unix_timestamp(touched_at)
-			.unwrap()
-			.format(&Rfc3339)
-			.unwrap();
-
-		// Prepare a statement for the object children.
-		let children_statement = indoc!(
-			"
-				insert into object_children (object, child)
-				values (?1, ?2)
-				on conflict (object, child) do nothing;
-			"
-		);
-		let mut children_statement = transaction
-			.prepare_cached(children_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		// Prepare a statement for the objects.
-		let objects_statement = indoc!(
-			"
-				insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
-				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-				on conflict (id) do update set touched_at = ?7;
-			"
-		);
-		let mut objects_statement = transaction
-			.prepare_cached(objects_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
+	async fn blob_create_messenger(&self, blob: &Blob, touched_at: i64) -> tg::Result<()> {
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
-			// Insert the children.
-			for child in &blob.children {
-				let params = rusqlite::params![&blob.id.to_string(), &child.id.to_string()];
-				children_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				stack.push(child);
-			}
+			// Create the index message.
+			let children = blob
+				.data
+				.as_ref()
+				.map(tg::blob::Data::children)
+				.unwrap_or_default();
+			let id = blob.id.clone().into();
+			let message = crate::index::Message {
+				children,
+				count: None,
+				depth: None,
+				id,
+				size: blob.size,
+				touched_at,
+				weight: None,
+			};
 
-			// Insert the object.
-			let params = rusqlite::params![
-				&blob.id.to_string(),
-				true,
-				blob.count,
-				blob.depth,
-				0,
-				blob.size,
-				&touched_at,
-				blob.weight
-			];
-			objects_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			// Serialize the message.
+			let message = serde_json::to_vec(&message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+
+			// Publish the message.
+			self.messenger
+				.publish("index".to_owned(), message.into())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+
+			stack.extend(&blob.children);
 		}
-
-		// Drop the statements.
-		drop(children_statement);
-		drop(objects_statement);
-
 		Ok(())
 	}
 
-	pub(crate) async fn insert_blob_objects_postgres(
-		blob: &Blob,
-		transaction: &postgres::Transaction<'_>,
-		touched_at: i64,
-	) -> tg::Result<()> {
-		let touched_at = time::OffsetDateTime::from_unix_timestamp(touched_at)
-			.unwrap()
-			.format(&Rfc3339)
-			.unwrap();
-
-		// Collect all the object data and children.
-		let mut objects = Vec::new();
-		let mut children = Vec::new();
-		let mut stack = vec![blob];
-		while let Some(blob) = stack.pop() {
-			// Collect object data.
-			objects.push((
-				blob.id.to_string(),
-				blob.count.to_i64().unwrap(),
-				blob.depth.to_i64().unwrap(),
-				blob.size.to_i64().unwrap(),
-				blob.weight.to_i64().unwrap(),
-			));
-
-			// Collect children.
-			for child in &blob.children {
-				children.push((blob.id.to_string(), child.id.to_string()));
-				stack.push(child);
-			}
-		}
-
-		// Insert object children using batch insert.
-		if !children.is_empty() {
-			let (parent_ids, child_ids) = children.into_iter().collect::<(Vec<_>, Vec<_>)>();
-			let children_statement = indoc!(
-				"
-					insert into object_children (object, child)
-					select object, child
-					from unnest($1::text[], $2::text[]) as t (object, child)
-					on conflict (object, child) do nothing;
-				"
-			);
-			transaction
-				.execute(
-					children_statement,
-					&[&parent_ids.as_slice(), &child_ids.as_slice()],
-				)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to execute the children statement")
-				})?;
-		}
-
-		// Insert objects using batch insert
-		if !objects.is_empty() {
-			let (ids, counts, depths, sizes, weights) =
-				objects
-					.into_iter()
-					.collect::<(Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>)>();
-			let statement = indoc!(
-				"
-					insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
-					select id, 1, count, depth, 0, size, $6, weight
-					from unnest($1::text[], $2::int8[], $3::int8[], $4::int8[], $5::int8[]) as t (id, count, depth, size, weight)
-					on conflict (id) do update set touched_at = $6;
-				"
-			);
-			transaction
-				.execute(
-					statement,
-					&[
-						&ids.as_slice(),
-						&counts.as_slice(),
-						&depths.as_slice(),
-						&sizes.as_slice(),
-						&weights.as_slice(),
-						&touched_at,
-					],
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the objects statement"))?;
-		}
-
-		Ok(())
-	}
-
-	async fn store_blob(&self, blob: &Blob, touched_at: i64) -> tg::Result<()> {
+	async fn blob_create_store(&self, blob: &Blob, touched_at: i64) -> tg::Result<()> {
 		let mut batch = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
