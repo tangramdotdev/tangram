@@ -1,20 +1,17 @@
 use super::{
 	proxy::{self, Proxy},
-	util::render,
+	util,
 };
 use crate::{Server, temp::Temp};
-use futures::{
-	TryStreamExt as _, future,
-	stream::{FuturesOrdered, FuturesUnordered},
-};
+use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
 use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Task;
+use tangram_sandbox as sandbox;
 use url::Url;
 
 mod chroot;
-mod process;
 
 /// The home directory guest path.
 const HOME_DIRECTORY_GUEST_PATH: &str = "/home/tangram";
@@ -66,9 +63,7 @@ impl Runtime {
 			.put_tag(&"internal/runtime/linux/env".parse().unwrap(), arg)
 			.await?;
 
-		let sh = tg::Blob::with_reader(server, DASH)
-			.await
-			.inspect_err(|error| eprintln!("{error}"))?;
+		let sh = tg::Blob::with_reader(server, DASH).await?;
 		let sh = tg::File::builder(sh).executable(true).build();
 		let arg = tg::tag::put::Arg {
 			force: true,
@@ -193,7 +188,7 @@ impl Runtime {
 		let args: Vec<String> = args
 			.iter()
 			.map(|value| async {
-				let value = render(&self.server, value, &artifacts_path).await?;
+				let value = util::render(&self.server, value, &artifacts_path).await?;
 				Ok::<_, tg::Error>(value)
 			})
 			.collect::<FuturesOrdered<_>>()
@@ -224,7 +219,7 @@ impl Runtime {
 		else {
 			return Err(tg::error!("invalid executable"));
 		};
-		let executable = render(&self.server, &executable.into(), &artifacts_path).await?;
+		let executable = util::render(&self.server, &executable.into(), &artifacts_path).await?;
 
 		if chroot.is_some() {
 			// Set `$HOME`.
@@ -260,23 +255,136 @@ impl Runtime {
 			});
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
-		// Spawn the child.
-		let mut child = process::spawn(args, cwd, env, executable, chroot, state.network)?;
+		let mut cmd_ = sandbox::Command::new(executable);
 
-		// Spawn the log task.
-		let log_task = super::util::post_log_task(
-			&self.server,
-			process,
-			remote,
-			child.stdout.take().unwrap(),
-			child.stderr.take().unwrap(),
-		);
+		cmd_.args(args);
+		cmd_.cwd(cwd);
+
+		if let Some(chroot) = &chroot {
+			cmd_.chroot(&chroot.root);
+			cmd_.mounts(chroot.mounts.clone());
+		}
+
+		cmd_.stdin(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdin {
+			if let Some(ws) = self
+				.server
+				.get_pipe_window_size(
+					pipe,
+					tg::pipe::get::Arg {
+						remote: process.remote().cloned(),
+					},
+				)
+				.await?
+			{
+				eprintln!("stdin isatty");
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdin(sandbox::Stdio::Tty(tty));
+			} else {
+				eprintln!("stdin !isatty");
+			}
+		}
+		cmd_.stdout(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stdout {
+			if let Some(ws) = self
+				.server
+				.get_pipe_window_size(
+					pipe,
+					tg::pipe::get::Arg {
+						remote: process.remote().cloned(),
+					},
+				)
+				.await?
+			{
+				eprintln!("stdout isatty");
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stdout(sandbox::Stdio::Tty(tty));
+			} else {
+				eprintln!("stdout !isatty");
+			}
+		}
+		cmd_.stderr(sandbox::Stdio::Piped);
+		if let Some(pipe) = &state.stderr {
+			if let Some(ws) = self
+				.server
+				.get_pipe_window_size(
+					pipe,
+					tg::pipe::get::Arg {
+						remote: process.remote().cloned(),
+					},
+				)
+				.await?
+			{
+				eprintln!("stderr isatty");
+				let tty = sandbox::Tty {
+					rows: ws.rows,
+					cols: ws.cols,
+					x: ws.xpos,
+					y: ws.ypos,
+				};
+				cmd_.stderr(sandbox::Stdio::Tty(tty));
+			} else {
+				eprintln!("stderr !isatty");
+			}
+		}
+
+		// Spawn the child.
+		let mut child = cmd_
+			.spawn()
+			.await
+			.map_err(|source| {
+				if source.raw_os_error() == Some(libc::ENOSYS) {
+					tg::error!(%errno = libc::ENOSYS, "cannot spawn within a container runtime without --privileged")
+				} else {
+					tg::error!(!source, "failed to spawn the child process")
+				}
+			})?;
+
+		// Spawn the stdio task.
+		let stdin = child.stdin.take().unwrap();
+		let stdout = child.stdout.take().unwrap();
+		let stderr = child.stderr.take().unwrap();
+		let stdio_task = Task::spawn(move |stop| {
+			super::util::stdio_task(
+				self.server.clone(),
+				process.clone(),
+				stop,
+				stdin,
+				stdout,
+				stderr,
+			)
+		});
+
+		// Spawn the signal task.
+		let signal_task = tokio::spawn({
+			let server = self.server.clone();
+			let process = process.clone();
+			let pid = child.pid();
+			async move {
+				util::signal_task(&server, pid, &process).await
+					.inspect_err(|source| tracing::error!(?source, "signal task failed"))
+					.ok();
+			}
+		});
 
 		// Wait for the child process to complete.
-		let exit = child
-			.wait()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
+		let exit = child.wait().await;
+		let exit =
+			// Wrap the error and return.
+			match exit.map_err(|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"))? {
+				sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
+				sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
+			};
 
 		// Stop the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
@@ -284,12 +392,12 @@ impl Runtime {
 			task.wait().await.unwrap();
 		}
 
-		// Join the i/o tasks.
-		let (input, output) = future::try_join(future::ok(Ok::<_, tg::Error>(())), log_task)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to join the i/o tasks"))?;
-		input.map_err(|source| tg::error!(!source, "the stdin task failed"))?;
-		output.map_err(|source| tg::error!(!source, "the log task failed"))?;
+		// Stop the signal task.
+		signal_task.abort();
+
+		// stop the i/o task.
+		stdio_task.stop();
+		stdio_task.wait().await.unwrap().ok();
 
 		// Create the output.
 		let output = output_parent.path().join("output");
@@ -313,6 +421,9 @@ impl Runtime {
 		} else {
 			None
 		};
+
+		// Drop the chroot.
+		drop(chroot);
 
 		Ok((Some(exit), output))
 	}

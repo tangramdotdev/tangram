@@ -3,13 +3,21 @@ use futures::{Stream, TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
+#[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+}
+
 impl Client {
 	pub async fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + 'static> {
+		arg: Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>>> {
 		let method = http::Method::POST;
-		let uri = format!("/pipes/{id}/read");
+		let query = serde_urlencoded::to_string(&arg).unwrap();
+		let uri = format!("/pipes/{id}/read?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

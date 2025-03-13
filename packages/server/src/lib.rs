@@ -87,7 +87,6 @@ pub struct Inner {
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
 	processes: ProcessTaskMap,
-	pipes: DashMap<tg::pipe::Id, Pipe, fnv::FnvBuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Store,
@@ -101,11 +100,6 @@ type ArtifactCacheTaskMap =
 
 struct Http {
 	url: Url,
-}
-
-struct Pipe {
-	sender: tokio::sync::mpsc::Sender<tg::pipe::Event>,
-	receiver: Option<tokio::sync::mpsc::Receiver<tg::pipe::Event>>,
 }
 
 type ProcessPermits =
@@ -306,9 +300,6 @@ impl Server {
 				})?;
 		}
 
-		// Create the pipes.
-		let pipes = DashMap::default();
-
 		// Create the remotes.
 		let remotes = DashMap::default();
 
@@ -348,7 +339,6 @@ impl Server {
 			process_permits,
 			process_semaphore,
 			processes,
-			pipes,
 			remotes,
 			runtimes,
 			store,
@@ -852,8 +842,8 @@ impl Server {
 						Body::with_body(tangram_http::idle::Body::new(idle.token(), body))
 					}
 				})
-				.layer(tangram_http::layer::compression::RequestDecompressionLayer)
-				.layer(tangram_http::layer::compression::ResponseCompressionLayer::default())
+				// .layer(tangram_http::layer::compression::RequestDecompressionLayer)
+				// .layer(tangram_http::layer::compression::ResponseCompressionLayer::default())
 				.service_fn({
 					let handle = handle.clone();
 					move |request| {
@@ -970,11 +960,15 @@ impl Server {
 			(http::Method::POST, ["pipes", pipe, "close"]) => {
 				Self::handle_close_pipe_request(handle, request, pipe).boxed()
 			},
-			(http::Method::POST, ["pipes", pipe, "read"]) => {
-				Self::handle_read_pipe_request(handle, request, pipe).boxed()
+			(http::Method::GET, ["pipes", pipe, "window"]) => {
+				Self::handle_get_pipe_window_request(handle, request, pipe).boxed()
 			},
-			(http::Method::POST, ["pipes", pipe, "write"]) => {
-				Self::handle_write_pipe_request(handle, request, pipe).boxed()
+
+			(http::Method::GET, ["pipes", pipe]) => {
+				Self::handle_get_pipe_request(handle, request, pipe).boxed()
+			},
+			(http::Method::POST, ["pipes", pipe]) => {
+				Self::handle_post_pipe_request(handle, request, pipe).boxed()
 			},
 
 			// Processes.
@@ -995,6 +989,12 @@ impl Server {
 			},
 			(http::Method::POST, ["processes", process, "start"]) => {
 				Self::handle_start_process_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "signal"]) => {
+				Self::handle_post_process_signal_request(handle, request, process).boxed()
+			},
+			(http::Method::GET, ["processes", process, "signal"]) => {
+				Self::handle_get_process_signal_request(handle, request, process).boxed()
 			},
 			(http::Method::GET, ["processes", process, "status"]) => {
 				Self::handle_get_process_status_request(handle, request, process).boxed()
@@ -1258,28 +1258,45 @@ impl tg::Handle for Server {
 		self.format_package(arg)
 	}
 
-	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
-		self.open_pipe()
+	fn open_pipe(
+		&self,
+		arg: tg::pipe::open::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		self.open_pipe(arg)
 	}
 
-	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
-		self.close_pipe(id)
-	}
-
-	fn read_pipe(
+	fn close_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::close::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.close_pipe(id, arg)
+	}
+
+	fn get_pipe_window_size(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> + Send {
+		self.get_pipe_window_size(id, arg)
+	}
+
+	fn get_pipe_stream(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
-		self.read_pipe(id)
+		self.get_pipe_stream(id, arg)
 	}
 
-	fn write_pipe(
+	fn post_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::post::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.write_pipe(id, stream)
+		self.post_pipe(id, arg, stream)
 	}
 
 	fn try_get_process_metadata(
@@ -1317,6 +1334,28 @@ impl tg::Handle for Server {
 		arg: tg::process::start::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::start::Output>> {
 		self.try_start_process(id, arg)
+	}
+
+	fn post_process_signal(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.post_process_signal(id, arg)
+	}
+
+	fn try_get_process_signal_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_get_process_signal_stream(id, arg)
 	}
 
 	fn try_get_process_status_stream(

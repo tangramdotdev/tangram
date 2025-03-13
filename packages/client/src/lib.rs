@@ -149,8 +149,8 @@ impl Client {
 				http::HeaderName::from_str("x-tg-version").unwrap(),
 				http::HeaderValue::from_str(&Self::version()).unwrap(),
 			)
-			.layer(tangram_http::layer::compression::RequestCompressionLayer::default())
-			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
+			// .layer(tangram_http::layer::compression::RequestCompressionLayer::default())
+			// .layer(tangram_http::layer::compression::ResponseDecompressionLayer)
 			.service(service);
 		let service = Service::new(service);
 		Self(Arc::new(Inner {
@@ -748,28 +748,45 @@ impl tg::Handle for Client {
 		self.format_package(arg)
 	}
 
-	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
-		self.open_pipe()
+	fn open_pipe(
+		&self,
+		arg: tg::pipe::open::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		self.open_pipe(arg)
 	}
 
-	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
-		self.close_pipe(id)
-	}
-
-	fn read_pipe(
+	fn close_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::close::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.close_pipe(id, arg)
+	}
+
+	fn get_pipe_window_size(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> {
+		self.get_pipe_window_size(id, arg)
+	}
+
+	fn get_pipe_stream(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
-		self.read_pipe(id)
+		self.get_pipe_stream(id, arg)
 	}
 
-	fn write_pipe(
+	fn post_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::post::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.write_pipe(id, stream)
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.post_pipe(id, arg, stream)
 	}
 
 	fn try_spawn_process(
@@ -835,6 +852,28 @@ impl tg::Handle for Client {
 		arg: tg::process::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
 		self.heartbeat_process(id, arg)
+	}
+
+	fn post_process_signal(
+		&self,
+		id: &crate::process::Id,
+		arg: crate::process::signal::post::Arg,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		self.post_process_signal(id, arg)
+	}
+
+	fn try_get_process_signal_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_get_process_signal_stream(id, arg)
 	}
 
 	fn try_get_process_status_stream(

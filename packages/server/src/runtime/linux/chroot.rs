@@ -4,22 +4,17 @@ use super::{
 };
 use crate::temp::Temp;
 use indoc::formatdoc;
-use std::{ffi::CString, os::unix::ffi::OsStrExt as _, path::Path};
+use std::{
+	ffi::OsString,
+	path::{Path, PathBuf},
+};
 use tangram_client as tg;
+use tangram_sandbox as sandbox;
 
 pub struct Chroot {
 	pub temp: Temp,
-	pub mounts: Vec<Mount>,
-	pub root: CString,
-}
-
-pub struct Mount {
-	pub source: CString,
-	pub target: CString,
-	pub fstype: Option<CString>,
-	pub flags: libc::c_ulong,
-	pub data: Option<Vec<u8>>,
-	pub readonly: bool,
+	pub mounts: Vec<sandbox::Mount>,
+	pub root: PathBuf,
 }
 
 impl Chroot {
@@ -129,7 +124,7 @@ impl Chroot {
 		// Add /dev to the mounts.
 		let dev_host_path = Path::new("/dev");
 		let dev_guest_path = Path::new("/dev");
-		let dev_source_path = dev_host_path;
+		let dev_source_path = dev_host_path.to_owned();
 		let dev_target_path = root.join(dev_guest_path.strip_prefix("/").unwrap());
 		tokio::fs::create_dir_all(&dev_target_path)
 			.await
@@ -139,9 +134,7 @@ impl Chroot {
 					r#"failed to create the mountpoint for "/dev""#
 				)
 			})?;
-		let dev_source_path = CString::new(dev_source_path.as_os_str().as_bytes()).unwrap();
-		let dev_target_path = CString::new(dev_target_path.as_os_str().as_bytes()).unwrap();
-		mounts.push(Mount {
+		mounts.push(sandbox::Mount {
 			source: dev_source_path,
 			target: dev_target_path,
 			fstype: None,
@@ -153,7 +146,7 @@ impl Chroot {
 		// Add /proc to the mounts.
 		let proc_host_path = Path::new("/proc");
 		let proc_guest_path = Path::new("/proc");
-		let proc_source_path = proc_host_path;
+		let proc_source_path = proc_host_path.to_owned();
 		let proc_target_path = root.join(proc_guest_path.strip_prefix("/").unwrap());
 		tokio::fs::create_dir_all(&proc_target_path)
 			.await
@@ -163,12 +156,10 @@ impl Chroot {
 					r#"failed to create the mount point for "/proc""#
 				)
 			})?;
-		let proc_source_path = CString::new(proc_source_path.as_os_str().as_bytes()).unwrap();
-		let proc_target_path = CString::new(proc_target_path.as_os_str().as_bytes()).unwrap();
-		mounts.push(Mount {
+		mounts.push(sandbox::Mount {
 			source: proc_source_path,
 			target: proc_target_path,
-			fstype: Some(CString::new("proc").unwrap()),
+			fstype: Some(OsString::from("proc")),
 			flags: 0,
 			data: None,
 			readonly: false,
@@ -177,7 +168,7 @@ impl Chroot {
 		// Add /tmp to the mounts.
 		let tmp_host_path = Path::new("/tmp");
 		let tmp_guest_path = Path::new("/tmp");
-		let tmp_source_path = tmp_host_path;
+		let tmp_source_path = tmp_host_path.to_owned();
 		let tmp_target_path = root.join(tmp_guest_path.strip_prefix("/").unwrap());
 		tokio::fs::create_dir_all(&tmp_target_path)
 			.await
@@ -187,19 +178,17 @@ impl Chroot {
 					r#"failed to create the mount point for "/tmp""#
 				)
 			})?;
-		let tmp_source_path = CString::new(tmp_source_path.as_os_str().as_bytes()).unwrap();
-		let tmp_target_path = CString::new(tmp_target_path.as_os_str().as_bytes()).unwrap();
-		mounts.push(Mount {
+		mounts.push(sandbox::Mount {
 			source: tmp_source_path,
 			target: tmp_target_path,
-			fstype: Some(CString::new("tmpfs").unwrap()),
+			fstype: Some(OsString::from("tmpfs")),
 			flags: 0,
 			data: None,
 			readonly: false,
 		});
 
 		// Add the &runtime.server artifacts directory to the mounts.
-		let server_artifacts_directory_source_path = &runtime.server.path.join("artifacts");
+		let server_artifacts_directory_source_path = runtime.server.path.join("artifacts");
 		let server_artifacts_directory_guest_path =
 			Path::new(SERVER_DIRECTORY_GUEST_PATH).join("artifacts");
 		let server_artifacts_directory_target_path = root.join(
@@ -215,19 +204,7 @@ impl Chroot {
 					"failed to create the mount point for the tangram directory"
 				)
 			})?;
-		let server_artifacts_directory_source_path = CString::new(
-			server_artifacts_directory_source_path
-				.as_os_str()
-				.as_bytes(),
-		)
-		.unwrap();
-		let server_artifacts_directory_target_path = CString::new(
-			server_artifacts_directory_target_path
-				.as_os_str()
-				.as_bytes(),
-		)
-		.unwrap();
-		mounts.push(Mount {
+		mounts.push(sandbox::Mount {
 			source: server_artifacts_directory_source_path,
 			target: server_artifacts_directory_target_path,
 			fstype: None,
@@ -239,11 +216,7 @@ impl Chroot {
 		// Add the home directory to the mounts.
 		let home_directory_source_path = home_directory_host_path.clone();
 		let home_directory_target_path = home_directory_host_path.clone();
-		let home_directory_source_path =
-			CString::new(home_directory_source_path.as_os_str().as_bytes()).unwrap();
-		let home_directory_target_path =
-			CString::new(home_directory_target_path.as_os_str().as_bytes()).unwrap();
-		mounts.push(Mount {
+		mounts.push(sandbox::Mount {
 			source: home_directory_source_path,
 			target: home_directory_target_path,
 			fstype: None,
@@ -268,12 +241,8 @@ impl Chroot {
 					"failed to create the mount point for the output parent directory"
 				)
 			})?;
-		let output_parent_directory_source_path =
-			CString::new(output_parent_directory_source_path.as_os_str().as_bytes()).unwrap();
-		let output_parent_directory_target_path =
-			CString::new(output_parent_directory_target_path.as_os_str().as_bytes()).unwrap();
-		mounts.push(Mount {
-			source: output_parent_directory_source_path,
+		mounts.push(sandbox::Mount {
+			source: output_parent_directory_source_path.to_owned(),
 			target: output_parent_directory_target_path,
 			fstype: None,
 			flags: libc::MS_BIND | libc::MS_REC,
@@ -281,14 +250,7 @@ impl Chroot {
 			readonly: false,
 		});
 
-		// Convert the new root path as a C string.
-		let root = CString::new(root.as_os_str().as_bytes()).map_err(|error| {
-			tg::error!(
-				source = error,
-				"the root directory host path is not a valid C string"
-			)
-		})?;
-
+		let root = root.to_owned();
 		Ok(Self { temp, root, mounts })
 	}
 }

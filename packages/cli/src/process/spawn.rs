@@ -69,7 +69,7 @@ impl Cli {
 	pub async fn command_process_spawn(&self, args: Args) -> tg::Result<()> {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 		let process = self
-			.spawn_process(args.options, reference, args.trailing)
+			.spawn_process(args.options, reference, args.trailing, None, None, None)
 			.await?;
 		println!("{}", process.id());
 		Ok(())
@@ -80,6 +80,9 @@ impl Cli {
 		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
+		stderr: Option<tg::pipe::Id>,
+		stdin: Option<tg::pipe::Id>,
+		stdout: Option<tg::pipe::Id>,
 	) -> tg::Result<tg::Process> {
 		let handle = self.handle().await?;
 
@@ -279,7 +282,7 @@ impl Cli {
 		}
 
 		// Handle build vs run.
-		let (cwd, env, network) = if options.sandbox {
+		let (cwd, env, network) = if options.sandbox || remote.is_some() {
 			let cwd = None;
 			let env = None;
 			let network = false;
@@ -305,6 +308,9 @@ impl Cli {
 			parent: None,
 			remote: remote.clone(),
 			retry,
+			stderr,
+			stdin,
+			stdout,
 		};
 		let process = tg::Process::spawn(&handle, arg).await?;
 

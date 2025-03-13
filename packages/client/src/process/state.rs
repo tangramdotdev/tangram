@@ -21,6 +21,10 @@ pub struct State {
 	pub retry: bool,
 	pub started_at: Option<time::OffsetDateTime>,
 	pub status: tg::process::Status,
+	pub stderr: Option<tg::pipe::Id>,
+	pub stdin: Option<tg::pipe::Id>,
+	pub stdout: Option<tg::pipe::Id>,
+	pub touched_at: Option<time::OffsetDateTime>,
 }
 
 impl TryFrom<tg::process::Data> for tg::process::State {
@@ -50,6 +54,10 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let retry = value.retry;
 		let started_at = value.started_at;
 		let status = value.status;
+		let stderr = value.stderr;
+		let stdin = value.stdin;
+		let stdout = value.stdout;
+		let touched_at = value.touched_at;
 		Ok(State {
 			cacheable,
 			checksum,
@@ -69,6 +77,10 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			retry,
 			started_at,
 			status,
+			stderr,
+			stdin,
+			stdout,
+			touched_at,
 		})
 	}
 }
