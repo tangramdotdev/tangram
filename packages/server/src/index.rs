@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::{Server, util::iter::Ext as _};
 use async_nats as nats;
 use futures::{Stream, StreamExt as _, TryStreamExt, future, stream};
 use indoc::indoc;
@@ -51,7 +51,7 @@ impl Server {
 			};
 
 			// Insert objects from the messages.
-			let result = self.indexer_task_insert_objects(messages).await;
+			let result = self.indexer_task_insert_objects(config, messages).await;
 			if let Err(error) = result {
 				tracing::error!(?error, "failed to get a batch of messages");
 				tokio::time::sleep(Duration::from_secs(1)).await;
@@ -157,20 +157,23 @@ impl Server {
 
 	async fn indexer_task_insert_objects(
 		&self,
+		config: &crate::config::Indexer,
 		messages: Vec<(Message, Option<Acker>)>,
 	) -> tg::Result<()> {
 		if messages.is_empty() {
 			return Ok(());
 		}
-		match &self.database {
-			Either::Left(database) => {
-				self.indexer_insert_objects_sqlite(messages, database)
-					.await?;
-			},
-			Either::Right(database) => {
-				self.indexer_insert_objects_postgres(messages, database)
-					.await?;
-			},
+		for messages in messages.into_iter().owned_chunks(config.insert_batch_size) {
+			match &self.database {
+				Either::Left(database) => {
+					self.indexer_insert_objects_sqlite(messages, database)
+						.await?;
+				},
+				Either::Right(database) => {
+					self.indexer_insert_objects_postgres(messages, database)
+						.await?;
+				},
+			}
 		}
 		Ok(())
 	}
@@ -306,85 +309,97 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		for messages in messages.chunks(128) {
-			// Get the unique messages.
-			let unique_messages: HashMap<&tg::object::Id, &Message, fnv::FnvBuildHasher> = messages
-				.iter()
-				.map(|(message, _)| (&message.id, message))
-				.collect();
+		// Get the unique messages.
+		let unique_messages: HashMap<&tg::object::Id, &Message, fnv::FnvBuildHasher> = messages
+			.iter()
+			.map(|(message, _)| (&message.id, message))
+			.collect();
 
-			// Begin a transaction.
-			let transaction = connection
-				.client_mut()
-				.transaction()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		// Begin a transaction.
+		let transaction = connection
+			.client_mut()
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-			// Insert into the objects and object_children tables.
-			let ids = unique_messages
-				.values()
-				.map(|message| message.id.to_string())
-				.collect::<Vec<_>>();
-			let size = unique_messages
-				.values()
-				.map(|message| message.size.to_i64().unwrap())
-				.collect::<Vec<_>>();
-			let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-			let children = unique_messages
-				.values()
-				.flat_map(|message| message.children.iter().map(ToString::to_string))
-				.collect::<Vec<_>>();
-			let parent_indices = unique_messages
-				.values()
-				.enumerate()
-				.flat_map(|(index, message)| {
-					std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
-				})
-				.collect::<Vec<_>>();
-			let count = unique_messages
-				.values()
-				.map(|message| message.count.map(|c| c.to_i64().unwrap()))
-				.collect::<Vec<_>>();
-			let depth = unique_messages
-				.values()
-				.map(|message| message.depth.map(|d| d.to_i64().unwrap()))
-				.collect::<Vec<_>>();
-			let weight = unique_messages
-				.values()
-				.map(|message| message.weight.map(|w| w.to_i64().unwrap()))
-				.collect::<Vec<_>>();
-			transaction
-				.execute(
-					"CALL insert_objects_and_children($1::text[], $2::int8[], $3::text, $4::text[], $5::int8[], $7::int8[], $8::int8[], $9::int8[])",
-					&[
-						&ids.as_slice(),
-						&size.as_slice(),
-						&now,
-						&children.as_slice(),
-						&parent_indices.as_slice(),
-						&count.as_slice(),
-						&depth.as_slice(),
-						&weight.as_slice(),
-					],
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
-
-			// Commit the transaction.
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-			// Acknowledge the messages.
-			future::try_join_all(
-				messages
-					.iter()
-					.filter_map(|(_, acker)| acker.as_ref())
-					.map(async |acker| acker.ack().await),
+		// Insert into the objects and object_children tables.
+		let ids = unique_messages
+			.values()
+			.map(|message| message.id.to_string())
+			.collect::<Vec<_>>();
+		let size = unique_messages
+			.values()
+			.map(|message| message.size.to_i64().unwrap())
+			.collect::<Vec<_>>();
+		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let children = unique_messages
+			.values()
+			.flat_map(|message| message.children.iter().map(ToString::to_string))
+			.collect::<Vec<_>>();
+		let parent_indices = unique_messages
+			.values()
+			.enumerate()
+			.flat_map(|(index, message)| {
+				std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
+			})
+			.collect::<Vec<_>>();
+		let count = unique_messages
+			.values()
+			.map(|message| message.count.map(|c| c.to_i64().unwrap()))
+			.collect::<Vec<_>>();
+		let depth = unique_messages
+			.values()
+			.map(|message| message.depth.map(|d| d.to_i64().unwrap()))
+			.collect::<Vec<_>>();
+		let weight = unique_messages
+			.values()
+			.map(|message| message.weight.map(|w| w.to_i64().unwrap()))
+			.collect::<Vec<_>>();
+		let statement = indoc!(
+			"
+				CALL insert_objects_and_children(
+					$1::text[],
+					$2::int8[],
+					$3::text,
+					$4::text[],
+					$5::int8[],
+					$7::int8[],
+					$8::int8[],
+					$9::int8[]
+				);
+			"
+		);
+		transaction
+			.execute(
+				statement,
+				&[
+					&ids.as_slice(),
+					&size.as_slice(),
+					&now,
+					&children.as_slice(),
+					&parent_indices.as_slice(),
+					&count.as_slice(),
+					&depth.as_slice(),
+					&weight.as_slice(),
+				],
 			)
-			.await?;
-		}
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
 
 		Ok(())
 	}

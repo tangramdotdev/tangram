@@ -13,7 +13,7 @@ use std::{
 	collections::{BTreeMap, HashMap},
 	os::unix::fs::PermissionsExt,
 	panic::AssertUnwindSafe,
-	path::PathBuf,
+	path::{Path, PathBuf},
 	sync::Arc,
 	time::Instant,
 };
@@ -23,7 +23,6 @@ use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
 use tangram_ignore as ignore;
 use tangram_messenger::Messenger as _;
-use time::format_description::well_known::Rfc3339;
 use tokio_util::task::AbortOnDropHandle;
 
 // mod input;
@@ -49,8 +48,7 @@ struct Node {
 	blob: Option<Blob>,
 	edges: Vec<Edge>,
 	metadata: Option<std::fs::Metadata>,
-	parent: Option<usize>,
-	path: Option<PathBuf>,
+	path: Option<Arc<PathBuf>>,
 	object: Option<Object>,
 }
 
@@ -116,6 +114,7 @@ impl Server {
 		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, %path = &arg.path.display(), "failed to canonicalize the path's parent"))?;
+		let arg = Arc::new(arg);
 
 		// If this is a checkin of a path in the cache directory, then retrieve the corresponding artifact.
 		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
@@ -164,8 +163,9 @@ impl Server {
 		let start = Instant::now();
 		let mut state = tokio::task::spawn_blocking({
 			let server = self.clone();
+			let arg = arg.clone();
 			move || {
-				server.checkin_visit(&mut state, arg.path)?;
+				server.checkin_visit(&mut state, arg.path.clone())?;
 				Ok::<_, tg::Error>(state)
 			}
 		})
@@ -183,7 +183,7 @@ impl Server {
 
 		// Create objects.
 		let start = Instant::now();
-		self.checkin_create_objects(&mut state, 0)?;
+		Self::checkin_create_objects(&mut state, 0)?;
 		tracing::debug!(elapsed = ?start.elapsed(), "create objects");
 
 		// Write the objects to the database and the store.
@@ -192,11 +192,12 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let blobs_future = tokio::spawn({
 			let server = self.clone();
+			let arg = arg.clone();
 			let state = state.clone();
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_copy_blobs(&state)
+					.checkin_copy_blobs(&arg, &state)
 					.map_err(|source| tg::error!(!source, "failed to copy the blobs"))
 					.await?;
 				tracing::debug!(elapsed = ?start.elapsed(), "copy blobs");
@@ -204,7 +205,6 @@ impl Server {
 			}
 		})
 		.map(|result| result.unwrap());
-		blobs_future.await?;
 		let database_future = tokio::spawn({
 			let server = self.clone();
 			let state = state.clone();
@@ -253,7 +253,12 @@ impl Server {
 			}
 		})
 		.map(|result| result.unwrap());
-		futures::try_join!(database_future, messenger_future, store_future)?;
+		futures::try_join!(
+			blobs_future,
+			database_future,
+			messenger_future,
+			store_future
+		)?;
 		let state = Arc::into_inner(state).unwrap();
 		tracing::debug!(elapsed = ?start.elapsed(), "write objects");
 
@@ -331,7 +336,7 @@ impl Server {
 		let node = Node {
 			edges: Vec::new(),
 			metadata: Some(metadata),
-			path: Some(path.clone()),
+			path: None,
 			..Default::default()
 		};
 		state.graph.nodes.push(node);
@@ -356,13 +361,11 @@ impl Server {
 			}
 		}
 
-		// Set the parents on the entries' nodes.
-		for edge in &edges {
-			state.graph.nodes[edge.node.unwrap()].parent = Some(index);
-		}
-
 		// Set the edges.
 		state.graph.nodes[index].edges = edges;
+
+		// Set the path.
+		state.graph.nodes[index].path = Some(Arc::new(path));
 
 		Ok(index)
 	}
@@ -375,7 +378,7 @@ impl Server {
 	) -> tg::Result<usize> {
 		let node = Node {
 			metadata: Some(metadata),
-			path: Some(path),
+			path: Some(Arc::new(path)),
 			..Default::default()
 		};
 		let index = state.graph.nodes.len();
@@ -396,7 +399,7 @@ impl Server {
 						let path = node.path.as_ref().unwrap().clone();
 						async move {
 							let _permit = server.file_descriptor_semaphore.acquire().await;
-							let mut file = tokio::fs::File::open(&path).await.map_err(
+							let mut file = tokio::fs::File::open(path.as_ref()).await.map_err(
 								|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
 							)?;
 							let blob = server.create_blob_inner(&mut file, None).await.map_err(
@@ -417,43 +420,26 @@ impl Server {
 		Ok(())
 	}
 
-	async fn checkin_copy_blobs(&self, state: &State) -> tg::Result<()> {
+	async fn checkin_copy_blobs(
+		&self,
+		arg: &tg::artifact::checkin::Arg,
+		state: &Arc<State>,
+	) -> tg::Result<()> {
+		let destructive = arg.destructive;
 		state
 			.graph
 			.nodes
 			.iter()
-			.filter_map(|node| match (&node.path, &node.blob) {
-				(Some(path), Some(blob)) => Some((path, blob)),
+			.filter_map(|node| match (&node.path, &node.metadata, &node.blob) {
+				(Some(path), Some(metadata), Some(blob)) => {
+					Some((path.clone(), metadata.clone(), blob.id.clone()))
+				},
 				_ => None,
 			})
-			.map(|(path, blob)| {
+			.map(|(path, metadata, id)| {
 				let server = self.clone();
-				let src = path.clone();
-				let dst = server.blobs_path().join(blob.id.to_string());
 				tokio::task::spawn_blocking(move || {
-					match reflink(src, dst) {
-						Ok(()) => (),
-						Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
-						Err(error) => panic!("{error}"),
-					}
-					// let temp = Temp::new(&server);
-					// if !tokio::fs::try_exists(&blob_path).map_err(|source| {
-					// 	tg::error!(!source, "failed to check if the blob path exists")
-					// })? {
-					// 	let result = reflink(path, temp.path());
-					// 	if result.is_err() {
-					// 		std::fs::copy(path, temp.path())
-					// 			.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
-					// 	}
-					// 	let permissions = std::fs::Permissions::from_mode(0o644);
-					// 	std::fs::set_permissions(temp.path(), permissions).map_err(|source| {
-					// 		tg::error!(!source, "failed to set the permissions")
-					// 	})?;
-					// 	std::fs::rename(temp.path(), blob_path).map_err(|source| {
-					// 		tg::error!(!source, "failed to rename the file to the blobs directory")
-					// 	})?;
-					// }
-					Ok::<_, tg::Error>(())
+					server.checkin_copy_blob(&path, &metadata, &id, destructive)
 				})
 				.map(|result| result.unwrap())
 			})
@@ -463,14 +449,97 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_create_objects(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_copy_blob(
+		&self,
+		path: &Path,
+		metadata: &std::fs::Metadata,
+		id: &tg::blob::Id,
+		destructive: bool,
+	) -> tg::Result<()> {
+		let src = path;
+		let dst = &self.blobs_path().join(id.to_string());
+		let exists = std::fs::exists(dst)
+			.map_err(|source| tg::error!(!source, "failed to check if the blob path exists"))?;
+		if exists {
+			return Ok(());
+		}
+		if destructive {
+			Self::checkin_copy_blob_destructive(metadata, src, dst)?;
+		} else if metadata.permissions().mode() == 0o644 {
+			Self::checkin_copy_blob_direct(src, dst)?;
+		} else {
+			self.checkin_copy_blob_temp(src, dst)?;
+		}
+		Ok(())
+	}
+
+	fn checkin_copy_blob_destructive(
+		metadata: &std::fs::Metadata,
+		src: &Path,
+		dst: &Path,
+	) -> tg::Result<()> {
+		if metadata.permissions().mode() != 0o644 {
+			let permissions = std::fs::Permissions::from_mode(0o644);
+			std::fs::set_permissions(src, permissions)
+				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+		}
+		std::fs::rename(src, dst).map_err(|source| {
+			tg::error!(!source, "failed to rename the file to the blobs directory")
+		})?;
+		Ok(())
+	}
+
+	fn checkin_copy_blob_direct(src: &Path, dst: &Path) -> tg::Result<()> {
+		let mut copied = false;
+		match reflink(src, dst) {
+			Ok(()) => {
+				copied = true;
+			},
+			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+				copied = true;
+			},
+			Err(_) => (),
+		}
+		if !copied {
+			std::fs::copy(src, dst)
+				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+		}
+		Ok(())
+	}
+
+	fn checkin_copy_blob_temp(&self, src: &Path, dst: &Path) -> tg::Result<()> {
+		let mut copied = false;
+		let temp = Temp::new(self);
+		match reflink(src, temp.path()) {
+			Ok(()) => {
+				copied = true;
+			},
+			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+				copied = true;
+			},
+			Err(_) => (),
+		}
+		if !copied {
+			std::fs::copy(src, temp.path())
+				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+		}
+		let permissions = std::fs::Permissions::from_mode(0o644);
+		std::fs::set_permissions(temp.path(), permissions)
+			.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+		std::fs::rename(temp.path(), dst).map_err(|source| {
+			tg::error!(!source, "failed to rename the file to the blobs directory")
+		})?;
+		Ok(())
+	}
+
+	fn checkin_create_objects(state: &mut State, index: usize) -> tg::Result<()> {
 		let indexes = state.graph.nodes[index]
 			.edges
 			.iter()
 			.map(|edge| edge.node.unwrap())
 			.collect_vec();
 		for index in indexes.iter().copied() {
-			self.checkin_create_objects(state, index)?;
+			Self::checkin_create_objects(state, index)?;
 		}
 
 		let metadata = state.graph.nodes[index].metadata.as_ref().unwrap();
