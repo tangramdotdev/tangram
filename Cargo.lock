@@ -6066,6 +6066,7 @@ dependencies = [
  "foundationdb-tuple",
  "futures",
  "glob",
+ "globset",
  "heed",
  "http 1.2.0",
  "http-body-util",
