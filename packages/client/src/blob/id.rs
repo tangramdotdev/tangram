@@ -39,7 +39,7 @@ impl Id {
 	}
 
 	#[must_use]
-	fn as_id(&self) -> &tg::Id {
+	pub fn as_id(&self) -> &tg::Id {
 		match self {
 			Self::Leaf(id) => &id.0,
 			Self::Branch(id) => &id.0,
