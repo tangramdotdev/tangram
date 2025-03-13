@@ -13,6 +13,7 @@ async fn main() -> std::io::Result<()> {
 	tokio::fs::create_dir_all("/tmp/sandbox/sbin").await.ok();
 	tokio::fs::create_dir_all("/tmp/sandbox/tmp").await.ok();
 	tokio::fs::create_dir_all("/tmp/sandbox/usr").await.ok();
+    tokio::fs::create_dir_all("/tmp/sandbox/empty").await.ok();
 
 	// Create the command.
 	let status = Command::new("/lib64/ld-linux-x86-64.so.2")
@@ -24,6 +25,7 @@ async fn main() -> std::io::Result<()> {
 			("/bin", "/tmp/sandbox/bin", true),
 			("/sbin", "/tmp/sandbox/sbin", true),
 			("/dev", "/tmp/sandbox/dev", false),
+            ("/tmp/file", "/tmp/sandbox/file", false),
 		])
 		.mount(Mount {
 			source: "/tmp".into(),
@@ -41,6 +43,14 @@ async fn main() -> std::io::Result<()> {
 			data: None,
 			readonly: false,
 		})
+        .mount(Mount {
+            source: "/tmp/sandbox/empty".into(),
+            target: "/tmp/sandbox/empty".into(),
+            fstype: Some("overlay".into()),
+            flags: 0,
+            data: Some(b"lower=/tmp/sandbox/empty,upper=/tmp/upper".to_vec()),
+            readonly: false,
+        })
 		.stdin(Stdio::Inherit)
 		.stdout(Stdio::Inherit)
 		.stderr(Stdio::Inherit)
