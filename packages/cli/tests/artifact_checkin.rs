@@ -39,13 +39,12 @@ async fn directory() {
   })
   "#);
 		assert_snapshot!(metadata, @r#"
-  {
-    "complete": true,
-    "count": 6,
-    "depth": 3,
-    "weight": 442
-  }
-  "#);
+		{
+		  "count": 6,
+		  "depth": 3,
+		  "weight": 442
+		}
+		"#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -73,13 +72,12 @@ async fn directory_with_duplicate_entries() {
   })
   "#);
 		assert_snapshot!(metadata, @r#"
-  {
-    "complete": true,
-    "count": 3,
-    "depth": 3,
-    "weight": 237
-  }
-  "#);
+		{
+		  "count": 3,
+		  "depth": 3,
+		  "weight": 237
+		}
+		"#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -103,13 +101,12 @@ async fn file() {
   })
   "#);
 		assert_snapshot!(metadata, @r#"
-  {
-    "complete": true,
-    "count": 3,
-    "depth": 3,
-    "weight": 172
-  }
-  "#);
+		{
+		  "count": 3,
+		  "depth": 3,
+		  "weight": 172
+		}
+		"#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -133,13 +130,12 @@ async fn symlink() {
   })
   "#);
 		assert_snapshot!(metadata, @r#"
-  {
-    "complete": true,
-    "count": 2,
-    "depth": 2,
-    "weight": 95
-  }
-  "#);
+		{
+		  "count": 2,
+		  "depth": 2,
+		  "weight": 95
+		}
+		"#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -176,13 +172,12 @@ async fn file_through_symlink() {
   })
   "#);
 		assert_snapshot!(metadata, @r#"
-  {
-    "complete": true,
-    "count": 5,
-    "depth": 4,
-    "weight": 360
-  }
-  "#);
+		{
+		  "count": 5,
+		  "depth": 4,
+		  "weight": 360
+		}
+		"#);
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
   {
@@ -237,13 +232,12 @@ async fn artifact_symlink() {
   })
   "#);
 		assert_snapshot!(metadata, @r#"
-  {
-    "complete": true,
-    "count": 4,
-    "depth": 3,
-    "weight": 284
-  }
-  "#);
+		{
+		  "count": 4,
+		  "depth": 3,
+		  "weight": 284
+		}
+		"#);
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
   {
@@ -300,13 +294,12 @@ async fn lockfile_out_of_date() {
 	let path = "";
 	let assertions = |object: String, metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(metadata, @r#"
-  {
-    "complete": true,
-    "count": 5,
-    "depth": 4,
-    "weight": 447
-  }
-  "#);
+		{
+		  "count": 5,
+		  "depth": 4,
+		  "weight": 447
+		}
+		"#);
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
   {
