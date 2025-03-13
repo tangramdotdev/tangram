@@ -38,8 +38,8 @@ aws-sigv4 = { workspace = true }
 biome_js_formatter = { workspace = true }
 biome_js_parser = { workspace = true }
 biome_js_syntax = { workspace = true }
-bytes = { workspace = true }
 byte-unit = { workspace = true }
+bytes = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
@@ -51,6 +51,7 @@ fnv = { workspace = true }
 foundationdb = { workspace = true, optional = true }
 foundationdb-tuple = { workspace = true }
 futures = { workspace = true }
+globset = { workspace = true }
 heed = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }

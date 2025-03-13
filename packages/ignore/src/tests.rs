@@ -1,4 +1,4 @@
-use super::Matcher;
+use super::Ignorer;
 use indoc::indoc;
 use pretty_assertions::assert_eq;
 use tangram_temp::{self as temp, Temp};
@@ -29,7 +29,7 @@ async fn test() {
 			.DS_Store
 		"
 	);
-	let mut matcher = Matcher::new(file_names, Some(global)).unwrap();
+	let mut matcher = Ignorer::new(file_names, Some(global)).unwrap();
 	let right = vec![
 		(".DS_Store", true),
 		(".gitignore", false),

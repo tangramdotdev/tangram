@@ -10,6 +10,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::Messenger as _;
+use time::format_description::well_known::Rfc3339;
 use tokio::io::{AsyncRead, AsyncWriteExt as _};
 use tokio_postgres as postgres;
 
@@ -426,6 +427,74 @@ impl Server {
 			stack.extend(&blob.children);
 		}
 		drop(statement);
+
+		Ok(())
+	}
+
+	pub(crate) fn insert_blob_objects_sqlite(
+		blob: &Blob,
+		transaction: &sqlite::Transaction<'_>,
+		touched_at: i64,
+	) -> tg::Result<()> {
+		let touched_at = time::OffsetDateTime::from_unix_timestamp(touched_at)
+			.unwrap()
+			.format(&Rfc3339)
+			.unwrap();
+
+		// Prepare a statement for the object children.
+		let children_statement = indoc!(
+			"
+				insert into object_children (object, child)
+				values (?1, ?2)
+				on conflict (object, child) do nothing;
+			"
+		);
+		let mut children_statement = transaction
+			.prepare_cached(children_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		// Prepare a statement for the objects.
+		let objects_statement = indoc!(
+			"
+				insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
+				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+				on conflict (id) do update set touched_at = ?7;
+			"
+		);
+		let mut objects_statement = transaction
+			.prepare_cached(objects_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		let mut stack = vec![blob];
+		while let Some(blob) = stack.pop() {
+			// Insert the children.
+			for child in &blob.children {
+				let params = rusqlite::params![&blob.id.to_string(), &child.id.to_string()];
+				children_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				stack.push(child);
+			}
+
+			// Insert the object.
+			let params = rusqlite::params![
+				&blob.id.to_string(),
+				true,
+				blob.count,
+				blob.depth,
+				0,
+				blob.size,
+				&touched_at,
+				blob.weight
+			];
+			objects_statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Drop the statements.
+		drop(children_statement);
+		drop(objects_statement);
 
 		Ok(())
 	}

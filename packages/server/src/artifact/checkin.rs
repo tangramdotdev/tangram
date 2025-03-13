@@ -1,4 +1,4 @@
-use crate::{Server, blob::create::Blob, temp::Temp};
+use crate::{Server, blob::create::Blob, temp::Temp, util::iter::Ext as _};
 use bytes::Bytes;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
@@ -8,7 +8,6 @@ use indoc::indoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use reflink_copy::reflink;
-use rusqlite as sqlite;
 use std::{
 	collections::{BTreeMap, HashMap},
 	os::unix::fs::PermissionsExt,
@@ -21,19 +20,19 @@ use tangram_client as tg;
 use tangram_database::prelude::*;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
-use tangram_ignore as ignore;
 use tangram_messenger::Messenger as _;
 use tokio_util::task::AbortOnDropHandle;
 
-// mod input;
-// mod lockfile;
-// mod object;
-// mod output;
-// mod unify;
+pub(crate) mod ignore;
+mod input;
+mod lockfile;
+mod object;
+mod output;
+mod unify;
 
 struct State {
 	graph: Graph,
-	ignorer: Option<ignore::Matcher>,
+	ignorer: Option<tangram_ignore::Ignorer>,
 	progress: Option<crate::progress::Handle<tg::artifact::checkin::Output>>,
 }
 
@@ -114,7 +113,6 @@ impl Server {
 		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, %path = &arg.path.display(), "failed to canonicalize the path's parent"))?;
-		let arg = Arc::new(arg);
 
 		// If this is a checkin of a path in the cache directory, then retrieve the corresponding artifact.
 		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
@@ -145,7 +143,19 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Create the ignore matcher if necessary.
+		if arg.destructive {
+			self.check_in_artifact_new(arg, progress).await
+		} else {
+			self.check_in_artifact_inner_old(arg, progress).await
+		}
+	}
+
+	async fn check_in_artifact_new(
+		&self,
+		arg: tg::artifact::checkin::Arg,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+	) -> tg::Result<tg::artifact::checkin::Output> {
+		// Create the ignorer if necessary.
 		let ignorer = if arg.ignore {
 			Some(Self::checkin_create_ignorer()?)
 		} else {
@@ -270,7 +280,7 @@ impl Server {
 			.id
 			.clone()
 			.try_into()
-			.unwrap();
+			.map_err(|_| tg::error!("expected an artifact"))?;
 
 		// Create the output.
 		let output = tg::artifact::checkin::Output { artifact };
@@ -278,7 +288,7 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) fn checkin_create_ignorer() -> tg::Result<ignore::Matcher> {
+	pub(crate) fn checkin_create_ignorer() -> tg::Result<tangram_ignore::Ignorer> {
 		let file_names = vec![
 			".tangramignore".into(),
 			".tgignore".into(),
@@ -292,7 +302,7 @@ impl Server {
 				tangram.lock
 			"
 		);
-		ignore::Matcher::new(file_names, Some(global))
+		tangram_ignore::Ignorer::new(file_names, Some(global))
 			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 
@@ -305,7 +315,8 @@ impl Server {
 			.paths
 			.insert(path.clone(), state.graph.nodes.len());
 
-		let metadata = std::fs::symlink_metadata(&path).unwrap();
+		let metadata = std::fs::symlink_metadata(&path)
+			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 
 		// // Check if the path is ignored.
 		// if let Some(ignore) = &mut state.ignorer {
@@ -342,11 +353,18 @@ impl Server {
 		state.graph.nodes.push(node);
 
 		// Read the entries.
-		let read_dir = std::fs::read_dir(&path).unwrap();
+		let read_dir = std::fs::read_dir(&path)
+			.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
 		let mut names = Vec::new();
 		for result in read_dir {
-			let entry = result.unwrap();
-			names.push(entry.file_name().to_str().unwrap().to_owned());
+			let entry = result
+				.map_err(|source| tg::error!(!source, "failed to get the directory entry"))?;
+			let name = entry
+				.file_name()
+				.to_str()
+				.ok_or_else(|| tg::error!("expected the entry name to be a string"))?
+				.to_owned();
+			names.push(name);
 		}
 
 		// Visit the entries and create the edges.
@@ -436,10 +454,14 @@ impl Server {
 				},
 				_ => None,
 			})
-			.map(|(path, metadata, id)| {
+			.batches(100)
+			.map(|batch| {
 				let server = self.clone();
 				tokio::task::spawn_blocking(move || {
-					server.checkin_copy_blob(&path, &metadata, &id, destructive)
+					for (path, metadata, id) in batch {
+						server.checkin_copy_blob(&path, &metadata, &id, destructive)?;
+					}
+					Ok::<_, tg::Error>(())
 				})
 				.map(|result| result.unwrap())
 			})
@@ -603,7 +625,6 @@ impl Server {
 			.with(move |connection| {
 				let transaction = connection.transaction().unwrap();
 				for node in &state.graph.nodes {
-					let object = node.object.as_ref().unwrap();
 					if let Some(blob) = &node.blob {
 						Self::blob_create_sqlite(blob, &transaction)?;
 					}
@@ -678,45 +699,95 @@ impl Server {
 		Ok(())
 	}
 
-	fn write_object_sqlite(
-		transaction: &sqlite::Transaction<'_>,
-		id: &tg::object::Id,
-		bytes: &Bytes,
-		data: &tg::object::Data,
-		touched_at: &str,
-	) -> tg::Result<()> {
-		let statement = indoc!(
-			"
-				insert into objects (id, incomplete_children, size, touched_at)
-				values (?1, ?2, ?3, ?4)
-				on conflict (id) do update set touched_at = ?4;
-			"
-		);
-		let mut statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
-		let size = bytes.len().to_u64().unwrap();
-		let params = rusqlite::params![id.to_string(), 0, size, touched_at];
-		statement
-			.execute(params)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let statement = indoc!(
-			"
-				insert into object_children (object, child)
-				values (?1, ?2)
-				on conflict (object, child) do nothing;
-			"
-		);
-		let mut statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
-		for child in data.children() {
-			let params = rusqlite::params![id.to_string(), child.to_string()];
-			statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+	// Check in the artifact.
+	async fn check_in_artifact_inner_old(
+		&self,
+		arg: tg::artifact::checkin::Arg,
+		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+	) -> tg::Result<tg::artifact::checkin::Output> {
+		// Create the input graph.
+		let input_graph = self
+			.create_input_graph(arg.clone(), progress)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect the input"),
+			)?;
+
+		// Create the unification graph and get its root node.
+		let (unification_graph, root) = self
+			.create_unification_graph(&input_graph, arg.deterministic)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to unify dependencies"))?;
+
+		// Create the object graph.
+		let object_graph = self
+			.create_object_graph(&input_graph, &unification_graph, &root)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create objects"))?;
+
+		// Create the output graph.
+		let output_graph = self
+			.create_output_graph(&input_graph, &object_graph)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write objects"))?;
+
+		// Copy the blobs.
+		self.copy_blobs(&output_graph, &input_graph)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to copy the blobs"))?;
+
+		// Write the output to the database and the store.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		futures::try_join!(
+			self.write_output_to_database(output_graph.clone(), object_graph.clone(), touched_at)
+				.map_err(|source| tg::error!(
+					!source,
+					"failed to write the objects to the database"
+				)),
+			self.write_output_to_store(output_graph.clone(), object_graph.clone(), touched_at)
+				.map_err(|source| tg::error!(!source, "failed to store the objects"))
+		)?;
+
+		// Copy or move to the cache directory.
+		if arg.cache || arg.destructive {
+			self.copy_or_move_to_cache_directory(&input_graph, &output_graph, 0, progress)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
 		}
-		Ok(())
+
+		// Get the artifact.
+		let artifact = output_graph.nodes[0].id.clone();
+
+		// If this is a non-destructive checkin, then attempt to write a lockfile.
+		if arg.lockfile && !arg.destructive && artifact.is_directory() {
+			self.try_write_lockfile(&input_graph, &object_graph)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
+		}
+
+		// Create the output.
+		let output = tg::artifact::checkin::Output { artifact };
+
+		Ok(output)
+	}
+
+	pub(crate) async fn ignore_matcher_for_checkin() -> tg::Result<ignore::Matcher> {
+		let file_names = vec![
+			".tangramignore".into(),
+			".tgignore".into(),
+			".gitignore".into(),
+		];
+		let global = indoc!(
+			"
+				.DS_Store
+				.git
+				.tangram
+				tangram.lock
+			"
+		);
+		ignore::Matcher::new(file_names, Some(global))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 }
 

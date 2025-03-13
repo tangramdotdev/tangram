@@ -1,15 +1,15 @@
 pub trait Ext: Iterator {
-	fn owned_chunks(self, size: usize) -> Chunks<Self>
+	fn batches(self, size: usize) -> Batches<Self>
 	where
 		Self: Sized,
 	{
-		Chunks::new(self, size)
+		Batches::new(self, size)
 	}
 }
 
 impl<I> Ext for I where I: Iterator {}
 
-pub struct Chunks<I>
+pub struct Batches<I>
 where
 	I: Iterator,
 {
@@ -17,32 +17,32 @@ where
 	size: usize,
 }
 
-impl<I> Chunks<I>
+impl<I> Batches<I>
 where
 	I: Iterator,
 {
 	fn new(iter: I, size: usize) -> Self {
-		assert!(size > 0, "chunk size must be greater than 0");
-		Chunks { iter, size }
+		assert!(size > 0, "batch size must be greater than 0");
+		Batches { iter, size }
 	}
 }
 
-impl<I> Iterator for Chunks<I>
+impl<I> Iterator for Batches<I>
 where
 	I: Iterator,
 {
 	type Item = Vec<I::Item>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let mut chunk = Vec::with_capacity(self.size);
+		let mut batch = Vec::with_capacity(self.size);
 		for _ in 0..self.size {
 			match self.iter.next() {
-				Some(item) => chunk.push(item),
+				Some(item) => batch.push(item),
 				None => {
-					return if chunk.is_empty() { None } else { Some(chunk) };
+					return if batch.is_empty() { None } else { Some(batch) };
 				},
 			}
 		}
-		Some(chunk)
+		Some(batch)
 	}
 }

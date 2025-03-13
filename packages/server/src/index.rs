@@ -163,7 +163,7 @@ impl Server {
 		if messages.is_empty() {
 			return Ok(());
 		}
-		for messages in messages.into_iter().owned_chunks(config.insert_batch_size) {
+		for messages in messages.into_iter().batches(config.insert_batch_size) {
 			match &self.database {
 				Either::Left(database) => {
 					self.indexer_insert_objects_sqlite(messages, database)

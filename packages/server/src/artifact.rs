@@ -1,3 +1,3 @@
 pub(crate) mod cache;
-mod checkin;
-mod checkout;
+pub(crate) mod checkin;
+pub(crate) mod checkout;
