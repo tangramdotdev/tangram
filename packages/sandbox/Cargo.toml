@@ -16,6 +16,7 @@ indoc = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
 scopeguard = { workspace = true }
+tangram_temp = { workspace = true }
 tangram_either = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

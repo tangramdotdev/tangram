@@ -1,4 +1,6 @@
 use std::os::fd::AsRawFd;
+use tangram_temp::Temp;
+
 use crate::{abort_errno, linux::guest};
 use super::Context;
 
@@ -84,4 +86,28 @@ const FORWARDED_SIGNALS: [libc::c_int; 29] = [
 
 unsafe extern "C" fn handler(signal: libc::c_int) {
 	unsafe { libc::kill(-1, signal) };
+}
+
+fn overlays(context: &Context) -> std::io::Result<Temp> {
+	let temp = Temp::new();
+	std::fs::create_dir_all(&temp.path().join("root"))?;
+	std::fs::create_dir_all(&temp.path().join("work"))?;
+
+	let mut options = vec![];
+	let lowerdirs: Vec<u8> = context
+		.mounts
+		.iter()
+		.filter_map(|mount| {
+			if !(mount.source == mount.target && mount.fstype.is_none() && mount.flags == 0) {
+				return None;
+			}
+			Some([mount.source.as_bytes(), b":"])
+		})
+		.flatten()
+		.flatten()
+		.copied()
+		.collect::<Vec<_>>();
+	unsafe {
+		libc::mount
+	}
 }
