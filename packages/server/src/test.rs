@@ -40,11 +40,43 @@ impl Context {
 
 	pub async fn start_server(&mut self) -> Server {
 		let temp = Temp::new();
-		let config = Config::with_path(temp.path().to_owned());
-		self.temps.push(temp);
-		let server = Server::start(config).await.unwrap();
-		self.servers.push(server.clone());
-		server
+		let path = temp.path().to_owned();
+		let advanced = crate::config::Advanced {
+			file_descriptor_semaphore_size: 1,
+			..Default::default()
+		};
+		let authentication = None;
+		let cleaner = None;
+		let database = crate::config::Database::Sqlite(crate::config::SqliteDatabase {
+			connections: 1,
+			path: path.join("database"),
+		});
+		let indexer = Some(crate::config::Indexer::default());
+		let messenger = crate::config::Messenger::default();
+		let remotes = Some(Vec::new());
+		let runner = Some(crate::config::Runner::default());
+		let store = crate::config::Store::Lmdb(crate::config::LmdbStore {
+			path: path.join("store"),
+		});
+		let http = Some(crate::config::Http::default());
+		let vfs = None;
+		let watchdog = Some(crate::config::Watchdog::default());
+		let config = Config {
+			advanced,
+			authentication,
+			cleaner,
+			database,
+			http,
+			indexer,
+			messenger,
+			path,
+			remotes,
+			runner,
+			store,
+			vfs,
+			watchdog,
+		};
+		self.start_server_with_temp_and_config(temp, config).await
 	}
 
 	pub async fn start_server_with_temp_and_config(

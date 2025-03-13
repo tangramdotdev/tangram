@@ -82,7 +82,10 @@ impl Context {
 
 impl Server {
 	async fn new(tg: &'static str) -> tg::Result<Self> {
-		let config = Config::default();
+		let config = Config {
+			remotes: Some(Vec::new()),
+			..Default::default()
+		};
 		Self::with_config(tg, config).await
 	}
 

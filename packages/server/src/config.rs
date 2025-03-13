@@ -155,7 +155,10 @@ pub struct Watchdog {
 impl Config {
 	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {
-		let advanced = Advanced::default();
+		let advanced = Advanced {
+			file_descriptor_semaphore_size: 1,
+			..Default::default()
+		};
 		let authentication = None;
 		let cleaner = None;
 		let database = Database::Sqlite(SqliteDatabase {
