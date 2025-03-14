@@ -21,6 +21,7 @@ const MAX_LEAF_SIZE: u32 = 131_072;
 
 #[derive(Clone, Debug)]
 pub struct Blob {
+	pub bytes: Option<Bytes>,
 	pub children: Vec<Blob>,
 	pub count: u64,
 	pub data: Option<tg::blob::Data>,
@@ -240,6 +241,7 @@ impl Server {
 		let bytes = Bytes::default();
 		let id = tg::leaf::Id::new(&bytes);
 		Ok(Blob {
+			bytes: None,
 			count: 1,
 			depth: 1,
 			weight: 0,
@@ -266,6 +268,7 @@ impl Server {
 		let depth = 1;
 		let weight = length;
 		let output = Blob {
+			bytes: None,
 			children: Vec::new(),
 			count,
 			data: None,
@@ -306,6 +309,7 @@ impl Server {
 		let position = children.first().unwrap().position;
 		let length = children.iter().map(|child| child.length).sum();
 		let output = Blob {
+			bytes: Some(bytes),
 			children,
 			count,
 			data: Some(data.into()),
@@ -563,7 +567,11 @@ impl Server {
 		Ok(())
 	}
 
-	async fn blob_create_messenger(&self, blob: &Blob, touched_at: i64) -> tg::Result<()> {
+	pub(crate) async fn blob_create_messenger(
+		&self,
+		blob: &Blob,
+		touched_at: i64,
+	) -> tg::Result<()> {
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
 			// Create the index message.
@@ -573,12 +581,13 @@ impl Server {
 				.map(tg::blob::Data::children)
 				.unwrap_or_default();
 			let id = blob.id.clone().into();
+			let size = blob.size;
 			let message = crate::index::Message {
 				children,
 				count: None,
 				depth: None,
 				id,
-				size: blob.size,
+				size,
 				touched_at,
 				weight: None,
 			};
@@ -602,9 +611,8 @@ impl Server {
 		let mut batch = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
-			if let Some(data) = &blob.data {
-				let bytes = data.serialize()?;
-				batch.push((blob.id.clone().into(), bytes));
+			if let Some(bytes) = &blob.bytes {
+				batch.push((blob.id.clone().into(), bytes.clone()));
 			}
 			stack.extend(&blob.children);
 		}

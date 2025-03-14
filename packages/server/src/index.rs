@@ -218,13 +218,9 @@ impl Server {
 					// Prepare a statement for the objects.
 					let objects_statement = indoc!(
 						"
-							insert into objects (id, size, touched_at, count, depth, weight)
-							values (?1, ?2, ?3, ?4, ?5, ?6)
-							on conflict (id) do update set 
-								touched_at = ?3,
-								count = coalesce(?4, count),
-								depth = coalesce(?5, depth),
-								weight = coalesce(?6, weight);
+							insert into objects (id, size, touched_at)
+							values (?1, ?2, ?3)
+							on conflict (id) do update set touched_at = ?3;
 						"
 					);
 					let mut objects_statement = transaction
@@ -252,14 +248,7 @@ impl Server {
 						}
 
 						// Insert the object.
-						let params = rusqlite::params![
-							&id.to_string(),
-							size,
-							touched_at,
-							message.count.map(|c| c.to_i64().unwrap()),
-							message.depth.map(|d| d.to_i64().unwrap()),
-							message.weight.map(|w| w.to_i64().unwrap())
-						];
+						let params = rusqlite::params![&id.to_string(), size, touched_at];
 						objects_statement.execute(params).map_err(|source| {
 							tg::error!(!source, "failed to execute the statement")
 						})?;

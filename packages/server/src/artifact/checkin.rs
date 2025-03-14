@@ -47,14 +47,15 @@ struct Node {
 	blob: Option<Blob>,
 	edges: Vec<Edge>,
 	metadata: Option<std::fs::Metadata>,
-	path: Option<Arc<PathBuf>>,
 	object: Option<Object>,
+	path: Option<Arc<PathBuf>>,
+	target: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Edge {
-	node: Option<usize>,
 	name: Option<String>,
+	node: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -197,7 +198,6 @@ impl Server {
 		tracing::debug!(elapsed = ?start.elapsed(), "create objects");
 
 		// Write the objects to the database and the store.
-		let start = Instant::now();
 		let state = Arc::new(state);
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let blobs_future = tokio::spawn({
@@ -221,12 +221,12 @@ impl Server {
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_write_objects_to_database(&state)
+					.checkin_write_blobs_to_database(&state)
 					.map_err(|source| {
-						tg::error!(!source, "failed to write the objects to the database")
+						tg::error!(!source, "failed to write the blobs to the database")
 					})
 					.await?;
-				tracing::debug!(elapsed = ?start.elapsed(), "write objects to database");
+				tracing::debug!(elapsed = ?start.elapsed(), "write blobs to database");
 				Ok::<_, tg::Error>(())
 			}
 		})
@@ -270,7 +270,6 @@ impl Server {
 			store_future
 		)?;
 		let state = Arc::into_inner(state).unwrap();
-		tracing::debug!(elapsed = ?start.elapsed(), "write objects");
 
 		// Get the root node's ID.
 		let artifact = state.graph.nodes[0]
@@ -329,8 +328,10 @@ impl Server {
 			self.checkin_visit_directory(state, path, metadata)?
 		} else if metadata.is_file() {
 			self.checkin_visit_file(state, path, metadata)?
+		} else if metadata.is_symlink() {
+			self.checkin_visit_symlink(state, path, metadata)?
 		} else {
-			return Err(tg::error!("invalid file type"));
+			return Err(tg::error!(?metadata, "invalid file type"));
 		};
 
 		Ok(Some(index))
@@ -404,6 +405,25 @@ impl Server {
 		Ok(index)
 	}
 
+	fn checkin_visit_symlink(
+		&self,
+		state: &mut State,
+		path: PathBuf,
+		metadata: std::fs::Metadata,
+	) -> tg::Result<usize> {
+		let target = std::fs::read_link(&path)
+			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
+		let node = Node {
+			metadata: Some(metadata),
+			path: Some(Arc::new(path)),
+			target: Some(target),
+			..Default::default()
+		};
+		let index = state.graph.nodes.len();
+		state.graph.nodes.push(node);
+		Ok(index)
+	}
+
 	async fn checkin_create_blobs(&self, state: &mut State) -> tg::Result<()> {
 		let blobs = state
 			.graph
@@ -411,23 +431,27 @@ impl Server {
 			.iter()
 			.enumerate()
 			.filter_map(|(index, node)| {
-				node.metadata.as_ref().unwrap().is_file().then_some(
-					tokio::spawn({
-						let server = self.clone();
-						let path = node.path.as_ref().unwrap().clone();
-						async move {
-							let _permit = server.file_descriptor_semaphore.acquire().await;
-							let mut file = tokio::fs::File::open(path.as_ref()).await.map_err(
-								|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
-							)?;
-							let blob = server.create_blob_inner(&mut file, None).await.map_err(
-								|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
-							)?;
-							Ok::<_, tg::Error>((index, blob))
-						}
-					})
-					.map(|result| result.unwrap()),
-				)
+				node.metadata
+					.as_ref()
+					.is_some_and(std::fs::Metadata::is_file)
+					.then_some(
+						tokio::spawn({
+							let server = self.clone();
+							let path = node.path.as_ref().unwrap().clone();
+							async move {
+								let _permit = server.file_descriptor_semaphore.acquire().await;
+								let mut file = tokio::fs::File::open(path.as_ref()).await.map_err(
+									|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
+								)?;
+								let blob =
+									server.create_blob_inner(&mut file, None).await.map_err(
+										|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
+									)?;
+								Ok::<_, tg::Error>((index, blob))
+							}
+						})
+						.map(|result| result.unwrap()),
+					)
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
@@ -435,6 +459,74 @@ impl Server {
 		for (index, blob) in blobs {
 			state.graph.nodes[index].blob.replace(blob);
 		}
+		Ok(())
+	}
+
+	fn checkin_create_objects(state: &mut State, index: usize) -> tg::Result<()> {
+		let indexes = state.graph.nodes[index]
+			.edges
+			.iter()
+			.map(|edge| edge.node.unwrap())
+			.collect_vec();
+		for index in indexes.iter().copied() {
+			Self::checkin_create_objects(state, index)?;
+		}
+
+		let Some(metadata) = state.graph.nodes[index].metadata.as_ref() else {
+			return Ok(());
+		};
+
+		let (kind, data) = if metadata.is_dir() {
+			let kind = tg::object::Kind::Directory;
+			let entries = state.graph.nodes[index]
+				.edges
+				.iter()
+				.map(|edge| edge.name.as_ref().unwrap())
+				.zip(indexes)
+				.map(|(name, index)| {
+					let name = name.clone();
+					let id = state.graph.nodes[index]
+						.object
+						.as_ref()
+						.unwrap()
+						.id
+						.clone()
+						.try_into()
+						.unwrap();
+					(name, id)
+				})
+				.collect();
+			let data = tg::directory::Data::Normal { entries };
+			let data = tg::object::Data::from(data);
+			(kind, data)
+		} else if metadata.is_file() {
+			let kind = tg::object::Kind::File;
+			let contents = state.graph.nodes[index].blob.as_ref().unwrap().id.clone();
+			let dependencies = BTreeMap::new();
+			let executable = metadata.permissions().mode() & 0o111 != 0;
+			let data = tg::file::Data::Normal {
+				contents,
+				dependencies,
+				executable,
+			};
+			let data = tg::object::Data::from(data);
+			(kind, data)
+		} else if metadata.is_symlink() {
+			let kind = tg::object::Kind::Symlink;
+			let target = state.graph.nodes[index].target.as_ref().unwrap().clone();
+			let data = tg::symlink::Data::Target { target };
+			let data = tg::object::Data::from(data);
+			(kind, data)
+		} else {
+			unreachable!();
+		};
+		let bytes = data
+			.serialize()
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+		let id = tg::object::Id::new(kind, &bytes);
+		let object = Object { bytes, data, id };
+		state.graph.nodes[index].object = Some(object);
+
 		Ok(())
 	}
 
@@ -559,66 +651,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_create_objects(state: &mut State, index: usize) -> tg::Result<()> {
-		let indexes = state.graph.nodes[index]
-			.edges
-			.iter()
-			.map(|edge| edge.node.unwrap())
-			.collect_vec();
-		for index in indexes.iter().copied() {
-			Self::checkin_create_objects(state, index)?;
-		}
-
-		let metadata = state.graph.nodes[index].metadata.as_ref().unwrap();
-		let (kind, data) = if metadata.is_dir() {
-			let kind = tg::object::Kind::Directory;
-			let entries = state.graph.nodes[index]
-				.edges
-				.iter()
-				.map(|edge| edge.name.as_ref().unwrap())
-				.zip(indexes)
-				.map(|(name, index)| {
-					let name = name.clone();
-					let id = state.graph.nodes[index]
-						.object
-						.as_ref()
-						.unwrap()
-						.id
-						.clone()
-						.try_into()
-						.unwrap();
-					(name, id)
-				})
-				.collect();
-			let data = tg::directory::Data::Normal { entries };
-			let data = tg::object::Data::from(data);
-			(kind, data)
-		} else if metadata.is_file() {
-			let kind = tg::object::Kind::File;
-			let contents = state.graph.nodes[index].blob.as_ref().unwrap().id.clone();
-			let dependencies = BTreeMap::new();
-			let executable = metadata.permissions().mode() & 0o111 != 0;
-			let data = tg::file::Data::Normal {
-				contents,
-				dependencies,
-				executable,
-			};
-			let data = tg::object::Data::from(data);
-			(kind, data)
-		} else {
-			panic!();
-		};
-
-		let bytes = data.serialize().unwrap();
-		let id = tg::object::Id::new(kind, &bytes);
-		let object = Object { bytes, data, id };
-
-		state.graph.nodes[index].object = Some(object);
-
-		Ok(())
-	}
-
-	async fn checkin_write_objects_to_database(&self, state: &Arc<State>) -> tg::Result<()> {
+	async fn checkin_write_blobs_to_database(&self, state: &Arc<State>) -> tg::Result<()> {
 		let connection = self
 			.database
 			.write_connection()
@@ -669,6 +702,11 @@ impl Server {
 				.publish("index".to_owned(), message.into())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+
+			// Send messages for the blob.
+			if let Some(blob) = &node.blob {
+				self.blob_create_messenger(blob, touched_at).await?;
+			}
 		}
 		Ok(())
 	}
@@ -685,9 +723,8 @@ impl Server {
 			if let Some(blob) = &node.blob {
 				let mut stack = vec![blob];
 				while let Some(blob) = stack.pop() {
-					if let Some(data) = &blob.data {
-						let bytes = data.serialize()?;
-						objects.push((blob.id.clone().into(), bytes));
+					if let Some(bytes) = &blob.bytes {
+						objects.push((blob.id.clone().into(), bytes.clone()));
 					}
 					stack.extend(&blob.children);
 				}
