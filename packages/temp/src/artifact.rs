@@ -1,4 +1,4 @@
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use futures::{StreamExt as _, TryStreamExt as _, stream};
 use std::{
 	borrow::Cow,
 	collections::BTreeMap,
@@ -130,14 +130,12 @@ impl Directory {
 		tokio::fs::create_dir(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
-		self.entries
-			.iter()
-			.map(|(name, artifact)| async {
+		stream::iter(&self.entries)
+			.then(|(name, artifact)| async {
 				let path = path.join(name.as_ref());
-				artifact.to_path(&path).await?;
+				Box::pin(artifact.to_path(&path)).await?;
 				tg::ok(())
 			})
-			.collect::<FuturesUnordered<_>>()
 			.try_collect::<()>()
 			.await?;
 		Ok(())

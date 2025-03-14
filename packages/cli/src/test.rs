@@ -119,8 +119,6 @@ impl Server {
 
 		// Create the command.
 		let mut command = tokio::process::Command::new(tg);
-		command.stdout(std::process::Stdio::piped());
-		command.stderr(std::process::Stdio::piped());
 		command.arg("--config");
 		command.arg(&config_path);
 		command.arg("--path");

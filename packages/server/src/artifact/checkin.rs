@@ -146,7 +146,7 @@ impl Server {
 		if arg.destructive {
 			self.check_in_artifact_new(arg, progress).await
 		} else {
-			self.check_in_artifact_inner_old(arg, progress).await
+			self.check_in_artifact_old(arg, progress).await
 		}
 	}
 
@@ -480,11 +480,6 @@ impl Server {
 	) -> tg::Result<()> {
 		let src = path;
 		let dst = &self.blobs_path().join(id.to_string());
-		let exists = std::fs::exists(dst)
-			.map_err(|source| tg::error!(!source, "failed to check if the blob path exists"))?;
-		if exists {
-			return Ok(());
-		}
 		if destructive {
 			Self::checkin_copy_blob_destructive(metadata, src, dst)?;
 		} else if metadata.permissions().mode() == 0o644 {
@@ -512,6 +507,11 @@ impl Server {
 	}
 
 	fn checkin_copy_blob_direct(src: &Path, dst: &Path) -> tg::Result<()> {
+		let exists = std::fs::exists(dst)
+			.map_err(|source| tg::error!(!source, "failed to check if the blob path exists"))?;
+		if exists {
+			return Ok(());
+		}
 		let mut copied = false;
 		match reflink(src, dst) {
 			Ok(()) => {
@@ -530,6 +530,11 @@ impl Server {
 	}
 
 	fn checkin_copy_blob_temp(&self, src: &Path, dst: &Path) -> tg::Result<()> {
+		let exists = std::fs::exists(dst)
+			.map_err(|source| tg::error!(!source, "failed to check if the blob path exists"))?;
+		if exists {
+			return Ok(());
+		}
 		let mut copied = false;
 		let temp = Temp::new(self);
 		match reflink(src, temp.path()) {
@@ -700,7 +705,7 @@ impl Server {
 	}
 
 	// Check in the artifact.
-	async fn check_in_artifact_inner_old(
+	async fn check_in_artifact_old(
 		&self,
 		arg: tg::artifact::checkin::Arg,
 		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
