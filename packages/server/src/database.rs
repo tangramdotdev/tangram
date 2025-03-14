@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use futures::FutureExt as _;
+use indoc::indoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _};
 use tangram_either::Either;
@@ -84,7 +85,8 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 }
 
 async fn migration_0000(database: &Database) -> tg::Result<()> {
-	let sql = r#"
+	let sql = indoc!(
+		r#"
 			create table blobs (
 				id text primary key,
 				reference_count integer
@@ -438,7 +440,8 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				id text primary key,
 				"user" text not null
 			);
-		"#;
+		"#
+	);
 	let database = database.as_ref().unwrap_left();
 	let connection = database
 		.write_connection()
