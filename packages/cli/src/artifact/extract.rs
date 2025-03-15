@@ -6,7 +6,7 @@ use tangram_client as tg;
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub blob: tg::blob::Id,
+	pub value: tg::object::Id,
 
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
@@ -15,7 +15,15 @@ pub struct Args {
 impl Cli {
 	pub async fn command_artifact_extract(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let blob = tg::Blob::with_id(args.blob);
+		let blob = match args.value {
+			tg::object::Id::Leaf(id) => tg::Blob::with_id(id.into()),
+			tg::object::Id::Branch(id) => tg::Blob::with_id(id.into()),
+			tg::object::Id::File(id) => {
+				let file = tg::File::with_id(id.into());
+				file.contents(&handle).await?
+			},
+			_ => return Err(tg::error!("expected a blob or a file")),
+		};
 		let command = tg::Artifact::extract_command(&blob);
 		let command = command.id(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
