@@ -364,7 +364,7 @@ impl Cli {
 			});
 
 		// Create the client.
-		let client = tg::Client::new(url);
+		let client = tg::Client::new(url, Some(version()));
 
 		// Attempt to connect to the server.
 		let mut connected = client.connect().await.is_ok();
@@ -456,7 +456,7 @@ impl Cli {
 			});
 
 		// Create the client.
-		let client = tg::Client::new(url);
+		let client = tg::Client::new(url, Some(version()));
 
 		// Try to connect for up to one second. If the client is still not connected, then return an error.
 		let mut connected = false;
@@ -505,6 +505,7 @@ impl Cli {
 		let store = tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
 			path: path.join("store"),
 		});
+		let version = Some(version());
 		let vfs = if cfg!(target_os = "linux") {
 			Some(tangram_server::config::Vfs::default())
 		} else {
@@ -523,6 +524,7 @@ impl Cli {
 			remotes,
 			runner,
 			store,
+			version,
 			vfs,
 			watchdog,
 		};

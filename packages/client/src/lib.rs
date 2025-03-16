@@ -101,13 +101,15 @@ pub struct Inner {
 	url: Url,
 	sender: Arc<tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Body>>>>,
 	service: Service,
+	version: String,
 }
 
 type Service = BoxCloneSyncService<http::Request<Body>, http::Response<Body>, tg::Error>;
 
 impl Client {
 	#[must_use]
-	pub fn new(url: Url) -> Self {
+	pub fn new(url: Url, version: Option<String>) -> Self {
+		let version = version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
 		let sender = Arc::new(tokio::sync::Mutex::<
 			Option<hyper::client::conn::http2::SendRequest<Body>>,
 		>::new(None));
@@ -147,7 +149,7 @@ impl Client {
 			)
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-version").unwrap(),
-				http::HeaderValue::from_str(&Self::version()).unwrap(),
+				http::HeaderValue::from_str(&version).unwrap(),
 			)
 			.layer(tangram_http::layer::compression::RequestCompressionLayer::default())
 			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
@@ -157,6 +159,7 @@ impl Client {
 			url,
 			sender,
 			service,
+			version,
 		}))
 	}
 
@@ -175,7 +178,7 @@ impl Client {
 					"could not parse a URL from the TANGRAM_URL environment variable"
 				)
 			})?;
-		Ok(Self::new(url))
+		Ok(Self::new(url, None))
 	}
 
 	#[must_use]
@@ -591,20 +594,17 @@ impl Client {
 		Ok(response)
 	}
 
-	fn compatibility_date() -> OffsetDateTime {
+	#[must_use]
+	pub fn compatibility_date() -> OffsetDateTime {
 		OffsetDateTime::new_utc(
 			Date::from_calendar_date(2025, Month::January, 1).unwrap(),
 			Time::MIDNIGHT,
 		)
 	}
 
-	fn version() -> String {
-		let mut version = env!("CARGO_PKG_VERSION").to_owned();
-		if let Some(commit) = option_env!("TANGRAM_CLI_COMMIT_HASH") {
-			version.push('+');
-			version.push_str(commit);
-		}
-		version
+	#[must_use]
+	pub fn version(&self) -> &str {
+		&self.version
 	}
 }
 

@@ -14,6 +14,7 @@ pub struct Config {
 	pub remotes: Option<Vec<Remote>>,
 	pub runner: Option<Runner>,
 	pub store: Store,
+	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
 	pub watchdog: Option<Watchdog>,
 }
@@ -23,7 +24,6 @@ pub struct Advanced {
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
 	pub process_dequeue_timeout: Duration,
-	pub version: Option<String>,
 	pub write_blobs_to_blobs_directory: bool,
 	pub write_process_logs_to_database: bool,
 	pub write_process_logs_to_stderr: bool,
@@ -170,6 +170,7 @@ impl Config {
 			path: path.join("store"),
 		});
 		let http = Some(Http::default());
+		let version = None;
 		let vfs = None;
 		let watchdog = Some(Watchdog::default());
 		Self {
@@ -184,6 +185,7 @@ impl Config {
 			remotes,
 			runner,
 			store,
+			version,
 			vfs,
 			watchdog,
 		}
@@ -196,7 +198,6 @@ impl Default for Advanced {
 			process_dequeue_timeout: Duration::from_secs(3600),
 			file_descriptor_semaphore_size: 1_000_000_000,
 			preserve_temp_directories: false,
-			version: None,
 			write_blobs_to_blobs_directory: true,
 			write_process_logs_to_database: false,
 			write_process_logs_to_stderr: false,

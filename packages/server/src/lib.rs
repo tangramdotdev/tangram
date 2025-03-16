@@ -93,6 +93,7 @@ pub struct Inner {
 	store: Store,
 	task: Mutex<Option<Task<()>>>,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
+	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
 
@@ -330,6 +331,12 @@ impl Server {
 		// Create the temp paths.
 		let temp_paths = DashSet::default();
 
+		// Get the version.
+		let version = config
+			.version
+			.clone()
+			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
@@ -354,6 +361,7 @@ impl Server {
 			store,
 			task,
 			temp_paths,
+			version,
 			vfs,
 		}));
 
