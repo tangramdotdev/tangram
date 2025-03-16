@@ -1,7 +1,7 @@
 {
 	"dependencies": {
 		"@biomejs/biome": "^1.9.4",
-		"@types/bun": "^1.2.4",
+		"@types/bun": "^1.2.5",
 		"typescript": "^5.8.2"
 	},
 	"scripts": {
