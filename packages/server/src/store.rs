@@ -11,6 +11,9 @@ mod s3;
 pub use self::fdb::Fdb;
 pub use self::{lmdb::Lmdb, memory::Memory, s3::S3};
 
+#[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Store {
 	#[cfg(feature = "foundationdb")]
 	Fdb(Fdb),

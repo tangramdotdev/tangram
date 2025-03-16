@@ -71,6 +71,7 @@ num = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
 petgraph = { workspace = true }
+radix_trie = { workspace = true }
 rayon = { workspace = true }
 reflink-copy = { workspace = true }
 regex = { workspace = true }

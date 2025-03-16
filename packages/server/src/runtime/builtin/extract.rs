@@ -1,15 +1,17 @@
 use super::Runtime;
 use crate::Server;
 use async_zip::base::read::seek::ZipFileReader;
-use std::pin::{Pin, pin};
-use std::time::Duration;
+use std::{
+	pin::{Pin, pin},
+	time::Duration,
+};
 use tangram_client as tg;
 use tangram_futures::read::shared_position_reader::SharedPositionReader;
 use tangram_futures::stream::TryExt as _;
 use tangram_temp::Temp;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio_tar::Archive;
-use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
 
 impl Runtime {
 	pub async fn extract(&self, process: &tg::Process) -> tg::Result<tg::Value> {
@@ -74,125 +76,38 @@ impl Runtime {
 			log_task_abort_handle.abort();
 		};
 
-		// Extract the artifact.
-		let artifact = match format {
+		// Create a temp.
+		let temp = Temp::new();
+
+		// Extract to the temp.
+		match format {
 			tg::artifact::archive::Format::Tar => {
-				// If there is a compression format, wrap the reader.
-				let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression {
-					Some(tg::blob::compress::Format::Bz2) => {
-						Box::pin(async_compression::tokio::bufread::BzDecoder::new(reader))
-					},
-					Some(tg::blob::compress::Format::Gz) => {
-						Box::pin(async_compression::tokio::bufread::GzipDecoder::new(reader))
-					},
-					Some(tg::blob::compress::Format::Xz) => {
-						Box::pin(async_compression::tokio::bufread::XzDecoder::new(reader))
-					},
-					Some(tg::blob::compress::Format::Zstd) => {
-						Box::pin(async_compression::tokio::bufread::ZstdDecoder::new(reader))
-					},
-					None => Box::pin(reader),
-				};
-				// Create an Archive instance from the reader
-				let mut archive = Archive::new(reader);
-
-				let temp = Temp::new();
-				let path = temp.path().to_owned();
-				archive
-					.unpack(&temp)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to unpack archive"))?;
-
-				let stream = self
-					.server
-					.check_in_artifact(tg::artifact::checkin::Arg {
-						cache: false,
-						deterministic: false,
-						ignore: false,
-						locked: false,
-						lockfile: false,
-						destructive: true,
-						path: path.clone(),
-					})
-					.await?;
-				let output = pin!(stream)
-					.try_last()
-					.await?
-					.and_then(|event| event.try_unwrap_output().ok())
-					.ok_or_else(|| tg::error!("stream ended without output"))?;
-
-				tg::Artifact::with_id(output.artifact)
+				self.extract_tar(&temp, reader, compression).await?;
 			},
 			tg::artifact::archive::Format::Zip => {
-				let mut reader = ZipFileReader::new(reader.compat())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the zip reader"))?;
-
-				let temp = Temp::new();
-				let path = temp.path().to_owned();
-
-				for index in 0..reader.file().entries().len() {
-					let entry = reader.file().entries().get(index).unwrap();
-					let path = temp.join(entry.filename().as_str().unwrap());
-					let entry_is_dir = entry.dir().unwrap();
-
-					let entry_reader = reader
-						.reader_without_entry(index)
-						.await
-						.expect("Failed to read ZipEntry");
-
-					if entry_is_dir {
-						if !path.exists() {
-							tokio::fs::create_dir_all(&path).await.map_err(|source| {
-								tg::error!(!source, "failed to create extracted directory")
-							})?
-						}
-					} else {
-						// Creates parent directories. They may not exist if iteration is out of order
-						// or the archive does not contain directory entries.
-						let parent = path
-							.parent()
-							.expect("A file entry should have parent directories");
-						if !parent.is_dir() {
-							tokio::fs::create_dir_all(parent).await.map_err(|source| {
-								tg::error!(!source, "failed to create the parent directories")
-							})?
-						}
-						let mut writer = tokio::fs::OpenOptions::new()
-							.write(true)
-							.create_new(true)
-							.open(&path)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to create file"))?;
-						tokio::io::copy(&mut entry_reader.compat(), &mut writer)
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to copy to extracted file")
-							})?;
-					}
-				}
-
-				let stream = self
-					.server
-					.check_in_artifact(tg::artifact::checkin::Arg {
-						cache: false,
-						deterministic: false,
-						ignore: false,
-						locked: false,
-						lockfile: false,
-						destructive: true,
-						path: path.clone(),
-					})
-					.await?;
-				let output = pin!(stream)
-					.try_last()
-					.await?
-					.and_then(|event| event.try_unwrap_output().ok())
-					.ok_or_else(|| tg::error!("stream ended without output"))?;
-
-				tg::Artifact::with_id(output.artifact)
+				self.extract_zip(&temp, reader).await?;
 			},
 		};
+
+		// Check in the temp.
+		let stream = self
+			.server
+			.check_in_artifact(tg::artifact::checkin::Arg {
+				cache: false,
+				deterministic: false,
+				ignore: false,
+				locked: false,
+				lockfile: false,
+				destructive: true,
+				path: temp.path().to_owned(),
+			})
+			.await?;
+		let output = pin!(stream)
+			.try_last()
+			.await?
+			.and_then(|event| event.try_unwrap_output().ok())
+			.ok_or_else(|| tg::error!("stream ended without output"))?;
+		let artifact = tg::Artifact::with_id(output.artifact);
 
 		// Abort and await the log task.
 		log_task.abort();
@@ -213,6 +128,81 @@ impl Runtime {
 
 		Ok(artifact.into())
 	}
+
+	async fn extract_tar(
+		&self,
+		temp: &Temp,
+		reader: SharedPositionReader<crate::blob::Reader>,
+		compression: Option<tangram_client::blob::compress::Format>,
+	) -> tg::Result<()> {
+		let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression {
+			Some(tg::blob::compress::Format::Bz2) => {
+				Box::pin(async_compression::tokio::bufread::BzDecoder::new(reader))
+			},
+			Some(tg::blob::compress::Format::Gz) => {
+				Box::pin(async_compression::tokio::bufread::GzipDecoder::new(reader))
+			},
+			Some(tg::blob::compress::Format::Xz) => {
+				Box::pin(async_compression::tokio::bufread::XzDecoder::new(reader))
+			},
+			Some(tg::blob::compress::Format::Zstd) => {
+				Box::pin(async_compression::tokio::bufread::ZstdDecoder::new(reader))
+			},
+			None => Box::pin(reader),
+		};
+		let mut archive = Archive::new(reader);
+		archive
+			.unpack(&temp)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to unpack archive"))?;
+		Ok(())
+	}
+
+	async fn extract_zip(
+		&self,
+		temp: &Temp,
+		reader: SharedPositionReader<crate::blob::Reader>,
+	) -> tg::Result<()> {
+		let mut reader = ZipFileReader::new(reader.compat())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the zip reader"))?;
+		for index in 0..reader.file().entries().len() {
+			let entry = reader.file().entries().get(index).unwrap();
+			let filename = entry.filename().as_str().unwrap();
+			let path = temp.path().join(filename);
+			let entry_is_dir = entry.dir().unwrap();
+			let entry_reader = reader
+				.reader_without_entry(index)
+				.await
+				.expect("failed to read the entry");
+			if entry_is_dir {
+				if !path.exists() {
+					tokio::fs::create_dir_all(&path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+				}
+			} else {
+				let parent = path
+					.parent()
+					.expect("A file entry should have parent directories");
+				if !parent.is_dir() {
+					tokio::fs::create_dir_all(parent)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+				}
+				let mut file = tokio::fs::OpenOptions::new()
+					.write(true)
+					.create_new(true)
+					.open(&path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the file"))?;
+				tokio::io::copy(&mut entry_reader.compat(), &mut file)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the file"))?;
+			}
+		}
+		Ok(())
+	}
 }
 
 async fn detect_archive_format(
@@ -222,12 +212,15 @@ async fn detect_archive_format(
 	tg::artifact::archive::Format,
 	Option<tg::blob::compress::Format>,
 )> {
-	// Read first 6 bytes.
+	// Read the first 6 bytes.
 	let mut magic_reader = blob
-		.read(server, tg::blob::read::Arg {
-			length: Some(6),
-			..Default::default()
-		})
+		.read(
+			server,
+			tg::blob::read::Arg {
+				length: Some(6),
+				..Default::default()
+			},
+		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create magic bytes reader"))?;
 	let mut magic_bytes = [0u8; 6];
@@ -235,12 +228,11 @@ async fn detect_archive_format(
 		.read(&mut magic_bytes)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to read magic bytes"))?;
-
 	if bytes_read < 2 {
 		return Err(tg::error!("blob too small to be an archive"));
 	}
 
-	// .zip
+	// Detect zip.
 	if magic_bytes[0] == 0x50 && magic_bytes[1] == 0x4B {
 		return Ok((tg::artifact::archive::Format::Zip, None));
 	}
@@ -252,11 +244,14 @@ async fn detect_archive_format(
 
 	// Otherwise, check for uncompressed ustar.
 	let mut ustar_reader = blob
-		.read(server, tg::blob::read::Arg {
-			position: Some(std::io::SeekFrom::Start(257)),
-			length: Some(5),
-			..Default::default()
-		})
+		.read(
+			server,
+			tg::blob::read::Arg {
+				position: Some(std::io::SeekFrom::Start(257)),
+				length: Some(5),
+				..Default::default()
+			},
+		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create ustar reader"))?;
 	let mut ustar_bytes = [0u8; 5];
@@ -279,10 +274,13 @@ async fn detect_archive_format(
 
 async fn valid_tar_checksum(server: &Server, blob: &tg::Blob) -> tg::Result<bool> {
 	let mut reader = blob
-		.read(server, tg::blob::read::Arg {
-			length: Some(512),
-			..Default::default()
-		})
+		.read(
+			server,
+			tg::blob::read::Arg {
+				length: Some(512),
+				..Default::default()
+			},
+		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create the tar header reader"))?;
 

@@ -63,8 +63,8 @@ pub struct Inner {
 	/// The request sender.
 	request_sender: Mutex<Option<RequestSender>>,
 
-	/// The request task.
-	request_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+	/// The request thread.
+	request_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 
 	/// The sender.
 	sender: std::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
@@ -124,7 +124,7 @@ impl Compiler {
 		let documents = DashMap::default();
 		let library_temp = Temp::new(server);
 		let request_sender = Mutex::new(None);
-		let request_task = Mutex::new(None);
+		let request_thread = Mutex::new(None);
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = tokio::sync::Mutex::new(None);
 		let stop_task = Mutex::new(None);
@@ -137,7 +137,7 @@ impl Compiler {
 			library_temp,
 			main_runtime_handle,
 			request_sender,
-			request_task,
+			request_thread,
 			sender,
 			serve_task,
 			server: server.clone(),
@@ -156,11 +156,13 @@ impl Compiler {
 					serve_task.wait().await.unwrap();
 				}
 
-				// Stop and await the request task.
+				// Stop the request thread.
 				compiler.request_sender.lock().unwrap().take();
-				let task = compiler.request_task.lock().unwrap().take();
-				if let Some(task) = task {
-					task.await.unwrap();
+				let thread = compiler.request_thread.lock().unwrap().take();
+				if let Some(thread) = thread {
+					tokio::task::spawn_blocking(move || thread.join().unwrap())
+						.await
+						.unwrap();
 				}
 
 				// Remove the compiler from the server.
@@ -604,14 +606,14 @@ impl Compiler {
 	}
 
 	async fn request(&self, request: Request) -> tg::Result<Response> {
-		// Spawn the request handler task if necessary.
+		// Spawn the request handler thread if necessary.
 		{
-			let mut request_task = self.request_task.lock().unwrap();
-			if request_task.is_none() {
+			let mut request_thread = self.request_thread.lock().unwrap();
+			if request_thread.is_none() {
 				let (request_sender, request_receiver) =
 					tokio::sync::mpsc::unbounded_channel::<(Request, ResponseSender)>();
 				self.request_sender.lock().unwrap().replace(request_sender);
-				request_task.replace(tokio::task::spawn_blocking({
+				request_thread.replace(std::thread::spawn({
 					let compiler = self.clone();
 					move || compiler.run_request_handler(request_receiver)
 				}));

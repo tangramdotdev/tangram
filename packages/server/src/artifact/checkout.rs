@@ -1,13 +1,26 @@
-use crate::Server;
-use dashmap::{DashMap, DashSet};
+use crate::{Server, util::iter::Ext as _};
+use bytes::Bytes;
+use dashmap::DashSet;
+use foundationdb_tuple::TuplePack as _;
 use futures::{
-	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, stream::FuturesUnordered,
+	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
+	stream::{self, FuturesUnordered},
 };
+use itertools::Itertools;
 use num::ToPrimitive as _;
-use std::{os::unix::fs::PermissionsExt as _, panic::AssertUnwindSafe, path::PathBuf, sync::Arc};
+use rayon::prelude::*;
+use reflink_copy::reflink;
+use std::sync::mpsc;
+use std::{
+	os::unix::fs::PermissionsExt as _,
+	panic::AssertUnwindSafe,
+	path::{Path, PathBuf},
+	sync::Arc,
+};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
+use tokio::task::JoinSet;
 use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
 mod lockfile;
@@ -15,7 +28,6 @@ mod lockfile;
 #[derive(Debug)]
 struct State {
 	artifacts_path: Option<PathBuf>,
-	files: DashMap<tg::file::Id, PathBuf, fnv::FnvBuildHasher>,
 	progress: crate::progress::Handle<tg::artifact::checkout::Output>,
 	visited_dependencies: DashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
 }
@@ -129,6 +141,81 @@ impl Server {
 		}
 	}
 
+	async fn check_out_artifact_task_inner_new(
+		&self,
+		artifact: tg::artifact::Id,
+		arg: tg::artifact::checkout::Arg,
+		path: PathBuf,
+		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
+	) -> tg::Result<tg::artifact::checkout::Output> {
+		let (artifact_sender, artifact_receiver) =
+			std::sync::mpsc::channel::<(tg::artifact::Data, PathBuf)>();
+
+		let read_task = tokio::task::spawn_blocking({
+			let server = self.clone();
+			let path = path.clone();
+			move || {
+				let mut stack = vec![(artifact, path)];
+				while let Some((id, path)) = stack.pop() {
+					let lmdb = server.store.unwrap_lmdb_ref();
+					let transaction = lmdb.env.read_txn().unwrap();
+					let key = (0, id.to_bytes(), 0);
+					let bytes = lmdb
+						.db
+						.get(&transaction, &key.pack_to_vec())
+						.map_err(|source| tg::error!(!source, "failed to get the value"))?
+						.ok_or_else(|| tg::error!("failed to get the value"))?;
+					let bytes = &Bytes::copy_from_slice(bytes);
+					let data = tg::artifact::Data::deserialize(id.kind(), bytes)?;
+					drop(transaction);
+					if let tg::artifact::Data::Directory(tg::directory::Data::Normal { entries }) =
+						&data
+					{
+						for (name, id) in entries {
+							stack.push((id.clone(), path.join(name)));
+						}
+					};
+					artifact_sender.send((data, path)).unwrap();
+				}
+				Ok::<_, tg::Error>(())
+			}
+		});
+
+		let write_task = tokio::task::spawn_blocking({
+			let server = self.clone();
+			move || {
+				while let Ok((data, path)) = artifact_receiver.recv() {
+					match data {
+						tg::artifact::Data::Directory(_) => {
+							std::fs::create_dir(path).unwrap();
+						},
+						tg::artifact::Data::File(tg::file::Data::Normal { contents, .. }) => {
+							let blob_path = server.blobs_path().join(contents.to_string());
+							reflink(&blob_path, path).unwrap();
+							// let mut src = std::fs::File::open(blob_path).unwrap();
+							// let mut dst = std::fs::File::create(path).unwrap();
+							// std::io::copy(&mut src, &mut dst).unwrap();
+						},
+						tg::artifact::Data::Symlink(tg::symlink::Data::Target { target }) => {
+							std::os::unix::fs::symlink(target, path).unwrap();
+						},
+						_ => (),
+					}
+				}
+				Ok::<_, tg::Error>(())
+			}
+		});
+
+		futures::try_join!(
+			read_task.map(|result| result.unwrap()),
+			write_task.map(|result| result.unwrap())
+		)?;
+
+		let output = tg::artifact::checkout::Output { path };
+
+		Ok(output)
+	}
+
 	async fn check_out_artifact_task_inner(
 		&self,
 		artifact: tg::artifact::Id,
@@ -185,7 +272,6 @@ impl Server {
 		// Create the state.
 		let state = Arc::new(State {
 			artifacts_path,
-			files: DashMap::default(),
 			progress: progress.clone(),
 			visited_dependencies: DashSet::default(),
 		});
@@ -203,47 +289,9 @@ impl Server {
 		// Perform the checkout.
 		self.check_out_artifact_inner(&state, arg_).await?;
 
-		// Create a lockfile and write it if it is not empty.
-		'a: {
-			// Skip creation if this is a symlink or the user passed lockfile: false
-			if artifact.is_symlink() || !arg.lockfile {
-				break 'a;
-			}
-
-			// Create the lockfile.
-			let artifact = tg::Artifact::with_id(artifact.clone());
-			let lockfile = self
-				.create_lockfile_for_artifact(&artifact, arg.dependencies)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
-
-			// Skip creation if the lockfile is empty.
-			if lockfile.nodes.is_empty() {
-				break 'a;
-			}
-
-			// If this is a directory, write it as a child.
-			if artifact.is_directory() {
-				// Serialize the lockfile.
-				let contents = serde_json::to_vec_pretty(&lockfile)
-					.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
-
-				let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
-				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-				tokio::fs::write(&lockfile_path, &contents).await.map_err(
-					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
-				)?;
-			} else {
-				// Serialize the lockfile.
-				let contents = serde_json::to_vec(&lockfile)
-					.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
-
-				let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-				xattr::set(&path, tg::file::XATTR_LOCK_NAME, &contents).map_err(|source| {
-					tg::error!(!source, "failed to write the lockfile contents as an xattr")
-				})?;
-			}
-		}
+		// // Write the lockfile if necessary.
+		// self.check_out_write_lock(&state, &artifact, &path, &arg)
+		// 	.await?;
 
 		// Create the output.
 		let output = tg::artifact::checkout::Output { path };
@@ -418,7 +466,7 @@ impl Server {
 						root_artifact: arg.root_artifact,
 						root_path: arg.root_path,
 					};
-					let progress = server.check_out_artifact_inner(&state, arg).await?;
+					let progress = Box::pin(server.check_out_artifact_inner(&state, arg)).await?;
 					Ok::<_, tg::Error>(progress)
 				}
 			})
@@ -475,17 +523,6 @@ impl Server {
 				.sum();
 		}
 
-		// Attempt to copy the file from another file in the checkout.
-		let path = state.files.get(&id).map(|path| path.clone());
-		if let Some(path) = path {
-			let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			tokio::fs::copy(&path, &arg.path).await.map_err(
-				|source| tg::error!(!source, %src = path.display(), %dst = &arg.path.display(), %file, "failed to copy the file"),
-			)?;
-			drop(permit);
-			return Ok(output);
-		}
-
 		// Attempt to copy the file from the cache directory.
 		let cache_path = self.cache_path().join(id.to_string());
 		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
@@ -521,13 +558,6 @@ impl Server {
 			tokio::fs::set_permissions(&arg.path, permissions)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
-		}
-
-		// If the artifact is a file, then add its path to the files map.
-		if let Ok(file) = arg.artifact.try_unwrap_file_ref() {
-			if let dashmap::Entry::Vacant(entry) = state.files.entry(file.clone()) {
-				entry.insert(arg.path.clone());
-			}
 		}
 
 		Ok(output)
@@ -601,6 +631,49 @@ impl Server {
 			.map_err(|source| tg::error!(!source, %src = target.display(), %dst = arg.path.display(), "failed to create the symlink"))?;
 
 		Ok(output)
+	}
+
+	async fn check_out_write_lock(
+		&self,
+		state: &Arc<State>,
+		artifact: &tg::artifact::Id,
+		path: &Path,
+		arg: &tg::artifact::checkout::Arg,
+	) -> tg::Result<()> {
+		// Skip creation if this is a symlink or the user passed lockfile: false
+		if artifact.is_symlink() || !arg.lockfile {
+			return Ok(());
+		}
+
+		// Create the lock.
+		let artifact = tg::Artifact::with_id(artifact.clone());
+		let lock = self
+			.create_lockfile_for_artifact(&artifact, arg.dependencies)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
+
+		// Do not write the lock if it is empty.
+		if lock.nodes.is_empty() {
+			return Ok(());
+		}
+
+		if artifact.is_directory() {
+			let contents = serde_json::to_vec_pretty(&lock)
+				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
+			let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
+			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
+			tokio::fs::write(&lockfile_path, &contents).await.map_err(
+				|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
+			)?;
+		} else if artifact.is_file() {
+			let contents = serde_json::to_vec(&lock)
+				.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
+			xattr::set(path, tg::file::XATTR_LOCK_NAME, &contents).map_err(|source| {
+				tg::error!(!source, "failed to write the lockfile contents as an xattr")
+			})?;
+		}
+
+		Ok(())
 	}
 }
 

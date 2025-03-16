@@ -34,6 +34,14 @@ impl Artifact {
 		}
 	}
 
+	pub fn deserialize(kind: Kind, bytes: &Bytes) -> tg::Result<Self> {
+		match kind {
+			Kind::Directory => Ok(Self::Directory(tg::directory::Data::deserialize(bytes)?)),
+			Kind::File => Ok(Self::File(tg::file::Data::deserialize(bytes)?)),
+			Kind::Symlink => Ok(Self::Symlink(tg::symlink::Data::deserialize(bytes)?)),
+		}
+	}
+
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {

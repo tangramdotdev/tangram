@@ -86,10 +86,10 @@ impl Server {
 		let cache_path = self.cache_path().join(artifact.to_string());
 
 		// If there is already a file system object at the cache path, then return.
-		if tokio::fs::try_exists(&cache_path)
+		let exists = tokio::fs::try_exists(&cache_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check if the path exists"))?
-		{
+			.map_err(|source| tg::error!(!source, "failed to check if the path exists"))?;
+		if exists {
 			let output = Output {
 				progress: Progress::default(),
 			};

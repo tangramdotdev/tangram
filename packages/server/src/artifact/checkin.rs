@@ -9,7 +9,7 @@ use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use reflink_copy::reflink;
 use std::{
-	collections::{BTreeMap, HashMap},
+	collections::BTreeMap,
 	os::unix::fs::PermissionsExt,
 	panic::AssertUnwindSafe,
 	path::{Path, PathBuf},
@@ -36,25 +36,48 @@ struct State {
 	progress: Option<crate::progress::Handle<tg::artifact::checkin::Output>>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Graph {
 	nodes: Vec<Node>,
-	paths: HashMap<PathBuf, usize, fnv::FnvBuildHasher>,
+	paths: radix_trie::Trie<PathBuf, usize>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct Node {
-	blob: Option<Blob>,
 	edges: Vec<Edge>,
 	metadata: Option<std::fs::Metadata>,
 	object: Option<Object>,
 	path: Option<Arc<PathBuf>>,
-	target: Option<PathBuf>,
+	variant: Variant,
+}
+
+#[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[try_unwrap(ref, ref_mut)]
+#[unwrap(ref, ref_mut)]
+enum Variant {
+	Directory(Directory),
+	File(File),
+	Symlink(Symlink),
 }
 
 #[derive(Clone, Debug)]
-pub struct Edge {
-	name: Option<String>,
+struct Directory {
+	entries: Vec<(String, usize)>,
+}
+
+#[derive(Clone, Debug)]
+struct File {
+	blob: Option<Blob>,
+	executable: bool,
+}
+
+#[derive(Clone, Debug)]
+struct Symlink {
+	target: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct Edge {
 	node: Option<usize>,
 }
 
@@ -164,8 +187,12 @@ impl Server {
 		};
 
 		// Create the state.
+		let graph = Graph {
+			nodes: Vec::new(),
+			paths: radix_trie::Trie::default(),
+		};
 		let mut state = State {
-			graph: Graph::default(),
+			graph,
 			ignorer,
 			progress: progress.cloned(),
 		};
@@ -305,25 +332,21 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 
-	fn checkin_visit(&self, state: &mut State, path: PathBuf) -> tg::Result<Option<usize>> {
+	fn checkin_visit(&self, state: &mut State, path: PathBuf) -> tg::Result<usize> {
+		// Check if the path has been visited.
 		if let Some(index) = state.graph.paths.get(&path) {
-			return Ok(Some(*index));
+			return Ok(*index);
 		}
 		state
 			.graph
 			.paths
 			.insert(path.clone(), state.graph.nodes.len());
 
+		// Get the metadata.
 		let metadata = std::fs::symlink_metadata(&path)
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 
-		// // Check if the path is ignored.
-		// if let Some(ignore) = &mut state.ignorer {
-		// 	if ignore.matches(&path, Some(metadata.is_dir())).unwrap() {
-		// 		return Ok(None);
-		// 	}
-		// }
-
+		// Visit the path.
 		let index = if metadata.is_dir() {
 			self.checkin_visit_directory(state, path, metadata)?
 		} else if metadata.is_file() {
@@ -334,7 +357,7 @@ impl Server {
 			return Err(tg::error!(?metadata, "invalid file type"));
 		};
 
-		Ok(Some(index))
+		Ok(index)
 	}
 
 	fn checkin_visit_directory(
@@ -345,11 +368,15 @@ impl Server {
 	) -> tg::Result<usize> {
 		// Insert the node.
 		let index = state.graph.nodes.len();
+		let variant = Variant::Directory(Directory {
+			entries: Vec::new(),
+		});
 		let node = Node {
 			edges: Vec::new(),
 			metadata: Some(metadata),
+			object: None,
 			path: None,
-			..Default::default()
+			variant,
 		};
 		state.graph.nodes.push(node);
 
@@ -367,17 +394,25 @@ impl Server {
 				.to_owned();
 			names.push(name);
 		}
+		// // Check if the path is ignored.
+		// if let Some(ignore) = &mut state.ignorer {
+		// 	if ignore.matches(&path, Some(metadata.is_dir())).unwrap() {
+		// 		return Ok(None);
+		// 	}
+		// }
 
-		// Visit the entries and create the edges.
+		// Visit the entries.
 		let mut edges = Vec::with_capacity(names.len());
 		for name in names {
-			let index = self.checkin_visit(state, path.join(&name))?;
-			if let Some(index) = index {
-				edges.push(Edge {
-					node: Some(index),
-					name: Some(name),
-				});
-			}
+			let entry_index = self.checkin_visit(state, path.join(&name))?;
+			state.graph.nodes[index]
+				.variant
+				.unwrap_directory_mut()
+				.entries
+				.push((name, entry_index));
+			edges.push(Edge {
+				node: Some(entry_index),
+			});
 		}
 
 		// Set the edges.
@@ -395,10 +430,16 @@ impl Server {
 		path: PathBuf,
 		metadata: std::fs::Metadata,
 	) -> tg::Result<usize> {
+		let variant = Variant::File(File {
+			blob: None,
+			executable: metadata.permissions().mode() & 0o111 != 0,
+		});
 		let node = Node {
+			edges: Vec::new(),
 			metadata: Some(metadata),
+			object: None,
 			path: Some(Arc::new(path)),
-			..Default::default()
+			variant,
 		};
 		let index = state.graph.nodes.len();
 		state.graph.nodes.push(node);
@@ -413,11 +454,13 @@ impl Server {
 	) -> tg::Result<usize> {
 		let target = std::fs::read_link(&path)
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
+		let variant = Variant::Symlink(Symlink { target });
 		let node = Node {
+			edges: Vec::new(),
 			metadata: Some(metadata),
+			object: None,
 			path: Some(Arc::new(path)),
-			target: Some(target),
-			..Default::default()
+			variant,
 		};
 		let index = state.graph.nodes.len();
 		state.graph.nodes.push(node);
@@ -431,38 +474,39 @@ impl Server {
 			.iter()
 			.enumerate()
 			.filter_map(|(index, node)| {
-				node.metadata
-					.as_ref()
-					.is_some_and(std::fs::Metadata::is_file)
-					.then_some(
-						tokio::spawn({
-							let server = self.clone();
-							let path = node.path.as_ref().unwrap().clone();
-							async move {
-								let _permit = server.file_descriptor_semaphore.acquire().await;
-								let mut file = tokio::fs::File::open(path.as_ref()).await.map_err(
-									|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
-								)?;
-								let blob =
-									server.create_blob_inner(&mut file, None).await.map_err(
-										|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
-									)?;
-								Ok::<_, tg::Error>((index, blob))
-							}
-						})
-						.map(|result| result.unwrap()),
-					)
+				node.variant.try_unwrap_file_ref().ok().map(|_| {
+					tokio::spawn({
+						let server = self.clone();
+						let path = node.path.as_ref().unwrap().clone();
+						async move {
+							let _permit = server.file_descriptor_semaphore.acquire().await;
+							let mut file = tokio::fs::File::open(path.as_ref()).await.map_err(
+								|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
+							)?;
+							let blob = server.create_blob_inner(&mut file, None).await.map_err(
+								|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
+							)?;
+							Ok::<_, tg::Error>((index, blob))
+						}
+					})
+					.map(|result| result.unwrap())
+				})
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
 		for (index, blob) in blobs {
-			state.graph.nodes[index].blob.replace(blob);
+			state.graph.nodes[index]
+				.variant
+				.unwrap_file_mut()
+				.blob
+				.replace(blob);
 		}
 		Ok(())
 	}
 
 	fn checkin_create_objects(state: &mut State, index: usize) -> tg::Result<()> {
+		// Create object for the children.
 		let indexes = state.graph.nodes[index]
 			.edges
 			.iter()
@@ -472,54 +516,53 @@ impl Server {
 			Self::checkin_create_objects(state, index)?;
 		}
 
-		let Some(metadata) = state.graph.nodes[index].metadata.as_ref() else {
-			return Ok(());
+		// Create an object for the node.
+		let (kind, data) = match &state.graph.nodes[index].variant {
+			Variant::Directory(directory) => {
+				let kind = tg::object::Kind::Directory;
+				let entries = directory
+					.entries
+					.iter()
+					.map(|(name, index)| {
+						let name = name.clone();
+						let id = state.graph.nodes[*index]
+							.object
+							.as_ref()
+							.unwrap()
+							.id
+							.clone()
+							.try_into()
+							.unwrap();
+						(name, id)
+					})
+					.collect();
+				let data = tg::directory::Data::Normal { entries };
+				let data = tg::object::Data::from(data);
+				(kind, data)
+			},
+			Variant::File(file) => {
+				let kind = tg::object::Kind::File;
+				let contents = file.blob.as_ref().unwrap().id.clone();
+				let dependencies = BTreeMap::new();
+				let executable = file.executable;
+				let data = tg::file::Data::Normal {
+					contents,
+					dependencies,
+					executable,
+				};
+				let data = tg::object::Data::from(data);
+				(kind, data)
+			},
+			Variant::Symlink(symlink) => {
+				let kind = tg::object::Kind::Symlink;
+				let target = symlink.target.clone();
+				let data = tg::symlink::Data::Target { target };
+				let data = tg::object::Data::from(data);
+				(kind, data)
+			},
 		};
 
-		let (kind, data) = if metadata.is_dir() {
-			let kind = tg::object::Kind::Directory;
-			let entries = state.graph.nodes[index]
-				.edges
-				.iter()
-				.map(|edge| edge.name.as_ref().unwrap())
-				.zip(indexes)
-				.map(|(name, index)| {
-					let name = name.clone();
-					let id = state.graph.nodes[index]
-						.object
-						.as_ref()
-						.unwrap()
-						.id
-						.clone()
-						.try_into()
-						.unwrap();
-					(name, id)
-				})
-				.collect();
-			let data = tg::directory::Data::Normal { entries };
-			let data = tg::object::Data::from(data);
-			(kind, data)
-		} else if metadata.is_file() {
-			let kind = tg::object::Kind::File;
-			let contents = state.graph.nodes[index].blob.as_ref().unwrap().id.clone();
-			let dependencies = BTreeMap::new();
-			let executable = metadata.permissions().mode() & 0o111 != 0;
-			let data = tg::file::Data::Normal {
-				contents,
-				dependencies,
-				executable,
-			};
-			let data = tg::object::Data::from(data);
-			(kind, data)
-		} else if metadata.is_symlink() {
-			let kind = tg::object::Kind::Symlink;
-			let target = state.graph.nodes[index].target.as_ref().unwrap().clone();
-			let data = tg::symlink::Data::Target { target };
-			let data = tg::object::Data::from(data);
-			(kind, data)
-		} else {
-			unreachable!();
-		};
+		// Create the object.
 		let bytes = data
 			.serialize()
 			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
@@ -540,10 +583,14 @@ impl Server {
 			.graph
 			.nodes
 			.iter()
-			.filter_map(|node| match (&node.path, &node.metadata, &node.blob) {
-				(Some(path), Some(metadata), Some(blob)) => {
-					Some((path.clone(), metadata.clone(), blob.id.clone()))
-				},
+			.filter_map(|node| match (&node.path, &node.metadata, &node.variant) {
+				(
+					Some(path),
+					Some(metadata),
+					Variant::File(File {
+						blob: Some(blob), ..
+					}),
+				) => Some((path.clone(), metadata.clone(), blob.id.clone())),
 				_ => None,
 			})
 			.batches(100)
@@ -592,8 +639,11 @@ impl Server {
 			std::fs::set_permissions(src, permissions)
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
-		std::fs::rename(src, dst).map_err(|source| {
-			tg::error!(!source, "failed to rename the file to the blobs directory")
+		std::fs::hard_link(src, dst).map_err(|source| {
+			tg::error!(
+				!source,
+				"failed to hard link the file to the blobs directory"
+			)
 		})?;
 		Ok(())
 	}
@@ -663,7 +713,10 @@ impl Server {
 			.with(move |connection| {
 				let transaction = connection.transaction().unwrap();
 				for node in &state.graph.nodes {
-					if let Some(blob) = &node.blob {
+					if let Variant::File(File {
+						blob: Some(blob), ..
+					}) = &node.variant
+					{
 						Self::blob_create_sqlite(blob, &transaction)?;
 					}
 				}
@@ -704,7 +757,10 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
 			// Send messages for the blob.
-			if let Some(blob) = &node.blob {
+			if let Variant::File(File {
+				blob: Some(blob), ..
+			}) = &node.variant
+			{
 				self.blob_create_messenger(blob, touched_at).await?;
 			}
 		}
@@ -720,7 +776,10 @@ impl Server {
 		for node in &state.graph.nodes {
 			let object = node.object.as_ref().unwrap();
 			objects.push((object.id.clone(), object.bytes.clone()));
-			if let Some(blob) = &node.blob {
+			if let Variant::File(File {
+				blob: Some(blob), ..
+			}) = &node.variant
+			{
 				let mut stack = vec![blob];
 				while let Some(blob) = stack.pop() {
 					if let Some(bytes) = &blob.bytes {

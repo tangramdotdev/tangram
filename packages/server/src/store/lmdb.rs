@@ -5,8 +5,8 @@ use num::ToPrimitive;
 use tangram_client as tg;
 
 pub struct Lmdb {
-	db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
-	env: lmdb::Env,
+	pub db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
+	pub env: lmdb::Env,
 	sender: tokio::sync::mpsc::Sender<Message>,
 	task: tokio::task::JoinHandle<()>,
 }

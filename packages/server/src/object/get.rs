@@ -120,11 +120,17 @@ impl Server {
 		drop(connection);
 
 		// Read the leaf from the file.
-		let mut file = tokio::fs::File::open(self.blobs_path().join(row.blob.to_string()))
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to find the entry in the blobs directory")
-			})?;
+		let mut file =
+			match tokio::fs::File::open(self.blobs_path().join(row.blob.to_string())).await {
+				Ok(file) => file,
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+				Err(error) => {
+					return Err(tg::error!(
+						!error,
+						"failed to open the entry in the blobs directory"
+					));
+				},
+			};
 		file.seek(std::io::SeekFrom::Start(row.position))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to seek in the blob file"))?;
