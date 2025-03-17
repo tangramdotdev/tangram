@@ -97,9 +97,7 @@ declare namespace tg {
 	) => Promise<tg.Blob>;
 
 	/** Decompress a blob. **/
-	export let decompress: (
-		blob: tg.Blob,
-	) => Promise<tg.Blob>;
+	export let decompress: (blob: tg.Blob) => Promise<tg.Blob>;
 
 	/** Download the contents of a URL. */
 	export let download: (url: string, checksum: tg.Checksum) => Promise<tg.Blob>;
@@ -130,9 +128,7 @@ declare namespace tg {
 		) => Promise<tg.Blob>;
 
 		/** Decompress a blob. **/
-		export let decompress: (
-			blob: tg.Blob,
-		) => Promise<tg.Blob>;
+		export let decompress: (blob: tg.Blob) => Promise<tg.Blob>;
 
 		/** Download a blob. **/
 		export let download: (
@@ -237,9 +233,7 @@ declare namespace tg {
 	) => Promise<tg.Blob>;
 
 	/** Extract an artifact from an archive. **/
-	export let extract: (
-		blob: tg.Blob,
-	) => Promise<tg.Artifact>;
+	export let extract: (blob: tg.Blob) => Promise<tg.Artifact>;
 
 	/** Bundle an artifact. **/
 	export let bundle: (artifact: tg.Artifact) => Promise<tg.Artifact>;
@@ -270,9 +264,7 @@ declare namespace tg {
 		) => Promise<tg.Blob>;
 
 		/** Extract an artifact from an archive. **/
-		export let extract: (
-			blob: tg.Blob,
-		) => Promise<tg.Artifact>;
+		export let extract: (blob: tg.Blob) => Promise<tg.Artifact>;
 
 		/** Bundle an artifact. **/
 		export let bundle: (artifact: tg.Artifact) => Promise<tg.Artifact>;
@@ -613,14 +605,14 @@ declare namespace tg {
 
 	export namespace Command {
 		export type Id = string;
-		
+
 		/** A mount. */
 		export type Mount = {
 			source: tg.Artifact.Id;
 			target: string;
 		};
 
-		export namespace Mount {			
+		export namespace Mount {
 			/** Parse a Mount from a string. */
 			export let parse: (s: string) => tg.Command.Mount;
 		}
@@ -999,7 +991,7 @@ declare namespace tg {
 		export namespace Mount {
 			/** The source for a mount is either an artifact or a path. */
 			export type Source = tg.Artifact.Id | string;
-			
+
 			/** Parse a Mount from a string. */
 			export let parse: (s: string) => tg.Process.Mount;
 		}
