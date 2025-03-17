@@ -971,7 +971,6 @@ impl Server {
 			(http::Method::GET, ["pipes", pipe, "window"]) => {
 				Self::handle_get_pipe_window_request(handle, request, pipe).boxed()
 			},
-
 			(http::Method::GET, ["pipes", pipe]) => {
 				Self::handle_get_pipe_request(handle, request, pipe).boxed()
 			},

@@ -268,7 +268,6 @@ async fn pipe_task(
 					future::Either::Left(_) => break,
 					future::Either::Right((Ok(Some(event)), _)) => match event {
 						tg::pipe::Event::Chunk(chunk) => {
-							eprintln!("write {chunk:?} to stdin");
 							stdin.write_all(&chunk).await.map_err(
 								|source| tg::error!(!source, %pipe, "failed to write stdin"),
 							)?;
@@ -357,7 +356,6 @@ fn chunk_stream_from_reader(
 			return Ok(None);
 		}
 		let chunk = Bytes::copy_from_slice(&buffer[0..size]);
-		eprintln!("read stdout/stderr: {chunk:?}");
 		let event = tg::pipe::Event::Chunk(chunk);
 		Ok(Some((event, (reader, buffer))))
 	})
@@ -380,11 +378,11 @@ pub async fn signal_task(
 	while let Some(event) = stream.try_next().await? {
 		match event {
 			tg::process::signal::get::Event::Signal(signal) => unsafe {
-				if  libc::kill(pid, signal_number(signal)) != 0 {
+				if libc::kill(pid, signal_number(signal)) != 0 {
 					let error = std::io::Error::last_os_error();
 					tracing::error!(?error, "failed to send signal");
 				}
-			}
+			},
 			tg::process::signal::get::Event::End => break,
 		}
 	}

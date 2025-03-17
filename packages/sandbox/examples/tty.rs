@@ -91,12 +91,7 @@ fn enable_raw_mode(fd: i32) -> std::io::Result<libc::termios> {
 
 fn disable_raw_mode(fd: i32, old: libc::termios) {
 	unsafe {
-		if libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(old)) != 0 {
-			eprintln!(
-				"failed to disable raw mode: {}",
-				std::io::Error::last_os_error()
-			);
-		}
+		libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(old));
 	}
 }
 
@@ -112,7 +107,6 @@ fn get_window_size(fd: i32) -> std::io::Result<Option<Tty>> {
 			ws_ypixel: 0,
 		};
 		if libc::ioctl(fd, libc::TIOCGWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
-			eprintln!("ioctl failed");
 			let error = std::io::Error::last_os_error();
 			return Err(error);
 		}

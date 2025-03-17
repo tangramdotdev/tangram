@@ -21,8 +21,6 @@ impl Server {
 		let reader = tg::pipe::Id::new();
 		let writer = tg::pipe::Id::new();
 
-		eprintln!("insert {reader},{writer} {arg:#?}");
-
 		let connection = self
 			.database
 			.write_connection()

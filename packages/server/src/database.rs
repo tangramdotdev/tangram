@@ -151,7 +151,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
-					where objects.id = new.id 
+					where objects.id = new.id
 					group by objects.id, objects.size
 				) as updates
 				where objects.id = updates.id;
@@ -177,7 +177,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
-					where objects.id = new.id 
+					where objects.id = new.id
 					group by objects.id, objects.size
 				) as updates
 				where objects.id = updates.id;
@@ -300,6 +300,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				logs_count integer,
 				logs_depth integer,
 				logs_weight integer,
+				mounts text,
 				network integer not null,
 				output text,
 				outputs_complete integer not null default 0,

@@ -47,6 +47,9 @@ pub struct Options {
 	#[arg(long)]
 	pub locked: bool,
 
+	#[arg(short, long)]
+	pub mount: Vec<tg::process::Mount>,
+
 	/// The remote to use.
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
@@ -77,7 +80,7 @@ impl Cli {
 
 	pub(crate) async fn spawn_process(
 		&self,
-		options: Options,
+		mut options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
 		stderr: Option<tg::pipe::Id>,
@@ -294,8 +297,23 @@ impl Cli {
 				})?);
 			let env = Some(std::env::vars().collect());
 			let network = true;
+			options.mount.push(tg::process::Mount {
+				source: tg::process::mount::Source::Path("/".into()),
+				target: "/".into(),
+				readonly: false,
+			});
 			(cwd, env, network)
 		};
+
+		// Get the mounts.
+		let mut mounts = options.mount;
+		for mount in &mut mounts {
+			if let tg::process::mount::Source::Path(path) = &mut mount.source {
+				*path = tokio::fs::canonicalize(&path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			}
+		}
 
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
@@ -304,6 +322,7 @@ impl Cli {
 			create: options.create,
 			cwd,
 			env,
+			mounts,
 			network,
 			parent: None,
 			remote: remote.clone(),

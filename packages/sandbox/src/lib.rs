@@ -1,5 +1,6 @@
 use std::{
 	ffi::{OsStr, OsString},
+	os::unix::ffi::OsStrExt,
 	path::PathBuf,
 };
 use tangram_either::Either;
@@ -11,6 +12,24 @@ mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
 mod pty;
+
+pub enum MountKind {
+	Bind,
+}
+
+pub struct Overlay {
+	pub lowerdirs: Vec<PathBuf>,
+	pub upperdir: PathBuf,
+	pub workdir: PathBuf,
+	pub merged: PathBuf,
+	pub readonly: bool,
+}
+
+pub struct BindMount {
+	pub source: PathBuf,
+	pub target: PathBuf,
+	pub readonly: bool,
+}
 
 #[allow(dead_code)]
 pub struct Command {
@@ -152,13 +171,22 @@ impl Command {
 		self
 	}
 
+	pub fn gid(&mut self, gid: libc::gid_t) -> &mut Self {
+		self.gid = gid;
+		self
+	}
+
+	pub fn uid(&mut self, uid: libc::uid_t) -> &mut Self {
+		self.uid = uid;
+		self
+	}
+
 	pub fn mount(&mut self, mount: impl Into<Mount>) -> &mut Self {
 		self.mounts(std::iter::once(mount))
 	}
 
 	pub fn mounts(&mut self, mounts: impl IntoIterator<Item = impl Into<Mount>>) -> &mut Self {
-		self.mounts
-			.extend(mounts.into_iter().map(Into::into));
+		self.mounts.extend(mounts.into_iter().map(Into::into));
 		self
 	}
 
@@ -335,24 +363,75 @@ where
 {
 	fn from(value: (S, T)) -> Self {
 		let (source, target) = value;
-		Mount::from((source, target, true))
+		let source = source.as_ref().to_owned();
+		let target = target.as_ref().to_owned();
+		Mount::from(BindMount {
+			source,
+			target,
+			readonly: true,
+		})
 	}
 }
 
-impl<S, T> From<(S, T, bool)> for Mount
-where
-	S: AsRef<std::path::Path>,
-	T: AsRef<std::path::Path>,
-{
-	fn from(value: (S, T, bool)) -> Mount {
-		let (source, target, readonly) = value;
+impl From<Overlay> for Mount {
+	fn from(value: Overlay) -> Self {
+		fn escape(out: &mut Vec<u8>, path: &[u8]) {
+			for byte in path.iter().copied() {
+				if byte == 0 {
+					break;
+				}
+				if byte == b':' {
+					out.push(b'\\');
+				}
+				out.push(byte);
+			}
+		}
+
+		// Create the mount options.
+		let mut data = vec![];
+
+		// Add the lower directories.
+		data.extend_from_slice(b"userxattr,lowerdir=");
+		for (n, dir) in value.lowerdirs.iter().enumerate() {
+			escape(&mut data, dir.as_os_str().as_bytes());
+			if n != value.lowerdirs.len() - 1 {
+				data.push(b':');
+			}
+		}
+
+		// Add the upper directory.
+		data.extend_from_slice(b",upperdir=");
+		data.extend_from_slice(value.upperdir.as_os_str().as_bytes());
+
+		// Add the working directory.
+		data.extend_from_slice(b",workdir=");
+		data.extend_from_slice(value.workdir.as_os_str().as_bytes());
+		data.push(0);
+
+		// Create the mount.
 		Mount {
-			source: source.as_ref().to_owned(),
-			target: target.as_ref().to_owned(),
-			flags: libc::MS_BIND | libc::MS_REC,
+			source: "overlay".into(),
+			target: value.merged,
+			fstype: Some("overlay".into()),
+			flags: 0,
+			data: Some(data),
+			readonly: false,
+		}
+	}
+}
+
+impl From<BindMount> for Mount {
+	fn from(value: BindMount) -> Self {
+		Mount {
+			source: value.source,
+			target: value.target,
 			fstype: None,
+			#[cfg(target_os = "linux")]
+			flags: libc::MS_BIND | libc::MS_REC,
+			#[cfg(target_os = "macos")]
+			flags: 0,
 			data: None,
-			readonly,
+			readonly: value.readonly,
 		}
 	}
 }

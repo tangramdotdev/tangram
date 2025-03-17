@@ -1,6 +1,6 @@
-use std::os::fd::AsRawFd;
-use crate::{abort_errno, common::redirect_stdio};
 use super::Context;
+use crate::{abort_errno, common::redirect_stdio};
+use std::os::fd::AsRawFd;
 
 pub fn main(mut context: Context) -> ! {
 	unsafe {
@@ -45,11 +45,12 @@ pub fn main(mut context: Context) -> ! {
 }
 
 fn mount_and_chroot(context: &mut Context) {
-	let root = context.root.as_ref().unwrap();
 	unsafe {
+		let root = context.root.as_ref().unwrap();
 		for mount in &context.mounts {
 			let source = mount.source.as_ptr();
 			let target = mount.target.as_ptr();
+
 			let fstype = mount
 				.fstype
 				.as_ref()
