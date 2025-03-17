@@ -1,7 +1,9 @@
 use super::Runtime;
 use crate::Server;
 use async_zip::base::read::seek::ZipFileReader;
+use futures::AsyncReadExt as _;
 use std::{
+	os::unix::fs::PermissionsExt as _,
 	pin::{Pin, pin},
 	time::Duration,
 };
@@ -167,38 +169,73 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the zip reader"))?;
 		for index in 0..reader.file().entries().len() {
-			let entry = reader.file().entries().get(index).unwrap();
-			let filename = entry.filename().as_str().unwrap();
-			let path = temp.path().join(filename);
-			let entry_is_dir = entry.dir().unwrap();
-			let entry_reader = reader
-				.reader_without_entry(index)
+			// Get the reader.
+			let mut reader = reader
+				.reader_with_entry(index)
 				.await
-				.expect("failed to read the entry");
-			if entry_is_dir {
-				if !path.exists() {
-					tokio::fs::create_dir_all(&path)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
-				}
+				.map_err(|source| tg::error!(!source, "unable to get the entry"))?;
+
+			// Get the path.
+			let filename = reader
+				.entry()
+				.filename()
+				.as_str()
+				.map_err(|source| tg::error!(!source, "failed to get the entry filename"))?;
+			let path = temp.path().join(filename);
+
+			// Check if the entry is a directory.
+			let is_dir = reader
+				.entry()
+				.dir()
+				.map_err(|source| tg::error!(!source, "failed to get type of entry"))?;
+
+			// Check if the entry is a symlink.
+			let is_symlink = reader
+				.entry()
+				.unix_permissions()
+				.is_some_and(|permissions| permissions & 0o120_000 == 0o120_000);
+
+			// Check if the entry is executable.
+			let is_executable = reader
+				.entry()
+				.unix_permissions()
+				.is_some_and(|permissions| permissions & 0o000_111 != 0);
+
+			if is_dir {
+				tokio::fs::create_dir_all(&path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+			} else if is_symlink {
+				let mut buffer = Vec::new();
+				reader
+					.read_to_end(&mut buffer)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read symlink target"))?;
+				let target = std::str::from_utf8(&buffer)
+					.map_err(|source| tg::error!(!source, "symlink target not valid UTF-8"))?;
+				tokio::fs::symlink(target, &path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 			} else {
-				let parent = path
-					.parent()
-					.expect("A file entry should have parent directories");
-				if !parent.is_dir() {
-					tokio::fs::create_dir_all(parent)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
-				}
+				let parent = path.parent().expect("expected the entry to have a parent");
+				tokio::fs::create_dir_all(parent)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 				let mut file = tokio::fs::OpenOptions::new()
 					.write(true)
 					.create_new(true)
 					.open(&path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the file"))?;
-				tokio::io::copy(&mut entry_reader.compat(), &mut file)
+				tokio::io::copy(&mut reader.compat(), &mut file)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the file"))?;
+				if is_executable {
+					let permissions = std::fs::Permissions::from_mode(0o755);
+					tokio::fs::set_permissions(&path, permissions)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+				}
 			}
 		}
 		Ok(())

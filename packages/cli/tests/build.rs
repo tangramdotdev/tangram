@@ -775,8 +775,8 @@ async fn builtin_artifact_archive_extract_simple_dir_roundtrip() {
 					"hello.txt": "contents",
 					"link": tg.symlink("./hello.txt"),
 				});
-				let archived = await tg.archive(artifact, "format");
-				let extracted = await tg.extract(archived, "format");
+				let archive = await tg.archive(artifact, "format");
+				let extracted = await tg.extract(archive, "format");
 				tg.assert(await extracted.id() === await artifact.id());
 			};
 		"#

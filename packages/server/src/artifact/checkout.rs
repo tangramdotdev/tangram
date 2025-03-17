@@ -289,9 +289,9 @@ impl Server {
 		// Perform the checkout.
 		self.check_out_artifact_inner(&state, arg_).await?;
 
-		// // Write the lockfile if necessary.
-		// self.check_out_write_lock(&state, &artifact, &path, &arg)
-		// 	.await?;
+		// Write the lockfile if necessary.
+		self.check_out_write_lock(&state, &artifact, &path, &arg)
+			.await?;
 
 		// Create the output.
 		let output = tg::artifact::checkout::Output { path };

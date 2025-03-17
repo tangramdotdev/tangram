@@ -639,65 +639,103 @@ impl Server {
 			std::fs::set_permissions(src, permissions)
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
-		std::fs::hard_link(src, dst).map_err(|source| {
-			tg::error!(
-				!source,
-				"failed to hard link the file to the blobs directory"
-			)
-		})?;
+		let result = std::fs::hard_link(src, dst);
+		match result {
+			Ok(()) => (),
+			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"failed to hard link the file to the blobs directory"
+				));
+			},
+		}
 		Ok(())
 	}
 
 	fn checkin_copy_blob_direct(src: &Path, dst: &Path) -> tg::Result<()> {
-		let exists = std::fs::exists(dst)
-			.map_err(|source| tg::error!(!source, "failed to check if the blob path exists"))?;
-		if exists {
-			return Ok(());
+		let mut done = false;
+		let mut error = None;
+		if !done {
+			let result = reflink(src, dst);
+			match result {
+				Ok(()) => {
+					done = true;
+				},
+				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+					done = true;
+				},
+				Err(error_) => {
+					error = Some(error_);
+				},
+			}
 		}
-		let mut copied = false;
-		match reflink(src, dst) {
-			Ok(()) => {
-				copied = true;
-			},
-			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-				copied = true;
-			},
-			Err(_) => (),
+		if !done {
+			let result = std::fs::copy(src, dst);
+			match result {
+				Ok(_) => {
+					done = true;
+				},
+				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+					done = true;
+				},
+				Err(error_) => {
+					error = Some(error_);
+				},
+			}
 		}
-		if !copied {
-			std::fs::copy(src, dst)
-				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+		if !done {
+			return Err(tg::error!(?error, "failed to copy the file"));
 		}
 		Ok(())
 	}
 
 	fn checkin_copy_blob_temp(&self, src: &Path, dst: &Path) -> tg::Result<()> {
-		let exists = std::fs::exists(dst)
-			.map_err(|source| tg::error!(!source, "failed to check if the blob path exists"))?;
-		if exists {
-			return Ok(());
-		}
-		let mut copied = false;
 		let temp = Temp::new(self);
+		let mut done = false;
+		let mut error = None;
 		match reflink(src, temp.path()) {
 			Ok(()) => {
-				copied = true;
+				done = true;
 			},
 			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-				copied = true;
+				done = true;
 			},
-			Err(_) => (),
+			Err(error_) => {
+				error = Some(error_);
+			},
 		}
-		if !copied {
-			std::fs::copy(src, temp.path())
-				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+		if !done {
+			let result = std::fs::copy(src, temp.path());
+			match result {
+				Ok(_) => {
+					done = true;
+				},
+				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+					done = true;
+				},
+				Err(error_) => {
+					error = Some(error_);
+				},
+			}
+		}
+		if !done {
+			return Err(tg::error!(?error, "failed to copy the file"));
 		}
 		let permissions = std::fs::Permissions::from_mode(0o644);
 		std::fs::set_permissions(temp.path(), permissions)
 			.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
-		std::fs::rename(temp.path(), dst).map_err(|source| {
-			tg::error!(!source, "failed to rename the file to the blobs directory")
-		})?;
+		let result = std::fs::rename(temp.path(), dst);
+		match result {
+			Ok(()) => (),
+			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"failed to rename the file to the blobs directory"
+				));
+			},
+		}
 		Ok(())
 	}
 

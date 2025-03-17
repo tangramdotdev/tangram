@@ -9,7 +9,7 @@
 		"check": "cargo clippy --all-features --all-targets --workspace && bun run --filter \"*\" check",
 		"clean": "rm -rf node_modules target",
 		"format": "cargo fmt --all && bun run --filter \"*\" format",
-		"test": "cargo test --workspace && bun run --filter \"*\" test",
+		"test": "cargo nextest run --workspace && bun run --filter \"*\" test",
 		"tg": "cargo run -- -m client",
 		"tgs": "cargo run -- -m server",
 		"tgo": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/debug/tangram $@' -- -m client",
@@ -17,10 +17,5 @@
 		"tgr": "cargo run --release -- -m client",
 		"tgrs": "cargo run --release -- -m server"
 	},
-	"workspaces": [
-		"packages/compiler",
-		"packages/runtime",
-		"packages/vscode"
-	],
-	"packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+	"workspaces": ["packages/compiler", "packages/runtime", "packages/vscode"]
 }
