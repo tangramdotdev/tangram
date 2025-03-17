@@ -16,6 +16,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		dbg!((id, &arg));
 		match &self.database {
 			Either::Left(database) => Self::put_process_sqlite(database, id, arg).await,
 			Either::Right(database) => Self::put_process_postgres(database, id, arg).await,
@@ -27,7 +28,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
-		eprintln!("put(sqlite) {id}");
+		dbg!(&arg.data.mounts);
 
 		// Get a database connection.
 		let mut connection = database
@@ -60,6 +61,7 @@ impl Server {
 					finished_at,
 					host,
 					log,
+					mounts,
 					network,
 					output,
 					retry,
@@ -93,7 +95,8 @@ impl Server {
 					?20,
 					?21,
 					?22,
-					?23
+					?23,
+					?24
 				)
 				on conflict (id) do update set
 					cacheable = ?2,
@@ -109,15 +112,16 @@ impl Server {
 					finished_at = ?12,
 					host = ?13,
 					log = ?14,
-					network = ?15,
-					output = ?16,
-					retry = ?17,
-					started_at = ?18,
-					status = ?19,
-					stderr = ?20,
-					stdin = ?21,
-					stdout = ?22,
-					touched_at = ?23;
+					mounts = ?15
+					network = ?16,
+					output = ?17,
+					retry = ?18,
+					started_at = ?19,
+					status = ?20,
+					stderr = ?21,
+					stdin = ?22,
+					stdout = ?23,
+					touched_at = ?24;
 			"
 		);
 		let params = db::params![
@@ -135,6 +139,7 @@ impl Server {
 			arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.host,
 			arg.data.log,
+			(!arg.data.mounts.is_empty()).then(|| db::value::Json(arg.data.mounts)),
 			arg.data.network,
 			arg.data.output.as_ref().map(db::value::Json),
 			arg.data.retry,
@@ -237,7 +242,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
-		eprintln!("put(postgres) {id}");
+		dbg!(&arg.data.mounts);
 
 		// Get a database connection.
 		let mut connection = database
@@ -270,6 +275,7 @@ impl Server {
 					finished_at,
 					host,
 					log,
+					mounts,
 					network,
 					output,
 					retry,
@@ -304,6 +310,7 @@ impl Server {
 					$21,
 					$22,
 					$23,
+					$24
 				)
 				on conflict (id) do update set
 					cacheable = $2,
@@ -319,15 +326,17 @@ impl Server {
 					finished_at = $12,
 					host = $13,
 					log = $14,
-					network = $15,
-					output = $16,
-					retry = $17,
-					started_at = $18,
-					status = $19,
-					stdin = $20,
-					stdout = $21,
-					stderr = $22
-					touched_at = $23;
+					mounts = $15,
+					network = $16,
+					output = $17,
+					retry = $18,
+					started_at = $19,
+					status = $20,
+					stdin = $21,
+					stdout = $22,
+					stderr = $23
+					touched_at = $24;
+
 			"
 		);
 		transaction
@@ -351,6 +360,8 @@ impl Server {
 						.log
 						.as_ref()
 						.map(|log| serde_json::to_string(&log).unwrap()),
+					&(!arg.data.mounts.is_empty())
+						.then(|| serde_json::to_string(&arg.data.mounts).unwrap()),
 					&i64::from(arg.data.network),
 					&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
 					&i64::from(arg.data.retry),

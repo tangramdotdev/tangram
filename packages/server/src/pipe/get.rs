@@ -24,7 +24,6 @@ impl Server {
 			.await?
 			.ok_or_else(|| tg::error!("pipe was closed or destroyed"))?;
 
-		eprintln!("GET pipes/{id}/window: {pipe:#?}");
 		Ok(pipe.window_size)
 	}
 
@@ -75,11 +74,9 @@ impl Server {
 		};
 
 		// Merge with the timer.
-		let id = id.clone();
 		let events = tokio::spawn(async move {
 			let mut stream = std::pin::pin!(stream);
 			while let Some(event) = stream.next().await {
-				eprintln!("GET {id}: {event:?}");
 				send.send(event).await.ok();
 			}
 		});
@@ -182,7 +179,6 @@ impl Server {
 	{
 		// Parse the ID.
 		let id = id.parse()?;
-		eprintln!("GET /pipes/{id}");
 
 		// Get the query.
 		let arg = request.query_params().transpose()?.unwrap_or_default();

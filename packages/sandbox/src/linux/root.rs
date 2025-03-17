@@ -1,18 +1,18 @@
-use std::os::fd::AsRawFd as _;
-use num::ToPrimitive as _;
-use super::{Context, init, guest};
+use super::{Context, guest, init};
 use crate::common::abort_errno;
+use num::ToPrimitive as _;
+use std::os::fd::AsRawFd as _;
 
 // The "root" process takes over after the host spawns with CLONE_NEWUSER.
 pub fn main(context: Context) -> ! {
-    unsafe {
+	unsafe {
 		// If the host process dies, kill this process.
 		if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) == -1 {
-            abort_errno!("prctl failed");
-        }
+			abort_errno!("prctl failed");
+		}
 
-        // Get the clone flags.
-        let mut flags = 0;
+		// Get the clone flags.
+		let mut flags = 0;
 		if context.root.is_some() {
 			flags |= libc::CLONE_NEWNS;
 			flags |= libc::CLONE_NEWPID;
@@ -21,7 +21,7 @@ pub fn main(context: Context) -> ! {
 			flags |= libc::CLONE_NEWNET;
 		}
 
-        // Spawn the next process.
+		// Spawn the next process.
 		let mut clone_args = libc::clone_args {
 			flags: flags.try_into().unwrap(),
 			stack: 0,
@@ -54,7 +54,6 @@ pub fn main(context: Context) -> ! {
 				guest::main(context);
 			}
 		}
-		eprintln!("child pid: {pid}");
 
 		// Send the child process's PID to the host process.
 		let ret = libc::send(
@@ -68,7 +67,7 @@ pub fn main(context: Context) -> ! {
 		}
 
 		// Wait for the child.
-        let mut status = 0;
+		let mut status = 0;
 		let ret = libc::waitpid(pid, std::ptr::addr_of_mut!(status), libc::__WALL);
 		if ret == -1 {
 			abort_errno!("waitpid failed");
@@ -90,5 +89,5 @@ pub fn main(context: Context) -> ! {
 
 		// Exit.
 		libc::exit(0);
-    }
+	}
 }

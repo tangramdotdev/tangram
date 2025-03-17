@@ -8,6 +8,7 @@ pub use self::{
 	data::Data,
 	id::Id,
 	metadata::Metadata,
+	mount::Mount,
 	signal::Signal,
 	state::State,
 	status::Status,
@@ -23,6 +24,7 @@ pub mod heartbeat;
 pub mod id;
 pub mod log;
 pub mod metadata;
+pub mod mount;
 pub mod put;
 pub mod signal;
 pub mod spawn;

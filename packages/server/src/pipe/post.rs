@@ -19,7 +19,6 @@ impl Server {
 	) -> tg::Result<()> {
 		let _id = id.clone();
 		if let Some(remote) = arg.remote.take() {
-			eprintln!("POST stream {remote}.{id}");
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.post_pipe(id, arg, stream.boxed()).await;
 		}
@@ -31,7 +30,6 @@ impl Server {
 		let pipe = if id == &reader { writer } else { reader };
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			eprintln!("POST {id}: {event:?}");
 			self.send_pipe_event(&pipe, event).await?;
 		}
 		Ok(())

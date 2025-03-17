@@ -192,6 +192,73 @@ impl ToV8 for tg::process::State {
 	}
 }
 
+impl FromV8 for tg::process::mount::Source {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tangram_client::Result<Self> {
+		let value = value.to_object(scope).unwrap();
+		let kind = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
+		let kind = value.get(scope, kind.into()).unwrap();
+		let kind = <String>::from_v8(scope, kind)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the source field"))?;
+
+		match kind.as_str() {
+			"artifact" => {
+				let artifact =
+					v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
+				let artifact = value.get(scope, artifact.into()).unwrap();
+				let artifact = <String>::from_v8(scope, artifact).map_err(|source| {
+					tg::error!(!source, "failed to deserialize the source field")
+				})?;
+				let artifact = artifact.parse()?;
+				Ok(Self::Artifact(artifact))
+			},
+			"path" => {
+				let path =
+					v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
+				let path = value.get(scope, path.into()).unwrap();
+				let path = <_>::from_v8(scope, path).map_err(|source| {
+					tg::error!(!source, "failed to deserialize the source field")
+				})?;
+				Ok(Self::Path(path))
+			},
+			_ => return Err(tg::error!(%kind, "unknown mount source kind")),
+		}
+	}
+}
+
+impl FromV8 for tg::process::Mount {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tangram_client::Result<Self> {
+		let value = value.to_object(scope).unwrap();
+
+		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
+		let source = value.get(scope, source.into()).unwrap();
+		let source = <_>::from_v8(scope, source)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the source field"))?;
+
+		let target = v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
+		let target = value.get(scope, target.into()).unwrap();
+		let target = <_>::from_v8(scope, target)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the target field"))?;
+
+		let readonly =
+			v8::String::new_external_onebyte_static(scope, "readonly".as_bytes()).unwrap();
+		let readonly = value.get(scope, readonly.into()).unwrap();
+		let readonly = <_>::from_v8(scope, readonly)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the readonly field"))?;
+
+		Ok(tg::process::Mount {
+			source,
+			target,
+			readonly,
+		})
+	}
+}
+
 impl FromV8 for tg::process::State {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
@@ -271,6 +338,11 @@ impl FromV8 for tg::process::State {
 		let log = <_>::from_v8(scope, log)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the log field"))?;
 
+		let mounts = v8::String::new_external_onebyte_static(scope, "mounts".as_bytes()).unwrap();
+		let mounts = value.get(scope, mounts.into()).unwrap();
+		let mounts = <_>::from_v8(scope, mounts)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the log field"))?;
+
 		let network = v8::String::new_external_onebyte_static(scope, "network".as_bytes()).unwrap();
 		let network = value.get(scope, network.into()).unwrap();
 		let network = <_>::from_v8(scope, network)
@@ -332,6 +404,7 @@ impl FromV8 for tg::process::State {
 			exit,
 			finished_at,
 			log,
+			mounts,
 			network,
 			output,
 			retry,

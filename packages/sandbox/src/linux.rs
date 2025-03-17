@@ -1,9 +1,6 @@
 use crate::{
 	Child, Command, ExitStatus, Stderr, Stdin, Stdout,
-	common::{
-		CStringVec, GuestIo, cstring, envstring, socket_pair,
-		stdio_pair,
-	},
+	common::{CStringVec, GuestIo, cstring, envstring, socket_pair, stdio_pair},
 	pty::Pty,
 };
 use num::ToPrimitive;
@@ -11,9 +8,9 @@ use std::ffi::CString;
 use tangram_either::Either;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+mod guest;
 mod init;
 mod root;
-mod guest;
 
 pub(crate) struct Mount {
 	pub source: CString,
@@ -39,6 +36,12 @@ pub(crate) struct Context {
 }
 
 pub async fn spawn(command: &Command) -> std::io::Result<Child> {
+	if !command.mounts.is_empty() && command.chroot.is_none() {
+		return Err(std::io::Error::other(
+			"cannot create mounts without a chroot directory",
+		));
+	}
+
 	// Create argv, cwd, and envp strings.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.args.iter().map(cstring))
@@ -50,18 +53,47 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 		.map(|(k, v)| envstring(k, v))
 		.collect::<CStringVec>();
 	let executable = cstring(&command.executable);
-	let mounts = command
-		.mounts
-		.iter()
-		.map(|mount| Mount {
+
+	// Create the mounts.
+	let mut mounts = Vec::with_capacity(command.mounts.len());
+	for mount in &command.mounts {
+		// Remap the target path.
+		let target = if let Some(chroot) = &command.chroot {
+			chroot.join(mount.target.strip_prefix("/").unwrap())
+		} else {
+			mount.target.clone()
+		};
+
+		// Create the mountpoint if it does not exist, following symlinks.
+		let is_dir = if !mount.source.is_absolute() {
+			true
+		} else {
+			tokio::fs::metadata(&mount.source)
+				.await
+				.inspect_err(|e| eprintln!("error stat {}: {e}", mount.source.display()))?
+				.is_dir()
+		};
+		if is_dir {
+			tokio::fs::create_dir_all(&target).await.ok();
+		} else {
+			tokio::fs::create_dir_all(target.parent().unwrap())
+				.await
+				.ok();
+			tokio::fs::write(&target, "").await.ok();
+		}
+
+		// Create the mount.
+		let mount = Mount {
 			source: cstring(&mount.source),
-			target: cstring(&mount.target),
+			target: cstring(&target),
 			fstype: mount.fstype.as_ref().map(cstring),
 			flags: mount.flags,
 			data: mount.data.clone(),
 			readonly: mount.readonly,
-		})
-		.collect();
+		};
+		mounts.push(mount);
+	}
+
 	let root = command.chroot.as_ref().map(cstring);
 
 	// Create the socket for guest control. This will be used to send the guest process its PID w.r.t the parent's PID namespace and to indicate to the child when it may exec.
@@ -120,7 +152,6 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 	// Run the root process.
 	if root_pid == 0 {
 		root::main(context);
-		// self::root_process(context);
 	}
 
 	// Close unused fds.
@@ -236,12 +267,16 @@ pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 		if libc::WIFEXITED(status) {
 			let code = libc::WEXITSTATUS(status);
 			if code != 0 {
-				return Err(std::io::Error::other("the root process exited with a nonzero exit code"));
+				return Err(std::io::Error::other(
+					"the root process exited with a nonzero exit code",
+				));
 			}
 		}
 
 		if libc::WIFSIGNALED(status) {
-			return Err(std::io::Error::other("the root process exited with a signal"));
+			return Err(std::io::Error::other(
+				"the root process exited with a signal",
+			));
 		}
 
 		Ok(())

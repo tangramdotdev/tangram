@@ -52,6 +52,9 @@ pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
 
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub mounts: Vec<tg::process::Mount>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub network: bool,
 

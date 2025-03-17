@@ -21,6 +21,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub env: Option<BTreeMap<String, String>>,
 
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub mounts: Vec<tg::process::Mount>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub network: bool,
 
@@ -83,6 +86,7 @@ impl Default for Arg {
 			create: true,
 			cwd: None,
 			env: None,
+			mounts: Vec::new(),
 			network: false,
 			parent: None,
 			remote: None,

@@ -114,14 +114,19 @@ impl Cli {
 	#[allow(dead_code)]
 	async fn run_process_inner(
 		&self,
-		options: Options,
+		mut options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
 		stdio: &Stdio,
 	) -> tg::Result<Option<tg::process::wait::Wait>> {
-		eprintln!("client pid: {}", unsafe { libc::getpid() });
-
 		let handle = self.handle().await?;
+
+		// Add the root to mounts.
+		options.spawn.mount.push(tg::process::Mount {
+			source: tg::process::mount::Source::Path("/".into()),
+			target: "/".into(),
+			readonly: false,
+		});
 
 		// Get the remote.
 		let remote = options

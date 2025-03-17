@@ -64,6 +64,8 @@ impl Server {
 			output: Option<db::value::Json<tg::value::Data>>,
 			retry: bool,
 			#[serde(default)]
+			mounts: Option<db::value::Json<Vec<tg::process::Mount>>>,
+			#[serde(default)]
 			network: bool,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
@@ -99,6 +101,7 @@ impl Server {
 					log,
 					output,
 					retry,
+					mounts,
 					network,
 					started_at,
 					status,
@@ -134,6 +137,7 @@ impl Server {
 				log: row.log,
 				output: row.output.map(|output| output.0),
 				retry: row.retry,
+				mounts: row.mounts.map(|output| output.0).unwrap_or_default(),
 				network: row.network,
 				started_at: row.started_at,
 				status: row.status,

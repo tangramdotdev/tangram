@@ -1,9 +1,9 @@
 use crate::Server;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt as _};
 use tangram_client as tg;
 use tangram_futures::task::Stop;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger;
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub(crate) async fn try_get_process_signal_stream(
@@ -36,7 +36,6 @@ impl Server {
 				serde_json::from_slice::<tg::process::signal::get::Event>(&message.payload)
 					.map_err(|_| tg::error!("failed to deserialize the message"))
 			})
-			.inspect_ok(|event| eprintln!("get signal {event:?}"))
 			.boxed();
 
 		Ok(Some(stream))
