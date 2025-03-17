@@ -1,6 +1,6 @@
 use crate::Cli;
 use itertools::Itertools as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
@@ -66,6 +66,9 @@ pub struct Options {
 	/// Tag the process.
 	#[arg(long)]
 	pub tag: Option<tg::Tag>,
+
+	#[arg(short = 'C', long)]
+	pub working_directory: Option<PathBuf>,
 }
 
 impl Cli {
@@ -286,15 +289,19 @@ impl Cli {
 
 		// Handle build vs run.
 		let (cwd, env, network) = if options.sandbox || remote.is_some() {
-			let cwd = None;
+			let cwd = options.working_directory;
 			let env = None;
 			let network = false;
 			(cwd, env, network)
 		} else {
 			let cwd =
-				Some(std::env::current_dir().map_err(|source| {
-					tg::error!(!source, "failed to get the working directory")
-				})?);
+				if let Some(working_dir) = options.working_directory {
+					Some(working_dir)
+				} else {
+					Some(std::env::current_dir().map_err(|source| {
+						tg::error!(!source, "failed to get the working directory")
+					})?)
+				};
 			let env = Some(std::env::vars().collect());
 			let network = true;
 			options.mount.push(tg::process::Mount {

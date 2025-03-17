@@ -150,7 +150,7 @@ impl Runtime {
 
 		// Set `$HOME`.
 		if let Some(home) = &home {
-			cmd_.env("HOME", &home);
+			cmd_.env("HOME", home);
 		}
 
 		// Set `$OUTPUT`.
@@ -165,7 +165,7 @@ impl Runtime {
 			},
 			|(_, url)| url.to_string(),
 		);
-		cmd_.env("TANGRAM_URL", url.to_string());
+		cmd_.env("TANGRAM_URL", &url);
 
 		// Set cwd.
 		cmd_.cwd(&cwd);
@@ -174,11 +174,19 @@ impl Runtime {
 		if state.cwd.is_some() {
 			cmd_.sandbox(false);
 		} else {
-			cmd_.path(&artifacts_path, true);
-			cmd_.path(&cwd, false);
-			cmd_.path(&output, false);
+			cmd_.mount((artifacts_path.clone(), artifacts_path.clone()));
+			let mut cwd_path_mount = tangram_sandbox::Mount::from((cwd.clone(), cwd.clone()));
+			cwd_path_mount.readonly = false;
+			cmd_.mount(cwd_path_mount);
+			let mut output_path_mount =
+				tangram_sandbox::Mount::from((output.clone(), output.clone()));
+			output_path_mount.readonly = false;
+			cmd_.mount(output_path_mount);
 			if let Some(home) = &home {
-				cmd_.path(&home, false);
+				let mut home_path_mount =
+					tangram_sandbox::Mount::from((home.clone(), home.clone()));
+				home_path_mount.readonly = false;
+				cmd_.mount(home_path_mount);
 			}
 		}
 		cmd_.network(state.network);
@@ -253,14 +261,36 @@ impl Runtime {
 			)
 		});
 
+		// Spawn the signal task.
+		let signal_task = tokio::spawn({
+			let server = self.server.clone();
+			let process = process.clone();
+			let pid = child.pid();
+			async move {
+				util::signal_task(&server, pid, &process)
+					.await
+					.inspect_err(|source| tracing::error!(?source, "signal task failed"))
+					.ok();
+			}
+		});
+
 		// Wait for the child process to complete.
-		let exit = util::wait_or_signal(&self.server, &mut child, process).await?;
+		let exit = child.wait().await;
+		let exit =
+			// Wrap the error and return.
+			match exit.map_err(|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"))? {
+				sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
+				sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
+			};
 
 		// Stop the proxy task.
 		if let Some(task) = proxy.as_ref().map(|(proxy, _)| proxy) {
 			task.stop();
 			task.wait().await.unwrap();
 		}
+
+		// Stop the signal task.
+		signal_task.abort();
 
 		// Join the i/o task.
 		stdio_task.stop();

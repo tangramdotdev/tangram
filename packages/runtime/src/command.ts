@@ -45,12 +45,14 @@ export function command<
 				tag: arg.module.referent.tag,
 			},
 		};
+		let mounts: Array<tg.Process.Mount> = [];
 		let stdin = undefined;
 		let object = {
 			args: args_,
 			env: tg.Process.current.state!.command.state.object!.env,
 			executable,
 			host: "js",
+			mounts,
 			stdin,
 		};
 		let state = { object };
@@ -115,6 +117,13 @@ export class Command<
 		let env = await tg.Args.applyMutations(flatten(arg.env ?? []));
 		let executable = arg.executable;
 		let host = arg.host;
+		let mounts = (arg.mounts ?? []).map((mount) => {
+			if (typeof mount === "string") {
+				return tg.Command.Mount.parse(mount);
+			} else {
+				return mount;
+			}
+		});
 		let stdin = undefined;
 		if (!host) {
 			throw new Error("cannot create a command without a host");
@@ -124,6 +133,7 @@ export class Command<
 			env,
 			executable,
 			host,
+			mounts,
 			stdin,
 		};
 		return new Command({ object });
@@ -214,6 +224,10 @@ export class Command<
 		return (await this.object()).host;
 	}
 
+	async mounts(): Promise<Array<tg.Command.Mount>> {
+		return (await this.object()).mounts;
+	}
+
 	function(): Function | undefined {
 		return this.#f;
 	}
@@ -247,6 +261,7 @@ export namespace Command {
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
+		mounts?: Array<string | tg.Command.Mount> | undefined;
 		stdin?: tg.Blob.Id | undefined;
 	};
 
@@ -263,11 +278,55 @@ export namespace Command {
 
 	export type Id = string;
 
+	export type Mount = {
+		source: tg.Artifact.Id;
+		target: string;
+	};
+
+	export namespace Mount {
+		export let parse = (s: string): tg.Command.Mount => {
+			// Handle readonly/readwrite option if present, rejecting read-write.
+			if (s.includes(",")) {
+				const [mountPart, option] = s.split(",", 2);
+				tg.assert(mountPart);
+				tg.assert(option);
+
+				if (option === "ro") {
+					s = mountPart;
+				} else if (option === "rw") {
+					throw new Error("cannot mount artifacts as read/write");
+				} else {
+					throw new Error(`unknown option: "${option}"`);
+				}
+			}
+
+			// Split into source and target
+			const colonIndex = s.indexOf(":");
+			if (colonIndex === -1) {
+				throw new Error("expected a target path");
+			}
+
+			const source = s.substring(0, colonIndex);
+			const target = s.substring(colonIndex + 1);
+
+			// Validate target is absolute path
+			if (!target.startsWith("/")) {
+				throw new Error(`expected an absolute path: "${target}"`);
+			}
+
+			return {
+				source,
+				target,
+			};
+		};
+	}
+
 	export type Object = {
 		args: Array<tg.Value>;
 		env: { [key: string]: tg.Value };
 		executable: tg.Command.Executable | undefined;
 		host: string;
+		mounts: Array<tg.Command.Mount>;
 	};
 
 	export type State = tg.Object.State<Command.Id, Command.Object>;

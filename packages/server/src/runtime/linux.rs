@@ -419,13 +419,14 @@ impl Instance {
 impl Runtime {
 	async fn create_instance(&self, process: &tg::Process) -> tg::Result<Instance> {
 		let state = process.load(&self.server).await?;
+		let command_mounts = state.command.mounts(&self.server).await?;
 
 		// Create the temp.
 		let temp = Temp::new(&self.server);
 		let mut instance = Instance {
 			root_is_bind_mounted: false,
 			temp,
-			mounts: Vec::with_capacity(state.mounts.len()),
+			mounts: Vec::with_capacity(state.mounts.len() + command_mounts.len()),
 		};
 
 		// Create the proxy path.
@@ -448,7 +449,9 @@ impl Runtime {
 
 		// Create mounts.
 		let mut overlays: Vec<sandbox::Overlay> = vec![];
-		for mount in &state.mounts {
+		let command_mounts: Vec<tg::process::Mount> =
+			command_mounts.iter().cloned().map(Into::into).collect();
+		for mount in state.mounts.iter().chain(command_mounts.iter()) {
 			match &mount.source {
 				tg::process::mount::Source::Artifact(artifact) => {
 					let overlay = 'a: {
@@ -546,7 +549,7 @@ impl Runtime {
 				sandbox::BindMount {
 					source: instance.outdir(),
 					target: "/output".into(),
-					readonly: true,
+					readonly: false,
 				}
 				.into(),
 			);
