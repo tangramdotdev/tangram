@@ -59,6 +59,7 @@ impl Context {
 			path: path.join("store"),
 		});
 		let http = Some(crate::config::Http::default());
+		let version = None;
 		let vfs = None;
 		let watchdog = Some(crate::config::Watchdog::default());
 		let config = Config {
@@ -73,6 +74,7 @@ impl Context {
 			remotes,
 			runner,
 			store,
+			version,
 			vfs,
 			watchdog,
 		};
