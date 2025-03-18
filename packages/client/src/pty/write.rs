@@ -19,7 +19,7 @@ impl Client {
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(arg).unwrap();
-		let uri = format!("/pipes/{id}/write?{query}");
+		let uri = format!("/pty/{id}/write?{query}");
 
 		// Create the body.
 		let stream = stream

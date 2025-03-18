@@ -48,7 +48,7 @@ mod messenger;
 mod module;
 mod object;
 mod package;
-mod pipe;
+mod pty;
 mod process;
 mod progress;
 mod pull;
@@ -962,19 +962,19 @@ impl Server {
 			},
 
 			// Pipes.
-			(http::Method::POST, ["pipes"]) => {
+			(http::Method::POST, ["pty"]) => {
 				Self::handle_open_pipe_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["pipes", pipe, "close"]) => {
+			(http::Method::DELETE, ["pty", pipe]) => {
 				Self::handle_close_pipe_request(handle, request, pipe).boxed()
 			},
-			(http::Method::GET, ["pipes", pipe, "window"]) => {
+			(http::Method::GET, ["pty", pipe, "window"]) => {
 				Self::handle_get_pipe_window_request(handle, request, pipe).boxed()
 			},
-			(http::Method::GET, ["pipes", pipe]) => {
+			(http::Method::GET, ["pty", pipe]) => {
 				Self::handle_get_pipe_request(handle, request, pipe).boxed()
 			},
-			(http::Method::POST, ["pipes", pipe]) => {
+			(http::Method::POST, ["pty", pipe]) => {
 				Self::handle_post_pipe_request(handle, request, pipe).boxed()
 			},
 

@@ -9,9 +9,9 @@ pub struct Arg {
 
 impl tg::Client {
 	pub async fn close_pipe(&self, id: &tg::pty::Id, arg: Arg) -> tg::Result<()> {
-		let method = http::Method::POST;
+		let method = http::Method::DELETE;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/pty/{id}/close?{query}");
+		let uri = format!("/pty/{id}?{query}");
 
 		let request = http::request::Builder::default()
 			.method(method)

@@ -17,7 +17,7 @@ impl Client {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>>> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/pipes/{id}/read?{query}");
+		let uri = format!("/pty/{id}/read?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

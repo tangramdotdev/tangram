@@ -19,7 +19,7 @@ pub struct Arg {
 impl tg::Client {
 	pub async fn open_pipe(&self, arg: Arg) -> tg::Result<tg::pty::open::Output> {
 		let method = http::Method::POST;
-		let uri = format!("/pipes");
+		let uri = format!("/pty");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
