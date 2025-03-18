@@ -14,6 +14,9 @@ pub struct Command {
 	pub executable: Option<tg::command::data::Executable>,
 
 	pub host: String,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub mounts: Vec<tg::command::Mount>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -49,10 +52,12 @@ impl Command {
 			.flat_map(tg::command::data::Executable::children);
 		let args = self.args.iter().flat_map(tg::value::Data::children);
 		let env = self.env.values().flat_map(tg::value::Data::children);
+		let mounts = self.mounts.iter().flat_map(tg::command::Mount::children);
 		std::iter::empty()
 			.chain(executable)
 			.chain(args)
 			.chain(env)
+			.chain(mounts)
 			.collect()
 	}
 }

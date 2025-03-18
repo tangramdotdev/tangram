@@ -8,6 +8,7 @@ pub struct Command {
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: String,
+	pub mounts: Vec<tg::command::Mount>,
 }
 
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
@@ -26,6 +27,7 @@ pub struct Module {
 impl Command {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
+		// FIXME - mounts?
 		std::iter::empty()
 			.chain(
 				self.executable
@@ -86,11 +88,13 @@ impl TryFrom<Data> for Command {
 			.try_collect()?;
 		let executable = data.executable.map(TryInto::try_into).transpose()?;
 		let host = data.host;
+		let mounts = data.mounts;
 		Ok(Self {
 			args,
 			env,
 			executable,
 			host,
+			mounts,
 		})
 	}
 }

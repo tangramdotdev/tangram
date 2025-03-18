@@ -197,33 +197,21 @@ impl FromV8 for tg::process::mount::Source {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tangram_client::Result<Self> {
-		let value = value.to_object(scope).unwrap();
-		let kind = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-		let kind = value.get(scope, kind.into()).unwrap();
-		let kind = <String>::from_v8(scope, kind)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the source field"))?;
+		let value = String::from_v8(scope, value)
+			.map_err(|source| tg::error!(!source, "failed to read the source string"))?;
+		if let Ok(id) = value.parse::<tg::artifact::Id>() {
+			return Ok(Self::Artifact(id));
+		}
+		let Ok(path_buf) = value.parse::<std::path::PathBuf>();
+		Ok(Self::Path(path_buf))
+	}
+}
 
-		match kind.as_str() {
-			"artifact" => {
-				let artifact =
-					v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
-				let artifact = value.get(scope, artifact.into()).unwrap();
-				let artifact = <String>::from_v8(scope, artifact).map_err(|source| {
-					tg::error!(!source, "failed to deserialize the source field")
-				})?;
-				let artifact = artifact.parse()?;
-				Ok(Self::Artifact(artifact))
-			},
-			"path" => {
-				let path =
-					v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
-				let path = value.get(scope, path.into()).unwrap();
-				let path = <_>::from_v8(scope, path).map_err(|source| {
-					tg::error!(!source, "failed to deserialize the source field")
-				})?;
-				Ok(Self::Path(path))
-			},
-			_ => return Err(tg::error!(%kind, "unknown mount source kind")),
+impl ToV8 for tg::process::mount::Source {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		match self {
+			tg::process::mount::Source::Artifact(id) => id.to_v8(scope),
+			tg::process::mount::Source::Path(path_buf) => path_buf.to_v8(scope),
 		}
 	}
 }
@@ -256,6 +244,26 @@ impl FromV8 for tg::process::Mount {
 			target,
 			readonly,
 		})
+	}
+}
+
+impl ToV8 for tg::process::Mount {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let object = v8::Object::new(scope);
+
+		let key = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
+		let value = self.source.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
+		let value = self.target.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "readonly".as_bytes()).unwrap();
+		let value = self.readonly.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		Ok(object.into())
 	}
 }
 

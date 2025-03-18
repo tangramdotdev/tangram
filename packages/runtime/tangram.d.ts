@@ -601,6 +601,9 @@ declare namespace tg {
 		/** Get this command's host. */
 		host(): Promise<string>;
 
+		/** Get this command's mounts. */
+		mounts(): Promise<Array<tg.Command.Mount>>;
+
 		/** Build this command and return the process's output. */
 		build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
 
@@ -610,6 +613,17 @@ declare namespace tg {
 
 	export namespace Command {
 		export type Id = string;
+		
+		/** A mount. */
+		export type Mount = {
+			source: tg.Artifact.Id;
+			target: string;
+		};
+
+		export namespace Mount {			
+			/** Parse a Mount from a string. */
+			export let parse: (s: string) => tg.Command.Mount;
+		}
 
 		export type Arg =
 			| undefined
@@ -631,6 +645,9 @@ declare namespace tg {
 
 			/** The command's host. */
 			host?: string | undefined;
+
+			/** The command's mounts. */
+			mounts?: Array<string | tg.Command.Mount> | undefined;
 		};
 
 		export type ExecutableArg = tg.Artifact | tg.Module;
@@ -962,12 +979,30 @@ declare namespace tg {
 		env(): Promise<{ [name: string]: tg.Value }>;
 		env(name: string): Promise<tg.Value | undefined>;
 
+		/** Get the mounts for this process. */
+		mounts(): Promise<Array<tg.Process.Mount>>;
+
 		/** Get whether this process has the network enabled. */
 		network(): Promise<boolean>;
 	}
 
 	export namespace Process {
 		export type Id = string;
+
+		/** A mount. */
+		export type Mount = {
+			source: tg.Process.Mount.Source;
+			target: string;
+			readonly: boolean;
+		};
+
+		export namespace Mount {
+			/** The source for a mount is either an artifact or a path. */
+			export type Source = tg.Artifact.Id | string;
+			
+			/** Parse a Mount from a string. */
+			export let parse: (s: string) => tg.Process.Mount;
+		}
 
 		export type SpawnArg =
 			| undefined
@@ -998,6 +1033,9 @@ declare namespace tg {
 
 			/** The command's host. */
 			host?: string | undefined;
+
+			/** The mounts to attach. */
+			mounts?: Array<string | tg.Process.Mount> | undefined;
 
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;

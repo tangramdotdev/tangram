@@ -7,6 +7,7 @@ pub struct Builder {
 	env: BTreeMap<String, tg::Value>,
 	executable: Option<tg::command::Executable>,
 	host: String,
+	mounts: Vec<tg::command::Mount>,
 }
 
 impl Builder {
@@ -17,6 +18,7 @@ impl Builder {
 			env: BTreeMap::new(),
 			executable: None,
 			host: host.into(),
+			mounts: Vec::new(),
 		}
 	}
 
@@ -27,6 +29,7 @@ impl Builder {
 			env: object.env.clone(),
 			executable: object.executable.clone(),
 			host: object.host.clone(),
+			mounts: object.mounts.clone(),
 		}
 	}
 
@@ -54,6 +57,11 @@ impl Builder {
 		self
 	}
 
+	pub fn mount(mut self, mount: tg::command::Mount) -> tg::Result<Self> {
+		self.mounts.push(mount);
+		Ok(self)
+	}
+
 	#[must_use]
 	pub fn build(self) -> tg::Command {
 		tg::Command::with_object(tg::command::Object {
@@ -61,6 +69,7 @@ impl Builder {
 			env: self.env,
 			executable: self.executable,
 			host: self.host,
+			mounts: self.mounts,
 		})
 	}
 }

@@ -1,5 +1,6 @@
 use crate as tg;
 use crate::util::serde::{is_true, return_true};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -16,6 +17,29 @@ pub struct Mount {
 pub enum Source {
 	Artifact(tg::artifact::Id),
 	Path(PathBuf),
+}
+
+impl Mount {
+	#[must_use]
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		match &self.source {
+			Source::Artifact(artifact_id) => {
+				let object_id: tg::object::Id = artifact_id.clone().into();
+				std::iter::once(object_id).collect()
+			},
+			Source::Path(_) => BTreeSet::new(),
+		}
+	}
+}
+
+impl From<tg::command::Mount> for Mount {
+	fn from(value: tg::command::Mount) -> Self {
+		Self {
+			source: Source::Artifact(value.source),
+			target: value.target,
+			readonly: true,
+		}
+	}
 }
 
 impl FromStr for Mount {

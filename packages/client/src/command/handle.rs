@@ -155,11 +155,13 @@ impl Command {
 			None
 		};
 		let host = object.host.clone();
+		let mounts = object.mounts.clone();
 		Ok(Data {
 			args,
 			env,
 			executable,
 			host,
+			mounts,
 		})
 	}
 }
@@ -200,6 +202,16 @@ impl Command {
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.host))
+	}
+
+	pub async fn mounts<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<impl Deref<Target = Vec<tg::command::Mount>>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object(handle).await?.map(|object| &object.mounts))
 	}
 }
 
