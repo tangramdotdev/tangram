@@ -251,9 +251,9 @@ impl Cli {
 
 async fn stdio_task<H>(
 	handle: &H,
-	stdin: tg::pipe::Id,
-	stdout: tg::pipe::Id,
-	stderr: tg::pipe::Id,
+	stdin: tg::pty::Id,
+	stdout: tg::pty::Id,
+	stderr: tg::pty::Id,
 	remote: Option<String>,
 ) -> tg::Result<()>
 where
@@ -261,21 +261,21 @@ where
 {
 	// Spawn a task to read from stdin.
 	let stream = stdin_stream()
-		.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
-		.chain(stream::once(future::ok(tg::pipe::Event::End)))
+		.map(|bytes| bytes.map(tg::pty::Event::Chunk))
+		.chain(stream::once(future::ok(tg::pty::Event::End)))
 		.boxed();
 	let stdin = tokio::spawn({
 		let pipe = stdin;
 		let remote = remote.clone();
 		let handle = handle.clone();
 		async move {
-			let arg = tg::pipe::post::Arg { remote };
+			let arg = tg::pty::post::Arg { remote };
 			handle.post_pipe(&pipe, arg, stream).await.ok();
 		}
 	});
 
 	// Create the output streams.
-	let arg = tg::pipe::get::Arg {
+	let arg = tg::pty::get::Arg {
 		remote: remote.clone(),
 	};
 

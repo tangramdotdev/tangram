@@ -106,8 +106,7 @@ where
 			(Some(()), 7, ..) => tg::process::Signal::SIGUSR2,
 			_ => break,
 		};
-		l
-		t arg = tg::process::signal::post::Arg {
+		let arg = tg::process::signal::post::Arg {
 			remote: remote.clone(),
 			signal,
 		};
