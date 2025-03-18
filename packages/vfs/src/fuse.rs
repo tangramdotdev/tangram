@@ -17,9 +17,9 @@ use std::{
 	},
 	path::Path,
 	pin::pin,
-	sync::{Arc, Mutex},
+	sync::{Arc, Mutex}, u64,
 };
-use sys::fuse_interrupt_in;
+use sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in};
 use tangram_futures::task::{Stop, Task};
 use zerocopy::{FromBytes as _, IntoBytes as _};
 
@@ -59,6 +59,8 @@ enum RequestData {
 	ReadLink,
 	Release(sys::fuse_release_in),
 	ReleaseDir(sys::fuse_release_in),
+	Statfs,
+	Statx(sys::fuse_statx_in),
 	Interrupt(sys::fuse_interrupt_in),
 	Unsupported(u32),
 }
@@ -80,6 +82,8 @@ enum Response {
 	ReadLink(CString),
 	Release,
 	ReleaseDir,
+	Statfs(sys::fuse_statfs_out),
+	Statx(sys::fuse_statx_out),
 }
 
 impl<P> Server<P>
@@ -287,6 +291,8 @@ where
 			sys::fuse_opcode::FUSE_READLINK => RequestData::ReadLink,
 			sys::fuse_opcode::FUSE_RELEASE => RequestData::Release(read_data(data)?),
 			sys::fuse_opcode::FUSE_RELEASEDIR => RequestData::ReleaseDir(read_data(data)?),
+			sys::fuse_opcode::FUSE_STATFS => RequestData::Statfs,
+			sys::fuse_opcode::FUSE_STATX => RequestData::Statx(read_data(data)?),
 			sys::fuse_opcode::FUSE_INTERRUPT => RequestData::Interrupt(read_data(data)?),
 			_ => RequestData::Unsupported(header.opcode),
 		};
@@ -328,9 +334,12 @@ where
 			RequestData::ReleaseDir(data) => {
 				self.handle_release_dir_request(request.header, data).await
 			},
+			RequestData::Statfs => self.handle_statfs_request(request.header).await,
+			RequestData::Statx(data) => self.handle_statx_request(request.header, data).await,
 			RequestData::Interrupt(data) => {
 				self.handle_interrupt_request(request.header, data).await
 			},
+
 			RequestData::Unsupported(opcode) => {
 				self.handle_unsupported_request(request.header, opcode)
 					.await
@@ -407,8 +416,8 @@ where
 		request: fuse_init_in,
 	) -> Result<Option<Response>> {
 		let response = fuse_init_out {
-			major: 7,
-			minor: 21,
+			major: FUSE_KERNEL_VERSION,
+			minor: FUSE_KERNEL_MINOR_VERSION,
 			max_readahead: request.max_readahead,
 			flags: sys::FUSE_DO_READDIRPLUS,
 			max_background: 0,
@@ -594,6 +603,92 @@ where
 	) -> Result<Option<Response>> {
 		self.provider.close(request.fh).await;
 		Ok(Some(Response::ReleaseDir))
+	}
+
+	async fn handle_statfs_request(
+		&self,
+		_header: sys::fuse_in_header
+	) -> Result<Option<Response>> {
+		let out = sys::fuse_statfs_out {
+			st: sys::fuse_kstatfs {
+				blocks: u64::MAX  / 2,
+				bfree: u64::MAX / 2,
+				bavail: u64::MAX / 2,
+				files:u64::MAX / 2,
+				ffree: u64::MAX / 2,
+				bsize: 0,
+				namelen: u32::MAX,
+				frsize: 1024,
+				padding: 0,
+				spare: [0; 6]
+			}
+		};
+		Ok(Some(Response::Statfs(out)))
+	}
+
+	async fn handle_statx_request(
+		&self,
+		header: sys::fuse_in_header,
+		request: sys::fuse_statx_in,
+	) -> Result<Option<Response>> {
+		let Some(Response::GetAttr(attr)) = self
+			.handle_get_attr_request(header, {
+				sys::fuse_getattr_in {
+					getattr_flags: request.getattr_flags,
+					dummy: 0,
+					fh: request.fh,
+				}
+			})
+			.await?
+		else {
+			return Ok(None);
+		};
+		let out = sys::fuse_statx_out {
+			attr_valid: attr.attr_valid,
+			attr_valid_nsec: attr.attr_valid_nsec,
+			flags: request.getattr_flags,
+			spare: [0; 2],
+			stat: sys::fuse_statx {
+				mask: 0,
+				ino: attr.attr.ino,
+				size: attr.attr.size,
+				blocks: attr.attr.blocks,
+				blksize: attr.attr.blksize,
+				attributes: 0,
+				nlink: attr.attr.nlink,
+				uid: attr.attr.uid,
+				gid: attr.attr.gid,
+				mode: attr.attr.mode.to_u16().unwrap(),
+				__spare0: [0],
+				attributes_mask: 0xffff_ffff_ffff_ffff,
+				atime: sys::fuse_sx_time {
+					tv_nsec: 0,
+					tv_sec: 0,
+					__reserved: 0,
+				},
+				btime: sys::fuse_sx_time {
+					tv_nsec: 0,
+					tv_sec: 0,
+					__reserved: 0,
+				},
+				mtime: sys::fuse_sx_time {
+					tv_nsec: 0,
+					tv_sec: 0,
+					__reserved: 0,
+				},
+				ctime: sys::fuse_sx_time {
+					tv_nsec: 0,
+					tv_sec: 0,
+					__reserved: 0,
+				},
+				rdev_major: 0,
+				rdev_minor: 0,
+				dev_major: 0,
+				dev_minor: 0,
+				__spare2: [0; 14],
+			},
+		};
+		Ok(Some(Response::Statx(out)))
 	}
 
 	async fn handle_interrupt_request(
@@ -809,6 +904,8 @@ fn write_response(fd: RawFd, unique: u64, response: &Response) -> std::io::Resul
 		| Response::GetXattr(data)
 		| Response::ListXattr(data) => data.as_bytes(),
 		Response::ReadLink(data) => data.as_bytes(),
+		Response::Statfs(data) => data.as_bytes(),
+		Response::Statx(data) => data.as_bytes(),
 	};
 	let len = std::mem::size_of::<fuse_out_header>() + data.len();
 	let header = fuse_out_header {
