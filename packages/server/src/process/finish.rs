@@ -84,7 +84,7 @@ impl Server {
 		.into_iter()
 		.flatten()
 		{
-			let arg = tg::pipe::close::Arg {
+			let arg = tg::pty::close::Arg {
 				remote: remote.cloned(),
 			};
 			self.close_pipe(pipe, arg).await.ok();

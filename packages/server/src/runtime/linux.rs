@@ -248,7 +248,7 @@ impl Runtime {
 				.server
 				.get_pipe_window_size(
 					pipe,
-					tg::pipe::get::Arg {
+					tg::pty::get::Arg {
 						remote: process.remote().cloned(),
 					},
 				)
@@ -269,7 +269,7 @@ impl Runtime {
 				.server
 				.get_pipe_window_size(
 					pipe,
-					tg::pipe::get::Arg {
+					tg::pty::get::Arg {
 						remote: process.remote().cloned(),
 					},
 				)
@@ -290,7 +290,7 @@ impl Runtime {
 				.server
 				.get_pipe_window_size(
 					pipe,
-					tg::pipe::get::Arg {
+					tg::pty::get::Arg {
 						remote: process.remote().cloned(),
 					},
 				)

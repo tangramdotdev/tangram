@@ -20,13 +20,13 @@ pub struct Stdio {
 
 #[derive(Clone, Debug)]
 pub struct Pipe {
-	pub client: tg::pipe::Id,
-	pub server: tg::pipe::Id,
+	pub client: tg::pty::Id,
+	pub server: tg::pty::Id,
 }
 
 impl Stdio {
 	pub async fn close_server_half(&self, handle: &impl tg::Handle) {
-		let arg = tg::pipe::close::Arg {
+		let arg = tg::pty::close::Arg {
 			remote: self.remote.clone(),
 		};
 		let pipes = [&self.stdin.server, &self.stdout.server, &self.stderr.server]
@@ -38,7 +38,7 @@ impl Stdio {
 	}
 
 	pub async fn close_client_half(&self, handle: &impl tg::Handle) {
-		let arg = tg::pipe::close::Arg {
+		let arg = tg::pty::close::Arg {
 			remote: self.remote.clone(),
 		};
 		let pipes = [&self.stdin.client, &self.stdout.client, &self.stderr.client]
@@ -185,12 +185,12 @@ impl Cli {
 async fn pair<H>(
 	handle: &H,
 	remote: Option<String>,
-	window_size: Option<tg::pipe::WindowSize>,
+	window_size: Option<tg::pty::WindowSize>,
 ) -> tg::Result<Pipe>
 where
 	H: tg::Handle,
 {
-	let arg = tg::pipe::open::Arg {
+	let arg = tg::pty::open::Arg {
 		remote,
 		window_size,
 	};
@@ -206,7 +206,7 @@ where
 
 fn get_termios_and_window_size(
 	fd: RawFd,
-) -> std::io::Result<(libc::termios, tg::pipe::WindowSize)> {
+) -> std::io::Result<(libc::termios, tg::pty::WindowSize)> {
 	// Get the window size.
 	unsafe {
 		// Get the termio modes.
@@ -224,7 +224,7 @@ fn get_termios_and_window_size(
 		let window_size = window_size.assume_init();
 
 		// Return.
-		let window_size = tg::pipe::WindowSize {
+		let window_size = tg::pty::WindowSize {
 			cols: window_size.ws_col,
 			rows: window_size.ws_row,
 			xpos: window_size.ws_xpixel,

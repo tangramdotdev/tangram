@@ -120,34 +120,34 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn open_pipe(
 		&self,
-		arg: tg::pipe::open::Arg,
-	) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> + Send;
+		arg: tg::pty::open::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::open::Output>> + Send;
 
 	fn close_pipe(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::close::Arg,
+		id: &tg::pty::Id,
+		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn post_pipe(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		id: &tg::pty::Id,
+		arg: tg::pty::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn get_pipe_window_size(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> + Send;
+		id: &tg::pty::Id,
+		arg: tg::pty::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> + Send;
 
 	fn get_pipe_stream(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::get::Arg,
+		id: &tg::pty::Id,
+		arg: tg::pty::get::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
 	> + Send;
 
 	fn try_spawn_process(

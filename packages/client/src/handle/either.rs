@@ -237,8 +237,8 @@ where
 
 	fn open_pipe(
 		&self,
-		arg: tg::pipe::open::Arg,
-	) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		arg: tg::pty::open::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::open::Output>> {
 		match self {
 			Either::Left(s) => s.open_pipe(arg).left_future(),
 			Either::Right(s) => s.open_pipe(arg).right_future(),
@@ -247,8 +247,8 @@ where
 
 	fn close_pipe(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::close::Arg,
+		id: &tg::pty::Id,
+		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.close_pipe(id, arg).left_future(),
@@ -258,9 +258,9 @@ where
 
 	fn get_pipe_window_size(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> {
+		id: &tg::pty::Id,
+		arg: tg::pty::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> {
 		match self {
 			Either::Left(s) => s.get_pipe_window_size(id, arg).left_future(),
 			Either::Right(s) => s.get_pipe_window_size(id, arg).right_future(),
@@ -269,9 +269,9 @@ where
 
 	fn get_pipe_stream(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::get::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+		id: &tg::pty::Id,
+		arg: tg::pty::get::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
 	{
 		match self {
 			Either::Left(s) => s
@@ -287,9 +287,9 @@ where
 
 	fn post_pipe(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		id: &tg::pty::Id,
+		arg: tg::pty::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.post_pipe(id, arg, stream).left_future(),

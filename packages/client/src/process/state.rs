@@ -22,9 +22,9 @@ pub struct State {
 	pub retry: bool,
 	pub started_at: Option<time::OffsetDateTime>,
 	pub status: tg::process::Status,
-	pub stderr: Option<tg::pipe::Id>,
-	pub stdin: Option<tg::pipe::Id>,
-	pub stdout: Option<tg::pipe::Id>,
+	pub stderr: Option<tg::pty::Id>,
+	pub stdin: Option<tg::pty::Id>,
+	pub stdout: Option<tg::pty::Id>,
 	pub touched_at: Option<time::OffsetDateTime>,
 }
 

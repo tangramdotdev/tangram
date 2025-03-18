@@ -122,11 +122,13 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Add the root to mounts.
-		options.spawn.mount.push(tg::process::Mount {
-			source: tg::process::mount::Source::Path("/".into()),
-			target: "/".into(),
-			readonly: false,
-		});
+		if !options.spawn.sandbox {
+			options.spawn.mount.push(tg::process::Mount {
+				source: tg::process::mount::Source::Path("/".into()),
+				target: "/".into(),
+				readonly: false,
+			});
+		}
 
 		// Get the remote.
 		let remote = options

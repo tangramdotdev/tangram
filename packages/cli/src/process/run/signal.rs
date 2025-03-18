@@ -8,7 +8,7 @@ use tokio_stream::wrappers::ReceiverStream;
 pub async fn handle_sigwinch<H>(
 	handle: &H,
 	fd: RawFd,
-	pipe: &tg::pipe::Id,
+	pipe: &tg::pty::Id,
 	remote: Option<String>,
 ) -> tg::Result<()>
 where
@@ -26,21 +26,21 @@ where
 					break;
 				}
 				let window_size = winsize.assume_init();
-				tg::pipe::WindowSize {
+				tg::pty::WindowSize {
 					rows: window_size.ws_row,
 					cols: window_size.ws_col,
 					xpos: window_size.ws_xpixel,
 					ypos: window_size.ws_ypixel,
 				}
 			};
-			let event = Ok::<_, tg::Error>(tg::pipe::Event::WindowSize(window_size));
+			let event = Ok::<_, tg::Error>(tg::pty::Event::WindowSize(window_size));
 			if send.send(event).await.is_err() {
 				break;
 			}
 		}
 	});
 
-	let arg = tg::pipe::post::Arg { remote };
+	let arg = tg::pty::post::Arg { remote };
 	let stream = ReceiverStream::new(recv);
 	handle
 		.post_pipe(pipe, arg, stream.boxed())
@@ -106,7 +106,8 @@ where
 			(Some(()), 7, ..) => tg::process::Signal::SIGUSR2,
 			_ => break,
 		};
-		let arg = tg::process::signal::post::Arg {
+		l
+		t arg = tg::process::signal::post::Arg {
 			remote: remote.clone(),
 			signal,
 		};

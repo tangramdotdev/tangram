@@ -1267,41 +1267,41 @@ impl tg::Handle for Server {
 
 	fn open_pipe(
 		&self,
-		arg: tg::pipe::open::Arg,
-	) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
+		arg: tg::pty::open::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::open::Output>> {
 		self.open_pipe(arg)
 	}
 
 	fn close_pipe(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::close::Arg,
+		id: &tg::pty::Id,
+		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.close_pipe(id, arg)
 	}
 
 	fn get_pipe_window_size(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pipe::WindowSize>>> + Send {
+		id: &tg::pty::Id,
+		arg: tg::pty::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> + Send {
 		self.get_pipe_window_size(id, arg)
 	}
 
 	fn get_pipe_stream(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::get::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+		id: &tg::pty::Id,
+		arg: tg::pty::get::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
 	{
 		self.get_pipe_stream(id, arg)
 	}
 
 	fn post_pipe(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		id: &tg::pty::Id,
+		arg: tg::pty::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.post_pipe(id, arg, stream)
 	}

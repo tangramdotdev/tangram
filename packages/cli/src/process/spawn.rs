@@ -86,9 +86,9 @@ impl Cli {
 		mut options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
-		stderr: Option<tg::pipe::Id>,
-		stdin: Option<tg::pipe::Id>,
-		stdout: Option<tg::pipe::Id>,
+		stderr: Option<tg::pty::Id>,
+		stdin: Option<tg::pty::Id>,
+		stdout: Option<tg::pty::Id>,
 	) -> tg::Result<tg::Process> {
 		let handle = self.handle().await?;
 

@@ -11,9 +11,9 @@ use tokio_util::task::AbortOnDropHandle;
 impl Server {
 	pub async fn get_pipe_window_size(
 		&self,
-		id: &tg::pipe::Id,
-		mut arg: tg::pipe::get::Arg,
-	) -> tg::Result<Option<tg::pipe::WindowSize>> {
+		id: &tg::pty::Id,
+		mut arg: tg::pty::get::Arg,
+	) -> tg::Result<Option<tg::pty::WindowSize>> {
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.get_pipe_window_size(id, arg).await;
@@ -29,9 +29,9 @@ impl Server {
 
 	pub async fn get_pipe_stream(
 		&self,
-		id: &tg::pipe::Id,
-		mut arg: tg::pipe::get::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
+		id: &tg::pty::Id,
+		mut arg: tg::pty::get::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
 		// Forward to a remote if requested.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
@@ -53,7 +53,7 @@ impl Server {
 						break;
 					}
 				}
-				send.send(Ok::<_, tg::Error>(tg::pipe::Event::End))
+				send.send(Ok::<_, tg::Error>(tg::pty::Event::End))
 					.await
 					.ok();
 			}
@@ -92,14 +92,14 @@ impl Server {
 	async fn get_pipe_stream_memory(
 		&self,
 		messenger: &messenger::memory::Messenger,
-		id: &tg::pipe::Id,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
+		id: &tg::pty::Id,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
 		let stream = messenger
 			.subscribe(id.to_string(), None)
 			.await
 			.map_err(|source| tg::error!(!source, "the pipe was closed or does not exist"))?
 			.map(|message| {
-				let event = serde_json::from_slice::<tg::pipe::Event>(&message.payload)
+				let event = serde_json::from_slice::<tg::pty::Event>(&message.payload)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"));
 				event
 			})
@@ -110,8 +110,8 @@ impl Server {
 	async fn get_pipe_stream_nats(
 		&self,
 		messenger: &messenger::nats::Messenger,
-		id: &tg::pipe::Id,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
+		id: &tg::pty::Id,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
 		let stream = messenger
 			.jetstream
 			.get_stream(id.to_string())
@@ -140,7 +140,7 @@ impl Server {
 					.ack()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to ack message"))?;
-				let event = serde_json::from_slice::<tg::pipe::Event>(&message.payload)
+				let event = serde_json::from_slice::<tg::pty::Event>(&message.payload)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
 				Ok::<_, tg::Error>(event)
 			});
@@ -195,8 +195,8 @@ impl Server {
 		let body = Body::with_stream(stream.map(move |result| {
 			let event = match result {
 				Ok(event) => match event {
-					tg::pipe::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),
-					tg::pipe::Event::WindowSize(window_size) => {
+					tg::pty::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),
+					tg::pty::Event::WindowSize(window_size) => {
 						let mut trailers = http::HeaderMap::new();
 						trailers
 							.insert("x-tg-event", http::HeaderValue::from_static("window-size"));
@@ -204,7 +204,7 @@ impl Server {
 						trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 						hyper::body::Frame::trailers(trailers)
 					},
-					tg::pipe::Event::End => {
+					tg::pty::Event::End => {
 						let mut trailers = http::HeaderMap::new();
 						trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
 						hyper::body::Frame::trailers(trailers)

@@ -10,16 +10,16 @@ use time::format_description::well_known::Rfc3339;
 impl Server {
 	pub async fn open_pipe(
 		&self,
-		mut arg: tg::pipe::open::Arg,
-	) -> tg::Result<tg::pipe::open::Output> {
+		mut arg: tg::pty::open::Arg,
+	) -> tg::Result<tg::pty::open::Output> {
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.open_pipe(arg).await;
 		}
 
 		// Create the pipe data.
-		let reader = tg::pipe::Id::new();
-		let writer = tg::pipe::Id::new();
+		let reader = tg::pty::Id::new();
+		let writer = tg::pty::Id::new();
 
 		let connection = self
 			.database
@@ -71,15 +71,15 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
 			},
 		}
-		let output = tg::pipe::open::Output { writer, reader };
+		let output = tg::pty::open::Output { writer, reader };
 		Ok(output)
 	}
 
 	async fn create_pipe_in_memory(
 		&self,
 		messenger: &messenger::memory::Messenger,
-		reader: &tg::pipe::Id,
-		writer: &tg::pipe::Id,
+		reader: &tg::pty::Id,
+		writer: &tg::pty::Id,
 	) -> tg::Result<()> {
 		messenger
 			.streams()
@@ -97,8 +97,8 @@ impl Server {
 	async fn create_pipe_nats(
 		&self,
 		messenger: &messenger::nats::Messenger,
-		reader: &tg::pipe::Id,
-		writer: &tg::pipe::Id,
+		reader: &tg::pty::Id,
+		writer: &tg::pty::Id,
 	) -> tg::Result<()> {
 		for pipe in [reader, writer] {
 			let stream_name = pipe.to_string();

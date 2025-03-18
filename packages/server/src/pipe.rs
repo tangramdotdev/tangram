@@ -14,14 +14,14 @@ mod post;
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Pipe {
-	pub reader: tg::pipe::Id,
-	pub writer: tg::pipe::Id,
-	pub window_size: Option<tg::pipe::WindowSize>,
+	pub reader: tg::pty::Id,
+	pub writer: tg::pty::Id,
+	pub window_size: Option<tg::pty::WindowSize>,
 	pub closed: bool,
 }
 
 impl Server {
-	pub(crate) async fn try_get_pipe(&self, id: &tg::pipe::Id) -> tg::Result<Option<Pipe>> {
+	pub(crate) async fn try_get_pipe(&self, id: &tg::pty::Id) -> tg::Result<Option<Pipe>> {
 		let connection = self
 			.database
 			.connection()
@@ -30,11 +30,11 @@ impl Server {
 
 		#[derive(serde::Deserialize)]
 		struct Row {
-			reader: tg::pipe::Id,
-			writer: tg::pipe::Id,
+			reader: tg::pty::Id,
+			writer: tg::pty::Id,
 			reader_count: u64,
 			writer_count: u64,
-			window_size: Option<db::value::Json<tg::pipe::WindowSize>>,
+			window_size: Option<db::value::Json<tg::pty::WindowSize>>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -67,7 +67,7 @@ impl Server {
 		Ok(Some(pipe))
 	}
 
-	pub(crate) async fn try_add_pipe_ref(&self, id: &tg::pipe::Id) -> tg::Result<()> {
+	pub(crate) async fn try_add_pipe_ref(&self, id: &tg::pty::Id) -> tg::Result<()> {
 		let connection = self
 			.database
 			.write_connection()
@@ -116,7 +116,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn try_release_pipe(&self, id: &tg::pipe::Id) -> tg::Result<()> {
+	pub(crate) async fn try_release_pipe(&self, id: &tg::pty::Id) -> tg::Result<()> {
 		let connection = self
 			.database
 			.write_connection()
@@ -126,8 +126,8 @@ impl Server {
 		#[allow(dead_code)]
 		#[derive(serde::Deserialize)]
 		struct Row {
-			reader: tg::pipe::Id,
-			writer: tg::pipe::Id,
+			reader: tg::pty::Id,
+			writer: tg::pty::Id,
 			reader_count: u64,
 			writer_count: u64,
 		}
@@ -184,8 +184,8 @@ impl Server {
 	async fn close_pipe_in_memory(
 		&self,
 		messenger: &messenger::memory::Messenger,
-		reader: &tg::pipe::Id,
-		writer: &tg::pipe::Id,
+		reader: &tg::pty::Id,
+		writer: &tg::pty::Id,
 	) -> tg::Result<()> {
 		messenger
 			.streams()
@@ -203,8 +203,8 @@ impl Server {
 	async fn close_pipe_nats(
 		&self,
 		messenger: &messenger::nats::Messenger,
-		reader: &tg::pipe::Id,
-		writer: &tg::pipe::Id,
+		reader: &tg::pty::Id,
+		writer: &tg::pty::Id,
 	) -> tg::Result<()> {
 		for pipe in [reader, writer] {
 			messenger
@@ -218,8 +218,8 @@ impl Server {
 
 	pub(crate) async fn send_pipe_event(
 		&self,
-		pipe: &tg::pipe::Id,
-		event: tg::pipe::Event,
+		pipe: &tg::pty::Id,
+		event: tg::pty::Event,
 	) -> tg::Result<()> {
 		let payload = serde_json::to_vec(&event)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?
