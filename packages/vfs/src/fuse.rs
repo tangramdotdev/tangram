@@ -17,7 +17,8 @@ use std::{
 	},
 	path::Path,
 	pin::pin,
-	sync::{Arc, Mutex}, u64,
+	sync::{Arc, Mutex},
+	u64,
 };
 use sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in};
 use tangram_futures::task::{Stop, Task};
@@ -607,21 +608,21 @@ where
 
 	async fn handle_statfs_request(
 		&self,
-		_header: sys::fuse_in_header
+		_header: sys::fuse_in_header,
 	) -> Result<Option<Response>> {
 		let out = sys::fuse_statfs_out {
 			st: sys::fuse_kstatfs {
-				blocks: u64::MAX  / 2,
+				blocks: u64::MAX / 2,
 				bfree: u64::MAX / 2,
 				bavail: u64::MAX / 2,
-				files:u64::MAX / 2,
+				files: u64::MAX / 2,
 				ffree: u64::MAX / 2,
 				bsize: 0,
 				namelen: u32::MAX,
 				frsize: 1024,
 				padding: 0,
-				spare: [0; 6]
-			}
+				spare: [0; 6],
+			},
 		};
 		Ok(Some(Response::Statfs(out)))
 	}

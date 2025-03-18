@@ -64,7 +64,7 @@ impl Server {
 			output: Option<db::value::Json<tg::value::Data>>,
 			retry: bool,
 			#[serde(default)]
-			mounts: Option<db::value::Json<Vec<tg::process::Mount>>>,
+			mounts: Option<db::value::Json<Vec<tg::process::data::Mount>>>,
 			#[serde(default)]
 			network: bool,
 			#[serde(default)]

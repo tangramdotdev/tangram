@@ -608,13 +608,13 @@ declare namespace tg {
 
 		/** A mount. */
 		export type Mount = {
-			source: tg.Artifact.Id;
+			source: tg.Artifact;
 			target: string;
 		};
 
 		export namespace Mount {
-			/** Parse a Mount from a string. */
-			export let parse: (s: string) => tg.Command.Mount;
+			/** Parse a Mount. */
+			export let parse: (t: string | tg.Template) => Promise<tg.Command.Mount>;
 		}
 
 		export type Arg =
@@ -639,7 +639,7 @@ declare namespace tg {
 			host?: string | undefined;
 
 			/** The command's mounts. */
-			mounts?: Array<string | tg.Command.Mount> | undefined;
+			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		};
 
 		export type ExecutableArg = tg.Artifact | tg.Module;
@@ -990,10 +990,10 @@ declare namespace tg {
 
 		export namespace Mount {
 			/** The source for a mount is either an artifact or a path. */
-			export type Source = tg.Artifact.Id | string;
+			export type Source = tg.Artifact | string;
 
-			/** Parse a Mount from a string. */
-			export let parse: (s: string) => tg.Process.Mount;
+			/** Parse a Mount from a template. */
+			export let parse: (t: string | tg.Template) => Promise<tg.Process.Mount>;
 		}
 
 		export type SpawnArg =
@@ -1027,7 +1027,7 @@ declare namespace tg {
 			host?: string | undefined;
 
 			/** The mounts to attach. */
-			mounts?: Array<string | tg.Process.Mount> | undefined;
+			mounts?: Array<string | tg.Template | tg.Process.Mount> | undefined;
 
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;

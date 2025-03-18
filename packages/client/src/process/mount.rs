@@ -1,34 +1,51 @@
 use crate as tg;
-use crate::util::serde::{is_true, return_true};
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug)]
 pub struct Mount {
 	pub source: Source,
 	pub target: PathBuf,
-	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub readonly: bool,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug)]
 pub enum Source {
-	Artifact(tg::artifact::Id),
+	Artifact(tg::Artifact),
 	Path(PathBuf),
 }
 
 impl Mount {
 	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> Vec<tg::Object> {
 		match &self.source {
-			Source::Artifact(artifact_id) => {
-				let object_id: tg::object::Id = artifact_id.clone().into();
+			Source::Artifact(artifact) => {
+				let object_id: tg::Object = artifact.clone().into();
 				std::iter::once(object_id).collect()
 			},
-			Source::Path(_) => BTreeSet::new(),
+			Source::Path(_) => Vec::new(),
 		}
+	}
+
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::process::data::Mount>
+	where
+		H: tg::Handle,
+	{
+		let source = match &self.source {
+			Source::Artifact(artifact) => {
+				let id = artifact.id(handle).await?;
+				tg::process::data::Source::Artifact(id)
+			},
+			Source::Path(path_buf) => tg::process::data::Source::Path(path_buf.clone()),
+		};
+		let target = self.target.clone();
+		let readonly = self.readonly;
+		let mount = tg::process::data::Mount {
+			source,
+			target,
+			readonly,
+		};
+		Ok(mount)
 	}
 }
 
@@ -38,6 +55,20 @@ impl From<tg::command::Mount> for Mount {
 			source: Source::Artifact(value.source),
 			target: value.target,
 			readonly: true,
+		}
+	}
+}
+
+impl From<tg::process::data::Mount> for Mount {
+	fn from(value: tg::process::data::Mount) -> Self {
+		let source = match value.source {
+			super::data::Source::Artifact(id) => Source::Artifact(tg::Artifact::with_id(id)),
+			super::data::Source::Path(path_buf) => Source::Path(path_buf),
+		};
+		Self {
+			source,
+			target: value.target,
+			readonly: value.readonly,
 		}
 	}
 }
@@ -63,10 +94,11 @@ impl FromStr for Mount {
 		if !target.is_absolute() {
 			return Err(tg::error!(%target = target.display(), "expected an absolute path"));
 		}
-		let source = source
-			.parse()
-			.map(Source::Artifact)
-			.unwrap_or_else(|_| Source::Path(source.into()));
+		let source = if let Ok(artifact_id) = source.parse() {
+			Source::Artifact(tg::Artifact::with_id(artifact_id))
+		} else {
+			Source::Path(source.into())
+		};
 		let readonly = match (&source, readonly) {
 			(Source::Artifact(_), None | Some(true)) => true,
 			(Source::Artifact(_), Some(false)) => {

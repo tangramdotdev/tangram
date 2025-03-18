@@ -1162,10 +1162,29 @@ where
 					map.insert("referent".to_owned(), tg::Value::Map(referent));
 					tg::Value::Map(map)
 				},
+				tg::command::Executable::Path(path) => {
+					tg::Value::String(path.to_string_lossy().to_string())
+				},
 			};
 			children.push(("executable".to_owned(), value));
 		}
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
+		if !object.mounts.is_empty() {
+			let mut array = Vec::new();
+			for mount in &object.mounts {
+				let mut map = BTreeMap::new();
+				map.insert(
+					"source".to_owned(),
+					tg::Value::Object(mount.source.clone().into()),
+				);
+				map.insert(
+					"target".to_owned(),
+					tg::Value::String(mount.target.to_string_lossy().to_string()),
+				);
+				array.push(tg::Value::Map(map));
+			}
+			children.push(("mounts".to_owned(), tg::Value::Array(array)));
+		}
 		command.unload();
 
 		// Send the update.

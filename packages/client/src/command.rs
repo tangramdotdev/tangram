@@ -3,13 +3,11 @@ pub use self::{
 	data::Command as Data,
 	handle::Command as Handle,
 	id::Id,
-	mount::Mount,
-	object::{Command as Object, Executable, Module},
+	object::{Command as Object, Executable, Module, Mount},
 };
 
 pub mod builder;
 pub mod data;
 pub mod handle;
 pub mod id;
-pub mod mount;
 pub mod object;

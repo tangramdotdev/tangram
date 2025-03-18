@@ -538,6 +538,7 @@ where
 			self.map_entry("executable", |s| match executable {
 				tg::command::Executable::Artifact(artifact) => s.artifact(artifact),
 				tg::command::Executable::Module(module) => s.command_module(module),
+				tg::command::Executable::Path(path) => s.string(path.to_string_lossy().as_ref()),
 			})?;
 		}
 		self.map_entry("host", |s| s.string(&object.host))?;

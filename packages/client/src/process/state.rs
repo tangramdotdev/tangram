@@ -50,7 +50,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let exit = value.exit;
 		let finished_at = value.finished_at;
 		let log = value.log.map(tg::Blob::with_id);
-		let mounts = value.mounts;
+		let mounts = value.mounts.into_iter().map(Into::into).collect();
 		let network = value.network;
 		let output = value.output.map(tg::Value::try_from).transpose()?;
 		let retry = value.retry;

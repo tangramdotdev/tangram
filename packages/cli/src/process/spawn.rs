@@ -1,4 +1,5 @@
 use crate::Cli;
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use itertools::Itertools as _;
 use std::path::{Path, PathBuf};
 use tangram_client::{self as tg, Handle as _};
@@ -323,6 +324,12 @@ impl Cli {
 		}
 
 		// Spawn the process.
+		let mounts = mounts
+			.iter()
+			.map(|mount| mount.data(&handle))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
 		let arg = tg::process::spawn::Arg {
 			checksum: options.checksum,
 			command: Some(command.id(&handle).await?.clone()),

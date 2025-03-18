@@ -22,7 +22,7 @@ pub struct Arg {
 	pub env: Option<BTreeMap<String, String>>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::process::Mount>,
+	pub mounts: Vec<tg::process::data::Mount>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub network: bool,

@@ -200,7 +200,7 @@ impl FromV8 for tg::process::mount::Source {
 		let value = String::from_v8(scope, value)
 			.map_err(|source| tg::error!(!source, "failed to read the source string"))?;
 		if let Ok(id) = value.parse::<tg::artifact::Id>() {
-			return Ok(Self::Artifact(id));
+			return Ok(Self::Artifact(tg::Artifact::with_id(id)));
 		}
 		let Ok(path_buf) = value.parse::<std::path::PathBuf>();
 		Ok(Self::Path(path_buf))
@@ -210,7 +210,7 @@ impl FromV8 for tg::process::mount::Source {
 impl ToV8 for tg::process::mount::Source {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		match self {
-			tg::process::mount::Source::Artifact(id) => id.to_v8(scope),
+			tg::process::mount::Source::Artifact(artifact) => artifact.to_v8(scope),
 			tg::process::mount::Source::Path(path_buf) => path_buf.to_v8(scope),
 		}
 	}

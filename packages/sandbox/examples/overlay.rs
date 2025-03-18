@@ -33,4 +33,3 @@ async fn main() {
 		.unwrap();
 	eprintln!("{status:?}");
 }
-

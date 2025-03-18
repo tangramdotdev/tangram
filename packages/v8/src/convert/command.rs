@@ -143,6 +143,7 @@ impl ToV8 for tg::command::Executable {
 		match self {
 			tg::command::Executable::Artifact(artifact) => artifact.to_v8(scope),
 			tg::command::Executable::Module(module) => module.to_v8(scope),
+			tg::command::Executable::Path(path) => path.to_v8(scope),
 		}
 	}
 }
@@ -156,8 +157,10 @@ impl FromV8 for tg::command::Executable {
 			Ok(Self::Artifact(artifact))
 		} else if let Ok(module) = <_>::from_v8(scope, value) {
 			Ok(Self::Module(module))
+		} else if let Ok(path) = <_>::from_v8(scope, value) {
+			Ok(Self::Path(path))
 		} else {
-			Err(tg::error!("expected an artifact or a module"))
+			Err(tg::error!("expected an artifact or a module or a path"))
 		}
 	}
 }

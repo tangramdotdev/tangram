@@ -7,7 +7,6 @@ use futures::stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
 use std::path::{Path, PathBuf};
 use tangram_client as tg;
-use tangram_either::Either;
 use tangram_futures::task::Task;
 use tangram_sandbox as sandbox;
 use url::Url;
@@ -18,18 +17,6 @@ const HOME_DIRECTORY_GUEST_PATH: &str = "/home/tangram";
 /// The working directory guest path.
 const WORKING_DIRECTORY_GUEST_PATH: &str = "/home/tangram/work";
 
-#[cfg(target_arch = "aarch64")]
-const DASH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dash_aarch64_linux"));
-
-#[cfg(target_arch = "x86_64")]
-const DASH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dash_x86_64_linux"));
-
-#[cfg(target_arch = "aarch64")]
-const ENV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/env_aarch64_linux"));
-
-#[cfg(target_arch = "x86_64")]
-const ENV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/env_x86_64_linux"));
-
 const TANGRAM_UID: u32 = 1000;
 
 const TANGRAM_GID: u32 = 1000;
@@ -37,8 +24,6 @@ const TANGRAM_GID: u32 = 1000;
 #[derive(Clone)]
 pub struct Runtime {
 	pub(super) server: Server,
-	env: tg::File,
-	sh: tg::File,
 }
 
 pub struct Instance {
@@ -49,30 +34,8 @@ pub struct Instance {
 
 impl Runtime {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
-		let env = tg::Blob::with_reader(server, ENV).await?;
-		let env = tg::File::builder(env).executable(true).build();
-		let arg = tg::tag::put::Arg {
-			force: true,
-			item: Either::Right(env.id(server).await?.into()),
-			remote: None,
-		};
-		server
-			.put_tag(&"internal/runtime/linux/env".parse().unwrap(), arg)
-			.await?;
-
-		let sh = tg::Blob::with_reader(server, DASH).await?;
-		let sh = tg::File::builder(sh).executable(true).build();
-		let arg = tg::tag::put::Arg {
-			force: true,
-			item: Either::Right(sh.id(server).await?.into()),
-			remote: None,
-		};
-		server
-			.put_tag(&"internal/runtime/linux/sh".parse().unwrap(), arg)
-			.await?;
-
 		let server = server.clone();
-		Ok(Self { server, env, sh })
+		Ok(Self { server })
 	}
 
 	pub async fn run(&self, process: &tg::Process) -> super::Output {
@@ -105,7 +68,6 @@ impl Runtime {
 				.into_iter()
 				.filter_map(|id| id.try_into().ok())
 				.map(tg::Artifact::with_id)
-				.chain([self.env.clone().into(), self.sh.clone().into()])
 				.map(|artifact| async move {
 					let arg = tg::artifact::checkout::Arg::default();
 					artifact.check_out(&self.server, arg).await?;
@@ -482,9 +444,11 @@ impl Runtime {
 						});
 						overlays.last_mut().unwrap()
 					};
-					overlay
-						.lowerdirs
-						.push(self.server.artifacts_path().join(artifact.to_string()));
+					overlay.lowerdirs.push(
+						self.server
+							.artifacts_path()
+							.join(artifact.id(&self.server).await?.to_string()),
+					);
 				},
 				tg::process::mount::Source::Path(path) => {
 					instance.root_is_bind_mounted |= path == Path::new("/");

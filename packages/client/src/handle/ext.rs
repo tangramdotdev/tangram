@@ -419,9 +419,7 @@ pub trait Ext: tg::Handle {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			let stream = stream
-				.map(|event| event.map(tg::pty::Event::Chunk))
-				.boxed();
+			let stream = stream.map(|event| event.map(tg::pty::Event::Chunk)).boxed();
 			self.post_pipe(id, arg, stream).await
 		}
 	}

@@ -9,7 +9,6 @@ impl Server {
 		id: &tg::process::Id,
 		mut arg: tg::process::signal::post::Arg,
 	) -> tg::Result<()> {
-
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.post_process_signal(id, arg).await;

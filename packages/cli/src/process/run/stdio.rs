@@ -204,9 +204,7 @@ where
 	})
 }
 
-fn get_termios_and_window_size(
-	fd: RawFd,
-) -> std::io::Result<(libc::termios, tg::pty::WindowSize)> {
+fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg::pty::WindowSize)> {
 	// Get the window size.
 	unsafe {
 		// Get the termio modes.

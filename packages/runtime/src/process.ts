@@ -34,13 +34,15 @@ export class Process {
 		let cwd = "cwd" in arg ? arg.cwd : tg.Process.current.#state!.cwd;
 		let processEnv =
 			"processEnv" in arg ? arg.processEnv : tg.Process.current.#state!.env;
-		let mounts_ = (mounts ?? []).map((mount) => {
-			if (typeof mount === "string") {
-				return tg.Process.Mount.parse(mount);
-			} else {
-				return mount;
-			}
-		});
+		let mounts_ = await Promise.all(
+			(mounts ?? []).map(async (mount) => {
+				if (typeof mount === "string" || mount instanceof tg.Template) {
+					return await tg.Process.Mount.parse(mount);
+				} else {
+					return mount;
+				}
+			}),
+		);
 		let network =
 			"network" in arg ? arg.network : tg.Process.current.#state!.network;
 		let output = await syscall("process_spawn", {
@@ -209,9 +211,27 @@ export namespace Process {
 	};
 
 	export namespace Mount {
-		export type Source = tg.Artifact.Id | string;
+		export type Source = tg.Artifact | string;
 
-		export let parse = (s: string): tg.Process.Mount => {
+		export let parse = async (
+			t: string | tg.Template,
+		): Promise<tg.Process.Mount> => {
+			// If the user passed a template, render a string with artifact IDs.
+			let s: string | undefined;
+			if (typeof t === "string") {
+				s = t;
+			} else if (t instanceof tg.Template) {
+				s = await t.components.reduce(async (acc, component) => {
+					if (tg.Artifact.is(component)) {
+						return (await acc) + (await component.id());
+					} else {
+						return (await acc) + component;
+					}
+				}, Promise.resolve(""));
+			} else {
+				throw new Error("expected a template or a string");
+			}
+			tg.assert(s);
 			let readonly: boolean | undefined = undefined;
 
 			// Handle readonly/readwrite option if present
@@ -275,7 +295,7 @@ export namespace Process {
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		mounts?: Array<string | tg.Process.Mount> | undefined;
+		mounts?: Array<string | tg.Template | tg.Process.Mount> | undefined;
 		network?: boolean | undefined;
 	};
 

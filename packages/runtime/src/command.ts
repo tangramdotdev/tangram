@@ -45,7 +45,7 @@ export function command<
 				tag: arg.module.referent.tag,
 			},
 		};
-		let mounts: Array<tg.Process.Mount> = [];
+		let mounts: Array<tg.Command.Mount> = [];
 		let stdin = undefined;
 		let object = {
 			args: args_,
@@ -117,13 +117,15 @@ export class Command<
 		let env = await tg.Args.applyMutations(flatten(arg.env ?? []));
 		let executable = arg.executable;
 		let host = arg.host;
-		let mounts = (arg.mounts ?? []).map((mount) => {
-			if (typeof mount === "string") {
-				return tg.Command.Mount.parse(mount);
-			} else {
-				return mount;
-			}
-		});
+		let mounts = await Promise.all(
+			(arg.mounts ?? []).map(async (mount) => {
+				if (mount instanceof tg.Template || typeof mount === "string") {
+					return await tg.Command.Mount.parse(mount);
+				} else {
+					return mount;
+				}
+			}),
+		);
 		let stdin = undefined;
 		if (!host) {
 			throw new Error("cannot create a command without a host");
@@ -153,7 +155,7 @@ export class Command<
 				) {
 					return {
 						args: ["-c", arg],
-						executable: await tg.symlink("/bin/sh"),
+						executable: "/bin/sh",
 						host: (await (await tg.Process.current.command()).env())!
 							.TANGRAM_HOST,
 					};
@@ -261,7 +263,7 @@ export namespace Command {
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		mounts?: Array<string | tg.Command.Mount> | undefined;
+		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		stdin?: tg.Blob.Id | undefined;
 	};
 
@@ -279,12 +281,31 @@ export namespace Command {
 	export type Id = string;
 
 	export type Mount = {
-		source: tg.Artifact.Id;
+		source: tg.Artifact;
 		target: string;
 	};
 
 	export namespace Mount {
-		export let parse = (s: string): tg.Command.Mount => {
+		export let parse = async (
+			t: string | tg.Template,
+		): Promise<tg.Command.Mount> => {
+			// If the user passed a template, render a string with artifact IDs.
+			let s: string | undefined;
+			if (typeof t === "string") {
+				s = t;
+			} else if (t instanceof tg.Template) {
+				s = await t.components.reduce(async (acc, component) => {
+					if (tg.Artifact.is(component)) {
+						return (await acc) + (await component.id());
+					} else {
+						return (await acc) + component;
+					}
+				}, Promise.resolve(""));
+			} else {
+				throw new Error("expected a template or a string");
+			}
+			tg.assert(s);
+
 			// Handle readonly/readwrite option if present, rejecting read-write.
 			if (s.includes(",")) {
 				const [mountPart, option] = s.split(",", 2);
@@ -306,7 +327,8 @@ export namespace Command {
 				throw new Error("expected a target path");
 			}
 
-			const source = s.substring(0, colonIndex);
+			const sourceId = s.substring(0, colonIndex);
+			const source = tg.Artifact.withId(sourceId);
 			const target = s.substring(colonIndex + 1);
 
 			// Validate target is absolute path
