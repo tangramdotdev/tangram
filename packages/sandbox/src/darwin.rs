@@ -42,11 +42,6 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 			"chroot unsupported on darwin targets",
 		));
 	}
-	if !command.mounts.is_empty() {
-		return Err(std::io::Error::other(
-			"mount is unsupported on darwin targets",
-		));
-	}
 
 	// Create stdio.
 	let mut pty = None;
@@ -55,7 +50,7 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	let (parent_stderr, child_stderr) = stdio_pair(command.stderr, &mut pty).await?;
 
 	// Create the sandbox profile.
-	let profile = create_sandbox_profile(command);
+	let profile = create_sandbox_profile(command)?;
 
 	// Create the context.
 	let context = Context {
@@ -79,7 +74,6 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	}
 
 	// Create stdio
-	// Split stdio.
 	let pty = pty.map(Pty::into_writer);
 	let stdout = match parent_stdout {
 		Either::Left(_) => Some(Either::Left(pty.as_ref().unwrap().get_reader()?)),
@@ -190,7 +184,7 @@ fn guest_process(mut context: Context) -> ! {
 	}
 }
 
-fn create_sandbox_profile(command: &Command) -> CString {
+fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 	// Write the default profile.
 	let mut profile = String::new();
 	writedoc!(
@@ -204,6 +198,8 @@ fn create_sandbox_profile(command: &Command) -> CString {
 		writedoc!(
 			profile,
 			r#"
+				;; See /System/Library/Sandbox/Profiles/system.sb for more info. We avoid using (import ...) to load these profiles because our needs are slightly different, and we don't want a OS update to change the behavior of the sandbox.
+
 				;; Deny everything by default.
 				(deny default)
 
@@ -218,29 +214,49 @@ fn create_sandbox_profile(command: &Command) -> CString {
 				(allow process-fork process-info*)
 
 				;; Allow limited exploration of the root.
-				(allow file-read-data (literal "/"))
+				(allow file-read* file-test-existence
+					(literal "/"))
+
+				(allow file-read* file-test-existence
+					(subpath "/Library/Apple/System")
+					(subpath "/Library/Filesystems/NetFSPlugins")
+					(subpath "/Library/Preferences/Logging")
+					(subpath "/System")
+					(subpath "/private/var/db/dyld")
+					(subpath "/private/var/db/timezone")
+					(subpath "/usr/lib")
+					(subpath "/usr/share"))
+
 				(allow file-read-metadata
 					(literal "/Library")
-					(literal "/System")
 					(literal "/Users")
 					(literal "/Volumes")
-					(literal "/etc")
-				)
+					(literal "/tmp")
+					(literal "/var")
+					(literal "/etc"))
+
+				;; Map system frameworks + dylibs
+				(allow file-map-executable
+					(subpath "/Library/Apple/System/Library/Frameworks")
+					(subpath "/Library/Apple/System/Library/PrivateFrameworks")
+					(subpath "/System/Library/Frameworks")
+					(subpath "/System/Library/PrivateFrameworks")
+					(subpath "/System/iOSSupport/System/Library/Frameworks")
+					(subpath "/System/iOSSupport/System/Library/PrivateFrameworks")
+					(subpath "/usr/lib"))
 
 				;; Allow writing to common devices.
 				(allow file-read* file-write-data file-ioctl
 					(literal "/dev/null")
 					(literal "/dev/zero")
-					(literal "/dev/dtracehelper")
-				)
+					(literal "/dev/dtracehelper"))
 
 				;; Allow reading and writing temporary files.
 				(allow file-write* file-read*
 					(subpath "/tmp")
 					(subpath "/private/tmp")
 					(subpath "/private/var")
-					(subpath "/var")
-				)
+					(subpath "/var"))
 
 				;; Allow reading some system devices and files.
 				(allow file-read*
@@ -250,8 +266,10 @@ fn create_sandbox_profile(command: &Command) -> CString {
 					(literal "/private/etc/localtime")
 					(literal "/private/etc/protocols")
 					(literal "/private/etc/services")
-					(subpath "/private/etc/ssl")
-				)
+					(subpath "/private/etc/ssl"))
+
+				(allow file-read* file-test-existence file-write-data file-ioctl
+       				(literal "/dev/dtracehelper"))
 
 				;; Allow executing /usr/bin/env and /bin/sh.
 				(allow file-read* process-exec
@@ -328,8 +346,12 @@ fn create_sandbox_profile(command: &Command) -> CString {
 	}
 
 	// Allow write access to the home directory.
-	for path in &command.paths {
-		if path.readonly {
+	for mount in &command.mounts {
+		if mount.source != mount.target {
+			return Err(std::io::Error::other("sandbox requires mounts to have the same source and target path on Darwin targets"));
+		}
+		let path = &mount.source;
+		if mount.readonly {
 			writedoc!(
 				profile,
 				r"
@@ -337,7 +359,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
                         (allow file-read* (path-ancestors {0}))
                         (allow file-read* (subpath {0}))
                 ",
-				escape(path.path.as_os_str().as_bytes()),
+				escape(path.as_os_str().as_bytes()),
 			)
 			.unwrap();
 		} else {
@@ -349,13 +371,13 @@ fn create_sandbox_profile(command: &Command) -> CString {
                         (allow file-read* (subpath {0}))
                         (allow file-write* (subpath {0}))
                 ",
-				escape(path.path.as_os_str().as_bytes()),
+				escape(path.as_os_str().as_bytes()),
 			)
 			.unwrap();
 		}
 	}
 
-	CString::new(profile).unwrap()
+	Ok(CString::new(profile).unwrap())
 }
 
 fn kill_process_tree(pid: i32) {

@@ -1,7 +1,25 @@
-use tangram_sandbox::{Command, Mount, Stdio};
+use tangram_sandbox::{Command, ExitStatus, Stdio};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+	#[cfg(target_os = "linux")]
+	{
+		let status = linux().await?;
+		eprintln!("status: {status:?}");
+	}
+
+	#[cfg(target_os = "macos")]
+	{
+		let status = darwin().await?;
+		eprintln!("status: {status:?}");
+	}
+	Ok(())
+}
+
+#[cfg(target_os = "linux")]
+async fn linux() {
+	use tangram_sandbox::Mount;
+
 	// Create the chroot directory.
 	let chroot = "/tmp/sandbox";
 	tokio::fs::create_dir_all("/tmp/sandbox").await.ok();
@@ -16,7 +34,7 @@ async fn main() -> std::io::Result<()> {
 	tokio::fs::create_dir_all("/tmp/sandbox/empty").await.ok();
 
 	// Create the command.
-	let status = Command::new("/lib64/ld-linux-x86-64.so.2")
+	let mut child = Command::new("/lib64/ld-linux-x86-64.so.2")
 		.network(false)
 		// .mounts([
 		// 	("/usr", "/tmp/sandbox/usr", true),
@@ -59,9 +77,34 @@ async fn main() -> std::io::Result<()> {
 		.arg("/bin/sh")
 		.cwd("/")
 		.spawn()
-		.await?
-		.wait()
 		.await?;
-	eprintln!("status: {status:?}");
-	Ok(())
+
+	eprintln!("child: {}", child.pid());
+	child.wait().await
+}
+
+#[cfg(target_os = "macos")]
+async fn darwin() -> std::io::Result<ExitStatus> {
+	tokio::fs::create_dir_all("/tmp/sandbox").await.ok();
+	let home = std::env::var("HOME").unwrap();
+	let mut child = Command::new("/bin/zsh")
+		.mounts([
+			("/usr", "/usr", true),
+			("/bin", "/bin", true),
+			("/sbin", "/sbin", true),
+			("/dev", "/dev", false),
+			("/tmp/sandbox", "/tmp/sandbox", false),
+		])
+		.mount((&home, &home, false))
+		.env("PATH", "/usr/bin:/bin:/usr/local/bin:/sbin")
+		.env("HOME", &home)
+		.sandbox(true)
+		.network(false)
+		.stdin(Stdio::Inherit)
+		.stdout(Stdio::Inherit)
+		.stderr(Stdio::Inherit)
+		.cwd("/tmp/sandbox")
+		.spawn()
+		.await?;
+	child.wait().await
 }

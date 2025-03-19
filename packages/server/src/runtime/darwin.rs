@@ -182,25 +182,13 @@ impl Runtime {
 		if state.cwd.is_some() {
 			cmd_.sandbox(false);
 		} else {
-			let mut paths = vec![
-				tangram_sandbox::Path {
-					path: artifacts_path.clone(),
-					readonly: true,
-				},
-				tangram_sandbox::Path {
-					path: cwd.clone(),
-					readonly: false,
-				},
-				tangram_sandbox::Path {
-					path: output.clone(),
-					readonly: false,
-				},
-			];
+			cmd_.mounts([
+				(&artifacts_path, &artifacts_path, true),
+				(&cwd, &cwd, false),
+				(&output, &output, false),
+			]);
 			if let Some(home) = &home {
-				paths.push(tangram_sandbox::Path {
-					path: home.clone(),
-					readonly: false,
-				});
+				cmd_.mount((home, home, false));
 			}
 			cmd_.paths(paths);
 		}
