@@ -17,34 +17,15 @@ async fn main() -> std::io::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-async fn linux() {
+async fn linux() -> std::io::Result<ExitStatus> {
 	use tangram_sandbox::Mount;
 
 	// Create the chroot directory.
 	let chroot = "/tmp/sandbox";
-	tokio::fs::create_dir_all("/tmp/sandbox").await.ok();
-	tokio::fs::create_dir_all("/tmp/sandbox/bin").await.ok();
-	tokio::fs::create_dir_all("/tmp/sandbox/dev").await.ok();
-	tokio::fs::create_dir_all("/tmp/sandbox/lib").await.ok();
-	tokio::fs::create_dir_all("/tmp/sandbox/lib64").await.ok();
-	tokio::fs::create_dir_all("/tmp/sandbox/proc").await.ok();
-	tokio::fs::create_dir_all("/tmp/sandbox/sbin").await.ok();
-	tokio::fs::create_dir_all("/tmp/sandbox/tmp").await.ok();
-	tokio::fs::create_dir_all("/tmp/sandbox/usr").await.ok();
-	tokio::fs::create_dir_all("/tmp/sandbox/empty").await.ok();
 
 	// Create the command.
 	let mut child = Command::new("/lib64/ld-linux-x86-64.so.2")
 		.network(false)
-		// .mounts([
-		// 	("/usr", "/tmp/sandbox/usr", true),
-		// 	("/lib", "/tmp/sandbox/lib", true),
-		// 	("/lib64", "/tmp/sandbox/lib64", true),
-		// 	("/bin", "/tmp/sandbox/bin", true),
-		// 	("/sbin", "/tmp/sandbox/sbin", true),
-		// 	("/dev", "/tmp/sandbox/dev", false),
-		// 	("/tmp/file", "/tmp/sandbox/file", false),
-		// ])
 		.mount(Mount {
 			source: "/tmp".into(),
 			target: "/tmp/sandbox/tmp".into(),

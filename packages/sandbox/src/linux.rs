@@ -64,24 +64,6 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 			mount.target.clone()
 		};
 
-		// Create the mountpoint if it does not exist, following symlinks.
-		let is_dir = if !mount.source.is_absolute() {
-			true
-		} else {
-			tokio::fs::metadata(&mount.source)
-				.await
-				.inspect_err(|e| eprintln!("error stat {}: {e}", mount.source.display()))?
-				.is_dir()
-		};
-		if is_dir {
-			tokio::fs::create_dir_all(&target).await.ok();
-		} else {
-			tokio::fs::create_dir_all(target.parent().unwrap())
-				.await
-				.ok();
-			tokio::fs::write(&target, "").await.ok();
-		}
-
 		// Create the mount.
 		let mount = Mount {
 			source: cstring(&mount.source),

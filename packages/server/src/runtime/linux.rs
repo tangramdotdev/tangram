@@ -375,8 +375,12 @@ impl Instance {
 		self.temp.path().join("root")
 	}
 
+	pub fn homedir(&self) -> PathBuf {
+		self.temp.path().join("home/tangram")
+	}
+
 	pub fn outdir(&self) -> PathBuf {
-		self.temp.path().join("root/output")
+		self.temp.path().join("output")
 	}
 
 	pub fn artifacts_path(&self) -> PathBuf {
@@ -408,6 +412,14 @@ impl Runtime {
 			.map_err(|source| {
 				tg::error!(!source, %path = path.display(), "failed to create the tangram proxy directory")
 			})?;
+
+
+		// Create the home path.
+		tokio::fs::create_dir_all(&instance.homedir())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
+
+
 
 		// Create the output path.
 		tokio::fs::create_dir_all(&instance.outdir())
@@ -505,7 +517,7 @@ impl Runtime {
 			);
 			instance.mounts.push(
 				sandbox::BindMount {
-					source: instance.rootdir().join("home/tangram"),
+					source: instance.temp.path().join("home/tangram"),
 					target: "/home/tangram".into(),
 					readonly: false,
 				}
@@ -573,6 +585,8 @@ impl Runtime {
 				})?;
 			}
 		}
+
+		instance.mounts.sort_unstable_by_key(|m| m.target.components().count());
 
 		// Return the instance.
 		Ok(instance)

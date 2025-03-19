@@ -47,10 +47,11 @@ pub fn main(mut context: Context) -> ! {
 fn mount_and_chroot(context: &mut Context) {
 	unsafe {
 		let root = context.root.as_ref().unwrap();
-		for mount in &context.mounts {
+		for mount in &mut context.mounts {
+			create_mountpoint_if_not_exists(&mount.source, &mut mount.target);
+
 			let source = mount.source.as_ptr();
 			let target = mount.target.as_ptr();
-
 			let fstype = mount
 				.fstype
 				.as_ref()
@@ -133,27 +134,34 @@ fn mount_and_chroot(context: &mut Context) {
 	}
 }
 
-fn create_mountpoint(source: &CString, target: &mut CString) {
-	// This is super-duper unsafe.
+fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
 	unsafe {
-		let mut buf: MaybeUninit<libc::stat> = MaybeUninit::zeroed();
-		if libc::stat(source.as_ptr(), buf.as_mut_ptr().cast()) < 0 {
-			abort_errno!("failed to stat source");
-		}
-		let is_dir = buf.assume_init().st_mode & libc::S_IFDIR != 0;
-
 		const BACKSLASH: i8 = b'\\' as _;
 		const SLASH: i8 = b'/' as _;
 		const NULL: i8 = 0;
-		let ptr = target.as_ptr().cast_mut(); // :yikes:
+
+		// Determine if the target is a directory or not.
+		let is_dir = 'a: {
+			if source.as_bytes() == b"overlay" {
+				break 'a true;
+			}
+			let mut stat: MaybeUninit<libc::stat> = MaybeUninit::zeroed();
+			if libc::stat(source.as_ptr(), stat.as_mut_ptr().cast()) < 0 {
+				abort_errno!("failed to stat source");
+			}
+			let stat = stat.assume_init();
+			if !(stat.st_mode & libc::S_IFDIR != 0 || stat.st_mode & libc::S_IFREG != 0) {
+				abort_errno!("mount source is not a directory or regular file");
+			}
+			stat.st_mode & libc::S_IFDIR != 0
+		};
+
+		let ptr = target.as_ptr().cast_mut(); // :yikes: pretty sure this isn't UB.
 		let len = target.as_bytes_with_nul().len();
 		let mut esc = false;
-		for n in 0..len {
+		for n in 1..len {
 			match (*ptr.add(n), esc) {
 				(SLASH, false) => {
-					if n == 0 {
-						continue;
-					}
 					*ptr.add(n) = 0;
 					libc::mkdir(target.as_ptr(), libc::O_RDWR as _);
 					*ptr.add(n) = SLASH;
