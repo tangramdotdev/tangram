@@ -212,7 +212,7 @@ impl Default for Cleaner {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
-			ttl: Duration::from_secs(0),
+			ttl: Duration::from_secs(86400),
 		}
 	}
 }

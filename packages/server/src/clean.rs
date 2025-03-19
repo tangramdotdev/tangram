@@ -27,7 +27,13 @@ impl Server {
 			})?;
 
 		// Clean until there are no more processes or objects to remove.
-		let config = self.config.cleaner.clone().unwrap_or_default();
+		let batch_size = self
+			.config
+			.cleaner
+			.as_ref()
+			.map_or(1024, |config| config.batch_size);
+		let ttl = Duration::from_secs(0);
+		let config = crate::config::Cleaner { batch_size, ttl };
 		loop {
 			let output = self.cleaner_task_inner(&config).await?;
 			let n = output.processes.len() + output.objects.len() + output.blobs.len();
