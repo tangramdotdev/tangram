@@ -162,7 +162,7 @@ impl Runtime {
 		}
 
 		// Set `$OUTPUT`.
-		cmd_.env("OUTUT", &output);
+		cmd_.env("OUTPUT", &output);
 
 		// Set `$TANGRAM_URL`.
 		let url = proxy.as_ref().map_or_else(
