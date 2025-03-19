@@ -224,6 +224,21 @@ impl Lmdb {
 			}
 		}
 	}
+
+	pub fn try_get_inner(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+		let transaction = self.env.read_txn().unwrap();
+		let key = (0, id.to_bytes(), 0);
+		let Some(bytes) = self
+			.db
+			.get(&transaction, &key.pack_to_vec())
+			.map_err(|source| tg::error!(!source, "failed to get the value"))?
+		else {
+			return Ok(None);
+		};
+		let bytes = Bytes::copy_from_slice(bytes);
+		drop(transaction);
+		Ok(Some(bytes))
+	}
 }
 
 impl Drop for Lmdb {

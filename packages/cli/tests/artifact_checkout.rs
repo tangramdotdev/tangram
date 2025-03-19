@@ -16,6 +16,7 @@ async fn directory() {
 		})
 	"#),
 	};
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -30,8 +31,7 @@ async fn directory() {
   }
   "#);
 	};
-	let checkout_dependencies = None;
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -43,6 +43,7 @@ async fn file() {
 			})
 		"#),
 	};
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -52,8 +53,7 @@ async fn file() {
   }
   "#);
 	};
-	let checkout_dependencies = None;
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -68,6 +68,7 @@ async fn executable_file() {
 			})
 		"#),
 	};
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -77,8 +78,7 @@ async fn executable_file() {
   }
   "#);
 	};
-	let checkout_dependencies = None;
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -97,7 +97,7 @@ async fn file_with_dependency() {
 			})
 		"#),
 	};
-	let checkout_dependencies = Some(false);
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -110,7 +110,7 @@ async fn file_with_dependency() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -125,7 +125,7 @@ async fn symlink() {
 			})
 		"#),
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -144,7 +144,7 @@ async fn symlink() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a directory with a symlink.
@@ -161,7 +161,7 @@ async fn symlink_shared_target() {
 			})
 		"#),
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -184,7 +184,7 @@ async fn symlink_shared_target() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a very deep directory.
@@ -203,9 +203,9 @@ async fn deeply_nested_directory() {
 			})
 		"#),
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |_artifact: temp::Artifact| async move {};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a directory with a file with a dependency.
@@ -227,7 +227,7 @@ async fn directory_with_file_with_dependency() {
 			})
 		"#),
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -262,7 +262,7 @@ async fn directory_with_file_with_dependency() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a directory with a symlink with a dependency.
@@ -277,7 +277,7 @@ async fn directory_with_symlink_with_dependency() {
 			})
 		"#),
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -306,7 +306,7 @@ async fn directory_with_symlink_with_dependency() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a symlink that is a member of a graph.
@@ -327,7 +327,7 @@ async fn graph_directory() {
 			})
 		"#),
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -342,7 +342,7 @@ async fn graph_directory() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a file that is a member of a graph.
@@ -362,7 +362,7 @@ async fn graph_file() {
 			});
 		"#),
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -372,7 +372,7 @@ async fn graph_file() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a symlink that is a member of a graph.
@@ -391,7 +391,7 @@ async fn graph_symlink() {
 			})
 		"#),
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -400,7 +400,7 @@ async fn graph_symlink() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a directory with an artifact symlink that points to itself.
@@ -425,7 +425,7 @@ async fn directory_with_symlink_cycle() {
 			})
 		"#)
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -444,7 +444,7 @@ async fn directory_with_symlink_cycle() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -464,7 +464,7 @@ async fn shared_dependency_on_symlink() {
 			})
 		"#),
 	};
-	let checkout_dependencies = None;
+	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -513,12 +513,12 @@ async fn shared_dependency_on_symlink() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, checkout_dependencies, assertions).await;
+	test_artifact_checkout(directory, dependencies, assertions).await;
 }
 
 async fn test_artifact_checkout<F, Fut>(
 	artifact: impl Into<temp::Artifact> + Send + 'static,
-	checkout_dependencies: Option<bool>,
+	dependencies: bool,
 	assertions: F,
 ) where
 	F: FnOnce(temp::Artifact) -> Fut + Send + 'static,
@@ -548,10 +548,8 @@ async fn test_artifact_checkout<F, Fut>(
 		// Check out the artifact.
 		let mut command = server.tg();
 		command.arg("checkout").arg(id).arg(path);
-		if let Some(checkout_dependencies) = checkout_dependencies {
-			command
-				.arg("--dependencies")
-				.arg(checkout_dependencies.to_string());
+		if dependencies {
+			command.arg("--dependencies");
 		}
 		let output = command.output().await.unwrap();
 		assert_success!(output);

@@ -11,8 +11,12 @@ pub struct Graph {
 	pub nodes: Vec<tg::graph::data::Node>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, derive_more::TryUnwrap)]
+#[derive(
+	Clone, Debug, serde::Deserialize, serde::Serialize, derive_more::TryUnwrap, derive_more::Unwrap,
+)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Node {
 	Directory(Directory),
 	File(File),
@@ -40,6 +44,7 @@ pub enum Symlink {
 	Target {
 		target: PathBuf,
 	},
+
 	Artifact {
 		artifact: Either<usize, tg::artifact::Id>,
 
