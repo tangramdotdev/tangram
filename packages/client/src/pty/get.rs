@@ -38,7 +38,7 @@ impl Client {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/pty/{id}?{query}");
+		let uri = format!("/ptys/{id}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
