@@ -542,6 +542,21 @@ where
 			})?;
 		}
 		self.map_entry("host", |s| s.string(&object.host))?;
+		if !object.mounts.is_empty() {
+			self.map_entry("mounts", |s| {
+				s.start_array()?;
+				for mount in &object.mounts {
+					s.start_map()?;
+					s.map_entry("source", |s| s.artifact(&mount.source))?;
+					s.map_entry("target", |s| {
+						s.string(&mount.target.to_string_lossy().to_string())
+					})?;
+					s.finish_map()?;
+				}
+				s.finish_array()?;
+				Ok(())
+			})?;
+		}
 		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())
