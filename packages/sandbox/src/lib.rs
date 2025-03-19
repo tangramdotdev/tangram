@@ -190,6 +190,15 @@ impl Command {
 		self
 	}
 
+	pub fn path(&mut self, path: impl Into<Path>) -> &mut Self {
+		self.paths(std::iter::once(path))
+	}
+
+	pub fn paths(&mut self, paths: impl IntoIterator<Item = impl Into<Path>>) -> &mut Self {
+		self.paths.extend(paths.into_iter().map(Into::into));
+		self
+	}
+
 	pub fn network(&mut self, enable: bool) -> &mut Self {
 		self.network = enable;
 		self

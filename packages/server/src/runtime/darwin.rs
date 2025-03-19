@@ -182,20 +182,27 @@ impl Runtime {
 		if state.cwd.is_some() {
 			cmd_.sandbox(false);
 		} else {
-			cmd_.mount((artifacts_path.clone(), artifacts_path.clone()));
-			let mut cwd_path_mount = tangram_sandbox::Mount::from((cwd.clone(), cwd.clone()));
-			cwd_path_mount.readonly = false;
-			cmd_.mount(cwd_path_mount);
-			let mut output_path_mount =
-				tangram_sandbox::Mount::from((output.clone(), output.clone()));
-			output_path_mount.readonly = false;
-			cmd_.mount(output_path_mount);
+			let mut paths = vec![
+				tangram_sandbox::Path {
+					path: artifacts_path.clone(),
+					readonly: true,
+				},
+				tangram_sandbox::Path {
+					path: cwd.clone(),
+					readonly: false,
+				},
+				tangram_sandbox::Path {
+					path: output.clone(),
+					readonly: false,
+				},
+			];
 			if let Some(home) = &home {
-				let mut home_path_mount =
-					tangram_sandbox::Mount::from((home.clone(), home.clone()));
-				home_path_mount.readonly = false;
-				cmd_.mount(home_path_mount);
+				paths.push(tangram_sandbox::Path {
+					path: home.clone(),
+					readonly: false,
+				});
 			}
+			cmd_.paths(paths);
 		}
 		cmd_.network(state.network);
 
@@ -252,6 +259,7 @@ impl Runtime {
 			}
 		}
 		// Spawn the child process.
+		tracing::debug!("about to spawn command");
 		let mut child = cmd_
 			.spawn()
 			.await
