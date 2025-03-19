@@ -190,62 +190,76 @@ impl Runtime {
 			if let Some(home) = &home {
 				cmd_.mount((home, home, false));
 			}
-			cmd_.paths(paths);
 		}
 		cmd_.network(state.network);
 
-		// Configure stdio
+		// Setup stdio.
 		cmd_.stdin(sandbox::Stdio::Piped);
-		if let Some(pipe) = &state.stdin {
-			if let Some(ws) = self
+		if let Some(tg::process::Io::Pty(pty)) = &state.stdin {
+			let ws = self
 				.server
-				.try_get_pipe(pipe)
+				.get_pty_window_size(
+					pty,
+					tg::pty::get::Arg {
+						remote: process.remote().cloned(),
+						master: true,
+					},
+				)
 				.await?
-				.and_then(|pipe| pipe.window_size)
-			{
-				let tty = sandbox::Tty {
-					rows: ws.rows,
-					cols: ws.cols,
-					x: ws.xpos,
-					y: ws.ypos,
-				};
-				cmd_.stdin(sandbox::Stdio::Tty(tty));
-			}
+				.ok_or_else(|| tg::error!("failed to get pipe"))?;
+			let tty = sandbox::Tty {
+				rows: ws.rows,
+				cols: ws.cols,
+				x: ws.xpos,
+				y: ws.ypos,
+			};
+			cmd_.stdin(sandbox::Stdio::Tty(tty));
 		}
+
 		cmd_.stdout(sandbox::Stdio::Piped);
-		if let Some(pipe) = &state.stdout {
-			if let Some(ws) = self
+		if let Some(tg::process::Io::Pty(pty)) = &state.stdout {
+			let ws = self
 				.server
-				.try_get_pipe(pipe)
+				.get_pty_window_size(
+					pty,
+					tg::pty::get::Arg {
+						remote: process.remote().cloned(),
+						master: false,
+					},
+				)
 				.await?
-				.and_then(|pipe| pipe.window_size)
-			{
-				let tty = sandbox::Tty {
-					rows: ws.rows,
-					cols: ws.cols,
-					x: ws.xpos,
-					y: ws.ypos,
-				};
-				cmd_.stdout(sandbox::Stdio::Tty(tty));
-			}
+				.ok_or_else(|| tg::error!("failed to get pipe"))?;
+			let tty = sandbox::Tty {
+				rows: ws.rows,
+				cols: ws.cols,
+				x: ws.xpos,
+				y: ws.ypos,
+			};
+			cmd_.stdout(sandbox::Stdio::Tty(tty));
 		}
+
 		cmd_.stderr(sandbox::Stdio::Piped);
-		if let Some(pipe) = &state.stderr {
-			if let Some(ws) = self
+		if let Some(tg::process::Io::Pty(pty)) = &state.stderr {
+			let ws = self
 				.server
-				.try_get_pipe(pipe)
+				.get_pty_window_size(
+					pty,
+					tg::pty::get::Arg {
+						remote: process.remote().cloned(),
+						master: false,
+					},
+				)
 				.await?
-				.and_then(|pipe| pipe.window_size)
-			{
-				let tty = sandbox::Tty {
-					rows: ws.rows,
-					cols: ws.cols,
-					x: ws.xpos,
-					y: ws.ypos,
-				};
-				cmd_.stderr(sandbox::Stdio::Tty(tty));
-			}
+				.ok_or_else(|| tg::error!("failed to get pipe"))?;
+			let tty = sandbox::Tty {
+				rows: ws.rows,
+				cols: ws.cols,
+				x: ws.xpos,
+				y: ws.ypos,
+			};
+			cmd_.stderr(sandbox::Stdio::Tty(tty));
 		}
+
 		// Spawn the child process.
 		let mut child = cmd_
 			.spawn()

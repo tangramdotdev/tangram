@@ -382,6 +382,23 @@ where
 	}
 }
 
+impl<S, T> From<(S, T, bool)> for Mount
+where
+	S: AsRef<std::path::Path>,
+	T: AsRef<std::path::Path>,
+{
+	fn from(value: (S, T, bool)) -> Self {
+		let (source, target, readonly) = value;
+		let source = source.as_ref().to_owned();
+		let target = target.as_ref().to_owned();
+		Mount::from(BindMount {
+			source,
+			target,
+			readonly,
+		})
+	}
+}
+
 impl From<Overlay> for Mount {
 	fn from(value: Overlay) -> Self {
 		fn escape(out: &mut Vec<u8>, path: &[u8]) {
