@@ -58,7 +58,10 @@ export namespace Artifact {
 		return value;
 	};
 
-	export let extract = async (blob: tg.Blob): Promise<Artifact> => {
+	export let extract = async (blob: tg.Blob | tg.File): Promise<Artifact> => {
+		if (blob instanceof tg.File) {
+			blob = await blob.contents();
+		}
 		let value = await tg.build({
 			args: ["extract", blob],
 			env: undefined,
