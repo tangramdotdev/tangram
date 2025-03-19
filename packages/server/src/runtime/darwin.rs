@@ -259,7 +259,6 @@ impl Runtime {
 			}
 		}
 		// Spawn the child process.
-		tracing::debug!("about to spawn command");
 		let mut child = cmd_
 			.spawn()
 			.await
