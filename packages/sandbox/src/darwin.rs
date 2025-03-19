@@ -73,6 +73,19 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 		guest_process(context);
 	}
 
+	// Close unused fds.
+	for io in [context.stdin, context.stdout, context.stderr] {
+		match io {
+			Either::Left(mut pty) => {
+				pty.close_tty();
+			},
+			Either::Right(Some(raw)) => {
+				unsafe { libc::close(raw) };
+			},
+			Either::Right(None) => (),
+		}
+	}
+
 	// Create stdio
 	let pty = pty.map(Pty::into_writer);
 	let stdout = match parent_stdout {

@@ -165,12 +165,13 @@ pub async fn stdio_task(
 	server: Server,
 	process: tg::Process,
 	stop: Stop,
-	stdin: sandbox::Stdin,
+	mut stdin: sandbox::Stdin,
 	stdout: sandbox::Stdout,
 	stderr: sandbox::Stderr,
 ) -> tg::Result<()> {
 	let state = process.load(&server).await?;
 	if state.cacheable {
+		stdin.shutdown().await.ok();
 		log_task(&server, &process, stdout, stderr).await?;
 	} else {
 		pipe_task(&server, &process, stop, stdin, stdout, stderr).await?;
