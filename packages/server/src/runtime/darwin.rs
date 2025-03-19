@@ -120,12 +120,20 @@ impl Runtime {
 		};
 
 		// Render the executable.
-		let Some(tg::command::Executable::Artifact(executable)) =
-			command.executable(&self.server).await?.as_ref().cloned()
-		else {
-			return Err(tg::error!("invalid executable"));
+		let Some(executable) = command.executable(&self.server).await?.as_ref().cloned() else {
+			return Err(tg::error!("missing executable"));
 		};
-		let executable = render(&self.server, &executable.into(), &artifacts_path).await?;
+		let executable = match executable {
+			tangram_client::command::Executable::Artifact(artifact) => {
+				render(&self.server, &artifact.into(), &artifacts_path).await?
+			},
+			tangram_client::command::Executable::Module(_) => {
+				return Err(tg::error!("invalid executable"));
+			},
+			tangram_client::command::Executable::Path(path_buf) => {
+				path_buf.to_string_lossy().to_string()
+			},
+		};
 
 		// Create the command
 		let mut cmd_ = sandbox::Command::new(executable);
