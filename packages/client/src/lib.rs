@@ -54,6 +54,7 @@ pub use self::{
 pub mod artifact;
 pub mod blob;
 pub mod branch;
+pub mod bytes;
 pub mod checksum;
 pub mod clean;
 pub mod command;

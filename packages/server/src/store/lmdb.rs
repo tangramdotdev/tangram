@@ -225,7 +225,7 @@ impl Lmdb {
 		}
 	}
 
-	pub fn try_get_inner(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+	pub fn try_get_object_data(&self, id: &tg::object::Id) -> tg::Result<Option<tg::object::Data>> {
 		let transaction = self.env.read_txn().unwrap();
 		let key = (0, id.to_bytes(), 0);
 		let Some(bytes) = self
@@ -235,9 +235,9 @@ impl Lmdb {
 		else {
 			return Ok(None);
 		};
-		let bytes = Bytes::copy_from_slice(bytes);
+		let data = tg::object::Data::deserialize(id.kind(), bytes)?;
 		drop(transaction);
-		Ok(Some(bytes))
+		Ok(Some(data))
 	}
 }
 

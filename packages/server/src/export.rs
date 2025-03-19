@@ -213,7 +213,7 @@ impl Server {
 					"failed to locate the object to check count and weight"
 				)
 			})?;
-		let data = tg::object::Data::deserialize(object.kind(), &bytes)?;
+		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
 		let size = bytes.len().to_u64().unwrap();
 
 		// If the object has already been sent or is complete, then update the progress and return.

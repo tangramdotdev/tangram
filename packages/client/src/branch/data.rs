@@ -20,8 +20,8 @@ impl Branch {
 			.map_err(|source| tg::error!(!source, "failed to serialize the data"))
 	}
 
-	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
-		serde_json::from_reader(bytes.as_ref())
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+		serde_json::from_reader(bytes.into().as_ref())
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 

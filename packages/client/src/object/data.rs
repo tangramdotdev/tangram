@@ -40,7 +40,7 @@ impl Object {
 		}
 	}
 
-	pub fn deserialize(kind: Kind, bytes: &Bytes) -> tg::Result<Self> {
+	pub fn deserialize<'a>(kind: Kind, bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
 		match kind {
 			Kind::Leaf => Ok(Self::Leaf(tg::leaf::Data::deserialize(bytes)?)),
 			Kind::Branch => Ok(Self::Branch(tg::branch::Data::deserialize(bytes)?)),
@@ -62,16 +62,6 @@ impl Object {
 			Self::Symlink(symlink) => symlink.children(),
 			Self::Graph(graph) => graph.children(),
 			Self::Command(command) => command.children(),
-		}
-	}
-}
-
-impl From<tg::artifact::Data> for Object {
-	fn from(value: tg::artifact::Data) -> Self {
-		match value {
-			tg::artifact::data::Artifact::Directory(data) => Object::Directory(data),
-			tg::artifact::data::Artifact::File(data) => Object::File(data),
-			tg::artifact::data::Artifact::Symlink(data) => Object::Symlink(data),
 		}
 	}
 }

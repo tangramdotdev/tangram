@@ -34,7 +34,7 @@ impl Artifact {
 		}
 	}
 
-	pub fn deserialize(kind: Kind, bytes: &Bytes) -> tg::Result<Self> {
+	pub fn deserialize(kind: Kind, bytes: tg::bytes::Cow) -> tg::Result<Self> {
 		match kind {
 			Kind::Directory => Ok(Self::Directory(tg::directory::Data::deserialize(bytes)?)),
 			Kind::File => Ok(Self::File(tg::file::Data::deserialize(bytes)?)),
@@ -48,6 +48,29 @@ impl Artifact {
 			Self::Directory(directory) => directory.children(),
 			Self::File(file) => file.children(),
 			Self::Symlink(symlink) => symlink.children(),
+		}
+	}
+}
+
+impl From<Artifact> for tg::object::Data {
+	fn from(value: Artifact) -> Self {
+		match value {
+			Artifact::Directory(directory) => tg::object::Data::Directory(directory),
+			Artifact::File(file) => tg::object::Data::File(file),
+			Artifact::Symlink(symlink) => tg::object::Data::Symlink(symlink),
+		}
+	}
+}
+
+impl TryFrom<tg::object::Data> for Artifact {
+	type Error = tg::Error;
+
+	fn try_from(value: tg::object::Data) -> Result<Self, Self::Error> {
+		match value {
+			crate::object::Data::Directory(directory) => Ok(Self::Directory(directory)),
+			crate::object::Data::File(file) => Ok(Self::File(file)),
+			crate::object::Data::Symlink(symlink) => Ok(Self::Symlink(symlink)),
+			_ => Err(tg::error!("invalid object")),
 		}
 	}
 }

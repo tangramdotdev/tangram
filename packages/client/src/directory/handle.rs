@@ -71,7 +71,7 @@ impl Directory {
 		let Some(output) = Box::pin(handle.try_get_object(&id.into())).await? else {
 			return Ok(None);
 		};
-		let data = Data::deserialize(&output.bytes)
+		let data = Data::deserialize(output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 		let object = Object::try_from(data)?;
 		let object = Arc::new(object);

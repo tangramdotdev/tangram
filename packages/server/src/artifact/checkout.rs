@@ -215,26 +215,31 @@ impl Server {
 		let data = match artifact {
 			Either::Left((graph, node)) => {
 				if !state.graphs.contains_key(&graph) {
-					let bytes = match &self.store {
-						crate::Store::Memory(store) => store.try_get(&graph.clone().into()),
-						crate::Store::Lmdb(store) => store.try_get_inner(&graph.clone().into())?,
+					let data = match &self.store {
+						crate::Store::Memory(store) => {
+							store.try_get_object_data(&graph.clone().into())?
+						},
+						crate::Store::Lmdb(store) => {
+							store.try_get_object_data(&graph.clone().into())?
+						},
 						_ => return Err(tg::error!("not yet implemented")),
 					}
-					.ok_or_else(|| tg::error!("failed to get the value"))?;
-					let data = tg::graph::Data::deserialize(&bytes)?;
-					state.graphs.insert(graph.clone(), data.clone());
+					.ok_or_else(|| tg::error!("failed to get the value"))?
+					.try_into()
+					.map_err(|_| tg::error!("expected a graph"))?;
+					state.graphs.insert(graph.clone(), data);
 				};
 				Either::Left((graph, node))
 			},
 			Either::Right(id) => {
 				let kind = id.kind();
-				let bytes = match &self.store {
-					crate::Store::Memory(store) => store.try_get(&id.into()),
-					crate::Store::Lmdb(store) => store.try_get_inner(&id.into())?,
+				let data = match &self.store {
+					crate::Store::Memory(store) => store.try_get_object_data(&id.into())?,
+					crate::Store::Lmdb(store) => store.try_get_object_data(&id.into())?,
 					_ => return Err(tg::error!("not yet implemented")),
 				}
 				.ok_or_else(|| tg::error!("failed to get the value"))?;
-				let data = tg::artifact::Data::deserialize(kind, &bytes)?;
+				let data = tg::artifact::Data::try_from(data)?;
 				Either::Right(data)
 			},
 		};

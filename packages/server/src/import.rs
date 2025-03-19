@@ -460,7 +460,7 @@ impl Server {
 					batch
 						.iter()
 						.map(|(id, bytes)| async {
-							let data = tg::object::Data::deserialize(id.kind(), bytes)?;
+							let data = tg::object::Data::deserialize(id.kind(), bytes.clone())?;
 							let children = data.children();
 							let message = crate::index::Message {
 								children,

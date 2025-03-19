@@ -32,14 +32,15 @@ impl Server {
 		};
 
 		let messenger_future = async {
-			let data = tg::object::Data::deserialize(id.kind(), &arg.bytes)?;
+			let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
 			let children = data.children();
+			let size = arg.bytes.len().to_u64().unwrap();
 			let message = crate::index::Message {
 				children,
 				count: None,
 				depth: None,
 				id: id.clone(),
-				size: arg.bytes.len().to_u64().unwrap(),
+				size,
 				touched_at: now,
 				weight: None,
 			};

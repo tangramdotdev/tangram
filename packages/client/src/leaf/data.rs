@@ -12,9 +12,9 @@ impl Leaf {
 		Ok(self.bytes.clone())
 	}
 
-	pub fn deserialize(bytes: &Bytes) -> tg::Result<Self> {
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
 		Ok(Self {
-			bytes: bytes.clone(),
+			bytes: bytes.into().into_owned(),
 		})
 	}
 
