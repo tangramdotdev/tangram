@@ -48,6 +48,7 @@ mod messenger;
 mod module;
 mod object;
 mod package;
+mod pipe;
 mod process;
 mod progress;
 mod pty;
@@ -961,20 +962,34 @@ impl Server {
 				Self::handle_format_package_request(handle, request).boxed()
 			},
 
+			// Ptys.
+			(http::Method::POST, ["ptys"]) => {
+				Self::handle_create_pty_request(handle, request).boxed()
+			},
+			(http::Method::DELETE, ["ptys", pipe]) => {
+				Self::handle_delete_pty_request(handle, request, pipe).boxed()
+			},
+			(http::Method::GET, ["ptys", pipe, "window"]) => {
+				Self::handle_get_pty_window_request(handle, request, pipe).boxed()
+			},
+			(http::Method::GET, ["ptys", pipe]) => {
+				Self::handle_get_pty_request(handle, request, pipe).boxed()
+			},
+			(http::Method::POST, ["ptys", pipe]) => {
+				Self::handle_post_pty_request(handle, request, pipe).boxed()
+			},
+
 			// Pipes.
-			(http::Method::POST, ["pty"]) => {
-				Self::handle_open_pipe_request(handle, request).boxed()
+			(http::Method::POST, ["pipes"]) => {
+				Self::handle_create_pipe_request(handle, request).boxed()
 			},
-			(http::Method::DELETE, ["pty", pipe]) => {
-				Self::handle_close_pipe_request(handle, request, pipe).boxed()
+			(http::Method::DELETE, ["pipeS", pipe]) => {
+				Self::handle_delete_pipe_request(handle, request, pipe).boxed()
 			},
-			(http::Method::GET, ["pty", pipe, "window"]) => {
-				Self::handle_get_pipe_window_request(handle, request, pipe).boxed()
-			},
-			(http::Method::GET, ["pty", pipe]) => {
+			(http::Method::GET, ["pipes", pipe]) => {
 				Self::handle_get_pipe_request(handle, request, pipe).boxed()
 			},
-			(http::Method::POST, ["pty", pipe]) => {
+			(http::Method::POST, ["pipes", pipe]) => {
 				Self::handle_post_pipe_request(handle, request, pipe).boxed()
 			},
 
@@ -1265,43 +1280,76 @@ impl tg::Handle for Server {
 		self.format_package(arg)
 	}
 
-	fn open_pipe(
+	fn create_pty(
 		&self,
-		arg: tg::pty::open::Arg,
-	) -> impl Future<Output = tg::Result<tg::pty::open::Output>> {
-		self.open_pipe(arg)
+		arg: tg::pty::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
+		self.create_pty(arg)
 	}
 
-	fn close_pipe(
+	fn delete_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.close_pipe(id, arg)
+		self.delete_pty(id, arg)
 	}
 
-	fn get_pipe_window_size(
+	fn get_pty_window_size(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> + Send {
-		self.get_pipe_window_size(id, arg)
+		self.get_pty_window_size(id, arg)
 	}
 
-	fn get_pipe_stream(
+	fn get_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::get::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
+	{
+		self.get_pty_stream(id, arg)
+	}
+
+	fn post_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.post_pty(id, arg, stream)
+	}
+
+	fn create_pipe(
+		&self,
+		arg: tg::pipe::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
+		self.create_pipe(arg)
+	}
+
+	fn delete_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pipe(id, arg)
+	}
+
+	fn get_pipe_stream(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
 		self.get_pipe_stream(id, arg)
 	}
 
 	fn post_pipe(
 		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.post_pipe(id, arg, stream)
 	}

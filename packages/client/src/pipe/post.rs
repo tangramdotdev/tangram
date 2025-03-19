@@ -1,6 +1,5 @@
 use crate::{self as tg, Client};
-use bytes::Bytes;
-use futures::{stream, future, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _};
 use std::pin::Pin;
 use tangram_http::{Body, response::Ext as _};
 
@@ -11,36 +10,21 @@ pub struct Arg {
 }
 
 impl Client {
-	pub async fn write_pipe(
+	pub async fn post_pipe(
 		&self,
-		id: &tg::pty::Id,
+		id: &tg::pipe::Id,
 		arg: Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(arg).unwrap();
-		let uri = format!("/pty/{id}/write?{query}");
+		let uri = format!("/pipes/{id}?{query}");
 
 		// Create the body.
-		let stream = stream
-			.map(|event| {
-				match event {
-					Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
-					Err(error) => Err(error)
-				}
-			})
-			.chain(stream::once(future::ok(tg::pipe::Event::End)));
-		let body = Body::with_stream(stream.map(|result| {
+		let body = Body::with_stream(stream.map(move |result| {
 			let event = match result {
 				Ok(event) => match event {
 					tg::pipe::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),
-					tg::pipe::Event::WindowSize(window_size) => {
-						let mut trailers = http::HeaderMap::new();
-						trailers.insert("x-tg-event", http::HeaderValue::from_static("window-size"));
-						let json = serde_json::to_string(&window_size).unwrap();
-						trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-						hyper::body::Frame::trailers(trailers)
-					},
 					tg::pipe::Event::End => {
 						let mut trailers = http::HeaderMap::new();
 						trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));

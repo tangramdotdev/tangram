@@ -191,7 +191,7 @@ async fn log_task(
 		async move {
 			let stream = chunk_stream_from_reader(stdout);
 			let mut stream = pin!(stream);
-			while let Some(tg::pty::Event::Chunk(bytes)) = stream.try_next().await? {
+			while let Some(bytes) = stream.try_next().await? {
 				if server.config().advanced.write_process_logs_to_stderr {
 					tokio::io::stderr().write_all(&bytes).await.ok();
 				}
@@ -212,7 +212,7 @@ async fn log_task(
 		async move {
 			let stream = chunk_stream_from_reader(stderr);
 			let mut stream = pin!(stream);
-			while let Some(tg::pty::Event::Chunk(bytes)) = stream.try_next().await? {
+			while let Some(bytes) = stream.try_next().await? {
 				if server.config().advanced.write_process_logs_to_stderr {
 					tokio::io::stderr().write_all(&bytes).await.ok();
 				}
@@ -248,86 +248,44 @@ async fn pipe_task(
 	// Create a task for stdin.
 	let stdin = tokio::spawn({
 		let server = server.clone();
-		let state = process.load(&server).await?;
-		let process = process.clone();
+		let io = process.load(&server).await?.stdin.clone();
+		let remote = process.remote().cloned();
 		async move {
-			let Some(pipe) = state.stdin.as_ref() else {
-				return Ok(());
+			let Some(io) = io.as_ref() else {
+				return;
 			};
-			let arg = tg::pty::get::Arg {
-				remote: process.remote().cloned(),
-			};
-
-			let stream = server.get_pipe_stream(pipe, arg).await?;
-			let mut stream = pin!(stream);
-			let mut stdin = pin!(stdin);
-			loop {
-				let stop = pin!(stop.wait());
-				let next = pin!(stream.try_next());
-				let fut = future::select(stop, next);
-				match fut.await {
-					future::Either::Left(_) => break,
-					future::Either::Right((Ok(Some(event)), _)) => match event {
-						tg::pty::Event::Chunk(chunk) => {
-							stdin.write_all(&chunk).await.map_err(
-								|source| tg::error!(!source, %pipe, "failed to write stdin"),
-							)?;
-						},
-						tg::pty::Event::WindowSize(window_size) => {
-							let tty = sandbox::Tty {
-								rows: window_size.rows,
-								cols: window_size.cols,
-								x: window_size.xpos,
-								y: window_size.ypos,
-							};
-							stdin.change_window_size(tty).await.map_err(|source| {
-								tg::error!(!source, "failed to set window size")
-							})?;
-						},
-						tg::pty::Event::End => break,
-					},
-					future::Either::Right(_) => break,
-				}
-			}
-			stdin.shutdown().await.ok();
-
-			Ok::<_, tg::Error>(())
+			input(&server, io, remote, stdin, stop)
+				.await
+				.inspect_err(|source| tracing::error!(?source, "failed to write stdin"))
+				.ok();
 		}
 	});
 
-	// Create a task for stdout.
 	let stdout = tokio::spawn({
 		let server = server.clone();
-		let state = process.load(&server).await?;
-		let process = process.clone();
+		let io = process.load(&server).await?.stdout.clone();
+		let remote = process.remote().cloned();
 		async move {
-			let Some(pipe) = state.stdout.as_ref() else {
+			let Some(io) = io.as_ref() else {
 				return Ok(());
 			};
-			let arg = tg::pty::post::Arg {
-				remote: process.remote().cloned(),
-			};
-			let stream = chunk_stream_from_reader(stdout);
-			server.post_pipe(pipe, arg, stream).await?;
-			Ok::<_, tg::Error>(())
+			output(&server, io, remote, stdout)
+				.await
+				.inspect_err(|source| tracing::error!(?source, "failed to read stdout"))
 		}
 	});
 
-	// Create a task for stderr.
 	let stderr = tokio::spawn({
 		let server = server.clone();
-		let state = process.load(&server).await?;
-		let process = process.clone();
+		let io = process.load(&server).await?.stderr.clone();
+		let remote = process.remote().cloned();
 		async move {
-			let Some(pipe) = state.stderr.as_ref() else {
+			let Some(io) = io.as_ref() else {
 				return Ok(());
 			};
-			let arg = tg::pty::post::Arg {
-				remote: process.remote().cloned(),
-			};
-			let stream = chunk_stream_from_reader(stderr);
-			server.post_pipe(pipe, arg, stream).await?;
-			Ok::<_, tg::Error>(())
+			output(&server, io, remote, stderr)
+				.await
+				.inspect_err(|source| tracing::error!(?source, "failed to read stderr"))
 		}
 	});
 
@@ -346,7 +304,7 @@ async fn pipe_task(
 // Helper to create an event stream from pipes
 fn chunk_stream_from_reader(
 	reader: impl AsyncRead + Unpin + Send + 'static,
-) -> impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static {
+) -> impl Stream<Item = tg::Result<Bytes>> + Send + 'static {
 	let buffer = vec![0u8; 4096];
 	stream::try_unfold((reader, buffer), |(mut reader, mut buffer)| async move {
 		let size = reader
@@ -357,10 +315,8 @@ fn chunk_stream_from_reader(
 			return Ok(None);
 		}
 		let chunk = Bytes::copy_from_slice(&buffer[0..size]);
-		let event = tg::pty::Event::Chunk(chunk);
-		Ok(Some((event, (reader, buffer))))
+		Ok(Some((chunk, (reader, buffer))))
 	})
-	.chain(stream::once(future::ok(tg::pty::Event::End)))
 }
 
 pub async fn signal_task(
@@ -390,6 +346,18 @@ pub async fn signal_task(
 	Ok(())
 }
 
+pub async fn write_io_bytes(
+	server: &Server,
+	io: &tg::process::Io,
+	remote: Option<String>,
+	bytes: Bytes,
+) -> tg::Result<()> {
+	match io {
+		tg::process::Io::Pipe(id) => server.write_pipe_bytes(id, remote, bytes).await,
+		tg::process::Io::Pty(id) => server.write_pty_bytes(id, remote, bytes).await,
+	}
+}
+
 fn signal_number(signal: tg::process::Signal) -> i32 {
 	// Convert a tg::process::Signal to an OS signal.
 	match signal {
@@ -407,4 +375,103 @@ fn signal_number(signal: tg::process::Signal) -> i32 {
 		tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
 		tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
 	}
+}
+
+async fn input(
+	server: &Server,
+	io: &tg::process::Io,
+	remote: Option<String>,
+	mut stdin: sandbox::Stdin,
+	stop: Stop,
+) -> tg::Result<()> {
+	match io {
+		tg::process::Io::Pipe(id) => {
+			let arg = tg::pipe::get::Arg { remote };
+			let stream = server.get_pipe_stream(id, arg).await?;
+			let mut stream = pin!(stream);
+			loop {
+				let stop = stop.wait();
+				let event = stream.try_next();
+				match future::select(event, pin!(stop)).await {
+					future::Either::Left((Ok(Some(tg::pipe::Event::Chunk(chunk))), _)) => {
+						stdin
+							.write_all(&chunk)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to write bytes"))?;
+					},
+					future::Either::Left((Err(source), _)) => {
+						return Err(source);
+					},
+					_ => break,
+				}
+			}
+		},
+		tg::process::Io::Pty(id) => {
+			let arg = tg::pty::get::Arg {
+				remote,
+				master: true,
+			};
+			let stream = server.get_pty_stream(id, arg).await?;
+			let mut stream = pin!(stream);
+			loop {
+				let stop = stop.wait();
+				let event = stream.try_next();
+				match future::select(event, pin!(stop)).await {
+					future::Either::Left((Ok(Some(tg::pty::Event::Chunk(chunk))), _)) => {
+						stdin
+							.write_all(&chunk)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to write bytes"))?;
+					},
+					future::Either::Left((Ok(Some(tg::pty::Event::WindowSize(ws))), _)) => {
+						let tty = sandbox::Tty {
+							cols: ws.cols,
+							rows: ws.rows,
+							x: ws.xpos,
+							y: ws.ypos,
+						};
+						stdin.change_window_size(tty).await.map_err(|source| {
+							tg::error!(!source, "failed to change the PTY window size")
+						})?;
+					},
+					future::Either::Left((Err(source), _)) => {
+						return Err(source);
+					},
+					_ => break,
+				}
+			}
+		},
+	}
+	Ok(())
+}
+
+async fn output(
+	server: &Server,
+	io: &tg::process::Io,
+	remote: Option<String>,
+	reader: impl AsyncRead + Unpin + Send + 'static,
+) -> tg::Result<()> {
+	let stream = chunk_stream_from_reader(reader);
+	match io {
+		tg::process::Io::Pipe(id) => {
+			let stream = stream
+				.map_ok(tg::pipe::Event::Chunk)
+				.chain(stream::once(future::ok(tg::pipe::Event::End)))
+				.boxed();
+			let arg = tg::pipe::post::Arg { remote };
+			server.post_pipe(id, arg, stream).await?;
+		},
+		tg::process::Io::Pty(id) => {
+			let stream = stream
+				.map_ok(tg::pty::Event::Chunk)
+				.chain(stream::once(future::ok(tg::pty::Event::End)))
+				.boxed();
+			let arg = tg::pty::post::Arg {
+				remote,
+				master: false,
+			};
+			server.post_pty(id, arg, stream).await?;
+		},
+	}
+	Ok(())
 }

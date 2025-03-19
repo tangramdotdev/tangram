@@ -8,12 +8,15 @@ use tokio_stream::wrappers::ReceiverStream;
 pub async fn handle_sigwinch<H>(
 	handle: &H,
 	fd: RawFd,
-	pipe: &tg::pty::Id,
+	io: &tg::process::Io,
 	remote: Option<String>,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
+	let tg::process::Io::Pty(pty) = io else {
+		return Ok(());
+	};
 	let (send, recv) = tokio::sync::mpsc::channel(1);
 
 	let mut signal = signal(SignalKind::window_change())
@@ -40,10 +43,13 @@ where
 		}
 	});
 
-	let arg = tg::pty::post::Arg { remote };
+	let arg = tg::pty::post::Arg {
+		remote,
+		master: true,
+	};
 	let stream = ReceiverStream::new(recv);
 	handle
-		.post_pipe(pipe, arg, stream.boxed())
+		.post_pty(pty, arg, stream.boxed())
 		.await
 		.map_err(|source| tg::error!(!source, "failed to post the window change stream"))
 }

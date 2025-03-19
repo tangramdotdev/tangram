@@ -346,16 +346,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
 
-		// Increment refcounts on pipes if necessary.
-		if arg.remote.is_none() {
-			for pipe in [arg.stdin.as_ref(), arg.stdout.as_ref(), arg.stderr.as_ref()]
-				.into_iter()
-				.flatten()
-			{
-				self.try_add_pipe_ref(pipe).await?;
-			}
-		}
-
 		// Publish the message.
 		tokio::spawn({
 			let server = self.clone();

@@ -7,10 +7,11 @@ use tangram_http::{Body, response::Ext as _};
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+	pub master: bool,
 }
 
 impl Client {
-	pub async fn post_pipe(
+	pub async fn post_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
@@ -18,7 +19,7 @@ impl Client {
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(arg).unwrap();
-		let uri = format!("/pipes/{id}?{query}");
+		let uri = format!("/ptys/{id}?{query}");
 
 		// Create the body.
 		let body = Body::with_stream(stream.map(move |result| {

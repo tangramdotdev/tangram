@@ -7,6 +7,7 @@ use std::{
 pub use self::{
 	data::Data,
 	id::Id,
+	io::Io,
 	metadata::Metadata,
 	mount::Mount,
 	signal::Signal,
@@ -22,6 +23,7 @@ pub mod finish;
 pub mod get;
 pub mod heartbeat;
 pub mod id;
+pub mod io;
 pub mod log;
 pub mod metadata;
 pub mod mount;

@@ -1,6 +1,6 @@
 use super::Context;
 use crate::{abort_errno, common::redirect_stdio};
-use std::os::fd::AsRawFd;
+use std::{ffi::CString, mem::MaybeUninit, os::fd::AsRawFd};
 
 pub fn main(mut context: Context) -> ! {
 	unsafe {
@@ -129,6 +129,50 @@ fn mount_and_chroot(context: &mut Context) {
 		);
 		if ret == -1 {
 			abort_errno!("failed to remount the root as read-only");
+		}
+	}
+}
+
+fn create_mountpoint(source: &CString, target: &mut CString) {
+	// This is super-duper unsafe.
+	unsafe {
+		let mut buf: MaybeUninit<libc::stat> = MaybeUninit::zeroed();
+		if libc::stat(source.as_ptr(), buf.as_mut_ptr().cast()) < 0 {
+			abort_errno!("failed to stat source");
+		}
+		let is_dir = buf.assume_init().st_mode & libc::S_IFDIR != 0;
+
+		const BACKSLASH: i8 = b'\\' as _;
+		const SLASH: i8 = b'/' as _;
+		const NULL: i8 = 0;
+		let ptr = target.as_ptr().cast_mut(); // :yikes:
+		let len = target.as_bytes_with_nul().len();
+		let mut esc = false;
+		for n in 0..len {
+			match (*ptr.add(n), esc) {
+				(SLASH, false) => {
+					if n == 0 {
+						continue;
+					}
+					*ptr.add(n) = 0;
+					libc::mkdir(target.as_ptr(), libc::O_RDWR as _);
+					*ptr.add(n) = SLASH;
+				},
+				(BACKSLASH, false) => {
+					esc = true;
+				},
+				(NULL, _) => {
+					break;
+				},
+				_ => {
+					esc = false;
+				},
+			}
+		}
+		if is_dir {
+			libc::mkdir(target.as_ptr(), libc::O_RDWR as _);
+		} else {
+			libc::creat(target.as_ptr(), libc::O_RDWR as _);
 		}
 	}
 }

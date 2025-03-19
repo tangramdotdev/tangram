@@ -264,15 +264,15 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = old.child;
 			end;
 
-			create table pipes (
-				reader text primary key,
-				writer text not null,
-				reader_count integer not null,
-				writer_count integer not null,
-				touched_at text not null,
+			create table ptys (
+				id text primary key,
+				created_at text not null,
 				window_size text
 			);
-			create index pipes_writer_index on pipes (writer);
+			create table pipes (
+				id text primary key,
+				created_at text not null
+			);
 
 			create table processes (
 				cacheable integer not null,

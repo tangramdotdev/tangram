@@ -77,6 +77,7 @@ pub mod module;
 pub mod mutation;
 pub mod object;
 pub mod package;
+pub mod pipe;
 pub mod position;
 pub mod process;
 pub mod progress;
@@ -755,47 +756,79 @@ impl tg::Handle for Client {
 		self.format_package(arg)
 	}
 
-	fn open_pipe(
+	fn create_pty(
 		&self,
-		arg: tg::pty::open::Arg,
-	) -> impl Future<Output = tg::Result<tg::pty::open::Output>> {
-		self.open_pipe(arg)
+		arg: tg::pty::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
+		self.create_pty(arg)
 	}
 
-	fn close_pipe(
+	fn delete_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.close_pipe(id, arg)
+		self.delete_pty(id, arg)
 	}
 
-	fn get_pipe_window_size(
+	fn get_pty_window_size(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> {
-		self.get_pipe_window_size(id, arg)
+		self.get_pty_window_size(id, arg)
 	}
 
-	fn get_pipe_stream(
+	fn get_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::get::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
+	{
+		self.get_pty_stream(id, arg)
+	}
+
+	fn post_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.post_pty(id, arg, stream)
+	}
+
+	fn create_pipe(
+		&self,
+		arg: tg::pipe::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
+		self.create_pipe(arg)
+	}
+
+	fn delete_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pipe(id, arg)
+	}
+
+	fn get_pipe_stream(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
 		self.get_pipe_stream(id, arg)
 	}
 
 	fn post_pipe(
 		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.post_pipe(id, arg, stream)
 	}
-
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,

@@ -253,36 +253,65 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn open_pipe(&self, _arg: tg::pty::open::Arg) -> tg::Result<tg::pty::open::Output> {
+	async fn create_pty(&self, _arg: tg::pty::create::Arg) -> tg::Result<tg::pty::create::Output> {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn close_pipe(&self, _id: &tg::pty::Id, _arg: tg::pty::close::Arg) -> tg::Result<()> {
+	async fn delete_pty(&self, _id: &tg::pty::Id, _arg: tg::pty::close::Arg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 
-	fn get_pipe_window_size(
+	fn get_pty_window_size(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> {
-		self.server.get_pipe_window_size(id, arg)
+		self.server.get_pty_window_size(id, arg)
 	}
 
-	fn get_pipe_stream(
+	fn get_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::get::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
+	{
+		self.server.get_pty_stream(id, arg)
+	}
+
+	fn post_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.server.post_pty(id, arg, stream)
+	}
+
+	async fn create_pipe(
+		&self,
+		_arg: tg::pipe::create::Arg,
+	) -> tg::Result<tg::pipe::create::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn delete_pipe(&self, _id: &tg::pipe::Id, _arg: tg::pipe::delete::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	fn get_pipe_stream(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::get::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
 		self.server.get_pipe_stream(id, arg)
 	}
 
 	fn post_pipe(
 		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.post_pipe(id, arg, stream)
 	}

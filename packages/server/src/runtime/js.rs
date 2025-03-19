@@ -1,5 +1,5 @@
 use self::syscall::syscall;
-use crate::{Server, compiler::Compiler};
+use crate::{Server, compiler::Compiler, runtime::util};
 use bytes::Bytes;
 use futures::{
 	FutureExt as _, StreamExt as _, TryFutureExt as _,
@@ -165,9 +165,8 @@ impl Runtime {
 					server.try_post_process_log(process.id(), arg).await.ok();
 					match message.level {
 						syscall::log::Level::Log => {
-							if let Some(pipe) = &state.stdout {
-								server
-									.write_pipe_bytes(pipe, process.remote().cloned(), bytes)
+							if let Some(io) = &state.stdout {
+								util::write_io_bytes(&server, io, process.remote().cloned(), bytes)
 									.await
 									.inspect_err(|error| {
 										tracing::error!(?error, "failed to write process stdout");
@@ -176,12 +175,11 @@ impl Runtime {
 							}
 						},
 						syscall::log::Level::Error => {
-							if let Some(pipe) = &state.stderr {
-								server
-									.write_pipe_bytes(pipe, process.remote().cloned(), bytes)
+							if let Some(io) = &state.stderr {
+								util::write_io_bytes(&server, io, process.remote().cloned(), bytes)
 									.await
 									.inspect_err(|error| {
-										tracing::error!(?error, "failed to write process stderr");
+										tracing::error!(?error, "failed to write process stdout");
 									})
 									.ok();
 							}

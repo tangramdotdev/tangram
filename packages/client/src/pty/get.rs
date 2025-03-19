@@ -7,16 +7,17 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+	pub master: bool,
 }
 
 impl Client {
-	pub async fn get_pipe_window_size(
+	pub async fn get_pty_window_size(
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
 	) -> tg::Result<Option<tg::pty::WindowSize>> {
 		let method = http::Method::GET;
-		let uri = format!("/pipes/{id}/window");
+		let uri = format!("/ptys/{id}/window");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -30,14 +31,14 @@ impl Client {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))
 	}
 
-	pub async fn get_pipe_stream(
+	pub async fn get_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/pipes/{id}?{query}");
+		let uri = format!("/pty/{id}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

@@ -61,6 +61,16 @@ impl Streams {
 		stream.sender.close();
 		Ok(())
 	}
+
+	pub async fn subscribe(
+		&self,
+		subject: String,
+	) -> Result<impl futures::Stream<Item = Message> + Send + 'static, Error> {
+		self.0
+			.get(&subject)
+			.ok_or_else(|| Error::NotFound)
+			.map(|s| s.receiver.activate_cloned())
+	}
 }
 
 impl Messenger {

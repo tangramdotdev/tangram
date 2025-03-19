@@ -1,25 +1,24 @@
 use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database::{self as db, Database, Query, params};
+use tangram_database::{Database, Query, params};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger as messenger;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn open_pipe(
+	pub async fn create_pipe(
 		&self,
-		mut arg: tg::pty::open::Arg,
-	) -> tg::Result<tg::pty::open::Output> {
+		mut arg: tg::pipe::create::Arg,
+	) -> tg::Result<tg::pipe::create::Output> {
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			return remote.open_pipe(arg).await;
+			return remote.create_pipe(arg).await;
 		}
 
 		// Create the pipe data.
-		let reader = tg::pty::Id::new();
-		let writer = tg::pty::Id::new();
+		let id = tg::pipe::Id::new();
 
 		let connection = self
 			.database
@@ -30,30 +29,17 @@ impl Server {
 		let statement = formatdoc!(
 			r#"
 				insert into pipes (
-					reader,
-					writer,
-					reader_count,
-					writer_count,
-					touched_at,
-					window_size
+					id,
+					created_at
 				)
 				values (
 					{p}1,
-					{p}2,
-					1,
-					1,
-					{p}3,
-					{p}4
+					{p}2
 				);
 			"#
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = params![
-			reader.to_string(),
-			writer.to_string(),
-			now,
-			arg.window_size.map(db::value::Json)
-		];
+		let params = params![id.to_string(), now];
 		connection
 			.execute(statement.into(), params)
 			.await
@@ -61,34 +47,28 @@ impl Server {
 
 		match &self.messenger {
 			Either::Left(messenger) => {
-				self.create_pipe_in_memory(messenger, &reader, &writer)
+				self.create_pipe_in_memory(messenger, &id)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
 			},
 			Either::Right(messenger) => {
-				self.create_pipe_nats(messenger, &reader, &writer)
+				self.create_pipe_nats(messenger, &id)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
 			},
 		}
-		let output = tg::pty::open::Output { writer, reader };
+		let output = tg::pipe::create::Output { id };
 		Ok(output)
 	}
 
 	async fn create_pipe_in_memory(
 		&self,
 		messenger: &messenger::memory::Messenger,
-		reader: &tg::pty::Id,
-		writer: &tg::pty::Id,
+		id: &tg::pipe::Id,
 	) -> tg::Result<()> {
 		messenger
 			.streams()
-			.create_stream(reader.to_string())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
-		messenger
-			.streams()
-			.create_stream(writer.to_string())
+			.create_stream(id.to_string())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
 		Ok(())
@@ -97,30 +77,25 @@ impl Server {
 	async fn create_pipe_nats(
 		&self,
 		messenger: &messenger::nats::Messenger,
-		reader: &tg::pty::Id,
-		writer: &tg::pty::Id,
+		id: &tg::pipe::Id,
 	) -> tg::Result<()> {
-		for pipe in [reader, writer] {
-			let stream_name = pipe.to_string();
-			let stream_config = async_nats::jetstream::stream::Config {
-				name: stream_name.clone(),
-				max_messages: 256,
-				..Default::default()
-			};
-			messenger
-				.jetstream
-				.create_stream(stream_config)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, ?stream_name, "failed to get the pipe stream")
-				})?;
-		}
+		let stream_name = format!("{id}");
+		let stream_config = async_nats::jetstream::stream::Config {
+			name: stream_name.clone(),
+			max_messages: 256,
+			..Default::default()
+		};
+		messenger
+			.jetstream
+			.create_stream(stream_config)
+			.await
+			.map_err(|source| tg::error!(!source, ?stream_name, "failed to get the pipe stream"))?;
 		Ok(())
 	}
 }
 
 impl Server {
-	pub(crate) async fn handle_open_pipe_request<H>(
+	pub(crate) async fn handle_create_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>>
@@ -128,7 +103,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		let arg = request.json().await?;
-		let output = handle.open_pipe(arg).await?;
+		let output = handle.create_pipe(arg).await?;
 		let response = http::Response::builder().json(output).unwrap();
 		Ok(response)
 	}

@@ -8,38 +8,26 @@ mod get;
 mod post;
 
 impl Server {
-	pub(crate) async fn send_pty_event(
+	pub(crate) async fn send_pipe_event(
 		&self,
-		pty: &tg::pty::Id,
-		event: tg::pty::Event,
-		master: bool,
+		pipe: &tg::pipe::Id,
+		event: tg::pipe::Event,
 	) -> tg::Result<()> {
 		let payload = serde_json::to_vec(&event)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?
 			.into();
-
 		match &self.messenger {
 			Either::Left(messenger) => {
-				let subject = if master {
-					format!("{pty}.master")
-				} else {
-					format!("{pty}.slave")
-				};
 				messenger
 					.streams()
-					.publish(subject, payload)
+					.publish(pipe.to_string(), payload)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?;
 			},
 			Either::Right(messenger) => {
-				let subject = if master {
-					format!("{pty}_master")
-				} else {
-					format!("{pty}_slave")
-				};
 				messenger
 					.jetstream
-					.publish(subject, payload)
+					.publish(pipe.to_string(), payload)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?
 					.await

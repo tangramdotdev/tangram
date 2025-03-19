@@ -1,13 +1,12 @@
 use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
-use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
+use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
 use signal::handle_signals;
 use std::io::{IsTerminal, Read};
 use std::pin::pin;
 use stdio::Stdio;
 use tangram_client as tg;
-use tg::handle::Ext as _;
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -62,7 +61,7 @@ impl Cli {
 			.await;
 
 		// Close the pipes, in case the inner process errored.
-		stdio.close_client_half(&handle).await;
+		stdio.delete_io(&handle);
 
 		// Drop stdio to restore termios.
 		drop(stdio);
@@ -150,9 +149,9 @@ impl Cli {
 		// Spawn a task for stdout/stderr, before spawing the process.
 		let stdio_task = tokio::spawn({
 			let handle = handle.clone();
-			let stdin = stdio.stdin.client.clone();
-			let stdout = stdio.stdout.client.clone();
-			let stderr = stdio.stderr.client.clone();
+			let stdin = stdio.stdin.clone();
+			let stdout = stdio.stdout.clone();
+			let stderr = stdio.stderr.clone();
 			let remote = stdio.remote.clone();
 			async move { stdio_task(&handle, stdin, stdout, stderr, remote).await }
 		});
@@ -163,18 +162,15 @@ impl Cli {
 				options.spawn,
 				reference,
 				trailing,
-				Some(stdio.stderr.server.clone()),
-				Some(stdio.stdin.server.clone()),
-				Some(stdio.stdout.server.clone()),
+				Some(stdio.stderr.clone()),
+				Some(stdio.stdin.clone()),
+				Some(stdio.stdout.clone()),
 			)
 			.boxed()
 			.await?;
 
 		// Print the process.
 		eprint!("{} process {}\r\n", "info".blue().bold(), process.id());
-
-		// Close unnused pipes.
-		stdio.close_server_half(&handle).await;
 
 		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
 		let cancel_task = tokio::spawn({
@@ -233,7 +229,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
 
 		// Close stdio.
-		stdio.close_client_half(&handle).await;
+		stdio.delete_io(&handle);
 
 		// Stop and wait for stdio.
 		stdio_task.await.unwrap()?;
@@ -249,54 +245,80 @@ impl Cli {
 	}
 }
 
+fn fork_and_exit(code: i32) -> std::io::Result<()> {
+	unsafe {
+		let pid = libc::fork();
+		if pid < 0 {
+			return Err(std::io::Error::last_os_error());
+		} else if pid == 0 {
+			return Ok(());
+		} else {
+			std::process::exit(code)
+		}
+	}
+}
+
 async fn stdio_task<H>(
 	handle: &H,
-	stdin: tg::pty::Id,
-	stdout: tg::pty::Id,
-	stderr: tg::pty::Id,
+	stdin: tg::process::Io,
+	stdout: tg::process::Io,
+	stderr: tg::process::Io,
 	remote: Option<String>,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
 	// Spawn a task to read from stdin.
-	let stream = stdin_stream()
-		.map(|bytes| bytes.map(tg::pty::Event::Chunk))
-		.chain(stream::once(future::ok(tg::pty::Event::End)))
-		.boxed();
+	let stream = stdin_stream();
 	let stdin = tokio::spawn({
-		let pipe = stdin;
+		let io = stdin;
 		let remote = remote.clone();
 		let handle = handle.clone();
 		async move {
-			let arg = tg::pty::post::Arg { remote };
-			handle.post_pipe(&pipe, arg, stream).await.ok();
+			match io {
+				tg::process::Io::Pipe(id) => {
+					let stream = stream
+						.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
+						.chain(stream::once(future::ok(tg::pipe::Event::End)))
+						.boxed();
+					let arg = tg::pipe::post::Arg { remote };
+					handle.post_pipe(&id, arg, stream).await.ok();
+				},
+				tg::process::Io::Pty(id) => {
+					let stream = stream
+						.map(|bytes| bytes.map(tg::pty::Event::Chunk))
+						.chain(stream::once(future::ok(tg::pty::Event::End)))
+						.boxed();
+					let arg = tg::pty::post::Arg {
+						remote,
+						master: true,
+					};
+					handle.post_pty(&id, arg, stream).await.ok();
+				},
+			}
 		}
 	});
 
-	// Create the output streams.
-	let arg = tg::pty::get::Arg {
-		remote: remote.clone(),
-	};
-
 	// Create the stderr task if the pipe is different from stdout, to avoid duplicating output.
-	let stderr = if stdout != stderr {
-		handle
-			.read_pipe(&stderr, arg.clone())
-			.await
-			.map_err(|source| tg::error!(!source, %stderr, "failed to open stderr stream"))?
-			.left_stream()
-	} else {
-		stream::empty().right_stream()
-	};
-	let stderr = tokio::spawn(drain_stream_to_writer(stderr, tokio::io::stderr()));
+	let stderr = tokio::spawn({
+		let stdout = stdout.clone();
+		let stderr = stderr.clone();
+		let handle = handle.clone();
+		let remote = remote.clone();
+		async move {
+			if stdout == stderr {
+				return Ok(());
+			};
+			output(&handle, &stderr, remote, tokio::io::stderr()).await
+		}
+	});
 
-	// Create the stdout stream.
-	let stdout = handle
-		.read_pipe(&stdout, arg.clone())
-		.await
-		.map_err(|source| tg::error!(!source, %stdout, "failed to open stdout stream"))?;
-	let stdout = tokio::spawn(drain_stream_to_writer(stdout, tokio::io::stdout()));
+	let stdout = tokio::spawn({
+		let stdout = stdout.clone();
+		let handle = handle.clone();
+		let remote = remote.clone();
+		async move { output(&handle, &stdout, remote, tokio::io::stdout()).await }
+	});
 
 	// Join all tasks and return errors.
 	let (stdout, stderr) = future::try_join(stdout, stderr).await.unwrap();
@@ -304,21 +326,6 @@ where
 
 	stdout?;
 	stderr?;
-	Ok(())
-}
-
-async fn drain_stream_to_writer(
-	stream: impl Stream<Item = tg::Result<Bytes>> + Send + 'static,
-	mut writer: impl AsyncWrite + Unpin + Send + 'static,
-) -> tg::Result<()> {
-	let mut stream = pin!(stream);
-	while let Some(chunk) = stream.try_next().await? {
-		writer
-			.write_all(&chunk)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write chunk"))?;
-		writer.flush().await.ok();
-	}
 	Ok(())
 }
 
@@ -349,15 +356,59 @@ fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
 	ReceiverStream::new(recv)
 }
 
-fn fork_and_exit(code: i32) -> std::io::Result<()> {
-	unsafe {
-		let pid = libc::fork();
-		if pid < 0 {
-			return Err(std::io::Error::last_os_error());
-		} else if pid == 0 {
-			return Ok(());
-		} else {
-			std::process::exit(code)
-		}
+async fn output<H>(
+	handle: &H,
+	io: &tg::process::Io,
+	remote: Option<String>,
+	mut writer: impl AsyncWrite + Unpin,
+) -> tg::Result<()>
+where
+	H: tg::Handle,
+{
+	let stream = match io {
+		tg::process::Io::Pipe(id) => {
+			let arg = tg::pipe::get::Arg { remote };
+			handle
+				.get_pipe_stream(id, arg)
+				.await?
+				.try_filter_map(|event| {
+					future::ok({
+						if let tg::pipe::Event::Chunk(chunk) = event {
+							Some(chunk)
+						} else {
+							None
+						}
+					})
+				})
+				.left_stream()
+		},
+		tg::process::Io::Pty(id) => {
+			let arg = tg::pty::get::Arg {
+				remote,
+				master: false,
+			};
+			handle
+				.get_pty_stream(id, arg)
+				.await?
+				.try_filter_map(|event| {
+					future::ok({
+						if let tg::pty::Event::Chunk(chunk) = event {
+							Some(chunk)
+						} else {
+							None
+						}
+					})
+				})
+				.right_stream()
+		},
+	};
+	let mut stream = pin!(stream);
+	while let Some(chunk) = stream.try_next().await? {
+		writer
+			.write_all(&chunk)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write chunk"))?;
+		writer.flush().await.ok();
 	}
+	Ok(())
 }

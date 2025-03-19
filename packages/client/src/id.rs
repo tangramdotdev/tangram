@@ -34,6 +34,7 @@ pub enum Kind {
 	Command,
 	Process,
 	Pipe,
+	Pty,
 	User,
 	Token,
 	Request,
@@ -99,9 +100,10 @@ impl Id {
 					Kind::Command => 6,
 					Kind::Process => 7,
 					Kind::Pipe => 8,
-					Kind::User => 9,
-					Kind::Token => 10,
-					Kind::Request => 11,
+					Kind::Pty => 9,
+					Kind::User => 10,
+					Kind::Token => 11,
+					Kind::Request => 12,
 				};
 
 				writer
@@ -154,9 +156,10 @@ impl Id {
 			6 => Kind::Command,
 			7 => Kind::Process,
 			8 => Kind::Pipe,
-			9 => Kind::User,
-			10 => Kind::Token,
-			11 => Kind::Request,
+			9 => Kind::Pty,
+			10 => Kind::User,
+			11 => Kind::Token,
+			12 => Kind::Request,
 			_ => return Err(tg::error!(%kind, "invalid kind")),
 		};
 
@@ -287,6 +290,7 @@ impl std::fmt::Display for Kind {
 			Self::Command => "cmd",
 			Self::Process => "pcs",
 			Self::Pipe => "pip",
+			Self::Pty => "pty",
 			Self::User => "usr",
 			Self::Token => "tok",
 			Self::Request => "req",
@@ -310,6 +314,7 @@ impl std::str::FromStr for Kind {
 			"cmd" | "command" => Self::Command,
 			"pcs" | "process" => Self::Process,
 			"pip" | "pipe" => Self::Pipe,
+			"pty" => Self::Pty,
 			"usr" | "user" => Self::User,
 			"tok" | "token" => Self::Token,
 			"req" | "request" => Self::Request,

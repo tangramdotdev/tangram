@@ -81,13 +81,13 @@ pub struct Data {
 	pub status: tg::process::Status,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stderr: Option<tg::pty::Id>,
+	pub stderr: Option<tg::process::Io>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdin: Option<tg::pty::Id>,
+	pub stdin: Option<tg::process::Io>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdout: Option<tg::pty::Id>,
+	pub stdout: Option<tg::process::Io>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]

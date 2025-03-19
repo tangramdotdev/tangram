@@ -10,14 +10,14 @@ pub struct Arg {
 }
 
 impl Client {
-	pub async fn read_pipe(
+	pub async fn get_pipe_stream(
 		&self,
-		id: &tg::pty::Id,
+		id: &tg::pipe::Id,
 		arg: Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>>> {
-		let method = http::Method::POST;
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
+		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/pty/{id}/read?{query}");
+		let uri = format!("/pipes/{id}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -25,7 +25,13 @@ impl Client {
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {
-			let error = response.json().await?;
+			if matches!(response.status(), http::StatusCode::NOT_FOUND) {
+				return Err(tg::error!(%id, "not found"));
+			}
+			let error = response
+				.json()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to parse error"))?;
 			return Err(error);
 		}
 		let body = response

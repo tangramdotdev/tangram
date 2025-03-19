@@ -3,15 +3,14 @@ use bytes::Bytes;
 pub use self::id::Id;
 
 pub mod close;
+pub mod create;
 pub mod get;
 pub mod id;
-pub mod open;
 pub mod post;
 
 #[derive(Copy, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub window_size: Option<WindowSize>,
+	pub window_size: WindowSize,
 }
 
 #[derive(Copy, Clone, Debug, serde::Deserialize, serde::Serialize)]

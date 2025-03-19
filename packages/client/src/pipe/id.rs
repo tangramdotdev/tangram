@@ -19,7 +19,7 @@ impl Id {
 	#[allow(clippy::new_without_default)]
 	#[must_use]
 	pub fn new() -> Self {
-		Self(crate::Id::new_uuidv7(tg::id::Kind::Pty))
+		Self(crate::Id::new_uuidv7(tg::id::Kind::Pipe))
 	}
 }
 
@@ -33,7 +33,7 @@ impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
 	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
-		if value.kind() != tg::id::Kind::Pty {
+		if value.kind() != tg::id::Kind::Pipe {
 			return Err(tg::error!(%value, "invalid kind"));
 		}
 		Ok(Self(value))

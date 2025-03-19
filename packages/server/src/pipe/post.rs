@@ -7,40 +7,38 @@ use futures::{
 use http_body_util::{BodyExt as _, BodyStream};
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tangram_http::{Body, request::Ext as _, response::builder::Ext};
 
 impl Server {
-	pub async fn post_pty(
+	pub async fn post_pipe(
 		&self,
-		id: &tg::pty::Id,
-		mut arg: tg::pty::post::Arg,
-		stream: impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static,
+		id: &tg::pipe::Id,
+		mut arg: tg::pipe::post::Arg,
+		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
 	) -> tg::Result<()> {
+		let id = id.clone();
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
-			return remote.post_pty(id, arg, stream.boxed()).await;
+			return remote.post_pipe(&id, arg, stream.boxed()).await;
 		}
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			self.send_pty_event(id, event, arg.master).await?;
+			self.send_pipe_event(&id, event).await?;
 		}
 		Ok(())
 	}
 
-	pub(crate) async fn write_pty_bytes(
+	pub(crate) async fn write_pipe_bytes(
 		&self,
-		id: &tg::pty::Id,
+		id: &tg::pipe::Id,
 		remote: Option<String>,
 		bytes: Bytes,
 	) -> tg::Result<()> {
-		let arg = tg::pty::post::Arg {
-			remote,
-			master: false,
-		};
-		self.post_pty(
+		let arg = tg::pipe::post::Arg { remote };
+		self.post_pipe(
 			id,
 			arg,
-			stream::once(future::ok(tg::pty::Event::Chunk(bytes))),
+			stream::once(future::ok(tg::pipe::Event::Chunk(bytes))),
 		)
 		.await?;
 		Ok(())
@@ -48,7 +46,7 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_post_pty_request<H>(
+	pub(crate) async fn handle_post_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		id: &str,
@@ -69,7 +67,7 @@ impl Server {
 		let stream = BodyStream::new(body)
 			.and_then(|frame| async {
 				match frame.into_data() {
-					Ok(bytes) => Ok(tg::pty::Event::Chunk(bytes)),
+					Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
 					Err(frame) => {
 						let trailers = frame.into_trailers().unwrap();
 						let event = trailers
@@ -78,18 +76,7 @@ impl Server {
 							.to_str()
 							.map_err(|source| tg::error!(!source, "invalid event"))?;
 						match event {
-							"window-size" => {
-								let data = trailers
-									.get("x-tg-data")
-									.ok_or_else(|| tg::error!("missing data"))?
-									.to_str()
-									.map_err(|source| tg::error!(!source, "invalid data"))?;
-								let window_size = serde_json::from_str(data).map_err(|source| {
-									tg::error!(!source, "failed to deserialize the header value")
-								})?;
-								Ok(tg::pty::Event::WindowSize(window_size))
-							},
-							"end" => Ok(tg::pty::Event::End),
+							"end" => Ok(tg::pipe::Event::End),
 							"error" => {
 								let data = trailers
 									.get("x-tg-data")
@@ -109,7 +96,7 @@ impl Server {
 			.boxed();
 
 		// Send the stream.
-		handle.post_pty(&id, arg, stream).await?;
+		handle.post_pipe(&id, arg, stream).await?;
 
 		// Create the response.
 		let response = http::Response::builder().empty().unwrap();

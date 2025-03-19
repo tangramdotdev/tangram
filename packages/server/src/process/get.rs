@@ -72,11 +72,11 @@ impl Server {
 			started_at: Option<time::OffsetDateTime>,
 			status: tg::process::Status,
 			#[serde(default)]
-			stderr: Option<tg::pty::Id>,
+			stderr: Option<tg::process::Io>,
 			#[serde(default)]
-			stdin: Option<tg::pty::Id>,
+			stdin: Option<tg::process::Io>,
 			#[serde(default)]
-			stdout: Option<tg::pty::Id>,
+			stdout: Option<tg::process::Io>,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			touched_at: Option<time::OffsetDateTime>,

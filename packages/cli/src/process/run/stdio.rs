@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use std::{
 	io::IsTerminal,
 	mem::MaybeUninit,
@@ -13,40 +12,34 @@ use super::signal::handle_sigwinch;
 pub struct Stdio {
 	pub termios: Option<(RawFd, libc::termios)>,
 	pub remote: Option<String>,
-	pub stdin: Pipe,
-	pub stdout: Pipe,
-	pub stderr: Pipe,
-}
-
-#[derive(Clone, Debug)]
-pub struct Pipe {
-	pub client: tg::pty::Id,
-	pub server: tg::pty::Id,
+	pub stdin: tg::process::Io,
+	pub stdout: tg::process::Io,
+	pub stderr: tg::process::Io,
 }
 
 impl Stdio {
-	pub async fn close_server_half(&self, handle: &impl tg::Handle) {
-		let arg = tg::pty::close::Arg {
-			remote: self.remote.clone(),
-		};
-		let pipes = [&self.stdin.server, &self.stdout.server, &self.stderr.server]
-			.into_iter()
-			.unique();
-		for pipe in pipes {
-			handle.close_pipe(pipe, arg.clone()).await.ok();
-		}
-	}
-
-	pub async fn close_client_half(&self, handle: &impl tg::Handle) {
-		let arg = tg::pty::close::Arg {
-			remote: self.remote.clone(),
-		};
-		let pipes = [&self.stdin.client, &self.stdout.client, &self.stderr.client]
-			.into_iter()
-			.unique();
-		for pipe in pipes {
-			handle.close_pipe(pipe, arg.clone()).await.ok();
-		}
+	pub fn delete_io(&self, handle: &impl tg::Handle) {
+		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
+		let handle = handle.clone();
+		let remote = self.remote.clone();
+		tokio::spawn(async move {
+			for io in &io {
+				match io {
+					tg::process::Io::Pipe(id) => {
+						let arg = tg::pipe::delete::Arg {
+							remote: remote.clone(),
+						};
+						handle.delete_pipe(id, arg).await.ok();
+					},
+					tg::process::Io::Pty(id) => {
+						let arg = tg::pty::close::Arg {
+							remote: remote.clone(),
+						};
+						handle.delete_pty(id, arg).await.ok();
+					},
+				}
+			}
+		});
 	}
 }
 
@@ -71,9 +64,9 @@ impl Cli {
 
 		// If the process is detached, don't create any interactive i/o.
 		if detached {
-			let stdin = pair(&handle, remote.clone(), None).await?;
-			let stdout = pair(&handle, remote.clone(), None).await?;
-			let stderr = pair(&handle, remote.clone(), None).await?;
+			let stdin = create(&handle, remote.clone(), None).await?;
+			let stdout = create(&handle, remote.clone(), None).await?;
+			let stderr = create(&handle, remote.clone(), None).await?;
 			let stdio = Stdio {
 				termios: None,
 				remote,
@@ -89,9 +82,9 @@ impl Cli {
 			let fd = std::io::stdin().as_raw_fd();
 			let (termios, window_size) = get_termios_and_window_size(fd)
 				.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
-			let stdin = pair(&handle, remote.clone(), Some(window_size)).await?;
+			let stdin = create(&handle, remote.clone(), Some(window_size)).await?;
 			tokio::spawn({
-				let pipe = stdin.client.clone();
+				let pipe = stdin.clone();
 				let handle = handle.clone();
 				let remote = remote.clone();
 				async move {
@@ -100,7 +93,7 @@ impl Cli {
 			});
 			(Some((fd, termios)), stdin)
 		} else {
-			let stdin = pair(&handle, remote.clone(), None).await?;
+			let stdin = create(&handle, remote.clone(), None).await?;
 			(None, stdin)
 		};
 
@@ -114,9 +107,9 @@ impl Cli {
 				let fd = std::io::stdout().as_raw_fd();
 				let (termios, window_size) = get_termios_and_window_size(fd)
 					.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
-				let stdout = pair(&handle, remote.clone(), Some(window_size)).await?;
+				let stdout = create(&handle, remote.clone(), Some(window_size)).await?;
 				tokio::spawn({
-					let pipe = stdout.client.clone();
+					let pipe = stdout.clone();
 					let handle = handle.clone();
 					let remote = remote.clone();
 					async move {
@@ -126,7 +119,7 @@ impl Cli {
 				(Some((fd, termios)), stdout)
 			},
 			(termios, false) => {
-				let stdout = pair(&handle, remote.clone(), None).await?;
+				let stdout = create(&handle, remote.clone(), None).await?;
 				(termios, stdout)
 			},
 		};
@@ -141,9 +134,9 @@ impl Cli {
 				let fd = std::io::stderr().as_raw_fd();
 				let (termios, window_size) = get_termios_and_window_size(fd)
 					.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
-				let stderr = pair(&handle, remote.clone(), Some(window_size)).await?;
+				let stderr = create(&handle, remote.clone(), Some(window_size)).await?;
 				tokio::spawn({
-					let pipe = stderr.client.clone();
+					let pipe = stderr.clone();
 					let handle = handle.clone();
 					let remote = remote.clone();
 					async move {
@@ -153,7 +146,7 @@ impl Cli {
 				(Some((fd, termios)), stderr)
 			},
 			(termios, false) => {
-				let stderr = pair(&handle, remote.clone(), None).await?;
+				let stderr = create(&handle, remote.clone(), None).await?;
 				(termios, stderr)
 			},
 		};
@@ -182,26 +175,32 @@ impl Cli {
 	}
 }
 
-async fn pair<H>(
+async fn create<H>(
 	handle: &H,
 	remote: Option<String>,
 	window_size: Option<tg::pty::WindowSize>,
-) -> tg::Result<Pipe>
+) -> tg::Result<tg::process::Io>
 where
 	H: tg::Handle,
 {
-	let arg = tg::pty::open::Arg {
-		remote,
-		window_size,
-	};
-	let output = handle
-		.open_pipe(arg)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to open pipe"))?;
-	Ok(Pipe {
-		client: output.reader,
-		server: output.writer,
-	})
+	if let Some(window_size) = window_size {
+		let arg = tg::pty::create::Arg {
+			remote,
+			window_size,
+		};
+		let output = handle
+			.create_pty(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to open pty"))?;
+		Ok(tg::process::Io::Pty(output.id))
+	} else {
+		let arg = tg::pipe::create::Arg { remote };
+		let output = handle
+			.create_pipe(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to open pipe"))?;
+		Ok(tg::process::Io::Pipe(output.id))
+	}
 }
 
 fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg::pty::WindowSize)> {

@@ -8,11 +8,10 @@ pub struct Arg {
 }
 
 impl tg::Client {
-	pub async fn delete_pty(&self, id: &tg::pty::Id, arg: Arg) -> tg::Result<()> {
+	pub async fn delete_pipe(&self, id: &tg::pipe::Id, arg: Arg) -> tg::Result<()> {
 		let method = http::Method::DELETE;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/ptys/{id}?{query}");
-
+		let uri = format!("/pipes/{id}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

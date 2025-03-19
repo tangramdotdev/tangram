@@ -400,7 +400,7 @@ pub trait Ext: tg::Handle {
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>> + Send
 	{
 		async move {
-			let stream = self.get_pipe_stream(id, arg).await?;
+			let stream = self.get_pty_stream(id, arg).await?;
 			Ok(stream.try_filter_map(|event| {
 				let ret = if let tg::pty::Event::Chunk(chunk) = event {
 					Some(chunk)
@@ -420,7 +420,7 @@ pub trait Ext: tg::Handle {
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
 			let stream = stream.map(|event| event.map(tg::pty::Event::Chunk)).boxed();
-			self.post_pipe(id, arg, stream).await
+			self.post_pty(id, arg, stream).await
 		}
 	}
 
