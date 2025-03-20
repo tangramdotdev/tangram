@@ -11,12 +11,6 @@ use tangram_futures::task::Task;
 use tangram_sandbox as sandbox;
 use url::Url;
 
-/// The home directory guest path.
-const HOME_DIRECTORY_GUEST_PATH: &str = "/home/tangram";
-
-/// The working directory guest path.
-const WORKING_DIRECTORY_GUEST_PATH: &str = "/home/tangram/work";
-
 const TANGRAM_UID: u32 = 1000;
 
 const TANGRAM_GID: u32 = 1000;
@@ -154,7 +148,7 @@ impl Runtime {
 		let cwd = if let Some(cwd) = &state.cwd {
 			cwd.clone()
 		} else {
-			WORKING_DIRECTORY_GUEST_PATH.into()
+			"/".into()
 		};
 
 		// Get the command env.
@@ -183,11 +177,6 @@ impl Runtime {
 				path_buf.to_string_lossy().to_string()
 			},
 		};
-
-		// Set `$HOME`.
-		if !env.contains_key("HOME") {
-			env.insert("HOME".to_owned(), HOME_DIRECTORY_GUEST_PATH.to_owned());
-		}
 
 		// Set `$OUTPUT`.
 		if instance.root_is_bind_mounted {
@@ -381,20 +370,12 @@ impl Instance {
 		self.temp.path().join("root")
 	}
 
-	pub fn homedir(&self) -> PathBuf {
-		self.temp.path().join("home/tangram")
-	}
-
 	pub fn outdir(&self) -> PathBuf {
 		self.temp.path().join("output")
 	}
 
 	pub fn artifacts_path(&self) -> PathBuf {
 		"/.tangram/artifacts".into()
-	}
-
-	pub fn workingdir(&self) -> PathBuf {
-		self.rootdir().join("home/tangram/work")
 	}
 }
 
@@ -419,20 +400,10 @@ impl Runtime {
 				tg::error!(!source, %path = path.display(), "failed to create the tangram proxy directory")
 			})?;
 
-		// Create the home path.
-		tokio::fs::create_dir_all(&instance.homedir())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-
 		// Create the output path.
 		tokio::fs::create_dir_all(&instance.outdir())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-
-		// Create the home path.
-		tokio::fs::create_dir_all(&instance.workingdir())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
 
 		// Create mounts.
 		let mut overlays: Vec<sandbox::Overlay> = vec![];
@@ -493,7 +464,7 @@ impl Runtime {
 			.extend(overlays.into_iter().map(sandbox::Mount::from));
 
 		if !instance.root_is_bind_mounted {
-			// Add common mounts for /proc, /tmp, /dev, /output, /home/tangram, /.tangram/artifacts
+			// Add common mounts for /proc, /tmp, /dev, /output, /.tangram/artifacts
 			instance.mounts.push(sandbox::Mount {
 				source: "/proc".into(),
 				target: "/proc".into(),
@@ -514,14 +485,6 @@ impl Runtime {
 				sandbox::BindMount {
 					source: "/dev".into(),
 					target: "/dev".into(),
-					readonly: false,
-				}
-				.into(),
-			);
-			instance.mounts.push(
-				sandbox::BindMount {
-					source: instance.temp.path().join("home/tangram"),
-					target: "/home/tangram".into(),
 					readonly: false,
 				}
 				.into(),
@@ -568,7 +531,6 @@ impl Runtime {
 				formatdoc!(
 					r#"
 						root:!:0:0:root:/nonexistent:/bin/false
-						tangram:!:{TANGRAM_UID}:{TANGRAM_GID}:tangram:{HOME_DIRECTORY_GUEST_PATH}:/bin/false
 						nobody:!:65534:65534:nobody:/nonexistent:/bin/false
 					"#
 				),
