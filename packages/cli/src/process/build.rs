@@ -55,8 +55,7 @@ impl Cli {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Build.
-		let _value = self
-			.build_process(args.options, reference, args.trailing)
+		self.build_process(args.options, reference, args.trailing)
 			.await?;
 
 		Ok(())

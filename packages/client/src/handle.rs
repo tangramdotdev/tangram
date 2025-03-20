@@ -118,38 +118,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn create_pty(
-		&self,
-		arg: tg::pty::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> + Send;
-
-	fn delete_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::close::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn post_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn get_pty_window_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> + Send;
-
-	fn get_pty_stream(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
-	> + Send;
-
 	fn create_pipe(
 		&self,
 		arg: tg::pipe::create::Arg,
@@ -174,6 +142,38 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::pipe::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
+	> + Send;
+
+	fn create_pty(
+		&self,
+		arg: tg::pty::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> + Send;
+
+	fn delete_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn post_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::post::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn get_pty_window_size(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> + Send;
+
+	fn get_pty_stream(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
 	> + Send;
 
 	fn try_spawn_process(

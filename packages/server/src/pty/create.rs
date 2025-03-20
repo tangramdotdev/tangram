@@ -27,18 +27,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			r#"
-				insert into ptys (
-					id,
-					created_at,
-					window_size
-				)
-				values (
-					{p}1,
-					{p}2,
-					{p}3
-				);
-			"#
+			"
+				insert into ptys (id, created_at, window_size)
+				values ({p}1, {p}2, {p}3);
+			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = params![id.to_string(), now, db::value::Json(arg.window_size),];

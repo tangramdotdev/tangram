@@ -111,7 +111,7 @@ impl Pty {
 		}
 	}
 
-	// Identical to the darwin implementation, with different mutability the argument pointers.
+	// Identical to the darwin implementation, with different mutability of the argument pointers.
 	#[cfg(target_os = "linux")]
 	pub(crate) async fn open(tty: Tty) -> std::io::Result<Self> {
 		tokio::task::spawn_blocking(move || unsafe {
@@ -146,7 +146,7 @@ impl Pty {
 		.unwrap()
 	}
 
-	// Identical to the linux implementation, with different mutability the argument pointers.
+	// Identical to the linux implementation, with different mutability for the argument pointers.
 	#[cfg(target_os = "macos")]
 	pub(crate) async fn open(tty: Tty) -> std::io::Result<Self> {
 		tokio::task::spawn_blocking(move || unsafe {

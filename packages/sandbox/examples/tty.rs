@@ -1,13 +1,13 @@
 use bytes::Bytes;
 use futures::future;
 use std::{
-	io::{IsTerminal, Read, Write},
+	io::{IsTerminal as _, Read as _, Write as _},
 	mem::MaybeUninit,
 	process::ExitCode,
 };
 use tangram_futures::task::{Stop, Task};
 use tangram_sandbox::{self as sandbox, ExitStatus, Stdio, Tty};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 #[tokio::main]
 async fn main() -> std::io::Result<ExitCode> {
@@ -27,10 +27,8 @@ async fn main() -> std::io::Result<ExitCode> {
 		let mut command = sandbox::Command::new("/bin/cat");
 		if let Some(tty) = get_window_size(libc::STDIN_FILENO)? {
 			command.stdin(Stdio::Tty(tty)).stdout(Stdio::Tty(tty));
-			// .stderr(Stdio::Piped);
 		} else {
 			command.stdin(Stdio::Piped).stdout(Stdio::Piped);
-			// .stderr(Stdio::Piped);
 		}
 		command.envs(std::env::vars_os());
 
@@ -85,7 +83,7 @@ fn enable_raw_mode(fd: i32) -> std::io::Result<libc::termios> {
 		if libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(new)) != 0 {
 			return Err(std::io::Error::last_os_error());
 		}
-		return Ok(old);
+		Ok(old)
 	}
 }
 
@@ -125,24 +123,20 @@ async fn stdin(mut stdin: impl AsyncWrite + Unpin, stop: Stop) {
 		let mut buf = vec![0u8; 256];
 		loop {
 			match std::io::stdin().read(&mut buf) {
-				Ok(0) => break,
+				Err(_) | Ok(0) => break,
 				Ok(n) => {
 					let message = Bytes::from(buf[0..n].to_vec());
 					if sender.blocking_send(message).is_err() {
 						break;
 					}
 				},
-				Err(_) => break,
 			}
 		}
 	});
-	loop {
-		match future::select(std::pin::pin!(stop.wait()), std::pin::pin!(receiver.recv())).await {
-			future::Either::Right((Some(message), _)) => {
-				stdin.write_all(&message).await.unwrap();
-			},
-			_ => break,
-		}
+	while let future::Either::Right((Some(message), _)) =
+		future::select(std::pin::pin!(stop.wait()), std::pin::pin!(receiver.recv())).await
+	{
+		stdin.write_all(&message).await.unwrap();
 	}
 	stdin.shutdown().await.unwrap();
 }
@@ -158,12 +152,11 @@ async fn stdout(mut stdout: impl AsyncRead + Unpin) {
 	let mut buf = vec![0u8; 256];
 	loop {
 		match stdout.read(&mut buf).await {
-			Ok(0) => break,
+			Err(_) | Ok(0) => break,
 			Ok(n) => {
 				let chunk = Bytes::from(buf[0..n].to_vec());
 				sender.send(chunk).await.ok();
 			},
-			Err(_) => break,
 		}
 	}
 }

@@ -36,6 +36,10 @@ pub struct Options {
 	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
 	pub create: bool,
 
+	/// Set the working directory for the process.
+	#[arg(short = 'C', long)]
+	pub cwd: Option<PathBuf>,
+
 	/// Set environment variables.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub env: Vec<Vec<String>>,
@@ -67,9 +71,6 @@ pub struct Options {
 	/// Tag the process.
 	#[arg(long)]
 	pub tag: Option<tg::Tag>,
-
-	#[arg(short = 'C', long)]
-	pub working_directory: Option<PathBuf>,
 }
 
 impl Cli {
@@ -290,13 +291,13 @@ impl Cli {
 
 		// Handle build vs run.
 		let (cwd, env, network) = if options.sandbox || remote.is_some() {
-			let cwd = options.working_directory;
+			let cwd = options.cwd;
 			let env = None;
 			let network = false;
 			(cwd, env, network)
 		} else {
 			let cwd =
-				if let Some(working_dir) = options.working_directory {
+				if let Some(working_dir) = options.cwd {
 					Some(working_dir)
 				} else {
 					Some(std::env::current_dir().map_err(|source| {

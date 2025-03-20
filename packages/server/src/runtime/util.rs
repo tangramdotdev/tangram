@@ -8,7 +8,6 @@ use futures::{
 use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
-
 use tangram_futures::task::Stop;
 use tangram_sandbox as sandbox;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
@@ -360,14 +359,13 @@ pub async fn write_io_bytes(
 }
 
 fn signal_number(signal: tg::process::Signal) -> i32 {
-	// Convert a tg::process::Signal to an OS signal.
 	match signal {
 		tg::process::Signal::SIGABRT => libc::SIGABRT,
 		tg::process::Signal::SIGFPE => libc::SIGFPE,
 		tg::process::Signal::SIGILL => libc::SIGILL,
 		tg::process::Signal::SIGALRM => libc::SIGALRM,
 		tg::process::Signal::SIGHUP => libc::SIGHUP,
-		tg::process::Signal::SIGINT => libc::SIGABRT,
+		tg::process::Signal::SIGINT => libc::SIGINT,
 		tg::process::Signal::SIGKILL => libc::SIGKILL,
 		tg::process::Signal::SIGPIPE => libc::SIGPIPE,
 		tg::process::Signal::SIGQUIT => libc::SIGQUIT,
@@ -409,8 +407,8 @@ async fn input(
 		},
 		tg::process::Io::Pty(id) => {
 			let arg = tg::pty::get::Arg {
-				remote,
 				master: true,
+				remote,
 			};
 			let stream = server.get_pty_stream(id, arg).await?;
 			let mut stream = pin!(stream);

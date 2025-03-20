@@ -16,7 +16,7 @@ pub struct Arg {
 impl tg::Client {
 	pub async fn create_pty(&self, arg: Arg) -> tg::Result<tg::pty::create::Output> {
 		let method = http::Method::POST;
-		let uri = format!("/ptys");
+		let uri = "/ptys";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

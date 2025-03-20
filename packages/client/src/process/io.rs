@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use crate as tg;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -9,16 +7,16 @@ pub enum Io {
 	Pty(tg::pty::Id),
 }
 
-impl ToString for Io {
-	fn to_string(&self) -> String {
+impl std::fmt::Display for Io {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Io::Pipe(id) => id.to_string(),
-			Io::Pty(id) => id.to_string(),
+			Self::Pipe(id) => write!(f, "{id}"),
+			Self::Pty(id) => write!(f, "{id}"),
 		}
 	}
 }
 
-impl FromStr for Io {
+impl std::str::FromStr for Io {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let id = tg::Id::from_str(s)?;

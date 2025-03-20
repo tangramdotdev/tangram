@@ -211,7 +211,7 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 		writedoc!(
 			profile,
 			r#"
-				;; See /System/Library/Sandbox/Profiles/system.sb for more info. We avoid using (import ...) to load these profiles because our needs are slightly different, and we don't want a OS update to change the behavior of the sandbox.
+				;; See /System/Library/Sandbox/Profiles/system.sb for more info.
 
 				;; Deny everything by default.
 				(deny default)
@@ -281,8 +281,7 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 					(literal "/private/etc/services")
 					(subpath "/private/etc/ssl"))
 
-				(allow file-read* file-test-existence file-write-data file-ioctl
-       				(literal "/dev/dtracehelper"))
+				(allow file-read* file-test-existence file-write-data file-ioctl (literal "/dev/dtracehelper"))
 
 				;; Allow executing /usr/bin/env and /bin/sh.
 				(allow file-read* process-exec
@@ -361,17 +360,19 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 	// Allow write access to the home directory.
 	for mount in &command.mounts {
 		if mount.source != mount.target {
-			return Err(std::io::Error::other("sandbox requires mounts to have the same source and target path on Darwin targets"));
+			return Err(std::io::Error::other(
+				"sandbox requires mounts to have the same source and target path on Darwin targets",
+			));
 		}
 		let path = &mount.source;
 		if mount.readonly {
 			writedoc!(
 				profile,
 				r"
-                        (allow process-exec* (subpath {0}))
-                        (allow file-read* (path-ancestors {0}))
-                        (allow file-read* (subpath {0}))
-                ",
+					(allow process-exec* (subpath {0}))
+					(allow file-read* (path-ancestors {0}))
+					(allow file-read* (subpath {0}))
+				",
 				escape(path.as_os_str().as_bytes()),
 			)
 			.unwrap();
@@ -379,11 +380,11 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 			writedoc!(
 				profile,
 				r"
-                        (allow process-exec* (subpath {0}))
-                        (allow file-read* (path-ancestors {0}))
-                        (allow file-read* (subpath {0}))
-                        (allow file-write* (subpath {0}))
-                ",
+					(allow process-exec* (subpath {0}))
+					(allow file-read* (path-ancestors {0}))
+					(allow file-read* (subpath {0}))
+					(allow file-write* (subpath {0}))
+				",
 				escape(path.as_os_str().as_bytes()),
 			)
 			.unwrap();

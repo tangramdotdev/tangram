@@ -264,16 +264,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where id = old.child;
 			end;
 
-			create table ptys (
-				id text primary key,
-				created_at text not null,
-				window_size text
-			);
-			create table pipes (
-				id text primary key,
-				created_at text not null
-			);
-
 			create table processes (
 				cacheable integer not null,
 				checksum text,
@@ -412,6 +402,17 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				set reference_count = reference_count - 1
 				where id = old.object;
 			end;
+
+			create table pipes (
+				id text primary key,
+				created_at text not null
+			);
+
+			create table ptys (
+				id text primary key,
+				created_at text not null,
+				window_size text
+			);
 
 			create table remotes (
 				name text primary key,

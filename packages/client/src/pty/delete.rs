@@ -12,7 +12,6 @@ impl tg::Client {
 		let method = http::Method::DELETE;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/ptys/{id}?{query}");
-
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

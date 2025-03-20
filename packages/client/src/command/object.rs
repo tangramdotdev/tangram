@@ -1,7 +1,7 @@
 use super::Data;
 use crate as tg;
 use itertools::Itertools as _;
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Command {
@@ -169,16 +169,17 @@ impl Mount {
 		Ok(mount)
 	}
 
+	#[must_use]
 	pub fn object(&self) -> Vec<tg::Object> {
 		[self.source.clone().into()].into()
 	}
 }
 
-impl FromStr for Mount {
+impl std::str::FromStr for Mount {
 	type Err = tg::Error;
+
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		// Handle the full syntax supported by tg::process::Mount, rejecting read-write.
-		let s = if let Some((s, ro)) = s.split_once(",") {
+		let s = if let Some((s, ro)) = s.split_once(',') {
 			if ro == "ro" {
 				s
 			} else if ro == "rw" {
@@ -196,20 +197,16 @@ impl FromStr for Mount {
 		if !target.is_absolute() {
 			return Err(tg::error!(%target = target.display(), "expected an absolute path"));
 		}
-		let source = tg::Artifact::with_id(source.parse()?);
-		Ok(Self {
-			source,
-			target: target.into(),
-		})
+		let id = source.parse()?;
+		let source = tg::Artifact::with_id(id);
+		Ok(Self { source, target })
 	}
 }
 
 impl From<tg::command::data::Mount> for Mount {
 	fn from(data: tg::command::data::Mount) -> Self {
 		let source = tg::Artifact::with_id(data.source);
-		Self {
-			source,
-			target: data.target,
-		}
+		let target = data.target;
+		Self { source, target }
 	}
 }

@@ -1,4 +1,4 @@
-use crate::{self as tg};
+use crate as tg;
 use bytes::Bytes;
 use std::{
 	collections::{BTreeMap, BTreeSet},
@@ -94,6 +94,7 @@ impl Module {
 }
 
 impl Mount {
+	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		[self.source.clone().into()].into()
 	}

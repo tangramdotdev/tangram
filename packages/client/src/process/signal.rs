@@ -1,9 +1,10 @@
 use crate as tg;
-use std::{fmt, str::FromStr};
+use std::str::FromStr;
+
 pub mod get;
 pub mod post;
 
-#[derive(Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 #[repr(i32)]
 pub enum Signal {
 	SIGABRT = 6,
@@ -43,8 +44,8 @@ impl FromStr for Signal {
 	}
 }
 
-impl fmt::Display for Signal {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for Signal {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::SIGABRT => write!(f, "sigabrt"),
 			Self::SIGALRM => write!(f, "sigalrm"),

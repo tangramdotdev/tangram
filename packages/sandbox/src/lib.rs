@@ -13,24 +13,6 @@ mod darwin;
 mod linux;
 mod pty;
 
-pub enum MountKind {
-	Bind,
-}
-
-pub struct Overlay {
-	pub lowerdirs: Vec<PathBuf>,
-	pub upperdir: PathBuf,
-	pub workdir: PathBuf,
-	pub merged: PathBuf,
-	pub readonly: bool,
-}
-
-pub struct BindMount {
-	pub source: PathBuf,
-	pub target: PathBuf,
-	pub readonly: bool,
-}
-
 #[allow(dead_code)]
 pub struct Command {
 	args: Vec<OsString>,
@@ -79,6 +61,24 @@ pub struct Mount {
 	pub fstype: Option<OsString>,
 	pub flags: libc::c_ulong,
 	pub data: Option<Vec<u8>>,
+	pub readonly: bool,
+}
+
+pub enum MountKind {
+	Bind,
+}
+
+pub struct Overlay {
+	pub lowerdirs: Vec<PathBuf>,
+	pub upperdir: PathBuf,
+	pub workdir: PathBuf,
+	pub merged: PathBuf,
+	pub readonly: bool,
+}
+
+pub struct BindMount {
+	pub source: PathBuf,
+	pub target: PathBuf,
 	pub readonly: bool,
 }
 

@@ -18,7 +18,7 @@ impl Server {
 			let stream = remote
 				.try_get_process_signal_stream(id, arg)
 				.await?
-				.map(|stream| stream.boxed());
+				.map(futures::StreamExt::boxed);
 			return Ok(stream);
 		}
 

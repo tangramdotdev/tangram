@@ -68,7 +68,7 @@ impl Streams {
 	) -> Result<impl futures::Stream<Item = Message> + Send + 'static, Error> {
 		self.0
 			.get(&subject)
-			.ok_or_else(|| Error::NotFound)
+			.ok_or(Error::NotFound)
 			.map(|s| s.receiver.activate_cloned())
 	}
 }
@@ -85,6 +85,7 @@ impl Messenger {
 		Self(Arc::new(Inner { global, streams }))
 	}
 
+	#[must_use]
 	pub fn streams(&self) -> &Streams {
 		&self.streams
 	}

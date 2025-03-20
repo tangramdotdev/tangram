@@ -2,8 +2,8 @@ use bytes::Bytes;
 
 pub use self::id::Id;
 
-pub mod close;
 pub mod create;
+pub mod delete;
 pub mod get;
 pub mod id;
 pub mod post;

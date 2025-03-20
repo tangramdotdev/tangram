@@ -103,9 +103,7 @@ impl Data {
 		let mounts = self
 			.mounts
 			.iter()
-			.map(tg::process::data::Mount::children)
-			.into_iter()
-			.flatten();
+			.flat_map(tg::process::data::Mount::children);
 		std::iter::empty()
 			.chain(logs)
 			.chain(output)

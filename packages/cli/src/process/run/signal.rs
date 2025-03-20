@@ -1,7 +1,7 @@
-use futures::{StreamExt, future};
+use futures::{StreamExt as _, future};
 use std::{mem::MaybeUninit, os::fd::RawFd, pin::pin};
 use tangram_client as tg;
-use tokio::signal::unix::{SignalKind, signal};
+use tokio::signal::unix::SignalKind;
 use tokio_stream::wrappers::ReceiverStream;
 
 /// Handle sigwinch.
@@ -17,9 +17,10 @@ where
 	let tg::process::Io::Pty(pty) = io else {
 		return Ok(());
 	};
+
 	let (send, recv) = tokio::sync::mpsc::channel(1);
 
-	let mut signal = signal(SignalKind::window_change())
+	let mut signal = tokio::signal::unix::signal(SignalKind::window_change())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
 	tokio::task::spawn(async move {
 		while let Some(()) = signal.recv().await {
@@ -64,21 +65,21 @@ where
 	H: tg::Handle,
 {
 	// Create signal streams.
-	let mut alarm = signal(SignalKind::alarm())
+	let mut alarm = tokio::signal::unix::signal(SignalKind::alarm())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
-	let mut hangup = signal(SignalKind::hangup())
+	let mut hangup = tokio::signal::unix::signal(SignalKind::hangup())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
-	let mut interrupt = signal(SignalKind::interrupt())
+	let mut interrupt = tokio::signal::unix::signal(SignalKind::interrupt())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
-	let mut pipe = signal(SignalKind::pipe())
+	let mut pipe = tokio::signal::unix::signal(SignalKind::pipe())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
-	let mut quit = signal(SignalKind::quit())
+	let mut quit = tokio::signal::unix::signal(SignalKind::quit())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
-	let mut terminate = signal(SignalKind::terminate())
+	let mut terminate = tokio::signal::unix::signal(SignalKind::terminate())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
-	let mut user_defined1 = signal(SignalKind::user_defined1())
+	let mut user_defined1 = tokio::signal::unix::signal(SignalKind::user_defined1())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
-	let mut user_defined2 = signal(SignalKind::user_defined2())
+	let mut user_defined2 = tokio::signal::unix::signal(SignalKind::user_defined2())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
 
 	// Handle signals in a loop.

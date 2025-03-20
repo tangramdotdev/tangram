@@ -5,10 +5,10 @@ use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger as messenger;
 
 impl Server {
-	pub async fn delete_pty(&self, id: &tg::pty::Id, arg: tg::pty::close::Arg) -> tg::Result<()> {
+	pub async fn delete_pty(&self, id: &tg::pty::Id, arg: tg::pty::delete::Arg) -> tg::Result<()> {
 		if let Some(remote) = arg.remote {
 			let remote = self.get_remote_client(remote).await?;
-			return remote.delete_pty(id, tg::pty::close::Arg::default()).await;
+			return remote.delete_pty(id, tg::pty::delete::Arg::default()).await;
 		}
 		future::try_join(
 			self.send_pty_event(id, tg::pty::Event::End, true),

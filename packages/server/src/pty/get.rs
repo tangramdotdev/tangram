@@ -29,11 +29,11 @@ impl Server {
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
-			r#"
+			"
 				select window_size
 				from ptys
 				where id = {p}1;
-			"#
+			"
 		);
 		let params = db::params![id.to_string()];
 		let Some(row) = connection
@@ -92,9 +92,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "the pipe was closed or does not exist"))?
 			.map(|message| {
-				let event = serde_json::from_slice::<tg::pty::Event>(&message.payload)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"));
-				event
+				serde_json::from_slice::<tg::pty::Event>(&message.payload)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
 			})
 			.boxed();
 		Ok(stream)

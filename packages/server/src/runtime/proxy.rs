@@ -257,7 +257,7 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn delete_pty(&self, _id: &tg::pty::Id, _arg: tg::pty::close::Arg) -> tg::Result<()> {
+	async fn delete_pty(&self, _id: &tg::pty::Id, _arg: tg::pty::delete::Arg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 

@@ -1290,7 +1290,7 @@ impl tg::Handle for Server {
 	fn delete_pty(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::close::Arg,
+		arg: tg::pty::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.delete_pty(id, arg)
 	}

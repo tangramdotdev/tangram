@@ -1,11 +1,13 @@
+use self::stdio::Stdio;
 use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
 use signal::handle_signals;
-use std::io::{IsTerminal, Read};
-use std::pin::pin;
-use stdio::Stdio;
+use std::{
+	io::{IsTerminal, Read},
+	pin::pin,
+};
 use tangram_client as tg;
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use tokio_stream::wrappers::ReceiverStream;
@@ -47,11 +49,11 @@ impl Cli {
 		// Get the reference.
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
-		// Open pipes. This has to happen first to avoid leaving pipes dangling if run_inner fails.
 		let remote = args.options.spawn.remote.clone().flatten();
 
+		// Create the stdio.
 		let stdio = self
-			.init_stdio(remote, args.options.detach)
+			.create_stdio(remote, args.options.detach)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
 
@@ -74,8 +76,6 @@ impl Cli {
 
 		// Print a value if it exists and is non-null.
 		if let Some(value) = output.output {
-			let value =
-				tg::Value::try_from(value).map_err(|_| tg::error!("failed to get value"))?;
 			if !value.is_null() {
 				let stdout = std::io::stdout();
 				let output = if stdout.is_terminal() {
@@ -246,15 +246,14 @@ impl Cli {
 }
 
 fn fork_and_exit(code: i32) -> std::io::Result<()> {
-	unsafe {
-		let pid = libc::fork();
-		if pid < 0 {
-			return Err(std::io::Error::last_os_error());
-		} else if pid == 0 {
-			return Ok(());
-		} else {
-			std::process::exit(code)
-		}
+	let pid = unsafe { libc::fork() };
+	if pid < 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	if pid == 0 {
+		Ok(())
+	} else {
+		std::process::exit(code);
 	}
 }
 
@@ -352,7 +351,6 @@ fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
 		}
 	});
 
-	// Convert to a stream.
 	ReceiverStream::new(recv)
 }
 

@@ -139,7 +139,7 @@ impl Server {
 			arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.host,
 			arg.data.log,
-			(!arg.data.mounts.is_empty()).then(|| db::value::Json(arg.data.mounts)),
+			(!arg.data.mounts.is_empty()).then_some(db::value::Json(arg.data.mounts)),
 			arg.data.network,
 			arg.data.output.as_ref().map(db::value::Json),
 			arg.data.retry,
@@ -392,10 +392,7 @@ impl Server {
 						&[
 							&id.to_string(),
 							&positions.as_slice(),
-							&children
-								.iter()
-								.map(|child| child.to_string())
-								.collect::<Vec<_>>(),
+							&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
 						],
 					)
 					.await
@@ -434,10 +431,7 @@ impl Server {
 					statement,
 					&[
 						&id.to_string(),
-						&objects
-							.iter()
-							.map(|object| object.to_string())
-							.collect::<Vec<_>>(),
+						&objects.iter().map(ToString::to_string).collect::<Vec<_>>(),
 					],
 				)
 				.await

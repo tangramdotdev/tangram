@@ -1,13 +1,11 @@
+use super::signal::handle_sigwinch;
+use crate::Cli;
 use std::{
-	io::IsTerminal,
+	io::IsTerminal as _,
 	mem::MaybeUninit,
-	os::fd::{AsRawFd, RawFd},
+	os::fd::{AsRawFd as _, RawFd},
 };
 use tangram_client as tg;
-
-use crate::Cli;
-
-use super::signal::handle_sigwinch;
 
 pub struct Stdio {
 	pub termios: Option<(RawFd, libc::termios)>,
@@ -17,45 +15,8 @@ pub struct Stdio {
 	pub stderr: tg::process::Io,
 }
 
-impl Stdio {
-	pub fn delete_io(&self, handle: &impl tg::Handle) {
-		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
-		let handle = handle.clone();
-		let remote = self.remote.clone();
-		tokio::spawn(async move {
-			for io in &io {
-				match io {
-					tg::process::Io::Pipe(id) => {
-						let arg = tg::pipe::delete::Arg {
-							remote: remote.clone(),
-						};
-						handle.delete_pipe(id, arg).await.ok();
-					},
-					tg::process::Io::Pty(id) => {
-						let arg = tg::pty::close::Arg {
-							remote: remote.clone(),
-						};
-						handle.delete_pty(id, arg).await.ok();
-					},
-				}
-			}
-		});
-	}
-}
-
-impl Drop for Stdio {
-	fn drop(&mut self) {
-		let Some((fd, termios)) = self.termios.take() else {
-			return;
-		};
-		unsafe {
-			libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(termios));
-		}
-	}
-}
-
 impl Cli {
-	pub(crate) async fn init_stdio(
+	pub(crate) async fn create_stdio(
 		&self,
 		remote: Option<String>,
 		detached: bool,
@@ -220,13 +181,50 @@ fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg:
 		}
 		let window_size = window_size.assume_init();
 
-		// Return.
+		// Create the window size.
 		let window_size = tg::pty::WindowSize {
 			cols: window_size.ws_col,
 			rows: window_size.ws_row,
 			xpos: window_size.ws_xpixel,
 			ypos: window_size.ws_ypixel,
 		};
+
 		Ok((termios, window_size))
+	}
+}
+
+impl Stdio {
+	pub fn delete_io(&self, handle: &impl tg::Handle) {
+		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
+		let handle = handle.clone();
+		let remote = self.remote.clone();
+		tokio::spawn(async move {
+			for io in &io {
+				match io {
+					tg::process::Io::Pipe(id) => {
+						let arg = tg::pipe::delete::Arg {
+							remote: remote.clone(),
+						};
+						handle.delete_pipe(id, arg).await.ok();
+					},
+					tg::process::Io::Pty(id) => {
+						let arg = tg::pty::delete::Arg {
+							remote: remote.clone(),
+						};
+						handle.delete_pty(id, arg).await.ok();
+					},
+				}
+			}
+		});
+	}
+}
+
+impl Drop for Stdio {
+	fn drop(&mut self) {
+		if let Some((fd, termios)) = self.termios.take() {
+			unsafe {
+				libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(termios));
+			}
+		}
 	}
 }

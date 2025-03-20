@@ -17,9 +17,10 @@ impl Server {
 			return remote.create_pipe(arg).await;
 		}
 
-		// Create the pipe data.
+		// Create the pipe ID.
 		let id = tg::pipe::Id::new();
 
+		// Insert the pipe.
 		let connection = self
 			.database
 			.write_connection()
@@ -27,16 +28,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			r#"
-				insert into pipes (
-					id,
-					created_at
-				)
-				values (
-					{p}1,
-					{p}2
-				);
-			"#
+			"
+				insert into pipes (id, created_at)
+				values ({p}1, {p}2);
+			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
 		let params = params![id.to_string(), now];
@@ -47,21 +42,23 @@ impl Server {
 
 		match &self.messenger {
 			Either::Left(messenger) => {
-				self.create_pipe_in_memory(messenger, &id)
+				self.create_pipe_memory(messenger, &id)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+					.map_err(|source| tg::error!(!source, "failed to create the pipe"))?;
 			},
 			Either::Right(messenger) => {
 				self.create_pipe_nats(messenger, &id)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+					.map_err(|source| tg::error!(!source, "failed to create the pipe"))?;
 			},
 		}
+
 		let output = tg::pipe::create::Output { id };
+
 		Ok(output)
 	}
 
-	async fn create_pipe_in_memory(
+	async fn create_pipe_memory(
 		&self,
 		messenger: &messenger::memory::Messenger,
 		id: &tg::pipe::Id,
@@ -70,7 +67,7 @@ impl Server {
 			.streams()
 			.create_stream(id.to_string())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create pipe"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the pipe"))?;
 		Ok(())
 	}
 
@@ -89,7 +86,9 @@ impl Server {
 			.jetstream
 			.create_stream(stream_config)
 			.await
-			.map_err(|source| tg::error!(!source, ?stream_name, "failed to get the pipe stream"))?;
+			.map_err(|source| {
+				tg::error!(!source, ?stream_name, "failed to create the pipe stream")
+			})?;
 		Ok(())
 	}
 }

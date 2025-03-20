@@ -1,6 +1,5 @@
 use crate as tg;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Clone, Debug)]
 pub struct Mount {
@@ -75,8 +74,9 @@ impl From<tg::process::data::Mount> for Mount {
 
 impl FromStr for Mount {
 	type Err = tg::Error;
+
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let (s, readonly) = if let Some((s, ro)) = s.split_once(",") {
+		let (s, readonly) = if let Some((s, ro)) = s.split_once(',') {
 			if ro == "ro" {
 				(s, Some(true))
 			} else if ro == "rw" {
@@ -106,10 +106,9 @@ impl FromStr for Mount {
 			},
 			(Source::Path(_), readonly) => readonly.unwrap_or(false),
 		};
-
 		Ok(Self {
 			source,
-			target: target.into(),
+			target,
 			readonly,
 		})
 	}

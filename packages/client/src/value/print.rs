@@ -549,7 +549,7 @@ where
 					s.start_map()?;
 					s.map_entry("source", |s| s.artifact(&mount.source))?;
 					s.map_entry("target", |s| {
-						s.string(&mount.target.to_string_lossy().to_string())
+						s.string(mount.target.to_string_lossy().as_ref())
 					})?;
 					s.finish_map()?;
 				}
