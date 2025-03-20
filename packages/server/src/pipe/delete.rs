@@ -9,12 +9,15 @@ impl Server {
 		id: &tg::pipe::Id,
 		arg: tg::pipe::delete::Arg,
 	) -> tg::Result<()> {
+		eprintln!("DELETE /pipes/{id}");
+
 		if let Some(remote) = arg.remote {
 			let remote = self.get_remote_client(remote).await?;
 			return remote
 				.delete_pipe(id, tg::pipe::delete::Arg::default())
 				.await;
 		}
+		self.send_pipe_event(id, tg::pipe::Event::End).await.ok();
 		match &self.messenger {
 			Messenger::Left(m) => self.delete_pipe_memory(m, id).await?,
 			Messenger::Right(m) => self.delete_pipe_nats(m, id).await?,

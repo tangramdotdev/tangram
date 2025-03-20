@@ -41,15 +41,18 @@ impl Streams {
 			.get(&subject)
 			.ok_or(Error::NotFound)?
 			.sender
-			.broadcast(Message { subject, payload })
+			.broadcast_direct(Message { subject, payload })
 			.await
+			.inspect_err(|_msg| eprintln!("send error: {_msg}"))
 			.ok();
 		Ok(())
 	}
 
 	pub async fn create_stream(&self, subject: String) -> Result<(), Error> {
 		self.0.entry(subject).or_insert_with(|| {
-			let (sender, receiver) = async_broadcast::broadcast(128);
+			let (mut sender, receiver) = async_broadcast::broadcast(128);
+			sender.set_await_active(false);
+			sender.set_overflow(false);
 			let receiver = receiver.deactivate();
 			Stream { sender, receiver }
 		});

@@ -6,16 +6,12 @@ use tangram_messenger as messenger;
 
 impl Server {
 	pub async fn delete_pty(&self, id: &tg::pty::Id, arg: tg::pty::delete::Arg) -> tg::Result<()> {
+		eprintln!("DELETE /ptys/{id}");
 		if let Some(remote) = arg.remote {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.delete_pty(id, tg::pty::delete::Arg::default()).await;
 		}
-		future::try_join(
-			self.send_pty_event(id, tg::pty::Event::End, true),
-			self.send_pty_event(id, tg::pty::Event::End, false),
-		)
-		.await
-		.ok();
+		self.send_pty_event(id, tg::pty::Event::End, false).await.ok();
 		match &self.messenger {
 			Messenger::Left(m) => self.delete_pty_in_memory(m, id).await?,
 			Messenger::Right(m) => self.delete_pty_nats(m, id).await?,
