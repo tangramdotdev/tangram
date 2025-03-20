@@ -616,7 +616,7 @@ where
 				bavail: u64::MAX / 2,
 				files: u64::MAX / 2,
 				ffree: u64::MAX / 2,
-				bsize: 0,
+				bsize: 65536,
 				namelen: u32::MAX,
 				frsize: 1024,
 				padding: 0,
@@ -649,7 +649,7 @@ where
 			flags: request.getattr_flags,
 			spare: [0; 2],
 			stat: sys::fuse_statx {
-				mask: 0,
+				mask: 0xffff_ffff,
 				ino: attr.attr.ino,
 				size: attr.attr.size,
 				blocks: attr.attr.blocks,

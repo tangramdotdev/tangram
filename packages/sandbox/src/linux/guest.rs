@@ -163,7 +163,7 @@ fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
 			match (*ptr.add(n), esc) {
 				(SLASH, false) => {
 					*ptr.add(n) = 0;
-					libc::mkdir(target.as_ptr(), libc::O_RDWR as _);
+					libc::mkdir(target.as_ptr(), 0o755);
 					*ptr.add(n) = SLASH;
 				},
 				(BACKSLASH, false) => {
@@ -178,9 +178,9 @@ fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
 			}
 		}
 		if is_dir {
-			libc::mkdir(target.as_ptr(), libc::O_RDWR as _);
+			libc::mkdir(target.as_ptr(), 0o755);
 		} else {
-			libc::creat(target.as_ptr(), libc::O_RDWR as _);
+			libc::creat(target.as_ptr(), 0o777);
 		}
 	}
 }

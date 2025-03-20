@@ -430,7 +430,7 @@ impl Runtime {
 							upperdir,
 							workdir,
 							merged: mount.target.clone(),
-							readonly: mount.readonly,
+							readonly: false,
 						});
 						overlays.last_mut().unwrap()
 					};
@@ -484,9 +484,12 @@ impl Runtime {
 				.into(),
 			);
 			instance.mounts.push(
-				sandbox::BindMount {
+				sandbox::Mount {
 					source: self.server.artifacts_path(),
 					target: "/.tangram/artifacts".into(),
+					fstype: None,
+					flags: libc::MS_BIND | libc::MS_REC,
+					data: None,
 					readonly: false,
 				}
 				.into(),
