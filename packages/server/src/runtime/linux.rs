@@ -492,7 +492,7 @@ impl Runtime {
 				sandbox::BindMount {
 					source: self.server.artifacts_path(),
 					target: "/.tangram/artifacts".into(),
-					readonly: true,
+					readonly: false,
 				}
 				.into(),
 			);

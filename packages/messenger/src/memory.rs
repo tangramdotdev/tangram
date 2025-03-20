@@ -43,7 +43,6 @@ impl Streams {
 			.sender
 			.broadcast_direct(Message { subject: subject.clone(), payload })
 			.await
-			.inspect_err(|_msg| eprintln!("publish {subject}: {_msg}"))
 			.ok();
 		Ok(())
 	}
