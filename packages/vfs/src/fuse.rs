@@ -18,7 +18,6 @@ use std::{
 	path::Path,
 	pin::pin,
 	sync::{Arc, Mutex},
-	u64,
 };
 use sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in};
 use tangram_futures::task::{Stop, Task};

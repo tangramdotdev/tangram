@@ -88,10 +88,6 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdout: Option<tg::process::Io>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Rfc3339>")]
-	pub touched_at: Option<time::OffsetDateTime>,
 }
 
 impl Data {

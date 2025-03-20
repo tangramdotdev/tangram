@@ -77,9 +77,6 @@ impl Server {
 			stdin: Option<tg::process::Io>,
 			#[serde(default)]
 			stdout: Option<tg::process::Io>,
-			#[serde(default)]
-			#[serde_as(as = "Option<Rfc3339>")]
-			touched_at: Option<time::OffsetDateTime>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -107,8 +104,7 @@ impl Server {
 					status,
 					stderr,
 					stdin,
-					stdout,
-					touched_at
+					stdout
 				from processes
 				where id = {p}1;
 			"
@@ -144,7 +140,6 @@ impl Server {
 				stderr: row.stderr,
 				stdin: row.stdin,
 				stdout: row.stdout,
-				touched_at: row.touched_at,
 			};
 			tg::process::get::Output { data }
 		});

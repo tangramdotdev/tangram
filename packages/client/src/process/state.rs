@@ -25,7 +25,6 @@ pub struct State {
 	pub stderr: Option<tg::process::Io>,
 	pub stdin: Option<tg::process::Io>,
 	pub stdout: Option<tg::process::Io>,
-	pub touched_at: Option<time::OffsetDateTime>,
 }
 
 impl TryFrom<tg::process::Data> for tg::process::State {
@@ -59,7 +58,6 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let stderr = value.stderr;
 		let stdin = value.stdin;
 		let stdout = value.stdout;
-		let touched_at = value.touched_at;
 		Ok(State {
 			cacheable,
 			checksum,
@@ -83,7 +81,6 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			stderr,
 			stdin,
 			stdout,
-			touched_at,
 		})
 	}
 }
