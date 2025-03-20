@@ -30,7 +30,7 @@ impl Stdio {
 						handle.delete_pipe(id, arg).await.ok();
 					},
 					tg::process::Io::Pty(id) => {
-						let arg = tg::pty::close::Arg {
+						let arg = tg::pty::delete::Arg {
 							remote: remote.clone(),
 						};
 						handle.delete_pty(id, arg).await.ok();

@@ -1,12 +1,10 @@
 use crate::{Server, messenger::Messenger};
-use futures::future;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger as messenger;
 
 impl Server {
 	pub async fn delete_pty(&self, id: &tg::pty::Id, arg: tg::pty::delete::Arg) -> tg::Result<()> {
-		eprintln!("DELETE /ptys/{id}");
 		if let Some(remote) = arg.remote {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.delete_pty(id, tg::pty::delete::Arg::default()).await;
