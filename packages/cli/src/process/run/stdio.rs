@@ -1,5 +1,5 @@
 use super::{Options, signal::handle_sigwinch};
-use crate::{Cli, process::spawn};
+use crate::Cli;
 use std::{
 	io::IsTerminal as _,
 	mem::MaybeUninit,
@@ -136,43 +136,6 @@ impl Cli {
 	}
 }
 
-impl Stdio {
-	pub fn delete_io(&self, handle: &impl tg::Handle) {
-		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
-		let handle = handle.clone();
-		let remote = self.remote.clone();
-		// tokio::spawn(async move {
-		for io in &io {
-			match io {
-				tg::process::Io::Pipe(id) => {
-					let arg = tg::pipe::delete::Arg {
-						remote: remote.clone(),
-					};
-					handle.delete_pipe(id, arg).await.ok();
-				},
-				tg::process::Io::Pty(id) => {
-					let arg = tg::pty::delete::Arg {
-						remote: remote.clone(),
-					};
-					handle.delete_pty(id, arg).await.ok();
-				},
-			}
-		}
-		// });
-	}
-}
-
-impl Drop for Stdio {
-	fn drop(&mut self) {
-		let Some((fd, termios)) = self.termios.take() else {
-			return;
-		};
-		unsafe {
-			libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(termios));
-		}
-	}
-}
-
 async fn create<H>(
 	handle: &H,
 	remote: Option<String>,
@@ -227,5 +190,42 @@ fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg:
 		};
 
 		Ok((termios, window_size))
+	}
+}
+
+impl Stdio {
+	pub fn delete_io(&self, handle: &impl tg::Handle) {
+		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
+		let handle = handle.clone();
+		let remote = self.remote.clone();
+		tokio::spawn(async move {
+			for io in &io {
+				match io {
+					tg::process::Io::Pipe(id) => {
+						let arg = tg::pipe::delete::Arg {
+							remote: remote.clone(),
+						};
+						handle.delete_pipe(id, arg).await.ok();
+					},
+					tg::process::Io::Pty(id) => {
+						let arg = tg::pty::delete::Arg {
+							remote: remote.clone(),
+						};
+						handle.delete_pty(id, arg).await.ok();
+					},
+				}
+			}
+		});
+	}
+}
+
+impl Drop for Stdio {
+	fn drop(&mut self) {
+		let Some((fd, termios)) = self.termios.take() else {
+			return;
+		};
+		unsafe {
+			libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(termios));
+		}
 	}
 }
