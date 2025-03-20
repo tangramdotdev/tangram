@@ -66,8 +66,14 @@ impl Runtime {
 				.await?
 				.children()
 				.into_iter()
-				.filter_map(|id| id.try_into().ok())
-				.map(tg::Artifact::with_id)
+				.filter_map(|id| Some(tg::Artifact::with_id(id.try_into().ok()?)))
+				.chain(state.mounts.iter().filter_map(|mount| {
+					if let tg::process::mount::Source::Artifact(artifact) = &mount.source {
+						Some(artifact.clone())
+					} else {
+						None
+					}
+				}))
 				.map(|artifact| async move {
 					let arg = tg::artifact::checkout::Arg::default();
 					artifact.check_out(&self.server, arg).await?;
@@ -413,13 +419,10 @@ impl Runtime {
 				tg::error!(!source, %path = path.display(), "failed to create the tangram proxy directory")
 			})?;
 
-
 		// Create the home path.
 		tokio::fs::create_dir_all(&instance.homedir())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-
-
 
 		// Create the output path.
 		tokio::fs::create_dir_all(&instance.outdir())
@@ -586,7 +589,9 @@ impl Runtime {
 			}
 		}
 
-		instance.mounts.sort_unstable_by_key(|m| m.target.components().count());
+		instance
+			.mounts
+			.sort_unstable_by_key(|m| m.target.components().count());
 
 		// Return the instance.
 		Ok(instance)

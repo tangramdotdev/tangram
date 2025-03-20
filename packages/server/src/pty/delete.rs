@@ -1,4 +1,5 @@
 use crate::{Server, messenger::Messenger};
+use futures::future;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger as messenger;
@@ -9,6 +10,12 @@ impl Server {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.delete_pty(id, tg::pty::close::Arg::default()).await;
 		}
+		future::try_join(
+			self.send_pty_event(id, tg::pty::Event::End, true),
+			self.send_pty_event(id, tg::pty::Event::End, false),
+		)
+		.await
+		.ok();
 		match &self.messenger {
 			Messenger::Left(m) => self.delete_pty_in_memory(m, id).await?,
 			Messenger::Right(m) => self.delete_pty_nats(m, id).await?,
