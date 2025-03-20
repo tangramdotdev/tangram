@@ -11,9 +11,7 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
-use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
-
-mod lockfile;
+use tokio_util::task::AbortOnDropHandle;
 
 struct State {
 	artifact: tg::artifact::Id,
@@ -22,7 +20,7 @@ struct State {
 	graphs: HashMap<tg::graph::Id, tg::graph::Data, fnv::FnvBuildHasher>,
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::artifact::checkout::Output>,
-	visited_dependencies: HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
+	visited: HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -67,10 +65,9 @@ impl Server {
 					Some(0),
 					weight,
 				);
-				let result =
-					AssertUnwindSafe(server.check_out_artifact_new(artifact, arg, &progress))
-						.catch_unwind()
-						.await;
+				let result = AssertUnwindSafe(server.check_out_task(artifact, arg, &progress))
+					.catch_unwind()
+					.await;
 				progress.finish("objects");
 				progress.finish("bytes");
 				match result {
@@ -95,7 +92,7 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn check_out_artifact_new(
+	async fn check_out_task(
 		&self,
 		artifact: tg::artifact::Id,
 		arg: tg::artifact::checkout::Arg,
@@ -104,7 +101,7 @@ impl Server {
 		// Get the path.
 		let Some(path) = arg.path.clone() else {
 			if !self.vfs.lock().unwrap().is_some() {
-				self.cache_artifact(artifact.clone(), progress)
+				self.cache_artifact(&artifact, progress)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
 			}
@@ -139,7 +136,25 @@ impl Server {
 			let server = self.clone();
 			let path = path.clone();
 			let progress = progress.clone();
-			move || server.check_out_artifact_task_new(artifact, path, artifacts_path, progress)
+			move || {
+				// Create the state.
+				let mut state = State {
+					artifact,
+					artifacts_path,
+					artifacts_path_created: false,
+					graphs: HashMap::default(),
+					path,
+					progress,
+					visited: HashSet::default(),
+				};
+
+				// Check out the artifact.
+				let artifact = Either::Right(state.artifact.clone());
+				let path = state.path.clone();
+				server.check_out_inner(&mut state, artifact, path)?;
+
+				Ok::<_, tg::Error>(())
+			}
 		});
 		let abort_handle = task.abort_handle();
 		scopeguard::defer! {
@@ -152,39 +167,13 @@ impl Server {
 		Ok(output)
 	}
 
-	fn check_out_artifact_task_new(
-		&self,
-		artifact: tg::artifact::Id,
-		path: PathBuf,
-		artifacts_path: Option<PathBuf>,
-		progress: crate::progress::Handle<tg::artifact::checkout::Output>,
-	) -> tg::Result<()> {
-		// Create the state.
-		let mut state = State {
-			artifact,
-			artifacts_path,
-			artifacts_path_created: false,
-			graphs: HashMap::default(),
-			path,
-			progress,
-			visited_dependencies: HashSet::default(),
-		};
-
-		// Check out the artifact.
-		let artifact = Either::Right(state.artifact.clone());
-		let path = state.path.clone();
-		self.check_out_artifact_inner_new(&mut state, artifact, path)?;
-
-		Ok(())
-	}
-
-	fn check_out_artifact_dependency(
+	fn check_out_dependency(
 		&self,
 		state: &mut State,
 		id: &tg::artifact::Id,
 		artifact: Either<(tg::graph::Id, usize), tg::artifact::Id>,
 	) -> tg::Result<()> {
-		if !state.visited_dependencies.insert(id.clone()) {
+		if !state.visited.insert(id.clone()) {
 			return Ok(());
 		}
 		let artifacts_path = state
@@ -198,11 +187,11 @@ impl Server {
 			state.artifacts_path_created = true;
 		}
 		let path = artifacts_path.join(id.to_string());
-		self.check_out_artifact_inner_new(state, artifact, path)?;
+		self.check_out_inner(state, artifact, path)?;
 		Ok(())
 	}
 
-	fn check_out_artifact_inner_new(
+	fn check_out_inner(
 		&self,
 		state: &mut State,
 		artifact: Either<(tg::graph::Id, usize), tg::artifact::Id>,
@@ -214,10 +203,10 @@ impl Server {
 			Either::Left((graph, node)) => {
 				if !state.graphs.contains_key(&graph) {
 					let data = match &self.store {
-						crate::Store::Memory(store) => {
+						crate::Store::Lmdb(store) => {
 							store.try_get_object_data(&graph.clone().into())?
 						},
-						crate::Store::Lmdb(store) => {
+						crate::Store::Memory(store) => {
 							store.try_get_object_data(&graph.clone().into())?
 						},
 						_ => return Err(tg::error!("not yet implemented")),
@@ -233,8 +222,8 @@ impl Server {
 			// Otherwise, get the artifact's data.
 			Either::Right(id) => {
 				let data = match &self.store {
-					crate::Store::Memory(store) => store.try_get_object_data(&id.into())?,
 					crate::Store::Lmdb(store) => store.try_get_object_data(&id.into())?,
+					crate::Store::Memory(store) => store.try_get_object_data(&id.into())?,
 					_ => return Err(tg::error!("not yet implemented")),
 				}
 				.ok_or_else(|| tg::error!("failed to get the value"))?;
@@ -246,17 +235,17 @@ impl Server {
 		// Check out the artifact.
 		match data {
 			Either::Left((graph, node)) => {
-				self.check_out_artifact_inner_graph_new(state, path, &graph, node)?;
+				self.check_out_inner_graph(state, path, &graph, node)?;
 			},
 			Either::Right(data) => {
-				self.check_out_artifact_inner_data_new(state, path, data)?;
+				self.check_out_inner_data(state, path, data)?;
 			},
 		}
 
 		Ok(())
 	}
 
-	fn check_out_artifact_inner_graph_new(
+	fn check_out_inner_graph(
 		&self,
 		state: &mut State,
 		path: PathBuf,
@@ -273,19 +262,20 @@ impl Server {
 			.clone();
 		match node {
 			tg::graph::data::Node::Directory(directory) => {
-				self.check_out_artifact_inner_graph_directory_new(state, path, graph, &directory)?;
+				self.check_out_inner_graph_directory(state, path, graph, &directory)?;
 			},
 			tg::graph::data::Node::File(file) => {
-				self.check_out_artifact_inner_graph_file_new(state, path, graph, file)?;
+				self.check_out_inner_graph_file(state, path, graph, file)?;
 			},
 			tg::graph::data::Node::Symlink(symlink) => {
-				self.check_out_artifact_inner_graph_symlink_new(state, path, graph, symlink)?;
+				self.check_out_inner_graph_symlink(state, path, graph, symlink)?;
 			},
 		}
 		Ok(())
 	}
 
-	fn check_out_artifact_inner_graph_directory_new(
+	#[allow(clippy::needless_pass_by_value)]
+	fn check_out_inner_graph_directory(
 		&self,
 		state: &mut State,
 		path: PathBuf,
@@ -296,12 +286,12 @@ impl Server {
 		for (name, artifact) in &directory.entries {
 			let artifact = artifact.clone().map_left(|node| (graph.clone(), node));
 			let path = path.join(name);
-			self.check_out_artifact_inner_new(state, artifact, path)?;
+			self.check_out_inner(state, artifact, path)?;
 		}
 		Ok(())
 	}
 
-	fn check_out_artifact_inner_graph_file_new(
+	fn check_out_inner_graph_file(
 		&self,
 		state: &mut State,
 		path: PathBuf,
@@ -352,7 +342,7 @@ impl Server {
 					Err(_) => continue,
 				},
 			};
-			if id != state.artifact && state.visited_dependencies.insert(id.clone()) {
+			if id != state.artifact && state.visited.insert(id.clone()) {
 				let artifact = match &referent.item {
 					Either::Left(node) => Either::Left((graph.clone(), *node)),
 					Either::Right(id) => match tg::artifact::Id::try_from(id.clone()) {
@@ -360,7 +350,7 @@ impl Server {
 						Err(_) => continue,
 					},
 				};
-				self.check_out_artifact_dependency(state, &id, artifact)?;
+				self.check_out_dependency(state, &id, artifact)?;
 			}
 		}
 
@@ -386,17 +376,12 @@ impl Server {
 		if !done {
 			let server = self.clone();
 			let path = path.clone();
-			let progress = state.progress.clone();
 			let future = async move {
 				let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
-				let reader = tg::Blob::with_id(contents)
+				let mut reader = tg::Blob::with_id(contents)
 					.read(&server, tg::blob::read::Arg::default())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
-				let mut reader = InspectReader::new(reader, |slice| {
-					// output.progress.bytes += slice.len().to_u64().unwrap();
-					// progress.increment("bytes", slice.len() as u64);
-				});
 				let mut file_ = tokio::fs::File::create(&path)
 					.await
 					.map_err(|source| tg::error!(!source, ?path, "failed to create the file"))?;
@@ -429,7 +414,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn check_out_artifact_inner_graph_symlink_new(
+	fn check_out_inner_graph_symlink(
 		&self,
 		state: &mut State,
 		path: PathBuf,
@@ -478,7 +463,7 @@ impl Server {
 				};
 				if id != state.artifact {
 					let artifact = artifact.clone().map_left(|node| (graph.clone(), node));
-					self.check_out_artifact_dependency(state, &id, artifact)?;
+					self.check_out_dependency(state, &id, artifact)?;
 				}
 
 				// Render the target.
@@ -510,7 +495,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn check_out_artifact_inner_data_new(
+	fn check_out_inner_data(
 		&self,
 		state: &mut State,
 		path: PathBuf,
@@ -518,19 +503,19 @@ impl Server {
 	) -> tg::Result<()> {
 		match data {
 			tg::artifact::Data::Directory(directory) => {
-				self.check_out_artifact_inner_data_directory_new(state, path, directory)?;
+				self.check_out_inner_data_directory(state, path, directory)?;
 			},
 			tg::artifact::Data::File(file) => {
-				self.check_out_artifact_inner_data_file_new(state, path, file)?;
+				self.check_out_inner_data_file(state, path, file)?;
 			},
 			tg::artifact::Data::Symlink(symlink) => {
-				self.check_out_artifact_inner_data_symlink_new(state, path, symlink)?;
+				self.check_out_inner_data_symlink(state, path, symlink)?;
 			},
 		}
 		Ok(())
 	}
 
-	fn check_out_artifact_inner_data_directory_new(
+	fn check_out_inner_data_directory(
 		&self,
 		state: &mut State,
 		path: PathBuf,
@@ -539,21 +524,21 @@ impl Server {
 		match directory {
 			tg::directory::Data::Graph { graph, node } => {
 				let artifact = Either::Left((graph, node));
-				self.check_out_artifact_inner_new(state, artifact, path)?;
+				self.check_out_inner(state, artifact, path)?;
 			},
 			tg::directory::Data::Normal { entries } => {
 				std::fs::create_dir_all(&path).unwrap();
 				for (name, id) in entries {
 					let artifact = Either::Right(id.clone());
 					let path = path.join(name);
-					self.check_out_artifact_inner_new(state, artifact, path)?;
+					self.check_out_inner(state, artifact, path)?;
 				}
 			},
 		}
 		Ok(())
 	}
 
-	fn check_out_artifact_inner_data_file_new(
+	fn check_out_inner_data_file(
 		&self,
 		state: &mut State,
 		path: PathBuf,
@@ -562,7 +547,7 @@ impl Server {
 		match file {
 			tg::file::Data::Graph { graph, node } => {
 				let artifact = Either::Left((graph, node));
-				self.check_out_artifact_inner_new(state, artifact, path)?;
+				self.check_out_inner(state, artifact, path)?;
 			},
 			tg::file::Data::Normal {
 				contents,
@@ -574,9 +559,9 @@ impl Server {
 					let Ok(id) = tg::artifact::Id::try_from(referent.item.clone()) else {
 						continue;
 					};
-					if id != state.artifact && state.visited_dependencies.insert(id.clone()) {
+					if id != state.artifact && state.visited.insert(id.clone()) {
 						let artifact = Either::Right(id.clone());
-						self.check_out_artifact_dependency(state, &id, artifact)?;
+						self.check_out_dependency(state, &id, artifact)?;
 					}
 				}
 
@@ -602,21 +587,16 @@ impl Server {
 				if !done {
 					let server = self.clone();
 					let path = path.clone();
-					let progress = state.progress.clone();
 					let future = async move {
 						let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
-						let reader = tg::Blob::with_id(contents)
+						let mut reader = tg::Blob::with_id(contents)
 							.read(&server, tg::blob::read::Arg::default())
 							.await
 							.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
-						let mut reader = InspectReader::new(reader, |slice| {
-							// output.progress.bytes += slice.len().to_u64().unwrap();
-							// progress.increment("bytes", slice.len() as u64);
-						});
-						let mut file_ = tokio::fs::File::create(&path).await.map_err(|source| {
+						let mut file = tokio::fs::File::create(&path).await.map_err(|source| {
 							tg::error!(!source, ?path, "failed to create the file")
 						})?;
-						tokio::io::copy(&mut reader, &mut file_).await.map_err(
+						tokio::io::copy(&mut reader, &mut file).await.map_err(
 							|source| tg::error!(!source, ?path = path, "failed to write to the file"),
 						)?;
 						Ok::<_, tg::Error>(())
@@ -646,7 +626,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn check_out_artifact_inner_data_symlink_new(
+	fn check_out_inner_data_symlink(
 		&self,
 		state: &mut State,
 		path: PathBuf,
@@ -655,7 +635,7 @@ impl Server {
 		match symlink {
 			tg::symlink::Data::Graph { graph, node } => {
 				let artifact = Either::Left((graph, node));
-				self.check_out_artifact_inner_new(state, artifact, path)?;
+				self.check_out_inner(state, artifact, path)?;
 			},
 			tg::symlink::Data::Target { target } => {
 				std::os::unix::fs::symlink(target, path)
@@ -664,11 +644,7 @@ impl Server {
 			tg::symlink::Data::Artifact { artifact, subpath } => {
 				// Check out the artifact.
 				if artifact != state.artifact {
-					self.check_out_artifact_dependency(
-						state,
-						&artifact,
-						Either::Right(artifact.clone()),
-					)?;
+					self.check_out_dependency(state, &artifact, Either::Right(artifact.clone()))?;
 				}
 
 				// Render the target.

@@ -40,6 +40,7 @@ pub struct File {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
 pub enum Symlink {
 	Target {
 		target: PathBuf,

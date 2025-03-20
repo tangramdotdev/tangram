@@ -121,6 +121,24 @@ where
 			.clone()
 	}
 
+	pub fn get_or_spawn_blocking<F>(&self, key: K, f: F) -> Task<T>
+	where
+		F: FnOnce(Stop) -> T + Send + 'static,
+	{
+		let map = self.map.clone();
+		self.map
+			.entry(key.clone())
+			.or_insert_with(move || {
+				Task::spawn_blocking(move |stop| {
+					let output = f(stop);
+					map.remove(&key);
+					output
+				})
+			})
+			.value()
+			.clone()
+	}
+
 	pub fn get_task_id(&self, key: &K) -> Option<tokio::task::Id> {
 		self.map.get(key).map(|task| task.abort.id())
 	}

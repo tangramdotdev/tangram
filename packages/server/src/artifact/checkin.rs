@@ -350,9 +350,9 @@ impl Server {
 		let index = if metadata.is_dir() {
 			self.checkin_visit_directory(state, path, metadata)?
 		} else if metadata.is_file() {
-			self.checkin_visit_file(state, path, metadata)?
+			Self::checkin_visit_file(state, path, metadata)
 		} else if metadata.is_symlink() {
-			self.checkin_visit_symlink(state, path, metadata)?
+			Self::checkin_visit_symlink(state, path, metadata)?
 		} else {
 			return Err(tg::error!(?metadata, "invalid file type"));
 		};
@@ -394,12 +394,6 @@ impl Server {
 				.to_owned();
 			names.push(name);
 		}
-		// // Check if the path is ignored.
-		// if let Some(ignore) = &mut state.ignorer {
-		// 	if ignore.matches(&path, Some(metadata.is_dir())).unwrap() {
-		// 		return Ok(None);
-		// 	}
-		// }
 
 		// Visit the entries.
 		let mut edges = Vec::with_capacity(names.len());
@@ -424,12 +418,7 @@ impl Server {
 		Ok(index)
 	}
 
-	fn checkin_visit_file(
-		&self,
-		state: &mut State,
-		path: PathBuf,
-		metadata: std::fs::Metadata,
-	) -> tg::Result<usize> {
+	fn checkin_visit_file(state: &mut State, path: PathBuf, metadata: std::fs::Metadata) -> usize {
 		let variant = Variant::File(File {
 			blob: None,
 			executable: metadata.permissions().mode() & 0o111 != 0,
@@ -443,11 +432,10 @@ impl Server {
 		};
 		let index = state.graph.nodes.len();
 		state.graph.nodes.push(node);
-		Ok(index)
+		index
 	}
 
 	fn checkin_visit_symlink(
-		&self,
 		state: &mut State,
 		path: PathBuf,
 		metadata: std::fs::Metadata,
