@@ -227,7 +227,7 @@ async fn directory_with_file_with_dependency() {
 			})
 		"#),
 	};
-	let dependencies = false;
+	let dependencies = true;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -277,7 +277,7 @@ async fn directory_with_symlink_with_dependency() {
 			})
 		"#),
 	};
-	let dependencies = false;
+	let dependencies = true;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -425,24 +425,24 @@ async fn directory_with_symlink_cycle() {
 			})
 		"#)
 	};
-	let dependencies = false;
+	let dependencies = true;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "link": {
-        "kind": "symlink",
-        "target": "link"
-      },
-      "tangram.lock": {
-        "kind": "file",
-        "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      },\n      \"id\": \"dir_01jgpeycbs5s4yjr89jqf3kkvy1a0rmrk7j2fmedscvh495h5b3740\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"Artifact\": {\n        \"id\": \"sym_01qzd2gdre0bz3ck3q00yw16g36eg6sq9jrvzv5w3m5191ynjm3nq0\",\n        \"artifact\": 0,\n        \"subpath\": \"link\"\n      }\n    }\n  ]\n}",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "link": {
+		      "kind": "symlink",
+		      "target": "link"
+		    },
+		    "tangram.lock": {
+		      "kind": "file",
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      },\n      \"id\": \"dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"id\": \"sym_01gs8v0w26ks7573pm013qytg2p82fvhyzcwg6hnncjb1gx0077060\",\n      \"artifact\": 0,\n      \"subpath\": \"link\"\n    }\n  ]\n}",
+		      "executable": false
+		    }
+		  }
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -464,7 +464,7 @@ async fn shared_dependency_on_symlink() {
 			})
 		"#),
 	};
-	let dependencies = false;
+	let dependencies = true;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
   {
@@ -548,9 +548,7 @@ async fn test_artifact_checkout<F, Fut>(
 		// Check out the artifact.
 		let mut command = server.tg();
 		command.arg("checkout").arg(id).arg(path);
-		if dependencies {
-			command.arg("--dependencies");
-		}
+		command.arg(format!("--dependencies={dependencies}"));
 		let output = command.output().await.unwrap();
 		assert_success!(output);
 

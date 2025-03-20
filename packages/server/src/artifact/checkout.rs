@@ -14,6 +14,7 @@ use tangram_http::{Body, request::Ext as _};
 use tokio_util::task::AbortOnDropHandle;
 
 struct State {
+	arg: tg::artifact::checkout::Arg,
 	artifact: tg::artifact::Id,
 	artifacts_path: Option<PathBuf>,
 	artifacts_path_created: bool,
@@ -139,6 +140,7 @@ impl Server {
 			move || {
 				// Create the state.
 				let mut state = State {
+					arg,
 					artifact,
 					artifacts_path,
 					artifacts_path_created: false,
@@ -149,9 +151,13 @@ impl Server {
 				};
 
 				// Check out the artifact.
-				let artifact = Either::Right(state.artifact.clone());
+				let id = state.artifact.clone();
+				let artifact = Either::Right(id.clone());
 				let path = state.path.clone();
 				server.check_out_inner(&mut state, artifact, path)?;
+
+				// Write the lockfile if necessary.
+				server.check_out_write_lockfile(id, &mut state)?;
 
 				Ok::<_, tg::Error>(())
 			}
@@ -173,6 +179,9 @@ impl Server {
 		id: &tg::artifact::Id,
 		artifact: Either<(tg::graph::Id, usize), tg::artifact::Id>,
 	) -> tg::Result<()> {
+		if !state.arg.dependencies {
+			return Ok(());
+		}
 		if !state.visited.insert(id.clone()) {
 			return Ok(());
 		}
@@ -342,7 +351,7 @@ impl Server {
 					Err(_) => continue,
 				},
 			};
-			if id != state.artifact && state.visited.insert(id.clone()) {
+			if id != state.artifact {
 				let artifact = match &referent.item {
 					Either::Left(node) => Either::Left((graph.clone(), *node)),
 					Either::Right(id) => match tg::artifact::Id::try_from(id.clone()) {
@@ -559,7 +568,7 @@ impl Server {
 					let Ok(id) = tg::artifact::Id::try_from(referent.item.clone()) else {
 						continue;
 					};
-					if id != state.artifact && state.visited.insert(id.clone()) {
+					if id != state.artifact {
 						let artifact = Either::Right(id.clone());
 						self.check_out_dependency(state, &id, artifact)?;
 					}
@@ -676,48 +685,36 @@ impl Server {
 		Ok(())
 	}
 
-	// async fn check_out_write_lock_old(
-	// 	&self,
-	// 	state: &Arc<StateOld>,
-	// 	artifact: &tg::artifact::Id,
-	// 	path: &Path,
-	// 	arg: &tg::artifact::checkout::Arg,
-	// ) -> tg::Result<()> {
-	// 	// Skip creation if this is a symlink or the user passed lockfile: false
-	// 	if artifact.is_symlink() || !arg.lockfile {
-	// 		return Ok(());
-	// 	}
+	fn check_out_write_lockfile(&self, id: tg::artifact::Id, state: &mut State) -> tg::Result<()> {
+		// Create the lock.
+		let lock = self
+			.create_lockfile_for_artifact(&id, state.arg.dependencies)
+			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
 
-	// 	// Create the lock.
-	// 	let artifact = tg::Artifact::with_id(artifact.clone());
-	// 	let lock = self
-	// 		.create_lockfile_for_artifact(&artifact, arg.dependencies)
-	// 		.await
-	// 		.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
+		// Do not write the lock if it is empty.
+		if lock.nodes.is_empty() {
+			return Ok(());
+		}
 
-	// 	// Do not write the lock if it is empty.
-	// 	if lock.nodes.is_empty() {
-	// 		return Ok(());
-	// 	}
+		// Write the lock.
+		let artifact = tg::Artifact::with_id(id);
+		if artifact.is_directory() {
+			let contents = serde_json::to_vec_pretty(&lock)
+				.map_err(|source| tg::error!(!source, "failed to serialize the lockfile"))?;
+			let lockfile_path = state.path.join(tg::package::LOCKFILE_FILE_NAME);
+			std::fs::write(&lockfile_path, &contents).map_err(
+				|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
+			)?;
+		} else if artifact.is_file() {
+			let contents = serde_json::to_vec(&lock)
+				.map_err(|source| tg::error!(!source, "failed to serialize the lockfile"))?;
+			xattr::set(&state.path, tg::file::XATTR_LOCK_NAME, &contents).map_err(|source| {
+				tg::error!(!source, "failed to write the lockfile contents as an xattr")
+			})?;
+		}
 
-	// 	if artifact.is_directory() {
-	// 		let contents = serde_json::to_vec_pretty(&lock)
-	// 			.map_err(|source| tg::error!(!source, "failed to serialize the lockfile"))?;
-	// 		let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
-	// 		let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-	// 		tokio::fs::write(&lockfile_path, &contents).await.map_err(
-	// 			|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
-	// 		)?;
-	// 	} else if artifact.is_file() {
-	// 		let contents = serde_json::to_vec(&lock)
-	// 			.map_err(|source| tg::error!(!source, "failed to serialize the lockfile"))?;
-	// 		xattr::set(path, tg::file::XATTR_LOCK_NAME, &contents).map_err(|source| {
-	// 			tg::error!(!source, "failed to write the lockfile contents as an xattr")
-	// 		})?;
-	// 	}
-
-	// 	Ok(())
-	// }
+		Ok(())
+	}
 }
 
 impl Server {
