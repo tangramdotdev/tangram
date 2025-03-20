@@ -71,6 +71,10 @@ pub struct Options {
 	/// Tag the process.
 	#[arg(long)]
 	pub tag: Option<tg::Tag>,
+
+	/// Allocate a terminal when running the process.
+	#[arg(short, long)]
+	pub tty: bool,
 }
 
 impl Cli {

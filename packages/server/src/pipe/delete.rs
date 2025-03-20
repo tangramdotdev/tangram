@@ -9,8 +9,6 @@ impl Server {
 		id: &tg::pipe::Id,
 		arg: tg::pipe::delete::Arg,
 	) -> tg::Result<()> {
-		eprintln!("DELETE /pipes/{id}");
-
 		if let Some(remote) = arg.remote {
 			let remote = self.get_remote_client(remote).await?;
 			return remote

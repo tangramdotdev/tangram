@@ -983,7 +983,7 @@ impl Server {
 			(http::Method::POST, ["pipes"]) => {
 				Self::handle_create_pipe_request(handle, request).boxed()
 			},
-			(http::Method::DELETE, ["pipeS", pipe]) => {
+			(http::Method::DELETE, ["pipes", pipe]) => {
 				Self::handle_delete_pipe_request(handle, request, pipe).boxed()
 			},
 			(http::Method::GET, ["pipes", pipe]) => {

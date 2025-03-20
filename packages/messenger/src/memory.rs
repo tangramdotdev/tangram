@@ -41,9 +41,9 @@ impl Streams {
 			.get(&subject)
 			.ok_or(Error::NotFound)?
 			.sender
-			.broadcast_direct(Message { subject, payload })
+			.broadcast_direct(Message { subject: subject.clone(), payload })
 			.await
-			.inspect_err(|_msg| eprintln!("send error: {_msg}"))
+			.inspect_err(|_msg| eprintln!("publish {subject}: {_msg}"))
 			.ok();
 		Ok(())
 	}

@@ -55,8 +55,7 @@ impl Runtime {
 
 		// If the VFS is disabled, then check out the target's children.
 		if self.server.vfs.lock().unwrap().is_none() {
-			command
-				.data(&self.server)
+			command.data(&self.server)
 				.await?
 				.children()
 				.into_iter()
@@ -551,9 +550,7 @@ impl Runtime {
 			}
 		}
 
-		instance
-			.mounts
-			.sort_unstable_by_key(|m| m.target.components().count());
+		instance.mounts.sort_unstable_by_key(|m| m.target.components().count());
 
 		// Return the instance.
 		Ok(instance)

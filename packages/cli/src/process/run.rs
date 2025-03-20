@@ -53,7 +53,7 @@ impl Cli {
 
 		// Create the stdio.
 		let stdio = self
-			.create_stdio(remote, args.options.detach)
+			.create_stdio(remote, &args.options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
 
@@ -63,7 +63,7 @@ impl Cli {
 			.await;
 
 		// Close the pipes, in case the inner process errored.
-		stdio.delete_io(&handle).await;
+		stdio.delete_io(&handle);
 
 		// Drop stdio to restore termios.
 		drop(stdio);
@@ -227,16 +227,12 @@ impl Cli {
 			.await
 			.unwrap()
 			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
-		eprintln!("process finished.");
 
 		// Close stdio.
-		stdio.delete_io(&handle).await;
-		eprintln!("deleted io.");
+		stdio.delete_io(&handle);
 
 		// Stop and wait for stdio.
 		stdio_task.await.unwrap()?;
-		eprintln!("awaited io.");
-
 		// Abort the cancel task.
 		cancel_task.abort();
 

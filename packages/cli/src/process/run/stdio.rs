@@ -1,5 +1,5 @@
-use super::signal::handle_sigwinch;
-use crate::Cli;
+use super::{Options, signal::handle_sigwinch};
+use crate::{Cli, process::spawn};
 use std::{
 	io::IsTerminal as _,
 	mem::MaybeUninit,
@@ -15,53 +15,16 @@ pub struct Stdio {
 	pub stderr: tg::process::Io,
 }
 
-impl Stdio {
-	pub async fn delete_io(&self, handle: &impl tg::Handle) {
-		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
-		let handle = handle.clone();
-		let remote = self.remote.clone();
-		// tokio::spawn(async move {
-		for io in &io {
-			match io {
-				tg::process::Io::Pipe(id) => {
-					let arg = tg::pipe::delete::Arg {
-						remote: remote.clone(),
-					};
-					handle.delete_pipe(id, arg).await.ok();
-				},
-				tg::process::Io::Pty(id) => {
-					let arg = tg::pty::delete::Arg {
-						remote: remote.clone(),
-					};
-					handle.delete_pty(id, arg).await.ok();
-				},
-			}
-		}
-		// });
-	}
-}
-
-impl Drop for Stdio {
-	fn drop(&mut self) {
-		let Some((fd, termios)) = self.termios.take() else {
-			return;
-		};
-		unsafe {
-			libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(termios));
-		}
-	}
-}
-
 impl Cli {
 	pub(crate) async fn create_stdio(
 		&self,
 		remote: Option<String>,
-		detached: bool,
+		options: &Options,
 	) -> tg::Result<Stdio> {
 		let handle = self.handle().await?;
 
 		// If the process is detached, don't create any interactive i/o.
-		if detached {
+		if options.detach || !options.spawn.tty {
 			let stdin = create(&handle, remote.clone(), None).await?;
 			let stdout = create(&handle, remote.clone(), None).await?;
 			let stderr = create(&handle, remote.clone(), None).await?;
@@ -170,6 +133,43 @@ impl Cli {
 			stdout,
 			stderr,
 		})
+	}
+}
+
+impl Stdio {
+	pub fn delete_io(&self, handle: &impl tg::Handle) {
+		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
+		let handle = handle.clone();
+		let remote = self.remote.clone();
+		// tokio::spawn(async move {
+		for io in &io {
+			match io {
+				tg::process::Io::Pipe(id) => {
+					let arg = tg::pipe::delete::Arg {
+						remote: remote.clone(),
+					};
+					handle.delete_pipe(id, arg).await.ok();
+				},
+				tg::process::Io::Pty(id) => {
+					let arg = tg::pty::delete::Arg {
+						remote: remote.clone(),
+					};
+					handle.delete_pty(id, arg).await.ok();
+				},
+			}
+		}
+		// });
+	}
+}
+
+impl Drop for Stdio {
+	fn drop(&mut self) {
+		let Some((fd, termios)) = self.termios.take() else {
+			return;
+		};
+		unsafe {
+			libc::tcsetattr(fd, libc::TCSANOW, std::ptr::addr_of!(termios));
+		}
 	}
 }
 
