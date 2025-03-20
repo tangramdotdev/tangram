@@ -267,7 +267,7 @@ export namespace Command {
 		stdin?: tg.Blob.Id | undefined;
 	};
 
-	export type Executable = tg.Artifact | tg.Command.Executable.Module;
+	export type Executable = string | tg.Artifact | tg.Command.Executable.Module;
 
 	export namespace Executable {
 		export type Module = {
@@ -276,7 +276,10 @@ export namespace Command {
 		};
 	}
 
-	export type ExecutableArg = tg.Artifact | tg.Command.Executable.Module;
+	export type ExecutableArg =
+		| string
+		| tg.Artifact
+		| tg.Command.Executable.Module;
 
 	export type Id = string;
 

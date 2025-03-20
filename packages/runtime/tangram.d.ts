@@ -642,9 +642,9 @@ declare namespace tg {
 			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		};
 
-		export type ExecutableArg = tg.Artifact | tg.Module;
+		export type ExecutableArg = string | tg.Artifact | tg.Module;
 
-		export type Executable = tg.Artifact | tg.Module;
+		export type Executable = string | tg.Artifact | tg.Module;
 	}
 
 	export namespace path {
