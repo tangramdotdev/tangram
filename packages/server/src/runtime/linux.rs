@@ -11,10 +11,6 @@ use tangram_futures::task::Task;
 use tangram_sandbox as sandbox;
 use url::Url;
 
-const TANGRAM_UID: u32 = 1000;
-
-const TANGRAM_GID: u32 = 1000;
-
 #[derive(Clone)]
 pub struct Runtime {
 	pub(super) server: Server,
@@ -55,7 +51,8 @@ impl Runtime {
 
 		// If the VFS is disabled, then check out the target's children.
 		if self.server.vfs.lock().unwrap().is_none() {
-			command.data(&self.server)
+			command
+				.data(&self.server)
 				.await?
 				.children()
 				.into_iter()
@@ -200,10 +197,8 @@ impl Runtime {
 		cmd_.args(args)
 			.chroot(instance.rootdir())
 			.cwd(cwd)
-			.gid(TANGRAM_GID)
 			.envs(env)
-			.mounts(instance.mounts.clone())
-			.uid(TANGRAM_UID);
+			.mounts(instance.mounts.clone());
 
 		// Setup stdio.
 		cmd_.stdin(sandbox::Stdio::Piped);
@@ -550,7 +545,9 @@ impl Runtime {
 			}
 		}
 
-		instance.mounts.sort_unstable_by_key(|m| m.target.components().count());
+		instance
+			.mounts
+			.sort_unstable_by_key(|m| m.target.components().count());
 
 		// Return the instance.
 		Ok(instance)
