@@ -628,16 +628,59 @@ impl Server {
 			std::fs::set_permissions(src, permissions)
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
-		let result = std::fs::hard_link(src, dst);
-		match result {
-			Ok(()) => (),
-			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					"failed to hard link the file to the blobs directory"
-				));
-			},
+		let mut done = false;
+		let mut error = None;
+		let hard_link_prohibited = if cfg!(target_os = "macos") {
+			dst.to_str()
+				.ok_or_else(|| tg::error!("invalid path"))?
+				.contains(".app/Contents")
+		} else {
+			false
+		};
+		if !done && !hard_link_prohibited {
+			let result = std::fs::hard_link(src, dst);
+			match result {
+				Ok(()) => {
+					done = true;
+				},
+				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+					done = true;
+				},
+				Err(error_) => {
+					error = Some(error_);
+				},
+			}
+		}
+		if !done {
+			let result = reflink(src, dst);
+			match result {
+				Ok(()) => {
+					done = true;
+				},
+				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+					done = true;
+				},
+				Err(error_) => {
+					error = Some(error_);
+				},
+			}
+		}
+		if !done {
+			let result = std::fs::copy(src, dst);
+			match result {
+				Ok(_) => {
+					done = true;
+				},
+				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+					done = true;
+				},
+				Err(error_) => {
+					error = Some(error_);
+				},
+			}
+		}
+		if !done {
+			return Err(tg::error!(?error, "failed to copy the file"));
 		}
 		Ok(())
 	}
