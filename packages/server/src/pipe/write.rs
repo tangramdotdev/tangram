@@ -7,6 +7,7 @@ use futures::{
 use http_body_util::{BodyExt as _, BodyStream};
 use std::pin::pin;
 use tangram_client as tg;
+use tangram_futures::task::Stop;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext};
 
 impl Server {
@@ -56,6 +57,10 @@ impl Server {
 		// Get the query.
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
+		// Stop the stream when the server stops.
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stop = async move { stop.wait().await };
+
 		// Create the stream.
 		let body = request
 			.into_body()
@@ -89,6 +94,7 @@ impl Server {
 					},
 				}
 			})
+			.take_until(stop)
 			.boxed();
 
 		// Send the stream.
