@@ -5,11 +5,10 @@ use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 impl Server {
 	pub async fn document_package(
 		&self,
-		arg: tg::package::document::Arg,
+		mut arg: tg::package::document::Arg,
 	) -> tg::Result<serde_json::Value> {
 		// If the remote arg is set, then forward the request.
-		let remote = arg.remote.as_ref();
-		if let Some(remote) = remote {
+		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::package::document::Arg {
 				remote: None,

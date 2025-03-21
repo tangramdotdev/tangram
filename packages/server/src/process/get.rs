@@ -64,11 +64,19 @@ impl Server {
 			output: Option<db::value::Json<tg::value::Data>>,
 			retry: bool,
 			#[serde(default)]
+			mounts: Option<db::value::Json<Vec<tg::process::data::Mount>>>,
+			#[serde(default)]
 			network: bool,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			started_at: Option<time::OffsetDateTime>,
 			status: tg::process::Status,
+			#[serde(default)]
+			stderr: Option<tg::process::Stdio>,
+			#[serde(default)]
+			stdin: Option<tg::process::Stdio>,
+			#[serde(default)]
+			stdout: Option<tg::process::Stdio>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -90,9 +98,13 @@ impl Server {
 					log,
 					output,
 					retry,
+					mounts,
 					network,
 					started_at,
-					status
+					status,
+					stderr,
+					stdin,
+					stdout
 				from processes
 				where id = {p}1;
 			"
@@ -121,9 +133,13 @@ impl Server {
 				log: row.log,
 				output: row.output.map(|output| output.0),
 				retry: row.retry,
+				mounts: row.mounts.map(|output| output.0).unwrap_or_default(),
 				network: row.network,
 				started_at: row.started_at,
 				status: row.status,
+				stderr: row.stderr,
+				stdin: row.stdin,
+				stdout: row.stdout,
 			};
 			tg::process::get::Output { data }
 		});

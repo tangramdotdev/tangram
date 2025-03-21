@@ -1,8 +1,4 @@
-use sha2::Digest as _;
-use std::{
-	io::Read as _,
-	path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
@@ -14,85 +10,6 @@ fn main() {
 
 	// Get the out dir path.
 	let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-
-	// Get the dash and env binaries.
-	let version = "v2024.10.03";
-	let binaries = [
-		(
-			"dash_aarch64_linux",
-			"./bin/dash",
-			"d1e6ed42b0596507ebfa9ce231e2f42cc67f823cc56c0897c126406004636ce7",
-		),
-		(
-			"dash_x86_64_linux",
-			"./bin/dash",
-			"d23258e559012dc66cc82d9def66b51e9c41f9fb88f8e9e6a5bd19d231028a64",
-		),
-		(
-			"env_aarch64_linux",
-			"./bin/env",
-			"b2985354036c4deea9b107f099d853ac2d7c91a095dc285922f6dab72ae1474c",
-		),
-		(
-			"env_x86_64_linux",
-			"./bin/env",
-			"fceb5be5a7d6f59a026817ebb17be2bcc294d753f1528cbc921eb9015b9ff87b",
-		),
-	];
-	for (name, path, expected) in binaries {
-		let env_var = name.to_ascii_uppercase();
-		println!("cargo:rerun-if-env-changed={env_var}");
-
-		// Determine the cache path.
-		let cache_path = out_dir_path.join(expected);
-
-		// Download if necessary.
-		if !cache_path.exists() {
-			// If the environment variable is set, use it.
-			let bytes = if let Ok(path) = std::env::var(env_var) {
-				std::fs::read(&path).unwrap()
-			} else {
-				// Compute the URL.
-				let url = format!(
-					"https://github.com/tangramdotdev/bootstrap/releases/download/{version}/{name}.tar.zst"
-				);
-
-				// Download.
-				reqwest::blocking::get(url).unwrap().bytes().unwrap().into()
-			};
-
-			// Verify.
-			let mut hasher = sha2::Sha256::new();
-			hasher.update(&bytes);
-			let actual = hasher.finalize();
-			let expected = data_encoding::HEXLOWER.decode(expected.as_bytes()).unwrap();
-			assert_eq!(actual.as_slice(), expected);
-
-			// Write to the cache path.
-			std::fs::write(&cache_path, &bytes).unwrap();
-		}
-
-		// Read.
-		let bytes = std::fs::read(&cache_path).unwrap();
-
-		// Decompress.
-		let bytes = zstd::decode_all(std::io::Cursor::new(bytes)).unwrap();
-
-		// Unpack.
-		let mut read = Vec::new();
-		tar::Archive::new(std::io::Cursor::new(bytes))
-			.entries()
-			.unwrap()
-			.map(|entry| entry.unwrap())
-			.find(|entry| entry.path().unwrap().as_ref().to_str().unwrap() == path)
-			.unwrap()
-			.read_to_end(&mut read)
-			.unwrap();
-		let bytes = read;
-
-		// Write.
-		std::fs::write(out_dir_path.join(name), bytes).unwrap();
-	}
 
 	// Install dependencies.
 	println!("cargo:rerun-if-env-changed=NODE_PATH");

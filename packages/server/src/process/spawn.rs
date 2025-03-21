@@ -31,7 +31,12 @@ impl Server {
 		}
 
 		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
+		let sandboxed = arg.cwd.is_none()
+			&& arg.env.is_none()
+			&& !arg.network
+			&& arg.stdin.is_none()
+			&& arg.stdout.is_none()
+			&& arg.stderr.is_none();
 
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some() || sandboxed;
@@ -232,7 +237,13 @@ impl Server {
 		}
 
 		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
+		let sandboxed = arg.cwd.is_none()
+			&& arg.env.is_none()
+			&& !arg.network
+			&& arg.stdin.is_none()
+			&& arg.stdout.is_none()
+			&& arg.stderr.is_none()
+			&& arg.mounts.is_empty();
 
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some() || sandboxed;
@@ -262,9 +273,13 @@ impl Server {
 					enqueued_at,
 					env,
 					host,
+					mounts,
 					network,
 					retry,
 					status,
+					stderr,
+					stdin,
+					stdout,
 					touched_at
 				)
 				values (
@@ -280,7 +295,11 @@ impl Server {
 					{p}10,
 					{p}11,
 					{p}12,
-					{p}13
+					{p}13,
+					{p}14,
+					{p}15,
+					{p}16,
+					{p}17
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -291,10 +310,14 @@ impl Server {
 					enqueued_at = {p}7,
 					env = {p}8,
 					host = {p}9,
-					network = {p}10,
-					retry = {p}11,
-					status = {p}12,
-					touched_at = {p}13;
+					mounts = {p}10,
+					network = {p}11,
+					retry = {p}12,
+					status = {p}13,
+					stderr = {p}14,
+					stdin = {p}15,
+					stdout = {p}16,
+					touched_at = {p}17;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -308,15 +331,20 @@ impl Server {
 			now,
 			arg.env.as_ref().map(db::value::Json),
 			host,
+			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			arg.retry,
 			tg::process::Status::Enqueued,
+			arg.stderr,
+			arg.stdin,
+			arg.stdout,
 			now,
 		];
 		connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
 
 		// Publish the message.
 		tokio::spawn({

@@ -21,6 +21,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub env: Option<BTreeMap<String, String>>,
 
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub mounts: Vec<tg::process::data::Mount>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub network: bool,
 
@@ -32,6 +35,15 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stderr: Option<tg::process::Stdio>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdin: Option<tg::process::Stdio>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdout: Option<tg::process::Stdio>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -73,10 +85,14 @@ impl Default for Arg {
 			create: true,
 			cwd: None,
 			env: None,
+			mounts: Vec::new(),
 			network: false,
 			parent: None,
 			remote: None,
 			retry: false,
+			stderr: None,
+			stdin: None,
+			stdout: None,
 		}
 	}
 }

@@ -3,7 +3,7 @@ pub use self::{
 	data::Command as Data,
 	handle::Command as Handle,
 	id::Id,
-	object::{Command as Object, Executable, Module},
+	object::{Command as Object, Executable, Module, Mount},
 };
 
 pub mod builder;

@@ -1,6 +1,7 @@
 use super::Data;
 use crate as tg;
 use itertools::Itertools as _;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Command {
@@ -8,6 +9,7 @@ pub struct Command {
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: String,
+	pub mounts: Vec<tg::command::Mount>,
 }
 
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
@@ -15,12 +17,19 @@ pub struct Command {
 pub enum Executable {
 	Artifact(tg::Artifact),
 	Module(Module),
+	Path(PathBuf),
 }
 
 #[derive(Clone, Debug)]
 pub struct Module {
 	pub kind: tg::module::Kind,
 	pub referent: tg::Referent<tg::Object>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Mount {
+	pub source: tg::Artifact,
+	pub target: PathBuf,
 }
 
 impl Command {
@@ -34,6 +43,7 @@ impl Command {
 			)
 			.chain(self.args.iter().flat_map(tg::Value::objects))
 			.chain(self.env.values().flat_map(tg::Value::objects))
+			.chain(self.mounts.iter().flat_map(tg::command::Mount::object))
 			.collect()
 	}
 }
@@ -44,6 +54,7 @@ impl Executable {
 		match self {
 			Self::Artifact(artifact) => [artifact.clone().into()].into(),
 			Self::Module(module) => module.objects(),
+			Self::Path(_) => vec![],
 		}
 	}
 }
@@ -84,34 +95,33 @@ impl TryFrom<Data> for Command {
 			.into_iter()
 			.map(|(key, data)| Ok::<_, tg::Error>((key, data.try_into()?)))
 			.try_collect()?;
-		let executable = data.executable.map(TryInto::try_into).transpose()?;
+		let executable = data.executable.map(Into::into);
 		let host = data.host;
+		let mounts = data.mounts.into_iter().map(Into::into).collect();
 		Ok(Self {
 			args,
 			env,
 			executable,
 			host,
+			mounts,
 		})
 	}
 }
 
-impl TryFrom<tg::command::data::Executable> for Executable {
-	type Error = tg::Error;
-
-	fn try_from(data: tg::command::data::Executable) -> std::result::Result<Self, Self::Error> {
+impl From<tg::command::data::Executable> for Executable {
+	fn from(data: tg::command::data::Executable) -> Self {
 		match data {
 			tg::command::data::Executable::Artifact(id) => {
-				Ok(Self::Artifact(tg::Artifact::with_id(id)))
+				Self::Artifact(tg::Artifact::with_id(id))
 			},
-			tg::command::data::Executable::Module(module) => Ok(Self::Module(module.try_into()?)),
+			tg::command::data::Executable::Module(module) => Self::Module(module.into()),
+			tg::command::data::Executable::Path(path) => Self::Path(path),
 		}
 	}
 }
 
-impl TryFrom<tg::command::data::Module> for Module {
-	type Error = tg::Error;
-
-	fn try_from(data: tg::command::data::Module) -> std::result::Result<Self, Self::Error> {
+impl From<tg::command::data::Module> for Module {
+	fn from(data: tg::command::data::Module) -> Self {
 		let kind = data.kind;
 		let item = tg::Object::with_id(data.referent.item);
 		let path = data.referent.path;
@@ -123,8 +133,7 @@ impl TryFrom<tg::command::data::Module> for Module {
 			subpath,
 			tag,
 		};
-		let module = Self { kind, referent };
-		Ok(module)
+		Self { kind, referent }
 	}
 }
 
@@ -146,5 +155,58 @@ impl std::fmt::Display for Module {
 			write!(f, ":{}", subpath.display())?;
 		}
 		Ok(())
+	}
+}
+
+impl Mount {
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::command::data::Mount>
+	where
+		H: tg::Handle,
+	{
+		let source = self.source.id(handle).await?;
+		let target = self.target.clone();
+		let mount = tg::command::data::Mount { source, target };
+		Ok(mount)
+	}
+
+	#[must_use]
+	pub fn object(&self) -> Vec<tg::Object> {
+		[self.source.clone().into()].into()
+	}
+}
+
+impl std::str::FromStr for Mount {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let s = if let Some((s, ro)) = s.split_once(',') {
+			if ro == "ro" {
+				s
+			} else if ro == "rw" {
+				return Err(tg::error!("cannot mount artifacts read-write"));
+			} else {
+				return Err(tg::error!("unknown option: {ro:#?}"));
+			}
+		} else {
+			s
+		};
+		let (source, target) = s
+			.split_once(':')
+			.ok_or_else(|| tg::error!("expected a target path"))?;
+		let target = PathBuf::from(target);
+		if !target.is_absolute() {
+			return Err(tg::error!(%target = target.display(), "expected an absolute path"));
+		}
+		let id = source.parse()?;
+		let source = tg::Artifact::with_id(id);
+		Ok(Self { source, target })
+	}
+}
+
+impl From<tg::command::data::Mount> for Mount {
+	fn from(data: tg::command::data::Mount) -> Self {
+		let source = tg::Artifact::with_id(data.source);
+		let target = data.target;
+		Self { source, target }
 	}
 }

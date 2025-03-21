@@ -45,12 +45,14 @@ export function command<
 				tag: arg.module.referent.tag,
 			},
 		};
+		let mounts: Array<tg.Command.Mount> = [];
 		let stdin = undefined;
 		let object = {
 			args: args_,
 			env: tg.Process.current.state!.command.state.object!.env,
 			executable,
 			host: "js",
+			mounts,
 			stdin,
 		};
 		let state = { object };
@@ -115,6 +117,15 @@ export class Command<
 		let env = await tg.Args.applyMutations(flatten(arg.env ?? []));
 		let executable = arg.executable;
 		let host = arg.host;
+		let mounts = await Promise.all(
+			(arg.mounts ?? []).map(async (mount) => {
+				if (mount instanceof tg.Template || typeof mount === "string") {
+					return await tg.Command.Mount.parse(mount);
+				} else {
+					return mount;
+				}
+			}),
+		);
 		let stdin = undefined;
 		if (!host) {
 			throw new Error("cannot create a command without a host");
@@ -124,6 +135,7 @@ export class Command<
 			env,
 			executable,
 			host,
+			mounts,
 			stdin,
 		};
 		return new Command({ object });
@@ -143,7 +155,7 @@ export class Command<
 				) {
 					return {
 						args: ["-c", arg],
-						executable: await tg.symlink("/bin/sh"),
+						executable: "/bin/sh",
 						host: (await (await tg.Process.current.command()).env())!
 							.TANGRAM_HOST,
 					};
@@ -214,6 +226,10 @@ export class Command<
 		return (await this.object()).host;
 	}
 
+	async mounts(): Promise<Array<tg.Command.Mount>> {
+		return (await this.object()).mounts;
+	}
+
 	function(): Function | undefined {
 		return this.#f;
 	}
@@ -247,10 +263,11 @@ export namespace Command {
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
+		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		stdin?: tg.Blob.Id | undefined;
 	};
 
-	export type Executable = tg.Artifact | tg.Command.Executable.Module;
+	export type Executable = string | tg.Artifact | tg.Command.Executable.Module;
 
 	export namespace Executable {
 		export type Module = {
@@ -259,15 +276,82 @@ export namespace Command {
 		};
 	}
 
-	export type ExecutableArg = tg.Artifact | tg.Command.Executable.Module;
+	export type ExecutableArg =
+		| string
+		| tg.Artifact
+		| tg.Command.Executable.Module;
 
 	export type Id = string;
+
+	export type Mount = {
+		source: tg.Artifact;
+		target: string;
+	};
+
+	export namespace Mount {
+		export let parse = async (
+			t: string | tg.Template,
+		): Promise<tg.Command.Mount> => {
+			// If the user passed a template, render a string with artifact IDs.
+			let s: string | undefined;
+			if (typeof t === "string") {
+				s = t;
+			} else if (t instanceof tg.Template) {
+				s = await t.components.reduce(async (acc, component) => {
+					if (tg.Artifact.is(component)) {
+						return (await acc) + (await component.id());
+					} else {
+						return (await acc) + component;
+					}
+				}, Promise.resolve(""));
+			} else {
+				throw new Error("expected a template or a string");
+			}
+			tg.assert(s);
+
+			// Handle readonly/readwrite option if present, rejecting read-write.
+			if (s.includes(",")) {
+				const [mountPart, option] = s.split(",", 2);
+				tg.assert(mountPart);
+				tg.assert(option);
+
+				if (option === "ro") {
+					s = mountPart;
+				} else if (option === "rw") {
+					throw new Error("cannot mount artifacts as read/write");
+				} else {
+					throw new Error(`unknown option: "${option}"`);
+				}
+			}
+
+			// Split into source and target
+			const colonIndex = s.indexOf(":");
+			if (colonIndex === -1) {
+				throw new Error("expected a target path");
+			}
+
+			const sourceId = s.substring(0, colonIndex);
+			const source = tg.Artifact.withId(sourceId);
+			const target = s.substring(colonIndex + 1);
+
+			// Validate target is absolute path
+			if (!target.startsWith("/")) {
+				throw new Error(`expected an absolute path: "${target}"`);
+			}
+
+			return {
+				source,
+				target,
+			};
+		};
+	}
 
 	export type Object = {
 		args: Array<tg.Value>;
 		env: { [key: string]: tg.Value };
 		executable: tg.Command.Executable | undefined;
 		host: string;
+		mounts: Array<tg.Command.Mount>;
 	};
 
 	export type State = tg.Object.State<Command.Id, Command.Object>;

@@ -1,7 +1,7 @@
 #![allow(warnings)]
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 38;
+pub const FUSE_KERNEL_MINOR_VERSION: u32 = 39;
 pub const FUSE_ROOT_ID: u32 = 1;
 pub const FATTR_MODE: u32 = 1;
 pub const FATTR_UID: u32 = 2;
@@ -117,6 +117,40 @@ pub struct fuse_attr {
 
 #[repr(C)]
 #[derive(Clone, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
+pub struct fuse_sx_time {
+	pub tv_sec: i64,
+	pub tv_nsec: u32,
+	pub __reserved: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
+pub struct fuse_statx {
+	pub mask: u32,
+	pub blksize: u32,
+	pub attributes: u64,
+	pub nlink: u32,
+	pub uid: u32,
+	pub gid: u32,
+	pub mode: u16,
+	pub __spare0: [u16; 1],
+	pub ino: u64,
+	pub size: u64,
+	pub blocks: u64,
+	pub attributes_mask: u64,
+	pub atime: fuse_sx_time,
+	pub btime: fuse_sx_time,
+	pub ctime: fuse_sx_time,
+	pub mtime: fuse_sx_time,
+	pub rdev_major: u32,
+	pub rdev_minor: u32,
+	pub dev_major: u32,
+	pub dev_minor: u32,
+	pub __spare2: [u64; 14],
+}
+
+#[repr(C)]
+#[derive(Clone, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
 pub struct fuse_kstatfs {
 	pub blocks: u64,
 	pub bfree: u64,
@@ -190,6 +224,7 @@ pub mod fuse_opcode {
 	pub const FUSE_REMOVEMAPPING: Type = 49;
 	pub const FUSE_SYNCFS: Type = 50;
 	pub const FUSE_TMPFILE: Type = 51;
+	pub const FUSE_STATX: Type = 52;
 	pub const CUSE_INIT: Type = 4096;
 	pub const CUSE_INIT_BSWAP_RESERVED: Type = 1048576;
 	pub const FUSE_INIT_BSWAP_RESERVED: Type = 436207616;
@@ -253,6 +288,26 @@ pub struct fuse_attr_out {
 	pub attr_valid_nsec: u32,
 	pub dummy: u32,
 	pub attr: fuse_attr,
+}
+
+#[repr(C)]
+#[derive(Clone, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
+pub struct fuse_statx_in {
+	pub getattr_flags: u32,
+	pub reserved: u32,
+	pub fh: u64,
+	pub sx_flags: u32,
+	pub sx_mask: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
+pub struct fuse_statx_out {
+	pub attr_valid: u64,
+	pub attr_valid_nsec: u32,
+	pub flags: u32,
+	pub spare: [u64; 2],
+	pub stat: fuse_statx,
 }
 
 #[repr(C)]

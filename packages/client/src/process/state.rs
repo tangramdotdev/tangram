@@ -16,11 +16,15 @@ pub struct State {
 	pub exit: Option<tg::process::Exit>,
 	pub finished_at: Option<time::OffsetDateTime>,
 	pub log: Option<tg::Blob>,
+	pub mounts: Vec<tg::process::Mount>,
 	pub network: bool,
 	pub output: Option<tg::Value>,
 	pub retry: bool,
 	pub started_at: Option<time::OffsetDateTime>,
 	pub status: tg::process::Status,
+	pub stderr: Option<tg::process::Stdio>,
+	pub stdin: Option<tg::process::Stdio>,
+	pub stdout: Option<tg::process::Stdio>,
 }
 
 impl TryFrom<tg::process::Data> for tg::process::State {
@@ -45,11 +49,15 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let exit = value.exit;
 		let finished_at = value.finished_at;
 		let log = value.log.map(tg::Blob::with_id);
+		let mounts = value.mounts.into_iter().map(Into::into).collect();
 		let network = value.network;
 		let output = value.output.map(tg::Value::try_from).transpose()?;
 		let retry = value.retry;
 		let started_at = value.started_at;
 		let status = value.status;
+		let stderr = value.stderr;
+		let stdin = value.stdin;
+		let stdout = value.stdout;
 		Ok(State {
 			cacheable,
 			checksum,
@@ -64,11 +72,15 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			exit,
 			finished_at,
 			log,
+			mounts,
 			network,
 			output,
 			retry,
 			started_at,
 			status,
+			stderr,
+			stdin,
+			stdout,
 		})
 	}
 }
