@@ -55,6 +55,10 @@ pub struct Options {
 	#[arg(short, long)]
 	pub mount: Vec<tg::process::Mount>,
 
+	/// Enable network access if sandboxed
+	#[arg(long)]
+	pub network: bool,
+
 	/// The remote to use.
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
@@ -297,7 +301,7 @@ impl Cli {
 		let (cwd, env, network) = if options.sandbox || remote.is_some() {
 			let cwd = options.cwd;
 			let env = None;
-			let network = false;
+			let network = options.network;
 			(cwd, env, network)
 		} else {
 			let cwd =

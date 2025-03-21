@@ -1,8 +1,9 @@
 use crate::Message;
+use async_broadcast::SendError;
 use bytes::Bytes;
 use core::fmt;
 use dashmap::DashMap;
-use futures::{StreamExt, future};
+use futures::{future, StreamExt};
 use std::{ops::Deref, sync::Arc};
 
 pub struct Messenger(Arc<Inner>);
@@ -11,6 +12,7 @@ pub struct Messenger(Arc<Inner>);
 
 pub enum Error {
 	NotFound,
+	SendError(SendError<Message>),
 }
 
 impl std::error::Error for Error {}
@@ -19,6 +21,7 @@ impl fmt::Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Error::NotFound => write!(f, "subject not found"),
+			Error::SendError(e) => write!(f, "{e}"),
 		}
 	}
 }
@@ -37,19 +40,21 @@ struct Stream {
 
 impl Streams {
 	pub async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
-		self.0
+		let sender = &self.0
 			.get(&subject)
 			.ok_or(Error::NotFound)?
-			.sender
-			.broadcast_direct(Message { subject: subject.clone(), payload })
-			.await
-			.ok();
+			.sender;
+		let message = Message { subject, payload };
+		sender
+				.broadcast_direct(message)
+				.await
+				.map_err(Error::SendError)?;
 		Ok(())
 	}
 
 	pub async fn create_stream(&self, subject: String) -> Result<(), Error> {
 		self.0.entry(subject).or_insert_with(|| {
-			let (mut sender, receiver) = async_broadcast::broadcast(128);
+			let (mut sender, receiver) = async_broadcast::broadcast(4096);
 			sender.set_await_active(false);
 			sender.set_overflow(false);
 			let receiver = receiver.deactivate();
