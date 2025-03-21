@@ -200,7 +200,8 @@ impl Runtime {
 			.envs(env)
 			.mounts(instance.mounts.clone())
 			.uid(0)
-			.gid(0);
+			.gid(0)
+			.hostname(process.id().to_string());
 
 		// Setup stdio.
 		cmd_.stdin(sandbox::Stdio::Piped);

@@ -26,6 +26,7 @@ pub(crate) struct Context {
 	pub cwd: CString,
 	pub envp: CStringVec,
 	pub executable: CString,
+	pub hostname: Option<CString>,
 	pub root: Option<CString>,
 	pub mounts: Vec<Mount>,
 	pub network: bool,
@@ -53,6 +54,7 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 		.map(|(k, v)| envstring(k, v))
 		.collect::<CStringVec>();
 	let executable = cstring(&command.executable);
+	let hostname = command.hostname.as_ref().map(cstring);
 
 	// Create the mounts.
 	let mut mounts = Vec::with_capacity(command.mounts.len());
@@ -94,6 +96,7 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 		cwd,
 		envp,
 		executable,
+		hostname,
 		root,
 		mounts,
 		network: command.network,

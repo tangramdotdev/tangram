@@ -16,6 +16,7 @@ pub fn main(context: Context) -> ! {
 		if context.root.is_some() {
 			flags |= libc::CLONE_NEWNS;
 			flags |= libc::CLONE_NEWPID;
+			flags |= libc::CLONE_NEWUTS;
 		}
 		if !context.network {
 			flags |= libc::CLONE_NEWNET;

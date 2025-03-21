@@ -21,6 +21,7 @@ pub struct Command {
 	envs: Vec<(OsString, OsString)>,
 	executable: PathBuf,
 	gid: u32,
+	hostname: Option<OsString>,
 	mounts: Vec<Mount>,
 	network: bool,
 	paths: Vec<Path>,
@@ -124,6 +125,7 @@ impl Command {
 			envs: Vec::new(),
 			executable: executable.as_ref().to_owned(),
 			gid: unsafe { libc::getgid() },
+			hostname: None,
 			mounts: Vec::new(),
 			network: true,
 			paths: Vec::new(),
@@ -177,6 +179,11 @@ impl Command {
 
 	pub fn uid(&mut self, uid: libc::uid_t) -> &mut Self {
 		self.uid = uid;
+		self
+	}
+
+	pub fn hostname(&mut self, hostname: impl AsRef<OsStr>) -> &mut Self {
+		self.hostname.replace(hostname.as_ref().to_owned());
 		self
 	}
 

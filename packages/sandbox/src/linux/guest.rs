@@ -4,6 +4,13 @@ use std::{ffi::CString, mem::MaybeUninit, os::fd::AsRawFd};
 
 pub fn main(mut context: Context) -> ! {
 	unsafe {
+		// Set hostname.
+		if let Some(hostname) = context.hostname.take() {
+			if libc::sethostname(hostname.as_ptr(), hostname.as_bytes().len()) != 0 {
+				abort_errno!("failed to set hostname");
+			}
+		}
+
 		// Redirect stdio.
 		redirect_stdio(&mut context.stdin, &mut context.stdout, &mut context.stderr);
 
