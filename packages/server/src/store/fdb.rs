@@ -6,6 +6,8 @@ use num::ToPrimitive;
 use std::pin::pin;
 use tangram_client as tg;
 
+use super::Reference;
+
 /// The maximum size of a value.
 const VALUE_SIZE_LIMIT: usize = 10_240;
 
@@ -51,6 +53,27 @@ impl Fdb {
 		Ok(bytes)
 	}
 
+	pub async fn try_get_cache_reference(
+		&self,
+		id: &tangram_client::object::Id,
+	) -> tg::Result<Option<Reference>> {
+		let bytes = self
+			.database
+			.run(|transaction, _| async move {
+				let bytes = transaction
+					.get(&(0, id.to_bytes(), 2).pack_to_vec(), false)
+					.await?;
+				Ok(bytes.map(|bytes| Bytes::copy_from_slice(&bytes)))
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+		let reference = bytes
+			.map(Reference::from_bytes)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
+		Ok(reference)
+	}
+
 	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let arg = &arg;
 		self.database
@@ -78,7 +101,7 @@ impl Fdb {
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
-				for (id, bytes) in &arg.objects {
+				for (id, bytes, reference) in &arg.objects {
 					let subspace = fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes(), 0));
 					if bytes.is_empty() {
 						transaction.set(&subspace.pack(&0), &[]);
@@ -91,6 +114,10 @@ impl Fdb {
 					}
 					let touched_at = arg.touched_at.to_le_bytes();
 					transaction.set(&(0, id.to_bytes(), 1).pack_to_vec(), &touched_at);
+					if let Some(reference) = reference {
+						let reference = reference.to_bytes();
+						transaction.set(&(0, id.to_bytes(), 2).pack_to_vec(), &reference);
+					}
 				}
 				Ok(())
 			})

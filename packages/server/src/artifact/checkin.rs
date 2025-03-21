@@ -17,7 +17,6 @@ use std::{
 	time::Instant,
 };
 use tangram_client as tg;
-use tangram_database::prelude::*;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::Messenger as _;
@@ -242,22 +241,6 @@ impl Server {
 			}
 		})
 		.map(|result| result.unwrap());
-		let database_future = tokio::spawn({
-			let server = self.clone();
-			let state = state.clone();
-			async move {
-				let start = Instant::now();
-				server
-					.checkin_write_blobs_to_database(&state)
-					.map_err(|source| {
-						tg::error!(!source, "failed to write the blobs to the database")
-					})
-					.await?;
-				tracing::trace!(elapsed = ?start.elapsed(), "write blobs to database");
-				Ok::<_, tg::Error>(())
-			}
-		})
-		.map(|result| result.unwrap());
 		let messenger_future = tokio::spawn({
 			let server = self.clone();
 			let state = state.clone();
@@ -290,12 +273,7 @@ impl Server {
 			}
 		})
 		.map(|result| result.unwrap());
-		futures::try_join!(
-			blobs_future,
-			database_future,
-			messenger_future,
-			store_future
-		)?;
+		futures::try_join!(blobs_future, messenger_future, store_future)?;
 		let state = Arc::into_inner(state).unwrap();
 
 		// Get the root node's ID.
@@ -727,32 +705,6 @@ impl Server {
 		Ok(())
 	}
 
-	async fn checkin_write_blobs_to_database(&self, state: &Arc<State>) -> tg::Result<()> {
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let state = state.clone();
-		connection
-			.unwrap_left()
-			.with(move |connection| {
-				let transaction = connection.transaction().unwrap();
-				for node in &state.graph.nodes {
-					if let Variant::File(File {
-						blob: Some(blob), ..
-					}) = &node.variant
-					{
-						Self::blob_create_sqlite(blob, &transaction)?;
-					}
-				}
-				transaction.commit().unwrap();
-				Ok::<_, tg::Error>(())
-			})
-			.await?;
-		Ok(())
-	}
-
 	async fn checkin_write_objects_to_messenger(
 		&self,
 		state: &Arc<State>,
@@ -762,14 +714,12 @@ impl Server {
 			let object = node.object.as_ref().unwrap();
 
 			// Create the index message.
-			let message = crate::index::Message {
+			let message = crate::index::ObjectMessage {
 				children: object.data.children(),
-				count: None,
-				depth: None,
 				id: object.id.clone(),
 				size: object.bytes.len().to_u64().unwrap(),
 				touched_at,
-				weight: None,
+				cache_reference: None,
 			};
 
 			// Serialize the message.
@@ -801,18 +751,32 @@ impl Server {
 		let mut objects = Vec::with_capacity(state.graph.nodes.len());
 		for node in &state.graph.nodes {
 			let object = node.object.as_ref().unwrap();
-			objects.push((object.id.clone(), object.bytes.clone()));
 			if let Variant::File(File {
 				blob: Some(blob), ..
 			}) = &node.variant
 			{
+				objects.push((object.id.clone(), object.bytes.clone(), None));
 				let mut stack = vec![blob];
+				let blob_id = blob.id.clone();
 				while let Some(blob) = stack.pop() {
 					if let Some(bytes) = &blob.bytes {
-						objects.push((blob.id.clone().into(), bytes.clone()));
+						objects.push((blob.id.clone().into(), bytes.clone(), None));
+					} else {
+						let reference = crate::store::Reference {
+							file: blob_id.clone(),
+							position: blob.position,
+							length: blob.length,
+						};
+						objects.push((
+							blob.id.clone().into(),
+							object.bytes.clone(),
+							Some(reference),
+						));
 					}
 					stack.extend(&blob.children);
 				}
+			} else {
+				objects.push((object.id.clone(), object.bytes.clone(), None));
 			}
 		}
 		let arg = crate::store::PutBatchArg {
@@ -866,11 +830,6 @@ impl Server {
 		// Write the output to the database and the store.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		futures::try_join!(
-			self.write_output_to_database(output_graph.clone(), object_graph.clone(), touched_at)
-				.map_err(|source| tg::error!(
-					!source,
-					"failed to write the objects to the database"
-				)),
 			self.write_output_to_store(output_graph.clone(), object_graph.clone(), touched_at)
 				.map_err(|source| tg::error!(!source, "failed to store the objects"))
 		)?;

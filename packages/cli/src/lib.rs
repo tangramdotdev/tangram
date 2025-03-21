@@ -493,6 +493,11 @@ impl Cli {
 				connections: parallelism,
 				path: path.join("database"),
 			});
+		let index =
+			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
+				connections: parallelism,
+				path: path.join("index"),
+			});
 		let http = Some(tangram_server::config::Http::default());
 		let indexer = Some(tangram_server::config::Indexer::default());
 		let messenger = tangram_server::config::Messenger::default();
@@ -518,6 +523,7 @@ impl Cli {
 			cleaner,
 			database,
 			http,
+			index,
 			indexer,
 			messenger,
 			path,

@@ -8,6 +8,7 @@ pub struct Config {
 	pub cleaner: Option<Cleaner>,
 	pub database: Database,
 	pub http: Option<Http>,
+	pub index: Database,
 	pub indexer: Option<Indexer>,
 	pub messenger: Messenger,
 	pub path: PathBuf,
@@ -165,6 +166,10 @@ impl Config {
 			connections: 1,
 			path: path.join("database"),
 		});
+		let index = Database::Sqlite(SqliteDatabase {
+			connections: 1,
+			path: path.join("index"),
+		});
 		let indexer = Some(Indexer::default());
 		let messenger = Messenger::default();
 		let remotes = None;
@@ -182,6 +187,7 @@ impl Config {
 			cleaner,
 			database,
 			http,
+			index,
 			indexer,
 			messenger,
 			path,

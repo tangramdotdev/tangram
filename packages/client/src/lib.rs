@@ -734,6 +734,14 @@ impl tg::Handle for Client {
 		self.put_object(id, arg)
 	}
 
+	fn touch_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.touch_object(id, arg)
+	}
+
 	fn check_package(
 		&self,
 		arg: tg::package::check::Arg,

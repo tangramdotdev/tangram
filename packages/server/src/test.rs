@@ -51,6 +51,10 @@ impl Context {
 			connections: 1,
 			path: path.join("database"),
 		});
+		let index = crate::config::Database::Sqlite(crate::config::SqliteDatabase {
+			connections: 1,
+			path: path.join("index"),
+		});
 		let indexer = Some(crate::config::Indexer::default());
 		let messenger = crate::config::Messenger::default();
 		let remotes = Some(Vec::new());
@@ -68,6 +72,7 @@ impl Context {
 			cleaner,
 			database,
 			http,
+			index,
 			indexer,
 			messenger,
 			path,

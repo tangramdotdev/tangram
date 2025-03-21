@@ -1,4 +1,7 @@
-use crate::{Server, store::Store};
+use crate::{
+	Server,
+	store::{Reference, Store},
+};
 use bytes::Bytes;
 use futures::{
 	FutureExt, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
@@ -329,9 +332,9 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<bool>> {
-		// Get a database connection.
+		// Get a index connection.
 		let connection = self
-			.database
+			.index
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -391,7 +394,7 @@ impl Server {
 
 		// Spawn tasks that receive batches and write them to the store and messenger.
 		let (batch_sender, batch_receiver) =
-			async_channel::bounded::<Vec<(tg::object::Id, Bytes)>>(1);
+			async_channel::bounded::<Vec<(tg::object::Id, Bytes, Option<Reference>)>>(1);
 		let mut tasks = JoinSet::new();
 		for _ in 0..n_batch_tasks {
 			tasks.spawn({
@@ -420,7 +423,7 @@ impl Server {
 				batch_sender.send(std::mem::take(&mut batch)).await.unwrap();
 			}
 			batch_bytes += bytes.len().to_u64().unwrap();
-			batch.push((id, bytes));
+			batch.push((id, bytes, None));
 		}
 		batch_sender.send(batch).await.unwrap();
 
@@ -435,7 +438,7 @@ impl Server {
 
 	async fn import_objects_task_batch_task(
 		&self,
-		batch_receiver: async_channel::Receiver<Vec<(tg::object::Id, Bytes)>>,
+		batch_receiver: async_channel::Receiver<Vec<(tg::object::Id, Bytes, Option<Reference>)>>,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 		progress: &Arc<Progress>,
 	) {
@@ -459,17 +462,15 @@ impl Server {
 				async {
 					batch
 						.iter()
-						.map(|(id, bytes)| async {
+						.map(|(id, bytes, reference)| async {
 							let data = tg::object::Data::deserialize(id.kind(), bytes.clone())?;
 							let children = data.children();
-							let message = crate::index::Message {
+							let message = crate::index::ObjectMessage {
 								children,
-								count: None,
-								depth: None,
 								id: id.clone(),
 								size: bytes.len().to_u64().unwrap(),
 								touched_at,
-								weight: None,
+								cache_reference: reference.as_ref().map(|r| r.file.clone()),
 							};
 							let message = serde_json::to_vec(&message).map_err(|source| {
 								tg::error!(!source, "failed to serialize the message")
@@ -500,7 +501,7 @@ impl Server {
 			let objects = batch.len().to_u64().unwrap();
 			let bytes = batch
 				.iter()
-				.map(|(_, bytes)| bytes.len().to_u64().unwrap())
+				.map(|(_, bytes, _)| bytes.len().to_u64().unwrap())
 				.sum();
 			progress.increment_objects(objects);
 			progress.increment_bytes(bytes);

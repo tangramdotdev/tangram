@@ -26,11 +26,30 @@ pub struct PutArg {
 	pub id: tg::object::Id,
 	pub bytes: Bytes,
 	pub touched_at: i64,
+	pub reference: Option<Reference>,
 }
 
 pub struct PutBatchArg {
-	pub objects: Vec<(tg::object::Id, Bytes)>,
+	pub objects: Vec<(tg::object::Id, Bytes, Option<Reference>)>,
 	pub touched_at: i64,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Reference {
+	pub file: tg::blob::Id,
+	pub position: u64,
+	pub length: u64,
+}
+
+impl Reference {
+	fn to_bytes(&self) -> Bytes {
+		Bytes::from(serde_json::to_vec(self).unwrap())
+	}
+
+	fn from_bytes(bytes: Bytes) -> tg::Result<Self> {
+		serde_json::from_slice(&bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))
+	}
 }
 
 pub struct DeleteArg {
@@ -72,6 +91,19 @@ impl Store {
 			Self::Fdb(fdb) => fdb.try_get(id).await,
 			Self::Lmdb(lmdb) => lmdb.try_get(id).await,
 			Self::S3(s3) => s3.try_get(id).await,
+		}
+	}
+
+	pub async fn try_get_cache_reference(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<Reference>> {
+		match self {
+			Self::Memory(memory) => Ok(memory.try_get_cache_reference(id)),
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_get_cache_reference(id).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_cache_reference(id).await,
+			Self::S3(s3) => s3.try_get_cache_reference(id).await,
 		}
 	}
 

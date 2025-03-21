@@ -4,6 +4,8 @@ use heed as lmdb;
 use num::ToPrimitive;
 use tangram_client as tg;
 
+use super::Reference;
+
 pub struct Lmdb {
 	pub db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
 	pub env: lmdb::Env,
@@ -24,7 +26,7 @@ struct Delete {
 }
 
 struct Put {
-	items: Vec<(tg::object::Id, Bytes)>,
+	items: Vec<(tg::object::Id, Bytes, Option<Reference>)>,
 	touched_at: i64,
 	response_sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
@@ -97,10 +99,44 @@ impl Lmdb {
 		Ok(bytes)
 	}
 
+	pub async fn try_get_cache_reference(
+		&self,
+		id: &tangram_client::object::Id,
+	) -> Result<Option<Reference>, tangram_client::Error> {
+		let bytes = tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			let id = id.clone();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				let key = (0, id.to_bytes(), 2);
+				let Some(bytes) = db
+					.get(&transaction, &key.pack_to_vec())
+					.map_err(|source| tg::error!(!source, "failed to get the value"))?
+				else {
+					return Ok(None);
+				};
+				let bytes = Bytes::copy_from_slice(bytes);
+				drop(transaction);
+				Ok::<_, tg::Error>(Some(bytes))
+			}
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the task panicked"))?
+		.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+		let reference = bytes
+			.map(Reference::from_bytes)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
+		Ok(reference)
+	}
+
 	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = Message::Put(Put {
-			items: vec![(arg.id, arg.bytes)],
+			items: vec![(arg.id, arg.bytes, arg.reference)],
 			touched_at: arg.touched_at,
 			response_sender: sender,
 		});
@@ -204,7 +240,7 @@ impl Lmdb {
 						let mut transaction = env.write_txn().map_err(|source| {
 							tg::error!(!source, "failed to begin a transaction")
 						})?;
-						for (id, bytes) in message.items {
+						for (id, bytes, reference) in message.items {
 							let key = (0, id.to_bytes(), 0);
 							db.put(&mut transaction, &key.pack_to_vec(), &bytes)
 								.map_err(|source| tg::error!(!source, "failed to put the value"))?;
@@ -212,6 +248,14 @@ impl Lmdb {
 							let touched_at = message.touched_at.to_le_bytes();
 							db.put(&mut transaction, &key.pack_to_vec(), &touched_at)
 								.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+							if let Some(reference) = reference {
+								let key = (0, id.to_bytes(), 2);
+								let reference = reference.to_bytes();
+								db.put(&mut transaction, &key.pack_to_vec(), &reference)
+									.map_err(|source| {
+										tg::error!(!source, "failed to put the value")
+									})?;
+							}
 						}
 						transaction.commit().map_err(|source| {
 							tg::error!(!source, "failed to commit the transaction")
