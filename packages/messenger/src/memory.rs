@@ -3,7 +3,7 @@ use async_broadcast::SendError;
 use bytes::Bytes;
 use core::fmt;
 use dashmap::DashMap;
-use futures::{future, StreamExt};
+use futures::{StreamExt, future};
 use std::{ops::Deref, sync::Arc};
 
 pub struct Messenger(Arc<Inner>);
@@ -40,15 +40,12 @@ struct Stream {
 
 impl Streams {
 	pub async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
-		let sender = &self.0
-			.get(&subject)
-			.ok_or(Error::NotFound)?
-			.sender;
+		let sender = &self.0.get(&subject).ok_or(Error::NotFound)?.sender;
 		let message = Message { subject, payload };
 		sender
-				.broadcast_direct(message)
-				.await
-				.map_err(Error::SendError)?;
+			.broadcast_direct(message)
+			.await
+			.map_err(Error::SendError)?;
 		Ok(())
 	}
 
