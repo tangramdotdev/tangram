@@ -108,7 +108,7 @@ impl Runtime {
 			let guest_url = format!("http+unix://{socket}").parse::<Url>().unwrap();
 
 			// Create the proxy server host URL.
-			let socket = instance.rootdir().join(".tangram/socket");
+			let socket = instance.lowerdir().join(".tangram/socket");
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
@@ -569,6 +569,10 @@ impl Runtime {
 }
 
 impl Instance {
+	pub fn lowerdir(&self) -> PathBuf {
+		self.temp.path().join("lower")
+	}
+
 	pub fn rootdir(&self) -> PathBuf {
 		self.temp.path().join("root")
 	}
