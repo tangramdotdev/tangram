@@ -1,5 +1,7 @@
+use crate::database::Database;
 use crate::{Server, util::iter::Ext as _};
 use async_nats as nats;
+use futures::FutureExt as _;
 use futures::{Stream, StreamExt as _, TryStreamExt, future, stream};
 use indoc::indoc;
 use num::ToPrimitive as _;
@@ -26,6 +28,71 @@ pub(crate) struct Message {
 }
 
 type Acker = nats::jetstream::message::Acker;
+
+pub async fn migrate(database: &Database) -> tg::Result<()> {
+	if database.is_right() {
+		return Ok(());
+	}
+
+	let migrations = vec![migration_0000(database).boxed()];
+
+	let version = match database {
+		Either::Left(database) => {
+			let connection = database
+				.connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			connection
+				.with(|connection| {
+					connection
+						.pragma_query_value(None, "user_version", |row| {
+							Ok(row.get_unwrap::<_, usize>(0))
+						})
+						.map_err(|source| tg::error!(!source, "failed to get the version"))
+				})
+				.await?
+		},
+		Either::Right(_) => {
+			unreachable!()
+		},
+	};
+
+	// If this path is from a newer version of Tangram, then return an error.
+	if version > migrations.len() {
+		return Err(tg::error!(
+			r"The index has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
+		));
+	}
+
+	// Run all migrations and update the version file.
+	let migrations = migrations.into_iter().enumerate().skip(version);
+	for (version, migration) in migrations {
+		// Run the migration.
+		migration.await?;
+
+		// Update the version.
+		match database {
+			Either::Left(database) => {
+				let connection = database
+					.write_connection()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				connection
+					.with(move |connection| {
+						connection
+							.pragma_update(None, "user_version", version + 1)
+							.map_err(|source| tg::error!(!source, "failed to get the version"))
+					})
+					.await?;
+			},
+			Either::Right(_) => {
+				unreachable!()
+			},
+		}
+	}
+
+	Ok(())
+}
 
 impl Server {
 	pub async fn index(&self) -> tg::Result<()> {
@@ -359,19 +426,16 @@ impl Server {
 			"
 		);
 		transaction
-			.execute(
-				statement,
-				&[
-					&ids.as_slice(),
-					&size.as_slice(),
-					&now,
-					&children.as_slice(),
-					&parent_indices.as_slice(),
-					&count.as_slice(),
-					&depth.as_slice(),
-					&weight.as_slice(),
-				],
-			)
+			.execute(statement, &[
+				&ids.as_slice(),
+				&size.as_slice(),
+				&now,
+				&children.as_slice(),
+				&parent_indices.as_slice(),
+				&count.as_slice(),
+				&depth.as_slice(),
+				&weight.as_slice(),
+			])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
 
@@ -392,4 +456,325 @@ impl Server {
 
 		Ok(())
 	}
+}
+
+async fn migration_0000(database: &Database) -> tg::Result<()> {
+	let sql = indoc!(
+		r#"
+			create table blobs (
+				id text primary key,
+				reference_count integer
+			);
+
+			create index blobs_reference_count_zero_index on blobs ((1)) where reference_count = 0;
+
+			create table blob_references (
+				id text primary key,
+				blob text not null,
+				position integer not null,
+				length integer not null
+			);
+
+			create trigger blobs_increment_reference_count_trigger
+			after insert on blob_references
+			for each row
+			begin
+				update blobs set reference_count = reference_count + 1
+				where id = new.blob;
+			end;
+
+			create trigger blobs_decrement_reference_count_trigger
+			after delete on blob_references
+			for each row
+			begin
+				update blobs set reference_count = reference_count - 1
+				where id = old.blob;
+			end;
+
+			create table objects (
+				id text primary key,
+				complete integer not null default 0,
+				count integer,
+				depth integer,
+				incomplete_children integer,
+				reference_count integer,
+				size integer not null,
+				touched_at text,
+				weight integer
+			);
+
+			create index objects_reference_count_zero_index on objects (touched_at) where reference_count = 0;
+
+			create trigger objects_insert_complete_trigger
+			after insert on objects
+			when new.complete = 0 and new.incomplete_children = 0
+			begin
+				update objects
+				set
+					complete = updates.complete,
+					count = updates.count,
+					depth = updates.depth,
+					weight = updates.weight
+				from (
+					select
+						objects.id,
+						coalesce(min(child_objects.complete), 1) as complete,
+						1 + coalesce(sum(child_objects.count), 0) as count,
+						1 + coalesce(max(child_objects.depth), 0) as depth,
+						objects.size + coalesce(sum(child_objects.weight), 0) as weight
+					from objects
+					left join object_children on object_children.object = objects.id
+					left join objects as child_objects on child_objects.id = object_children.child
+					where objects.id = new.id 
+					group by objects.id, objects.size
+				) as updates
+				where objects.id = updates.id;
+			end;
+
+			create trigger objects_update_complete_trigger
+			after update of complete, incomplete_children on objects
+			when new.complete = 0 and new.incomplete_children = 0
+			begin
+				update objects
+				set
+					complete = updates.complete,
+					count = updates.count,
+					depth = updates.depth,
+					weight = updates.weight
+				from (
+					select
+						objects.id,
+						coalesce(min(child_objects.complete), 1) as complete,
+						1 + coalesce(sum(child_objects.count), 0) as count,
+						1 + coalesce(max(child_objects.depth), 0) as depth,
+						objects.size + coalesce(sum(child_objects.weight), 0) as weight
+					from objects
+					left join object_children on object_children.object = objects.id
+					left join objects as child_objects on child_objects.id = object_children.child
+					where objects.id = new.id 
+					group by objects.id, objects.size
+				) as updates
+				where objects.id = updates.id;
+			end;
+
+			create trigger objects_insert_incomplete_children_trigger
+			after insert on objects
+			for each row
+			when (new.incomplete_children is null)
+			begin
+				update objects
+				set incomplete_children = (
+					select count(*)
+					from object_children
+					left join objects child_objects on child_objects.id = object_children.child
+					where object_children.object = new.id and (child_objects.complete is null or child_objects.complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger objects_insert_reference_count_trigger
+			after insert on objects
+			for each row
+			when (new.reference_count is null)
+			begin
+				update objects
+				set reference_count = (
+					(select count(*) from object_children where child = new.id) +
+					(select count(*) from process_objects where object = new.id) +
+					(select count(*) from tags where item = new.id)
+				)
+				where id = new.id;
+			end;
+
+			create trigger objects_update_incomplete_children_trigger
+			after update of complete on objects
+			for each row
+			when (old.complete = 0 and new.complete = 1)
+			begin
+				update objects
+				set incomplete_children = incomplete_children - 1
+				where id in (
+					select object
+					from object_children
+					where child = new.id
+				);
+			end;
+
+			create trigger objects_delete_trigger
+			after delete on objects
+			for each row
+			begin
+				delete from object_children
+				where object = old.id;
+
+				delete from blob_references
+				where id = old.id;
+			end;
+
+			create table object_children (
+				object text not null,
+				child text not null
+			);
+
+			create unique index object_children_index on object_children (object, child);
+
+			create index object_children_child_index on object_children (child);
+
+			create trigger object_children_insert_trigger
+			after insert on object_children
+			for each row
+			begin
+				update objects
+				set reference_count = objects.reference_count + 1
+				where id = new.child;
+			end;
+
+			create trigger object_children_delete_trigger
+			after delete on object_children
+			for each row
+			begin
+				update objects
+				set reference_count = objects.reference_count - 1
+				where id = old.child;
+			end;
+
+			create table processes (
+				id text primary key,
+				reference_count integer,
+				touched_at text
+			);
+
+			create index processes_reference_count_zero_index on processes (touched_at) where reference_count = 0;
+
+			create trigger processes_insert_reference_count_trigger
+			after insert on processes
+			for each row
+			when (new.reference_count is null)
+			begin
+				update processes
+				set reference_count = (
+					(select count(*) from process_children where child = new.id) +
+					(select count(*) from tags where item = new.id)
+				)
+				where id = new.id;
+			end;
+
+			create trigger processes_delete_trigger
+			after delete on processes
+			for each row
+			begin
+				delete from process_children
+				where process = old.id;
+
+				delete from process_objects
+				where process = old.id;
+			end;
+
+			create table process_children (
+				process text not null,
+				child text not null,
+				position integer not null
+			);
+
+			create unique index process_children_process_child_index on process_children (process, child);
+
+			create index process_children_index on process_children (process, position);
+
+			create index process_children_child_process_index on process_children (child, process);
+
+			create trigger process_children_insert_trigger
+			after insert on process_children
+			for each row
+			begin
+				update processes
+				set reference_count = processes.reference_count + 1
+				where id = new.child;
+			end;
+
+			create trigger process_children_delete_trigger
+			after delete on process_children
+			for each row
+			begin
+				update processes
+				set reference_count = processes.reference_count - 1
+				where id = old.child;
+			end;
+
+			create table process_objects (
+				process text not null,
+				object text not null
+			);
+
+			create unique index process_objects_index on process_objects (process, object);
+
+			create index process_objects_object_index on process_objects (object);
+
+			create trigger process_objects_insert_trigger
+			after insert on process_objects
+			begin
+				update objects
+				set reference_count = reference_count + 1
+				where id = new.object;
+			end;
+
+			create trigger process_objects_delete_trigger
+			after delete on process_objects
+			begin
+				update objects
+				set reference_count = reference_count - 1
+				where id = old.object;
+			end;
+
+			create table tags (
+				tag text primary key,
+				item text not null
+			);
+
+			create trigger tags_insert_trigger
+			after insert on tags
+			for each row
+			begin
+				update objects set reference_count = reference_count + 1
+				where id = new.item;
+
+				update processes set reference_count = reference_count + 1
+				where id = new.item;
+			end;
+
+			create trigger tags_delete_trigger
+			after delete on tags
+			for each row
+			begin
+				update objects set reference_count = reference_count - 1
+				where id = old.item;
+
+				update processes set reference_count = reference_count - 1
+				where id = old.item;
+			end;
+		"#
+	);
+	let database = database.as_ref().unwrap_left();
+	let connection = database
+		.write_connection()
+		.await
+		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+	connection
+		.with(move |connection| {
+			connection
+				.execute_batch(sql)
+				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
+			Ok::<_, tg::Error>(())
+		})
+		.await?;
+	connection
+		.with(move |connection| {
+			let sql =
+				"insert into remotes (name, url) values ('default', 'https://cloud.tangram.dev');";
+			connection
+				.execute_batch(sql)
+				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
+			Ok::<_, tg::Error>(())
+		})
+		.await?;
+	Ok(())
 }

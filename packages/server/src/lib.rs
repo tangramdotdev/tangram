@@ -80,6 +80,7 @@ pub struct Inner {
 	database: Database,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	http: Option<Http>,
+	index: Database,
 	local_pool_handle: Option<tokio_util::task::LocalPoolHandle>,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
@@ -270,6 +271,43 @@ impl Server {
 			},
 		};
 
+		// Create the index.
+		let index = match &config.index {
+			self::config::Database::Sqlite(options) => {
+				let initialize = Arc::new(|connection: &sqlite::Connection| {
+					connection.pragma_update(None, "auto_vaccum", "incremental")?;
+					connection.pragma_update(None, "busy_timeout", "5000")?;
+					connection.pragma_update(None, "cache_size", "-20000")?;
+					connection.pragma_update(None, "foreign_keys", "on")?;
+					connection.pragma_update(None, "journal_mode", "wal")?;
+					connection.pragma_update(None, "mmap_size", "2147483648")?;
+					connection.pragma_update(None, "recursive_triggers", "on")?;
+					connection.pragma_update(None, "synchronous", "normal")?;
+					connection.pragma_update(None, "temp_store", "memory")?;
+					Ok(())
+				});
+				let options = db::sqlite::DatabaseOptions {
+					connections: options.connections,
+					initialize,
+					path: path.join("index"),
+				};
+				let database = db::sqlite::Database::new(options)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the index"))?;
+				Either::Left(database)
+			},
+			self::config::Database::Postgres(options) => {
+				let options = db::postgres::DatabaseOptions {
+					url: options.url.clone(),
+					connections: options.connections,
+				};
+				let database = db::postgres::Database::new(options)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the index"))?;
+				Either::Right(database)
+			},
+		};
+
 		// Create the file system semaphore.
 		let file_descriptor_semaphore =
 			tokio::sync::Semaphore::new(config.advanced.file_descriptor_semaphore_size);
@@ -346,6 +384,7 @@ impl Server {
 			compilers,
 			config,
 			database,
+			index,
 			file_descriptor_semaphore,
 			http,
 			local_pool_handle,
@@ -369,6 +408,11 @@ impl Server {
 		self::database::migrate(&server.database)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
+
+		// Migrate the index.
+		self::index::migrate(&server.index)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to migrate the index"))?;
 
 		// Set the remotes if specified in the config.
 		if let Some(remotes) = &server.config.remotes {
@@ -765,6 +809,11 @@ impl Server {
 	#[must_use]
 	pub fn database_path(&self) -> PathBuf {
 		self.path.join("database")
+	}
+
+	#[must_use]
+	pub fn index_path(&self) -> PathBuf {
+		self.path.join("index")
 	}
 
 	#[must_use]
