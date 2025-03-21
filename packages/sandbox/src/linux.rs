@@ -240,6 +240,13 @@ async fn try_start(
 pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 	// If this future is dropped, then kill the root process.
 	let root_process = child.root_pid;
+	let guest_process = child.guest_pid;
+	scopeguard::defer! {
+		unsafe {
+			libc::kill(root_process, libc::SIGKILL);
+			libc::kill(guest_process, libc::SIGKILL);
+		}
+	}
 
 	// Wait for the root process to exit.
 	tokio::task::spawn_blocking(move || {
