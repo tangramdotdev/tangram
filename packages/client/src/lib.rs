@@ -153,8 +153,8 @@ impl Client {
 				http::HeaderName::from_str("x-tg-version").unwrap(),
 				http::HeaderValue::from_str(&version).unwrap(),
 			)
-			// .layer(tangram_http::layer::compression::RequestCompressionLayer::default())
-			// .layer(tangram_http::layer::compression::ResponseDecompressionLayer)
+			.layer(tangram_http::layer::compression::RequestCompressionLayer::default())
+			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
 			.service(service);
 		let service = Service::new(service);
 		Self(Arc::new(Inner {

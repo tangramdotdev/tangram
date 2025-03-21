@@ -57,12 +57,11 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
 
-		// Get the result.
+		// Run the process.
 		let result = self
 			.run_process_inner(args.options, reference, args.trailing, &stdio)
 			.await;
 
-		// Close the pipes, in case the inner process errored.
 		stdio.delete_io(&handle);
 
 		// Drop stdio to restore termios.
@@ -234,6 +233,7 @@ impl Cli {
 
 		// Stop and wait for stdio.
 		stdio_task.await.unwrap()?;
+
 		// Abort the cancel task.
 		cancel_task.abort();
 
@@ -267,14 +267,13 @@ async fn stdio_task<H>(
 where
 	H: tg::Handle,
 {
-	// Spawn a task to read from stdin.
+	// Spawn stdin task.
 	let stream = stdin_stream();
-	let stdin = tokio::spawn({
-		let io = stdin;
+	let stdin_task = tokio::spawn({
 		let remote = remote.clone();
 		let handle = handle.clone();
 		async move {
-			match io {
+			match stdin {
 				tg::process::Stdio::Pipe(id) => {
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
@@ -298,8 +297,19 @@ where
 		}
 	});
 
-	// Create the stderr task if the pipe is different from stdout, to avoid duplicating output.
-	let stderr = tokio::spawn({
+	// Create the stdout task.
+	let stdout_task = tokio::spawn({
+		let stdout = stdout.clone();
+		let handle = handle.clone();
+		let remote = remote.clone();
+		async move {
+			stdio_task_inner(&handle, &stdout, remote, tokio::io::stdout()).await?;
+			Ok::<_, tg::Error>(())
+		}
+	});
+
+	// Create the stderr task.
+	let stderr_task = tokio::spawn({
 		let stdout = stdout.clone();
 		let stderr = stderr.clone();
 		let handle = handle.clone();
@@ -308,23 +318,21 @@ where
 			if stdout == stderr {
 				return Ok(());
 			};
-			output(&handle, &stderr, remote, tokio::io::stderr()).await
+			stdio_task_inner(&handle, &stderr, remote, tokio::io::stderr()).await?;
+			Ok::<_, tg::Error>(())
 		}
 	});
 
-	let stdout = tokio::spawn({
-		let stdout = stdout.clone();
-		let handle = handle.clone();
-		let remote = remote.clone();
-		async move { output(&handle, &stdout, remote, tokio::io::stdout()).await }
-	});
+	// Join the stdout and stderr tasks.
+	let (stdout_result, stderr_result) = future::try_join(stdout_task, stderr_task).await.unwrap();
 
-	// Join all tasks and return errors.
-	let (stdout, stderr) = future::try_join(stdout, stderr).await.unwrap();
-	stdin.abort();
+	// Stop the await stdin task.
+	stdin_task.abort();
 
-	stdout?;
-	stderr?;
+	// Return errors from the stdout and stderr tasks.
+	stdout_result?;
+	stderr_result?;
+
 	Ok(())
 }
 
@@ -354,7 +362,7 @@ fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
 	ReceiverStream::new(recv)
 }
 
-async fn output<H>(
+async fn stdio_task_inner<H>(
 	handle: &H,
 	io: &tg::process::Stdio,
 	remote: Option<String>,

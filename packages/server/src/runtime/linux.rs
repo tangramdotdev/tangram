@@ -515,7 +515,7 @@ impl Runtime {
 				overlay.lowerdirs.push(instance.temp.path().join("lower"));
 			}
 
-			// Add common mounts for /proc, /tmp, /dev, /output, /.tangram/artifacts
+			// Add common mounts for /proc, /tmp, /dev, /output, /.tangram/artifacts.
 			instance.mounts.push(sandbox::Mount {
 				source: "/proc".into(),
 				target: "/proc".into(),
@@ -564,7 +564,6 @@ impl Runtime {
 			.mounts
 			.sort_unstable_by_key(|m| m.target.components().count());
 
-		// Return the instance.
 		Ok(instance)
 	}
 }
