@@ -2,9 +2,9 @@ use bytes::Bytes;
 
 pub mod create;
 pub mod delete;
-pub mod get;
 pub mod id;
-pub mod post;
+pub mod read;
+pub mod write;
 
 pub use self::id::Id;
 

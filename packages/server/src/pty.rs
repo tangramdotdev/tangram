@@ -4,8 +4,8 @@ use tangram_either::Either;
 
 mod create;
 mod delete;
-mod get;
-mod post;
+mod read;
+mod write;
 
 impl Server {
 	pub(crate) async fn send_pty_event(

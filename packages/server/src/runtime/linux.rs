@@ -84,11 +84,13 @@ impl Runtime {
 		let artifacts_path = if instance.root_is_bind_mounted {
 			self.server.artifacts_path()
 		} else {
-			instance.artifacts_path()
+			Instance::artifacts_path()
 		};
 
 		// Create the proxy for the chroot.
-		let proxy = if !instance.root_is_bind_mounted {
+		let proxy = if instance.root_is_bind_mounted {
+			None
+		} else {
 			// Create the path map.
 			let path_map = proxy::PathMap {
 				output_host: instance.outdir(),
@@ -124,8 +126,6 @@ impl Runtime {
 			let listener = Server::listen(&host_url).await?;
 			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 			Some((task, guest_url))
-		} else {
-			None
 		};
 
 		// Render the args.
@@ -155,7 +155,7 @@ impl Runtime {
 
 		// Merge the environment.
 		let mut env =
-			super::util::merge_env(&self.server, &artifacts_path, process_env, &*command_env)
+			super::util::merge_env(&self.server, &artifacts_path, process_env, &command_env)
 				.await?;
 
 		// Render the executable.
@@ -182,14 +182,14 @@ impl Runtime {
 		}
 
 		// Set `$TANGRAM_URL`.
-		let url = proxy
-			.as_ref()
-			.map(|(_, url)| url.to_string())
-			.unwrap_or_else(|| {
+		let url = proxy.as_ref().map_or_else(
+			|| {
 				let path = self.server.path.join("socket").display().to_string();
 				let path = urlencoding::encode(&path);
 				format!("http+unix://{path}")
-			});
+			},
+			|(_, url)| url.to_string(),
+		);
 		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 		// Create the command
@@ -204,57 +204,54 @@ impl Runtime {
 			.hostname(process.id().to_string());
 
 		// Setup stdio.
-		cmd_.stdin(sandbox::Stdio::Piped);
-		if let Some(tg::process::Io::Pty(pty)) = &state.stdin {
-			let ws = self
+		if let Some(tg::process::Stdio::Pty(pty)) = &state.stdin {
+			let size = self
 				.server
-				.get_pty_window_size(
+				.get_pty_size(
 					pty,
-					tg::pty::get::Arg {
+					tg::pty::read::Arg {
 						remote: process.remote().cloned(),
 						master: true,
 					},
 				)
 				.await?
-				.ok_or_else(|| tg::error!("failed to get pipe"))?;
+				.ok_or_else(|| tg::error!("failed to get the pty size"))?;
 			let tty = sandbox::Tty {
-				rows: ws.rows,
-				cols: ws.cols,
-				x: ws.xpos,
-				y: ws.ypos,
+				rows: size.rows,
+				cols: size.cols,
 			};
 			cmd_.stdin(sandbox::Stdio::Tty(tty));
+		} else {
+			cmd_.stdin(sandbox::Stdio::Piped);
 		}
 
-		cmd_.stdout(sandbox::Stdio::Piped);
-		if let Some(tg::process::Io::Pty(pty)) = &state.stdout {
-			let ws = self
+		if let Some(tg::process::Stdio::Pty(pty)) = &state.stdout {
+			let size = self
 				.server
-				.get_pty_window_size(
+				.get_pty_size(
 					pty,
-					tg::pty::get::Arg {
+					tg::pty::read::Arg {
 						remote: process.remote().cloned(),
 						master: false,
 					},
 				)
 				.await?
-				.ok_or_else(|| tg::error!("failed to get pipe"))?;
+				.ok_or_else(|| tg::error!("failed to get the pty size"))?;
 			let tty = sandbox::Tty {
-				rows: ws.rows,
-				cols: ws.cols,
-				x: ws.xpos,
-				y: ws.ypos,
+				rows: size.rows,
+				cols: size.cols,
 			};
 			cmd_.stdout(sandbox::Stdio::Tty(tty));
+		} else {
+			cmd_.stdout(sandbox::Stdio::Piped);
 		}
 
-		cmd_.stderr(sandbox::Stdio::Piped);
-		if let Some(tg::process::Io::Pty(pty)) = &state.stderr {
+		if let Some(tg::process::Stdio::Pty(pty)) = &state.stderr {
 			let ws = self
 				.server
-				.get_pty_window_size(
+				.get_pty_size(
 					pty,
-					tg::pty::get::Arg {
+					tg::pty::read::Arg {
 						remote: process.remote().cloned(),
 						master: false,
 					},
@@ -264,10 +261,10 @@ impl Runtime {
 			let tty = sandbox::Tty {
 				rows: ws.rows,
 				cols: ws.cols,
-				x: ws.xpos,
-				y: ws.ypos,
 			};
 			cmd_.stderr(sandbox::Stdio::Tty(tty));
+		} else {
+			cmd_.stderr(sandbox::Stdio::Piped);
 		}
 
 		// Spawn the child.
@@ -360,23 +357,7 @@ impl Runtime {
 
 		Ok((Some(exit), output))
 	}
-}
 
-impl Instance {
-	pub fn rootdir(&self) -> PathBuf {
-		self.temp.path().join("root")
-	}
-
-	pub fn outdir(&self) -> PathBuf {
-		self.temp.path().join("output")
-	}
-
-	pub fn artifacts_path(&self) -> PathBuf {
-		"/.tangram/artifacts".into()
-	}
-}
-
-impl Runtime {
 	async fn create_instance(&self, process: &tg::Process) -> tg::Result<Instance> {
 		let state = process.load(&self.server).await?;
 		let command_mounts = state.command.mounts(&self.server).await?;
@@ -467,11 +448,11 @@ impl Runtime {
 			tokio::fs::write(
 				instance.temp.path().join("lower/etc/nsswitch.conf"),
 				formatdoc!(
-					r#"
+					"
 						passwd: files compat
 						shadow: files compat
 						hosts: files dns compat
-					"#
+					"
 				),
 			)
 			.await
@@ -481,10 +462,10 @@ impl Runtime {
 			tokio::fs::write(
 				instance.temp.path().join("lower/etc/passwd"),
 				formatdoc!(
-					r#"
+					"
 						root:!:0:0:root:/nonexistent:/bin/false
 						nobody:!:65534:65534:nobody:/nonexistent:/bin/false
-					"#
+					"
 				),
 			)
 			.await
@@ -559,17 +540,14 @@ impl Runtime {
 				}
 				.into(),
 			);
-			instance.mounts.push(
-				sandbox::Mount {
-					source: self.server.artifacts_path(),
-					target: "/.tangram/artifacts".into(),
-					fstype: None,
-					flags: libc::MS_BIND | libc::MS_REC,
-					data: None,
-					readonly: false,
-				}
-				.into(),
-			);
+			instance.mounts.push(sandbox::Mount {
+				source: self.server.artifacts_path(),
+				target: "/.tangram/artifacts".into(),
+				fstype: None,
+				flags: libc::MS_BIND | libc::MS_REC,
+				data: None,
+				readonly: false,
+			});
 			instance.mounts.push(
 				sandbox::BindMount {
 					source: instance.outdir(),
@@ -588,5 +566,19 @@ impl Runtime {
 
 		// Return the instance.
 		Ok(instance)
+	}
+}
+
+impl Instance {
+	pub fn rootdir(&self) -> PathBuf {
+		self.temp.path().join("root")
+	}
+
+	pub fn outdir(&self) -> PathBuf {
+		self.temp.path().join("output")
+	}
+
+	pub fn artifacts_path() -> PathBuf {
+		"/.tangram/artifacts".into()
 	}
 }

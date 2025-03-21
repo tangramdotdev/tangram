@@ -5,12 +5,11 @@ use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 impl Server {
 	pub async fn check_package(
 		&self,
-		arg: tg::package::check::Arg,
+		mut arg: tg::package::check::Arg,
 	) -> tg::Result<tg::package::check::Output> {
 		// If the remote arg is set, then forward the request.
-		let remote = arg.remote.as_ref();
-		if let Some(remote) = remote {
-			let remote = self.get_remote_client(remote.clone()).await?;
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote).await?;
 			let arg = tg::package::check::Arg {
 				remote: None,
 				..arg

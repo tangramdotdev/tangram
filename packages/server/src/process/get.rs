@@ -72,11 +72,11 @@ impl Server {
 			started_at: Option<time::OffsetDateTime>,
 			status: tg::process::Status,
 			#[serde(default)]
-			stderr: Option<tg::process::Io>,
+			stderr: Option<tg::process::Stdio>,
 			#[serde(default)]
-			stdin: Option<tg::process::Io>,
+			stdin: Option<tg::process::Stdio>,
 			#[serde(default)]
-			stdout: Option<tg::process::Io>,
+			stdout: Option<tg::process::Stdio>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(

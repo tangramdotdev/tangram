@@ -195,12 +195,12 @@ impl Runtime {
 
 		// Setup stdio.
 		cmd_.stdin(sandbox::Stdio::Piped);
-		if let Some(tg::process::Io::Pty(pty)) = &state.stdin {
+		if let Some(tg::process::Stdio::Pty(pty)) = &state.stdin {
 			let ws = self
 				.server
-				.get_pty_window_size(
+				.get_pty_size(
 					pty,
-					tg::pty::get::Arg {
+					tg::pty::read::Arg {
 						remote: process.remote().cloned(),
 						master: true,
 					},
@@ -210,19 +210,17 @@ impl Runtime {
 			let tty = sandbox::Tty {
 				rows: ws.rows,
 				cols: ws.cols,
-				x: ws.xpos,
-				y: ws.ypos,
 			};
 			cmd_.stdin(sandbox::Stdio::Tty(tty));
 		}
 
 		cmd_.stdout(sandbox::Stdio::Piped);
-		if let Some(tg::process::Io::Pty(pty)) = &state.stdout {
-			let ws = self
+		if let Some(tg::process::Stdio::Pty(pty)) = &state.stdout {
+			let size = self
 				.server
-				.get_pty_window_size(
+				.get_pty_size(
 					pty,
-					tg::pty::get::Arg {
+					tg::pty::read::Arg {
 						remote: process.remote().cloned(),
 						master: false,
 					},
@@ -230,21 +228,19 @@ impl Runtime {
 				.await?
 				.ok_or_else(|| tg::error!("failed to get pipe"))?;
 			let tty = sandbox::Tty {
-				rows: ws.rows,
-				cols: ws.cols,
-				x: ws.xpos,
-				y: ws.ypos,
+				rows: size.rows,
+				cols: size.cols,
 			};
 			cmd_.stdout(sandbox::Stdio::Tty(tty));
 		}
 
 		cmd_.stderr(sandbox::Stdio::Piped);
-		if let Some(tg::process::Io::Pty(pty)) = &state.stderr {
-			let ws = self
+		if let Some(tg::process::Stdio::Pty(pty)) = &state.stderr {
+			let size = self
 				.server
-				.get_pty_window_size(
+				.get_pty_size(
 					pty,
-					tg::pty::get::Arg {
+					tg::pty::read::Arg {
 						remote: process.remote().cloned(),
 						master: false,
 					},
@@ -252,10 +248,8 @@ impl Runtime {
 				.await?
 				.ok_or_else(|| tg::error!("failed to get pipe"))?;
 			let tty = sandbox::Tty {
-				rows: ws.rows,
-				cols: ws.cols,
-				x: ws.xpos,
-				y: ws.ypos,
+				rows: size.rows,
+				cols: size.cols,
 			};
 			cmd_.stderr(sandbox::Stdio::Tty(tty));
 		}

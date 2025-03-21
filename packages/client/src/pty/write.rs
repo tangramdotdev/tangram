@@ -11,7 +11,7 @@ pub struct Arg {
 }
 
 impl Client {
-	pub async fn post_pty(
+	pub async fn write_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
@@ -26,11 +26,11 @@ impl Client {
 			let event = match result {
 				Ok(event) => match event {
 					tg::pty::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),
-					tg::pty::Event::WindowSize(window_size) => {
+					tg::pty::Event::Size(size) => {
 						let mut trailers = http::HeaderMap::new();
 						trailers
 							.insert("x-tg-event", http::HeaderValue::from_static("window-size"));
-						let json = serde_json::to_string(&window_size).unwrap();
+						let json = serde_json::to_string(&size).unwrap();
 						trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 						hyper::body::Frame::trailers(trailers)
 					},

@@ -12,11 +12,10 @@ impl Server {
 	pub async fn try_finish_process(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
+		mut arg: tg::process::finish::Arg,
 	) -> tg::Result<tg::process::finish::Output> {
 		// If the remote arg is set, then forward the request.
-		let remote = arg.remote.as_ref();
-		if let Some(remote) = remote {
+		if let Some(remote) = arg.remote.take() {
 			let client = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::process::finish::Arg {
 				remote: None,

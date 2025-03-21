@@ -118,8 +118,8 @@ impl Pty {
 			let win_size = libc::winsize {
 				ws_col: tty.cols,
 				ws_row: tty.rows,
-				ws_xpixel: tty.x,
-				ws_ypixel: tty.y,
+				ws_xpixel: 0,
+				ws_ypixel: 0,
 			};
 			let mut pty_fd = 0;
 			let mut tty_fd = 0;
@@ -153,8 +153,8 @@ impl Pty {
 			let mut win_size = libc::winsize {
 				ws_col: tty.cols,
 				ws_row: tty.rows,
-				ws_xpixel: tty.x,
-				ws_ypixel: tty.y,
+				ws_xpixel: 0,
+				ws_ypixel: 0,
 			};
 			let mut pty_fd = 0;
 			let mut tty_fd = 0;
@@ -298,8 +298,8 @@ impl Writer {
 			let mut winsize = libc::winsize {
 				ws_col: tty.cols,
 				ws_row: tty.rows,
-				ws_xpixel: tty.x,
-				ws_ypixel: tty.y,
+				ws_xpixel: 0,
+				ws_ypixel: 0,
 			};
 			if libc::ioctl(fd, libc::TIOCSWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
 				return Err(std::io::Error::last_os_error());

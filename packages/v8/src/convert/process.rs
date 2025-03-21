@@ -16,13 +16,13 @@ impl FromV8 for tg::process::Id {
 	}
 }
 
-impl ToV8 for tg::process::Io {
+impl ToV8 for tg::process::Stdio {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.to_string().to_v8(scope)
 	}
 }
 
-impl FromV8 for tg::process::Io {
+impl FromV8 for tg::process::Stdio {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,

@@ -9,14 +9,14 @@ use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger as messenger;
 
 impl Server {
-	pub async fn get_pty_window_size(
+	pub async fn get_pty_size(
 		&self,
 		id: &tg::pty::Id,
-		mut arg: tg::pty::get::Arg,
-	) -> tg::Result<Option<tg::pty::WindowSize>> {
+		mut arg: tg::pty::read::Arg,
+	) -> tg::Result<Option<tg::pty::Size>> {
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			return remote.get_pty_window_size(id, arg).await;
+			return remote.get_pty_size(id, arg).await;
 		}
 		let connection = self
 			.database
@@ -25,7 +25,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		#[derive(serde::Deserialize)]
 		struct Row {
-			window_size: db::value::Json<tg::pty::WindowSize>,
+			window_size: db::value::Json<tg::pty::Size>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -46,27 +46,27 @@ impl Server {
 		Ok(Some(row.window_size.0))
 	}
 
-	pub async fn get_pty_stream(
+	pub async fn read_pty(
 		&self,
 		id: &tg::pty::Id,
-		mut arg: tg::pty::get::Arg,
+		mut arg: tg::pty::read::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
-		// Forward to a remote if requested.
+		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			let stream = remote.get_pty_stream(id, arg).await?.boxed();
+			let stream = remote.read_pty(id, arg).await?.boxed();
 			return Ok(stream);
 		}
 
 		// Create the stream from the messenger.
 		let stream = match &self.messenger {
 			Either::Left(messenger) => self
-				.get_pty_stream_memory(messenger, id, arg.master)
+				.read_pty_memory(messenger, id, arg.master)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get pipe stream"))?
 				.left_stream(),
 			Either::Right(messenger) => self
-				.get_pty_stream_nats(messenger, id, arg.master)
+				.read_pty_nats(messenger, id, arg.master)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get pipe stream"))?
 				.right_stream(),
@@ -75,7 +75,7 @@ impl Server {
 		Ok(stream.boxed())
 	}
 
-	async fn get_pty_stream_memory(
+	async fn read_pty_memory(
 		&self,
 		messenger: &messenger::memory::Messenger,
 		id: &tg::pty::Id,
@@ -99,7 +99,7 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn get_pty_stream_nats(
+	async fn read_pty_nats(
 		&self,
 		messenger: &messenger::nats::Messenger,
 		id: &tg::pty::Id,
@@ -148,7 +148,7 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_get_pty_window_request<H>(
+	pub(crate) async fn handle_get_pty_size_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		id: &str,
@@ -162,12 +162,12 @@ impl Server {
 			.json()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
-		let window_size = handle.get_pty_window_size(&id, arg).await?;
+		let window_size = handle.get_pty_size(&id, arg).await?;
 		let response = http::Response::builder().json(window_size).unwrap();
 		Ok(response)
 	}
 
-	pub(crate) async fn handle_get_pty_request<H>(
+	pub(crate) async fn handle_read_pty_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		id: &str,
@@ -182,7 +182,7 @@ impl Server {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the stream.
-		let stream = handle.get_pty_stream(&id, arg).await?;
+		let stream = handle.read_pty(&id, arg).await?;
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
@@ -194,7 +194,7 @@ impl Server {
 			let event = match result {
 				Ok(event) => match event {
 					tg::pty::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),
-					tg::pty::Event::WindowSize(window_size) => {
+					tg::pty::Event::Size(window_size) => {
 						let mut trailers = http::HeaderMap::new();
 						trailers
 							.insert("x-tg-event", http::HeaderValue::from_static("window-size"));

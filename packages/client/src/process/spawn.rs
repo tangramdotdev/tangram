@@ -37,13 +37,13 @@ pub struct Arg {
 	pub retry: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stderr: Option<tg::process::Io>,
+	pub stderr: Option<tg::process::Stdio>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdin: Option<tg::process::Io>,
+	pub stdin: Option<tg::process::Stdio>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdout: Option<tg::process::Io>,
+	pub stdout: Option<tg::process::Stdio>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

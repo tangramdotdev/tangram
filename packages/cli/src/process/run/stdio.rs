@@ -10,9 +10,9 @@ use tangram_client as tg;
 pub struct Stdio {
 	pub termios: Option<(RawFd, libc::termios)>,
 	pub remote: Option<String>,
-	pub stdin: tg::process::Io,
-	pub stdout: tg::process::Io,
-	pub stderr: tg::process::Io,
+	pub stdin: tg::process::Stdio,
+	pub stdout: tg::process::Stdio,
+	pub stderr: tg::process::Stdio,
 }
 
 impl Cli {
@@ -139,8 +139,8 @@ impl Cli {
 async fn create<H>(
 	handle: &H,
 	remote: Option<String>,
-	window_size: Option<tg::pty::WindowSize>,
-) -> tg::Result<tg::process::Io>
+	window_size: Option<tg::pty::Size>,
+) -> tg::Result<tg::process::Stdio>
 where
 	H: tg::Handle,
 {
@@ -153,43 +153,38 @@ where
 			.create_pty(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open pty"))?;
-		Ok(tg::process::Io::Pty(output.id))
+		Ok(tg::process::Stdio::Pty(output.id))
 	} else {
 		let arg = tg::pipe::create::Arg { remote };
 		let output = handle
 			.create_pipe(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open pipe"))?;
-		Ok(tg::process::Io::Pipe(output.id))
+		Ok(tg::process::Stdio::Pipe(output.id))
 	}
 }
 
-fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg::pty::WindowSize)> {
-	// Get the window size.
+fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg::pty::Size)> {
 	unsafe {
-		// Get the termio modes.
-		let mut termio = MaybeUninit::zeroed();
-		if libc::tcgetattr(fd, termio.as_mut_ptr()) != 0 {
+		// Get the termios.
+		let mut termios = MaybeUninit::zeroed();
+		if libc::tcgetattr(fd, termios.as_mut_ptr()) != 0 {
 			return Err(std::io::Error::last_os_error());
 		}
-		let termios = termio.assume_init();
+		let termios = termios.assume_init();
 
-		// Get the window size.
-		let mut window_size: MaybeUninit<libc::winsize> = MaybeUninit::zeroed();
-		if libc::ioctl(fd, libc::TIOCGWINSZ, window_size.as_mut_ptr()) != 0 {
+		// Get the size.
+		let mut winsize: MaybeUninit<libc::winsize> = MaybeUninit::zeroed();
+		if libc::ioctl(fd, libc::TIOCGWINSZ, winsize.as_mut_ptr()) != 0 {
 			return Err(std::io::Error::last_os_error());
 		}
-		let window_size = window_size.assume_init();
-
-		// Create the window size.
-		let window_size = tg::pty::WindowSize {
-			cols: window_size.ws_col,
-			rows: window_size.ws_row,
-			xpos: window_size.ws_xpixel,
-			ypos: window_size.ws_ypixel,
+		let winsize = winsize.assume_init();
+		let size = tg::pty::Size {
+			cols: winsize.ws_col,
+			rows: winsize.ws_row,
 		};
 
-		Ok((termios, window_size))
+		Ok((termios, size))
 	}
 }
 
@@ -201,13 +196,13 @@ impl Stdio {
 		tokio::spawn(async move {
 			for io in &io {
 				match io {
-					tg::process::Io::Pipe(id) => {
+					tg::process::Stdio::Pipe(id) => {
 						let arg = tg::pipe::delete::Arg {
 							remote: remote.clone(),
 						};
 						handle.delete_pipe(id, arg).await.ok();
 					},
-					tg::process::Io::Pty(id) => {
+					tg::process::Stdio::Pty(id) => {
 						let arg = tg::pty::delete::Arg {
 							remote: remote.clone(),
 						};

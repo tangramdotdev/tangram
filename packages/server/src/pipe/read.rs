@@ -7,27 +7,27 @@ use tangram_http::{Body, request::Ext as _};
 use tangram_messenger as messenger;
 
 impl Server {
-	pub async fn get_pipe_stream(
+	pub async fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		mut arg: tg::pipe::get::Arg,
+		mut arg: tg::pipe::read::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
 		// Forward to a remote if requested.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			let stream = remote.get_pipe_stream(id, arg).await?.boxed();
+			let stream = remote.read_pipe(id, arg).await?.boxed();
 			return Ok(stream);
 		}
 
 		// Create the stream from the messenger.
 		let stream = match &self.messenger {
 			Either::Left(messenger) => self
-				.get_pipe_stream_memory(messenger, id)
+				.read_pipe_memory(messenger, id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get pipe stream"))?
 				.left_stream(),
 			Either::Right(messenger) => self
-				.get_pipe_stream_nats(messenger, id)
+				.read_pipe_nats(messenger, id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get pipe stream"))?
 				.right_stream(),
@@ -36,7 +36,7 @@ impl Server {
 		Ok(stream.boxed())
 	}
 
-	async fn get_pipe_stream_memory(
+	async fn read_pipe_memory(
 		&self,
 		messenger: &messenger::memory::Messenger,
 		id: &tg::pipe::Id,
@@ -54,7 +54,7 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn get_pipe_stream_nats(
+	async fn read_pipe_nats(
 		&self,
 		messenger: &messenger::nats::Messenger,
 		id: &tg::pipe::Id,
@@ -97,7 +97,7 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_get_pipe_request<H>(
+	pub(crate) async fn handle_read_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		id: &str,
@@ -112,7 +112,7 @@ impl Server {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the stream.
-		let stream = handle.get_pipe_stream(&id, arg).await?;
+		let stream = handle.read_pipe(&id, arg).await?;
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

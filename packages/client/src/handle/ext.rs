@@ -396,11 +396,11 @@ pub trait Ext: tg::Handle {
 	fn read_pipe(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::get::Arg,
+		arg: tg::pty::read::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>> + Send
 	{
 		async move {
-			let stream = self.get_pty_stream(id, arg).await?;
+			let stream = self.read_pty(id, arg).await?;
 			Ok(stream.try_filter_map(|event| {
 				let ret = if let tg::pty::Event::Chunk(chunk) = event {
 					Some(chunk)
@@ -415,12 +415,12 @@ pub trait Ext: tg::Handle {
 	fn write_pipe(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::post::Arg,
+		arg: tg::pty::write::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
 			let stream = stream.map(|event| event.map(tg::pty::Event::Chunk)).boxed();
-			self.post_pty(id, arg, stream).await
+			self.write_pty(id, arg, stream).await
 		}
 	}
 

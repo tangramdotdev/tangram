@@ -10,15 +10,15 @@ use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 
 impl Server {
-	pub async fn post_pty(
+	pub async fn write_pty(
 		&self,
 		id: &tg::pty::Id,
-		mut arg: tg::pty::post::Arg,
+		mut arg: tg::pty::write::Arg,
 		stream: impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static,
 	) -> tg::Result<()> {
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
-			return remote.post_pty(id, arg, stream.boxed()).await;
+			return remote.write_pty(id, arg, stream.boxed()).await;
 		}
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
@@ -33,22 +33,18 @@ impl Server {
 		remote: Option<String>,
 		bytes: Bytes,
 	) -> tg::Result<()> {
-		let arg = tg::pty::post::Arg {
+		let arg = tg::pty::write::Arg {
 			remote,
 			master: false,
 		};
-		self.post_pty(
-			id,
-			arg,
-			stream::once(future::ok(tg::pty::Event::Chunk(bytes))),
-		)
-		.await?;
+		let stream = stream::once(future::ok(tg::pty::Event::Chunk(bytes)));
+		self.write_pty(id, arg, stream).await?;
 		Ok(())
 	}
 }
 
 impl Server {
-	pub(crate) async fn handle_post_pty_request<H>(
+	pub(crate) async fn handle_write_pty_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		id: &str,
@@ -87,7 +83,7 @@ impl Server {
 								let window_size = serde_json::from_str(data).map_err(|source| {
 									tg::error!(!source, "failed to deserialize the header value")
 								})?;
-								Ok(tg::pty::Event::WindowSize(window_size))
+								Ok(tg::pty::Event::Size(window_size))
 							},
 							"end" => Ok(tg::pty::Event::End),
 							"error" => {
@@ -109,7 +105,7 @@ impl Server {
 			.boxed();
 
 		// Send the stream.
-		handle.post_pty(&id, arg, stream).await?;
+		handle.write_pty(&id, arg, stream).await?;
 
 		// Create the response.
 		let response = http::Response::builder().empty().unwrap();

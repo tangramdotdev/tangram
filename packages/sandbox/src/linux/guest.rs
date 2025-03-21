@@ -131,9 +131,9 @@ fn mount_and_chroot(context: &mut Context) {
 
 fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
 	unsafe {
-		const BACKSLASH: i8 = b'\\' as _;
-		const SLASH: i8 = b'/' as _;
-		const NULL: i8 = 0;
+		const BACKSLASH: u8 = b'\\';
+		const SLASH: u8 = b'/';
+		const NULL: u8 = 0;
 
 		// Determine if the target is a directory or not.
 		let is_dir = 'a: {

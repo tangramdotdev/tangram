@@ -41,7 +41,7 @@ impl Server {
 			.await
 			.map_err(|_| tg::error!("failed to deserialize the arg"))?;
 		handle
-			.post_process_signal(&id, arg)
+			.signal_process(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to post process signal"))?;
 		let response = http::Response::builder().empty().unwrap();

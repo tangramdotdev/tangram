@@ -10,16 +10,16 @@ use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext};
 
 impl Server {
-	pub async fn post_pipe(
+	pub async fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		mut arg: tg::pipe::post::Arg,
+		mut arg: tg::pipe::write::Arg,
 		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
 	) -> tg::Result<()> {
 		let id = id.clone();
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
-			return remote.post_pipe(&id, arg, stream.boxed()).await;
+			return remote.write_pipe(&id, arg, stream.boxed()).await;
 		}
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
@@ -34,19 +34,15 @@ impl Server {
 		remote: Option<String>,
 		bytes: Bytes,
 	) -> tg::Result<()> {
-		let arg = tg::pipe::post::Arg { remote };
-		self.post_pipe(
-			id,
-			arg,
-			stream::once(future::ok(tg::pipe::Event::Chunk(bytes))),
-		)
-		.await?;
+		let arg = tg::pipe::write::Arg { remote };
+		let stream = stream::once(future::ok(tg::pipe::Event::Chunk(bytes)));
+		self.write_pipe(id, arg, stream).await?;
 		Ok(())
 	}
 }
 
 impl Server {
-	pub(crate) async fn handle_post_pipe_request<H>(
+	pub(crate) async fn handle_write_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		id: &str,
@@ -96,7 +92,7 @@ impl Server {
 			.boxed();
 
 		// Send the stream.
-		handle.post_pipe(&id, arg, stream).await?;
+		handle.write_pipe(&id, arg, stream).await?;
 
 		// Create the response.
 		let response = http::Response::builder().empty().unwrap();

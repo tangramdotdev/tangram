@@ -10,7 +10,7 @@ pub struct Arg {
 }
 
 impl Client {
-	pub async fn post_pipe(
+	pub async fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: Arg,

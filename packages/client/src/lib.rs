@@ -756,79 +756,6 @@ impl tg::Handle for Client {
 		self.format_package(arg)
 	}
 
-	fn create_pty(
-		&self,
-		arg: tg::pty::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
-		self.create_pty(arg)
-	}
-
-	fn delete_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.delete_pty(id, arg)
-	}
-
-	fn get_pty_window_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> {
-		self.get_pty_window_size(id, arg)
-	}
-
-	fn get_pty_stream(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::get::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
-	{
-		self.get_pty_stream(id, arg)
-	}
-
-	fn post_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		self.post_pty(id, arg, stream)
-	}
-
-	fn create_pipe(
-		&self,
-		arg: tg::pipe::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
-		self.create_pipe(arg)
-	}
-
-	fn delete_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.delete_pipe(id, arg)
-	}
-
-	fn get_pipe_stream(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::get::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
-	{
-		self.get_pipe_stream(id, arg)
-	}
-
-	fn post_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		self.post_pipe(id, arg, stream)
-	}
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -894,7 +821,7 @@ impl tg::Handle for Client {
 		self.heartbeat_process(id, arg)
 	}
 
-	fn post_process_signal(
+	fn signal_process(
 		&self,
 		id: &crate::process::Id,
 		arg: crate::process::signal::post::Arg,
@@ -973,6 +900,80 @@ impl tg::Handle for Client {
 		arg: tg::process::touch::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.touch_process(id, arg)
+	}
+
+	fn create_pipe(
+		&self,
+		arg: tg::pipe::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
+		self.create_pipe(arg)
+	}
+
+	fn delete_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pipe(id, arg)
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
+		self.read_pipe(id, arg)
+	}
+
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.write_pipe(id, arg, stream)
+	}
+
+	fn create_pty(
+		&self,
+		arg: tg::pty::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
+		self.create_pty(arg)
+	}
+
+	fn delete_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pty(id, arg)
+	}
+
+	fn get_pty_size(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> {
+		self.get_pty_size(id, arg)
+	}
+
+	fn read_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
+	{
+		self.read_pty(id, arg)
+	}
+
+	fn write_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.write_pty(id, arg, stream)
 	}
 
 	fn try_get_reference(

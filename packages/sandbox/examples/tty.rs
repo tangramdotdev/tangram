@@ -111,8 +111,6 @@ fn get_window_size(fd: i32) -> std::io::Result<Option<Tty>> {
 		Ok(Some(Tty {
 			rows: winsize.ws_row,
 			cols: winsize.ws_col,
-			x: winsize.ws_xpixel,
-			y: winsize.ws_ypixel,
 		}))
 	}
 }

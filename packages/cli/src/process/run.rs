@@ -92,22 +92,23 @@ impl Cli {
 		}
 
 		// Return an error if appropriate.
-		if let Some(source) = output.error {
-			return Err(tg::error!(!source, "the process failed"));
+		if let Some(error) = output.error {
+			return Err(tg::error!(!error, "the process failed"));
 		}
 
 		// Check the exit status.
-		match output.exit {
-			Some(tg::process::Exit::Code { code }) => {
-				fork_and_exit(code).ok();
-				Ok(())
-			},
-			Some(tg::process::Exit::Signal { signal }) => {
-				fork_and_exit(128 + signal).ok();
-				Ok(())
-			},
-			None => Ok(()),
+		let code = match output.exit {
+			Some(tg::process::Exit::Code { code }) => Some(code),
+			Some(tg::process::Exit::Signal { signal }) => Some(128 + signal),
+			None => None,
+		};
+
+		// Fork and exit.
+		if let Some(code) = code {
+			fork_and_exit(code).map_err(|source| tg::error!(!source, "failed to fork"))?;
 		}
+
+		Ok(())
 	}
 
 	#[allow(dead_code)]
@@ -258,9 +259,9 @@ fn fork_and_exit(code: i32) -> std::io::Result<()> {
 
 async fn stdio_task<H>(
 	handle: &H,
-	stdin: tg::process::Io,
-	stdout: tg::process::Io,
-	stderr: tg::process::Io,
+	stdin: tg::process::Stdio,
+	stdout: tg::process::Stdio,
+	stderr: tg::process::Stdio,
 	remote: Option<String>,
 ) -> tg::Result<()>
 where
@@ -274,24 +275,24 @@ where
 		let handle = handle.clone();
 		async move {
 			match io {
-				tg::process::Io::Pipe(id) => {
+				tg::process::Stdio::Pipe(id) => {
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
 						.chain(stream::once(future::ok(tg::pipe::Event::End)))
 						.boxed();
-					let arg = tg::pipe::post::Arg { remote };
-					handle.post_pipe(&id, arg, stream).await.ok();
+					let arg = tg::pipe::write::Arg { remote };
+					handle.write_pipe(&id, arg, stream).await.ok();
 				},
-				tg::process::Io::Pty(id) => {
+				tg::process::Stdio::Pty(id) => {
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pty::Event::Chunk))
 						.chain(stream::once(future::ok(tg::pty::Event::End)))
 						.boxed();
-					let arg = tg::pty::post::Arg {
+					let arg = tg::pty::write::Arg {
 						remote,
 						master: true,
 					};
-					handle.post_pty(&id, arg, stream).await.ok();
+					handle.write_pty(&id, arg, stream).await.ok();
 				},
 			}
 		}
@@ -355,7 +356,7 @@ fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
 
 async fn output<H>(
 	handle: &H,
-	io: &tg::process::Io,
+	io: &tg::process::Stdio,
 	remote: Option<String>,
 	mut writer: impl AsyncWrite + Unpin,
 ) -> tg::Result<()>
@@ -363,10 +364,10 @@ where
 	H: tg::Handle,
 {
 	let stream = match io {
-		tg::process::Io::Pipe(id) => {
-			let arg = tg::pipe::get::Arg { remote };
+		tg::process::Stdio::Pipe(id) => {
+			let arg = tg::pipe::read::Arg { remote };
 			handle
-				.get_pipe_stream(id, arg)
+				.read_pipe(id, arg)
 				.await?
 				.try_filter_map(|event| {
 					future::ok({
@@ -379,13 +380,13 @@ where
 				})
 				.left_stream()
 		},
-		tg::process::Io::Pty(id) => {
-			let arg = tg::pty::get::Arg {
+		tg::process::Stdio::Pty(id) => {
+			let arg = tg::pty::read::Arg {
 				remote,
 				master: false,
 			};
 			handle
-				.get_pty_stream(id, arg)
+				.read_pty(id, arg)
 				.await?
 				.try_filter_map(|event| {
 					future::ok({

@@ -7,12 +7,12 @@ use std::{
 pub use self::{
 	data::Data,
 	id::Id,
-	io::Io,
 	metadata::Metadata,
 	mount::Mount,
 	signal::Signal,
 	state::State,
 	status::Status,
+	stdio::Stdio,
 	wait::{Exit, Wait},
 };
 
@@ -23,7 +23,6 @@ pub mod finish;
 pub mod get;
 pub mod heartbeat;
 pub mod id;
-pub mod io;
 pub mod log;
 pub mod metadata;
 pub mod mount;
@@ -33,6 +32,7 @@ pub mod spawn;
 pub mod start;
 pub mod state;
 pub mod status;
+pub mod stdio;
 pub mod touch;
 pub mod wait;
 

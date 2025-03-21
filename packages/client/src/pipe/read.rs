@@ -10,7 +10,7 @@ pub struct Arg {
 }
 
 impl Client {
-	pub async fn get_pipe_stream(
+	pub async fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: Arg,

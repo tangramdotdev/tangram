@@ -12,11 +12,11 @@ pub struct Arg {
 }
 
 impl Client {
-	pub async fn get_pty_window_size(
+	pub async fn get_pty_size(
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
-	) -> tg::Result<Option<tg::pty::WindowSize>> {
+	) -> tg::Result<Option<tg::pty::Size>> {
 		let method = http::Method::GET;
 		let uri = format!("/ptys/{id}/window");
 		let request = http::request::Builder::default()
@@ -32,7 +32,7 @@ impl Client {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))
 	}
 
-	pub async fn get_pty_stream(
+	pub async fn read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
@@ -79,7 +79,7 @@ impl Client {
 							let window_size = serde_json::from_str(data).map_err(|source| {
 								tg::error!(!source, "failed to deserialize the header value")
 							})?;
-							Ok(tg::pty::Event::WindowSize(window_size))
+							Ok(tg::pty::Event::Size(window_size))
 						},
 						"end" => Ok(tg::pty::Event::End),
 						"error" => {

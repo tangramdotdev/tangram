@@ -8,13 +8,13 @@ use tokio_stream::wrappers::ReceiverStream;
 pub async fn handle_sigwinch<H>(
 	handle: &H,
 	fd: RawFd,
-	io: &tg::process::Io,
+	io: &tg::process::Stdio,
 	remote: Option<String>,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
-	let tg::process::Io::Pty(pty) = io else {
+	let tg::process::Stdio::Pty(pty) = io else {
 		return Ok(());
 	};
 
@@ -24,33 +24,32 @@ where
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
 	tokio::task::spawn(async move {
 		while let Some(()) = signal.recv().await {
-			let window_size = unsafe {
+			let size = unsafe {
 				let mut winsize: MaybeUninit<libc::winsize> = MaybeUninit::uninit();
-				if libc::ioctl(fd, libc::TIOCGWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
+				let ret = libc::ioctl(fd, libc::TIOCGWINSZ, std::ptr::addr_of_mut!(winsize));
+				if ret != 0 {
 					break;
 				}
-				let window_size = winsize.assume_init();
-				tg::pty::WindowSize {
-					rows: window_size.ws_row,
-					cols: window_size.ws_col,
-					xpos: window_size.ws_xpixel,
-					ypos: window_size.ws_ypixel,
+				let winsize = winsize.assume_init();
+				tg::pty::Size {
+					rows: winsize.ws_row,
+					cols: winsize.ws_col,
 				}
 			};
-			let event = Ok::<_, tg::Error>(tg::pty::Event::WindowSize(window_size));
+			let event = Ok::<_, tg::Error>(tg::pty::Event::Size(size));
 			if send.send(event).await.is_err() {
 				break;
 			}
 		}
 	});
 
-	let arg = tg::pty::post::Arg {
+	let arg = tg::pty::write::Arg {
 		remote,
 		master: true,
 	};
 	let stream = ReceiverStream::new(recv);
 	handle
-		.post_pty(pty, arg, stream.boxed())
+		.write_pty(pty, arg, stream.boxed())
 		.await
 		.map_err(|source| tg::error!(!source, "failed to post the window change stream"))
 }
@@ -118,7 +117,7 @@ where
 			signal,
 		};
 		handle
-			.post_process_signal(process, arg)
+			.signal_process(process, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to post signal"))?;
 	}

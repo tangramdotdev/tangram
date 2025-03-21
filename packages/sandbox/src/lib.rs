@@ -106,8 +106,6 @@ pub enum Stdio {
 pub struct Tty {
 	pub rows: u16,
 	pub cols: u16,
-	pub x: u16,
-	pub y: u16,
 }
 
 #[derive(Debug)]

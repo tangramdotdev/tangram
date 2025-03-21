@@ -7,10 +7,12 @@ use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 
 impl Server {
-	pub async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
+	pub async fn list_tags(
+		&self,
+		mut arg: tg::tag::list::Arg,
+	) -> tg::Result<tg::tag::list::Output> {
 		// If the remote arg is set, then forward the request.
-		let remote = arg.remote.as_ref();
-		if let Some(remote) = remote {
+		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::tag::list::Arg {
 				remote: None,

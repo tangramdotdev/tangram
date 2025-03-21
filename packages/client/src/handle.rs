@@ -118,64 +118,6 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::package::format::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn create_pipe(
-		&self,
-		arg: tg::pipe::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> + Send;
-
-	fn delete_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn post_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn get_pipe_stream(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
-	> + Send;
-
-	fn create_pty(
-		&self,
-		arg: tg::pty::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> + Send;
-
-	fn delete_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn post_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::post::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn get_pty_window_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> + Send;
-
-	fn get_pty_stream(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
-	> + Send;
-
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -219,7 +161,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::start::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::start::Output>> + Send;
 
-	fn post_process_signal(
+	fn signal_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
@@ -291,6 +233,64 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::process::Id,
 		arg: tg::process::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send;
+
+	fn create_pipe(
+		&self,
+		arg: tg::pipe::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> + Send;
+
+	fn delete_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
+	> + Send;
+
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn create_pty(
+		&self,
+		arg: tg::pty::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> + Send;
+
+	fn delete_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn get_pty_size(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> + Send;
+
+	fn read_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
+	> + Send;
+
+	fn write_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_reference(
 		&self,

@@ -348,13 +348,13 @@ pub async fn signal_task(
 
 pub async fn write_io_bytes(
 	server: &Server,
-	io: &tg::process::Io,
+	io: &tg::process::Stdio,
 	remote: Option<String>,
 	bytes: Bytes,
 ) -> tg::Result<()> {
 	match io {
-		tg::process::Io::Pipe(id) => server.write_pipe_bytes(id, remote, bytes).await,
-		tg::process::Io::Pty(id) => server.write_pty_bytes(id, remote, bytes).await,
+		tg::process::Stdio::Pipe(id) => server.write_pipe_bytes(id, remote, bytes).await,
+		tg::process::Stdio::Pty(id) => server.write_pty_bytes(id, remote, bytes).await,
 	}
 }
 
@@ -378,15 +378,15 @@ fn signal_number(signal: tg::process::Signal) -> i32 {
 
 async fn input(
 	server: &Server,
-	io: &tg::process::Io,
+	io: &tg::process::Stdio,
 	remote: Option<String>,
 	mut stdin: sandbox::Stdin,
 	stop: Stop,
 ) -> tg::Result<()> {
 	match io {
-		tg::process::Io::Pipe(id) => {
-			let arg = tg::pipe::get::Arg { remote };
-			let stream = server.get_pipe_stream(id, arg).await?;
+		tg::process::Stdio::Pipe(id) => {
+			let arg = tg::pipe::read::Arg { remote };
+			let stream = server.read_pipe(id, arg).await?;
 			let mut stream = pin!(stream);
 			loop {
 				let stop = stop.wait();
@@ -405,12 +405,12 @@ async fn input(
 				}
 			}
 		},
-		tg::process::Io::Pty(id) => {
-			let arg = tg::pty::get::Arg {
+		tg::process::Stdio::Pty(id) => {
+			let arg = tg::pty::read::Arg {
 				master: true,
 				remote,
 			};
-			let stream = server.get_pty_stream(id, arg).await?;
+			let stream = server.read_pty(id, arg).await?;
 			let mut stream = pin!(stream);
 			loop {
 				let stop = stop.wait();
@@ -422,12 +422,10 @@ async fn input(
 							.await
 							.map_err(|source| tg::error!(!source, "failed to write bytes"))?;
 					},
-					future::Either::Left((Ok(Some(tg::pty::Event::WindowSize(ws))), _)) => {
+					future::Either::Left((Ok(Some(tg::pty::Event::Size(size))), _)) => {
 						let tty = sandbox::Tty {
-							cols: ws.cols,
-							rows: ws.rows,
-							x: ws.xpos,
-							y: ws.ypos,
+							cols: size.cols,
+							rows: size.rows,
 						};
 						stdin.change_window_size(tty).await.map_err(|source| {
 							tg::error!(!source, "failed to change the PTY window size")
@@ -446,30 +444,30 @@ async fn input(
 
 async fn output(
 	server: &Server,
-	io: &tg::process::Io,
+	io: &tg::process::Stdio,
 	remote: Option<String>,
 	reader: impl AsyncRead + Unpin + Send + 'static,
 ) -> tg::Result<()> {
 	let stream = chunk_stream_from_reader(reader);
 	match io {
-		tg::process::Io::Pipe(id) => {
+		tg::process::Stdio::Pipe(id) => {
 			let stream = stream
 				.map_ok(tg::pipe::Event::Chunk)
 				.chain(stream::once(future::ok(tg::pipe::Event::End)))
 				.boxed();
-			let arg = tg::pipe::post::Arg { remote };
-			server.post_pipe(id, arg, stream).await?;
+			let arg = tg::pipe::write::Arg { remote };
+			server.write_pipe(id, arg, stream).await?;
 		},
-		tg::process::Io::Pty(id) => {
+		tg::process::Stdio::Pty(id) => {
 			let stream = stream
 				.map_ok(tg::pty::Event::Chunk)
 				.chain(stream::once(future::ok(tg::pty::Event::End)))
 				.boxed();
-			let arg = tg::pty::post::Arg {
+			let arg = tg::pty::write::Arg {
 				remote,
 				master: false,
 			};
-			server.post_pty(id, arg, stream).await?;
+			server.write_pty(id, arg, stream).await?;
 		},
 	}
 	Ok(())

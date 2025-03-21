@@ -10,7 +10,7 @@ pub struct Output {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
-	pub window_size: tg::pty::WindowSize,
+	pub window_size: tg::pty::Size,
 }
 
 impl tg::Client {

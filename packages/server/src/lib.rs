@@ -970,13 +970,13 @@ impl Server {
 				Self::handle_delete_pty_request(handle, request, pipe).boxed()
 			},
 			(http::Method::GET, ["ptys", pipe, "window"]) => {
-				Self::handle_get_pty_window_request(handle, request, pipe).boxed()
+				Self::handle_get_pty_size_request(handle, request, pipe).boxed()
 			},
 			(http::Method::GET, ["ptys", pipe]) => {
-				Self::handle_get_pty_request(handle, request, pipe).boxed()
+				Self::handle_read_pty_request(handle, request, pipe).boxed()
 			},
 			(http::Method::POST, ["ptys", pipe]) => {
-				Self::handle_post_pty_request(handle, request, pipe).boxed()
+				Self::handle_write_pty_request(handle, request, pipe).boxed()
 			},
 
 			// Pipes.
@@ -987,10 +987,10 @@ impl Server {
 				Self::handle_delete_pipe_request(handle, request, pipe).boxed()
 			},
 			(http::Method::GET, ["pipes", pipe]) => {
-				Self::handle_get_pipe_request(handle, request, pipe).boxed()
+				Self::handle_read_pipe_request(handle, request, pipe).boxed()
 			},
 			(http::Method::POST, ["pipes", pipe]) => {
-				Self::handle_post_pipe_request(handle, request, pipe).boxed()
+				Self::handle_write_pipe_request(handle, request, pipe).boxed()
 			},
 
 			// Processes.
@@ -1295,30 +1295,30 @@ impl tg::Handle for Server {
 		self.delete_pty(id, arg)
 	}
 
-	fn get_pty_window_size(
+	fn get_pty_size(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pty::WindowSize>>> + Send {
-		self.get_pty_window_size(id, arg)
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> + Send {
+		self.get_pty_size(id, arg)
 	}
 
-	fn get_pty_stream(
+	fn read_pty(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::get::Arg,
+		arg: tg::pty::read::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
 	{
-		self.get_pty_stream(id, arg)
+		self.read_pty(id, arg)
 	}
 
-	fn post_pty(
+	fn write_pty(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::post::Arg,
+		arg: tg::pty::write::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.post_pty(id, arg, stream)
+		self.write_pty(id, arg, stream)
 	}
 
 	fn create_pipe(
@@ -1336,22 +1336,22 @@ impl tg::Handle for Server {
 		self.delete_pipe(id, arg)
 	}
 
-	fn get_pipe_stream(
+	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		arg: tg::pipe::get::Arg,
+		arg: tg::pipe::read::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
-		self.get_pipe_stream(id, arg)
+		self.read_pipe(id, arg)
 	}
 
-	fn post_pipe(
+	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		arg: tg::pipe::post::Arg,
+		arg: tg::pipe::write::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.post_pipe(id, arg, stream)
+		self.write_pipe(id, arg, stream)
 	}
 
 	fn try_get_process_metadata(
@@ -1391,7 +1391,7 @@ impl tg::Handle for Server {
 		self.try_start_process(id, arg)
 	}
 
-	fn post_process_signal(
+	fn signal_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,

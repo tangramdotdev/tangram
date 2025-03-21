@@ -4,26 +4,24 @@ pub use self::id::Id;
 
 pub mod create;
 pub mod delete;
-pub mod get;
 pub mod id;
-pub mod post;
+pub mod read;
+pub mod write;
 
 #[derive(Copy, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
-	pub window_size: WindowSize,
+	pub size: Size,
 }
 
 #[derive(Copy, Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct WindowSize {
+pub struct Size {
 	pub rows: u16,
 	pub cols: u16,
-	pub xpos: u16,
-	pub ypos: u16,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Event {
 	Chunk(Bytes),
-	WindowSize(WindowSize),
+	Size(Size),
 	End,
 }

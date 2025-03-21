@@ -1,4 +1,5 @@
 use tangram_sandbox as sandbox;
+
 #[tokio::main]
 async fn main() {
 	tokio::fs::create_dir_all("/tmp/overlay/lower").await.ok();
@@ -23,7 +24,6 @@ async fn main() {
 			upperdir: "/tmp/overlay/upper".into(),
 			workdir: "/tmp/overlay/work".into(),
 			merged: "/merged".into(),
-			readonly: false,
 		})
 		.spawn()
 		.await
