@@ -1,7 +1,11 @@
 use crate::{Server, temp::Temp};
 use futures::FutureExt as _;
 use reflink_copy::reflink;
-use std::{collections::HashMap, os::unix::fs::PermissionsExt as _, path::PathBuf};
+use std::{
+	collections::HashMap,
+	os::unix::fs::PermissionsExt as _,
+	path::{Path, PathBuf},
+};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -93,7 +97,7 @@ impl Server {
 		};
 
 		// Cache the artifact.
-		self.cache_inner(&mut state, artifact, temp.path().to_owned())?;
+		self.cache_inner(&mut state, artifact, temp.path())?;
 
 		// Create the path.
 		let path = self.cache_path().join(id.to_string());
@@ -130,7 +134,7 @@ impl Server {
 		&self,
 		state: &mut State,
 		artifact: Either<(tg::graph::Id, usize), tg::artifact::Id>,
-		path: PathBuf,
+		path: &Path,
 	) -> tg::Result<()> {
 		// Get the graph or artifact's data.
 		let data = match artifact {
@@ -177,13 +181,19 @@ impl Server {
 			},
 		}
 
+		// Set the modified time to the epoch.
+		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+		)?;
+
 		Ok(())
 	}
 
 	fn cache_inner_graph(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		graph: &tg::graph::Id,
 		node: usize,
 	) -> tg::Result<()> {
@@ -213,16 +223,16 @@ impl Server {
 	fn cache_inner_graph_directory(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		graph: &tg::graph::Id,
 		directory: &tg::graph::data::Directory,
 	) -> tg::Result<()> {
-		std::fs::create_dir_all(&path).unwrap();
+		std::fs::create_dir_all(path).unwrap();
 		for (name, artifact) in &directory.entries {
 			let artifact = artifact.clone().map_left(|node| (graph.clone(), node));
 			let path = path.join(name);
 			state.depth += 1;
-			self.cache_inner(state, artifact, path)?;
+			self.cache_inner(state, artifact, &path)?;
 			state.depth -= 1;
 		}
 		Ok(())
@@ -231,7 +241,7 @@ impl Server {
 	fn cache_inner_graph_file(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		graph: &tg::graph::Id,
 		file: tg::graph::data::File,
 	) -> tg::Result<()> {
@@ -333,7 +343,6 @@ impl Server {
 		}
 		if !done {
 			let server = self.clone();
-			let path = path.clone();
 			let future = async move {
 				let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
 				let mut reader = tg::Blob::with_id(contents)
@@ -375,7 +384,7 @@ impl Server {
 	fn cache_inner_graph_symlink(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		graph: &tg::graph::Id,
 		symlink: tg::graph::data::Symlink,
 	) -> tg::Result<()> {
@@ -452,7 +461,7 @@ impl Server {
 	fn cache_inner_data(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		data: tg::artifact::Data,
 	) -> tg::Result<()> {
 		match data {
@@ -472,7 +481,7 @@ impl Server {
 	fn cache_inner_data_directory(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		directory: tg::directory::Data,
 	) -> tg::Result<()> {
 		match directory {
@@ -481,12 +490,12 @@ impl Server {
 				self.cache_inner(state, artifact, path)?;
 			},
 			tg::directory::Data::Normal { entries } => {
-				std::fs::create_dir_all(&path).unwrap();
+				std::fs::create_dir_all(path).unwrap();
 				for (name, id) in entries {
 					let artifact = Either::Right(id.clone());
 					let path = path.join(name);
 					state.depth += 1;
-					self.cache_inner(state, artifact, path)?;
+					self.cache_inner(state, artifact, &path)?;
 					state.depth -= 1;
 				}
 			},
@@ -497,7 +506,7 @@ impl Server {
 	fn cache_inner_data_file(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		file: tg::file::Data,
 	) -> tg::Result<()> {
 		match file {
@@ -563,7 +572,6 @@ impl Server {
 				}
 				if !done {
 					let server = self.clone();
-					let path = path.clone();
 					let future = async move {
 						let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
 						let mut reader = tg::Blob::with_id(contents)
@@ -606,7 +614,7 @@ impl Server {
 	fn cache_inner_data_symlink(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		symlink: tg::symlink::Data,
 	) -> tg::Result<()> {
 		match symlink {
