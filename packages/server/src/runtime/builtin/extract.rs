@@ -1,5 +1,5 @@
 use super::Runtime;
-use crate::Server;
+use crate::{Server, temp::Temp};
 use async_zip::base::read::seek::ZipFileReader;
 use futures::AsyncReadExt as _;
 use std::{
@@ -10,7 +10,6 @@ use std::{
 use tangram_client as tg;
 use tangram_futures::read::shared_position_reader::SharedPositionReader;
 use tangram_futures::stream::TryExt as _;
-use tangram_temp::Temp;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio_tar::Archive;
 use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
@@ -79,7 +78,7 @@ impl Runtime {
 		};
 
 		// Create a temp.
-		let temp = Temp::new();
+		let temp = Temp::new(&self.server);
 
 		// Extract to the temp.
 		match format {

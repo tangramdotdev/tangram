@@ -209,7 +209,7 @@ impl Server {
 		})
 		.await
 		.unwrap()?;
-		tracing::debug!(elapsed = ?start.elapsed(), "visit");
+		tracing::trace!(elapsed = ?start.elapsed(), "visit");
 
 		// Remove the ignorer.
 		state.ignorer.take();
@@ -217,12 +217,12 @@ impl Server {
 		// Create blobs.
 		let start = Instant::now();
 		self.checkin_create_blobs(&mut state).await?;
-		tracing::debug!(elapsed = ?start.elapsed(), "create blobs");
+		tracing::trace!(elapsed = ?start.elapsed(), "create blobs");
 
 		// Create objects.
 		let start = Instant::now();
 		Self::checkin_create_objects(&mut state, 0)?;
-		tracing::debug!(elapsed = ?start.elapsed(), "create objects");
+		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 
 		// Write the objects to the database and the store.
 		let state = Arc::new(state);
@@ -237,7 +237,7 @@ impl Server {
 					.checkin_copy_blobs(&arg, &state)
 					.map_err(|source| tg::error!(!source, "failed to copy the blobs"))
 					.await?;
-				tracing::debug!(elapsed = ?start.elapsed(), "copy blobs");
+				tracing::trace!(elapsed = ?start.elapsed(), "copy blobs");
 				Ok::<_, tg::Error>(())
 			}
 		})
@@ -253,7 +253,7 @@ impl Server {
 						tg::error!(!source, "failed to write the blobs to the database")
 					})
 					.await?;
-				tracing::debug!(elapsed = ?start.elapsed(), "write blobs to database");
+				tracing::trace!(elapsed = ?start.elapsed(), "write blobs to database");
 				Ok::<_, tg::Error>(())
 			}
 		})
@@ -269,7 +269,7 @@ impl Server {
 						tg::error!(!source, "failed to write the objects to the messenger")
 					})
 					.await?;
-				tracing::debug!(elapsed = ?start.elapsed(), "write objects to messenger");
+				tracing::trace!(elapsed = ?start.elapsed(), "write objects to messenger");
 				Ok::<_, tg::Error>(())
 			}
 		})
@@ -285,7 +285,7 @@ impl Server {
 						tg::error!(!source, "failed to write the objects to the store")
 					})
 					.await?;
-				tracing::debug!(elapsed = ?start.elapsed(), "write objects to store");
+				tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 				Ok::<_, tg::Error>(())
 			}
 		})

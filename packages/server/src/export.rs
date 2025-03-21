@@ -828,7 +828,7 @@ impl Graph {
 					.unwrap()
 					.push(Arc::downgrade(&parent_node));
 			} else {
-				tracing::debug!("parent not found");
+				tracing::error!("parent not found");
 			}
 		}
 
@@ -900,7 +900,7 @@ impl Graph {
 				// If not, remove ourselves from the path and try again.
 				completion_path.pop();
 			} else {
-				tracing::debug!("failed to upgrade weak pointer");
+				tracing::error!("failed to upgrade weak pointer");
 			}
 		}
 
