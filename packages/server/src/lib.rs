@@ -592,6 +592,28 @@ impl Server {
 			async move {
 				tracing::trace!("started shutdown");
 
+				// Abort the runner task.
+				if let Some(task) = runner_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the runner task panicked");
+						}
+					}
+				}
+
+				// Abort the process tasks.
+				server.processes.abort_all();
+				let results = server.processes.wait().await;
+				for result in results {
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "a process task panicked");
+						}
+					}
+				}
+
 				// Stop the compilers.
 				let compilers = server.compilers.read().unwrap().clone();
 				for compiler in compilers {
@@ -632,17 +654,6 @@ impl Server {
 					}
 				}
 
-				// Abort the runner task.
-				if let Some(task) = runner_task {
-					task.abort();
-					let result = task.await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the runner task panicked");
-						}
-					}
-				}
-
 				// Abort the watchdog task.
 				if let Some(task) = watchdog_task {
 					task.abort();
@@ -650,17 +661,6 @@ impl Server {
 					if let Err(error) = result {
 						if !error.is_cancelled() {
 							tracing::error!(?error, "the watchdog task panicked");
-						}
-					}
-				}
-
-				// Abort the process tasks.
-				server.processes.abort_all();
-				let results = server.processes.wait().await;
-				for result in results {
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "a process task panicked");
 						}
 					}
 				}
