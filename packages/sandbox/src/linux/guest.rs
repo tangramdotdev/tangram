@@ -88,12 +88,12 @@ fn mount_and_chroot(context: &mut Context) {
 			}
 		}
 
-		// Mount the root.
+		// Mount the root, required by the pivot_root syscall.
 		let ret = libc::mount(
 			root.as_ptr(),
 			root.as_ptr(),
 			std::ptr::null(),
-			libc::MS_BIND | libc::MS_PRIVATE | libc::MS_REC,
+			libc::MS_BIND | libc::MS_REC,
 			std::ptr::null(),
 		);
 		if ret == -1 {
@@ -114,22 +114,10 @@ fn mount_and_chroot(context: &mut Context) {
 			abort_errno!("failed to pivot the root");
 		}
 
-		// Unmount the root.
+		// Lazily unmount the root.
 		let ret = libc::umount2(c".".as_ptr().cast(), libc::MNT_DETACH);
 		if ret == -1 {
 			abort_errno!("failed to unmount the root");
-		}
-
-		// Remount the root as read-only.
-		let ret = libc::mount(
-			std::ptr::null(),
-			c"/".as_ptr().cast(),
-			std::ptr::null(),
-			libc::MS_BIND | libc::MS_PRIVATE | libc::MS_RDONLY | libc::MS_REC | libc::MS_REMOUNT,
-			std::ptr::null(),
-		);
-		if ret == -1 {
-			abort_errno!("failed to remount the root as read-only");
 		}
 	}
 }

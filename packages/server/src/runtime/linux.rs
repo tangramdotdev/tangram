@@ -198,7 +198,9 @@ impl Runtime {
 			.chroot(instance.rootdir())
 			.cwd(cwd)
 			.envs(env)
-			.mounts(instance.mounts.clone());
+			.mounts(instance.mounts.clone())
+			.uid(0)
+			.gid(0);
 
 		// Setup stdio.
 		cmd_.stdin(sandbox::Stdio::Piped);
@@ -430,7 +432,6 @@ impl Runtime {
 							upperdir,
 							workdir,
 							merged: mount.target.clone(),
-							readonly: false,
 						});
 						overlays.last_mut().unwrap()
 					};

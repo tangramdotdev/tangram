@@ -73,7 +73,6 @@ pub struct Overlay {
 	pub upperdir: PathBuf,
 	pub workdir: PathBuf,
 	pub merged: PathBuf,
-	pub readonly: bool,
 }
 
 pub struct BindMount {
