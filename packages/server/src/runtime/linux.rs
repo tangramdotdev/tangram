@@ -402,7 +402,7 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
 
-		// Create mounts.
+		// Create overlays.
 		let mut overlays: Vec<sandbox::Overlay> = vec![];
 		let command_mounts: Vec<tg::process::Mount> =
 			command_mounts.iter().cloned().map(Into::into).collect();
@@ -455,11 +455,85 @@ impl Runtime {
 				},
 			}
 		}
-		instance
-			.mounts
-			.extend(overlays.into_iter().map(sandbox::Mount::from));
 
+		// Add additional mounts.
 		if !instance.root_is_bind_mounted {
+			// Create /etc
+			tokio::fs::create_dir_all(instance.temp.path().join("lower/etc"))
+				.await
+				.ok();
+
+			// Create nsswitch.conf.
+			tokio::fs::write(
+				instance.temp.path().join("lower/etc/nsswitch.conf"),
+				formatdoc!(
+					r#"
+						passwd: files compat
+						shadow: files compat
+						hosts: files dns compat
+					"#
+				),
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create /etc/nsswitch.conf"))?;
+
+			// Create /etc/passwd.
+			tokio::fs::write(
+				instance.temp.path().join("lower/etc/passwd"),
+				formatdoc!(
+					r#"
+						root:!:0:0:root:/nonexistent:/bin/false
+						nobody:!:65534:65534:nobody:/nonexistent:/bin/false
+					"#
+				),
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create /etc/passwd"))?;
+
+			// Copy resolv.conf.
+			if state.network {
+				tokio::fs::copy(
+					"/etc/resolv.conf",
+					instance.temp.path().join("lower/etc/resolv.conf"),
+				)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to copy /etc/resolv.conf to sandbox")
+				})?;
+			}
+
+			// Get or create the overlay at '/'
+			{
+				let overlay = 'a: {
+					if let Some(overlay) = overlays
+						.iter_mut()
+						.find(|overlay| overlay.merged == Path::new("/"))
+					{
+						break 'a overlay;
+					};
+					let upperdir = instance
+						.temp
+						.path()
+						.join("upper")
+						.join(overlays.len().to_string());
+					let workdir = instance
+						.temp
+						.path()
+						.join("work")
+						.join(overlays.len().to_string());
+					tokio::fs::create_dir_all(&upperdir).await.ok();
+					tokio::fs::create_dir_all(&workdir).await.ok();
+					overlays.push(sandbox::Overlay {
+						lowerdirs: vec![],
+						upperdir,
+						workdir,
+						merged: "/".into(),
+					});
+					overlays.last_mut().unwrap()
+				};
+				overlay.lowerdirs.push(instance.temp.path().join("lower"));
+			}
+
 			// Add common mounts for /proc, /tmp, /dev, /output, /.tangram/artifacts
 			instance.mounts.push(sandbox::Mount {
 				source: "/proc".into(),
@@ -504,52 +578,10 @@ impl Runtime {
 				}
 				.into(),
 			);
-
-			// Create /etc
-			tokio::fs::create_dir_all(instance.rootdir().join("etc"))
-				.await
-				.ok();
-
-			// Create nsswitch.conf.
-			tokio::fs::write(
-				instance.rootdir().join("etc/nsswitch.conf"),
-				formatdoc!(
-					r#"
-						passwd: files compat
-						shadow: files compat
-						hosts: files dns compat
-					"#
-				),
-			)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create /etc/nsswitch.conf"))?;
-
-			// Create /etc/passwd.
-			tokio::fs::write(
-				instance.rootdir().join("etc/passwd"),
-				formatdoc!(
-					r#"
-						root:!:0:0:root:/nonexistent:/bin/false
-						nobody:!:65534:65534:nobody:/nonexistent:/bin/false
-					"#
-				),
-			)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create /etc/passwd"))?;
-
-			// Copy resolv.conf.
-			if state.network {
-				tokio::fs::copy(
-					"/etc/resolv.conf",
-					instance.rootdir().join("etc/resolv.conf"),
-				)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to copy /etc/resolv.conf to sandbox")
-				})?;
-			}
 		}
-
+		instance
+			.mounts
+			.extend(overlays.into_iter().map(sandbox::Mount::from));
 		instance
 			.mounts
 			.sort_unstable_by_key(|m| m.target.components().count());
