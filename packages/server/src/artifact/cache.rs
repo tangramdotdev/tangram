@@ -104,7 +104,11 @@ impl Server {
 		let result = std::fs::rename(src, dst);
 		match result {
 			Ok(()) => {},
-			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {},
+			Err(error)
+				if matches!(
+					error.kind(),
+					std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::DirectoryNotEmpty
+				) => {},
 			Err(source) => {
 				let src = src.display();
 				let dst = dst.display();
