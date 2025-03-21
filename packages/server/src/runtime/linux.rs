@@ -371,7 +371,7 @@ impl Runtime {
 		};
 
 		// Create the proxy path.
-		let path = instance.rootdir().join(".tangram");
+		let path = instance.lowerdir().join(".tangram");
 		tokio::fs::create_dir_all(&path)
 			.await
 			.map_err(|source| {
