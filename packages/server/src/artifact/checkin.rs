@@ -751,18 +751,32 @@ impl Server {
 		let mut objects = Vec::with_capacity(state.graph.nodes.len());
 		for node in &state.graph.nodes {
 			let object = node.object.as_ref().unwrap();
-			objects.push((object.id.clone(), object.bytes.clone(), None));
 			if let Variant::File(File {
 				blob: Some(blob), ..
 			}) = &node.variant
 			{
+				objects.push((object.id.clone(), object.bytes.clone(), None));
 				let mut stack = vec![blob];
+				let blob_id = blob.id.clone();
 				while let Some(blob) = stack.pop() {
 					if let Some(bytes) = &blob.bytes {
 						objects.push((blob.id.clone().into(), bytes.clone(), None));
+					} else {
+						let reference = crate::store::Reference {
+							file: blob_id.clone(),
+							position: blob.position,
+							length: blob.length,
+						};
+						objects.push((
+							blob.id.clone().into(),
+							object.bytes.clone(),
+							Some(reference),
+						));
 					}
 					stack.extend(&blob.children);
 				}
+			} else {
+				objects.push((object.id.clone(), object.bytes.clone(), None));
 			}
 		}
 		let arg = crate::store::PutBatchArg {

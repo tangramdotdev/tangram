@@ -1476,15 +1476,5 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			Ok::<_, tg::Error>(())
 		})
 		.await?;
-	connection
-		.with(move |connection| {
-			let sql =
-				"insert into remotes (name, url) values ('default', 'https://cloud.tangram.dev');";
-			connection
-				.execute_batch(sql)
-				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
-			Ok::<_, tg::Error>(())
-		})
-		.await?;
 	Ok(())
 }

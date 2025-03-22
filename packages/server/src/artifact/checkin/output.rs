@@ -3,6 +3,7 @@ use super::{
 	object::{self, Metadata},
 };
 use crate::{Server, blob::create::Blob, temp::Temp};
+use bytes::Bytes;
 use futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered};
 use itertools::Itertools as _;
 use std::{
@@ -219,11 +220,14 @@ impl Server {
 				while let Some(blob) = stack.pop() {
 					if let Some(data) = &blob.data {
 						let bytes = data.serialize()?;
+						batch.push((blob.id.clone().into(), bytes, None));
+					} else {
 						let reference = crate::store::Reference {
 							file: blob_id.clone(),
 							position: blob.position,
 							length: blob.length,
 						};
+						let bytes = Bytes::new();
 						batch.push((blob.id.clone().into(), bytes, Some(reference)));
 					}
 					stack.extend(&blob.children);

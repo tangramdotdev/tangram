@@ -34,7 +34,7 @@ pub struct PutBatchArg {
 	pub touched_at: i64,
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Reference {
 	pub file: tg::blob::Id,
 	pub position: u64,
