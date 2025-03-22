@@ -136,27 +136,60 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
+		let now = time::OffsetDateTime::now_utc();
+		// Get the command from the database.
+		let statement = format!(
+			"
+				select command
+				from processes
+				where id = {p}1 
+			",
+		);
+		let params = db::params![id];
+		let command: Option<tg::object::Id> = connection
+			.query_optional_value_into::<tg::object::Id>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Get the children from the database.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select child
+				from process_children
+				where process = {p}1
+				order by position;
+			"
+		);
+		let params = db::params![id,];
+		let children = connection
+			.query_all_value_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 		// Add the output's children to the process objects.
-		let objects = output
+		let outputs = output
 			.as_ref()
 			.map(tg::value::Data::children)
 			.into_iter()
 			.flatten();
-		for object in objects {
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					insert into process_objects (process, object)
-					values ({p}1, {p}2)
-					on conflict (process, object) do nothing;
-				"
-			);
-			let params = db::params![id, object];
-			connection
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
+		let outputs = outputs.map(|output| (crate::index::Kind::Output, output));
+		let command = command
+			.map(|cmd| (crate::index::Kind::Command, cmd))
+			.into_iter();
+		let objects = outputs.chain(command).collect();
+		let message = crate::index::ProcessMessage {
+			id: id.clone(),
+			touched_at: now.unix_timestamp(),
+			children: Some(children),
+			objects,
+		};
+		let message = serde_json::to_vec(&message)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		self.messenger
+			.publish("index".to_owned(), message.into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
 		// Update the process.
 		let p = connection.p();
@@ -169,7 +202,8 @@ impl Server {
 					heartbeat_at = null,
 					output = {p}3,
 					exit = {p}4,
-					status = {p}5
+					status = {p}5,
+					touched_at = {p}6
 				where id = {p}6;
 			"
 		);
@@ -180,7 +214,8 @@ impl Server {
 			output.map(db::value::Json),
 			exit.map(db::value::Json),
 			status,
-			id
+			id,
+			now.format(&Rfc3339).unwrap(),
 		];
 		connection
 			.execute(statement.into(), params)

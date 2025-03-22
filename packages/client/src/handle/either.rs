@@ -205,6 +205,17 @@ where
 		}
 	}
 
+	fn touch_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.touch_object(id, arg).left_future(),
+			Either::Right(s) => s.touch_object(id, arg).right_future(),
+		}
+	}
+
 	fn check_package(
 		&self,
 		arg: tg::package::check::Arg,

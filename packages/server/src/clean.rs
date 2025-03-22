@@ -66,9 +66,9 @@ impl Server {
 	async fn cleaner_task_inner(&self, config: &crate::config::Cleaner) -> tg::Result<InnerOutput> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		// Get a database connection.
+		// Get a index connection.
 		let connection = self
-			.database
+			.index
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -125,9 +125,9 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				delete from blobs
+				delete from cache_entries
 				where id in (
-					select id from blobs
+					select id from cache_references
 					where reference_count = 0
 					limit {p}1
 				)
@@ -154,6 +154,28 @@ impl Server {
 			Ok::<_, tg::Error>(())
 		}))
 		.await?;
+
+		// Get a database connection.
+		let connection = self
+			.index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Delete processes.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from processes
+				where id in ({p}1)
+				returning id;
+			"
+		);
+		let params = db::params![&processes];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
 		let output = InnerOutput {
 			processes,

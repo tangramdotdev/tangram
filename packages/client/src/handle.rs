@@ -103,6 +103,12 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn touch_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn check_package(
 		&self,
 		arg: tg::package::check::Arg,

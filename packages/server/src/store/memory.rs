@@ -2,6 +2,8 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use tangram_client as tg;
 
+use super::Reference;
+
 pub struct Memory(DashMap<tg::object::Id, Bytes, fnv::FnvBuildHasher>);
 
 impl Memory {
@@ -13,16 +15,21 @@ impl Memory {
 		self.0.get(id).map(|value| value.clone())
 	}
 
+	pub fn try_get_cache_reference(&self, _: &tg::object::Id) -> Option<Reference> {
+		todo!()
+	}
+
 	pub fn put(&self, arg: super::PutArg) {
 		self.0.insert(arg.id, arg.bytes);
 	}
 
 	pub fn put_batch(&self, arg: super::PutBatchArg) {
-		for (id, bytes) in arg.objects {
+		for (id, bytes, reference) in arg.objects {
 			self.put(super::PutArg {
 				id,
 				bytes,
 				touched_at: arg.touched_at,
+				reference,
 			});
 		}
 	}

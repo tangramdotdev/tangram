@@ -2,9 +2,11 @@ use crate::database::Database;
 use crate::{Server, util::iter::Ext as _};
 use async_nats as nats;
 use futures::FutureExt as _;
+use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt as _, TryStreamExt, future, stream};
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 use num::ToPrimitive as _;
+use std::sync::Arc;
 use std::{
 	collections::{BTreeSet, HashMap},
 	pin::pin,
@@ -17,14 +19,68 @@ use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(crate) struct Message {
+pub(crate) enum Message {
+	Object(ObjectMessage),
+	Process(ProcessMessage),
+	PutTag(PutTagMessage),
+	DeleteTag(DeleteTagMessage),
+	TouchObject(TouchObjectMessage),
+	TouchProcess(TouchProcessMessage),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct ObjectMessage {
 	pub(crate) children: BTreeSet<tg::object::Id>,
-	pub(crate) count: Option<u64>,
-	pub(crate) depth: Option<u64>,
 	pub(crate) id: tg::object::Id,
 	pub(crate) size: u64,
 	pub(crate) touched_at: i64,
-	pub(crate) weight: Option<u64>,
+	pub(crate) cache_reference: Option<tg::blob::Id>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct TouchObjectMessage {
+	pub(crate) id: tg::object::Id,
+	pub(crate) touched_at: i64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct ProcessMessage {
+	pub(crate) children: Option<Vec<tg::process::Id>>,
+	pub(crate) id: tg::process::Id,
+	pub(crate) touched_at: i64,
+	pub(crate) objects: Vec<(Kind, tg::object::Id)>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct TouchProcessMessage {
+	pub(crate) id: tg::process::Id,
+	pub(crate) touched_at: i64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) enum Kind {
+	Command,
+	Output,
+}
+
+impl std::fmt::Display for Kind {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Command => write!(formatter, "command"),
+			Self::Output => write!(formatter, "output"),
+		}
+	}
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct PutTagMessage {
+	pub(crate) tag: String,
+	pub(crate) item: Either<tg::process::Id, tg::object::Id>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct DeleteTagMessage {
+	pub(crate) tag: String,
 }
 
 type Acker = nats::jetstream::message::Acker;
@@ -118,7 +174,7 @@ impl Server {
 			};
 
 			// Insert objects from the messages.
-			let result = self.indexer_task_insert_objects(config, messages).await;
+			let result = self.indexer_task_handle_messages(config, messages).await;
 			if let Err(error) = result {
 				tracing::error!(?error, "failed to get a batch of messages");
 				tokio::time::sleep(Duration::from_secs(1)).await;
@@ -222,7 +278,7 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn indexer_task_insert_objects(
+	async fn indexer_task_handle_messages(
 		&self,
 		config: &crate::config::Indexer,
 		messages: Vec<(Message, Option<Acker>)>,
@@ -230,14 +286,63 @@ impl Server {
 		if messages.is_empty() {
 			return Ok(());
 		}
-		for messages in messages.into_iter().batches(config.insert_batch_size) {
-			match &self.database {
-				Either::Left(database) => {
-					self.indexer_insert_objects_sqlite(messages, database)
+		let batches = messages.into_iter().batches(config.insert_batch_size);
+		for messages in batches {
+			let mut object_messages = Vec::new();
+			let mut process_messages = Vec::new();
+			let mut put_tag_messages = Vec::new();
+			let mut delete_tag_messages = Vec::new();
+			let mut touch_object_messages = Vec::new();
+			let mut touch_process_messages = Vec::new();
+			messages
+				.into_iter()
+				.for_each(|(message, acker)| match message {
+					Message::Object(object_message) => {
+						object_messages.push((object_message, acker))
+					},
+					Message::Process(process_message) => {
+						process_messages.push((process_message, acker))
+					},
+					Message::PutTag(put_tag_message) => {
+						put_tag_messages.push((put_tag_message, acker))
+					},
+					Message::DeleteTag(delete_tag_message) => {
+						delete_tag_messages.push((delete_tag_message, acker))
+					},
+					Message::TouchObject(touch_object_message) => {
+						touch_object_messages.push((touch_object_message, acker))
+					},
+					Message::TouchProcess(touch_process_message) => {
+						touch_process_messages.push((touch_process_message, acker))
+					},
+				});
+			match &self.index {
+				Either::Left(index) => {
+					self.indexer_insert_objects_sqlite(object_messages, index)
+						.await?;
+					self.indexer_insert_processes_sqlite(process_messages, index)
+						.await?;
+					self.indexer_insert_tags_sqlite(put_tag_messages, index)
+						.await?;
+					self.indexer_delete_tags_sqlite(delete_tag_messages, index)
+						.await?;
+					self.indexer_touch_object_sqlite(touch_object_messages, index)
+						.await?;
+					self.indexer_touch_process_sqlite(touch_process_messages, index)
 						.await?;
 				},
-				Either::Right(database) => {
-					self.indexer_insert_objects_postgres(messages, database)
+				Either::Right(index) => {
+					self.indexer_insert_objects_postgres(object_messages, index)
+						.await?;
+					self.indexer_insert_processes_postgres(process_messages, index)
+						.await?;
+					self.indexer_insert_tags_postgres(put_tag_messages, index)
+						.await?;
+					self.indexer_delete_tags_postgres(delete_tag_messages, index)
+						.await?;
+					self.indexer_touch_object_postgres(touch_object_messages, index)
+						.await?;
+					self.indexer_touch_process_postgres(touch_process_messages, index)
 						.await?;
 				},
 			}
@@ -247,8 +352,8 @@ impl Server {
 
 	async fn indexer_insert_objects_sqlite(
 		&self,
-		messages: Vec<(Message, Option<Acker>)>,
-		database: &db::sqlite::Database,
+		messages: Vec<(ObjectMessage, Option<Acker>)>,
+		index: &db::sqlite::Database,
 	) -> tg::Result<()> {
 		// Split the messages and ackers.
 		let (messages, ackers) = messages.into_iter().collect::<(Vec<_>, Vec<_>)>();
@@ -257,7 +362,7 @@ impl Server {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
 		};
-		let connection = database
+		let connection = index
 			.connection_with_options(options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -294,6 +399,32 @@ impl Server {
 						.prepare_cached(objects_statement)
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
+					let cache_entries_statement = indoc!(
+						"
+							insert into cache_entries (id, reference_count)
+							values (?1, 0)
+							on conflict (id) do nothing;
+						"
+					);
+					let mut cache_entries_statement = transaction
+						.prepare_cached(cache_entries_statement)
+						.map_err(|source| {
+							tg::error!(!source, "failed to prepare the blobs statement")
+						})?;
+
+					let cache_references_statement = indoc!(
+						"
+							insert into cache_references (id, file)
+							values (?1, ?2)
+							on conflict (id) do nothing;
+						"
+					);
+					let mut cache_references_statement = transaction
+						.prepare_cached(cache_references_statement)
+						.map_err(|source| {
+							tg::error!(!source, "failed to prepare the references statement")
+						})?;
+
 					// Execute inserts for each object in the batch.
 					for message in messages {
 						let id = message.id;
@@ -319,11 +450,29 @@ impl Server {
 						objects_statement.execute(params).map_err(|source| {
 							tg::error!(!source, "failed to execute the statement")
 						})?;
+
+						// Insert the cache references.
+						if let Some(reference) = message.cache_reference {
+							// Insert the cache entries references.
+							let params = rusqlite::params![&id.to_string()];
+							cache_entries_statement.execute(params).map_err(|source| {
+								tg::error!(!source, "failed to execute the statement")
+							})?;
+
+							let params = rusqlite::params![&id.to_string(), &reference.to_string()];
+							cache_references_statement
+								.execute(params)
+								.map_err(|source| {
+									tg::error!(!source, "failed to execute the statement")
+								})?;
+						}
 					}
 
 					// Drop the statements.
 					drop(children_statement);
 					drop(objects_statement);
+					drop(cache_entries_statement);
+					drop(cache_references_statement);
 
 					// Commit the transaction.
 					transaction.commit().map_err(|source| {
@@ -350,26 +499,319 @@ impl Server {
 		Ok(())
 	}
 
+	async fn indexer_insert_processes_sqlite(
+		&self,
+		messages: Vec<(ProcessMessage, Option<Acker>)>,
+		index: &db::sqlite::Database,
+	) -> tg::Result<()> {
+		// Get a database connection.
+		let mut connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let transaction = Arc::new(transaction);
+
+		for (message, _) in &messages {
+			// Insert the process.
+			let statement = indoc!(
+				"
+				insert into processes (
+					id,
+					touched_at
+				)
+				values (
+					?1,
+					?2
+				)
+				on conflict (id) do update set
+					touched_at = ?2;
+			"
+			);
+			let params = db::params![
+				&message.id,
+				time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+			];
+			transaction
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Insert the children.
+			if let Some(children) = &message.children {
+				let statement = formatdoc!(
+					"
+						insert into process_children (process, position, child)
+						values (?1, ?2, ?3);
+					"
+				);
+				children
+					.iter()
+					.enumerate()
+					.map(|(position, child)| {
+						let transaction = transaction.clone();
+						let statement = statement.clone();
+						async move {
+							let params = db::params![&message.id, position, child];
+							transaction
+								.execute(statement.into(), params)
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to execute the statement")
+								})?;
+							Ok::<_, tg::Error>(())
+						}
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect::<()>()
+					.await?;
+			}
+
+			// Insert the objects.
+			let statement = formatdoc!(
+				"
+					insert into process_objects (process, object, kind)
+					values (?1, ?2, ?3)
+					on conflict (process, object, kind) do nothing;
+				"
+			);
+			message
+				.objects
+				.iter()
+				.map(|(kind, object)| {
+					let transaction = transaction.clone();
+					let statement = statement.clone();
+					async move {
+						let params = db::params![&message.id, object, kind];
+						transaction
+							.execute(statement.into(), params)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to execute the statement")
+							})?;
+						Ok::<_, tg::Error>(())
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<()>()
+				.await?;
+		}
+
+		// Commit the transaction.
+		Arc::into_inner(transaction)
+			.unwrap()
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		// Drop the connection.
+		drop(connection);
+
+		Ok(())
+	}
+
+	async fn indexer_insert_tags_sqlite(
+		&self,
+		messages: Vec<(PutTagMessage, Option<Acker>)>,
+		index: &db::sqlite::Database,
+	) -> tg::Result<()> {
+		// Get a database connection.
+		let connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		for (message, _) in &messages {
+			// Insert the tag.
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+				insert into tags (tag, item)
+				values ({p}1, {p}2)
+				on conflict (tag) do update set item = {p}2;
+			"
+			);
+			let params = db::params![message.tag, message.item];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Drop the database connection.
+		drop(connection);
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn indexer_delete_tags_sqlite(
+		&self,
+		messages: Vec<(DeleteTagMessage, Option<Acker>)>,
+		index: &db::sqlite::Database,
+	) -> tg::Result<()> {
+		// Get a database connection.
+		let connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		for (message, _) in &messages {
+			// Delete the tag.
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					delete from tags
+					where tag = {p}1;
+				"
+			);
+			let params = db::params![message.tag];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn indexer_touch_object_sqlite(
+		&self,
+		messages: Vec<(TouchObjectMessage, Option<Acker>)>,
+		index: &db::sqlite::Database,
+	) -> tg::Result<()> {
+		let connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		for (message, _) in &messages {
+			let p = connection.p();
+			let statement = format!(
+				"
+				update objects
+				set touched_at = {p}1
+				where id = {p}2;
+			"
+			);
+			let params = db::params![message.touched_at, message.id];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn indexer_touch_process_sqlite(
+		&self,
+		messages: Vec<(TouchProcessMessage, Option<Acker>)>,
+		index: &db::sqlite::Database,
+	) -> tg::Result<()> {
+		let connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		for (message, _) in &messages {
+			let p = connection.p();
+			let statement = format!(
+				"
+					update processes
+					set touched_at = {p}1
+					where id = {p}2;
+				"
+			);
+			let params = db::params![message.touched_at, message.id];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		Ok(())
+	}
+
 	async fn indexer_insert_objects_postgres(
 		&self,
-		messages: Vec<(Message, Option<Acker>)>,
-		database: &db::postgres::Database,
+		messages: Vec<(ObjectMessage, Option<Acker>)>,
+		index: &db::postgres::Database,
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
 		};
-		let mut connection = database
+		let mut connection = index
 			.connection_with_options(options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the unique messages.
-		let unique_messages: HashMap<&tg::object::Id, &Message, fnv::FnvBuildHasher> = messages
-			.iter()
-			.map(|(message, _)| (&message.id, message))
-			.collect();
+		let unique_messages: HashMap<&tg::object::Id, &ObjectMessage, fnv::FnvBuildHasher> =
+			messages
+				.iter()
+				.map(|(message, _)| (&message.id, message))
+				.collect();
 
 		// Begin a transaction.
 		let transaction = connection
@@ -399,17 +841,10 @@ impl Server {
 				std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
 			})
 			.collect::<Vec<_>>();
-		let count = unique_messages
+		let cache_references = unique_messages
 			.values()
-			.map(|message| message.count.map(|c| c.to_i64().unwrap()))
-			.collect::<Vec<_>>();
-		let depth = unique_messages
-			.values()
-			.map(|message| message.depth.map(|d| d.to_i64().unwrap()))
-			.collect::<Vec<_>>();
-		let weight = unique_messages
-			.values()
-			.map(|message| message.weight.map(|w| w.to_i64().unwrap()))
+			.filter_map(|message| message.cache_reference.as_ref())
+			.map(ToString::to_string)
 			.collect::<Vec<_>>();
 		let statement = indoc!(
 			"
@@ -419,9 +854,7 @@ impl Server {
 					$3::text,
 					$4::text[],
 					$5::int8[],
-					$7::int8[],
-					$8::int8[],
-					$9::int8[]
+					$6::text[]
 				);
 			"
 		);
@@ -432,9 +865,7 @@ impl Server {
 				&now,
 				&children.as_slice(),
 				&parent_indices.as_slice(),
-				&count.as_slice(),
-				&depth.as_slice(),
-				&weight.as_slice(),
+				&cache_references.as_slice(),
 			])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
@@ -456,39 +887,307 @@ impl Server {
 
 		Ok(())
 	}
+
+	async fn indexer_insert_processes_postgres(
+		&self,
+		messages: Vec<(ProcessMessage, Option<Acker>)>,
+		index: &db::postgres::Database,
+	) -> tg::Result<()> {
+		// Get a database connection.
+		let mut connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
+		let transaction = connection
+			.client_mut()
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+		for (message, _) in &messages {
+			// Insert the process.
+			let statement = indoc!(
+				"
+				insert into processes (
+					id,
+					touched_at
+				)
+				values (
+					$1,
+					$2
+				)
+				on conflict (id) do update set
+					touched_at = $2;
+			"
+			);
+			transaction
+				.execute(statement, &[
+					&message.id.to_string(),
+					&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+				])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Insert the children.
+			if let Some(children) = &message.children {
+				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
+				let statement = indoc!(
+					"
+						insert into process_children (process, position, child)
+						select $1, unnest($2::int8[]), unnest($3::text[]);
+					"
+				);
+				transaction
+					.execute(statement, &[
+						&message.id.to_string(),
+						&positions.as_slice(),
+						&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
+					])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// Insert the objects.
+			let objects: Vec<&tg::object::Id> = message.objects.iter().map(|(_, id)| id).collect();
+			let kinds: Vec<&Kind> = message.objects.iter().map(|(kind, _)| kind).collect();
+			if !message.objects.is_empty() {
+				let statement = indoc!(
+					"
+						insert into process_objects (process, object)
+						select $1, unnest($2::text[]), unnest($3::text[])
+						on conflict (process, object, kind) do nothing;
+					"
+				);
+
+				transaction
+					.execute(statement, &[
+						&message.id.to_string(),
+						&objects.iter().map(ToString::to_string).collect::<Vec<_>>(),
+						&kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
+					])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+		}
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Drop the connection.
+		drop(connection);
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn indexer_insert_tags_postgres(
+		&self,
+		messages: Vec<(PutTagMessage, Option<Acker>)>,
+		index: &db::postgres::Database,
+	) -> tg::Result<()> {
+		// Get a database connection.
+		let connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		for (message, _) in &messages {
+			let statement = indoc!(
+				"
+					insert into tags (tag, item)
+					values ($1, $2)
+					on conflict (tag) do update set item = $2;
+				"
+			);
+			let params = db::params![message.tag, message.item];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn indexer_delete_tags_postgres(
+		&self,
+		messages: Vec<(DeleteTagMessage, Option<Acker>)>,
+		index: &db::postgres::Database,
+	) -> tg::Result<()> {
+		// Get a database connection.
+		let connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		for (message, _) in &messages {
+			// Delete the tag.
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					delete from tags
+					where tag = {p}1;
+				"
+			);
+			let params = db::params![message.tag];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn indexer_touch_object_postgres(
+		&self,
+		messages: Vec<(TouchObjectMessage, Option<Acker>)>,
+		index: &db::postgres::Database,
+	) -> tg::Result<()> {
+		let connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		for (message, _) in &messages {
+			let p = connection.p();
+			let statement = format!(
+				"
+				update objects
+				set touched_at = {p}1
+				where id = {p}2;
+			"
+			);
+			let params = db::params![message.touched_at, message.id];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn indexer_touch_process_postgres(
+		&self,
+		messages: Vec<(TouchProcessMessage, Option<Acker>)>,
+		index: &db::postgres::Database,
+	) -> tg::Result<()> {
+		let connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+
+		for (message, _) in &messages {
+			let p = connection.p();
+			let statement = format!(
+				"
+				update processes
+				set touched_at = {p}1
+				where id = {p}2;
+			"
+			);
+			let params = db::params![message.touched_at, message.id];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Acknowledge the messages.
+		future::try_join_all(
+			messages
+				.iter()
+				.filter_map(|(_, acker)| acker.as_ref())
+				.map(async |acker| acker.ack().await),
+		)
+		.await?;
+
+		Ok(())
+	}
 }
 
 async fn migration_0000(database: &Database) -> tg::Result<()> {
 	let sql = indoc!(
 		r#"
-			create table blobs (
+			create table cache_entries (
 				id text primary key,
 				reference_count integer
 			);
 
-			create index blobs_reference_count_zero_index on blobs ((1)) where reference_count = 0;
+			create index cache_entries_reference_count_zero_index on cache_entries ((1)) where reference_count = 0;
 
-			create table blob_references (
+			create table cache_references (
 				id text primary key,
-				blob text not null,
-				position integer not null,
-				length integer not null
+				file text not null
 			);
 
-			create trigger blobs_increment_reference_count_trigger
-			after insert on blob_references
+			create trigger cache_entries_increment_reference_count_trigger
+			after insert on cache_references
 			for each row
 			begin
-				update blobs set reference_count = reference_count + 1
-				where id = new.blob;
+				update cache_entries set reference_count = reference_count + 1
+				where id = new.file;
 			end;
 
-			create trigger blobs_decrement_reference_count_trigger
-			after delete on blob_references
+			create trigger cache_entries_decrement_reference_count_trigger
+			after delete on cache_references
 			for each row
 			begin
-				update blobs set reference_count = reference_count - 1
-				where id = old.blob;
+				update cache_entries set reference_count = reference_count - 1
+				where id = old.file;
 			end;
 
 			create table objects (
@@ -607,7 +1306,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				delete from object_children
 				where object = old.id;
 
-				delete from blob_references
+				delete from cache_references
 				where id = old.id;
 			end;
 
@@ -640,6 +1339,16 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create table processes (
 				id text primary key,
+				count integer,
+				commands_complete integer not null default 0,
+				commands_count integer,
+				commands_depth integer,
+				commands_weight integer,
+				complete integer not null default 0,
+				outputs_complete integer not null default 0,
+				outputs_count integer,
+				outputs_depth integer,
+				outputs_weight integer,
 				reference_count integer,
 				touched_at text
 			);
@@ -702,7 +1411,8 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create table process_objects (
 				process text not null,
-				object text not null
+				object text not null,
+				kind text not null
 			);
 
 			create unique index process_objects_index on process_objects (process, object);

@@ -4,9 +4,7 @@ use super::{
 };
 use crate::{Server, blob::create::Blob, temp::Temp};
 use futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered};
-use indoc::indoc;
 use itertools::Itertools as _;
-use num::ToPrimitive;
 use std::{
 	collections::BTreeSet,
 	ffi::OsStr,
@@ -15,9 +13,6 @@ use std::{
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
-use tangram_database::prelude::*;
-use tangram_either::Either;
-use time::format_description::well_known::Rfc3339;
 use tokio::task::JoinSet;
 
 #[derive(Debug)]
@@ -201,7 +196,7 @@ impl Server {
 		let mut batch = Vec::new();
 
 		for (id, (data, _)) in &object.graphs {
-			batch.push((id.clone().into(), data.serialize()?));
+			batch.push((id.clone().into(), data.serialize()?, None));
 		}
 
 		// Get the output in reverse-topological order.
@@ -219,17 +214,23 @@ impl Server {
 
 			// Add the blob if the node has one.
 			if let Some(blob) = &output.blob {
+				let blob_id = blob.id.clone();
 				let mut stack = vec![blob.as_ref()];
 				while let Some(blob) = stack.pop() {
 					if let Some(data) = &blob.data {
 						let bytes = data.serialize()?;
-						batch.push((blob.id.clone().into(), bytes));
+						let reference = crate::store::Reference {
+							file: blob_id.clone(),
+							position: blob.position,
+							length: blob.length,
+						};
+						batch.push((blob.id.clone().into(), bytes, Some(reference)));
 					}
 					stack.extend(&blob.children);
 				}
 			}
 
-			batch.push((output.id.clone().into(), output.data.serialize()?));
+			batch.push((output.id.clone().into(), output.data.serialize()?, None));
 
 			stack.extend(output.edges.iter().map(|edge| edge.node));
 		}
@@ -242,86 +243,6 @@ impl Server {
 			.put_batch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
-
-		Ok(())
-	}
-
-	pub async fn write_output_to_database(
-		&self,
-		output: Arc<Graph>,
-		object: Arc<object::Graph>,
-		touched_at: i64,
-	) -> tg::Result<()> {
-		// Get a database connection.
-		let mut connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Begin a transaction.
-		let mut transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
-
-		match &mut transaction {
-			Either::Left(transaction) => {
-				transaction
-					.with(move |transaction| {
-						for (id, (data, metadata)) in &object.graphs {
-							write_object_sqlite(
-								transaction,
-								&id.clone().into(),
-								&data.clone().into(),
-								metadata,
-							)?;
-						}
-
-						// Get the output in reverse-topological order.
-						let mut stack = vec![0];
-						let mut visited = vec![false; output.nodes.len()];
-						while let Some(output_index) = stack.pop() {
-							// Check if we've visited this node yet.
-							if visited[output_index] {
-								continue;
-							}
-							visited[output_index] = true;
-
-							// Get the output data.
-							let output = &output.nodes[output_index];
-
-							// Write the blob if the object has one.
-							if let Some(blob) = &output.blob {
-								Self::blob_create_sqlite(blob, transaction)?;
-								Self::insert_blob_objects_sqlite(blob, transaction, touched_at)?;
-							}
-
-							// Write the object.
-							write_object_sqlite(
-								transaction,
-								&output.id.clone().into(),
-								&output.data.clone().into(),
-								&output.metadata,
-							)?;
-
-							stack.extend(output.edges.iter().map(|edge| edge.node));
-						}
-
-						Ok::<_, tg::Error>(())
-					})
-					.await?;
-			},
-			Either::Right(_) => {
-				return Err(tg::error!("unimplemented"));
-			},
-		}
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		Ok(())
 	}
@@ -787,53 +708,53 @@ fn set_file_times_to_epoch_inner(
 	Ok(())
 }
 
-fn write_object_sqlite(
-	transaction: &mut rusqlite::Transaction<'_>,
-	id: &tg::object::Id,
-	data: &tg::object::Data,
-	metadata: &Metadata,
-) -> tg::Result<()> {
-	let statement = indoc!(
-		"
-			insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
-			values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-			on conflict (id) do update set touched_at = ?7;
-		"
-	);
-	let mut statement = transaction
-		.prepare_cached(statement)
-		.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
-	let bytes = data.serialize()?;
-	let size = bytes.len().to_u64().unwrap();
-	let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-	let params = rusqlite::params![
-		id.to_string(),
-		metadata.complete,
-		metadata.count,
-		metadata.depth,
-		0,
-		size,
-		now,
-		metadata.weight,
-	];
-	statement
-		.execute(params)
-		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-	let statement = indoc!(
-		"
-			insert into object_children (object, child)
-			values (?1, ?2)
-			on conflict (object, child) do nothing;
-		"
-	);
-	let mut statement = transaction
-		.prepare_cached(statement)
-		.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
-	for child in data.children() {
-		let params = rusqlite::params![id.to_string(), child.to_string()];
-		statement
-			.execute(params)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-	}
-	Ok(())
-}
+// fn write_object_sqlite(
+// 	transaction: &mut rusqlite::Transaction<'_>,
+// 	id: &tg::object::Id,
+// 	data: &tg::object::Data,
+// 	metadata: &Metadata,
+// ) -> tg::Result<()> {
+// 	let statement = indoc!(
+// 		"
+// 			insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
+// 			values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+// 			on conflict (id) do update set touched_at = ?7;
+// 		"
+// 	);
+// 	let mut statement = transaction
+// 		.prepare_cached(statement)
+// 		.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
+// 	let bytes = data.serialize()?;
+// 	let size = bytes.len().to_u64().unwrap();
+// 	let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+// 	let params = rusqlite::params![
+// 		id.to_string(),
+// 		metadata.complete,
+// 		metadata.count,
+// 		metadata.depth,
+// 		0,
+// 		size,
+// 		now,
+// 		metadata.weight,
+// 	];
+// 	statement
+// 		.execute(params)
+// 		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+// 	let statement = indoc!(
+// 		"
+// 			insert into object_children (object, child)
+// 			values (?1, ?2)
+// 			on conflict (object, child) do nothing;
+// 		"
+// 	);
+// 	let mut statement = transaction
+// 		.prepare_cached(statement)
+// 		.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
+// 	for child in data.children() {
+// 		let params = rusqlite::params![id.to_string(), child.to_string()];
+// 		statement
+// 			.execute(params)
+// 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+// 	}
+// 	Ok(())
+// }

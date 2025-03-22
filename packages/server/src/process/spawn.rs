@@ -297,7 +297,7 @@ impl Server {
 					touched_at = {p}13;
 			"
 		);
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let now = time::OffsetDateTime::now_utc();
 		let params = db::params![
 			id,
 			cacheable,
@@ -311,12 +311,18 @@ impl Server {
 			arg.network,
 			arg.retry,
 			tg::process::Status::Enqueued,
-			now,
+			now.format(&Rfc3339).unwrap(),
 		];
 		connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Touch the command.
+		if let Some(command) = &arg.command {
+			let arg = tg::object::touch::Arg { remote: None };
+			self.touch_object(&command.clone().into(), arg).await?;
+		}
 
 		// Publish the message.
 		tokio::spawn({

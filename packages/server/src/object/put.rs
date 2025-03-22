@@ -26,6 +26,7 @@ impl Server {
 				id: id.clone(),
 				bytes: arg.bytes.clone(),
 				touched_at: now,
+				reference: None,
 			};
 			self.store.put(arg).await?;
 			Ok::<_, tg::Error>(())
@@ -35,14 +36,12 @@ impl Server {
 			let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
 			let children = data.children();
 			let size = arg.bytes.len().to_u64().unwrap();
-			let message = crate::index::Message {
+			let message = crate::index::ObjectMessage {
 				children,
-				count: None,
-				depth: None,
 				id: id.clone(),
 				size,
 				touched_at: now,
-				weight: None,
+				cache_reference: None,
 			};
 			let message = serde_json::to_vec(&message)
 				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;

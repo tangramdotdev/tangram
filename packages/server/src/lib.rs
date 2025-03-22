@@ -1008,6 +1008,9 @@ impl Server {
 			(http::Method::PUT, ["objects", object]) => {
 				Self::handle_put_object_request(handle, request, object).boxed()
 			},
+			(http::Method::POST, ["objects", object, "touch"]) => {
+				Self::handle_touch_object_request(handle, request, object).boxed()
+			},
 
 			// Packages.
 			(http::Method::POST, ["packages", "check"]) => {
@@ -1292,6 +1295,14 @@ impl tg::Handle for Server {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.put_object(id, arg)
+	}
+
+	fn touch_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.touch_object(id, arg)
 	}
 
 	fn check_package(

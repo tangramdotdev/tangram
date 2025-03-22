@@ -4,6 +4,8 @@ use num::ToPrimitive;
 use tangram_client as tg;
 use time::format_description::well_known::Rfc2822;
 
+use super::Reference;
+
 pub struct S3 {
 	credentials: Option<aws_credential_types::Credentials>,
 	config: crate::config::S3Store,
@@ -73,6 +75,13 @@ impl S3 {
 		Ok(Some(bytes))
 	}
 
+	pub async fn try_get_cache_reference(
+		&self,
+		_: &tg::object::Id,
+	) -> tg::Result<Option<Reference>> {
+		todo!()
+	}
+
 	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let _permit = self.semaphore.acquire().await;
 		let method = reqwest::Method::PUT;
@@ -110,12 +119,13 @@ impl S3 {
 
 	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
 		arg.objects
-			.iter()
-			.map(|(id, bytes)| {
+			.into_iter()
+			.map(|(id, bytes, reference)| {
 				self.put(super::PutArg {
-					id: id.clone(),
-					bytes: bytes.clone(),
+					id,
+					bytes,
 					touched_at: arg.touched_at,
+					reference,
 				})
 			})
 			.collect::<FuturesUnordered<_>>()

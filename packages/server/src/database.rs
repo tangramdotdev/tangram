@@ -91,12 +91,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				cacheable integer not null,
 				checksum text,
 				command text not null,
-				commands_complete integer not null default 0,
-				commands_count integer,
-				commands_depth integer,
-				commands_weight integer,
-				complete integer not null default 0,
-				count integer,
 				created_at text not null,
 				cwd text,
 				dequeued_at text,
@@ -109,16 +103,8 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				host text not null,
 				id text primary key,
 				log text,
-				logs_complete integer not null default 0,
-				logs_count integer,
-				logs_depth integer,
-				logs_weight integer,
 				network integer not null,
 				output text,
-				outputs_complete integer not null default 0,
-				outputs_count integer,
-				outputs_depth integer,
-				outputs_weight integer,
 				retry integer not null,
 				started_at text,
 				status text not null,
@@ -128,22 +114,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index processes_command_index on processes (command);
 
 			create index processes_status_index on processes (status);
-
-			create trigger processes_delete_trigger
-			after delete on processes
-			for each row
-			begin
-				delete from process_logs
-				where process = old.id;
-			end;
-
-			create table process_logs (
-				process text not null,
-				bytes blob not null,
-				position integer not null
-			);
-
-			create index process_logs_process_position_index on process_logs (process, position);
 
 			create table remotes (
 				name text primary key,
