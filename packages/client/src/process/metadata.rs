@@ -22,15 +22,6 @@ pub struct Metadata {
 	pub count: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub logs_count: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub logs_depth: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub logs_weight: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub outputs_count: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

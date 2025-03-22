@@ -8,6 +8,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
+use tangram_messenger::Messenger as _;
 
 #[cfg(test)]
 mod tests;
@@ -97,7 +98,7 @@ impl Server {
 		};
 
 		// Cache the artifact.
-		self.cache_inner(&mut state, artifact, temp.path())?;
+		self.cache_inner(&mut state, temp.path(), id, artifact)?;
 
 		// Create the path.
 		let path = self.cache_path().join(id.to_string());
@@ -127,14 +128,37 @@ impl Server {
 			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
 		)?;
 
+		// Spawn a task to publish a message to index the cache entry.
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+			async move {
+				let message =
+					crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
+						id,
+						touched_at,
+					});
+				let message = serde_json::to_vec(&message)
+					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+				server
+					.messenger
+					.publish("index".to_owned(), message.into())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+				Ok::<_, tg::Error>(())
+			}
+		});
+
 		Ok(())
 	}
 
 	fn cache_inner(
 		&self,
 		state: &mut State,
-		artifact: Either<(tg::graph::Id, usize), tg::artifact::Id>,
 		path: &Path,
+		id: &tg::artifact::Id,
+		artifact: Either<(tg::graph::Id, usize), tg::artifact::Id>,
 	) -> tg::Result<()> {
 		// Get the graph or artifact's data.
 		let data = match artifact {
@@ -174,10 +198,10 @@ impl Server {
 		// Cache the artifact.
 		match data {
 			Either::Left((graph, node)) => {
-				self.cache_inner_graph(state, path, &graph, node)?;
+				self.cache_inner_graph(state, path, id, &graph, node)?;
 			},
 			Either::Right(data) => {
-				self.cache_inner_data(state, path, data)?;
+				self.cache_inner_data(state, path, id, data)?;
 			},
 		}
 
@@ -194,6 +218,7 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
+		id: &tg::artifact::Id,
 		graph: &tg::graph::Id,
 		node: usize,
 	) -> tg::Result<()> {
@@ -207,13 +232,13 @@ impl Server {
 			.clone();
 		match node {
 			tg::graph::data::Node::Directory(directory) => {
-				self.cache_inner_graph_directory(state, path, graph, &directory)?;
+				self.cache_inner_graph_directory(state, path, id, graph, &directory)?;
 			},
 			tg::graph::data::Node::File(file) => {
-				self.cache_inner_graph_file(state, path, graph, file)?;
+				self.cache_inner_graph_file(state, path, id, graph, file)?;
 			},
 			tg::graph::data::Node::Symlink(symlink) => {
-				self.cache_inner_graph_symlink(state, path, graph, symlink)?;
+				self.cache_inner_graph_symlink(state, path, id, graph, symlink)?;
 			},
 		}
 		Ok(())
@@ -224,15 +249,49 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
+		_id: &tg::artifact::Id,
 		graph: &tg::graph::Id,
 		directory: &tg::graph::data::Directory,
 	) -> tg::Result<()> {
 		std::fs::create_dir_all(path).unwrap();
 		for (name, artifact) in &directory.entries {
+			let id = match artifact.clone() {
+				Either::Left(node) => {
+					let kind = state
+						.graphs
+						.get(graph)
+						.unwrap()
+						.nodes
+						.get(node)
+						.ok_or_else(|| tg::error!("expected the node to exist"))?
+						.kind();
+					let graph = graph.clone();
+					let data: tg::artifact::Data = match kind {
+						tg::artifact::Kind::Directory => tg::directory::Data::Graph {
+							graph: graph.clone(),
+							node,
+						}
+						.into(),
+						tg::artifact::Kind::File => tg::file::Data::Graph {
+							graph: graph.clone(),
+							node,
+						}
+						.into(),
+						tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
+							graph: graph.clone(),
+							node,
+						}
+						.into(),
+					};
+					let bytes = data.serialize()?;
+					tg::artifact::Id::new(kind, &bytes)
+				},
+				Either::Right(id) => id.clone(),
+			};
 			let artifact = artifact.clone().map_left(|node| (graph.clone(), node));
 			let path = path.join(name);
 			state.depth += 1;
-			self.cache_inner(state, artifact, &path)?;
+			self.cache_inner(state, &path, &id, artifact)?;
 			state.depth -= 1;
 		}
 		Ok(())
@@ -242,6 +301,7 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
+		id: &tg::artifact::Id,
 		graph: &tg::graph::Id,
 		file: tg::graph::data::File,
 	) -> tg::Result<()> {
@@ -302,7 +362,7 @@ impl Server {
 		}
 
 		// Copy the file.
-		let src = &self.blobs_path().join(contents.to_string());
+		let src = &self.cache_path().join(id.to_string());
 		let dst = &path;
 		let mut done = false;
 		let mut error = None;
@@ -385,6 +445,7 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
+		_id: &tg::artifact::Id,
 		graph: &tg::graph::Id,
 		symlink: tg::graph::data::Symlink,
 	) -> tg::Result<()> {
@@ -462,17 +523,18 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
+		id: &tg::artifact::Id,
 		data: tg::artifact::Data,
 	) -> tg::Result<()> {
 		match data {
 			tg::artifact::Data::Directory(directory) => {
-				self.cache_inner_data_directory(state, path, directory)?;
+				self.cache_inner_data_directory(state, path, id, directory)?;
 			},
 			tg::artifact::Data::File(file) => {
-				self.cache_inner_data_file(state, path, file)?;
+				self.cache_inner_data_file(state, path, id, file)?;
 			},
 			tg::artifact::Data::Symlink(symlink) => {
-				self.cache_inner_data_symlink(state, path, symlink)?;
+				self.cache_inner_data_symlink(state, path, id, symlink)?;
 			},
 		}
 		Ok(())
@@ -482,12 +544,13 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
+		id: &tg::artifact::Id,
 		directory: tg::directory::Data,
 	) -> tg::Result<()> {
 		match directory {
 			tg::directory::Data::Graph { graph, node } => {
 				let artifact = Either::Left((graph, node));
-				self.cache_inner(state, artifact, path)?;
+				self.cache_inner(state, path, id, artifact)?;
 			},
 			tg::directory::Data::Normal { entries } => {
 				std::fs::create_dir_all(path).unwrap();
@@ -495,7 +558,7 @@ impl Server {
 					let artifact = Either::Right(id.clone());
 					let path = path.join(name);
 					state.depth += 1;
-					self.cache_inner(state, artifact, &path)?;
+					self.cache_inner(state, &path, &id, artifact)?;
 					state.depth -= 1;
 				}
 			},
@@ -507,12 +570,13 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
+		id: &tg::artifact::Id,
 		file: tg::file::Data,
 	) -> tg::Result<()> {
 		match file {
 			tg::file::Data::Graph { graph, node } => {
 				let artifact = Either::Left((graph, node));
-				self.cache_inner(state, artifact, path)?;
+				self.cache_inner(state, path, id, artifact)?;
 			},
 			tg::file::Data::Normal {
 				contents,
@@ -531,7 +595,7 @@ impl Server {
 				}
 
 				// Copy the file.
-				let src = &self.blobs_path().join(contents.to_string());
+				let src = &self.cache_path().join(id.to_string());
 				let dst = &path;
 				let mut done = false;
 				let mut error = None;
@@ -615,12 +679,13 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
+		id: &tg::artifact::Id,
 		symlink: tg::symlink::Data,
 	) -> tg::Result<()> {
 		match symlink {
 			tg::symlink::Data::Graph { graph, node } => {
 				let artifact = Either::Left((graph, node));
-				self.cache_inner(state, artifact, path)?;
+				self.cache_inner(state, path, id, artifact)?;
 			},
 			tg::symlink::Data::Target { target } => {
 				std::os::unix::fs::symlink(target, path)

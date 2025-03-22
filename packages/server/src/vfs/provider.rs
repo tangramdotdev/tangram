@@ -6,7 +6,7 @@ use indoc::formatdoc;
 use num::ToPrimitive;
 use rusqlite as sqlite;
 use std::{
-	os::unix::ffi::OsStrExt,
+	os::unix::ffi::OsStrExt as _,
 	path::PathBuf,
 	pin::pin,
 	sync::{

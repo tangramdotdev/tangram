@@ -8,6 +8,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -16,16 +17,54 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		let now = time::OffsetDateTime::now_utc();
+
+		// Send process message.
+		let output = arg
+			.data
+			.output
+			.as_ref()
+			.map(tg::value::data::Data::children)
+			.into_iter()
+			.flatten()
+			.map(|output| (output, crate::index::ProcessObjectKind::Output));
+		let command = std::iter::once((
+			arg.data.command.clone().into(),
+			crate::index::ProcessObjectKind::Command,
+		));
+		let objects = std::iter::empty().chain(output).chain(command).collect();
+		let message = crate::index::Message::PutProcess(crate::index::PutProcessMessage {
+			id: id.clone(),
+			touched_at: now.unix_timestamp(),
+			children: arg.data.children.clone(),
+			objects,
+		});
+		let message = serde_json::to_vec(&message)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		self.messenger
+			.publish("index".to_owned(), message.into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+
+		// Add to database.
 		match &self.database {
-			Either::Left(database) => Self::put_process_sqlite(database, id, arg).await,
-			Either::Right(database) => Self::put_process_postgres(database, id, arg).await,
-		}
+			Either::Left(database) => {
+				Self::put_process_sqlite(database, id, arg, &now.format(&Rfc3339).unwrap()).await?;
+			},
+			Either::Right(database) => {
+				Self::put_process_postgres(database, id, arg, &now.format(&Rfc3339).unwrap())
+					.await?;
+			},
+		};
+
+		Ok(())
 	}
 
 	pub(crate) async fn put_process_sqlite(
 		database: &db::sqlite::Database,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
+		touched_at: &str,
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = database
@@ -129,7 +168,7 @@ impl Server {
 			arg.data.retry,
 			arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.status,
-			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+			touched_at
 		];
 		transaction
 			.execute(statement.into(), params)
@@ -222,6 +261,7 @@ impl Server {
 		database: &db::postgres::Database,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
+		touched_at: &str,
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = database
@@ -231,7 +271,7 @@ impl Server {
 
 		// Begin a transaction.
 		let transaction = connection
-			.client_mut()
+			.inner_mut()
 			.transaction()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
@@ -331,7 +371,7 @@ impl Server {
 					&i64::from(arg.data.retry),
 					&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 					&serde_json::to_string(&arg.data.status).unwrap(),
-					&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+					&touched_at,
 				],
 			)
 			.await
@@ -359,44 +399,6 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
-		}
-
-		// Insert the objects.
-		let objects: Vec<tg::object::Id> = arg
-			.data
-			.log
-			.into_iter()
-			.map_into()
-			.chain(
-				arg.data
-					.output
-					.as_ref()
-					.map(tg::value::Data::children)
-					.into_iter()
-					.flatten(),
-			)
-			.chain(std::iter::once(arg.data.command.clone().into()))
-			.collect();
-
-		if !objects.is_empty() {
-			let statement = indoc!(
-				"
-					insert into process_objects (process, object)
-					select $1, unnest($2::text[])
-					on conflict (process, object) do nothing;
-				"
-			);
-
-			transaction
-				.execute(
-					statement,
-					&[
-						&id.to_string(),
-						&objects.iter().map(ToString::to_string).collect::<Vec<_>>(),
-					],
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Commit the transaction.

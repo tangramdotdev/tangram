@@ -1,17 +1,10 @@
 use crate::Server;
-use bytes::{Bytes, BytesMut};
-use futures::{
-	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _,
-	future::{self, BoxFuture},
-	stream,
-};
-use indoc::formatdoc;
+use bytes::Bytes;
+use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use itertools::Itertools as _;
 use num::ToPrimitive;
-use std::{io::Cursor, time::Duration};
-use sync_wrapper::SyncWrapper;
+use std::time::Duration;
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_database::{self as db, prelude::*};
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::Messenger as _;
@@ -21,22 +14,8 @@ use tokio_util::task::AbortOnDropHandle;
 
 pub enum Reader {
 	Blob(crate::blob::Reader),
-	Database(DatabaseReader),
 	File(tokio::fs::File),
 }
-
-pub struct DatabaseReader {
-	cursor: Option<Cursor<Bytes>>,
-	id: tg::process::Id,
-	position: u64,
-	read: Option<SyncWrapper<ReadFuture>>,
-	seek: Option<SyncWrapper<SeekFuture>>,
-	server: Server,
-}
-
-type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
-
-type SeekFuture = BoxFuture<'static, tg::Result<u64>>;
 
 impl Server {
 	pub async fn try_get_process_log_stream(
@@ -310,11 +289,7 @@ impl Server {
 		}
 
 		// Log.
-		if self.config.advanced.write_process_logs_to_database {
-			self.try_add_process_log_to_database(id, arg.bytes).await?;
-		} else {
-			self.try_add_process_log_to_file(id, arg.bytes).await?;
-		}
+		self.try_add_process_log_to_file(id, arg.bytes).await?;
 
 		// Publish the message.
 		tokio::spawn({
@@ -331,53 +306,6 @@ impl Server {
 		});
 
 		Ok(tg::process::log::post::Output { added: true })
-	}
-
-	async fn try_add_process_log_to_database(
-		&self,
-		id: &tg::process::Id,
-		bytes: Bytes,
-	) -> tg::Result<()> {
-		// Get a database connection.
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Add the log to the database.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into process_logs (process, bytes, position)
-				values (
-					{p}1,
-					{p}2,
-					(
-						select coalesce(
-							(
-								select position + length(bytes)
-								from process_logs
-								where process = {p}1
-								order by position desc
-								limit 1
-							),
-							0
-						)
-					)
-				);
-			"
-		);
-		let params = db::params![id, bytes];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		Ok(())
 	}
 
 	async fn try_add_process_log_to_file(
@@ -428,28 +356,7 @@ impl Reader {
 			},
 		}
 
-		// Otherwise, create a database reader.
-		let reader = DatabaseReader::new(server, id);
-		Ok(Self::Database(reader))
-	}
-}
-
-impl DatabaseReader {
-	fn new(server: &Server, id: &tg::process::Id) -> Self {
-		let cursor = None;
-		let id = id.clone();
-		let position = 0;
-		let read = None;
-		let seek = None;
-		let server = server.clone();
-		Self {
-			cursor,
-			id,
-			position,
-			read,
-			seek,
-			server,
-		}
+		Err(tg::error!("failed to find the log"))
 	}
 }
 
@@ -461,7 +368,6 @@ impl AsyncRead for Reader {
 	) -> std::task::Poll<std::io::Result<()>> {
 		match self.get_mut() {
 			Reader::Blob(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
-			Reader::Database(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
 			Reader::File(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
 		}
 	}
@@ -474,7 +380,6 @@ impl AsyncSeek for Reader {
 	) -> std::io::Result<()> {
 		match self.get_mut() {
 			Reader::Blob(reader) => std::pin::Pin::new(reader).start_seek(position),
-			Reader::Database(reader) => std::pin::Pin::new(reader).start_seek(position),
 			Reader::File(reader) => std::pin::Pin::new(reader).start_seek(position),
 		}
 	}
@@ -485,219 +390,9 @@ impl AsyncSeek for Reader {
 	) -> std::task::Poll<std::io::Result<u64>> {
 		match self.get_mut() {
 			Reader::Blob(reader) => std::pin::Pin::new(reader).poll_complete(cx),
-			Reader::Database(reader) => std::pin::Pin::new(reader).poll_complete(cx),
 			Reader::File(reader) => std::pin::Pin::new(reader).poll_complete(cx),
 		}
 	}
-}
-
-impl AsyncRead for DatabaseReader {
-	fn poll_read(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-		buf: &mut tokio::io::ReadBuf<'_>,
-	) -> std::task::Poll<std::io::Result<()>> {
-		let this = self.get_mut();
-
-		// Create the read future if necessary.
-		if this.cursor.is_none() && this.read.is_none() {
-			let server = this.server.clone();
-			let id = this.id.clone();
-			let position = this.position;
-			let length = (buf.capacity() - buf.filled().len()).to_u64().unwrap();
-			let read = SyncWrapper::new(
-				async move { poll_read_inner(server, &id, position, length).await }.boxed(),
-			);
-			this.read = Some(read);
-		}
-
-		// Poll the read future if necessary.
-		if let Some(read) = this.read.as_mut() {
-			match read.get_mut().as_mut().poll(cx) {
-				std::task::Poll::Pending => return std::task::Poll::Pending,
-				std::task::Poll::Ready(Err(error)) => {
-					this.read.take();
-					return std::task::Poll::Ready(Err(std::io::Error::other(error)));
-				},
-				std::task::Poll::Ready(Ok(None)) => {
-					this.read.take();
-					return std::task::Poll::Ready(Ok(()));
-				},
-				std::task::Poll::Ready(Ok(Some(cursor))) => {
-					this.read.take();
-					this.cursor.replace(cursor);
-				},
-			}
-		}
-
-		// Read.
-		let cursor = this.cursor.as_mut().unwrap();
-		let bytes = cursor.get_ref();
-		let position = cursor.position().to_usize().unwrap();
-		let n = std::cmp::min(buf.remaining(), bytes.len() - position);
-		buf.put_slice(&bytes[position..position + n]);
-		this.position += n as u64;
-		let position = position + n;
-		cursor.set_position(position as u64);
-		if position == cursor.get_ref().len() {
-			this.cursor.take();
-		}
-		std::task::Poll::Ready(Ok(()))
-	}
-}
-
-async fn poll_read_inner(
-	server: Server,
-	id: &tg::process::Id,
-	position: u64,
-	length: u64,
-) -> tg::Result<Option<Cursor<Bytes>>> {
-	// Get a database connection.
-	let connection = server
-		.database
-		.connection()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-	// Get the rows.
-	#[derive(serde::Deserialize)]
-	struct Row {
-		position: u64,
-		bytes: Bytes,
-	}
-	let p = connection.p();
-	let statement = formatdoc!(
-		"
-			select position, bytes
-			from process_logs
-			where process = {p}1 and (
-				({p}2 < position and {p}2 + {p}3 > position) or
-				({p}2 >= position and {p}2 < position + length(bytes))
-			)
-			order by position;
-		"
-	);
-	let params = db::params![id, position, length];
-	let rows = connection
-		.query_all_into::<Row>(statement.into(), params)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-	// Drop the database connection.
-	drop(connection);
-
-	let mut bytes = BytesMut::with_capacity(length.to_usize().unwrap());
-	for row in rows {
-		if row.position < position {
-			let start = (position - row.position).to_usize().unwrap();
-			bytes.extend_from_slice(&row.bytes[start..]);
-		} else {
-			bytes.extend_from_slice(&row.bytes);
-		}
-	}
-	let cursor = Cursor::new(bytes.into());
-
-	Ok(Some(cursor))
-}
-
-impl AsyncSeek for DatabaseReader {
-	fn start_seek(
-		mut self: std::pin::Pin<&mut Self>,
-		seek: std::io::SeekFrom,
-	) -> std::io::Result<()> {
-		if self.seek.is_some() {
-			return Err(std::io::Error::other("already seeking"));
-		}
-		let server = self.server.clone();
-		let position = self.position;
-		let id = self.id.clone();
-		let seek = SyncWrapper::new(
-			async move { poll_seek_inner(server, &id, position, seek).await }.boxed(),
-		);
-		self.seek = Some(seek);
-		Ok(())
-	}
-
-	fn poll_complete(
-		mut self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<std::io::Result<u64>> {
-		let Some(seek) = self.seek.as_mut() else {
-			return std::task::Poll::Ready(Ok(self.position));
-		};
-		let position = match seek.get_mut().as_mut().poll(cx) {
-			std::task::Poll::Ready(Ok(position)) => {
-				self.seek.take();
-				position
-			},
-			std::task::Poll::Ready(Err(error)) => {
-				self.seek.take();
-				return std::task::Poll::Ready(Err(std::io::Error::other(error)));
-			},
-			std::task::Poll::Pending => {
-				return std::task::Poll::Pending;
-			},
-		};
-		self.position = position;
-		self.cursor = None;
-		std::task::Poll::Ready(Ok(position))
-	}
-}
-
-async fn poll_seek_inner(
-	server: Server,
-	id: &tg::process::Id,
-	position: u64,
-	seek: std::io::SeekFrom,
-) -> tg::Result<u64> {
-	// Get a database connection.
-	let connection = server
-		.database
-		.connection()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-	// Get the end.
-	let p = connection.p();
-	let statement = formatdoc!(
-		"
-			select coalesce(
-				(
-					select position + length(bytes)
-					from process_logs
-					where process = {p}1 and position = (
-						select max(position)
-						from process_logs
-						where process = {p}1
-					)
-				),
-				0
-			);
-		"
-	);
-	let params = db::params![id];
-	let end = connection
-		.query_one_value_into::<u64>(statement.into(), params)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-	// Drop the database connection.
-	drop(connection);
-
-	let position = match seek {
-		std::io::SeekFrom::Start(seek) => seek.to_i64().unwrap(),
-		std::io::SeekFrom::End(seek) => end.to_i64().unwrap() + seek,
-		std::io::SeekFrom::Current(seek) => position.to_i64().unwrap() + seek,
-	};
-	let position = position.to_u64().ok_or(tg::error!(
-		%position,
-		"attempted to seek to a negative or overflowing position",
-	))?;
-	if position > end {
-		return Err(tg::error!(%position, %end, "attempted to seek to a position beyond the end"));
-	}
-
-	Ok(position)
 }
 
 impl Server {

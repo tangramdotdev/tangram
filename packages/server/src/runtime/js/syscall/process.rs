@@ -1,6 +1,6 @@
 use super::State;
 use std::{pin::pin, rc::Rc, sync::Arc};
-use tangram_client::{self as tg, handle::Ext};
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_either::Either;
 use tokio_stream::StreamExt as _;
 

@@ -1,5 +1,4 @@
 use super::Server;
-use futures::future;
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::time::Duration;
@@ -11,7 +10,7 @@ use time::format_description::well_known::Rfc3339;
 struct InnerOutput {
 	processes: Vec<tg::process::Id>,
 	objects: Vec<tg::object::Id>,
-	blobs: Vec<tg::blob::Id>,
+	cache_entries: Vec<tg::artifact::Id>,
 }
 
 impl Server {
@@ -26,7 +25,7 @@ impl Server {
 				tg::error!(source = error, "failed to recreate the temporary directory")
 			})?;
 
-		// Clean until there are no more processes or objects to remove.
+		// Clean until there are no more items to remove.
 		let batch_size = self
 			.config
 			.cleaner
@@ -36,7 +35,7 @@ impl Server {
 		let config = crate::config::Cleaner { batch_size, ttl };
 		loop {
 			let output = self.cleaner_task_inner(&config).await?;
-			let n = output.processes.len() + output.objects.len() + output.blobs.len();
+			let n = output.processes.len() + output.objects.len() + output.cache_entries.len();
 			if n == 0 {
 				break;
 			}
@@ -50,7 +49,8 @@ impl Server {
 			let result = self.cleaner_task_inner(config).await;
 			match result {
 				Ok(output) => {
-					let n = output.processes.len() + output.objects.len() + output.blobs.len();
+					let n =
+						output.processes.len() + output.objects.len() + output.cache_entries.len();
 					if n == 0 {
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
@@ -65,15 +65,20 @@ impl Server {
 
 	async fn cleaner_task_inner(&self, config: &crate::config::Cleaner) -> tg::Result<InnerOutput> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let max_touched_at =
+			time::OffsetDateTime::from_unix_timestamp(now - config.ttl.as_secs().to_i64().unwrap())
+				.unwrap()
+				.format(&Rfc3339)
+				.unwrap();
 
-		// Get a database connection.
+		// Get an index connection.
 		let connection = self
-			.database
+			.index
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Delete processes.
+		// Delete processes from the index.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -86,79 +91,108 @@ impl Server {
 				returning id;
 			"
 		);
-		let max_touched_at =
-			time::OffsetDateTime::from_unix_timestamp(now - config.ttl.as_secs().to_i64().unwrap())
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
 		let params = db::params![max_touched_at, config.batch_size];
 		let processes = connection
 			.query_all_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
-		// Delete objects.
+		// Delete objects from the index.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				delete from objects
 				where id in (
-					select id from objects 
+					select id from objects
 					where reference_count = 0 and touched_at <= {p}1
 					limit {p}2
 				)
 				returning id;
 			"
 		);
-		let max_touched_at =
-			time::OffsetDateTime::from_unix_timestamp(now - config.ttl.as_secs().to_i64().unwrap())
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
 		let params = db::params![max_touched_at, config.batch_size];
 		let objects = connection
 			.query_all_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 
-		// Delete blobs.
+		// Delete cache entries.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				delete from blobs
+				delete from cache_entries
 				where id in (
-					select id from blobs
-					where reference_count = 0
-					limit {p}1
+					select id from cache_entries
+					where reference_count = 0 and touched_at <= {p}1
+					limit {p}2
 				)
 				returning id;
 			"
 		);
-		let params = db::params![config.batch_size];
-		let blobs = connection
-			.query_all_value_into(statement.into(), params)
+		let params = db::params![max_touched_at, config.batch_size];
+		let cache_entries = connection
+			.query_all_value_into::<tg::artifact::Id>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 
+		// Drop the connection.
+		drop(connection);
+
+		// Delete objects.
 		let arg = crate::store::DeleteBatchArg {
 			ids: objects.clone(),
 			now,
 			ttl: config.ttl.as_secs(),
 		};
 		self.store.delete_batch(arg).await?;
-		future::try_join_all(blobs.iter().map(|blob: &tg::blob::Id| async {
-			let path = self.blobs_path().join(blob.to_string());
-			tokio::fs::remove_file(&path)
+
+		// Get a database connection.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Delete processes from the database.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from processes
+				where id = {p}1 and touched_at <= {p}2;
+			"
+		);
+		for id in &processes {
+			let params = db::params![&id, max_touched_at];
+			connection
+				.execute(statement.clone().into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, ?path, "failed to remove the blob"))?;
-			Ok::<_, tg::Error>(())
-		}))
-		.await?;
+				.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Delete cache entries.
+		tokio::task::spawn_blocking({
+			let server = self.clone();
+			let cache_entries = cache_entries.clone();
+			move || {
+				for artifact in &cache_entries {
+					let path = server.cache_path().join(artifact.to_string());
+					std::fs::remove_file(&path).map_err(|source| {
+						tg::error!(!source, ?path, "failed to remove the cache entry")
+					})?;
+				}
+				Ok::<_, tg::Error>(())
+			}
+		})
+		.await
+		.unwrap()?;
 
 		let output = InnerOutput {
 			processes,
 			objects,
-			blobs,
+			cache_entries,
 		};
 
 		Ok(output)

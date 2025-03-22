@@ -93,13 +93,9 @@ pub struct Advanced {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_console: bool,
 
-	/// Whether to write blobs to the server's cache directory.
+	/// Whether all server processes share a single directory.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_blobs_to_blobs_directory: Option<bool>,
-
-	/// Whether to write process logs to the database instead of files.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_process_logs_to_database: Option<bool>,
+	pub shared_directory: Option<bool>,
 
 	/// Whether to write process logs to the server's stderr.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

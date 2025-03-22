@@ -1,7 +1,7 @@
 use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
-use futures::{TryStreamExt, stream::FuturesOrdered};
+use futures::{TryStreamExt as _, stream::FuturesOrdered};
 use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;

@@ -1,5 +1,6 @@
+use super::CacheReference;
 use bytes::Bytes;
-use foundationdb as fdb;
+use foundationdb::{self as fdb, FdbBindingError};
 use foundationdb_tuple::TuplePack as _;
 use futures::{TryStreamExt as _, future};
 use num::ToPrimitive;
@@ -51,22 +52,60 @@ impl Fdb {
 		Ok(bytes)
 	}
 
+	pub async fn try_get_cache_reference(
+		&self,
+		id: &tangram_client::object::Id,
+	) -> tg::Result<Option<CacheReference>> {
+		let reference = self
+			.database
+			.run(|transaction, _| async move {
+				let key = (0, id.to_bytes(), 2);
+				let Some(bytes) = transaction.get(&key.pack_to_vec(), false).await? else {
+					return Ok(None);
+				};
+				let reference = serde_json::from_slice(&bytes).map_err(|_| {
+					FdbBindingError::new_custom_error("failed to deserialize the reference".into())
+				})?;
+				Ok(Some(reference))
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+		Ok(reference)
+	}
+
 	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
 				let subspace = fdb::tuple::Subspace::all().subspace(&(0, arg.id.to_bytes(), 0));
-				if arg.bytes.is_empty() {
-					transaction.set(&subspace.pack(&0), &[]);
-				} else {
-					let mut start = 0;
-					for chunk in arg.bytes.chunks(VALUE_SIZE_LIMIT) {
-						transaction.set(&subspace.pack(&start), chunk);
-						start += chunk.len();
+				if let Some(bytes) = &arg.bytes {
+					if bytes.is_empty() {
+						transaction.set(&subspace.pack(&0), &[]);
+					} else {
+						let mut start = 0;
+						for chunk in bytes.chunks(VALUE_SIZE_LIMIT) {
+							let key = subspace.pack(&start);
+							transaction.set(&key, chunk);
+							start += chunk.len();
+						}
 					}
 				}
-				let touched_at = arg.touched_at.to_le_bytes();
-				transaction.set(&(0, arg.id.to_bytes(), 1).pack_to_vec(), &touched_at);
+				let key = (0, arg.id.to_bytes(), 1);
+				let value = arg.touched_at.to_le_bytes();
+				transaction.set(&key.pack_to_vec(), &value);
+				Ok(())
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+		Ok(())
+	}
+
+	pub async fn touch(&self, id: &tg::object::Id, touched_at: i64) -> tg::Result<()> {
+		self.database
+			.run(|transaction, _| async move {
+				let key = (0, id.to_bytes(), 1);
+				let value = touched_at.to_le_bytes();
+				transaction.set(&key.pack_to_vec(), &value);
 				Ok(())
 			})
 			.await
@@ -78,19 +117,27 @@ impl Fdb {
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
-				for (id, bytes) in &arg.objects {
+				for (id, bytes, reference) in &arg.objects {
 					let subspace = fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes(), 0));
-					if bytes.is_empty() {
-						transaction.set(&subspace.pack(&0), &[]);
-					} else {
-						let mut start = 0;
-						for chunk in bytes.chunks(VALUE_SIZE_LIMIT) {
-							transaction.set(&subspace.pack(&start), chunk);
-							start += chunk.len();
+					if let Some(bytes) = bytes {
+						if bytes.is_empty() {
+							transaction.set(&subspace.pack(&0), &[]);
+						} else {
+							let mut start = 0;
+							for chunk in bytes.chunks(VALUE_SIZE_LIMIT) {
+								transaction.set(&subspace.pack(&start), chunk);
+								start += chunk.len();
+							}
 						}
 					}
-					let touched_at = arg.touched_at.to_le_bytes();
-					transaction.set(&(0, id.to_bytes(), 1).pack_to_vec(), &touched_at);
+					let key = (0, id.to_bytes(), 1);
+					let value = arg.touched_at.to_le_bytes();
+					transaction.set(&key.pack_to_vec(), &value);
+					if let Some(reference) = reference {
+						let key = (0, id.to_bytes(), 2);
+						let value = serde_json::to_vec(reference).unwrap();
+						transaction.set(&key.pack_to_vec(), &value);
+					}
 				}
 				Ok(())
 			})

@@ -4,7 +4,6 @@ use super::{
 };
 use crate::{Server, blob::create::Blob, temp::Temp};
 use futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered};
-use indoc::indoc;
 use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::{
@@ -15,9 +14,7 @@ use std::{
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
-use tangram_database::prelude::*;
-use tangram_either::Either;
-use time::format_description::well_known::Rfc3339;
+use tangram_messenger::Messenger as _;
 use tokio::task::JoinSet;
 
 #[derive(Debug)]
@@ -143,7 +140,11 @@ impl Server {
 		Ok(Some(output_index))
 	}
 
-	pub async fn copy_blobs(&self, output: &Graph, input: &input::Graph) -> tg::Result<()> {
+	pub async fn checkin_cache_task_old(
+		&self,
+		output: &Graph,
+		input: &input::Graph,
+	) -> tg::Result<()> {
 		let mut stack = vec![0];
 		let mut visited = vec![false; output.nodes.len()];
 		let mut join_set = JoinSet::new();
@@ -157,25 +158,27 @@ impl Server {
 			let Some(input_index) = output.input else {
 				continue;
 			};
-			let Some(blob) = &output.blob else {
+			let Some(_) = &output.blob else {
 				continue;
 			};
 			let input = &input.nodes[input_index];
+			let executable = input.metadata.permissions().mode() & 0o111 != 0;
 			let path = input.arg.path.clone();
-			let blob_path = self.blobs_path().join(blob.id.to_string());
+			let cache_path = self.cache_path().join(output.id.to_string());
 			let temp = Temp::new(self);
 			join_set.spawn(async move {
-				if !tokio::fs::try_exists(&blob_path).await.map_err(|source| {
+				if !tokio::fs::try_exists(&cache_path).await.map_err(|source| {
 					tg::error!(!source, "failed to check if the blob path exists")
 				})? {
 					tokio::fs::copy(path, temp.path())
 						.await
 						.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
-					let permissions = std::fs::Permissions::from_mode(0o644);
+					let mode = if executable { 0o755 } else { 0o644 };
+					let permissions = std::fs::Permissions::from_mode(mode);
 					tokio::fs::set_permissions(temp.path(), permissions)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
-					tokio::fs::rename(temp.path(), blob_path)
+					tokio::fs::rename(temp.path(), cache_path)
 						.await
 						.map_err(|source| {
 							tg::error!(!source, "failed to rename the file to the blobs directory")
@@ -201,7 +204,7 @@ impl Server {
 		let mut batch = Vec::new();
 
 		for (id, (data, _)) in &object.graphs {
-			batch.push((id.clone().into(), data.serialize()?));
+			batch.push((id.clone().into(), Some(data.serialize()?), None));
 		}
 
 		// Get the output in reverse-topological order.
@@ -223,13 +226,24 @@ impl Server {
 				while let Some(blob) = stack.pop() {
 					if let Some(data) = &blob.data {
 						let bytes = data.serialize()?;
-						batch.push((blob.id.clone().into(), bytes));
+						batch.push((blob.id.clone().into(), Some(bytes), None));
+					} else {
+						let reference = crate::store::CacheReference {
+							artifact: output.id.clone(),
+							position: blob.position,
+							length: blob.length,
+						};
+						batch.push((blob.id.clone().into(), None, Some(reference)));
 					}
 					stack.extend(&blob.children);
 				}
 			}
 
-			batch.push((output.id.clone().into(), output.data.serialize()?));
+			batch.push((
+				output.id.clone().into(),
+				Some(output.data.serialize()?),
+				None,
+			));
 
 			stack.extend(output.edges.iter().map(|edge| edge.node));
 		}
@@ -246,82 +260,128 @@ impl Server {
 		Ok(())
 	}
 
-	pub async fn write_output_to_database(
+	pub async fn write_output_to_messenger(
 		&self,
 		output: Arc<Graph>,
 		object: Arc<object::Graph>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		// Get a database connection.
-		let mut connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let mut batch = Vec::new();
 
-		// Begin a transaction.
-		let mut transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create a transaction"))?;
+		for (id, (data, _)) in &object.graphs {
+			batch.push((id.clone().into(), Some(data.serialize()?), None));
 
-		match &mut transaction {
-			Either::Left(transaction) => {
-				transaction
-					.with(move |transaction| {
-						for (id, (data, metadata)) in &object.graphs {
-							write_object_sqlite(
-								transaction,
-								&id.clone().into(),
-								&data.clone().into(),
-								metadata,
-							)?;
-						}
-
-						// Get the output in reverse-topological order.
-						let mut stack = vec![0];
-						let mut visited = vec![false; output.nodes.len()];
-						while let Some(output_index) = stack.pop() {
-							// Check if we've visited this node yet.
-							if visited[output_index] {
-								continue;
-							}
-							visited[output_index] = true;
-
-							// Get the output data.
-							let output = &output.nodes[output_index];
-
-							// Write the blob if the object has one.
-							if let Some(blob) = &output.blob {
-								Self::blob_create_sqlite(blob, transaction)?;
-								Self::insert_blob_objects_sqlite(blob, transaction, touched_at)?;
-							}
-
-							// Write the object.
-							write_object_sqlite(
-								transaction,
-								&output.id.clone().into(),
-								&output.data.clone().into(),
-								&output.metadata,
-							)?;
-
-							stack.extend(output.edges.iter().map(|edge| edge.node));
-						}
-
-						Ok::<_, tg::Error>(())
-					})
-					.await?;
-			},
-			Either::Right(_) => {
-				return Err(tg::error!("unimplemented"));
-			},
+			// Send the index object message.
+			let bytes = data.serialize()?;
+			let size = bytes.len().to_u64().unwrap();
+			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+				children: data.children(),
+				id: id.clone().into(),
+				size,
+				touched_at,
+				cache_reference: None,
+			});
+			let message = serde_json::to_vec(&message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			self.messenger
+				.publish("index".to_owned(), message.into())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 		}
 
-		// Commit the transaction.
-		transaction
-			.commit()
+		// Get the output in reverse-topological order.
+		let mut stack = vec![0];
+		let mut visited = vec![false; output.nodes.len()];
+		while let Some(output_index) = stack.pop() {
+			// Check if we've visited this node yet.
+			if visited[output_index] {
+				continue;
+			}
+			visited[output_index] = true;
+
+			// Get the output data.
+			let output = &output.nodes[output_index];
+
+			// Add the blob if the node has one.
+			if let Some(blob) = &output.blob {
+				let mut stack = vec![blob.as_ref()];
+				while let Some(blob) = stack.pop() {
+					// Send the index message.
+					let children = blob
+						.data
+						.as_ref()
+						.map(tg::blob::Data::children)
+						.unwrap_or_default();
+					let id = blob.id.clone().into();
+					let size = blob.size;
+					let message =
+						crate::index::Message::PutObject(crate::index::PutObjectMessage {
+							cache_reference: Some(output.id.clone()),
+							children,
+							id,
+							size,
+							touched_at,
+						});
+					let message = serde_json::to_vec(&message)
+						.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+					self.messenger
+						.publish("index".to_owned(), message.into())
+						.await
+						.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+					stack.extend(&blob.children);
+				}
+			}
+
+			// Send the index object message.
+			let bytes = output.data.serialize()?;
+			let size = bytes.len().to_u64().unwrap();
+			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+				children: output.data.children(),
+				id: output.id.clone().into(),
+				size,
+				touched_at,
+				cache_reference: None,
+			});
+			let message = serde_json::to_vec(&message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			self.messenger
+				.publish("index".to_owned(), message.into())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+
+			// Send a message for the cache entry.
+			if output.blob.is_some() {
+				let id = output.id.clone();
+				let message =
+					crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
+						id,
+						touched_at,
+					});
+				let message = serde_json::to_vec(&message)
+					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+				self.messenger
+					.publish("index".to_owned(), message.into())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			}
+
+			batch.push((
+				output.id.clone().into(),
+				Some(output.data.serialize()?),
+				None,
+			));
+
+			stack.extend(output.edges.iter().map(|edge| edge.node));
+		}
+
+		let arg = crate::store::PutBatchArg {
+			objects: batch,
+			touched_at,
+		};
+		self.store
+			.put_batch(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
 
 		Ok(())
 	}
@@ -784,56 +844,5 @@ fn set_file_times_to_epoch_inner(
 		)
 	})?;
 
-	Ok(())
-}
-
-fn write_object_sqlite(
-	transaction: &mut rusqlite::Transaction<'_>,
-	id: &tg::object::Id,
-	data: &tg::object::Data,
-	metadata: &Metadata,
-) -> tg::Result<()> {
-	let statement = indoc!(
-		"
-			insert into objects (id, complete, count, depth, incomplete_children, size, touched_at, weight)
-			values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-			on conflict (id) do update set touched_at = ?7;
-		"
-	);
-	let mut statement = transaction
-		.prepare_cached(statement)
-		.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
-	let bytes = data.serialize()?;
-	let size = bytes.len().to_u64().unwrap();
-	let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-	let params = rusqlite::params![
-		id.to_string(),
-		metadata.complete,
-		metadata.count,
-		metadata.depth,
-		0,
-		size,
-		now,
-		metadata.weight,
-	];
-	statement
-		.execute(params)
-		.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-	let statement = indoc!(
-		"
-			insert into object_children (object, child)
-			values (?1, ?2)
-			on conflict (object, child) do nothing;
-		"
-	);
-	let mut statement = transaction
-		.prepare_cached(statement)
-		.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
-	for child in data.children() {
-		let params = rusqlite::params![id.to_string(), child.to_string()];
-		statement
-			.execute(params)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-	}
 	Ok(())
 }

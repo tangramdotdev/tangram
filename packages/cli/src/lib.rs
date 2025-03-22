@@ -3,7 +3,7 @@ use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
-use tangram_client::{self as tg, Client, handle::Ext};
+use tangram_client::{self as tg, Client, handle::Ext as _};
 use tangram_either::Either;
 use tangram_server::Server;
 use tokio::io::AsyncWriteExt as _;
@@ -493,6 +493,11 @@ impl Cli {
 				connections: parallelism,
 				path: path.join("database"),
 			});
+		let index =
+			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
+				connections: parallelism,
+				path: path.join("index"),
+			});
 		let http = Some(tangram_server::config::Http::default());
 		let indexer = Some(tangram_server::config::Indexer::default());
 		let messenger = tangram_server::config::Messenger::default();
@@ -518,6 +523,7 @@ impl Cli {
 			cleaner,
 			database,
 			http,
+			index,
 			indexer,
 			messenger,
 			path,
@@ -544,11 +550,8 @@ impl Cli {
 			if let Some(preserve_temp_directories) = advanced.preserve_temp_directories {
 				config.advanced.preserve_temp_directories = preserve_temp_directories;
 			}
-			if let Some(write_blobs_to_blobs_directory) = advanced.write_blobs_to_blobs_directory {
-				config.advanced.write_blobs_to_blobs_directory = write_blobs_to_blobs_directory;
-			}
-			if let Some(write_process_logs_to_database) = advanced.write_process_logs_to_database {
-				config.advanced.write_process_logs_to_database = write_process_logs_to_database;
+			if let Some(shared_directory) = advanced.shared_directory {
+				config.advanced.shared_directory = shared_directory;
 			}
 			if let Some(write_process_logs_to_stderr) = advanced.write_process_logs_to_stderr {
 				config.advanced.write_process_logs_to_stderr = write_process_logs_to_stderr;

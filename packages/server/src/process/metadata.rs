@@ -26,7 +26,7 @@ impl Server {
 	) -> tg::Result<Option<tg::process::metadata::Output>> {
 		// Get a database connection.
 		let connection = self
-			.database
+			.index
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -41,9 +41,6 @@ impl Server {
 					commands_weight,
 					complete,
 					count,
-					logs_count,
-					logs_depth,
-					logs_weight,
 					outputs_count,
 					outputs_depth,
 					outputs_weight

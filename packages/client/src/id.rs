@@ -89,6 +89,10 @@ impl Id {
 					.write_u8(0)
 					.map_err(|source| tg::error!(!source, "failed to write the version"))?;
 
+				writer
+					.write_u8(0)
+					.map_err(|source| tg::error!(!source, "failed to write the padding"))?;
+
 				let kind = match v0.kind {
 					Kind::Leaf => 0,
 					Kind::Branch => 1,
@@ -103,7 +107,6 @@ impl Id {
 					Kind::Token => 10,
 					Kind::Request => 11,
 				};
-
 				writer
 					.write_u8(kind)
 					.map_err(|source| tg::error!(!source, "failed to write the kind"))?;
@@ -112,7 +115,6 @@ impl Id {
 					Body::UuidV7(_) => 0,
 					Body::Blake3(_) => 1,
 				};
-
 				writer
 					.write_u8(algorithm)
 					.map_err(|source| tg::error!(!source, "failed to write the algorithm"))?;
@@ -121,7 +123,6 @@ impl Id {
 					Body::UuidV7(body) => body.as_slice(),
 					Body::Blake3(body) => body.as_slice(),
 				};
-
 				writer
 					.write_all(body)
 					.map_err(|source| tg::error!(!source, "failed to write the body"))?;
@@ -140,10 +141,13 @@ impl Id {
 			return Err(tg::error!(%version, "invalid version"));
 		}
 
+		let _padding = reader
+			.read_u8()
+			.map_err(|source| tg::error!(!source, "failed to read the padding"))?;
+
 		let kind = reader
 			.read_u8()
 			.map_err(|source| tg::error!(!source, "failed to read the kind"))?;
-
 		let kind = match kind {
 			0 => Kind::Leaf,
 			1 => Kind::Branch,

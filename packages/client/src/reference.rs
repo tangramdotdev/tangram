@@ -2,7 +2,7 @@ use crate::{self as tg, handle::Ext as _};
 use itertools::Itertools as _;
 use std::{
 	collections::BTreeMap,
-	os::unix::ffi::OsStrExt,
+	os::unix::ffi::OsStrExt as _,
 	path::{Path, PathBuf},
 	pin::pin,
 };

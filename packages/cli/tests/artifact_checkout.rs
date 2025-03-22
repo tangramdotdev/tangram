@@ -19,17 +19,16 @@ async fn directory() {
 	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "hello.txt": {
-        "kind": "file",
-        "contents": "Hello, World!",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "hello.txt": {
+		      "kind": "file",
+		      "contents": "Hello, World!"
+		    }
+		  }
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -46,12 +45,11 @@ async fn file() {
 	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "file",
-    "contents": "Hello, World!",
-    "executable": false
-  }
-  "#);
+		{
+		  "kind": "file",
+		  "contents": "Hello, World!"
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -71,12 +69,12 @@ async fn executable_file() {
 	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "file",
-    "contents": "Hello, World!",
-    "executable": true
-  }
-  "#);
+		{
+		  "kind": "file",
+		  "contents": "Hello, World!",
+		  "executable": true
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -100,15 +98,14 @@ async fn file_with_dependency() {
 	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "file",
-    "contents": "foo",
-    "executable": false,
-    "xattrs": {
-      "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":\"fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80\"}},\"id\":\"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"}]}"
-    }
-  }
-  "#);
+		{
+		  "kind": "file",
+		  "contents": "foo",
+		  "xattrs": {
+		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":\"fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80\"}},\"id\":\"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"}]}"
+		  }
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -128,21 +125,20 @@ async fn symlink() {
 	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "hello.txt": {
-        "kind": "file",
-        "contents": "Hello, World!",
-        "executable": false
-      },
-      "link": {
-        "kind": "symlink",
-        "target": "hello.txt"
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "hello.txt": {
+		      "kind": "file",
+		      "contents": "Hello, World!"
+		    },
+		    "link": {
+		      "kind": "symlink",
+		      "target": "hello.txt"
+		    }
+		  }
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -164,25 +160,24 @@ async fn symlink_shared_target() {
 	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "hello.txt": {
-        "kind": "file",
-        "contents": "Hello, World!",
-        "executable": false
-      },
-      "link1": {
-        "kind": "symlink",
-        "target": "hello.txt"
-      },
-      "link2": {
-        "kind": "symlink",
-        "target": "hello.txt"
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "hello.txt": {
+		      "kind": "file",
+		      "contents": "Hello, World!"
+		    },
+		    "link1": {
+		      "kind": "symlink",
+		      "target": "hello.txt"
+		    },
+		    "link2": {
+		      "kind": "symlink",
+		      "target": "hello.txt"
+		    }
+		  }
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -230,37 +225,34 @@ async fn directory_with_file_with_dependency() {
 	let dependencies = true;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      ".tangram": {
-        "kind": "directory",
-        "entries": {
-          "artifacts": {
-            "kind": "directory",
-            "entries": {
-              "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
-                "kind": "file",
-                "contents": "bar",
-                "executable": false
-              }
-            }
-          }
-        }
-      },
-      "foo": {
-        "kind": "file",
-        "contents": "foo",
-        "executable": false
-      },
-      "tangram.lock": {
-        "kind": "file",
-        "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      },\n      \"id\": \"dir_019at517ytj7gfg92358f53w7c2ht4gewvtg45fegwr6teffnnvxa0\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": \"fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80\"\n        }\n      },\n      \"id\": \"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"\n    }\n  ]\n}",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    ".tangram": {
+		      "kind": "directory",
+		      "entries": {
+		        "artifacts": {
+		          "kind": "directory",
+		          "entries": {
+		            "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+		              "kind": "file",
+		              "contents": "bar"
+		            }
+		          }
+		        }
+		      }
+		    },
+		    "foo": {
+		      "kind": "file",
+		      "contents": "foo"
+		    },
+		    "tangram.lock": {
+		      "kind": "file",
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      },\n      \"id\": \"dir_019at517ytj7gfg92358f53w7c2ht4gewvtg45fegwr6teffnnvxa0\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": \"fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80\"\n        }\n      },\n      \"id\": \"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"\n    }\n  ]\n}"
+		    }
+		  }
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -280,31 +272,30 @@ async fn directory_with_symlink_with_dependency() {
 	let dependencies = true;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      ".tangram": {
-        "kind": "directory",
-        "entries": {
-          "artifacts": {
-            "kind": "directory",
-            "entries": {
-              "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
-                "kind": "file",
-                "contents": "bar",
-                "executable": false
-              }
-            }
-          }
-        }
-      },
-      "foo": {
-        "kind": "symlink",
-        "target": ".tangram/artifacts/fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    ".tangram": {
+		      "kind": "directory",
+		      "entries": {
+		        "artifacts": {
+		          "kind": "directory",
+		          "entries": {
+		            "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+		              "kind": "file",
+		              "contents": "bar"
+		            }
+		          }
+		        }
+		      }
+		    },
+		    "foo": {
+		      "kind": "symlink",
+		      "target": ".tangram/artifacts/fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
+		    }
+		  }
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -330,17 +321,16 @@ async fn graph_directory() {
 	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "hello.txt": {
-        "kind": "file",
-        "contents": "Hello, World!",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "hello.txt": {
+		      "kind": "file",
+		      "contents": "Hello, World!"
+		    }
+		  }
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -365,12 +355,11 @@ async fn graph_file() {
 	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "file",
-    "contents": "Hello, World!",
-    "executable": false
-  }
-  "#);
+		{
+		  "kind": "file",
+		  "contents": "Hello, World!"
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }
@@ -437,8 +426,7 @@ async fn directory_with_symlink_cycle() {
 		    },
 		    "tangram.lock": {
 		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      },\n      \"id\": \"dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"id\": \"sym_01gs8v0w26ks7573pm013qytg2p82fvhyzcwg6hnncjb1gx0077060\",\n      \"artifact\": 0,\n      \"subpath\": \"link\"\n    }\n  ]\n}",
-		      "executable": false
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      },\n      \"id\": \"dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"id\": \"sym_01gs8v0w26ks7573pm013qytg2p82fvhyzcwg6hnncjb1gx0077060\",\n      \"artifact\": 0,\n      \"subpath\": \"link\"\n    }\n  ]\n}"
 		    }
 		  }
 		}
@@ -467,51 +455,47 @@ async fn shared_dependency_on_symlink() {
 	let dependencies = true;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      ".tangram": {
-        "kind": "directory",
-        "entries": {
-          "artifacts": {
-            "kind": "directory",
-            "entries": {
-              "dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg": {
-                "kind": "directory",
-                "entries": {
-                  "file.txt": {
-                    "kind": "file",
-                    "contents": "contents",
-                    "executable": false
-                  },
-                  "link": {
-                    "kind": "symlink",
-                    "target": "file.txt"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "bar.txt": {
-        "kind": "file",
-        "contents": "bar",
-        "executable": false
-      },
-      "foo.txt": {
-        "kind": "file",
-        "contents": "foo",
-        "executable": false
-      },
-      "tangram.lock": {
-        "kind": "file",
-        "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"bar.txt\": 1,\n        \"foo.txt\": 2\n      },\n      \"id\": \"dir_01t4mg404e196gzdgbr212nt0f6c3t18h5nb1t24682xrh9wtev5rg\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg\"\n        }\n      },\n      \"id\": \"fil_019bx1epya1wzdnb94n3aj2enhhm5cf1j891gv0m6te01j7bfbdn9g\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg\"\n        }\n      },\n      \"id\": \"fil_01pd3m89913g0wkfdre0xhmj2mrth7tdfjtyr813d2v2dxvg9e2q9g\"\n    }\n  ]\n}",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    ".tangram": {
+		      "kind": "directory",
+		      "entries": {
+		        "artifacts": {
+		          "kind": "directory",
+		          "entries": {
+		            "dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg": {
+		              "kind": "directory",
+		              "entries": {
+		                "file.txt": {
+		                  "kind": "file",
+		                  "contents": "contents"
+		                },
+		                "link": {
+		                  "kind": "symlink",
+		                  "target": "file.txt"
+		                }
+		              }
+		            }
+		          }
+		        }
+		      }
+		    },
+		    "bar.txt": {
+		      "kind": "file",
+		      "contents": "bar"
+		    },
+		    "foo.txt": {
+		      "kind": "file",
+		      "contents": "foo"
+		    },
+		    "tangram.lock": {
+		      "kind": "file",
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"bar.txt\": 1,\n        \"foo.txt\": 2\n      },\n      \"id\": \"dir_01t4mg404e196gzdgbr212nt0f6c3t18h5nb1t24682xrh9wtev5rg\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg\"\n        }\n      },\n      \"id\": \"fil_019bx1epya1wzdnb94n3aj2enhhm5cf1j891gv0m6te01j7bfbdn9g\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg\"\n        }\n      },\n      \"id\": \"fil_01pd3m89913g0wkfdre0xhmj2mrth7tdfjtyr813d2v2dxvg9e2q9g\"\n    }\n  ]\n}"
+		    }
+		  }
+		}
+		"#);
 	};
 	test_artifact_checkout(directory, dependencies, assertions).await;
 }

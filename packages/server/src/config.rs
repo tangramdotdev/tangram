@@ -8,6 +8,7 @@ pub struct Config {
 	pub cleaner: Option<Cleaner>,
 	pub database: Database,
 	pub http: Option<Http>,
+	pub index: Database,
 	pub indexer: Option<Indexer>,
 	pub messenger: Messenger,
 	pub path: PathBuf,
@@ -24,8 +25,7 @@ pub struct Advanced {
 	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
 	pub process_dequeue_timeout: Duration,
-	pub write_blobs_to_blobs_directory: bool,
-	pub write_process_logs_to_database: bool,
+	pub shared_directory: bool,
 	pub write_process_logs_to_stderr: bool,
 }
 
@@ -165,6 +165,10 @@ impl Config {
 			connections: 1,
 			path: path.join("database"),
 		});
+		let index = Database::Sqlite(SqliteDatabase {
+			connections: 1,
+			path: path.join("index"),
+		});
 		let indexer = Some(Indexer::default());
 		let messenger = Messenger::default();
 		let remotes = None;
@@ -182,6 +186,7 @@ impl Config {
 			cleaner,
 			database,
 			http,
+			index,
 			indexer,
 			messenger,
 			path,
@@ -201,8 +206,7 @@ impl Default for Advanced {
 			process_dequeue_timeout: Duration::from_secs(3600),
 			file_descriptor_semaphore_size: 100,
 			preserve_temp_directories: false,
-			write_blobs_to_blobs_directory: true,
-			write_process_logs_to_database: false,
+			shared_directory: true,
 			write_process_logs_to_stderr: false,
 		}
 	}

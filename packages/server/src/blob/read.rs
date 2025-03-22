@@ -1,7 +1,6 @@
 use crate::Server;
 use bytes::{Buf as _, Bytes};
-use futures::{FutureExt as _, Stream, StreamExt, future::BoxFuture};
-use indoc::formatdoc;
+use futures::{FutureExt as _, Stream, StreamExt as _, future::BoxFuture};
 use num::ToPrimitive;
 use std::{
 	io::Cursor,
@@ -11,8 +10,7 @@ use std::{
 };
 use sync_wrapper::SyncWrapper;
 use tangram_client::{self as tg, handle::Ext as _};
-use tangram_database::{self as db, prelude::*};
-use tangram_futures::{stream::Ext, task::Stop};
+use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _,
@@ -152,36 +150,15 @@ impl Server {
 impl Reader {
 	pub async fn new(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id(server).await?;
-		let connection = server
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
-		#[derive(Debug, serde::Deserialize)]
-		struct Row {
-			blob: tg::blob::Id,
-			position: u64,
-			length: u64,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select blob, position, length
-				from blob_references
-				where id = {p}1;
-			",
-		);
-		let params = db::params![&id];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?;
-		let reader = if let Some(row) = row {
-			let blob_path = server.blobs_path().join(row.blob.to_string());
-			let file = tokio::fs::File::open(blob_path)
+		let cache_reference = server.store.try_get_cache_reference(&id.into()).await?;
+		let reader = if let Some(cache_reference) = cache_reference {
+			let path = server
+				.cache_path()
+				.join(cache_reference.artifact.to_string());
+			let file = tokio::fs::File::open(path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to open the file"))?;
-			let reader = File::new(file, row.position, row.length).await?;
+			let reader = File::new(file, cache_reference.position, cache_reference.length).await?;
 			Self::File(reader)
 		} else {
 			let reader = Object::new(server, blob).await?;

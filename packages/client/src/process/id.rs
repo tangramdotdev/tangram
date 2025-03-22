@@ -21,6 +21,20 @@ impl Id {
 	pub fn new() -> Self {
 		Self(crate::Id::new_uuidv7(tg::id::Kind::Process))
 	}
+
+	#[must_use]
+	pub fn to_bytes(&self) -> Vec<u8> {
+		self.as_id().to_bytes()
+	}
+
+	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {
+		tg::Id::from_reader(bytes)?.try_into()
+	}
+
+	#[must_use]
+	fn as_id(&self) -> &tg::Id {
+		&self.0
+	}
 }
 
 impl From<Id> for crate::Id {

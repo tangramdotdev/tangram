@@ -227,6 +227,14 @@ impl tg::Handle for Proxy {
 		self.server.try_get_object(id)
 	}
 
+	fn touch_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.server.touch_object(id, arg)
+	}
+
 	fn put_object(
 		&self,
 		id: &tg::object::Id,

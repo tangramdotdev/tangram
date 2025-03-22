@@ -102,7 +102,7 @@ impl Runtime {
 				}),
 		);
 
-		// Create a temp file to download to.
+		// Download to a temp file.
 		let temp = Temp::new(server);
 		let mut file = tokio::fs::File::create(temp.path())
 			.await
@@ -112,12 +112,22 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
 		drop(file);
 
-		// Create the blob.
-		let output = server
-			.create_blob_with_path(temp.path())
+		// Check in the temp file.
+		let arg = tg::artifact::checkin::Arg {
+			cache: false,
+			destructive: true,
+			deterministic: true,
+			ignore: false,
+			locked: false,
+			lockfile: false,
+			path: temp.path().to_owned(),
+		};
+		let blob = tg::Artifact::check_in(server, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
-		let blob = tg::Blob::with_id(output.blob);
+			.map_err(|source| tg::error!(!source, "failed to check in the downloaded file"))?
+			.unwrap_file()
+			.contents(server)
+			.await?;
 
 		// Abort and await the log task.
 		log_task.abort();

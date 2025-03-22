@@ -3,11 +3,11 @@ use itertools::Itertools;
 use std::{
 	collections::BTreeMap,
 	ffi::CString,
-	os::{fd::AsRawFd as _, unix::ffi::OsStrExt},
+	os::{fd::AsRawFd as _, unix::ffi::OsStrExt as _},
 	path::PathBuf,
 };
 use tangram_client as tg;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// A child process that may or may not be spawned within a chroot jail.
 pub struct Child {

@@ -23,13 +23,14 @@ pub enum Store {
 }
 
 pub struct PutArg {
+	pub bytes: Option<Bytes>,
+	pub cache_reference: Option<CacheReference>,
 	pub id: tg::object::Id,
-	pub bytes: Bytes,
 	pub touched_at: i64,
 }
 
 pub struct PutBatchArg {
-	pub objects: Vec<(tg::object::Id, Bytes)>,
+	pub objects: Vec<(tg::object::Id, Option<Bytes>, Option<CacheReference>)>,
 	pub touched_at: i64,
 }
 
@@ -43,6 +44,13 @@ pub struct DeleteBatchArg {
 	pub ids: Vec<tg::object::Id>,
 	pub now: i64,
 	pub ttl: u64,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CacheReference {
+	pub artifact: tg::artifact::Id,
+	pub position: u64,
+	pub length: u64,
 }
 
 impl Store {
@@ -67,25 +75,38 @@ impl Store {
 
 	pub async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		match self {
-			Self::Memory(memory) => Ok(memory.try_get(id)),
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.try_get(id).await,
 			Self::Lmdb(lmdb) => lmdb.try_get(id).await,
+			Self::Memory(memory) => Ok(memory.try_get(id)),
 			Self::S3(s3) => s3.try_get(id).await,
+		}
+	}
+
+	pub async fn try_get_cache_reference(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<CacheReference>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_get_cache_reference(id).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_cache_reference(id).await,
+			Self::Memory(memory) => Ok(memory.try_get_cache_reference(id)),
+			Self::S3(s3) => s3.try_get_cache_reference(id).await,
 		}
 	}
 
 	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		match self {
-			Self::Memory(memory) => {
-				memory.put(arg);
-			},
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => {
 				fdb.put(arg).await?;
 			},
 			Self::Lmdb(lmdb) => {
 				lmdb.put(arg).await?;
+			},
+			Self::Memory(memory) => {
+				memory.put(arg);
 			},
 			Self::S3(s3) => {
 				s3.put(arg).await?;
@@ -96,15 +117,15 @@ impl Store {
 
 	pub async fn put_batch(&self, arg: PutBatchArg) -> tg::Result<()> {
 		match self {
-			Self::Memory(memory) => {
-				memory.put_batch(arg);
-			},
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => {
 				fdb.put_batch(arg).await?;
 			},
 			Self::Lmdb(lmdb) => {
 				lmdb.put_batch(arg).await?;
+			},
+			Self::Memory(memory) => {
+				memory.put_batch(arg);
 			},
 			Self::S3(s3) => {
 				s3.put_batch(arg).await?;
@@ -115,9 +136,6 @@ impl Store {
 
 	pub async fn delete_batch(&self, arg: DeleteBatchArg) -> tg::Result<()> {
 		match self {
-			Self::Memory(memory) => {
-				memory.delete_batch(arg);
-			},
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => {
 				fdb.delete_batch(arg).await?;
@@ -125,8 +143,30 @@ impl Store {
 			Self::Lmdb(lmdb) => {
 				lmdb.delete_batch(arg).await?;
 			},
+			Self::Memory(memory) => {
+				memory.delete_batch(arg);
+			},
 			Self::S3(s3) => {
 				s3.delete_batch(arg).await?;
+			},
+		}
+		Ok(())
+	}
+
+	pub async fn touch(&self, id: &tg::object::Id, touched_at: i64) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => {
+				fdb.touch(id, touched_at).await?;
+			},
+			Self::Lmdb(lmdb) => {
+				lmdb.touch(id, touched_at).await?;
+			},
+			Self::Memory(memory) => {
+				memory.touch(id, touched_at);
+			},
+			Self::S3(s3) => {
+				s3.touch(id, touched_at).await?;
 			},
 		}
 		Ok(())

@@ -2,6 +2,7 @@ use crate::Server;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -24,6 +25,8 @@ impl Server {
 			return Err(tg::error!("failed to find the process"));
 		}
 
+		let touched_at = time::OffsetDateTime::now_utc();
+
 		// Get a database connection.
 		let connection = self
 			.database
@@ -40,8 +43,7 @@ impl Server {
 				where id = {p}2;
 			"
 		);
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![now, id];
+		let params = db::params![touched_at.format(&Rfc3339).unwrap(), id];
 		connection
 			.execute(statement.into(), params)
 			.await
@@ -49,6 +51,18 @@ impl Server {
 
 		// Drop the database connection.
 		drop(connection);
+
+		// Send a touch process message.
+		let message = crate::index::Message::TouchProcess(crate::index::TouchProcessMessage {
+			id: id.clone(),
+			touched_at: touched_at.unix_timestamp(),
+		});
+		let message = serde_json::to_vec(&message)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		self.messenger
+			.publish("index".to_owned(), message.into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
 		Ok(())
 	}

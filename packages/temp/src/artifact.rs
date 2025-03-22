@@ -2,7 +2,7 @@ use futures::{StreamExt as _, TryStreamExt as _, stream};
 use std::{
 	borrow::Cow,
 	collections::BTreeMap,
-	os::unix::{ffi::OsStrExt, fs::PermissionsExt as _},
+	os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
 	path::Path,
 };
 use tangram_client as tg;
@@ -35,7 +35,10 @@ pub struct Directory {
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, serde::Deserialize, serde::Serialize)]
 pub struct File {
 	pub contents: Cow<'static, str>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub executable: bool,
+
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub xattrs: BTreeMap<Cow<'static, str>, Cow<'static, str>>,
 }
@@ -369,6 +372,12 @@ impl From<String> for Artifact {
 			xattrs: BTreeMap::new(),
 		})
 	}
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+#[must_use]
+pub fn is_false(value: &bool) -> bool {
+	!*value
 }
 
 #[macro_export]

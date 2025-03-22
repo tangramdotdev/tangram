@@ -62,19 +62,21 @@ impl Server {
 		// Drop the database connection.
 		drop(connection);
 
-		// If the process was started, then publish the message.
-		tokio::spawn({
-			let server = self.clone();
-			let id = id.clone();
-			async move {
-				server
-					.messenger
-					.publish(format!("processes.{id}.status"), Bytes::new())
-					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
-					.ok();
-			}
-		});
+		// If the process was started, then publish the status message.
+		if started {
+			tokio::spawn({
+				let server = self.clone();
+				let id = id.clone();
+				async move {
+					server
+						.messenger
+						.publish(format!("processes.{id}.status"), Bytes::new())
+						.await
+						.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+						.ok();
+				}
+			});
+		}
 
 		Ok(tg::process::start::Output { started })
 	}

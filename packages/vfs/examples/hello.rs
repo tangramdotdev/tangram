@@ -7,7 +7,7 @@ use std::{
 	sync::atomic::{AtomicU64, Ordering},
 };
 use tangram_vfs::{Attrs, FileType};
-use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{Layer, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 #[derive(Clone, Debug, clap::Parser)]
 struct Args {

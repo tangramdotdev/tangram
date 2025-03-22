@@ -283,13 +283,13 @@ impl Item {
 	pub async fn to_writer(&self, mut writer: impl AsyncWrite + Unpin + Send) -> tg::Result<()> {
 		match self {
 			Item::Process(ProcessItem { id, data }) => {
-				let id = id.to_string();
+				let id = id.to_bytes();
 				writer
 					.write_uvarint(id.len().to_u64().unwrap())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id length"))?;
 				writer
-					.write_all(id.as_bytes())
+					.write_all(id.as_slice())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id"))?;
 				let data = serde_json::to_vec(data)
@@ -305,13 +305,13 @@ impl Item {
 			},
 
 			Item::Object(ObjectItem { id, bytes }) => {
-				let id = id.to_string();
+				let id = id.to_bytes();
 				writer
 					.write_uvarint(id.len().to_u64().unwrap())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id length"))?;
 				writer
-					.write_all(id.as_bytes())
+					.write_all(id.as_slice())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id"))?;
 				writer
@@ -344,10 +344,21 @@ impl Item {
 			.read_exact(&mut id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the id"))?;
-		let id = String::from_utf8(id)
-			.map_err(|_| tg::error!("expected a string"))?
-			.parse()
-			.map_err(Either::into_inner)?;
+		let id = tg::Id::from_slice(&id)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the id"))?;
+		let id = match id.kind() {
+			tg::id::Kind::Leaf
+			| tg::id::Kind::Branch
+			| tg::id::Kind::Directory
+			| tg::id::Kind::File
+			| tg::id::Kind::Symlink
+			| tg::id::Kind::Graph
+			| tg::id::Kind::Command => Either::Left(id.try_into().unwrap()),
+			tg::id::Kind::Process => Either::Right(id.try_into().unwrap()),
+			_ => {
+				return Err(tg::error!("invalid id"));
+			},
+		};
 
 		let item = match id {
 			Either::Left(id) => {

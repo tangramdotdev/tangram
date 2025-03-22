@@ -2,7 +2,7 @@ use self::and_then_frame::AndThenFrame;
 use crate::Error;
 use bytes::Bytes;
 use futures::{Stream, TryStreamExt as _, future};
-use http_body_util::{BodyExt, BodyStream, StreamBody};
+use http_body_util::{BodyExt as _, BodyStream, StreamBody};
 use std::{
 	pin::{Pin, pin},
 	sync::Arc,

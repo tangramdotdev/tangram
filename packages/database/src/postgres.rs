@@ -121,11 +121,11 @@ impl Connection {
 		&self.cache
 	}
 
-	pub fn client(&self) -> &postgres::Client {
+	pub fn inner(&self) -> &postgres::Client {
 		&self.client
 	}
 
-	pub fn client_mut(&mut self) -> &mut postgres::Client {
+	pub fn inner_mut(&mut self) -> &mut postgres::Client {
 		&mut self.client
 	}
 }
@@ -137,7 +137,7 @@ impl<'a> Transaction<'a> {
 	}
 
 	#[must_use]
-	pub fn transaction(&self) -> &postgres::Transaction<'a> {
+	pub fn inner(&self) -> &postgres::Transaction<'a> {
 		&self.transaction
 	}
 }

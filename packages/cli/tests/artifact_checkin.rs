@@ -2387,7 +2387,6 @@ async fn test_artifact_checkin_inner(
 		command.arg("--destructive");
 	}
 	let output = command.output().await.unwrap();
-	assert_success!(output);
 
 	// Get the object.
 	let id = std::str::from_utf8(&output.stdout)

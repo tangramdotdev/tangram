@@ -1,3 +1,4 @@
+use super::CacheReference;
 use bytes::Bytes;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use num::ToPrimitive;
@@ -73,6 +74,13 @@ impl S3 {
 		Ok(Some(bytes))
 	}
 
+	pub async fn try_get_cache_reference(
+		&self,
+		_: &tg::object::Id,
+	) -> tg::Result<Option<CacheReference>> {
+		Ok(None)
+	}
+
 	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let _permit = self.semaphore.acquire().await;
 		let method = reqwest::Method::PUT;
@@ -88,8 +96,11 @@ impl S3 {
 		let request = self
 			.reqwest
 			.request(method, url.as_str())
-			.header(http::header::CONTENT_LENGTH, arg.bytes.len().to_string())
-			.body(arg.bytes)
+			.header(
+				http::header::CONTENT_LENGTH,
+				arg.bytes.as_ref().unwrap().len().to_string(),
+			)
+			.body(arg.bytes.unwrap())
 			.build()
 			.unwrap();
 		let request = self.sign_request(request)?;
@@ -108,14 +119,19 @@ impl S3 {
 		Ok(())
 	}
 
+	pub async fn touch(&self, _id: &tg::object::Id, _touched_at: i64) -> tg::Result<()> {
+		Err(tg::error!("unimplemented"))
+	}
+
 	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
 		arg.objects
-			.iter()
-			.map(|(id, bytes)| {
+			.into_iter()
+			.map(|(id, bytes, reference)| {
 				self.put(super::PutArg {
-					id: id.clone(),
-					bytes: bytes.clone(),
+					id,
+					bytes,
 					touched_at: arg.touched_at,
+					cache_reference: reference,
 				})
 			})
 			.collect::<FuturesUnordered<_>>()

@@ -224,12 +224,10 @@ impl Server {
 		let id = tg::process::Id::new();
 
 		// Create the log file.
-		if !self.config.advanced.write_process_logs_to_database {
-			let path = self.logs_path().join(id.to_string());
-			tokio::fs::File::create(path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
-		}
+		let path = self.logs_path().join(id.to_string());
+		tokio::fs::File::create(path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
 
 		// Determine if the process is sandboxed.
 		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
@@ -297,26 +295,32 @@ impl Server {
 					touched_at = {p}13;
 			"
 		);
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let now = time::OffsetDateTime::now_utc();
 		let params = db::params![
 			id,
 			cacheable,
 			arg.checksum,
 			arg.command,
-			now,
+			now.format(&Rfc3339).unwrap(),
 			arg.cwd,
-			now,
+			now.format(&Rfc3339).unwrap(),
 			arg.env.as_ref().map(db::value::Json),
 			host,
 			arg.network,
 			arg.retry,
 			tg::process::Status::Enqueued,
-			now,
+			now.format(&Rfc3339).unwrap(),
 		];
 		connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Touch the command.
+		if let Some(command) = &arg.command {
+			let arg = tg::object::touch::Arg { remote: None };
+			self.touch_object(&command.clone().into(), arg).await?;
+		}
 
 		// Publish the message.
 		tokio::spawn({

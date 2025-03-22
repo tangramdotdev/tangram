@@ -87,193 +87,10 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 async fn migration_0000(database: &Database) -> tg::Result<()> {
 	let sql = indoc!(
 		r#"
-			create table blobs (
-				id text primary key,
-				reference_count integer
-			);
-
-			create index blobs_reference_count_zero_index on blobs ((1)) where reference_count = 0;
-
-			create table blob_references (
-				id text primary key,
-				blob text not null,
-				position integer not null,
-				length integer not null
-			);
-
-			create trigger blobs_increment_reference_count_trigger
-			after insert on blob_references
-			for each row
-			begin
-				update blobs set reference_count = reference_count + 1
-				where id = new.blob;
-			end;
-
-			create trigger blobs_decrement_reference_count_trigger
-			after delete on blob_references
-			for each row
-			begin
-				update blobs set reference_count = reference_count - 1
-				where id = old.blob;
-			end;
-
-			create table objects (
-				id text primary key,
-				complete integer not null default 0,
-				count integer,
-				depth integer,
-				incomplete_children integer,
-				reference_count integer,
-				size integer not null,
-				touched_at text,
-				weight integer
-			);
-
-			create index objects_reference_count_zero_index on objects (touched_at) where reference_count = 0;
-
-			create trigger objects_insert_complete_trigger
-			after insert on objects
-			when new.complete = 0 and new.incomplete_children = 0
-			begin
-				update objects
-				set
-					complete = updates.complete,
-					count = updates.count,
-					depth = updates.depth,
-					weight = updates.weight
-				from (
-					select
-						objects.id,
-						coalesce(min(child_objects.complete), 1) as complete,
-						1 + coalesce(sum(child_objects.count), 0) as count,
-						1 + coalesce(max(child_objects.depth), 0) as depth,
-						objects.size + coalesce(sum(child_objects.weight), 0) as weight
-					from objects
-					left join object_children on object_children.object = objects.id
-					left join objects as child_objects on child_objects.id = object_children.child
-					where objects.id = new.id 
-					group by objects.id, objects.size
-				) as updates
-				where objects.id = updates.id;
-			end;
-
-			create trigger objects_update_complete_trigger
-			after update of complete, incomplete_children on objects
-			when new.complete = 0 and new.incomplete_children = 0
-			begin
-				update objects
-				set
-					complete = updates.complete,
-					count = updates.count,
-					depth = updates.depth,
-					weight = updates.weight
-				from (
-					select
-						objects.id,
-						coalesce(min(child_objects.complete), 1) as complete,
-						1 + coalesce(sum(child_objects.count), 0) as count,
-						1 + coalesce(max(child_objects.depth), 0) as depth,
-						objects.size + coalesce(sum(child_objects.weight), 0) as weight
-					from objects
-					left join object_children on object_children.object = objects.id
-					left join objects as child_objects on child_objects.id = object_children.child
-					where objects.id = new.id 
-					group by objects.id, objects.size
-				) as updates
-				where objects.id = updates.id;
-			end;
-
-			create trigger objects_insert_incomplete_children_trigger
-			after insert on objects
-			for each row
-			when (new.incomplete_children is null)
-			begin
-				update objects
-				set incomplete_children = (
-					select count(*)
-					from object_children
-					left join objects child_objects on child_objects.id = object_children.child
-					where object_children.object = new.id and (child_objects.complete is null or child_objects.complete = 0)
-				)
-				where id = new.id;
-			end;
-
-			create trigger objects_insert_reference_count_trigger
-			after insert on objects
-			for each row
-			when (new.reference_count is null)
-			begin
-				update objects
-				set reference_count = (
-					(select count(*) from object_children where child = new.id) +
-					(select count(*) from process_objects where object = new.id) +
-					(select count(*) from tags where item = new.id)
-				)
-				where id = new.id;
-			end;
-
-			create trigger objects_update_incomplete_children_trigger
-			after update of complete on objects
-			for each row
-			when (old.complete = 0 and new.complete = 1)
-			begin
-				update objects
-				set incomplete_children = incomplete_children - 1
-				where id in (
-					select object
-					from object_children
-					where child = new.id
-				);
-			end;
-
-			create trigger objects_delete_trigger
-			after delete on objects
-			for each row
-			begin
-				delete from object_children
-				where object = old.id;
-
-				delete from blob_references
-				where id = old.id;
-			end;
-
-			create table object_children (
-				object text not null,
-				child text not null
-			);
-
-			create unique index object_children_index on object_children (object, child);
-
-			create index object_children_child_index on object_children (child);
-
-			create trigger object_children_insert_trigger
-			after insert on object_children
-			for each row
-			begin
-				update objects
-				set reference_count = objects.reference_count + 1
-				where id = new.child;
-			end;
-
-			create trigger object_children_delete_trigger
-			after delete on object_children
-			for each row
-			begin
-				update objects
-				set reference_count = objects.reference_count - 1
-				where id = old.child;
-			end;
-
 			create table processes (
 				cacheable integer not null,
 				checksum text,
 				command text not null,
-				commands_complete integer not null default 0,
-				commands_count integer,
-				commands_depth integer,
-				commands_weight integer,
-				complete integer not null default 0,
-				count integer,
 				created_at text not null,
 				cwd text,
 				dequeued_at text,
@@ -286,17 +103,8 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				host text not null,
 				id text primary key,
 				log text,
-				logs_complete integer not null default 0,
-				logs_count integer,
-				logs_depth integer,
-				logs_weight integer,
 				network integer not null,
 				output text,
-				outputs_complete integer not null default 0,
-				outputs_count integer,
-				outputs_depth integer,
-				outputs_weight integer,
-				reference_count integer,
 				retry integer not null,
 				started_at text,
 				status text not null,
@@ -307,32 +115,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index processes_status_index on processes (status);
 
-			create index processes_reference_count_zero_index on processes (touched_at) where reference_count = 0;
-
-			create trigger processes_insert_reference_count_trigger
-			after insert on processes
-			for each row
-			when (new.reference_count is null)
-			begin
-				update processes
-				set reference_count = (
-					(select count(*) from process_children where child = new.id) +
-					(select count(*) from tags where item = new.id)
-				)
-				where id = new.id;
-			end;
-
 			create trigger processes_delete_trigger
 			after delete on processes
 			for each row
 			begin
 				delete from process_children
-				where process = old.id;
-
-				delete from process_logs
-				where process = old.id;
-
-				delete from process_objects
 				where process = old.id;
 			end;
 
@@ -348,57 +135,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index process_children_child_process_index on process_children (child, process);
 
-			create trigger process_children_insert_trigger
-			after insert on process_children
-			for each row
-			begin
-				update processes
-				set reference_count = processes.reference_count + 1
-				where id = new.child;
-			end;
-
-			create trigger process_children_delete_trigger
-			after delete on process_children
-			for each row
-			begin
-				update processes
-				set reference_count = processes.reference_count - 1
-				where id = old.child;
-			end;
-
-			create table process_logs (
-				process text not null,
-				bytes blob not null,
-				position integer not null
-			);
-
-			create index process_logs_process_position_index on process_logs (process, position);
-
-			create table process_objects (
-				process text not null,
-				object text not null
-			);
-
-			create unique index process_objects_index on process_objects (process, object);
-
-			create index process_objects_object_index on process_objects (object);
-
-			create trigger process_objects_insert_trigger
-			after insert on process_objects
-			begin
-				update objects
-				set reference_count = reference_count + 1
-				where id = new.object;
-			end;
-
-			create trigger process_objects_delete_trigger
-			after delete on process_objects
-			begin
-				update objects
-				set reference_count = reference_count - 1
-				where id = old.object;
-			end;
-
 			create table remotes (
 				name text primary key,
 				url text not null
@@ -408,28 +144,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				tag text primary key,
 				item text not null
 			);
-
-			create trigger tags_insert_trigger
-			after insert on tags
-			for each row
-			begin
-				update objects set reference_count = reference_count + 1
-				where id = new.item;
-
-				update processes set reference_count = reference_count + 1
-				where id = new.item;
-			end;
-
-			create trigger tags_delete_trigger
-			after delete on tags
-			for each row
-			begin
-				update objects set reference_count = reference_count - 1
-				where id = old.item;
-
-				update processes set reference_count = reference_count - 1
-				where id = old.item;
-			end;
 
 			create table users (
 				id text primary key,

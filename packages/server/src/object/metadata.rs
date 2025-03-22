@@ -24,9 +24,9 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		// Get a database connection.
+		// Get an index connection.
 		let connection = self
-			.database
+			.index
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

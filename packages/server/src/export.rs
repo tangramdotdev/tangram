@@ -603,7 +603,7 @@ impl Server {
 	) -> tg::Result<tg::export::ObjectComplete> {
 		// Get a database connection.
 		let connection = self
-			.database
+			.index
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -645,9 +645,9 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<tg::export::ProcessComplete> {
-		// Get a database connection.
+		// Get an index connection.
 		let connection = self
-			.database
+			.index
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

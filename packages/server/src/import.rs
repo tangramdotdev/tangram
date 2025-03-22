@@ -1,7 +1,7 @@
 use crate::{Server, store::Store};
 use bytes::Bytes;
 use futures::{
-	FutureExt, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+	FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
 	stream::{self, FuturesUnordered},
 };
 use indoc::formatdoc;
@@ -15,7 +15,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
-use tangram_http::{Body, request::Ext};
+use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::Messenger as _;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
@@ -329,9 +329,9 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<bool>> {
-		// Get a database connection.
+		// Get an index connection.
 		let connection = self
-			.database
+			.index
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -351,7 +351,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the database connection.
+		// Drop the index connection.
 		drop(connection);
 
 		Ok(output)
@@ -445,8 +445,13 @@ impl Server {
 			// Create the store future.
 			let store_future = {
 				async {
+					let batch = batch
+						.clone()
+						.into_iter()
+						.map(|(id, bytes)| (id, Some(bytes), None))
+						.collect();
 					let arg = crate::store::PutBatchArg {
-						objects: batch.clone(),
+						objects: batch,
 						touched_at,
 					};
 					self.store.put_batch(arg).await?;
@@ -462,15 +467,14 @@ impl Server {
 						.map(|(id, bytes)| async {
 							let data = tg::object::Data::deserialize(id.kind(), bytes.clone())?;
 							let children = data.children();
-							let message = crate::index::Message {
-								children,
-								count: None,
-								depth: None,
-								id: id.clone(),
-								size: bytes.len().to_u64().unwrap(),
-								touched_at,
-								weight: None,
-							};
+							let message =
+								crate::index::Message::PutObject(crate::index::PutObjectMessage {
+									cache_reference: None,
+									children,
+									id: id.clone(),
+									size: bytes.len().to_u64().unwrap(),
+									touched_at,
+								});
 							let message = serde_json::to_vec(&message).map_err(|source| {
 								tg::error!(!source, "failed to serialize the message")
 							})?;

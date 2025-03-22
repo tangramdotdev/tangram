@@ -116,7 +116,6 @@ async fn processes() {
 async fn objects() {
 	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
-
 		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
 				export let h = tg.command(() => tg.file("h"));

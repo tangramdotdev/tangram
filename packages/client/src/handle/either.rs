@@ -1,5 +1,5 @@
 use crate as tg;
-use futures::{FutureExt, Stream, TryFutureExt as _};
+use futures::{FutureExt as _, Stream, TryFutureExt as _};
 use std::pin::Pin;
 use tangram_either::Either;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
@@ -202,6 +202,17 @@ where
 		match self {
 			Either::Left(s) => s.put_object(id, arg).left_future(),
 			Either::Right(s) => s.put_object(id, arg).right_future(),
+		}
+	}
+
+	fn touch_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.touch_object(id, arg).left_future(),
+			Either::Right(s) => s.touch_object(id, arg).right_future(),
 		}
 	}
 

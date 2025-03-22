@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{FutureExt as _, TryFutureExt, future};
+use futures::{FutureExt as _, TryFutureExt as _, future};
 use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
 use tokio_stream::StreamExt as _;
