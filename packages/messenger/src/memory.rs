@@ -45,14 +45,15 @@ impl Streams {
 		sender
 			.broadcast_direct(message)
 			.await
+			.inspect_err(|e| eprintln!("send error: {e}"))
 			.map_err(Error::SendError)?;
 		Ok(())
 	}
 
 	pub async fn create_stream(&self, subject: String) -> Result<(), Error> {
 		self.0.entry(subject).or_insert_with(|| {
-			let (mut sender, receiver) = async_broadcast::broadcast(4096);
-			sender.set_await_active(false);
+			let (mut sender, receiver) = async_broadcast::broadcast(16);
+			sender.set_await_active(true);
 			sender.set_overflow(false);
 			let receiver = receiver.deactivate();
 			Stream { sender, receiver }
@@ -60,8 +61,17 @@ impl Streams {
 		Ok(())
 	}
 
-	pub async fn close_stream(&self, subject: String) -> Result<(), Error> {
-		let (_, stream) = self.0.remove(&subject).ok_or(Error::NotFound)?;
+	pub async fn close_stream(
+		&self,
+		subject: String,
+		payload: Option<Bytes>,
+	) -> Result<(), Error> {
+		eprintln!("close: {subject}");
+		let (_, mut stream) = self.0.remove(&subject).ok_or(Error::NotFound)?;
+		stream.sender.set_await_active(false);
+		if let Some(payload) = payload {
+			stream.sender.try_broadcast(Message { subject, payload }).ok();
+		}
 		stream.sender.close();
 		Ok(())
 	}

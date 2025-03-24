@@ -212,22 +212,23 @@ impl Cli {
 		});
 
 		// Spawn a task to wait for the output.
-		let output = tokio::spawn({
-			let handle = handle.clone();
-			let process = process.clone();
-			async move {
-				process
-					.wait(&handle)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to wait for the process"))
-			}
-		});
+		// let output = tokio::spawn({
+		// 	let handle = handle.clone();
+		// 	let process = process.clone();
+		// 	async move {
+		// 		process
+		// 			.wait(&handle)
+		// 			.await
+		// 			.map_err(|source| tg::error!(!source, "failed to wait for the process"))
+		// 	}
+		// });
 
 		// Wait for the output.
-		let result = output
-			.await
-			.unwrap()
-			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
+		let result =
+			process
+				.wait(&handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to wait for the output"));
 
 		// Close stdio.
 		stdio.delete_io(&handle);
@@ -283,7 +284,7 @@ where
 						.take_until(stop)
 						.boxed();
 					let arg = tg::pipe::write::Arg { remote };
-					handle.write_pipe(&id, arg, stream).await.ok();
+					handle.write_pipe(&id, arg, stream).await?;
 				},
 				tg::process::Stdio::Pty(id) => {
 					let stop = async move { stop.wait().await };
@@ -296,9 +297,11 @@ where
 						remote,
 						master: true,
 					};
-					handle.write_pty(&id, arg, stream).await.ok();
+					handle.write_pty(&id, arg, stream).await?;
 				},
 			}
+			eprintln!("stdin ended");
+			Ok::<_, tg::Error>(())
 		}
 	});
 
@@ -329,15 +332,15 @@ where
 	});
 
 	// Join the stdout and stderr tasks.
-	let (stdout_result, stderr_result) = future::try_join(stdout_task, stderr_task).await.unwrap();
+	let (stdout_result, stderr_result) = future::join(stdout_task, stderr_task).await;
 
-	// Stop the await stdin task.
+	// Stop and join stdin.
 	stdin_task.stop();
-	stdin_task.wait().await.unwrap();
+	stdin_task.wait().await.unwrap()?;
 
 	// Return errors from the stdout and stderr tasks.
-	stdout_result?;
-	stderr_result?;
+	stdout_result.unwrap()?;
+	stderr_result.unwrap()?;
 
 	Ok(())
 }
@@ -403,6 +406,7 @@ where
 				.read_pty(id, arg)
 				.await?
 				.try_filter_map(|event| {
+					eprintln!("read event {event:?}");
 					future::ok({
 						if let tg::pty::Event::Chunk(chunk) = event {
 							Some(chunk)
@@ -416,6 +420,7 @@ where
 	};
 	let mut stream = pin!(stream);
 	while let Some(chunk) = stream.try_next().await? {
+		eprintln!("(cli) read: {chunk:?}");
 		writer
 			.write_all(&chunk)
 			.await

@@ -910,6 +910,7 @@ impl Server {
 
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
+		eprintln!("{method} {path}");
 		let path_components = path.split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
 			// Artifacts.

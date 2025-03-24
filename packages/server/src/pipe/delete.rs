@@ -15,7 +15,7 @@ impl Server {
 				.delete_pipe(id, tg::pipe::delete::Arg::default())
 				.await;
 		}
-		self.send_pipe_event(id, tg::pipe::Event::End).await.ok();
+		// self.send_pipe_event(id, tg::pipe::Event::End).await.ok();
 		match &self.messenger {
 			Messenger::Left(m) => self.delete_pipe_memory(m, id).await?,
 			Messenger::Right(m) => self.delete_pipe_nats(m, id).await?,
@@ -28,9 +28,10 @@ impl Server {
 		messenger: &messenger::memory::Messenger,
 		id: &tg::pipe::Id,
 	) -> tg::Result<()> {
+		let payload = serde_json::to_vec(&tg::pipe::Event::End).unwrap().into();
 		messenger
 			.streams()
-			.close_stream(id.to_string())
+			.close_stream(id.to_string(), Some(payload))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
 		Ok(())

@@ -315,6 +315,7 @@ fn chunk_stream_from_reader(
 			return Ok(None);
 		}
 		let chunk = Bytes::copy_from_slice(&buffer[0..size]);
+		eprintln!("(runtime) read chunk: {chunk:?}");
 		Ok(Some((chunk, (reader, buffer))))
 	})
 }
@@ -393,6 +394,7 @@ async fn input(
 				let event = stream.try_next();
 				match future::select(event, pin!(stop)).await {
 					future::Either::Left((Ok(Some(tg::pipe::Event::Chunk(chunk))), _)) => {
+						eprintln!("(runtime) wrote chunk: {chunk:?}");
 						stdin
 							.write_all(&chunk)
 							.await

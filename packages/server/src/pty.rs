@@ -25,6 +25,7 @@ impl Server {
 				} else {
 					format!("{pty}.slave")
 				};
+				eprintln!("(send) {subject}: {payload:?}");
 				messenger
 					.streams()
 					.publish(subject, payload)

@@ -57,6 +57,7 @@ impl Server {
 			let stream = remote.read_pty(id, arg).await?.boxed();
 			return Ok(stream);
 		}
+		eprintln!("GET /ptys/{id}?{arg:?}");
 
 		// Create the stream from the messenger.
 		let stream = match &self.messenger {
@@ -92,6 +93,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "the pipe was closed or does not exist"))?
 			.map(|message| {
+				eprintln!("(recv): {} {:?}", message.subject, message.payload);
 				serde_json::from_slice::<tg::pty::Event>(&message.payload)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
 			})
