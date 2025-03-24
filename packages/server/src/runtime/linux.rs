@@ -19,6 +19,7 @@ pub struct Runtime {
 pub struct Instance {
 	root_is_bind_mounted: bool,
 	temp: Temp,
+	rootdir: PathBuf,
 	mounts: Vec<sandbox::Mount>,
 }
 
@@ -195,7 +196,7 @@ impl Runtime {
 		// Create the command
 		let mut cmd_ = sandbox::Command::new(executable);
 		cmd_.args(args)
-			.chroot(instance.rootdir())
+			.chroot(instance.temp.path().join("root"))
 			.cwd(cwd)
 			.envs(env)
 			.mounts(instance.mounts.clone())
@@ -366,6 +367,7 @@ impl Runtime {
 		let temp = Temp::new(&self.server);
 		let mut instance = Instance {
 			root_is_bind_mounted: false,
+			rootdir: temp.path().join("root"),
 			temp,
 			mounts: Vec::with_capacity(state.mounts.len() + command_mounts.len()),
 		};
@@ -401,6 +403,12 @@ impl Runtime {
 							.join(overlays.len().to_string());
 						tokio::fs::create_dir_all(&upperdir).await.ok();
 						tokio::fs::create_dir_all(&workdir).await.ok();
+
+						// If this is an overlay to "/", then make sure that the rootdir points to the "upper" directory of the overlay.
+						if mount.target == Path::new("/") {
+							instance.rootdir = upperdir.clone()
+						}
+
 						overlays.push(sandbox::Overlay {
 							lowerdirs: vec![],
 							upperdir,
@@ -505,6 +513,7 @@ impl Runtime {
 						.join(overlays.len().to_string());
 					tokio::fs::create_dir_all(&upperdir).await.ok();
 					tokio::fs::create_dir_all(&workdir).await.ok();
+					instance.rootdir = upperdir.clone();
 					overlays.push(sandbox::Overlay {
 						lowerdirs: vec![],
 						upperdir,
@@ -567,6 +576,7 @@ impl Runtime {
 			.mounts
 			.sort_unstable_by_key(|m| m.target.components().count());
 
+
 		Ok(instance)
 	}
 }
@@ -577,7 +587,7 @@ impl Instance {
 	}
 
 	pub fn rootdir(&self) -> PathBuf {
-		self.temp.path().join("root")
+		self.rootdir.clone()
 	}
 
 	pub fn outdir(&self) -> PathBuf {
