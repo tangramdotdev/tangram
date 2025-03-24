@@ -9,6 +9,7 @@ use std::{
 	pin::pin,
 };
 use tangram_client as tg;
+use tangram_futures::task::Task;
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -269,23 +270,27 @@ where
 {
 	// Spawn stdin task.
 	let stream = stdin_stream();
-	let stdin_task = tokio::spawn({
+	let stdin_task = Task::spawn(|stop| {
 		let remote = remote.clone();
 		let handle = handle.clone();
 		async move {
 			match stdin {
 				tg::process::Stdio::Pipe(id) => {
+					let stop = async move { stop.wait().await };
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
 						.chain(stream::once(future::ok(tg::pipe::Event::End)))
+						.take_until(stop)
 						.boxed();
 					let arg = tg::pipe::write::Arg { remote };
 					handle.write_pipe(&id, arg, stream).await.ok();
 				},
 				tg::process::Stdio::Pty(id) => {
+					let stop = async move { stop.wait().await };
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pty::Event::Chunk))
 						.chain(stream::once(future::ok(tg::pty::Event::End)))
+						.take_until(stop)
 						.boxed();
 					let arg = tg::pty::write::Arg {
 						remote,
@@ -327,7 +332,8 @@ where
 	let (stdout_result, stderr_result) = future::try_join(stdout_task, stderr_task).await.unwrap();
 
 	// Stop the await stdin task.
-	stdin_task.abort();
+	stdin_task.stop();
+	stdin_task.wait().await.unwrap();
 
 	// Return errors from the stdout and stderr tasks.
 	stdout_result?;
