@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use indoc::formatdoc;
 use tangram_client::{self as tg};
 use tangram_database::{self as db, Database as _, Query as _};
@@ -57,7 +57,6 @@ impl Server {
 			let stream = remote.read_pty(id, arg).await?.boxed();
 			return Ok(stream);
 		}
-		eprintln!("GET /ptys/{id}?{arg:?}");
 
 		// Create the stream from the messenger.
 		let stream = match &self.messenger {
@@ -73,7 +72,9 @@ impl Server {
 				.right_stream(),
 		};
 
-		Ok(stream.boxed())
+		Ok(stream
+			.chain(stream::once(future::ok(tg::pty::Event::End)))
+			.boxed())
 	}
 
 	async fn read_pty_memory(
@@ -93,7 +94,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "the pipe was closed or does not exist"))?
 			.map(|message| {
-				eprintln!("(recv): {} {:?}", message.subject, message.payload);
 				serde_json::from_slice::<tg::pty::Event>(&message.payload)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
 			})

@@ -9,9 +9,6 @@ impl Server {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.delete_pty(id, tg::pty::delete::Arg::default()).await;
 		}
-		// self.send_pty_event(id, tg::pty::Event::End, false)
-		// 	.await
-		// 	.ok();
 		match &self.messenger {
 			Messenger::Left(m) => self.delete_pty_in_memory(m, id).await?,
 			Messenger::Right(m) => self.delete_pty_nats(m, id).await?,
@@ -24,18 +21,14 @@ impl Server {
 		messenger: &messenger::memory::Messenger,
 		id: &tg::pty::Id,
 	) -> tg::Result<()> {
-		let payload = serde_json::to_vec(&tg::pty::Event::End).unwrap().into();
 		messenger
 			.streams()
-			.close_stream(format!("{id}.master"), Some(payload))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
-		let payload = serde_json::to_vec(&tg::pty::Event::End).unwrap().into();
+			.close_stream(format!("{id}.master"))
+			.ok();
 		messenger
 			.streams()
-			.close_stream(format!("{id}.slave"), Some(payload))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to close pipe"))?;
+			.close_stream(format!("{id}.slave"))
+			.ok();
 		Ok(())
 	}
 

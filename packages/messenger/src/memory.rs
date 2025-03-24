@@ -1,9 +1,9 @@
 use crate::Message;
-use async_broadcast::SendError;
+use async_broadcast::{SendError, TrySendError};
 use bytes::Bytes;
 use core::fmt;
 use dashmap::DashMap;
-use futures::{StreamExt, future};
+use futures::{future, FutureExt, StreamExt};
 use std::{ops::Deref, sync::Arc};
 
 pub struct Messenger(Arc<Inner>);
@@ -13,6 +13,7 @@ pub struct Messenger(Arc<Inner>);
 pub enum Error {
 	NotFound,
 	SendError(SendError<Message>),
+	TrySendError(TrySendError<Message>),
 }
 
 impl std::error::Error for Error {}
@@ -22,6 +23,7 @@ impl fmt::Display for Error {
 		match self {
 			Error::NotFound => write!(f, "subject not found"),
 			Error::SendError(e) => write!(f, "{e}"),
+			Error::TrySendError(e) => write!(f, "{e}"),
 		}
 	}
 }
@@ -40,12 +42,16 @@ struct Stream {
 
 impl Streams {
 	pub async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
-		let sender = &self.0.get(&subject).ok_or(Error::NotFound)?.sender;
+		let sender = self
+			.0
+			.get(&subject)
+			.ok_or(Error::NotFound)?
+			.sender
+			.clone();
 		let message = Message { subject, payload };
 		sender
 			.broadcast_direct(message)
 			.await
-			.inspect_err(|e| eprintln!("send error: {e}"))
 			.map_err(Error::SendError)?;
 		Ok(())
 	}
@@ -61,18 +67,15 @@ impl Streams {
 		Ok(())
 	}
 
-	pub async fn close_stream(
-		&self,
-		subject: String,
-		payload: Option<Bytes>,
-	) -> Result<(), Error> {
-		eprintln!("close: {subject}");
-		let (_, mut stream) = self.0.remove(&subject).ok_or(Error::NotFound)?;
-		stream.sender.set_await_active(false);
-		if let Some(payload) = payload {
-			stream.sender.try_broadcast(Message { subject, payload }).ok();
-		}
-		stream.sender.close();
+	pub fn close_stream(&self, subject: String) -> Result<(), Error> {
+		// Close the stream.
+		self.0
+			.get(&subject)
+			.map(|stream| stream.sender.close());
+
+		// Remove the stream.
+		self.0.remove(&subject);
+
 		Ok(())
 	}
 

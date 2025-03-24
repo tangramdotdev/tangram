@@ -852,8 +852,8 @@ impl Server {
 						Body::with_body(tangram_http::idle::Body::new(idle.token(), body))
 					}
 				})
-				.layer(tangram_http::layer::compression::RequestDecompressionLayer)
-				.layer(tangram_http::layer::compression::ResponseCompressionLayer::default())
+				// .layer(tangram_http::layer::compression::RequestDecompressionLayer)
+				// .layer(tangram_http::layer::compression::ResponseCompressionLayer::default())
 				.service_fn({
 					let handle = handle.clone();
 					move |request| {
@@ -910,7 +910,6 @@ impl Server {
 
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
-		eprintln!("{method} {path}");
 		let path_components = path.split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
 			// Artifacts.

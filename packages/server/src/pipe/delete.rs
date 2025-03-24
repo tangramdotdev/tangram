@@ -28,11 +28,9 @@ impl Server {
 		messenger: &messenger::memory::Messenger,
 		id: &tg::pipe::Id,
 	) -> tg::Result<()> {
-		let payload = serde_json::to_vec(&tg::pipe::Event::End).unwrap().into();
 		messenger
 			.streams()
-			.close_stream(id.to_string(), Some(payload))
-			.await
+			.close_stream(id.to_string())
 			.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
 		Ok(())
 	}

@@ -21,11 +21,12 @@ impl Server {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.write_pty(id, arg, stream.boxed()).await;
 		}
-		eprintln!("POST /ptys/{id}?{arg:?}");
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			eprintln!("(server) write: {event:?}");
-			self.send_pty_event(id, event, arg.master).await?;
+			if let Err(error) = self.send_pty_event(id, event, arg.master).await {
+				tracing::error!(?error, %id, "failed to write pty");
+				break;
+			}
 		}
 		Ok(())
 	}

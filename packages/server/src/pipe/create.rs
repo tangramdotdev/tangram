@@ -63,7 +63,6 @@ impl Server {
 		messenger: &messenger::memory::Messenger,
 		id: &tg::pipe::Id,
 	) -> tg::Result<()> {
-		eprintln!("create pipe: {id}");
 		messenger
 			.streams()
 			.create_stream(id.to_string())

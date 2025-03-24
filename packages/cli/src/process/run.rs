@@ -300,7 +300,6 @@ where
 					handle.write_pty(&id, arg, stream).await?;
 				},
 			}
-			eprintln!("stdin ended");
 			Ok::<_, tg::Error>(())
 		}
 	});
@@ -406,7 +405,6 @@ where
 				.read_pty(id, arg)
 				.await?
 				.try_filter_map(|event| {
-					eprintln!("read event {event:?}");
 					future::ok({
 						if let tg::pty::Event::Chunk(chunk) = event {
 							Some(chunk)
@@ -420,7 +418,6 @@ where
 	};
 	let mut stream = pin!(stream);
 	while let Some(chunk) = stream.try_next().await? {
-		eprintln!("(cli) read: {chunk:?}");
 		writer
 			.write_all(&chunk)
 			.await

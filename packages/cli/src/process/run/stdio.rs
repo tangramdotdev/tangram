@@ -190,7 +190,6 @@ fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg:
 
 impl Stdio {
 	pub fn delete_io(&self, handle: &impl tg::Handle) {
-		eprintln!("delete IO");
 		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
 		let handle = handle.clone();
 		let remote = self.remote.clone();

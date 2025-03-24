@@ -60,7 +60,6 @@ async fn linux() -> std::io::Result<ExitStatus> {
 		.spawn()
 		.await?;
 
-	eprintln!("child: {}", child.pid());
 	child.wait().await
 }
 

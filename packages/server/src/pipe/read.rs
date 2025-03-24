@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Stop;
@@ -33,7 +33,9 @@ impl Server {
 				.right_stream(),
 		};
 
-		Ok(stream.boxed())
+		Ok(stream
+			.chain(stream::once(future::ok(tg::pipe::Event::End)))
+			.boxed())
 	}
 
 	async fn read_pipe_memory(
@@ -47,7 +49,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "the pipe was closed or does not exist"))?
 			.map(|message| {
-				eprintln!("recv {} {:?}", message.subject, message.payload);
 				serde_json::from_slice::<tg::pipe::Event>(&message.payload)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
 			})
@@ -139,7 +140,6 @@ impl Server {
 					hyper::body::Frame::trailers(trailers)
 				},
 			};
-			eprintln!("wrote body");
 			Ok::<_, tg::Error>(event)
 		}));
 
