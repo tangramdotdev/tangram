@@ -108,7 +108,7 @@ impl Runtime {
 			let guest_url = format!("http+unix://{socket}").parse::<Url>().unwrap();
 
 			// Create the proxy server host URL.
-			let socket = instance.lowerdir().join(".tangram/socket");
+			let socket = instance.proxydir().join("socket");
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
@@ -370,14 +370,6 @@ impl Runtime {
 			mounts: Vec::with_capacity(state.mounts.len() + command_mounts.len()),
 		};
 
-		// Create the proxy path.
-		let path = instance.lowerdir().join(".tangram");
-		tokio::fs::create_dir_all(&path)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, %path = path.display(), "failed to create the tangram proxy directory")
-			})?;
-
 		// Create the output path.
 		tokio::fs::create_dir_all(&instance.outdir())
 			.await
@@ -436,6 +428,15 @@ impl Runtime {
 				},
 			}
 		}
+
+
+		// Create the proxy path.
+		let path = instance.proxydir().join(".tangram");
+		tokio::fs::create_dir_all(&path)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, %path = path.display(), "failed to create the tangram proxy directory")
+			})?;
 
 		// Add additional mounts.
 		if !instance.root_is_bind_mounted {
@@ -540,14 +541,16 @@ impl Runtime {
 				}
 				.into(),
 			);
-			instance.mounts.push(sandbox::Mount {
+			instance.mounts.push(sandbox::BindMount {
+				source: instance.proxydir(),
+				target: "/.tangram".into(),
+				readonly: false,
+			}.into());
+			instance.mounts.push(sandbox::BindMount {
 				source: self.server.artifacts_path(),
 				target: "/.tangram/artifacts".into(),
-				fstype: None,
-				flags: libc::MS_BIND | libc::MS_REC,
-				data: None,
 				readonly: false,
-			});
+			}.into());
 			instance.mounts.push(
 				sandbox::BindMount {
 					source: instance.outdir(),
@@ -569,8 +572,8 @@ impl Runtime {
 }
 
 impl Instance {
-	pub fn lowerdir(&self) -> PathBuf {
-		self.temp.path().join("lower")
+	pub fn proxydir(&self) -> PathBuf {
+		self.temp.path().join("proxy")
 	}
 
 	pub fn rootdir(&self) -> PathBuf {
