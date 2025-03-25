@@ -437,7 +437,6 @@ impl Runtime {
 			}
 		}
 
-
 		// Create the proxy path.
 		let path = instance.proxydir().join(".tangram");
 		tokio::fs::create_dir_all(&path)
@@ -550,16 +549,22 @@ impl Runtime {
 				}
 				.into(),
 			);
-			instance.mounts.push(sandbox::BindMount {
-				source: instance.proxydir(),
-				target: "/.tangram".into(),
-				readonly: false,
-			}.into());
-			instance.mounts.push(sandbox::BindMount {
-				source: self.server.artifacts_path(),
-				target: "/.tangram/artifacts".into(),
-				readonly: false,
-			}.into());
+			instance.mounts.push(
+				sandbox::BindMount {
+					source: instance.proxydir(),
+					target: "/.tangram".into(),
+					readonly: false,
+				}
+				.into(),
+			);
+			instance.mounts.push(
+				sandbox::BindMount {
+					source: self.server.artifacts_path(),
+					target: "/.tangram/artifacts".into(),
+					readonly: false,
+				}
+				.into(),
+			);
 			instance.mounts.push(
 				sandbox::BindMount {
 					source: instance.outdir(),
@@ -575,7 +580,6 @@ impl Runtime {
 		instance
 			.mounts
 			.sort_unstable_by_key(|m| m.target.components().count());
-
 
 		Ok(instance)
 	}

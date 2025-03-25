@@ -601,6 +601,7 @@ impl Server {
 							tracing::error!(?error, "the runner task panicked");
 						}
 					}
+					tracing::trace!("shutdown runner task");
 				}
 
 				// Abort the process tasks.
@@ -613,6 +614,7 @@ impl Server {
 						}
 					}
 				}
+				tracing::trace!("shutdown process tasks");
 
 				// Stop the compilers.
 				let compilers = server.compilers.read().unwrap().clone();
@@ -620,6 +622,7 @@ impl Server {
 					compiler.stop();
 					compiler.wait().await;
 				}
+				tracing::trace!("shutdown compiler tasks");
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {
@@ -630,6 +633,7 @@ impl Server {
 							tracing::error!(?error, "the http task panicked");
 						}
 					}
+					tracing::trace!("shutdown http task");
 				}
 
 				// Abort the cleaner task.
@@ -641,6 +645,7 @@ impl Server {
 							tracing::error!(?error, "the clean task panicked");
 						}
 					}
+					tracing::trace!("shutdown cleaner task");
 				}
 
 				// Abort the indexer task.
@@ -652,6 +657,7 @@ impl Server {
 							tracing::error!(?error, "the index task panicked");
 						}
 					}
+					tracing::trace!("shutdown indexer task");
 				}
 
 				// Abort the watchdog task.
@@ -663,6 +669,7 @@ impl Server {
 							tracing::error!(?error, "the watchdog task panicked");
 						}
 					}
+					tracing::trace!("shutdown watchdog task");
 				}
 
 				// Remove the runtimes.
@@ -678,12 +685,14 @@ impl Server {
 						}
 					}
 				}
+				tracing::trace!("shutdown artifact cache tasks");
 
 				// Stop the VFS.
 				let vfs = server.vfs.lock().unwrap().take();
 				if let Some(vfs) = vfs {
 					vfs.stop();
 					vfs.wait().await;
+					tracing::trace!("shutdown vfs task");
 				}
 
 				// Remove the temp paths.
@@ -694,11 +703,13 @@ impl Server {
 					.collect::<FuturesUnordered<_>>()
 					.collect::<()>()
 					.await;
+				tracing::trace!("removed temps");
 
 				// Release the lock file.
 				let lock_file = server.lock_file.lock().unwrap().take();
 				if let Some(lock_file) = lock_file {
 					lock_file.set_len(0).await.ok();
+					tracing::trace!("released lockfile");
 				}
 
 				tracing::trace!("finished shutdown");

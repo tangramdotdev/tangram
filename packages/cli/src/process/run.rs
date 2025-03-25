@@ -63,7 +63,7 @@ impl Cli {
 			.run_process_inner(args.options, reference, args.trailing, &stdio)
 			.await;
 
-		stdio.delete_io(&handle);
+		stdio.delete_io(&handle).await;
 
 		// Drop stdio to restore termios.
 		drop(stdio);
@@ -197,7 +197,7 @@ impl Cli {
 						.ok();
 				});
 				tokio::signal::ctrl_c().await.unwrap();
-				fork_and_exit(130).ok();
+				std::process::abort();
 			}
 		});
 
@@ -211,27 +211,14 @@ impl Cli {
 			}
 		});
 
-		// Spawn a task to wait for the output.
-		// let output = tokio::spawn({
-		// 	let handle = handle.clone();
-		// 	let process = process.clone();
-		// 	async move {
-		// 		process
-		// 			.wait(&handle)
-		// 			.await
-		// 			.map_err(|source| tg::error!(!source, "failed to wait for the process"))
-		// 	}
-		// });
-
 		// Wait for the output.
-		let result =
-			process
-				.wait(&handle)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for the output"));
+		let result = process
+			.wait(&handle)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
 
 		// Close stdio.
-		stdio.delete_io(&handle);
+		stdio.delete_io(&handle).await;
 
 		// Stop and wait for stdio.
 		stdio_task.await.unwrap()?;
@@ -248,15 +235,18 @@ impl Cli {
 }
 
 fn fork_and_exit(code: i32) -> std::io::Result<()> {
+	// Fork.
 	let pid = unsafe { libc::fork() };
 	if pid < 0 {
 		return Err(std::io::Error::last_os_error());
 	}
-	if pid == 0 {
-		Ok(())
-	} else {
+
+	// If this is the parent process, exit immediately.
+	if pid > 0 {
 		std::process::exit(code);
 	}
+
+	Ok(())
 }
 
 async fn stdio_task<H>(

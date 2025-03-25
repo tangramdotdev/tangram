@@ -39,9 +39,7 @@ impl Client {
 			.map_err(|source| tg::error!(!source, "failed to read the body"));
 		let stream = BodyStream::new(body).and_then(|frame| async {
 			match frame.into_data() {
-				Ok(bytes) => {
-					Ok(tg::pipe::Event::Chunk(bytes))
-				},
+				Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
 				Err(frame) => {
 					let trailers = frame.into_trailers().unwrap();
 					let event = trailers

@@ -189,28 +189,26 @@ fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg:
 }
 
 impl Stdio {
-	pub fn delete_io(&self, handle: &impl tg::Handle) {
+	pub async fn delete_io(&self, handle: &impl tg::Handle) {
 		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
 		let handle = handle.clone();
 		let remote = self.remote.clone();
-		tokio::spawn(async move {
-			for io in &io {
-				match io {
-					tg::process::Stdio::Pipe(id) => {
-						let arg = tg::pipe::delete::Arg {
-							remote: remote.clone(),
-						};
-						handle.delete_pipe(id, arg).await.ok();
-					},
-					tg::process::Stdio::Pty(id) => {
-						let arg = tg::pty::delete::Arg {
-							remote: remote.clone(),
-						};
-						handle.delete_pty(id, arg).await.ok();
-					},
-				}
+		for io in &io {
+			match io {
+				tg::process::Stdio::Pipe(id) => {
+					let arg = tg::pipe::delete::Arg {
+						remote: remote.clone(),
+					};
+					handle.delete_pipe(id, arg).await.ok();
+				},
+				tg::process::Stdio::Pty(id) => {
+					let arg = tg::pty::delete::Arg {
+						remote: remote.clone(),
+					};
+					handle.delete_pty(id, arg).await.ok();
+				},
 			}
-		});
+		}
 	}
 }
 

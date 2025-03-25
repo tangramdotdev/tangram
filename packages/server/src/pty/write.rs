@@ -21,7 +21,8 @@ impl Server {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.write_pty(id, arg, stream.boxed()).await;
 		}
-		let mut stream = pin!(stream);
+		let deleted = self.pty_deleted(id.clone());
+		let mut stream = pin!(stream.take_until(deleted));
 		while let Some(event) = stream.try_next().await? {
 			if let Err(error) = self.send_pty_event(id, event, arg.master).await {
 				tracing::error!(?error, %id, "failed to write pty");
@@ -64,7 +65,10 @@ impl Server {
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
+		let rid = request.extensions().get::<tg::Id>().unwrap().clone();
+		let stop = async move {
+			stop.wait().await;
+		};
 
 		// Create the stream.
 		let body = request

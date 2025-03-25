@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, stream};
 use indoc::formatdoc;
 use tangram_client::{self as tg};
 use tangram_database::{self as db, Database as _, Query as _};
@@ -57,6 +57,7 @@ impl Server {
 			let stream = remote.read_pty(id, arg).await?.boxed();
 			return Ok(stream);
 		}
+		let deleted = self.pty_deleted(id.clone());
 
 		// Create the stream from the messenger.
 		let stream = match &self.messenger {
@@ -73,7 +74,10 @@ impl Server {
 		};
 
 		Ok(stream
-			.chain(stream::once(future::ok(tg::pty::Event::End)))
+			.take_until(deleted)
+			.chain(stream::once(async move {
+				Ok::<_, tg::Error>(tg::pty::Event::End)
+			}))
 			.boxed())
 	}
 
@@ -119,8 +123,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
 
 		// Get the consumer.
+		let name = tg::Id::new_uuidv7(tg::id::Kind::Pty);
 		let consumer_config = async_nats::jetstream::consumer::pull::Config {
-			durable_name: Some(id.to_string()),
+			durable_name: Some(name.to_string()),
 			..Default::default()
 		};
 		let consumer = stream
@@ -188,7 +193,10 @@ impl Server {
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
+
+		let stop = async move {
+			stop.wait().await;
+		};
 		let stream = stream.take_until(stop);
 
 		// Create the body.

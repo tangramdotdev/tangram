@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
+use futures::{FutureExt, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Stop;
@@ -33,7 +33,9 @@ impl Server {
 				.right_stream(),
 		};
 
+		let deleted = self.pipe_deleted(id.clone());
 		Ok(stream
+			.take_until(deleted)
 			.chain(stream::once(future::ok(tg::pipe::Event::End)))
 			.boxed())
 	}
@@ -68,8 +70,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
 
 		// Get the consumer.
+		let name = tg::Id::new_uuidv7(tg::id::Kind::Pipe);
 		let consumer_config = async_nats::jetstream::consumer::pull::Config {
-			durable_name: Some(id.to_string()),
+			durable_name: Some(name.to_string()),
 			..Default::default()
 		};
 		let consumer = stream

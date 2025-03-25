@@ -3,7 +3,7 @@ use async_broadcast::{SendError, TrySendError};
 use bytes::Bytes;
 use core::fmt;
 use dashmap::DashMap;
-use futures::{future, FutureExt, StreamExt};
+use futures::{StreamExt as _, future};
 use std::{ops::Deref, sync::Arc};
 
 pub struct Messenger(Arc<Inner>);
@@ -42,12 +42,7 @@ struct Stream {
 
 impl Streams {
 	pub async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
-		let sender = self
-			.0
-			.get(&subject)
-			.ok_or(Error::NotFound)?
-			.sender
-			.clone();
+		let sender = self.0.get(&subject).ok_or(Error::NotFound)?.sender.clone();
 		let message = Message { subject, payload };
 		sender
 			.broadcast_direct(message)
@@ -58,9 +53,9 @@ impl Streams {
 
 	pub async fn create_stream(&self, subject: String) -> Result<(), Error> {
 		self.0.entry(subject).or_insert_with(|| {
-			let (mut sender, receiver) = async_broadcast::broadcast(16);
+			let (mut sender, receiver) = async_broadcast::broadcast(4096);
 			sender.set_await_active(true);
-			sender.set_overflow(false);
+			sender.set_overflow(flase);
 			let receiver = receiver.deactivate();
 			Stream { sender, receiver }
 		});
@@ -69,13 +64,14 @@ impl Streams {
 
 	pub fn close_stream(&self, subject: String) -> Result<(), Error> {
 		// Close the stream.
-		self.0
-			.get(&subject)
-			.map(|stream| stream.sender.close());
+		self.0.get(&subject).map(|stream| stream.sender.close());
 
 		// Remove the stream.
-		self.0.remove(&subject);
-
+		let Some((_, stream)) = self.0.remove(&subject) else {
+			return Ok(());
+		};
+		stream.sender.close();
+		eprintln!("closed {subject}");
 		Ok(())
 	}
 
@@ -111,8 +107,8 @@ impl Messenger {
 		self.global
 			.sender
 			.try_broadcast(Message { subject, payload })
-			.ok();
-		Ok(())
+			.map(|_| ())
+			.map_err(Error::TrySendError)
 	}
 
 	async fn subscribe(

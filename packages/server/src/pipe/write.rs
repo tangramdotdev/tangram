@@ -21,7 +21,9 @@ impl Server {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.write_pipe(id, arg, stream.boxed()).await;
 		}
-		let mut stream = pin!(stream);
+
+		let deleted = self.pipe_deleted(id.clone());
+		let mut stream = pin!(stream.take_until(deleted));
 		while let Some(event) = stream.try_next().await? {
 			if let Err(error) = self.send_pipe_event(id, event).await {
 				tracing::error!(?error, %id, "failed to write pipe");
