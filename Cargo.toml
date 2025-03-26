@@ -67,6 +67,7 @@ bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env", "string", "unstable-v5"] }
 console-subscriber = "0.4"
 copypasta = "0.10"
+crossbeam = "0.8"
 crossterm = { version = "0.28", features = ["event-stream"] }
 dashmap = "6"
 data-encoding = "2"

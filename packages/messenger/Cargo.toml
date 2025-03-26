@@ -15,9 +15,13 @@ workspace = true
 
 [dependencies]
 async-broadcast = { workspace = true }
+async-channel = { workspace = true }
+crossbeam = { workspace = true }
 async-nats = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
+uuid = { workspace = true }
 tangram_either = { workspace = true }
+tokio = { workspace = true }

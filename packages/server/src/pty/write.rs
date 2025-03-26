@@ -65,7 +65,6 @@ impl Server {
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let rid = request.extensions().get::<tg::Id>().unwrap().clone();
 		let stop = async move {
 			stop.wait().await;
 		};

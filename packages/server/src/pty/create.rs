@@ -2,9 +2,8 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database, Query, params};
-use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger as messenger;
+use tangram_messenger::Messenger;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -39,71 +38,15 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		match &self.messenger {
-			Either::Left(messenger) => {
-				self.create_pty_in_memory(messenger, &id)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create pty"))?;
-			},
-			Either::Right(messenger) => {
-				self.create_pty_nats(messenger, &id)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create pty"))?;
-			},
+		for subject in ["master", "slave"] {
+			self.messenger
+				.create_stream(format!("{id}_{subject}"))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the stream"))?;
 		}
+
 		let output = tg::pty::create::Output { id };
 		Ok(output)
-	}
-
-	async fn create_pty_in_memory(
-		&self,
-		messenger: &messenger::memory::Messenger,
-		id: &tg::pty::Id,
-	) -> tg::Result<()> {
-		let subject = format!("{id}.master");
-		messenger
-			.streams()
-			.create_stream(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create pty"))?;
-		let subject = format!("{id}.slave");
-		messenger
-			.streams()
-			.create_stream(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create pty"))?;
-		Ok(())
-	}
-
-	async fn create_pty_nats(
-		&self,
-		messenger: &messenger::nats::Messenger,
-		id: &tg::pty::Id,
-	) -> tg::Result<()> {
-		let stream_name = format!("{id}_master");
-		let stream_config = async_nats::jetstream::stream::Config {
-			name: stream_name.clone(),
-			max_messages: 256,
-			..Default::default()
-		};
-		messenger
-			.jetstream
-			.create_stream(stream_config)
-			.await
-			.map_err(|source| tg::error!(!source, ?stream_name, "failed to get the pty stream"))?;
-		let stream_name = format!("{id}_slave");
-		let stream_config = async_nats::jetstream::stream::Config {
-			name: stream_name.clone(),
-			max_messages: 256,
-			..Default::default()
-		};
-		messenger
-			.jetstream
-			.create_stream(stream_config)
-			.await
-			.map_err(|source| tg::error!(!source, ?stream_name, "failed to get the pty stream"))?;
-
-		Ok(())
 	}
 }
 

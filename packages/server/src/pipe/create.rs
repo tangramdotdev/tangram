@@ -2,9 +2,8 @@ use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{Database, Query, params};
-use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger as messenger;
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -40,56 +39,14 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		match &self.messenger {
-			Either::Left(messenger) => {
-				self.create_pipe_memory(messenger, &id)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the pipe"))?;
-			},
-			Either::Right(messenger) => {
-				self.create_pipe_nats(messenger, &id)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the pipe"))?;
-			},
-		}
+		self.messenger
+			.create_stream(id.to_string())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the pipe"))?;
 
 		let output = tg::pipe::create::Output { id };
 
 		Ok(output)
-	}
-
-	async fn create_pipe_memory(
-		&self,
-		messenger: &messenger::memory::Messenger,
-		id: &tg::pipe::Id,
-	) -> tg::Result<()> {
-		messenger
-			.streams()
-			.create_stream(id.to_string())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the pipe"))?;
-		Ok(())
-	}
-
-	async fn create_pipe_nats(
-		&self,
-		messenger: &messenger::nats::Messenger,
-		id: &tg::pipe::Id,
-	) -> tg::Result<()> {
-		let stream_name = format!("{id}");
-		let stream_config = async_nats::jetstream::stream::Config {
-			name: stream_name.clone(),
-			max_messages: 256,
-			..Default::default()
-		};
-		messenger
-			.jetstream
-			.create_stream(stream_config)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, ?stream_name, "failed to create the pipe stream")
-			})?;
-		Ok(())
 	}
 }
 

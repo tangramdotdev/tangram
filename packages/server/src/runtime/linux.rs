@@ -406,7 +406,7 @@ impl Runtime {
 
 						// If this is an overlay to "/", then make sure that the rootdir points to the "upper" directory of the overlay.
 						if mount.target == Path::new("/") {
-							instance.rootdir = upperdir.clone()
+							instance.rootdir = upperdir.clone();
 						}
 
 						overlays.push(sandbox::Overlay {

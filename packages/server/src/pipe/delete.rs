@@ -1,11 +1,10 @@
-use crate::{Server, messenger::Messenger};
+use crate::Server;
 use bytes::Bytes;
-use futures::{StreamExt, TryStreamExt, future, stream::FuturesUnordered};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::{self as messenger, Messenger as _};
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub async fn delete_pipe(
@@ -47,69 +46,11 @@ impl Server {
 		drop(connection);
 
 		// Delete the pipe.
-		match &self.messenger {
-			Messenger::Left(m) => self.delete_pipe_memory(m, id).await?,
-			Messenger::Right(m) => self.delete_pipe_nats(m, id).await?,
-		}
-		Ok(())
-	}
-
-	async fn delete_pipe_memory(
-		&self,
-		messenger: &messenger::memory::Messenger,
-		id: &tg::pipe::Id,
-	) -> tg::Result<()> {
-		messenger
-			.streams()
-			.close_stream(id.to_string())
-			.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
-		Ok(())
-	}
-
-	async fn delete_pipe_nats(
-		&self,
-		messenger: &messenger::nats::Messenger,
-		id: &tg::pipe::Id,
-	) -> tg::Result<()> {
-		// Wait for consumers to finish pulling data from their streams.
-		let stream = messenger
-			.jetstream
-			.get_stream(id.to_string())
+		self.messenger
+			.destroy_stream(id.to_string())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
-		tokio::time::timeout(std::time::Duration::from_secs(10), async move {
-			let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-			loop {
-				interval.tick().await;
-				let len = stream
-					.consumers()
-					.filter_map(|info| {
-						future::ready({
-							match info {
-								Ok(info) => (info.num_pending > 0).then_some(()),
-								Err(_) => None,
-							}
-						})
-					})
-					.collect::<FuturesUnordered<_>>()
-					.await
-					.len();
-				if len == 0 {
-					break;
-				}
-			}
-			Ok::<_, tg::Error>(())
-		})
-		.await
-		.ok()
-		.transpose()?;
+			.map_err(|source| tg::error!(!source, "failed to destroy the stream"))?;
 
-		// Delete the stream.
-		messenger
-			.jetstream
-			.delete_stream(id.to_string())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
 		Ok(())
 	}
 }
