@@ -8,21 +8,21 @@ use tokio_stream::wrappers::ReceiverStream;
 pub async fn handle_sigwinch<H>(
 	handle: &H,
 	fd: RawFd,
-	io: &tg::process::Stdio,
+	stdio: &tg::process::Stdio,
 	remote: Option<String>,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
-	let tg::process::Stdio::Pty(pty) = io else {
+	let tg::process::Stdio::Pty(pty) = stdio else {
 		return Ok(());
 	};
 
+	// Create the size stream.
 	let (send, recv) = tokio::sync::mpsc::channel(1);
-
 	let mut signal = tokio::signal::unix::signal(SignalKind::window_change())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
-	tokio::task::spawn(async move {
+	tokio::spawn(async move {
 		while let Some(()) = signal.recv().await {
 			let size = unsafe {
 				let mut winsize: MaybeUninit<libc::winsize> = MaybeUninit::uninit();
@@ -42,16 +42,18 @@ where
 			}
 		}
 	});
+	let stream = ReceiverStream::new(recv);
 
 	let arg = tg::pty::write::Arg {
 		remote,
 		master: true,
 	};
-	let stream = ReceiverStream::new(recv);
 	handle
 		.write_pty(pty, arg, stream.boxed())
 		.await
-		.map_err(|source| tg::error!(!source, "failed to post the window change stream"))
+		.map_err(|source| tg::error!(!source, "failed to post the window change stream"))?;
+
+	Ok(())
 }
 
 /// Handle all signals.

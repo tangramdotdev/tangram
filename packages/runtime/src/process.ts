@@ -1,17 +1,14 @@
-import { mutate } from "./args.ts";
 import * as tg from "./index.ts";
 import { flatten } from "./util.ts";
 
 export class Process {
 	static current: tg.Process;
 
-	#env: { [name: string]: tg.Value } | undefined;
 	#id: tg.Process.Id;
 	#remote: string | undefined;
 	#state: tg.Process.State | undefined;
 
 	constructor(arg: tg.Process.ConstructorArg) {
-		this.#env = undefined;
 		this.#id = arg.id;
 		this.#remote = arg.remote;
 		this.#state = arg.state;
@@ -21,27 +18,55 @@ export class Process {
 		return this.#state;
 	}
 
-	static async spawn(
-		...args: tg.Args<tg.Process.SpawnArg>
-	): Promise<tg.Process> {
-		let { mounts, ...arg } = await Process.arg(...args);
+	static async spawn(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Process> {
+		let arg = await Process.arg(...args);
 		let checksum = arg.checksum;
-		let command = await tg.command(
-			{ env: Process.current.command().then((command) => command.env()) },
-			arg.command,
-			arg,
-		);
-		let cwd = "cwd" in arg ? arg.cwd : tg.Process.current.#state!.cwd;
-		let processEnv =
-			"processEnv" in arg ? arg.processEnv : tg.Process.current.#state!.env;
-		let mounts_ = await Promise.all(
-			(mounts ?? []).map(async (mount) => {
-				if (typeof mount === "string" || mount instanceof tg.Template) {
-					return await tg.Process.Mount.parse(mount);
+		let mounts: Array<tg.Process.Mount> = [];
+		let commandMounts: Array<tg.Command.Mount> = [];
+		if ("mounts" in arg) {
+			let mounts = await Promise.all(
+				(arg.mounts ?? []).map(async (mount) => {
+					if (typeof mount === "string" || mount instanceof tg.Template) {
+						try {
+							let commandMount = await tg.Command.Mount.parse(mount);
+							return commandMount;
+						} catch (_) {
+							try {
+								let processMount = await tg.Process.Mount.parse(mount);
+								return processMount;
+							} catch (e) {
+								throw new Error(`Failed to parse mount: ${mount}`, {
+									cause: e,
+								});
+							}
+						}
+					} else {
+						return mount;
+					}
+				}),
+			);
+			for (let mount of mounts) {
+				if ("readonly" in mount) {
+					mounts.push(mount);
 				} else {
-					return mount;
+					commandMounts.push(mount);
 				}
-			}),
+			}
+		} else {
+			mounts = tg.Process.current.#state!.mounts;
+		}
+		let command = await tg.command(
+			{
+				env: Process.current.command().then((command) => command.env()),
+				host: Process.current.command().then((command) => command.host()),
+			},
+			arg.command,
+			"args" in arg ? { args: arg.args } : undefined,
+			"cwd" in arg ? { cwd: arg.cwd } : undefined,
+			"env" in arg ? { env: arg.env } : undefined,
+			"executable" in arg ? { executable: arg.executable } : undefined,
+			"host" in arg ? { host: arg.host } : undefined,
+			"mounts" in arg ? { mounts: commandMounts } : undefined,
 		);
 		let network =
 			"network" in arg ? arg.network : tg.Process.current.#state!.network;
@@ -49,9 +74,7 @@ export class Process {
 			checksum,
 			command: await command.id(),
 			create: false,
-			cwd,
-			env: processEnv,
-			mounts: mounts_,
+			mounts,
 			network,
 			parent: undefined,
 			remote: undefined,
@@ -69,25 +92,24 @@ export class Process {
 		return output;
 	}
 
-	static async build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value> {
-		let process = await Process.spawn(
+	static async build(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
+		return await Process.run(
 			{
 				cwd: undefined,
-				processEnv: undefined,
+				env: undefined,
+				mounts: undefined,
 				network: false,
 			},
 			...args,
 		);
-		let output = await process.wait();
-		if (output.status !== "succeeded") {
-			throw output.error;
-		}
-		return output.output;
 	}
 
-	static async run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value> {
+	static async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		let process = await Process.spawn(...args);
 		let output = await process.wait();
+		(() => {
+			throw new Error("got after wait!");
+		})();
 		if (output.status !== "succeeded") {
 			throw output.error;
 		}
@@ -117,8 +139,8 @@ export class Process {
 	}
 
 	static async arg(
-		...args: tg.Args<tg.Process.SpawnArg>
-	): Promise<tg.Process.SpawnArgObject> {
+		...args: tg.Args<tg.Process.RunArg>
+	): Promise<tg.Process.RunArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let flattened = flatten(resolved);
 		let objects = await Promise.all(
@@ -161,32 +183,6 @@ export class Process {
 		return this.#state!.command;
 	}
 
-	async cwd(): Promise<string | undefined> {
-		await this.load();
-		return this.#state!.cwd;
-	}
-
-	async env(): Promise<{ [name: string]: tg.Value }>;
-	async env(name: string): Promise<tg.Value | undefined>;
-	async env(
-		name?: string,
-	): Promise<{ [name: string]: tg.Value } | tg.Value | undefined> {
-		if (this.#env === undefined) {
-			await this.load();
-			let processEnv = this.#state!.env;
-			let commandEnv = await (await this.command()).env();
-			this.#env = processEnv ?? {};
-			for (let [name, value] of Object.entries(commandEnv)) {
-				mutate(this.#env, name, value);
-			}
-		}
-		if (name === undefined) {
-			return this.#env!;
-		} else {
-			return this.#env![name];
-		}
-	}
-
 	async network(): Promise<boolean> {
 		await this.load();
 		return this.#state!.network;
@@ -205,25 +201,23 @@ export namespace Process {
 	export type Id = string;
 
 	export type Mount = {
-		source: tg.Process.Mount.Source;
+		source: string;
 		target: string;
 		readonly: boolean;
 	};
 
 	export namespace Mount {
-		export type Source = tg.Artifact | string;
-
 		export let parse = async (
-			t: string | tg.Template,
+			arg: string | tg.Template,
 		): Promise<tg.Process.Mount> => {
-			// If the user passed a template, render a string with artifact IDs.
+			// If the user passed a template, ensure it contains no artifacts.
 			let s: string | undefined;
-			if (typeof t === "string") {
-				s = t;
-			} else if (t instanceof tg.Template) {
-				s = await t.components.reduce(async (acc, component) => {
+			if (typeof arg === "string") {
+				s = arg;
+			} else if (arg instanceof tg.Template) {
+				s = await arg.components.reduce(async (acc, component) => {
 					if (tg.Artifact.is(component)) {
-						return (await acc) + (await component.id());
+						throw new Error("expected no artifacts");
 					} else {
 						return (await acc) + component;
 					}
@@ -266,7 +260,7 @@ export namespace Process {
 			}
 
 			// Determine source type
-			let source: Mount.Source = sourcePart;
+			let source = sourcePart;
 
 			readonly = readonly ?? false;
 
@@ -278,32 +272,31 @@ export namespace Process {
 		};
 	}
 
-	export type SpawnArg =
+	export type RunArg =
 		| undefined
 		| string
 		| tg.Artifact
 		| tg.Template
 		| tg.Command
-		| SpawnArgObject;
+		| RunArgObject;
 
-	export type SpawnArgObject = {
+	export type RunArgObject = {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
 		command?: tg.Command.Arg | undefined;
 		cwd?: string | undefined;
-		processEnv?: { [key: string]: string } | undefined;
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		mounts?: Array<string | tg.Template | tg.Process.Mount> | undefined;
+		mounts?:
+			| Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
+			| undefined;
 		network?: boolean | undefined;
 	};
 
 	export type State = {
 		checksum: tg.Checksum | undefined;
 		command: tg.Command;
-		cwd: string | undefined;
-		env: { [key: string]: string } | undefined;
 		error: tg.Error | undefined;
 		exit: tg.Process.Exit | undefined;
 		mounts: Array<tg.Process.Mount>;

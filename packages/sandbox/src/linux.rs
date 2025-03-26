@@ -1,6 +1,6 @@
 use crate::{
 	Child, Command, ExitStatus, Stderr, Stdin, Stdout,
-	common::{CStringVec, GuestIo, cstring, envstring, socket_pair, stdio_pair},
+	common::{CStringVec, GuestStdio, cstring, envstring, socket_pair, stdio_pair},
 	pty::Pty,
 };
 use num::ToPrimitive;
@@ -31,9 +31,9 @@ pub(crate) struct Context {
 	pub mounts: Vec<Mount>,
 	pub network: bool,
 	pub socket: std::os::unix::net::UnixStream,
-	pub stdin: GuestIo,
-	pub stdout: GuestIo,
-	pub stderr: GuestIo,
+	pub stdin: GuestStdio,
+	pub stdout: GuestStdio,
+	pub stderr: GuestStdio,
 }
 
 pub async fn spawn(command: &Command) -> std::io::Result<Child> {

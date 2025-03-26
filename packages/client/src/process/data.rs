@@ -4,10 +4,7 @@ use crate::{
 };
 use itertools::Itertools as _;
 use serde_with::serde_as;
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	path::PathBuf,
-};
+use std::{collections::BTreeSet, path::PathBuf};
 use time::format_description::well_known::Rfc3339;
 
 #[serde_as]
@@ -28,18 +25,12 @@ pub struct Data {
 	pub created_at: time::OffsetDateTime,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cwd: Option<PathBuf>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub dequeued_at: Option<time::OffsetDateTime>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub enqueued_at: Option<time::OffsetDateTime>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub env: Option<BTreeMap<String, String>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
@@ -123,38 +114,17 @@ where
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Mount {
-	pub source: Source,
+	pub source: PathBuf,
+
 	pub target: PathBuf,
+
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub readonly: bool,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(untagged)]
-pub enum Source {
-	Artifact(tg::artifact::Id),
-	Path(PathBuf),
 }
 
 impl Mount {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		match &self.source {
-			Source::Artifact(artifact_id) => {
-				let object_id: tg::object::Id = artifact_id.clone().into();
-				std::iter::once(object_id).collect()
-			},
-			Source::Path(_) => BTreeSet::new(),
-		}
-	}
-}
-
-impl From<tg::command::data::Mount> for Mount {
-	fn from(value: tg::command::data::Mount) -> Self {
-		Self {
-			source: Source::Artifact(value.source),
-			target: value.target,
-			readonly: true,
-		}
+		BTreeSet::new()
 	}
 }

@@ -45,15 +45,19 @@ export function command<
 				tag: arg.module.referent.tag,
 			},
 		};
+		let cwd = undefined;
 		let mounts: Array<tg.Command.Mount> = [];
 		let stdin = undefined;
+		let user = undefined;
 		let object = {
 			args: args_,
+			cwd,
 			env: tg.Process.current.state!.command.state.object!.env,
 			executable,
 			host: "js",
 			mounts,
 			stdin,
+			user,
 		};
 		let state = { object };
 		return new Command(state, arg.function);
@@ -114,6 +118,7 @@ export class Command<
 	>(...args: tg.Args<Command.Arg>): Promise<Command<A, R>> {
 		let arg = await Command.arg(...args);
 		let args_ = arg.args ?? [];
+		let cwd = arg.cwd;
 		let env = await tg.Args.applyMutations(flatten(arg.env ?? []));
 		let executable = arg.executable;
 		let host = arg.host;
@@ -126,17 +131,20 @@ export class Command<
 				}
 			}),
 		);
-		let stdin = undefined;
 		if (!host) {
 			throw new Error("cannot create a command without a host");
 		}
+		let stdin = undefined;
+		let user = arg.user;
 		let object = {
 			args: args_,
+			cwd,
 			env,
 			executable,
 			host,
 			mounts,
 			stdin,
+			user,
 		};
 		return new Command({ object });
 	}
@@ -153,11 +161,14 @@ export class Command<
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
+					const host = await tg.Process.current
+						.command()
+						.then((command) => command.env())
+						.then((env) => env.TANGRAM_HOST);
 					return {
 						args: ["-c", arg],
 						executable: "/bin/sh",
-						host: (await (await tg.Process.current.command()).env())!
-							.TANGRAM_HOST,
+						host,
 					};
 				} else if (arg instanceof Command) {
 					return await arg.object();
@@ -226,6 +237,14 @@ export class Command<
 		return (await this.object()).host;
 	}
 
+	async stdin(): Promise<tg.Blob | undefined> {
+		return (await this.object()).stdin;
+	}
+
+	async user(): Promise<string | undefined> {
+		return (await this.object()).user;
+	}
+
 	async mounts(): Promise<Array<tg.Command.Mount>> {
 		return (await this.object()).mounts;
 	}
@@ -234,14 +253,14 @@ export class Command<
 		return this.#f;
 	}
 
-	async build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value> {
+	async build(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		return await tg.Process.build(
 			this as Command<Array<tg.Value>, tg.Value>,
 			...args,
 		);
 	}
 
-	async run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value> {
+	async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		return await tg.Process.run(
 			this as Command<Array<tg.Value>, tg.Value>,
 			...args,
@@ -260,11 +279,13 @@ export namespace Command {
 
 	export type ArgObject = {
 		args?: Array<tg.Value> | undefined;
+		cwd?: string | undefined;
 		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
 		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		stdin?: tg.Blob.Id | undefined;
+		user?: string | undefined;
 	};
 
 	export type Executable = string | tg.Artifact | tg.Command.Executable.Module;
@@ -309,7 +330,7 @@ export namespace Command {
 			}
 			tg.assert(s);
 
-			// Handle readonly/readwrite option if present, rejecting read-write.
+			// Handle the readonly/readwrite option if present, rejecting read-write.
 			if (s.includes(",")) {
 				const [mountPart, option] = s.split(",", 2);
 				tg.assert(mountPart);
@@ -324,7 +345,7 @@ export namespace Command {
 				}
 			}
 
-			// Split into source and target
+			// Split the string into source and target.
 			const colonIndex = s.indexOf(":");
 			if (colonIndex === -1) {
 				throw new Error("expected a target path");
@@ -334,7 +355,7 @@ export namespace Command {
 			const source = tg.Artifact.withId(sourceId);
 			const target = s.substring(colonIndex + 1);
 
-			// Validate target is absolute path
+			// Validate the target is an absolute path.
 			if (!target.startsWith("/")) {
 				throw new Error(`expected an absolute path: "${target}"`);
 			}
@@ -348,10 +369,13 @@ export namespace Command {
 
 	export type Object = {
 		args: Array<tg.Value>;
+		cwd: string | undefined;
 		env: { [key: string]: tg.Value };
 		executable: tg.Command.Executable | undefined;
 		host: string;
 		mounts: Array<tg.Command.Mount>;
+		stdin: tg.Blob | undefined;
+		user: string | undefined;
 	};
 
 	export type State = tg.Object.State<Command.Id, Command.Object>;

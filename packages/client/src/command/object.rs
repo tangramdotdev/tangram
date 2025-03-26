@@ -6,10 +6,13 @@ use std::path::PathBuf;
 #[derive(Clone, Debug)]
 pub struct Command {
 	pub args: tg::value::Array,
+	pub cwd: Option<PathBuf>,
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: String,
 	pub mounts: Vec<tg::command::Mount>,
+	pub stdin: Option<tg::Blob>,
+	pub user: Option<String>,
 }
 
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
@@ -90,6 +93,7 @@ impl TryFrom<Data> for Command {
 
 	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
 		let args = data.args.into_iter().map(TryInto::try_into).try_collect()?;
+		let cwd = data.cwd;
 		let env = data
 			.env
 			.into_iter()
@@ -98,12 +102,17 @@ impl TryFrom<Data> for Command {
 		let executable = data.executable.map(Into::into);
 		let host = data.host;
 		let mounts = data.mounts.into_iter().map(Into::into).collect();
+		let stdin = data.stdin.map(tg::Blob::with_id);
+		let user = data.user;
 		Ok(Self {
 			args,
+			cwd,
 			env,
 			executable,
 			host,
 			mounts,
+			stdin,
+			user,
 		})
 	}
 }

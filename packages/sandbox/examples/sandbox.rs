@@ -78,7 +78,6 @@ async fn darwin() -> std::io::Result<ExitStatus> {
 		.mount((&home, &home, false))
 		.env("PATH", "/usr/bin:/bin:/usr/local/bin:/sbin")
 		.env("HOME", &home)
-		.sandbox(true)
 		.network(false)
 		.stdin(Stdio::Inherit)
 		.stdout(Stdio::Inherit)

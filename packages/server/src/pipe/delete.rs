@@ -1,6 +1,6 @@
 use crate::{Server, messenger::Messenger};
 use bytes::Bytes;
-use futures::{StreamExt, TryStreamExt, future, stream::FuturesUnordered};
+use futures::{StreamExt as _, future, stream::FuturesUnordered};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};

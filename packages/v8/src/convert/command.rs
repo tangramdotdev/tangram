@@ -75,6 +75,10 @@ impl ToV8 for tg::command::Object {
 		let value = self.args.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
+		let key = v8::String::new_external_onebyte_static(scope, "cwd".as_bytes()).unwrap();
+		let value = self.cwd.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
 		let key = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
 		let value = self.env.to_v8(scope)?;
 		object.set(scope, key.into(), value);
@@ -89,6 +93,14 @@ impl ToV8 for tg::command::Object {
 
 		let key = v8::String::new_external_onebyte_static(scope, "mounts".as_bytes()).unwrap();
 		let value = self.mounts.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "stdin".as_bytes()).unwrap();
+		let value = self.stdin.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "user".as_bytes()).unwrap();
+		let value = self.user.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
@@ -106,6 +118,11 @@ impl FromV8 for tg::command::Object {
 		let args = value.get(scope, args.into()).unwrap();
 		let args = <_>::from_v8(scope, args)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
+
+		let cwd = v8::String::new_external_onebyte_static(scope, "cwd".as_bytes()).unwrap();
+		let cwd = value.get(scope, cwd.into()).unwrap();
+		let cwd = <_>::from_v8(scope, cwd)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the cwd"))?;
 
 		let env = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
 		let env = value.get(scope, env.into()).unwrap();
@@ -128,12 +145,25 @@ impl FromV8 for tg::command::Object {
 		let mounts = <_>::from_v8(scope, mounts)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the mounts"))?;
 
+		let stdin = v8::String::new_external_onebyte_static(scope, "stdin".as_bytes()).unwrap();
+		let stdin = value.get(scope, stdin.into()).unwrap();
+		let stdin = <_>::from_v8(scope, stdin)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the stdin"))?;
+
+		let user = v8::String::new_external_onebyte_static(scope, "user".as_bytes()).unwrap();
+		let user = value.get(scope, user.into()).unwrap();
+		let user = <_>::from_v8(scope, user)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the stdin"))?;
+
 		Ok(Self {
 			args,
+			cwd,
 			env,
 			executable,
 			host,
 			mounts,
+			stdin,
+			user,
 		})
 	}
 }

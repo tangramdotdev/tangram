@@ -1,14 +1,13 @@
-use self::stdio::Stdio;
+use self::signal::handle_signals;
 use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
-use signal::handle_signals;
 use std::{
-	io::{IsTerminal, Read},
+	io::{IsTerminal as _, Read as _},
 	pin::pin,
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle};
 use tangram_futures::task::Task;
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use tokio_stream::wrappers::ReceiverStream;
@@ -47,107 +46,41 @@ impl Cli {
 	pub async fn command_process_run(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the reference.
-		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-
-		let remote = args.options.spawn.remote.clone().flatten();
-
-		// Create the stdio.
-		let stdio = self
-			.create_stdio(remote, &args.options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
-
-		// Run the process.
-		let result = self
-			.run_process_inner(args.options, reference, args.trailing, &stdio)
-			.await;
-
-		stdio.delete_io(&handle).await;
-
-		// Drop stdio to restore termios.
-		drop(stdio);
-
-		// Get the output if it exists, forking to exit the current process so cleanup happens in the background.
-		let Some(output) = result? else {
-			fork_and_exit(0).ok();
-			return Ok(());
-		};
-
-		// Print a value if it exists and is non-null.
-		if let Some(value) = output.output {
-			if !value.is_null() {
-				let stdout = std::io::stdout();
-				let output = if stdout.is_terminal() {
-					let options = tg::value::print::Options {
-						recursive: false,
-						style: tg::value::print::Style::Pretty { indentation: "  " },
-					};
-					value.print(options)
-				} else {
-					value.to_string()
-				};
-				println!("{output}");
-			}
-		}
-
-		// Return an error if appropriate.
-		if let Some(error) = output.error {
-			return Err(tg::error!(!error, "the process failed"));
-		}
-
-		// Check the exit status.
-		let code = match output.exit {
-			Some(tg::process::Exit::Code { code }) => Some(code),
-			Some(tg::process::Exit::Signal { signal }) => Some(128 + signal),
-			None => None,
-		};
-
-		// Fork and exit.
-		if let Some(code) = code {
-			fork_and_exit(code).map_err(|source| tg::error!(!source, "failed to fork"))?;
-		}
-
-		Ok(())
-	}
-
-	#[allow(dead_code)]
-	async fn run_process_inner(
-		&self,
-		mut options: Options,
-		reference: tg::Reference,
-		trailing: Vec<String>,
-		stdio: &Stdio,
-	) -> tg::Result<Option<tg::process::wait::Wait>> {
-		let handle = self.handle().await?;
-
-		// Add the root to mounts.
-		if !options.spawn.sandbox {
-			options.spawn.mount.push(tg::process::Mount {
-				source: tg::process::mount::Source::Path("/".into()),
-				target: "/".into(),
-				readonly: false,
-			});
-		}
-
 		// Get the remote.
-		let remote = options
+		let remote = args
+			.options
 			.spawn
 			.remote
 			.clone()
-			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
+			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
-		// If the detach flag is set, then spawn without stdio and return None.
-		if options.detach {
+		// Get the reference.
+		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
+
+		// Create the stdio.
+		let stdio = self
+			.create_stdio(remote.clone(), &args.options)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
+
+		// If the detach flag is set, then spawn without stdio and return.
+		if args.options.detach {
 			let process = self
-				.spawn_process(options.spawn, reference, trailing, None, None, None)
+				.spawn_process(
+					args.options.spawn,
+					reference,
+					args.trailing,
+					None,
+					None,
+					None,
+				)
 				.boxed()
 				.await?;
 			println!("{}", process.id());
-			return Ok(None);
+			return Ok(());
 		}
 
-		// Spawn a task for stdout/stderr, before spawing the process.
+		// Spawn a task for stdout and stderr before spawing the process.
 		let stdio_task = tokio::spawn({
 			let handle = handle.clone();
 			let stdin = stdio.stdin.clone();
@@ -160,9 +93,9 @@ impl Cli {
 		// Spawn the process.
 		let process = self
 			.spawn_process(
-				options.spawn,
+				args.options.spawn,
 				reference,
-				trailing,
+				args.trailing,
 				Some(stdio.stderr.clone()),
 				Some(stdio.stdin.clone()),
 				Some(stdio.stdout.clone()),
@@ -170,7 +103,7 @@ impl Cli {
 			.boxed()
 			.await?;
 
-		// Print the process.
+		// Print the process ID.
 		eprint!("{} process {}\r\n", "info".blue().bold(), process.id());
 
 		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
@@ -217,10 +150,26 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
 
-		// Close stdio.
-		stdio.delete_io(&handle).await;
+		// End stdout and stderr.
+		match &stdio.stdout {
+			tg::process::Stdio::Pipe(id) => {
+				let arg = tg::pipe::write::Arg {
+					remote: stdio.remote.clone(),
+				};
+				let stream = stream::once(future::ok(tg::pipe::Event::End)).boxed();
+				handle.write_pipe(id, arg, stream).await?;
+			},
+			tg::process::Stdio::Pty(id) => {
+				let arg = tg::pty::write::Arg {
+					master: true,
+					remote: stdio.remote.clone(),
+				};
+				let stream = stream::once(future::ok(tg::pty::Event::End)).boxed();
+				handle.write_pty(id, arg, stream).await?;
+			},
+		}
 
-		// Stop and wait for stdio.
+		// Stop and await the stdio task.
 		stdio_task.await.unwrap()?;
 
 		// Abort the cancel task.
@@ -229,23 +178,57 @@ impl Cli {
 		// Abort the signal task.
 		signal_task.abort();
 
-		// Return the output.
-		result.map(Some)
+		// Restore termios.
+		drop(stdio);
+
+		let output = result?;
+
+		// Print a value if it exists and is non-null.
+		if let Some(value) = output.output {
+			if !value.is_null() {
+				let stdout = std::io::stdout();
+				let output = if stdout.is_terminal() {
+					let options = tg::value::print::Options {
+						recursive: false,
+						style: tg::value::print::Style::Pretty { indentation: "  " },
+					};
+					value.print(options)
+				} else {
+					value.to_string()
+				};
+				println!("{output}");
+			}
+		}
+
+		// Return an error if appropriate.
+		if let Some(error) = output.error {
+			return Err(tg::error!(!error, "the process failed"));
+		}
+
+		// Check the exit status.
+		let code = match output.exit {
+			Some(tg::process::Exit::Code { code }) => Some(code),
+			Some(tg::process::Exit::Signal { signal }) => Some(128 + signal),
+			None => None,
+		};
+
+		// Fork and exit.
+		if let Some(code) = code {
+			fork_and_exit(code).map_err(|source| tg::error!(!source, "failed to fork"))?;
+		}
+
+		Ok(())
 	}
 }
 
 fn fork_and_exit(code: i32) -> std::io::Result<()> {
-	// Fork.
 	let pid = unsafe { libc::fork() };
 	if pid < 0 {
 		return Err(std::io::Error::last_os_error());
 	}
-
-	// If this is the parent process, exit immediately.
 	if pid > 0 {
 		std::process::exit(code);
 	}
-
 	Ok(())
 }
 
@@ -362,14 +345,14 @@ fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
 
 async fn stdio_task_inner<H>(
 	handle: &H,
-	io: &tg::process::Stdio,
+	stdio: &tg::process::Stdio,
 	remote: Option<String>,
 	mut writer: impl AsyncWrite + Unpin,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
-	let stream = match io {
+	let stream = match stdio {
 		tg::process::Stdio::Pipe(id) => {
 			let arg = tg::pipe::read::Arg { remote };
 			handle

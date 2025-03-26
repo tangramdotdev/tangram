@@ -8,8 +8,9 @@ use std::{
 };
 use tangram_either::Either;
 
-pub type HostIo = Either<Pty, Option<tokio::net::UnixStream>>;
-pub type GuestIo = Either<Pty, Option<RawFd>>;
+pub type HostStdio = Either<Pty, Option<tokio::net::UnixStream>>;
+
+pub type GuestStdio = Either<Pty, Option<RawFd>>;
 
 pub struct CStringVec {
 	_strings: Vec<CString>,
@@ -24,7 +25,7 @@ impl CStringVec {
 	}
 }
 
-pub fn redirect_stdio(stdin: &mut GuestIo, stdout: &mut GuestIo, stderr: &mut GuestIo) {
+pub fn redirect_stdio(stdin: &mut GuestStdio, stdout: &mut GuestStdio, stderr: &mut GuestStdio) {
 	unsafe {
 		// Flag to make sure we only set the controlling terminal once.
 		let mut set_controlling_terminal = false;
@@ -60,7 +61,10 @@ pub fn redirect_stdio(stdin: &mut GuestIo, stdout: &mut GuestIo, stderr: &mut Gu
 	}
 }
 
-pub async fn stdio_pair(stdio: Stdio, pty: &mut Option<Pty>) -> std::io::Result<(HostIo, GuestIo)> {
+pub async fn stdio_pair(
+	stdio: Stdio,
+	pty: &mut Option<Pty>,
+) -> std::io::Result<(HostStdio, GuestStdio)> {
 	match stdio {
 		Stdio::Inherit => Ok((Either::Right(None), Either::Right(None))),
 		Stdio::Null => {
@@ -70,7 +74,7 @@ pub async fn stdio_pair(stdio: Stdio, pty: &mut Option<Pty>) -> std::io::Result<
 			}
 			Ok((Either::Right(None), Either::Right(Some(fd))))
 		},
-		Stdio::Piped => {
+		Stdio::Pipe => {
 			let (host, guest) = socket_pair()?;
 			Ok((
 				Either::Right(Some(host)),

@@ -23,7 +23,7 @@ impl Cli {
 	) -> tg::Result<Stdio> {
 		let handle = self.handle().await?;
 
-		// If the process is detached, don't create any interactive i/o.
+		// If the process is detached, don't create any interactive stdio.
 		if options.detach || !options.spawn.tty {
 			let stdin = create(&handle, remote.clone(), None).await?;
 			let stdout = create(&handle, remote.clone(), None).await?;
@@ -185,30 +185,6 @@ fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg:
 		};
 
 		Ok((termios, size))
-	}
-}
-
-impl Stdio {
-	pub async fn delete_io(&self, handle: &impl tg::Handle) {
-		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
-		let handle = handle.clone();
-		let remote = self.remote.clone();
-		for io in &io {
-			match io {
-				tg::process::Stdio::Pipe(id) => {
-					let arg = tg::pipe::delete::Arg {
-						remote: remote.clone(),
-					};
-					handle.delete_pipe(id, arg).await.ok();
-				},
-				tg::process::Stdio::Pty(id) => {
-					let arg = tg::pty::delete::Arg {
-						remote: remote.clone(),
-					};
-					handle.delete_pty(id, arg).await.ok();
-				},
-			}
-		}
 	}
 }
 

@@ -66,19 +66,19 @@ declare global {
 
 	function syscall(
 		syscall: "process_spawn",
-		arg: {
-			checksum: tg.Checksum | undefined;
-			command: tg.Command.Id | undefined;
-			create: boolean;
-			cwd: string | undefined;
-			env: { [key: string]: string } | undefined;
-			mounts: Array<tg.Process.Mount>;
-			network: boolean | undefined;
-			parent: tg.Process.Id | undefined;
-			remote: string | undefined;
-			retry: boolean;
-		},
+		arg: SpawnArg,
 	): Promise<{ process: tg.Process.Id; remote: string | undefined }>;
+
+	type SpawnArg = {
+		checksum: tg.Checksum | undefined;
+		command: tg.Command.Id | undefined;
+		create: boolean;
+		mounts: Array<tg.Process.Mount>;
+		network: boolean | undefined;
+		parent: tg.Process.Id | undefined;
+		remote: string | undefined;
+		retry: boolean;
+	};
 
 	function syscall(
 		syscall: "process_wait",

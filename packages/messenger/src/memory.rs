@@ -1,7 +1,6 @@
 use crate::Message;
 use async_broadcast::{SendError, TrySendError};
 use bytes::Bytes;
-use core::fmt;
 use dashmap::DashMap;
 use futures::{StreamExt as _, future};
 use std::{ops::Deref, sync::Arc};
@@ -9,23 +8,10 @@ use std::{ops::Deref, sync::Arc};
 pub struct Messenger(Arc<Inner>);
 
 #[derive(Debug)]
-
 pub enum Error {
 	NotFound,
 	SendError(SendError<Message>),
 	TrySendError(TrySendError<Message>),
-}
-
-impl std::error::Error for Error {}
-
-impl fmt::Display for Error {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Error::NotFound => write!(f, "subject not found"),
-			Error::SendError(e) => write!(f, "{e}"),
-			Error::TrySendError(e) => write!(f, "{e}"),
-		}
-	}
 }
 
 pub struct Inner {
@@ -71,7 +57,7 @@ impl Streams {
 			return Ok(());
 		};
 		stream.sender.close();
-		eprintln!("closed {subject}");
+
 		Ok(())
 	}
 
@@ -156,5 +142,17 @@ impl Deref for Messenger {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+impl std::error::Error for Error {}
+
+impl std::fmt::Display for Error {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Error::NotFound => write!(f, "subject not found"),
+			Error::SendError(e) => write!(f, "{e}"),
+			Error::TrySendError(e) => write!(f, "{e}"),
+		}
 	}
 }

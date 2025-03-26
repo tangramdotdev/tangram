@@ -1,5 +1,4 @@
 use crate as tg;
-use std::{collections::BTreeMap, path::PathBuf};
 
 #[derive(Clone, Debug)]
 pub struct State {
@@ -8,10 +7,8 @@ pub struct State {
 	pub children: Option<Vec<tg::Process>>,
 	pub command: tg::Command,
 	pub created_at: time::OffsetDateTime,
-	pub cwd: Option<PathBuf>,
 	pub dequeued_at: Option<time::OffsetDateTime>,
 	pub enqueued_at: Option<time::OffsetDateTime>,
-	pub env: Option<BTreeMap<String, String>>,
 	pub error: Option<tg::Error>,
 	pub exit: Option<tg::process::Exit>,
 	pub finished_at: Option<time::OffsetDateTime>,
@@ -41,10 +38,8 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		});
 		let command = tg::Command::with_id(value.command);
 		let created_at = value.created_at;
-		let cwd = value.cwd;
 		let dequeued_at = value.dequeued_at;
 		let enqueued_at = value.enqueued_at;
-		let env = value.env;
 		let error = value.error;
 		let exit = value.exit;
 		let finished_at = value.finished_at;
@@ -64,10 +59,8 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			children,
 			command,
 			created_at,
-			cwd,
 			dequeued_at,
 			enqueued_at,
-			env,
 			error,
 			exit,
 			finished_at,

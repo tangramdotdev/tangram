@@ -120,20 +120,12 @@ impl ToV8 for tg::process::State {
 		let value = self.created_at.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "cwd".as_bytes()).unwrap();
-		let value = self.cwd.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
 		let key = v8::String::new_external_onebyte_static(scope, "dequeued_at".as_bytes()).unwrap();
 		let value = self.dequeued_at.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "enqueued_at".as_bytes()).unwrap();
 		let value = self.enqueued_at.to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		let key = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
-		let value = self.env.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
@@ -185,30 +177,6 @@ impl ToV8 for tg::process::State {
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
-	}
-}
-
-impl FromV8 for tg::process::mount::Source {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tangram_client::Result<Self> {
-		let value = String::from_v8(scope, value)
-			.map_err(|source| tg::error!(!source, "failed to read the source string"))?;
-		if let Ok(id) = value.parse::<tg::artifact::Id>() {
-			return Ok(Self::Artifact(tg::Artifact::with_id(id)));
-		}
-		let Ok(path_buf) = value.parse::<std::path::PathBuf>();
-		Ok(Self::Path(path_buf))
-	}
-}
-
-impl ToV8 for tg::process::mount::Source {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		match self {
-			tg::process::mount::Source::Artifact(artifact) => artifact.to_v8(scope),
-			tg::process::mount::Source::Path(path_buf) => path_buf.to_v8(scope),
-		}
 	}
 }
 
@@ -299,11 +267,6 @@ impl FromV8 for tg::process::State {
 		let created_at = <_>::from_v8(scope, created_at)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the created_at field"))?;
 
-		let cwd = v8::String::new_external_onebyte_static(scope, "cwd".as_bytes()).unwrap();
-		let cwd = value.get(scope, cwd.into()).unwrap();
-		let cwd = <_>::from_v8(scope, cwd)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the cwd field"))?;
-
 		let dequeued_at =
 			v8::String::new_external_onebyte_static(scope, "dequeued_at".as_bytes()).unwrap();
 		let dequeued_at = value.get(scope, dequeued_at.into()).unwrap();
@@ -315,11 +278,6 @@ impl FromV8 for tg::process::State {
 		let enqueued_at = value.get(scope, enqueued_at.into()).unwrap();
 		let enqueued_at = <_>::from_v8(scope, enqueued_at)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the enqueued_at field"))?;
-
-		let env = v8::String::new_external_onebyte_static(scope, "env".as_bytes()).unwrap();
-		let env = value.get(scope, env.into()).unwrap();
-		let env = <_>::from_v8(scope, env)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the env field"))?;
 
 		let error = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
 		let error = value.get(scope, error.into()).unwrap();
@@ -394,10 +352,8 @@ impl FromV8 for tg::process::State {
 			children,
 			command,
 			created_at,
-			cwd,
 			dequeued_at,
 			enqueued_at,
-			env,
 			error,
 			exit,
 			finished_at,

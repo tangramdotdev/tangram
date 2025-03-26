@@ -1,6 +1,6 @@
 use crate::{
 	Child, Command, ExitStatus, Stderr, Stdin, Stdout,
-	common::{CStringVec, GuestIo, abort_errno, cstring, envstring, redirect_stdio, stdio_pair},
+	common::{CStringVec, GuestStdio, abort_errno, cstring, envstring, redirect_stdio, stdio_pair},
 	pty::Pty,
 };
 use indoc::writedoc;
@@ -9,6 +9,7 @@ use std::{
 	ffi::{CStr, CString},
 	fmt::Write,
 	os::unix::ffi::OsStrExt,
+	path::Path,
 };
 use tangram_either::Either;
 
@@ -18,9 +19,9 @@ struct Context {
 	envp: CStringVec,
 	executable: CString,
 	profile: CString,
-	stdin: GuestIo,
-	stdout: GuestIo,
-	stderr: GuestIo,
+	stdin: GuestStdio,
+	stdout: GuestStdio,
+	stderr: GuestStdio,
 }
 
 pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
@@ -36,7 +37,6 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 		.collect::<CStringVec>();
 	let executable = cstring(&command.executable);
 
-	// Check that the caller didn't request something that requires root or disabling SIP...
 	if command.chroot.is_some() {
 		return Err(std::io::Error::other(
 			"chroot unsupported on darwin targets",
@@ -198,7 +198,6 @@ fn guest_process(mut context: Context) -> ! {
 }
 
 fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
-	// Write the default profile.
 	let mut profile = String::new();
 	writedoc!(
 		profile,
@@ -207,7 +206,21 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 		"
 	)
 	.unwrap();
-	if command.sandbox {
+
+	let root_mount = command
+		.mounts
+		.iter()
+		.any(|mount| mount.target == Path::new("/"));
+	if root_mount {
+		writedoc!(
+			profile,
+			"
+				;; Allow everything by default.
+				(allow default)
+			"
+		)
+		.unwrap();
+	} else {
 		writedoc!(
 			profile,
 			r#"
@@ -248,7 +261,7 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 					(literal "/var")
 					(literal "/etc"))
 
-				;; Map system frameworks + dylibs
+				;; Map system frameworks + dylibs.
 				(allow file-map-executable
 					(subpath "/Library/Apple/System/Library/Frameworks")
 					(subpath "/Library/Apple/System/Library/PrivateFrameworks")
@@ -313,15 +326,6 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 				)
 			"#
 		).unwrap();
-	} else {
-		writedoc!(
-			profile,
-			"
-				;; Allow everything by default.
-				(allow default)
-			"
-		)
-		.unwrap();
 	}
 
 	// Write the network profile.
@@ -361,7 +365,7 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 	for mount in &command.mounts {
 		if mount.source != mount.target {
 			return Err(std::io::Error::other(
-				"sandbox requires mounts to have the same source and target path on Darwin targets",
+				"the source and target paths must be the same",
 			));
 		}
 		let path = &mount.source;

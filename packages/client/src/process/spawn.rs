@@ -2,7 +2,6 @@ use crate::{
 	self as tg,
 	util::serde::{is_false, is_true, return_true},
 };
-use std::{collections::BTreeMap, path::PathBuf};
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -14,12 +13,6 @@ pub struct Arg {
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub create: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cwd: Option<PathBuf>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub env: Option<BTreeMap<String, String>>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::process::data::Mount>,
@@ -83,8 +76,6 @@ impl Default for Arg {
 			checksum: None,
 			command: None,
 			create: true,
-			cwd: None,
-			env: None,
 			mounts: Vec::new(),
 			network: false,
 			parent: None,

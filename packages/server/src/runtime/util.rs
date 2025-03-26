@@ -1,10 +1,7 @@
 use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
-use futures::{
-	Stream, StreamExt as _, TryStreamExt as _, future,
-	stream::{self, FuturesOrdered},
-};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
@@ -13,35 +10,58 @@ use tangram_sandbox as sandbox;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Render a value.
-pub async fn render(
-	server: &Server,
-	value: &tg::Value,
-	artifacts_path: &Path,
-) -> tg::Result<String> {
+pub fn render_value(artifacts_path: &Path, value: &tg::value::Data) -> String {
 	if let Ok(string) = value.try_unwrap_string_ref() {
-		Ok(string.clone())
-	} else if let Ok(artifact) = tg::Artifact::try_from(value.clone()) {
-		Ok(artifacts_path
-			.join(artifact.id(server).await?.to_string())
-			.into_os_string()
-			.into_string()
-			.unwrap())
-	} else if let Ok(template) = value.try_unwrap_template_ref() {
-		return template
-			.try_render(|component| async move {
-				match component {
-					tg::template::Component::String(string) => Ok(string.clone()),
-					tg::template::Component::Artifact(artifact) => Ok(artifacts_path
-						.join(artifact.id(server).await?.to_string())
-						.into_os_string()
-						.into_string()
-						.unwrap()),
-				}
-			})
-			.await;
-	} else {
-		Ok("<tangram value>".to_owned())
+		return string.clone();
 	}
+	if let Ok(object) = value.try_unwrap_object_ref() {
+		if let Ok(artifact) = tg::artifact::Id::try_from(object.clone()) {
+			let string = artifacts_path
+				.join(artifact.to_string())
+				.to_str()
+				.unwrap()
+				.to_owned();
+			return string;
+		}
+	}
+	if let Ok(template) = value.try_unwrap_template_ref() {
+		let string = template.render(|component| match component {
+			tg::template::component::Data::String(string) => string.clone().into(),
+			tg::template::component::Data::Artifact(artifact) => artifacts_path
+				.join(artifact.to_string())
+				.to_str()
+				.unwrap()
+				.to_owned()
+				.into(),
+		});
+		return string;
+	}
+	"<tangram value>".to_owned()
+}
+
+pub fn render_env(
+	artifacts_path: &Path,
+	env: &tg::value::data::Map,
+) -> tg::Result<BTreeMap<String, String>> {
+	let mut output = BTreeMap::new();
+	for (key, value) in env {
+		let mutation = match value {
+			tg::value::Data::Mutation(value) => value.clone(),
+			value => tg::mutation::Data::Set {
+				value: Box::new(value.clone()),
+			},
+		};
+		mutation.apply(key, &mut output)?;
+	}
+	let output = output
+		.iter()
+		.map(|(key, value)| {
+			let key = key.clone();
+			let value = render_value(artifacts_path, value);
+			Ok::<_, tg::Error>((key, value))
+		})
+		.collect::<tg::Result<_>>()?;
+	Ok(output)
 }
 
 pub async fn compute_checksum(
@@ -123,41 +143,9 @@ pub async fn compute_checksum(
 	let output = output
 		.try_unwrap_string()
 		.map_err(|source| tg::error!(!source, "expected a string"))?;
+	let checksum = output.parse()?;
 
-	output.parse()
-}
-
-pub async fn merge_env(
-	server: &Server,
-	artifacts_path: &Path,
-	process: Option<&BTreeMap<String, String>>,
-	command: &tg::value::Map,
-) -> tg::Result<BTreeMap<String, String>> {
-	let mut env = process
-		.iter()
-		.flat_map(|env| env.iter())
-		.map(|(key, value)| (key.to_owned(), tg::Value::String(value.clone())))
-		.collect::<tg::value::Map>();
-
-	for (key, value) in command {
-		let mutation = match value {
-			tg::Value::Mutation(value) => value.clone(),
-			value => tg::Mutation::Set {
-				value: Box::new(value.clone()),
-			},
-		};
-		mutation.apply(key, &mut env)?;
-	}
-
-	env.iter()
-		.map(|(key, value)| async {
-			let key = key.clone();
-			let value = render(server, value, artifacts_path).await?;
-			Ok::<_, tg::Error>((key, value))
-		})
-		.collect::<FuturesOrdered<_>>()
-		.try_collect()
-		.await
+	Ok(checksum)
 }
 
 pub async fn stdio_task(
@@ -245,7 +233,6 @@ async fn pipe_task(
 	stdout: sandbox::Stdout,
 	stderr: sandbox::Stderr,
 ) -> tg::Result<()> {
-	// Create a task for stdin.
 	let stdin = tokio::spawn({
 		let server = server.clone();
 		let io = process.load(&server).await?.stdin.clone();
@@ -298,6 +285,7 @@ async fn pipe_task(
 	stderr
 		.unwrap()
 		.map_err(|source| tg::error!(!source, "failed to read stderr from pipe"))?;
+
 	Ok::<_, tg::Error>(())
 }
 
@@ -330,29 +318,32 @@ pub async fn signal_task(
 	};
 	let mut stream = server.try_get_process_signal_stream(process.id(), arg).await
 		.map_err(|source| tg::error!(!source, %process = process.id(), "failed to get the process's signal stream"))?
-		.ok_or_else(|| tg::error!(%process = process.id(), "the process was destroyed before it could be waited"))?;
+		.ok_or_else(|| tg::error!(%process = process.id(), "expected the process's signal stream to exist"))?;
 
+	// Handle the events.
 	while let Some(event) = stream.try_next().await? {
 		match event {
 			tg::process::signal::get::Event::Signal(signal) => unsafe {
-				if libc::kill(pid, signal_number(signal)) != 0 {
+				let ret = libc::kill(pid, signal_number(signal));
+				if ret != 0 {
 					let error = std::io::Error::last_os_error();
-					tracing::error!(?error, "failed to send signal");
+					tracing::error!(?error, "failed to send the signal");
 				}
 			},
 			tg::process::signal::get::Event::End => break,
 		}
 	}
+
 	Ok(())
 }
 
 pub async fn write_io_bytes(
 	server: &Server,
-	io: &tg::process::Stdio,
+	stdio: &tg::process::Stdio,
 	remote: Option<String>,
 	bytes: Bytes,
 ) -> tg::Result<()> {
-	match io {
+	match stdio {
 		tg::process::Stdio::Pipe(id) => server.write_pipe_bytes(id, remote, bytes).await,
 		tg::process::Stdio::Pty(id) => server.write_pty_bytes(id, remote, bytes).await,
 	}
@@ -378,12 +369,12 @@ fn signal_number(signal: tg::process::Signal) -> i32 {
 
 async fn input(
 	server: &Server,
-	io: &tg::process::Stdio,
+	stdio: &tg::process::Stdio,
 	remote: Option<String>,
 	mut stdin: sandbox::Stdin,
 	stop: Stop,
 ) -> tg::Result<()> {
-	match io {
+	match stdio {
 		tg::process::Stdio::Pipe(id) => {
 			let arg = tg::pipe::read::Arg { remote };
 			let stream = server.read_pipe(id, arg).await?;
@@ -444,12 +435,12 @@ async fn input(
 
 async fn output(
 	server: &Server,
-	io: &tg::process::Stdio,
+	stdio: &tg::process::Stdio,
 	remote: Option<String>,
 	reader: impl AsyncRead + Unpin + Send + 'static,
 ) -> tg::Result<()> {
 	let stream = chunk_stream_from_reader(reader);
-	match io {
+	match stdio {
 		tg::process::Stdio::Pipe(id) => {
 			let stream = stream
 				.map_ok(tg::pipe::Event::Chunk)

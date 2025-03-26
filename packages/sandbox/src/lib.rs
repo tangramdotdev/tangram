@@ -24,11 +24,9 @@ pub struct Command {
 	hostname: Option<OsString>,
 	mounts: Vec<Mount>,
 	network: bool,
-	paths: Vec<Path>,
-	sandbox: bool,
+	stderr: Stdio,
 	stdin: Stdio,
 	stdout: Stdio,
-	stderr: Stdio,
 	uid: u32,
 }
 
@@ -50,11 +48,6 @@ pub struct Child {
 	pub stderr: Option<Stderr>,
 }
 
-pub struct Path {
-	pub path: PathBuf,
-	pub readonly: bool,
-}
-
 #[derive(Clone, Debug)]
 pub struct Mount {
 	pub source: PathBuf,
@@ -63,10 +56,6 @@ pub struct Mount {
 	pub flags: libc::c_ulong,
 	pub data: Option<Vec<u8>>,
 	pub readonly: bool,
-}
-
-pub enum MountKind {
-	Bind,
 }
 
 pub struct Overlay {
@@ -97,7 +86,7 @@ pub struct Stderr {
 #[derive(Copy, Clone, Debug)]
 pub enum Stdio {
 	Inherit,
-	Piped,
+	Pipe,
 	Null,
 	Tty(Tty),
 }
@@ -126,11 +115,9 @@ impl Command {
 			hostname: None,
 			mounts: Vec::new(),
 			network: true,
-			paths: Vec::new(),
-			sandbox: false,
+			stderr: Stdio::Inherit,
 			stdin: Stdio::Inherit,
 			stdout: Stdio::Inherit,
-			stderr: Stdio::Inherit,
 			uid: unsafe { libc::getuid() },
 		}
 	}
@@ -145,8 +132,8 @@ impl Command {
 		self
 	}
 
-	pub fn chroot(&mut self, p: impl AsRef<std::path::Path>) -> &mut Self {
-		self.chroot.replace(p.as_ref().to_owned());
+	pub fn chroot(&mut self, path: impl AsRef<std::path::Path>) -> &mut Self {
+		self.chroot.replace(path.as_ref().to_owned());
 		self
 	}
 
@@ -155,8 +142,8 @@ impl Command {
 		self
 	}
 
-	pub fn env(&mut self, k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> &mut Self {
-		self.envs(std::iter::once((k, v)))
+	pub fn env(&mut self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> &mut Self {
+		self.envs(std::iter::once((key, value)))
 	}
 
 	pub fn envs(
@@ -165,7 +152,7 @@ impl Command {
 	) -> &mut Self {
 		self.envs.extend(
 			envs.into_iter()
-				.map(|(k, v)| (k.as_ref().to_owned(), v.as_ref().to_owned())),
+				.map(|(key, value)| (key.as_ref().to_owned(), value.as_ref().to_owned())),
 		);
 		self
 	}
@@ -194,22 +181,8 @@ impl Command {
 		self
 	}
 
-	pub fn path(&mut self, path: impl Into<Path>) -> &mut Self {
-		self.paths(std::iter::once(path))
-	}
-
-	pub fn paths(&mut self, paths: impl IntoIterator<Item = impl Into<Path>>) -> &mut Self {
-		self.paths.extend(paths.into_iter().map(Into::into));
-		self
-	}
-
 	pub fn network(&mut self, enable: bool) -> &mut Self {
 		self.network = enable;
-		self
-	}
-
-	pub fn sandbox(&mut self, enable: bool) -> &mut Self {
-		self.sandbox = enable;
 		self
 	}
 
@@ -371,13 +344,13 @@ impl Drop for Child {
 
 impl<S, T> From<(S, T)> for Mount
 where
-	S: AsRef<std::path::Path>,
-	T: AsRef<std::path::Path>,
+	S: Into<PathBuf>,
+	T: Into<PathBuf>,
 {
 	fn from(value: (S, T)) -> Self {
 		let (source, target) = value;
-		let source = source.as_ref().to_owned();
-		let target = target.as_ref().to_owned();
+		let source = source.into();
+		let target = target.into();
 		Mount::from(BindMount {
 			source,
 			target,
@@ -388,13 +361,13 @@ where
 
 impl<S, T> From<(S, T, bool)> for Mount
 where
-	S: AsRef<std::path::Path>,
-	T: AsRef<std::path::Path>,
+	S: Into<PathBuf>,
+	T: Into<PathBuf>,
 {
 	fn from(value: (S, T, bool)) -> Self {
 		let (source, target, readonly) = value;
-		let source = source.as_ref().to_owned();
-		let target = target.as_ref().to_owned();
+		let source = source.into();
+		let target = target.into();
 		Mount::from(BindMount {
 			source,
 			target,

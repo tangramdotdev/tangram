@@ -1,5 +1,4 @@
 use crate as tg;
-use bytes::Bytes;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
 	stream::{self, BoxStream},
@@ -7,7 +6,6 @@ use futures::{
 use num::ToPrimitive as _;
 use std::{
 	io::SeekFrom,
-	pin::Pin,
 	sync::{Arc, Mutex},
 };
 use tangram_either::Either;
@@ -391,37 +389,6 @@ pub trait Ext: tg::Handle {
 		self.try_get_process_log(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
 		})
-	}
-
-	fn read_pipe(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::read::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>> + Send
-	{
-		async move {
-			let stream = self.read_pty(id, arg).await?;
-			Ok(stream.try_filter_map(|event| {
-				let ret = if let tg::pty::Event::Chunk(chunk) = event {
-					Some(chunk)
-				} else {
-					None
-				};
-				future::ok(ret)
-			}))
-		}
-	}
-
-	fn write_pipe(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		async move {
-			let stream = stream.map(|event| event.map(tg::pty::Event::Chunk)).boxed();
-			self.write_pty(id, arg, stream).await
-		}
 	}
 
 	fn wait_process_future(

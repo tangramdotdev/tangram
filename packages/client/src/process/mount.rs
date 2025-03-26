@@ -3,40 +3,22 @@ use std::{path::PathBuf, str::FromStr};
 
 #[derive(Clone, Debug)]
 pub struct Mount {
-	pub source: Source,
+	pub source: PathBuf,
 	pub target: PathBuf,
 	pub readonly: bool,
-}
-
-#[derive(Clone, Debug)]
-pub enum Source {
-	Artifact(tg::Artifact),
-	Path(PathBuf),
 }
 
 impl Mount {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
-		match &self.source {
-			Source::Artifact(artifact) => {
-				let object_id: tg::Object = artifact.clone().into();
-				std::iter::once(object_id).collect()
-			},
-			Source::Path(_) => Vec::new(),
-		}
+		Vec::new()
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::process::data::Mount>
+	pub async fn data<H>(&self, _handle: &H) -> tg::Result<tg::process::data::Mount>
 	where
 		H: tg::Handle,
 	{
-		let source = match &self.source {
-			Source::Artifact(artifact) => {
-				let id = artifact.id(handle).await?;
-				tg::process::data::Source::Artifact(id)
-			},
-			Source::Path(path_buf) => tg::process::data::Source::Path(path_buf.clone()),
-		};
+		let source = self.source.clone();
 		let target = self.target.clone();
 		let readonly = self.readonly;
 		let mount = tg::process::data::Mount {
@@ -48,24 +30,10 @@ impl Mount {
 	}
 }
 
-impl From<tg::command::Mount> for Mount {
-	fn from(value: tg::command::Mount) -> Self {
-		Self {
-			source: Source::Artifact(value.source),
-			target: value.target,
-			readonly: true,
-		}
-	}
-}
-
 impl From<tg::process::data::Mount> for Mount {
 	fn from(value: tg::process::data::Mount) -> Self {
-		let source = match value.source {
-			super::data::Source::Artifact(id) => Source::Artifact(tg::Artifact::with_id(id)),
-			super::data::Source::Path(path_buf) => Source::Path(path_buf),
-		};
 		Self {
-			source,
+			source: value.source,
 			target: value.target,
 			readonly: value.readonly,
 		}
@@ -94,18 +62,8 @@ impl FromStr for Mount {
 		if !target.is_absolute() {
 			return Err(tg::error!(%target = target.display(), "expected an absolute path"));
 		}
-		let source = if let Ok(artifact_id) = source.parse() {
-			Source::Artifact(tg::Artifact::with_id(artifact_id))
-		} else {
-			Source::Path(source.into())
-		};
-		let readonly = match (&source, readonly) {
-			(Source::Artifact(_), None | Some(true)) => true,
-			(Source::Artifact(_), Some(false)) => {
-				return Err(tg::error!("cannot mount artifacts read-write"));
-			},
-			(Source::Path(_), readonly) => readonly.unwrap_or(false),
-		};
+		let source = source.into();
+		let readonly = readonly.unwrap_or(false);
 		Ok(Self {
 			source,
 			target,

@@ -599,26 +599,18 @@ declare namespace tg {
 		/** Get this command's mounts. */
 		mounts(): Promise<Array<tg.Command.Mount>>;
 
+		/** Get this command's user. */
+		user(): Promise<string>;
+
 		/** Build this command and return the process's output. */
-		build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
+		build(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value>;
 
 		/** Run this command and return the process's output. */
-		run(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
+		run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value>;
 	}
 
 	export namespace Command {
 		export type Id = string;
-
-		/** A mount. */
-		export type Mount = {
-			source: tg.Artifact;
-			target: string;
-		};
-
-		export namespace Mount {
-			/** Parse a Mount. */
-			export let parse: (t: string | tg.Template) => Promise<tg.Command.Mount>;
-		}
 
 		export type Arg =
 			| undefined
@@ -632,6 +624,9 @@ declare namespace tg {
 			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
 
+			/** The command's working directory. **/
+			cwd?: string | undefined;
+
 			/** The command's environment. */
 			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 
@@ -643,6 +638,12 @@ declare namespace tg {
 
 			/** The command's mounts. */
 			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
+
+			/** The command's user. */
+			user?: string | undefined;
+
+			/** The command's stdin. */
+			stdin?: tg.Blob.Id | undefined;
 		};
 
 		export type Object = {
@@ -656,6 +657,19 @@ declare namespace tg {
 		export type ExecutableArg = string | tg.Artifact | tg.Module;
 
 		export type Executable = string | tg.Artifact | tg.Module;
+
+		/** A mount. */
+		export type Mount = {
+			source: tg.Artifact;
+			target: string;
+		};
+
+		export namespace Mount {
+			/** Parse a mount. */
+			export let parse: (
+				arg: string | tg.Template,
+			) => Promise<tg.Command.Mount>;
+		}
 	}
 
 	export namespace path {
@@ -944,11 +958,9 @@ declare namespace tg {
 			| "command";
 	}
 
-	export let build: (
-		...args: tg.Args<tg.Process.SpawnArg>
-	) => Promise<tg.Value>;
+	export let build: (...args: tg.Args<tg.Process.RunArg>) => Promise<tg.Value>;
 
-	export let run: (...args: tg.Args<tg.Process.SpawnArg>) => Promise<tg.Value>;
+	export let run: (...args: tg.Args<tg.Process.RunArg>) => Promise<tg.Value>;
 
 	/** The current process. */
 	export let process: tg.Process;
@@ -992,30 +1004,15 @@ declare namespace tg {
 	export namespace Process {
 		export type Id = string;
 
-		/** A mount. */
-		export type Mount = {
-			source: tg.Process.Mount.Source;
-			target: string;
-			readonly: boolean;
-		};
-
-		export namespace Mount {
-			/** The source for a mount is either an artifact or a path. */
-			export type Source = tg.Artifact | string;
-
-			/** Parse a Mount from a template. */
-			export let parse: (t: string | tg.Template) => Promise<tg.Process.Mount>;
-		}
-
-		export type SpawnArg =
+		export type RunArg =
 			| undefined
 			| string
 			| tg.Artifact
 			| tg.Template
 			| tg.Command
-			| SpawnArgObject;
+			| RunArgObject;
 
-		export type SpawnArgObject = {
+		export type RunArgObject = {
 			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
 
@@ -1025,7 +1022,7 @@ declare namespace tg {
 			/** The command to spawn. **/
 			command?: tg.Command.Arg | undefined;
 
-			/** Set the current working directory for the process. **/
+			/** The command's working directory. **/
 			cwd?: string | undefined;
 
 			/** The command's environment. */
@@ -1037,12 +1034,31 @@ declare namespace tg {
 			/** The command's host. */
 			host?: string | undefined;
 
-			/** The mounts to attach. */
-			mounts?: Array<string | tg.Template | tg.Process.Mount> | undefined;
+			/** The command's or process's mounts. */
+			mounts?:
+				| Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
+				| undefined;
+
+			/** The command's user. */
+			user?: string | undefined;
 
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
 		};
+
+		/** A mount. */
+		export type Mount = {
+			source: string;
+			target: string;
+			readonly: boolean;
+		};
+
+		export namespace Mount {			
+			/** Parse a mount. */
+			export let parse: (
+				arg: string | tg.Template,
+			) => Promise<tg.Process.Mount>;
+		}
 	}
 
 	export type Reference = string;

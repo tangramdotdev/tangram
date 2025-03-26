@@ -25,9 +25,7 @@ impl Server {
 				.subscribe(format!("ptys.{pty}.deleted"), None)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get pty.deleted stream"))?
-				.map(|_message| {
-					Ok::<_, tg::Error>(())
-				});
+				.map(|_message| Ok::<_, tg::Error>(()));
 
 			// Create a timer to check if the pty still exists, in case we miss a notification message.
 			let id = pty.clone();

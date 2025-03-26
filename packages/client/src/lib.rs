@@ -10,7 +10,7 @@ use std::{
 	time::Duration,
 };
 use tangram_http::Body;
-use time::{Date, Month, OffsetDateTime, Time, format_description::well_known::Rfc3339};
+use time::format_description::well_known::Rfc3339;
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
@@ -603,10 +603,10 @@ impl Client {
 	}
 
 	#[must_use]
-	pub fn compatibility_date() -> OffsetDateTime {
-		OffsetDateTime::new_utc(
-			Date::from_calendar_date(2025, Month::January, 1).unwrap(),
-			Time::MIDNIGHT,
+	pub fn compatibility_date() -> time::OffsetDateTime {
+		time::OffsetDateTime::new_utc(
+			time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap(),
+			time::Time::MIDNIGHT,
 		)
 	}
 

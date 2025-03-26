@@ -30,16 +30,12 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none()
-			&& arg.env.is_none()
-			&& !arg.network
-			&& arg.stdin.is_none()
-			&& arg.stdout.is_none()
-			&& arg.stderr.is_none();
-
 		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some() || sandboxed;
+		let cacheable = arg.checksum.is_some()
+			|| (!arg.network
+				&& arg.stdin.is_none()
+				&& arg.stdout.is_none()
+				&& arg.stderr.is_none());
 
 		// If the process is not cacheable, then spawn a local process, add it as a child of the parent, and return it.
 		if !cacheable {
@@ -228,25 +224,20 @@ impl Server {
 		// Create an ID.
 		let id = tg::process::Id::new();
 
-		// Create the log file.
+		// Determine if the process is cacheable.
+		let cacheable = arg.checksum.is_some()
+			|| (!arg.network
+				&& arg.stdin.is_none()
+				&& arg.stdout.is_none()
+				&& arg.stderr.is_none());
+
+		// Create the log file if necessary.
 		if !self.config.advanced.write_process_logs_to_database {
 			let path = self.logs_path().join(id.to_string());
 			tokio::fs::File::create(path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
 		}
-
-		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none()
-			&& arg.env.is_none()
-			&& !arg.network
-			&& arg.stdin.is_none()
-			&& arg.stdout.is_none()
-			&& arg.stderr.is_none()
-			&& arg.mounts.is_empty();
-
-		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some() || sandboxed;
 
 		// Get the host.
 		let command = tg::Command::with_id(arg.command.clone().unwrap());
@@ -269,9 +260,7 @@ impl Server {
 					checksum,
 					command,
 					created_at,
-					cwd,
 					enqueued_at,
-					env,
 					host,
 					mounts,
 					network,
@@ -297,27 +286,23 @@ impl Server {
 					{p}12,
 					{p}13,
 					{p}14,
-					{p}15,
-					{p}16,
-					{p}17
+					{p}15
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
 					checksum = {p}3,
 					command = {p}4,
 					created_at = {p}5,
-					cwd = {p}6,
-					enqueued_at = {p}7,
-					env = {p}8,
-					host = {p}9,
-					mounts = {p}10,
-					network = {p}11,
-					retry = {p}12,
-					status = {p}13,
-					stderr = {p}14,
-					stdin = {p}15,
-					stdout = {p}16,
-					touched_at = {p}17;
+					enqueued_at = {p}6,
+					host = {p}7,
+					mounts = {p}8,
+					network = {p}9,
+					retry = {p}10,
+					status = {p}11,
+					stderr = {p}12,
+					stdin = {p}13,
+					stdout = {p}14,
+					touched_at = {p}15;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
@@ -327,9 +312,7 @@ impl Server {
 			arg.checksum,
 			arg.command,
 			now,
-			arg.cwd,
 			now,
-			arg.env.as_ref().map(db::value::Json),
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
