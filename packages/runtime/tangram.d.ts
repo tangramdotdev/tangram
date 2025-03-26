@@ -593,6 +593,9 @@ declare namespace tg {
 		/** Get this command's host. */
 		host(): Promise<string>;
 
+		/** Get this comman's object. */
+		object(): Promise<tg.Command.Object>;
+
 		/** Get this command's mounts. */
 		mounts(): Promise<Array<tg.Command.Mount>>;
 
@@ -640,6 +643,14 @@ declare namespace tg {
 
 			/** The command's mounts. */
 			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
+		};
+
+		export type Object = {
+			args: Array<tg.Value>;
+			env: { [key: string]: tg.Value };
+			executable: tg.Command.Executable | undefined;
+			host: string;
+			mounts: Array<tg.Command.Mount>;
 		};
 
 		export type ExecutableArg = string | tg.Artifact | tg.Module;
