@@ -97,9 +97,7 @@ declare namespace tg {
 	) => Promise<tg.Blob>;
 
 	/** Decompress a blob. **/
-	export let decompress: (
-		blob: tg.Blob,
-	) => Promise<tg.Blob>;
+	export let decompress: (blob: tg.Blob) => Promise<tg.Blob>;
 
 	/** Download the contents of a URL. */
 	export let download: (url: string, checksum: tg.Checksum) => Promise<tg.Blob>;
@@ -130,9 +128,7 @@ declare namespace tg {
 		) => Promise<tg.Blob>;
 
 		/** Decompress a blob. **/
-		export let decompress: (
-			blob: tg.Blob,
-		) => Promise<tg.Blob>;
+		export let decompress: (blob: tg.Blob) => Promise<tg.Blob>;
 
 		/** Download a blob. **/
 		export let download: (
@@ -237,9 +233,7 @@ declare namespace tg {
 	) => Promise<tg.Blob>;
 
 	/** Extract an artifact from an archive. **/
-	export let extract: (
-		blob: tg.Blob,
-	) => Promise<tg.Artifact>;
+	export let extract: (blob: tg.Blob) => Promise<tg.Artifact>;
 
 	/** Bundle an artifact. **/
 	export let bundle: (artifact: tg.Artifact) => Promise<tg.Artifact>;
@@ -270,9 +264,7 @@ declare namespace tg {
 		) => Promise<tg.Blob>;
 
 		/** Extract an artifact from an archive. **/
-		export let extract: (
-			blob: tg.Blob,
-		) => Promise<tg.Artifact>;
+		export let extract: (blob: tg.Blob) => Promise<tg.Artifact>;
 
 		/** Bundle an artifact. **/
 		export let bundle: (artifact: tg.Artifact) => Promise<tg.Artifact>;
@@ -601,6 +593,12 @@ declare namespace tg {
 		/** Get this command's host. */
 		host(): Promise<string>;
 
+		/** Get this comman's object. */
+		object(): Promise<tg.Command.Object>;
+
+		/** Get this command's mounts. */
+		mounts(): Promise<Array<tg.Command.Mount>>;
+
 		/** Build this command and return the process's output. */
 		build(...args: tg.Args<tg.Process.SpawnArg>): Promise<tg.Value>;
 
@@ -610,6 +608,17 @@ declare namespace tg {
 
 	export namespace Command {
 		export type Id = string;
+
+		/** A mount. */
+		export type Mount = {
+			source: tg.Artifact;
+			target: string;
+		};
+
+		export namespace Mount {
+			/** Parse a Mount. */
+			export let parse: (t: string | tg.Template) => Promise<tg.Command.Mount>;
+		}
 
 		export type Arg =
 			| undefined
@@ -631,11 +640,22 @@ declare namespace tg {
 
 			/** The command's host. */
 			host?: string | undefined;
+
+			/** The command's mounts. */
+			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		};
 
-		export type ExecutableArg = tg.Artifact | tg.Module;
+		export type Object = {
+			args: Array<tg.Value>;
+			env: { [key: string]: tg.Value };
+			executable: tg.Command.Executable | undefined;
+			host: string;
+			mounts: Array<tg.Command.Mount>;
+		};
 
-		export type Executable = tg.Artifact | tg.Module;
+		export type ExecutableArg = string | tg.Artifact | tg.Module;
+
+		export type Executable = string | tg.Artifact | tg.Module;
 	}
 
 	export namespace path {
@@ -962,12 +982,30 @@ declare namespace tg {
 		env(): Promise<{ [name: string]: tg.Value }>;
 		env(name: string): Promise<tg.Value | undefined>;
 
+		/** Get the mounts for this process. */
+		mounts(): Promise<Array<tg.Process.Mount>>;
+
 		/** Get whether this process has the network enabled. */
 		network(): Promise<boolean>;
 	}
 
 	export namespace Process {
 		export type Id = string;
+
+		/** A mount. */
+		export type Mount = {
+			source: tg.Process.Mount.Source;
+			target: string;
+			readonly: boolean;
+		};
+
+		export namespace Mount {
+			/** The source for a mount is either an artifact or a path. */
+			export type Source = tg.Artifact | string;
+
+			/** Parse a Mount from a template. */
+			export let parse: (t: string | tg.Template) => Promise<tg.Process.Mount>;
+		}
 
 		export type SpawnArg =
 			| undefined
@@ -998,6 +1036,9 @@ declare namespace tg {
 
 			/** The command's host. */
 			host?: string | undefined;
+
+			/** The mounts to attach. */
+			mounts?: Array<string | tg.Template | tg.Process.Mount> | undefined;
 
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;

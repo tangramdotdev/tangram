@@ -151,7 +151,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
-					where objects.id = new.id 
+					where objects.id = new.id
 					group by objects.id, objects.size
 				) as updates
 				where objects.id = updates.id;
@@ -177,7 +177,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
-					where objects.id = new.id 
+					where objects.id = new.id
 					group by objects.id, objects.size
 				) as updates
 				where objects.id = updates.id;
@@ -290,6 +290,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				logs_count integer,
 				logs_depth integer,
 				logs_weight integer,
+				mounts text,
 				network integer not null,
 				output text,
 				outputs_complete integer not null default 0,
@@ -300,6 +301,9 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				retry integer not null,
 				started_at text,
 				status text not null,
+				stderr text,
+				stdin text,
+				stdout text,
 				touched_at text
 			);
 
@@ -398,6 +402,17 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				set reference_count = reference_count - 1
 				where id = old.object;
 			end;
+
+			create table pipes (
+				id text primary key,
+				created_at text not null
+			);
+
+			create table ptys (
+				id text primary key,
+				created_at text not null,
+				window_size text
+			);
 
 			create table remotes (
 				name text primary key,

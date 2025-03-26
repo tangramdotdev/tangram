@@ -1,7 +1,13 @@
-use crate::{self as tg, util::serde::is_false};
+use crate::{
+	self as tg,
+	util::serde::{is_false, is_true, return_true},
+};
 use itertools::Itertools as _;
 use serde_with::serde_as;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::PathBuf,
+};
 use time::format_description::well_known::Rfc3339;
 
 #[serde_as]
@@ -52,6 +58,9 @@ pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
 
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub mounts: Vec<tg::process::data::Mount>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub network: bool,
 
@@ -70,6 +79,15 @@ pub struct Data {
 	pub started_at: Option<time::OffsetDateTime>,
 
 	pub status: tg::process::Status,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stderr: Option<tg::process::Stdio>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdin: Option<tg::process::Stdio>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdout: Option<tg::process::Stdio>,
 }
 
 impl Data {
@@ -82,10 +100,15 @@ impl Data {
 			.into_iter()
 			.flatten();
 		let command = std::iter::once(self.command.clone().into());
+		let mounts = self
+			.mounts
+			.iter()
+			.flat_map(tg::process::data::Mount::children);
 		std::iter::empty()
 			.chain(logs)
 			.chain(output)
 			.chain(command)
+			.chain(mounts)
 			.collect()
 	}
 }
@@ -96,4 +119,42 @@ where
 {
 	use serde::Deserialize as _;
 	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Mount {
+	pub source: Source,
+	pub target: PathBuf,
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub readonly: bool,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum Source {
+	Artifact(tg::artifact::Id),
+	Path(PathBuf),
+}
+
+impl Mount {
+	#[must_use]
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		match &self.source {
+			Source::Artifact(artifact_id) => {
+				let object_id: tg::object::Id = artifact_id.clone().into();
+				std::iter::once(object_id).collect()
+			},
+			Source::Path(_) => BTreeSet::new(),
+		}
+	}
+}
+
+impl From<tg::command::data::Mount> for Mount {
+	fn from(value: tg::command::data::Mount) -> Self {
+		Self {
+			source: Source::Artifact(value.source),
+			target: value.target,
+			readonly: true,
+		}
+	}
 }

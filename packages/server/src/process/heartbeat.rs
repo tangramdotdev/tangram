@@ -8,11 +8,10 @@ impl Server {
 	pub async fn heartbeat_process(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
+		mut arg: tg::process::heartbeat::Arg,
 	) -> tg::Result<tg::process::heartbeat::Output> {
 		// If the remote arg is set, then forward the request.
-		let remote = arg.remote.as_ref();
-		if let Some(remote) = remote {
+		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::process::heartbeat::Arg { remote: None };
 			let output = remote.heartbeat_process(id, arg).await?;

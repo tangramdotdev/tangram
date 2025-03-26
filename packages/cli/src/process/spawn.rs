@@ -1,6 +1,7 @@
 use crate::Cli;
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use itertools::Itertools as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
@@ -35,6 +36,10 @@ pub struct Options {
 	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
 	pub create: bool,
 
+	/// Set the working directory for the process.
+	#[arg(short = 'C', long)]
+	pub cwd: Option<PathBuf>,
+
 	/// Set environment variables.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub env: Vec<Vec<String>>,
@@ -46,6 +51,13 @@ pub struct Options {
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[arg(long)]
 	pub locked: bool,
+
+	#[arg(short, long)]
+	pub mount: Vec<tg::process::Mount>,
+
+	/// Enable network access if sandboxed
+	#[arg(long)]
+	pub network: bool,
 
 	/// The remote to use.
 	#[allow(clippy::option_option)]
@@ -63,13 +75,17 @@ pub struct Options {
 	/// Tag the process.
 	#[arg(long)]
 	pub tag: Option<tg::Tag>,
+
+	/// Allocate a terminal when running the process.
+	#[arg(short, long)]
+	pub tty: bool,
 }
 
 impl Cli {
 	pub async fn command_process_spawn(&self, args: Args) -> tg::Result<()> {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 		let process = self
-			.spawn_process(args.options, reference, args.trailing)
+			.spawn_process(args.options, reference, args.trailing, None, None, None)
 			.await?;
 		println!("{}", process.id());
 		Ok(())
@@ -77,9 +93,12 @@ impl Cli {
 
 	pub(crate) async fn spawn_process(
 		&self,
-		options: Options,
+		mut options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
+		stderr: Option<tg::process::Stdio>,
+		stdin: Option<tg::process::Stdio>,
+		stdout: Option<tg::process::Stdio>,
 	) -> tg::Result<tg::Process> {
 		let handle = self.handle().await?;
 
@@ -279,32 +298,61 @@ impl Cli {
 		}
 
 		// Handle build vs run.
-		let (cwd, env, network) = if options.sandbox {
-			let cwd = None;
+		let (cwd, env, network) = if options.sandbox || remote.is_some() {
+			let cwd = options.cwd;
 			let env = None;
-			let network = false;
+			let network = options.network;
 			(cwd, env, network)
 		} else {
 			let cwd =
-				Some(std::env::current_dir().map_err(|source| {
-					tg::error!(!source, "failed to get the working directory")
-				})?);
+				if let Some(working_dir) = options.cwd {
+					Some(working_dir)
+				} else {
+					Some(std::env::current_dir().map_err(|source| {
+						tg::error!(!source, "failed to get the working directory")
+					})?)
+				};
 			let env = Some(std::env::vars().collect());
 			let network = true;
+			options.mount.push(tg::process::Mount {
+				source: tg::process::mount::Source::Path("/".into()),
+				target: "/".into(),
+				readonly: false,
+			});
 			(cwd, env, network)
 		};
 
+		// Get the mounts.
+		let mut mounts = options.mount;
+		for mount in &mut mounts {
+			if let tg::process::mount::Source::Path(path) = &mut mount.source {
+				*path = tokio::fs::canonicalize(&path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			}
+		}
+
 		// Spawn the process.
+		let mounts = mounts
+			.iter()
+			.map(|mount| mount.data(&handle))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
 		let arg = tg::process::spawn::Arg {
 			checksum: options.checksum,
 			command: Some(command.id(&handle).await?.clone()),
 			create: options.create,
 			cwd,
 			env,
+			mounts,
 			network,
 			parent: None,
 			remote: remote.clone(),
 			retry,
+			stderr,
+			stdin,
+			stdout,
 		};
 		let process = tg::Process::spawn(&handle, arg).await?;
 

@@ -72,6 +72,7 @@ declare global {
 			create: boolean;
 			cwd: string | undefined;
 			env: { [key: string]: string } | undefined;
+			mounts: Array<tg.Process.Mount>;
 			network: boolean | undefined;
 			parent: tg.Process.Id | undefined;
 			remote: string | undefined;

@@ -717,7 +717,9 @@ impl Server {
 			}
 		}
 		if !done {
-			return Err(tg::error!(?error, "failed to copy the file"));
+			return Err(
+				tg::error!(?error, %src = src.display(), %dst = dst.display(), "failed to copy the file"),
+			);
 		}
 		Ok(())
 	}
@@ -752,7 +754,9 @@ impl Server {
 			}
 		}
 		if !done {
-			return Err(tg::error!(?error, "failed to copy the file"));
+			return Err(
+				tg::error!(?error, %src= src.display(), %dst = dst.display(),"failed to copy the file"),
+			);
 		}
 		let permissions = std::fs::Permissions::from_mode(0o644);
 		std::fs::set_permissions(temp.path(), permissions)
@@ -764,6 +768,8 @@ impl Server {
 			Err(error) => {
 				return Err(tg::error!(
 					!error,
+					%src = src.display(),
+					%dst = dst.display(),
 					"failed to rename the file to the blobs directory"
 				));
 			},

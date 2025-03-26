@@ -1,0 +1,29 @@
+[package]
+name = "tangram_sandbox"
+authors.workspace = true
+description.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+dashmap = { workspace = true }
+indoc = { workspace = true }
+libc = { workspace = true }
+num = { workspace = true }
+scopeguard = { workspace = true }
+tangram_temp = { workspace = true }
+tangram_either = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
+tangram_futures = { workspace = true }
+
+[lints]
+workspace = true

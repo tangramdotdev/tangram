@@ -1,6 +1,9 @@
-use crate::{self as tg};
+use crate as tg;
 use bytes::Bytes;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::PathBuf,
+};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Command {
@@ -14,6 +17,9 @@ pub struct Command {
 	pub executable: Option<tg::command::data::Executable>,
 
 	pub host: String,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub mounts: Vec<tg::command::data::Mount>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -21,12 +27,19 @@ pub struct Command {
 pub enum Executable {
 	Artifact(tg::artifact::Id),
 	Module(Module),
+	Path(PathBuf),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Module {
 	pub kind: tg::module::Kind,
 	pub referent: tg::Referent<tg::object::Id>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Mount {
+	pub source: tg::artifact::Id,
+	pub target: PathBuf,
 }
 
 impl Command {
@@ -49,10 +62,15 @@ impl Command {
 			.flat_map(tg::command::data::Executable::children);
 		let args = self.args.iter().flat_map(tg::value::Data::children);
 		let env = self.env.values().flat_map(tg::value::Data::children);
+		let mounts = self
+			.mounts
+			.iter()
+			.flat_map(tg::command::data::Mount::children);
 		std::iter::empty()
 			.chain(executable)
 			.chain(args)
 			.chain(env)
+			.chain(mounts)
 			.collect()
 	}
 }
@@ -63,6 +81,7 @@ impl Executable {
 		match self {
 			Self::Artifact(id) => [id.clone().into()].into(),
 			Self::Module(module) => module.children(),
+			Self::Path(_) => BTreeSet::new(),
 		}
 	}
 }
@@ -71,5 +90,12 @@ impl Module {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		[self.referent.item.clone()].into()
+	}
+}
+
+impl Mount {
+	#[must_use]
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		[self.source.clone().into()].into()
 	}
 }

@@ -24,7 +24,7 @@ export class Process {
 	static async spawn(
 		...args: tg.Args<tg.Process.SpawnArg>
 	): Promise<tg.Process> {
-		let arg = await Process.arg(...args);
+		let { mounts, ...arg } = await Process.arg(...args);
 		let checksum = arg.checksum;
 		let command = await tg.command(
 			{ env: Process.current.command().then((command) => command.env()) },
@@ -34,6 +34,15 @@ export class Process {
 		let cwd = "cwd" in arg ? arg.cwd : tg.Process.current.#state!.cwd;
 		let processEnv =
 			"processEnv" in arg ? arg.processEnv : tg.Process.current.#state!.env;
+		let mounts_ = await Promise.all(
+			(mounts ?? []).map(async (mount) => {
+				if (typeof mount === "string" || mount instanceof tg.Template) {
+					return await tg.Process.Mount.parse(mount);
+				} else {
+					return mount;
+				}
+			}),
+		);
 		let network =
 			"network" in arg ? arg.network : tg.Process.current.#state!.network;
 		let output = await syscall("process_spawn", {
@@ -42,6 +51,7 @@ export class Process {
 			create: false,
 			cwd,
 			env: processEnv,
+			mounts: mounts_,
 			network,
 			parent: undefined,
 			remote: undefined,
@@ -194,6 +204,80 @@ export namespace Process {
 
 	export type Id = string;
 
+	export type Mount = {
+		source: tg.Process.Mount.Source;
+		target: string;
+		readonly: boolean;
+	};
+
+	export namespace Mount {
+		export type Source = tg.Artifact | string;
+
+		export let parse = async (
+			t: string | tg.Template,
+		): Promise<tg.Process.Mount> => {
+			// If the user passed a template, render a string with artifact IDs.
+			let s: string | undefined;
+			if (typeof t === "string") {
+				s = t;
+			} else if (t instanceof tg.Template) {
+				s = await t.components.reduce(async (acc, component) => {
+					if (tg.Artifact.is(component)) {
+						return (await acc) + (await component.id());
+					} else {
+						return (await acc) + component;
+					}
+				}, Promise.resolve(""));
+			} else {
+				throw new Error("expected a template or a string");
+			}
+			tg.assert(s);
+			let readonly: boolean | undefined = undefined;
+
+			// Handle readonly/readwrite option if present
+			if (s.includes(",")) {
+				const [mountPart, option] = s.split(",", 2);
+				tg.assert(mountPart);
+				tg.assert(option);
+
+				if (option === "ro") {
+					readonly = true;
+					s = mountPart;
+				} else if (option === "rw") {
+					readonly = false;
+					s = mountPart;
+				} else {
+					throw new Error(`unknown option: "${option}"`);
+				}
+			}
+
+			// Split into source and target
+			const colonIndex = s.indexOf(":");
+			if (colonIndex === -1) {
+				throw new Error("expected a target path");
+			}
+
+			const sourcePart = s.substring(0, colonIndex);
+			const targetPart = s.substring(colonIndex + 1);
+
+			// Validate target is absolute path
+			if (!targetPart.startsWith("/")) {
+				throw new Error(`expected an absolute path: "${targetPart}"`);
+			}
+
+			// Determine source type
+			let source: Mount.Source = sourcePart;
+
+			readonly = readonly ?? false;
+
+			return {
+				source,
+				target: targetPart,
+				readonly,
+			};
+		};
+	}
+
 	export type SpawnArg =
 		| undefined
 		| string
@@ -211,6 +295,7 @@ export namespace Process {
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
+		mounts?: Array<string | tg.Template | tg.Process.Mount> | undefined;
 		network?: boolean | undefined;
 	};
 
@@ -221,9 +306,13 @@ export namespace Process {
 		env: { [key: string]: string } | undefined;
 		error: tg.Error | undefined;
 		exit: tg.Process.Exit | undefined;
+		mounts: Array<tg.Process.Mount>;
 		network: boolean;
 		output: tg.Value | undefined;
 		status: tg.Process.Status;
+		stderr?: string;
+		stdin?: string;
+		stdout?: string;
 	};
 
 	export type Status =

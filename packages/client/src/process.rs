@@ -8,8 +8,11 @@ pub use self::{
 	data::Data,
 	id::Id,
 	metadata::Metadata,
+	mount::Mount,
+	signal::Signal,
 	state::State,
 	status::Status,
+	stdio::Stdio,
 	wait::{Exit, Wait},
 };
 
@@ -22,11 +25,14 @@ pub mod heartbeat;
 pub mod id;
 pub mod log;
 pub mod metadata;
+pub mod mount;
 pub mod put;
+pub mod signal;
 pub mod spawn;
 pub mod start;
 pub mod state;
 pub mod status;
+pub mod stdio;
 pub mod touch;
 pub mod wait;
 

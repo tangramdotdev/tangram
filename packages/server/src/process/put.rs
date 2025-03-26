@@ -16,6 +16,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		dbg!((id, &arg));
 		match &self.database {
 			Either::Left(database) => Self::put_process_sqlite(database, id, arg).await,
 			Either::Right(database) => Self::put_process_postgres(database, id, arg).await,
@@ -27,6 +28,8 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		dbg!(&arg.data.mounts);
+
 		// Get a database connection.
 		let mut connection = database
 			.write_connection()
@@ -58,11 +61,15 @@ impl Server {
 					finished_at,
 					host,
 					log,
+					mounts,
 					network,
 					output,
 					retry,
 					started_at,
 					status,
+					stderr,
+					stdin,
+					stdout,
 					touched_at
 				)
 				values (
@@ -85,7 +92,11 @@ impl Server {
 					?17,
 					?18,
 					?19,
-					?20
+					?20,
+					?21,
+					?22,
+					?23,
+					?24
 				)
 				on conflict (id) do update set
 					cacheable = ?2,
@@ -101,12 +112,16 @@ impl Server {
 					finished_at = ?12,
 					host = ?13,
 					log = ?14,
-					network = ?15,
-					output = ?16,
-					retry = ?17,
-					started_at = ?18,
-					status = ?19,
-					touched_at = ?20;
+					mounts = ?15
+					network = ?16,
+					output = ?17,
+					retry = ?18,
+					started_at = ?19,
+					status = ?20,
+					stderr = ?21,
+					stdin = ?22,
+					stdout = ?23,
+					touched_at = ?24;
 			"
 		);
 		let params = db::params![
@@ -124,11 +139,15 @@ impl Server {
 			arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.host,
 			arg.data.log,
+			(!arg.data.mounts.is_empty()).then_some(db::value::Json(arg.data.mounts)),
 			arg.data.network,
 			arg.data.output.as_ref().map(db::value::Json),
 			arg.data.retry,
 			arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.status,
+			arg.data.stderr,
+			arg.data.stdin,
+			arg.data.stdout,
 			time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 		];
 		transaction
@@ -223,6 +242,8 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		dbg!(&arg.data.mounts);
+
 		// Get a database connection.
 		let mut connection = database
 			.write_connection()
@@ -254,11 +275,15 @@ impl Server {
 					finished_at,
 					host,
 					log,
+					mounts,
 					network,
 					output,
 					retry,
 					started_at,
 					status,
+					stdin,
+					stdout,
+					stderr,
 					touched_at
 				)
 				values (
@@ -281,7 +306,11 @@ impl Server {
 					$17,
 					$18,
 					$19,
-					$20
+					$20,
+					$21,
+					$22,
+					$23,
+					$24
 				)
 				on conflict (id) do update set
 					cacheable = $2,
@@ -297,12 +326,17 @@ impl Server {
 					finished_at = $12,
 					host = $13,
 					log = $14,
-					network = $15,
-					output = $16,
-					retry = $17,
-					started_at = $18,
-					status = $19,
-					touched_at = $20;
+					mounts = $15,
+					network = $16,
+					output = $17,
+					retry = $18,
+					started_at = $19,
+					status = $20,
+					stdin = $21,
+					stdout = $22,
+					stderr = $23
+					touched_at = $24;
+
 			"
 		);
 		transaction
@@ -326,11 +360,16 @@ impl Server {
 						.log
 						.as_ref()
 						.map(|log| serde_json::to_string(&log).unwrap()),
+					&(!arg.data.mounts.is_empty())
+						.then(|| serde_json::to_string(&arg.data.mounts).unwrap()),
 					&i64::from(arg.data.network),
 					&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
 					&i64::from(arg.data.retry),
 					&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 					&serde_json::to_string(&arg.data.status).unwrap(),
+					&serde_json::to_string(&arg.data.stdin.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.stdout.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.stderr.as_ref()).unwrap(),
 					&time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
 				],
 			)

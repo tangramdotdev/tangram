@@ -103,7 +103,7 @@ impl Server {
 			"
 				delete from objects
 				where id in (
-					select id from objects 
+					select id from objects
 					where reference_count = 0 and touched_at <= {p}1
 					limit {p}2
 				)
