@@ -55,7 +55,7 @@ impl Streams {
 		self.0.entry(subject).or_insert_with(|| {
 			let (mut sender, receiver) = async_broadcast::broadcast(4096);
 			sender.set_await_active(true);
-			sender.set_overflow(flase);
+			sender.set_overflow(false);
 			let receiver = receiver.deactivate();
 			Stream { sender, receiver }
 		});
