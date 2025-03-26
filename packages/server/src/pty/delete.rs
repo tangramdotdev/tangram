@@ -1,10 +1,10 @@
-use crate::{Server, messenger::Messenger};
+use crate::Server;
 use bytes::Bytes;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::{self as messenger, Messenger as _};
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub async fn delete_pty(&self, id: &tg::pty::Id, arg: tg::pty::delete::Arg) -> tg::Result<()> {
@@ -40,41 +40,13 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to delete the pipe"))?;
 		drop(connection);
 
-		match &self.messenger {
-			Messenger::Left(m) => self.delete_pty_in_memory(m, id).await?,
-			Messenger::Right(m) => self.delete_pty_nats(m, id).await?,
+		for subject in ["master", "slave"] {
+			self.messenger
+				.destroy_stream(format!("{id}_{subject}"))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to destroy stream"))?;
 		}
-		Ok(())
-	}
 
-	async fn delete_pty_in_memory(
-		&self,
-		messenger: &messenger::memory::Messenger,
-		id: &tg::pty::Id,
-	) -> tg::Result<()> {
-		messenger
-			.streams()
-			.close_stream(format!("{id}.master"))
-			.ok();
-		messenger.streams().close_stream(format!("{id}.slave")).ok();
-		Ok(())
-	}
-
-	async fn delete_pty_nats(
-		&self,
-		messenger: &messenger::nats::Messenger,
-		id: &tg::pty::Id,
-	) -> tg::Result<()> {
-		messenger
-			.jetstream
-			.delete_stream(format!("{id}_master"))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
-		messenger
-			.jetstream
-			.delete_stream(format!("{id}_slave"))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to close the pipe"))?;
 		Ok(())
 	}
 }

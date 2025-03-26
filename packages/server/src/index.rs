@@ -11,7 +11,7 @@ use std::{
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-use tangram_messenger::Messenger as _;
+use tangram_messenger::Messenger;
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -82,20 +82,22 @@ impl Server {
 		messenger: &tangram_messenger::memory::Messenger,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Option<Acker>)>>>> {
 		messenger
-			.streams()
 			.create_stream("index".into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the subject"))?;
 		let stream = messenger
-			.subscribe("index".to_string(), None)
+			.stream_subscribe("index".to_string(), None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the objects stream"))?
-			.map(|message| {
-				let message =
-					serde_json::from_slice::<Message>(&message.payload).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the message payload")
-					})?;
-				Ok::<_, tg::Error>((message, None))
+			.map_err(|source| tg::error!(!source, "stream error"))
+			.and_then(|message| {
+				future::ready({
+					serde_json::from_slice::<Message>(&message.payload)
+						.map_err(|source| {
+							tg::error!(!source, "failed to deserialize the message payload")
+						})
+						.map(|msg| (msg, None))
+				})
 			})
 			.filter_map(|result| future::ready(result.ok()))
 			.ready_chunks(config.message_batch_size)

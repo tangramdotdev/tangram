@@ -22,6 +22,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
+		let created = std::pin::pin!(created);
 		let interval =
 			IntervalStream::new(tokio::time::interval(Duration::from_secs(60))).map(|_| ());
 		let mut events = stream::select(created, interval);

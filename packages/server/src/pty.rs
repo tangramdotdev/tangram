@@ -3,7 +3,6 @@ use futures::{StreamExt as _, TryStreamExt as _, future};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};
-use tangram_either::Either;
 use tangram_messenger::Messenger;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -77,35 +76,15 @@ impl Server {
 		let payload = serde_json::to_vec(&event)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?
 			.into();
-
-		match &self.messenger {
-			Either::Left(messenger) => {
-				let subject = if master {
-					format!("{pty}.master")
-				} else {
-					format!("{pty}.slave")
-				};
-				messenger
-					.streams()
-					.publish(subject, payload)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?;
-			},
-			Either::Right(messenger) => {
-				let subject = if master {
-					format!("{pty}_master")
-				} else {
-					format!("{pty}_slave")
-				};
-				messenger
-					.jetstream
-					.publish(subject, payload)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?
-					.await
-					.map_err(|source| tg::error!(!source, "failed to send the pipe event"))?;
-			},
-		}
+		let subject = if master {
+			format!("{pty}_master")
+		} else {
+			format!("{pty}_slave")
+		};
+		self.messenger
+			.stream_publish(subject, payload)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the pty event"))?;
 		Ok(())
 	}
 }
