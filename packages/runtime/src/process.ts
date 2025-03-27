@@ -107,9 +107,6 @@ export class Process {
 	static async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		let process = await Process.spawn(...args);
 		let output = await process.wait();
-		(() => {
-			throw new Error("got after wait!");
-		})();
 		if (output.status !== "succeeded") {
 			throw output.error;
 		}
