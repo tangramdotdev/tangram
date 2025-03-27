@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
+use futures::{Stream, StreamExt as _, TryFutureExt, TryStreamExt as _, future};
 use indoc::formatdoc;
 use tangram_client::{self as tg};
 use tangram_database::{self as db, Database as _, Query as _};
@@ -56,7 +56,6 @@ impl Server {
 			let stream = remote.read_pty(id, arg).await?.boxed();
 			return Ok(stream);
 		}
-		let deleted = self.pty_deleted(id.clone());
 
 		// Create the stream from the messenger.
 		let name = tg::Id::new_uuidv7(tg::id::Kind::Pty);
@@ -74,12 +73,11 @@ impl Server {
 			})
 			.boxed();
 
-		Ok(stream
-			.take_until(deleted)
-			// .chain(stream::once(async move {
-			// 	Ok::<_, tg::Error>(tg::pty::Event::End)
-			// }))
-			.boxed())
+		let deleted = self
+			.pty_deleted(id.clone())
+			.inspect_err(|error| tracing::error!(?error, "failed to check if pty was deleted"));
+
+		Ok(stream.take_until(deleted).boxed())
 	}
 }
 

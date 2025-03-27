@@ -7,7 +7,7 @@ use std::{
 	io::{IsTerminal as _, Read as _},
 	pin::pin,
 };
-use tangram_client::{self as tg, Handle};
+use tangram_client as tg;
 use tangram_futures::task::Task;
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use tokio_stream::wrappers::ReceiverStream;
@@ -150,24 +150,8 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
 
-		// End stdout and stderr.
-		match &stdio.stdout {
-			tg::process::Stdio::Pipe(id) => {
-				let arg = tg::pipe::write::Arg {
-					remote: stdio.remote.clone(),
-				};
-				let stream = stream::once(future::ok(tg::pipe::Event::End)).boxed();
-				handle.write_pipe(id, arg, stream).await?;
-			},
-			tg::process::Stdio::Pty(id) => {
-				let arg = tg::pty::write::Arg {
-					master: true,
-					remote: stdio.remote.clone(),
-				};
-				let stream = stream::once(future::ok(tg::pty::Event::End)).boxed();
-				handle.write_pty(id, arg, stream).await?;
-			},
-		}
+		// End streams.
+		self.close_stdio(&stdio).await?;
 
 		// Stop and await the stdio task.
 		stdio_task.await.unwrap()?;

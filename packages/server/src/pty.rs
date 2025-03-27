@@ -1,4 +1,5 @@
 use crate::Server;
+use bytes::Bytes;
 use futures::{StreamExt as _, TryStreamExt as _, future};
 use indoc::formatdoc;
 use tangram_client as tg;
@@ -40,10 +41,10 @@ impl Server {
 						let p = connection.p();
 						let statement = formatdoc!(
 							"
-							select count(*) != 0
-							from ptys
-							where id = {p}1;
-						"
+								select count(*) != 0
+								from ptys
+								where id = {p}1 and closed != 1;
+							"
 						);
 						let params = db::params![id];
 						let exists = connection
@@ -73,7 +74,7 @@ impl Server {
 		event: tg::pty::Event,
 		master: bool,
 	) -> tg::Result<()> {
-		let payload = serde_json::to_vec(&event)
+		let payload: Bytes = serde_json::to_vec(&event)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?
 			.into();
 		let subject = if master {
@@ -82,9 +83,39 @@ impl Server {
 			format!("{pty}_slave")
 		};
 		self.messenger
-			.stream_publish(subject, payload)
+			.stream_publish(subject, payload.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the pty event"))?;
+
+		// Handle end events.
+		if master && matches!(event, tg::pty::Event::End) {
+			// Notify slaves that the master is closed.
+			self.messenger
+				.stream_publish(format!("{pty}_slave"), payload)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to send the pty event"))?;
+
+			// Mark the pty closed.
+			let connection = self
+				.database
+				.write_connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					update ptys
+					set closed = 1
+					where id = {p}1;
+				"
+			);
+			let params = db::params![pty];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to mark the pty as closed"))?;
+		}
+
 		Ok(())
 	}
 }

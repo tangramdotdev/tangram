@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
+use futures::{Stream, StreamExt as _, TryFutureExt, TryStreamExt as _, future};
 use tangram_client as tg;
 use tangram_futures::task::Stop;
 use tangram_http::{Body, request::Ext as _};
@@ -34,11 +34,11 @@ impl Server {
 			})
 			.boxed();
 
-		let deleted = self.pipe_deleted(id.clone());
-		Ok(stream
-			.take_until(deleted)
-			// .chain(stream::once(future::ok(tg::pipe::Event::End)))
-			.boxed())
+		let deleted = self
+			.pipe_deleted(id.clone())
+			.inspect_err(|e| tracing::error!(?e, "failed to check if pipe was deleted"));
+
+		Ok(stream.take_until(deleted).boxed())
 	}
 }
 
@@ -62,7 +62,9 @@ impl Server {
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
+		let stop = async move {
+			stop.wait().await;
+		};
 		let stream = stream.take_until(stop);
 
 		// Create the body.

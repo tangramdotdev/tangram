@@ -1,11 +1,12 @@
 use super::{Options, signal::handle_sigwinch};
 use crate::Cli;
+use futures::{StreamExt, future, stream};
 use std::{
 	io::IsTerminal as _,
 	mem::MaybeUninit,
 	os::fd::{AsRawFd as _, RawFd},
 };
-use tangram_client as tg;
+use tangram_client::{self as tg, Handle};
 
 pub struct Stdio {
 	pub termios: Option<(RawFd, libc::termios)>,
@@ -133,6 +134,30 @@ impl Cli {
 			stdout,
 			stderr,
 		})
+	}
+
+	pub(super) async fn close_stdio(&self, stdio: &Stdio) -> tg::Result<()> {
+		let handle = self.handle().await?;
+		for io in [&stdio.stdin, &stdio.stdout, &stdio.stderr] {
+			match io {
+				tg::process::Stdio::Pipe(pipe) => {
+					let arg = tg::pipe::write::Arg {
+						remote: stdio.remote.clone(),
+					};
+					let stream = stream::once(future::ok(tg::pipe::Event::End)).boxed();
+					handle.write_pipe(pipe, arg, stream).await.ok();
+				},
+				tg::process::Stdio::Pty(pty) => {
+					let arg = tg::pty::write::Arg {
+						remote: stdio.remote.clone(),
+						master: true,
+					};
+					let stream = stream::once(future::ok(tg::pty::Event::End)).boxed();
+					handle.write_pty(pty, arg, stream).await.ok();
+				},
+			}
+		}
+		Ok(())
 	}
 }
 

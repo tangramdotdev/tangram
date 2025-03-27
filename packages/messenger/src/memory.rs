@@ -13,6 +13,7 @@ pub enum Error {
 	NotFound,
 	StreamClosed,
 	SendError(broadcast::SendError<Message>),
+	StreamSendError(channel::SendError<Message>),
 }
 
 impl std::error::Error for Error {}
@@ -23,6 +24,7 @@ impl fmt::Display for Error {
 			Error::NotFound => write!(f, "stream not found"),
 			Error::StreamClosed => write!(f, "stream closed"),
 			Error::SendError(e) => write!(f, "{e}"),
+			Error::StreamSendError(e) => write!(f, "{e}"),
 		}
 	}
 }
@@ -66,8 +68,8 @@ impl Stream {
 					}
 
 					// Send the message to all current receivers.
-					let receivers = state.receivers.read().await.clone();
-					for sender in &receivers {
+					let receivers = state.receivers.read().await;
+					for sender in receivers.iter() {
 						sender.send(next_message.clone()).await.ok();
 					}
 				}
@@ -160,7 +162,7 @@ impl Messenger {
 			subject: name,
 			payload,
 		};
-		sender.send(msg).await.ok();
+		sender.send(msg).await.map_err(Error::StreamSendError)?;
 		Ok(())
 	}
 
