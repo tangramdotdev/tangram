@@ -21,6 +21,8 @@ pub fn syscall<'s>(
 	args: v8::FunctionCallbackArguments<'s>,
 	mut return_value: v8::ReturnValue,
 ) {
+	// TODO: catch_unwind
+
 	// Get the syscall name.
 	let name = String::from_v8(scope, args.get(0)).unwrap();
 

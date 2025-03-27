@@ -314,6 +314,7 @@ impl Runtime {
 		} else {
 			"/".into()
 		};
+		eprintln!("cwd: {cwd:?}");
 
 		// Render the env.
 		let mut env = render_env(&artifacts_path, &command.env)?;
@@ -432,7 +433,7 @@ impl Runtime {
 		} else {
 			sandbox::Stdio::Pipe
 		};
-		// let user = command.user.unwrap_or_else(|| "root".into());
+		let user = command.user.unwrap_or_else(|| "root".into());
 
 		// Spawn the process.
 		let mut child = sandbox::Command::new(executable)
@@ -445,8 +446,8 @@ impl Runtime {
 			.stderr(stderr)
 			.stdin(stdin)
 			.stdout(stdout)
-			// .user(user)
-			// .map_err(|source| tg::error!(!source, "invalid user"))?
+			.user(user)
+			.map_err(|source| tg::error!(!source, "invalid user"))?
 			.spawn()
 			.await
 			.map_err(|source| {

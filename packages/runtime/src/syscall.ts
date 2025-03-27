@@ -78,6 +78,9 @@ declare global {
 		parent: tg.Process.Id | undefined;
 		remote: string | undefined;
 		retry: boolean;
+		stderr: string | undefined;
+		stdin: string | undefined;
+		stdout: string | undefined;
 	};
 
 	function syscall(

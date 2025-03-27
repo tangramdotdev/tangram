@@ -354,7 +354,7 @@ async fn output(
 		let arg = tg::process::log::post::Arg {
 			bytes,
 			stream,
-			remote: process.remote().cloned()
+			remote: process.remote().cloned(),
 		};
 		server.try_post_process_log(process.id(), arg).await?;
 	}

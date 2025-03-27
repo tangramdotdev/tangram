@@ -1,5 +1,5 @@
-use std::{fmt, str::FromStr};
 use crate as tg;
+use std::{fmt, str::FromStr};
 
 pub mod get;
 pub mod post;
@@ -11,21 +11,21 @@ pub enum Stream {
 }
 
 impl fmt::Display for Stream {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Stderr => write!(f, "stderr"),
-            Self::Stdout => write!(f, "stderr"),
-        }
-    }
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::Stderr => write!(f, "stderr"),
+			Self::Stdout => write!(f, "stderr"),
+		}
+	}
 }
 
 impl FromStr for Stream {
-    type Err = tg::Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "stderr" => Ok(Self::Stderr),
-            "stdout" => Ok(Self::Stdout),
-            stream => Err(tg::error!(%stream, "unknown stream")),
-        }
-    }
+	type Err = tg::Error;
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"stderr" => Ok(Self::Stderr),
+			"stdout" => Ok(Self::Stdout),
+			stream => Err(tg::error!(%stream, "unknown stream")),
+		}
+	}
 }

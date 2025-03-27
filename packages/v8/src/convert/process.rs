@@ -144,6 +144,10 @@ impl ToV8 for tg::process::State {
 		let value = self.log.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
+		let key = v8::String::new_external_onebyte_static(scope, "mounts".as_bytes()).unwrap();
+		let value = self.mounts.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
 		let key = v8::String::new_external_onebyte_static(scope, "network".as_bytes()).unwrap();
 		let value = self.network.to_v8(scope)?;
 		object.set(scope, key.into(), value);

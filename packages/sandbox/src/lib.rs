@@ -214,15 +214,13 @@ impl Command {
 
 	pub fn user(&mut self, name: impl AsRef<OsStr>) -> std::io::Result<&mut Self> {
 		unsafe {
-			let name = name.as_ref().as_bytes().as_ptr().cast();
-			let passwd = libc::getpwnam(name);
+			let passwd = libc::getpwnam(common::cstring(name.as_ref()).as_ptr());
 			if passwd.is_null() {
-				return Err(std::io::Error::last_os_error());
+				return Err(std::io::Error::other("getpwname failed"));
 			}
 			let uid = (*passwd).pw_uid;
 			let gid = (*passwd).pw_gid;
-			self.uid(uid)
-				.gid(gid);
+			self.uid(uid).gid(gid);
 			Ok(self)
 		}
 	}

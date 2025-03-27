@@ -142,9 +142,7 @@ impl Server {
 
 		loop {
 			// Get the process's status.
-			let status = self
-				.get_current_process_status_local(id)
-				.await?;
+			let status = self.get_current_process_status_local(id).await?;
 
 			// Send as many data events as possible.
 			loop {

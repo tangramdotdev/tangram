@@ -11,7 +11,6 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
 

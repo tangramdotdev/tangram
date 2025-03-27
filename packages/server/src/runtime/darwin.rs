@@ -242,16 +242,7 @@ impl Runtime {
 			let stdin = child.stdin.take().unwrap();
 			let stdout = child.stdout.take().unwrap();
 			let stderr = child.stderr.take().unwrap();
-			async move {
-				stdio_task(
-					&server,
-					&process,
-					stop,
-					stdin,
-					stdout,
-					stderr,
-				).await
-			}
+			async move { stdio_task(&server, &process, stop, stdin, stdout, stderr).await }
 		});
 
 		// Spawn the signal task.

@@ -1039,11 +1039,17 @@ declare namespace tg {
 				| Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
 				| undefined;
 
-			/** The command's user. */
-			user?: string | undefined;
-
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
+
+			stderr?: undefined,
+
+			stdin?: undefined | tg.Blob.Arg,
+
+			stdout?: undefined,
+
+			/** The command's user. */
+			user?: string | undefined;
 		};
 
 		/** A mount. */
@@ -1053,7 +1059,7 @@ declare namespace tg {
 			readonly: boolean;
 		};
 
-		export namespace Mount {			
+		export namespace Mount {
 			/** Parse a mount. */
 			export let parse: (
 				arg: string | tg.Template,
