@@ -160,6 +160,7 @@ impl Server {
 								let arg = tg::process::log::post::Arg {
 									bytes: message.into(),
 									remote: process.remote().cloned(),
+									stream: tg::process::log::Stream::Stderr,
 								};
 								self.try_post_process_log(process.id(), arg).await.ok();
 							}

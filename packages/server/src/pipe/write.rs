@@ -1,8 +1,7 @@
 use crate::Server;
-use bytes::Bytes;
 use futures::{
-	Stream, StreamExt as _, future,
-	stream::{self, TryStreamExt as _},
+	Stream, StreamExt as _,
+	stream::TryStreamExt as _,
 };
 use http_body_util::{BodyExt as _, BodyStream};
 use std::pin::pin;
@@ -30,18 +29,6 @@ impl Server {
 				break;
 			}
 		}
-		Ok(())
-	}
-
-	pub(crate) async fn write_pipe_bytes(
-		&self,
-		id: &tg::pipe::Id,
-		remote: Option<String>,
-		bytes: Bytes,
-	) -> tg::Result<()> {
-		let arg = tg::pipe::write::Arg { remote };
-		let stream = stream::once(future::ok(tg::pipe::Event::Chunk(bytes)));
-		self.write_pipe(id, arg, stream).await?;
 		Ok(())
 	}
 }

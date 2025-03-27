@@ -265,6 +265,7 @@ impl Cli {
 			let cwd = std::env::current_dir()
 				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
 			command = command.cwd(cwd);
+			// let user = std::env::who
 		}
 		if let Some(cwd) = options.cwd {
 			command = command.cwd(cwd);

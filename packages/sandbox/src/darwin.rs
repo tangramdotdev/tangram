@@ -42,6 +42,11 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 			"chroot unsupported on darwin targets",
 		));
 	}
+	if command.uid.is_some() || command.gid.is_some() {
+		return Err(std::io::Error::other(
+			"uid/gid is unsupported on darwin targets",
+		));
+	}
 
 	// Create stdio.
 	let mut pty = None;

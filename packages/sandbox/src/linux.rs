@@ -171,10 +171,16 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 	};
 
 	// Signal the root/guest process to start and get the guest PID.
+	let uid = command.uid.unwrap_or_else(|| unsafe {
+		libc::getuid()
+	});
+	let gid = command.gid.unwrap_or_else(|| unsafe {
+		libc::getgid()
+	});
 	let guest_pid = match try_start(
 		command.chroot.is_some(),
-		command.gid,
-		command.uid,
+		gid,
+		uid,
 		&mut parent_socket,
 	)
 	.await

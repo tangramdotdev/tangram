@@ -1,5 +1,5 @@
 use self::syscall::syscall;
-use crate::{Server, compiler::Compiler, runtime::util};
+use crate::{Server, compiler::Compiler};
 use bytes::Bytes;
 use futures::{
 	FutureExt as _, StreamExt as _, TryFutureExt as _,
@@ -144,7 +144,6 @@ impl Runtime {
 		let log_task = main_runtime_handle.spawn({
 			let server = self.server.clone();
 			let process = process.clone();
-			let state = process.load(&server).await?;
 			async move {
 				while let Some(message) = log_receiver.recv().await {
 					let syscall::log::Message { contents, .. } = message;
@@ -158,31 +157,22 @@ impl Runtime {
 							.ok();
 					}
 					let bytes = Bytes::from(contents);
-					let arg = tg::process::log::post::Arg {
-						bytes: bytes.clone(),
-						remote: process.remote().map(ToOwned::to_owned),
-					};
-					server.try_post_process_log(process.id(), arg).await.ok();
 					match message.level {
 						syscall::log::Level::Log => {
-							if let Some(io) = &state.stdout {
-								util::write_io_bytes(&server, io, process.remote().cloned(), bytes)
-									.await
-									.inspect_err(|error| {
-										tracing::error!(?error, "failed to write process stdout");
-									})
-									.ok();
-							}
+							let arg = tg::process::log::post::Arg {
+								bytes: bytes.clone(),
+								remote: process.remote().map(ToOwned::to_owned),
+								stream: tg::process::log::Stream::Stdout,
+							};
+							server.try_post_process_log(process.id(), arg).await.ok();
 						},
 						syscall::log::Level::Error => {
-							if let Some(io) = &state.stderr {
-								util::write_io_bytes(&server, io, process.remote().cloned(), bytes)
-									.await
-									.inspect_err(|error| {
-										tracing::error!(?error, "failed to write process stdout");
-									})
-									.ok();
-							}
+							let arg = tg::process::log::post::Arg {
+								bytes: bytes.clone(),
+								remote: process.remote().map(ToOwned::to_owned),
+								stream: tg::process::log::Stream::Stderr,
+							};
+							server.try_post_process_log(process.id(), arg).await.ok();
 						},
 					}
 				}

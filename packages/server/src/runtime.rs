@@ -59,6 +59,7 @@ impl Runtime {
 			let arg = tg::process::log::post::Arg {
 				bytes: error.to_string().into(),
 				remote: process.remote().cloned(),
+				stream: tg::process::log::Stream::Stderr,
 			};
 			self.server()
 				.try_post_process_log(process.id(), arg)
@@ -190,6 +191,7 @@ impl Runtime {
 				while let Some(chunk) = stream.try_next().await? {
 					let arg = tg::process::log::post::Arg {
 						bytes: chunk.bytes,
+						stream: tg::process::log::Stream::Stderr, /* TODO: split log streams */
 						remote: process.remote().cloned(),
 					};
 					server.try_post_process_log(process.id(), arg).await?;

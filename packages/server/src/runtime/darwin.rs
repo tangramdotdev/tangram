@@ -237,14 +237,21 @@ impl Runtime {
 
 		// Spawn the stdio task.
 		let stdio_task = Task::spawn(|stop| {
-			stdio_task(
-				self.server.clone(),
-				process.clone(),
-				stop,
-				child.stdin.take().unwrap(),
-				child.stdout.take().unwrap(),
-				child.stderr.take().unwrap(),
-			)
+			let server = self.server.clone();
+			let process = process.clone();
+			let stdin = child.stdin.take().unwrap();
+			let stdout = child.stdout.take().unwrap();
+			let stderr = child.stderr.take().unwrap();
+			async move {
+				stdio_task(
+					&server,
+					&process,
+					stop,
+					stdin,
+					stdout,
+					stderr,
+				).await
+			}
 		});
 
 		// Spawn the signal task.

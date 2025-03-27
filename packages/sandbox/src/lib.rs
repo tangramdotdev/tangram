@@ -20,14 +20,14 @@ pub struct Command {
 	cwd: PathBuf,
 	envs: Vec<(OsString, OsString)>,
 	executable: PathBuf,
-	gid: u32,
+	gid: Option<u32>,
 	hostname: Option<OsString>,
 	mounts: Vec<Mount>,
 	network: bool,
 	stderr: Stdio,
 	stdin: Stdio,
 	stdout: Stdio,
-	uid: u32,
+	uid: Option<u32>,
 }
 
 pub struct Child {
@@ -111,14 +111,14 @@ impl Command {
 			cwd: std::env::current_dir().unwrap(),
 			envs: Vec::new(),
 			executable: executable.as_ref().to_owned(),
-			gid: unsafe { libc::getgid() },
+			gid: None,
 			hostname: None,
 			mounts: Vec::new(),
 			network: true,
 			stderr: Stdio::Inherit,
 			stdin: Stdio::Inherit,
 			stdout: Stdio::Inherit,
-			uid: unsafe { libc::getuid() },
+			uid: None,
 		}
 	}
 
@@ -158,12 +158,12 @@ impl Command {
 	}
 
 	pub fn gid(&mut self, gid: libc::gid_t) -> &mut Self {
-		self.gid = gid;
+		self.gid.replace(gid);
 		self
 	}
 
 	pub fn uid(&mut self, uid: libc::uid_t) -> &mut Self {
-		self.uid = uid;
+		self.uid.replace(uid);
 		self
 	}
 
@@ -209,6 +209,21 @@ impl Command {
 		#[cfg(target_os = "macos")]
 		{
 			darwin::spawn(self)
+		}
+	}
+
+	pub fn user(&mut self, name: impl AsRef<OsStr>) -> std::io::Result<&mut Self> {
+		unsafe {
+			let name = name.as_ref().as_bytes().as_ptr().cast();
+			let passwd = libc::getpwnam(name);
+			if passwd.is_null() {
+				return Err(std::io::Error::last_os_error());
+			}
+			let uid = (*passwd).pw_uid;
+			let gid = (*passwd).pw_gid;
+			self.uid(uid)
+				.gid(gid);
+			Ok(self)
 		}
 	}
 }

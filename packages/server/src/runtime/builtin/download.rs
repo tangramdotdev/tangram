@@ -45,6 +45,7 @@ impl Runtime {
 		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
 			remote: process.remote().cloned(),
+			stream: tg::process::log::Stream::Stderr,
 		};
 		server.try_post_process_log(process.id(), arg).await.ok();
 
@@ -69,6 +70,7 @@ impl Runtime {
 					let arg = tg::process::log::post::Arg {
 						bytes: message.into(),
 						remote: process.remote().cloned(),
+						stream: tg::process::log::Stream::Stderr,
 					};
 					if !server
 						.try_post_process_log(process.id(), arg)
@@ -133,6 +135,7 @@ impl Runtime {
 		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
 			remote: process.remote().cloned(),
+			stream: tg::process::log::Stream::Stderr,
 		};
 		server.try_post_process_log(process.id(), arg).await.ok();
 

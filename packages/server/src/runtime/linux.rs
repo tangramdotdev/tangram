@@ -5,7 +5,8 @@ use super::{
 use crate::{Server, temp::Temp};
 use futures::stream::{FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
-use std::path::Path;
+use itertools::Itertools;
+use std::path::{Path, PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Task;
@@ -64,7 +65,9 @@ impl Runtime {
 		let root_mount = command
 			.mounts
 			.iter()
-			.any(|mount| mount.target == Path::new("/"));
+			.map(|mount| &mount.target)
+			.chain(state.mounts.iter().map(|mount| &mount.target))
+			.any(|target| target == Path::new("/"));
 
 		// Create the temp.
 		let temp = Temp::new(&self.server);
@@ -326,7 +329,31 @@ impl Runtime {
 			tg::command::data::Executable::Module(_) => {
 				return Err(tg::error!("invalid executable"));
 			},
-			tg::command::data::Executable::Path(path) => path.to_string_lossy().to_string(),
+			tg::command::data::Executable::Path(path) => {
+				// Simple implementation of
+				'a: {
+					if path.is_absolute() || path.components().count() > 1 {
+						break 'a path.to_string_lossy().to_string();
+					}
+					let name = path
+						.components()
+						.next()
+						.ok_or_else(|| tg::error!("invalid executable path"))?;
+					let std::path::Component::Normal(name) = name else {
+						return Err(tg::error!(%path = path.display(), "invalid executable path"))?;
+					};
+					if let Some(paths) = env.get("PATH") {
+						let sep = ":";
+						for path in paths.split(sep) {
+							let path = Path::new(path).join(name);
+							if tokio::fs::try_exists(&path).await.ok() == Some(true) {
+								break 'a path.to_string_lossy().to_string();
+							}
+						}
+					}
+					return Err(tg::error!(%path = path.display(), "could not find executable"))?;
+				}
+			},
 		};
 
 		// Set `$OUTPUT`.
@@ -405,6 +432,7 @@ impl Runtime {
 		} else {
 			sandbox::Stdio::Pipe
 		};
+		// let user = command.user.unwrap_or_else(|| "root".into());
 
 		// Spawn the process.
 		let mut child = sandbox::Command::new(executable)
@@ -412,13 +440,13 @@ impl Runtime {
 			.chroot(root_path)
 			.cwd(cwd)
 			.envs(env)
-			.gid(0)
 			.hostname(process.id().to_string())
 			.mounts(mounts)
 			.stderr(stderr)
 			.stdin(stdin)
 			.stdout(stdout)
-			.uid(0)
+			// .user(user)
+			// .map_err(|source| tg::error!(!source, "invalid user"))?
 			.spawn()
 			.await
 			.map_err(|source| {
@@ -431,14 +459,12 @@ impl Runtime {
 
 		// Spawn the stdio task.
 		let stdio_task = Task::spawn(|stop| {
-			stdio_task(
-				self.server.clone(),
-				process.clone(),
-				stop,
-				child.stdin.take().unwrap(),
-				child.stdout.take().unwrap(),
-				child.stderr.take().unwrap(),
-			)
+			let server = self.server.clone();
+			let process = process.clone();
+			let stdin = child.stdin.take().unwrap();
+			let stdout = child.stdout.take().unwrap();
+			let stderr = child.stderr.take().unwrap();
+			async move { stdio_task(&server, &process, stop, stdin, stdout, stderr).await }
 		});
 
 		// Spawn the signal task.

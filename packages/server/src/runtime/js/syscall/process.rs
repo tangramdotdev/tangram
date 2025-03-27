@@ -54,6 +54,7 @@ pub async fn spawn(
 									let arg = tg::process::log::post::Arg {
 										bytes: message.into(),
 										remote: Some(remote.to_owned()),
+										stream: tg::process::log::Stream::Stderr,
 									};
 									server.try_post_process_log(parent.id(), arg).await.ok();
 								}
