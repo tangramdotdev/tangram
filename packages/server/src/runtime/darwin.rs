@@ -135,7 +135,7 @@ impl Runtime {
 			tg::command::data::Executable::Module(_) => {
 				return Err(tg::error!("invalid executable"));
 			},
-			tg::command::data::Executable::Path(exe) => wich(&exe, &env).await?,
+			tg::command::data::Executable::Path(exe) => which(&exe, &env).await?,
 		};
 
 		// Set `$OUTPUT`.
