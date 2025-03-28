@@ -219,6 +219,12 @@ export class Process {
 		}
 	}
 
+	async mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>> {
+		let commandMounts = await (await this.command()).mounts();
+		await this.load();
+		return [...this.#state!.mounts, ...commandMounts];
+	}
+
 	async network(): Promise<boolean> {
 		await this.load();
 		return this.#state!.network;

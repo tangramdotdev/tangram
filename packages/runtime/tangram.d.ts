@@ -1003,8 +1003,8 @@ declare namespace tg {
 		/** Get this process's command's executable. */
 		executable(): Promise<tg.Command.Executable | undefined>;
 
-		/** Get the mounts for this process. */
-		mounts(): Promise<Array<tg.Process.Mount>>;
+		/** Get the mounts for this process and its command. */
+		mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>>;
 
 		/** Get whether this process has the network enabled. */
 		network(): Promise<boolean>;
