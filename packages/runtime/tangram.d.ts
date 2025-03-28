@@ -584,8 +584,11 @@ declare namespace tg {
 		/** Get this command's arguments. */
 		args(): Promise<Array<tg.Value>>;
 
+		/** Get this command's cwd. */
+		cwd(): Promise<string | undefined>;
+
 		/** Get this command's environment. */
-		env(): Promise<tg.Mutation>;
+		env(): Promise<{ [key: string]: tg.Value }>;
 
 		/** Get this command's executable. */
 		executable(): Promise<tg.Command.Executable | undefined>;
@@ -593,14 +596,14 @@ declare namespace tg {
 		/** Get this command's host. */
 		host(): Promise<string>;
 
-		/** Get this comman's object. */
+		/** Get this command's object. */
 		object(): Promise<tg.Command.Object>;
 
 		/** Get this command's mounts. */
 		mounts(): Promise<Array<tg.Command.Mount>>;
 
 		/** Get this command's user. */
-		user(): Promise<string>;
+		user(): Promise<string | undefined>;
 
 		/** Build this command and return the process's output. */
 		build(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value>;
@@ -987,18 +990,27 @@ declare namespace tg {
 		/** Get this process's command. */
 		command(): Promise<tg.Command>;
 
-		/** Get this process's cwd. */
+		/** Get this process's command's args. */
+		args(): Promise<Array<tg.Value>>;
+
+		/** Get this process's command's cwd. */
 		cwd(): Promise<string | undefined>;
 
-		/** Get this process's environment. */
+		/** Get this process's command's environment. */
 		env(): Promise<{ [name: string]: tg.Value }>;
 		env(name: string): Promise<tg.Value | undefined>;
+		
+		/** Get this process's command's executable. */
+		executable(): Promise<tg.Command.Executable | undefined>;
 
 		/** Get the mounts for this process. */
 		mounts(): Promise<Array<tg.Process.Mount>>;
 
 		/** Get whether this process has the network enabled. */
 		network(): Promise<boolean>;
+		
+		/** Get this process's command's user. */
+		user(): Promise<string | undefined>;
 	}
 
 	export namespace Process {

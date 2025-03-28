@@ -198,9 +198,34 @@ export class Process {
 		return this.#state!.command;
 	}
 
+	async args(): Promise<Array<tg.Value>> {
+		return await (await this.command()).args();
+	}
+
+	async cwd(): Promise<string | undefined> {
+		return await (await this.command()).cwd();
+	}
+
+	async env(): Promise<{ [key: string]: tg.Value }>;
+	async env(name: string): Promise<tg.Value | undefined>;
+	async env(
+		name?: string,
+	): Promise<{ [name: string]: tg.Value } | tg.Value | undefined> {
+		let commandEnv = await (await this.command()).env();
+		if (name === undefined) {
+			return commandEnv;
+		} else {
+			return commandEnv[name];
+		}
+	}
+
 	async network(): Promise<boolean> {
 		await this.load();
 		return this.#state!.network;
+	}
+
+	async user(): Promise<string | undefined> {
+		return await (await this.command()).user();
 	}
 }
 

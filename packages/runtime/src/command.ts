@@ -225,6 +225,10 @@ export class Command<
 		return (await this.object()).args;
 	}
 
+	async cwd(): Promise<string | undefined> {
+		return (await this.object()).cwd;
+	}
+
 	async env(): Promise<{ [key: string]: tg.Value }> {
 		return (await this.object()).env;
 	}
