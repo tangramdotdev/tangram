@@ -1,6 +1,6 @@
 use super::{
 	proxy::Proxy,
-	util::{render_env, render_value, signal_task, stdio_task},
+	util::{render_env, render_value, signal_task, stdio_task, which},
 };
 use crate::{Server, temp::Temp};
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
@@ -135,7 +135,7 @@ impl Runtime {
 			tg::command::data::Executable::Module(_) => {
 				return Err(tg::error!("invalid executable"));
 			},
-			tg::command::data::Executable::Path(path) => path.to_string_lossy().to_string(),
+			tg::command::data::Executable::Path(exe) => wich(&exe, &env).await?,
 		};
 
 		// Set `$OUTPUT`.

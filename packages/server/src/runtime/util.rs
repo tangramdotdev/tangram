@@ -2,7 +2,11 @@ use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
 use futures::{Stream, TryStreamExt as _, future, stream};
-use std::{collections::BTreeMap, path::Path, pin::pin};
+use std::{
+	collections::BTreeMap,
+	path::{Path, PathBuf},
+	pin::pin,
+};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Stop;
@@ -359,4 +363,25 @@ async fn output(
 		server.try_post_process_log(process.id(), arg).await?;
 	}
 	Ok(())
+}
+
+pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<String> {
+	if exe.is_absolute() || exe.components().count() > 1 {
+		return Ok(exe.to_string_lossy().to_string());
+	}
+	let Some(pathenv) = env.get("PATH") else {
+		return Ok(exe.to_string_lossy().to_string());
+	};
+	let name = exe.components().next();
+	let Some(std::path::Component::Normal(name)) = name else {
+		return Err(tg::error!(%path = exe.display(), "invalid executable path"));
+	};
+	let sep = ":";
+	for path in pathenv.split(sep) {
+		let path = Path::new(path).join(name);
+		if tokio::fs::try_exists(&path).await.ok() == Some(true) {
+			return Ok(path.to_string_lossy().to_string());
+		}
+	}
+	Err(tg::error!(%path = exe.display(), "could not find executable"))
 }

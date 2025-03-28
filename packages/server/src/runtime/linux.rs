@@ -1,12 +1,11 @@
 use super::{
 	proxy::Proxy,
-	util::{render_env, render_value, signal_task, stdio_task},
+	util::{render_env, render_value, signal_task, stdio_task, which},
 };
 use crate::{Server, temp::Temp};
 use futures::stream::{FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
-use itertools::Itertools;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Task;
@@ -327,31 +326,7 @@ impl Runtime {
 			tg::command::data::Executable::Module(_) => {
 				return Err(tg::error!("invalid executable"));
 			},
-			tg::command::data::Executable::Path(path) => {
-				// Simple implementation of
-				'a: {
-					if path.is_absolute() || path.components().count() > 1 {
-						break 'a path.to_string_lossy().to_string();
-					}
-					let name = path
-						.components()
-						.next()
-						.ok_or_else(|| tg::error!("invalid executable path"))?;
-					let std::path::Component::Normal(name) = name else {
-						return Err(tg::error!(%path = path.display(), "invalid executable path"))?;
-					};
-					if let Some(paths) = env.get("PATH") {
-						let sep = ":";
-						for path in paths.split(sep) {
-							let path = Path::new(path).join(name);
-							if tokio::fs::try_exists(&path).await.ok() == Some(true) {
-								break 'a path.to_string_lossy().to_string();
-							}
-						}
-					}
-					return Err(tg::error!(%path = path.display(), "could not find executable"))?;
-				}
-			},
+			tg::command::data::Executable::Path(exe) => which(&exe, &env).await?,
 		};
 
 		// Set `$OUTPUT`.
