@@ -340,11 +340,11 @@ impl Server {
 			match stdout {
 				tg::process::Stdio::Pipe(id) => {
 					self.send_pipe_event(&id, tg::pipe::Event::Chunk(arg.bytes.clone()))
-						.await?
+						.await?;
 				},
 				tg::process::Stdio::Pty(id) => {
 					self.send_pty_event(&id, tg::pty::Event::Chunk(arg.bytes.clone()), false)
-						.await?
+						.await?;
 				},
 			}
 		}
@@ -352,11 +352,11 @@ impl Server {
 			match stderr {
 				tg::process::Stdio::Pipe(id) => {
 					self.send_pipe_event(&id, tg::pipe::Event::Chunk(arg.bytes.clone()))
-						.await?
+						.await?;
 				},
 				tg::process::Stdio::Pty(id) => {
 					self.send_pty_event(&id, tg::pty::Event::Chunk(arg.bytes.clone()), false)
-						.await?
+						.await?;
 				},
 			}
 		}

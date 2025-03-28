@@ -14,7 +14,7 @@ impl fmt::Display for Stream {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Self::Stderr => write!(f, "stderr"),
-			Self::Stdout => write!(f, "stderr"),
+			Self::Stdout => write!(f, "stdout"),
 		}
 	}
 }
