@@ -454,6 +454,7 @@ where
 		}
 
 		// Create the status stream.
+
 		let mut status = process.status(handle).await?;
 		while let Some(status) = status.try_next().await? {
 			let indicator = match status {
@@ -462,7 +463,7 @@ where
 				tg::process::Status::Dequeued => Indicator::Dequeued,
 				tg::process::Status::Started => Indicator::Started,
 				tg::process::Status::Finishing => Indicator::Finishing,
-				tg::process::Status::Failed | tg::process::Status::Succeeded => {
+				tg::process::Status::Finished => {
 					// Remove the child if necessary.
 					if options.condensed_processes {
 						let update = move |node: Rc<RefCell<Node>>| {
@@ -490,10 +491,17 @@ where
 						return Ok(());
 					}
 
-					match status {
-						tg::process::Status::Failed => Indicator::Failed,
-						tg::process::Status::Succeeded => Indicator::Succeeded,
-						_ => unreachable!(),
+					let state = process.load(handle).await?;
+					let failed = state.error.is_some()
+						|| state
+							.exit
+							.as_ref()
+							.map(tg::process::Exit::failed)
+							.unwrap_or(false);
+					if failed {
+						Indicator::Failed
+					} else {
+						Indicator::Succeeded
 					}
 				},
 			};
@@ -619,9 +627,7 @@ where
 				.is_none_or(|status| {
 					matches!(
 						status,
-						tg::process::Status::Finishing
-							| tg::process::Status::Failed
-							| tg::process::Status::Succeeded
+						tg::process::Status::Finishing | tg::process::Status::Finished
 					)
 				});
 			let handle = handle.clone();

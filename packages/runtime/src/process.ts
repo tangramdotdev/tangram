@@ -114,7 +114,13 @@ export class Process {
 	static async build(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		return await Process.run(
 			{
+				cwd: undefined,
+				env: undefined,
+				mounts: undefined,
 				network: false,
+				stdin: undefined,
+				stdout: undefined,
+				stderr: undefined,
 			},
 			...args,
 		);
@@ -123,9 +129,26 @@ export class Process {
 	static async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		let process = await Process.spawn(...args);
 		let output = await process.wait();
-		if (output.status !== "succeeded") {
+
+		// If there is an error in the output, throw it.
+		if (output.error) {
 			throw output.error;
 		}
+
+		// Check the exit status.
+		if (
+			typeof output.exit === "object" &&
+			"code" in output.exit &&
+			output.exit.code !== 0
+		) {
+			throw new Error(`the process exited with code ${output.exit.code}`);
+		}
+		if (typeof output.exit === "object" && "signal" in output.exit) {
+			throw new Error(
+				`the process was terminated by signal ${output.exit.signal}`,
+			);
+		}
+
 		return output.output;
 	}
 
@@ -361,9 +384,7 @@ export namespace Process {
 		| "dequeued"
 		| "started"
 		| "finishing"
-		| "canceled"
-		| "failed"
-		| "succeeded";
+		| "finished";
 
 	export type WaitOutput = {
 		error: tg.Error | undefined;

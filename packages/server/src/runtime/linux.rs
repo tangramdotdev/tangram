@@ -43,6 +43,8 @@ impl Runtime {
 		let command = process.command(&self.server).await?;
 		let command = command.data(&self.server).await?;
 		let remote = process.remote();
+		eprintln!("state: {state:#?}");
+		eprintln!("command: {command:#?}");
 
 		// If the VFS is disabled, then check out the target's children.
 		if self.server.vfs.lock().unwrap().is_none() {

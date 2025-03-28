@@ -109,7 +109,7 @@ impl Server {
 					exit: None,
 					output: None,
 					remote: None,
-					status: tg::process::Status::Failed,
+					status: tg::process::Status::Finished,
 				};
 				let output = self.try_finish_process(&child, arg).await?;
 				Ok::<_, tg::Error>((child, output.finished))
@@ -123,7 +123,7 @@ impl Server {
 		if let (Some(output), Some(expected)) = (output.clone(), data.checksum.as_ref()) {
 			let value: tg::Value = output.try_into()?;
 			if let Err(checksum_error) = self.verify_checksum(&value, expected).boxed().await {
-				status = tg::process::status::Status::Failed;
+				status = tg::process::status::Status::Finished;
 				error = Some(checksum_error);
 			}
 		}

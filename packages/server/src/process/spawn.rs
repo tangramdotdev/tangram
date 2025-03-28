@@ -110,7 +110,7 @@ impl Server {
 								exit: None,
 								output: None,
 								remote: None,
-								status: tg::process::Status::Failed,
+								status: tg::process::Status::Finished,
 							};
 							server.try_finish_process(&local_id, arg).boxed().await.ok();
 						}
@@ -157,12 +157,12 @@ impl Server {
 		struct Row {
 			id: tg::process::Id,
 			error: Option<db::value::Json<tg::Error>>,
-			status: tg::process::Status,
+			exit: Option<db::value::Json<tg::process::Exit>>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id, error, status
+				select id, error, exit
 				from processes
 				where
 					cacheable = 1 and
@@ -173,7 +173,7 @@ impl Server {
 			"
 		);
 		let params = db::params![arg.command, arg.checksum];
-		let Some(Row { id, error, status }) = connection
+		let Some(Row { id, error, exit }) = connection
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -185,12 +185,16 @@ impl Server {
 		drop(connection);
 
 		// If the process is canceled, then return.
-		if error.is_some_and(|error| matches!(error.0.code, Some(tg::error::Code::Cancelation))) {
+		if error
+			.as_ref()
+			.is_some_and(|error| matches!(error.0.code, Some(tg::error::Code::Cancelation)))
+		{
 			return Ok(None);
 		}
 
-		// If the process is failed and the retry flag is set, then return.
-		if status.is_failed() && arg.retry {
+		// If the process failed and the retry flag is set, then return.
+		let failed = error.is_some() || exit.map(|e| e.0.failed()).unwrap_or(false);
+		if failed && arg.retry {
 			return Ok(None);
 		}
 

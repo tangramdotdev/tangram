@@ -68,7 +68,7 @@ impl Server {
 						exit: None,
 						output: None,
 						remote: None,
-						status: tg::process::Status::Failed,
+						status: tg::process::Status::Finished,
 					};
 					server
 						.try_finish_process(process, arg)

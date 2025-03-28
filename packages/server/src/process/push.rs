@@ -357,7 +357,7 @@ impl Server {
 				(Some(0), Some(0), Some(0))
 			};
 			let (output_count, output_depth, output_weight) = if arg.outputs {
-				if data.status.is_succeeded() {
+				if data.status.is_finished() {
 					let metadata = data
 						.output
 						.as_ref()

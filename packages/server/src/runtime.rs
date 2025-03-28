@@ -218,7 +218,13 @@ impl Runtime {
 		let ((), (), output) = futures::try_join!(children_task, log_task, wait_task)?;
 
 		// If the process did not succeed, then return its output.
-		if !output.status.is_succeeded() {
+		if output.error.is_some()
+			|| output
+				.exit
+				.as_ref()
+				.map(tg::process::Exit::failed)
+				.unwrap_or(false)
+		{
 			let value = output.output.map(tg::Value::try_from).transpose()?;
 			let output = Output {
 				error: None,

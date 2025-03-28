@@ -157,7 +157,7 @@ impl Process {
 	{
 		let process = Self::spawn(handle, arg).await?;
 		let output = process.wait(handle).await?;
-		if output.status != tg::process::Status::Succeeded {
+		if output.status != tg::process::Status::Finished {
 			let error = output.error.unwrap_or_else(|| {
 				tg::error!(
 					%process = process.id(),
