@@ -114,9 +114,6 @@ export class Process {
 	static async build(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		return await Process.run(
 			{
-				cwd: undefined,
-				env: undefined,
-				mounts: undefined,
 				network: false,
 				stdin: undefined,
 				stdout: undefined,
