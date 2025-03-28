@@ -62,12 +62,10 @@ impl Runtime {
 		}
 
 		// Determine if there is a root mount.
-		let root_mount = command
+		let root_bind_mount = state
 			.mounts
 			.iter()
-			.map(|mount| &mount.target)
-			.chain(state.mounts.iter().map(|mount| &mount.target))
-			.any(|target| target == Path::new("/"));
+			.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
 
 		// Create the temp.
 		let temp = Temp::new(&self.server);
@@ -133,7 +131,7 @@ impl Runtime {
 		)?;
 
 		// Add additional mounts.
-		if !root_mount {
+		if !root_bind_mount {
 			// Create /etc.
 			tokio::fs::create_dir_all(temp.path().join("lower/etc"))
 				.await
@@ -254,14 +252,14 @@ impl Runtime {
 		mounts.sort_unstable_by_key(|mount| mount.target.components().count());
 
 		// Get the artifacts path.
-		let artifacts_path = if root_mount {
+		let artifacts_path = if root_bind_mount {
 			self.server.artifacts_path()
 		} else {
 			"/.tangram/artifacts".into()
 		};
 
 		// Create the proxy server.
-		let proxy = if root_mount {
+		let proxy = if root_bind_mount {
 			None
 		} else {
 			// Create the path map.
@@ -314,7 +312,6 @@ impl Runtime {
 		} else {
 			"/".into()
 		};
-		eprintln!("cwd: {cwd:?}");
 
 		// Render the env.
 		let mut env = render_env(&artifacts_path, &command.env)?;
@@ -358,7 +355,7 @@ impl Runtime {
 		};
 
 		// Set `$OUTPUT`.
-		if root_mount {
+		if root_bind_mount {
 			env.insert(
 				"OUTPUT".to_owned(),
 				output_path.join("output").to_str().unwrap().to_owned(),
