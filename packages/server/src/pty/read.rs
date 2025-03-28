@@ -58,10 +58,15 @@ impl Server {
 		}
 
 		// Create the stream from the messenger.
+		let stream = if arg.master {
+			format!("{id}_master")
+		} else {
+			format!("{id}_slave")
+		};
 		let name = tg::Id::new_uuidv7(tg::id::Kind::Pty);
 		let stream = self
 			.messenger
-			.stream_subscribe(id.to_string(), Some(name.to_string()))
+			.stream_subscribe(stream, Some(name.to_string()))
 			.await
 			.map_err(|source| tg::error!(!source, "the pty was closed or does not exist"))?
 			.map_err(|source| tg::error!(!source, "stream error"))
