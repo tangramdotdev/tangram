@@ -300,6 +300,11 @@ impl Server {
 			return Ok(output);
 		}
 
+		// Write logs to stderr.
+		if self.config.advanced.write_process_logs_to_stderr {
+			tokio::io::stderr().write_all(&arg.bytes).await.ok();
+		}
+
 		// Get the process data.
 		let data = self
 			.try_get_process_local(id)

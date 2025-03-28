@@ -11,7 +11,6 @@ use sourcemap::SourceMap;
 use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, pin::pin, rc::Rc, task::Poll};
 use tangram_client as tg;
 use tangram_v8::{FromV8 as _, ToV8};
-use tokio::io::AsyncWriteExt as _;
 
 mod error;
 mod syscall;
@@ -147,15 +146,6 @@ impl Runtime {
 			async move {
 				while let Some(message) = log_receiver.recv().await {
 					let syscall::log::Message { contents, .. } = message;
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(contents.as_bytes())
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write process log to stderr");
-							})
-							.ok();
-					}
 					let bytes = Bytes::from(contents);
 					match message.level {
 						syscall::log::Level::Log => {

@@ -72,6 +72,7 @@ export class Process {
 
 		let command = await tg.command(
 			{
+				cwd: Process.current.command().then((command) => command.cwd()),
 				env: Process.current.command().then((command) => command.env()),
 				host: Process.current.command().then((command) => command.host()),
 			},
