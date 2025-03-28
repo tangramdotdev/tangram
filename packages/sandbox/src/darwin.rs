@@ -363,7 +363,10 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 		.unwrap();
 	}
 
-	// Allow write access to the home directory.
+	if root_mount {
+		return Ok(CString::new(profile).unwrap());
+	}
+
 	for mount in &command.mounts {
 		if mount.source != mount.target {
 			return Err(std::io::Error::other(
@@ -386,23 +389,14 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 			writedoc!(
 				profile,
 				r"
-				(allow process-exec* (subpath {0}))
-				(allow file-read* (subpath {0}))
-				(allow file-write* (subpath {0}))
+					(allow process-exec* (subpath {0}))
+					(allow file-read* (subpath {0}))
+					(allow file-read* (path-ancestors {0}))
+					(allow file-write* (subpath {0}))
 				",
 				escape(path.as_os_str().as_bytes()),
 			)
 			.unwrap();
-			if path != Path::new("/") {
-				writedoc!(
-					profile,
-					"
-						(allow file-read* (path-ancestors {0}))
-					",
-					escape(path.as_os_str().as_bytes()),
-				)
-				.unwrap();
-			}
 		}
 	}
 
