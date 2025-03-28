@@ -2,11 +2,7 @@ use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
 use futures::{Stream, TryStreamExt as _, future, stream};
-use std::{
-	collections::BTreeMap,
-	path::{Path, PathBuf},
-	pin::pin,
-};
+use std::{collections::BTreeMap, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Stop;

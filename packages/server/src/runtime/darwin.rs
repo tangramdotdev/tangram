@@ -62,11 +62,11 @@ impl Runtime {
 				.await?;
 		}
 
-		// Determine if there is a root mount.
-		let root_mount = command
+		// Determine if the hosts' root is mounted.
+		let root_mount = state
 			.mounts
 			.iter()
-			.any(|mount| mount.target == Path::new("/"));
+			.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
 
 		// Get the artifacts path.
 		let artifacts_path = self.server.artifacts_path();
@@ -164,6 +164,12 @@ impl Runtime {
 				(cwd.clone(), cwd.clone(), false),
 			]);
 		};
+		mounts.extend(
+			state
+				.mounts
+				.iter()
+				.map(|mount| (mount.source.clone(), mount.target.clone(), mount.readonly)),
+		);
 
 		// Create the stdio.
 		let stdin = if let Some(tg::process::Stdio::Pty(pty)) = &state.stdin {

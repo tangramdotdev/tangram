@@ -215,7 +215,8 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 	let root_mount = command
 		.mounts
 		.iter()
-		.any(|mount| mount.target == Path::new("/"));
+		.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
+
 	if root_mount {
 		writedoc!(
 			profile,
@@ -299,36 +300,32 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 					(literal "/private/etc/services")
 					(subpath "/private/etc/ssl"))
 
-				(allow file-read* file-test-existence file-write-data file-ioctl (literal "/dev/dtracehelper"))
+				(allow file-read* file-test-existence file-write-data file-ioctl
+					(literal "/dev/dtracehelper"))
 
 				;; Allow executing /usr/bin/env and /bin/sh.
 				(allow file-read* process-exec
 					(literal "/usr/bin/env")
 					(literal "/bin/sh")
-					(literal "/bin/bash")
-				)
+					(literal "/bin/bash"))
 
 				;; Support Rosetta.
 				(allow file-read* file-test-existence
-					(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
-				)
+					(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime"))
 
 				;; Allow accessing the dyld shared cache.
 				(allow file-read* process-exec
 					(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
-					(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
-				)
+					(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld"))
 
 				;; Allow querying the macOS system version metadata.
 				(allow file-read* file-test-existence
-					(literal "/System/Library/CoreServices/SystemVersion.plist")
-				)
+					(literal "/System/Library/CoreServices/SystemVersion.plist"))
 
 				;; Allow bash to create and use file descriptors for pipes.
 				(allow file-read* file-write* file-ioctl process-exec
 					(literal "/dev/fd")
-					(subpath "/dev/fd")
-				)
+					(subpath "/dev/fd"))
 			"#
 		).unwrap();
 	}
@@ -389,14 +386,23 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 			writedoc!(
 				profile,
 				r"
-					(allow process-exec* (subpath {0}))
-					(allow file-read* (path-ancestors {0}))
-					(allow file-read* (subpath {0}))
-					(allow file-write* (subpath {0}))
+				(allow process-exec* (subpath {0}))
+				(allow file-read* (subpath {0}))
+				(allow file-write* (subpath {0}))
 				",
 				escape(path.as_os_str().as_bytes()),
 			)
 			.unwrap();
+			if path != Path::new("/") {
+				writedoc!(
+					profile,
+					"
+						(allow file-read* (path-ancestors {0}))
+					",
+					escape(path.as_os_str().as_bytes()),
+				)
+				.unwrap();
+			}
 		}
 	}
 
