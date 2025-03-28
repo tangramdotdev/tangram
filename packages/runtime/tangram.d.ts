@@ -999,7 +999,7 @@ declare namespace tg {
 		/** Get this process's command's environment. */
 		env(): Promise<{ [name: string]: tg.Value }>;
 		env(name: string): Promise<tg.Value | undefined>;
-		
+
 		/** Get this process's command's executable. */
 		executable(): Promise<tg.Command.Executable | undefined>;
 
@@ -1008,7 +1008,7 @@ declare namespace tg {
 
 		/** Get whether this process has the network enabled. */
 		network(): Promise<boolean>;
-		
+
 		/** Get this process's command's user. */
 		user(): Promise<string | undefined>;
 	}
@@ -1054,11 +1054,11 @@ declare namespace tg {
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
 
-			stderr?: undefined,
+			stderr?: undefined;
 
-			stdin?: undefined | tg.Blob.Arg,
+			stdin?: undefined;
 
-			stdout?: undefined,
+			stdout?: undefined;
 
 			/** The command's user. */
 			user?: string | undefined;

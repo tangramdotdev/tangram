@@ -60,11 +60,10 @@ export class Process {
 		if ("stderr" in arg) {
 			stderr = arg.stderr;
 		}
-		// let stdin = tg.Process.current.#state!.stdin;
-		// if ("stdin" in arg) {
-		// 	// todo: construct blob from tg.Blob.Arg
-		// 	stdin = arg.stdin;
-		// }
+		let stdin = tg.Process.current.#state!.stdin;
+		if ("stdin" in arg) {
+			stdin = arg.stdin;
+		}
 		let stdout = tg.Process.current.#state!.stdout;
 		if ("stdout" in arg) {
 			stdout = arg.stdout;
@@ -96,7 +95,7 @@ export class Process {
 			remote: undefined,
 			retry: false,
 			stderr,
-			stdin: undefined,
+			stdin,
 			stdout,
 		});
 		return new tg.Process({
@@ -358,9 +357,9 @@ export namespace Process {
 			| Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
 			| undefined;
 		network?: boolean | undefined;
-		stderr?: string | undefined;
-		stdin?: string | undefined;
-		stdout?: string | undefined;
+		stderr?: undefined;
+		stdin?: undefined;
+		stdout?: undefined;
 	};
 
 	export type State = {
