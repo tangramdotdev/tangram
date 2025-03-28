@@ -1,86 +1,26 @@
 use super::{
-	proxy::{self, Proxy},
-	util::render,
+	proxy::Proxy,
+	util::{render_env, render_value, signal_task, stdio_task, which},
 };
 use crate::{Server, temp::Temp};
-use futures::{
-	TryStreamExt as _, future,
-	stream::{FuturesOrdered, FuturesUnordered},
-};
+use futures::stream::{FuturesUnordered, TryStreamExt as _};
+use indoc::formatdoc;
 use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Task;
+use tangram_sandbox as sandbox;
 use url::Url;
-
-mod chroot;
-mod process;
-
-/// The home directory guest path.
-const HOME_DIRECTORY_GUEST_PATH: &str = "/home/tangram";
-
-/// The output parent directory guest path.
-const OUTPUT_PARENT_DIRECTORY_GUEST_PATH: &str = "/output";
-
-/// The server guest path.
-const SERVER_DIRECTORY_GUEST_PATH: &str = "/.tangram";
-
-/// The GID for the tangram user.
-const TANGRAM_GID: libc::gid_t = 1000;
-
-/// The UID for the tangram user.
-const TANGRAM_UID: libc::uid_t = 1000;
-
-/// The working directory guest path.
-const WORKING_DIRECTORY_GUEST_PATH: &str = "/home/tangram/work";
-
-#[cfg(target_arch = "aarch64")]
-const DASH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dash_aarch64_linux"));
-
-#[cfg(target_arch = "x86_64")]
-const DASH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dash_x86_64_linux"));
-
-#[cfg(target_arch = "aarch64")]
-const ENV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/env_aarch64_linux"));
-
-#[cfg(target_arch = "x86_64")]
-const ENV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/env_x86_64_linux"));
 
 #[derive(Clone)]
 pub struct Runtime {
 	pub(super) server: Server,
-	env: tg::File,
-	sh: tg::File,
 }
 
 impl Runtime {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
-		let env = tg::Blob::with_reader(server, ENV).await?;
-		let env = tg::File::builder(env).executable(true).build();
-		let arg = tg::tag::put::Arg {
-			force: true,
-			item: Either::Right(env.id(server).await?.into()),
-			remote: None,
-		};
-		server
-			.put_tag(&"internal/runtime/linux/env".parse().unwrap(), arg)
-			.await?;
-
-		let sh = tg::Blob::with_reader(server, DASH)
-			.await
-			.inspect_err(|error| eprintln!("{error}"))?;
-		let sh = tg::File::builder(sh).executable(true).build();
-		let arg = tg::tag::put::Arg {
-			force: true,
-			item: Either::Right(sh.id(server).await?.into()),
-			remote: None,
-		};
-		server
-			.put_tag(&"internal/runtime/linux/sh".parse().unwrap(), arg)
-			.await?;
-
 		let server = server.clone();
-		Ok(Self { server, env, sh })
+		Ok(Self { server })
 	}
 
 	pub async fn run(&self, process: &tg::Process) -> super::Output {
@@ -99,21 +39,19 @@ impl Runtime {
 		&self,
 		process: &tg::Process,
 	) -> tg::Result<(Option<tg::process::Exit>, Option<tg::Value>)> {
-		// Get the process state.
 		let state = process.load(&self.server).await?;
 		let command = process.command(&self.server).await?;
+		let command = command.data(&self.server).await?;
 		let remote = process.remote();
+		eprintln!("state: {state:#?}");
+		eprintln!("command: {command:#?}");
 
 		// If the VFS is disabled, then check out the target's children.
 		if self.server.vfs.lock().unwrap().is_none() {
 			command
-				.data(&self.server)
-				.await?
 				.children()
 				.into_iter()
-				.filter_map(|id| id.try_into().ok())
-				.map(tg::Artifact::with_id)
-				.chain([self.env.clone().into(), self.sh.clone().into()])
+				.filter_map(|id| Some(tg::Artifact::with_id(id.try_into().ok()?)))
 				.map(|artifact| async move {
 					let arg = tg::artifact::checkout::Arg::default();
 					artifact.check_out(&self.server, arg).await?;
@@ -124,33 +62,216 @@ impl Runtime {
 				.await?;
 		}
 
-		// Create the parent directory for the output.
-		let output_parent = Temp::new(&self.server);
-		tokio::fs::create_dir_all(output_parent.path())
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to create the output parent directory")
-			})?;
+		// Determine if there is a root mount.
+		let root_bind_mount = state
+			.mounts
+			.iter()
+			.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
 
-		// Setup the chroot if cwd is not set.
-		let chroot = if state.cwd.is_some() {
-			None
+		// Create the temp.
+		let temp = Temp::new(&self.server);
+		let output_path = temp.path().join("output");
+		let mut root_path = temp.path().join("root");
+		let mut mounts = Vec::with_capacity(state.mounts.len() + command.mounts.len());
+
+		// Create the output directory.
+		tokio::fs::create_dir_all(&output_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
+
+		// Create mounts.
+		let mut overlays: Vec<sandbox::Overlay> = vec![];
+		let iter = state
+			.mounts
+			.iter()
+			.map(Either::Left)
+			.chain(command.mounts.iter().map(Either::Right));
+		for mount in iter {
+			match mount {
+				Either::Left(mount) => {
+					let mount = sandbox::BindMount {
+						source: mount.source.clone(),
+						target: mount.target.clone(),
+						readonly: mount.readonly,
+					};
+					mounts.push(mount.into());
+				},
+				Either::Right(mount) => {
+					let overlay = 'a: {
+						if let Some(overlay) = overlays
+							.iter_mut()
+							.find(|overlay| overlay.merged == mount.target)
+						{
+							break 'a overlay;
+						};
+						let upperdir = temp.path().join("upper").join(overlays.len().to_string());
+						let workdir = temp.path().join("work").join(overlays.len().to_string());
+						tokio::fs::create_dir_all(&upperdir).await.ok();
+						tokio::fs::create_dir_all(&workdir).await.ok();
+						if mount.target == Path::new("/") {
+							root_path = upperdir.clone();
+						}
+						overlays.push(sandbox::Overlay {
+							lowerdirs: vec![],
+							upperdir,
+							workdir,
+							merged: mount.target.clone(),
+						});
+						overlays.last_mut().unwrap()
+					};
+					let path = self.server.artifacts_path().join(mount.source.to_string());
+					overlay.lowerdirs.push(path);
+				},
+			}
+		}
+
+		// Create the proxy path.
+		let path = temp.path().join(".tangram");
+		tokio::fs::create_dir_all(&path).await.map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to create the data directory"),
+		)?;
+
+		// Add additional mounts.
+		if !root_bind_mount {
+			// Create /etc.
+			tokio::fs::create_dir_all(temp.path().join("lower/etc"))
+				.await
+				.ok();
+
+			// Create nsswitch.conf.
+			tokio::fs::write(
+				temp.path().join("lower/etc/nsswitch.conf"),
+				formatdoc!(
+					"
+						passwd: files compat
+						shadow: files compat
+						hosts: files dns compat
+					"
+				),
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create /etc/nsswitch.conf"))?;
+
+			// Create /etc/passwd.
+			tokio::fs::write(
+				temp.path().join("lower/etc/passwd"),
+				formatdoc!(
+					"
+						root:!:0:0:root:/nonexistent:/bin/false
+						nobody:!:65534:65534:nobody:/nonexistent:/bin/false
+					"
+				),
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create /etc/passwd"))?;
+
+			// Copy resolv.conf.
+			if state.network {
+				tokio::fs::copy(
+					"/etc/resolv.conf",
+					temp.path().join("lower/etc/resolv.conf"),
+				)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to copy /etc/resolv.conf to sandbox")
+				})?;
+			}
+
+			let overlay = 'a: {
+				if let Some(overlay) = overlays
+					.iter_mut()
+					.find(|overlay| overlay.merged == Path::new("/"))
+				{
+					break 'a overlay;
+				};
+				let upperdir = temp.path().join("upper").join(overlays.len().to_string());
+				let workdir = temp.path().join("work").join(overlays.len().to_string());
+				tokio::fs::create_dir_all(&upperdir).await.ok();
+				tokio::fs::create_dir_all(&workdir).await.ok();
+				root_path = upperdir.clone();
+				overlays.push(sandbox::Overlay {
+					lowerdirs: vec![],
+					upperdir,
+					workdir,
+					merged: "/".into(),
+				});
+				overlays.last_mut().unwrap()
+			};
+			overlay.lowerdirs.push(temp.path().join("lower"));
+
+			// Add mounts for /dev, /proc, /tmp, /.tangram, /.tangram/artifacts, and /output.
+			mounts.push(
+				sandbox::BindMount {
+					source: "/dev".into(),
+					target: "/dev".into(),
+					readonly: false,
+				}
+				.into(),
+			);
+			mounts.push(sandbox::Mount {
+				source: "/proc".into(),
+				target: "/proc".into(),
+				fstype: Some("proc".into()),
+				flags: 0,
+				data: None,
+				readonly: false,
+			});
+			mounts.push(sandbox::Mount {
+				source: "/tmp".into(),
+				target: "/tmp".into(),
+				fstype: Some("tmpfs".into()),
+				flags: 0,
+				data: None,
+				readonly: false,
+			});
+			mounts.push(
+				sandbox::BindMount {
+					source: temp.path().join(".tangram"),
+					target: "/.tangram".into(),
+					readonly: false,
+				}
+				.into(),
+			);
+			mounts.push(
+				sandbox::BindMount {
+					source: self.server.artifacts_path(),
+					target: "/.tangram/artifacts".into(),
+					readonly: false,
+				}
+				.into(),
+			);
+			mounts.push(
+				sandbox::BindMount {
+					source: output_path.clone(),
+					target: "/output".into(),
+					readonly: false,
+				}
+				.into(),
+			);
+		}
+		mounts.extend(overlays.into_iter().map(sandbox::Mount::from));
+		mounts.sort_unstable_by_key(|mount| mount.target.components().count());
+
+		// Get the artifacts path.
+		let artifacts_path = if root_bind_mount {
+			self.server.artifacts_path()
 		} else {
-			let chroot = chroot::Chroot::new(self, state.network, output_parent.path()).await?;
-			Some(chroot)
+			"/.tangram/artifacts".into()
 		};
 
-		// Create the proxy for the chroot.
-		let proxy = if let Some(chroot) = &chroot {
+		// Create the proxy server.
+		let proxy = if root_bind_mount {
+			None
+		} else {
 			// Create the path map.
-			let path_map = proxy::PathMap {
-				output_host: output_parent.path().to_owned(),
-				output_guest: OUTPUT_PARENT_DIRECTORY_GUEST_PATH.into(),
-				root_host: chroot.temp.path().to_owned(),
+			let path_map = crate::runtime::proxy::PathMap {
+				output_host: output_path.clone(),
+				output_guest: "/output".into(),
+				root_host: root_path.clone(),
 			};
 
 			// Create the proxy server guest URL.
-			let socket = Path::new(SERVER_DIRECTORY_GUEST_PATH).join("socket");
+			let socket = Path::new("/.tangram/socket");
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
@@ -159,7 +280,7 @@ impl Runtime {
 			let guest_url = format!("http+unix://{socket}").parse::<Url>().unwrap();
 
 			// Create the proxy server host URL.
-			let socket = chroot.temp.path().join(".tangram/socket");
+			let socket = temp.path().join(".tangram/socket");
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
@@ -177,122 +298,187 @@ impl Runtime {
 			let listener = Server::listen(&host_url).await?;
 			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 			Some((task, guest_url))
-		} else {
-			None
-		};
-
-		// Get the artifacts path.
-		let artifacts_path = if chroot.is_some() {
-			Path::new(SERVER_DIRECTORY_GUEST_PATH).join("artifacts")
-		} else {
-			self.server.artifacts_path()
 		};
 
 		// Render the args.
-		let args = command.args(&self.server).await?;
-		let args: Vec<String> = args
+		let args: Vec<String> = command
+			.args
 			.iter()
-			.map(|value| async {
-				let value = render(&self.server, value, &artifacts_path).await?;
-				Ok::<_, tg::Error>(value)
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+			.map(|value| render_value(&artifacts_path, value))
+			.collect();
 
 		// Get the working directory.
-		let cwd = if let Some(cwd) = &state.cwd {
+		let cwd = if let Some(cwd) = &command.cwd {
 			cwd.clone()
 		} else {
-			WORKING_DIRECTORY_GUEST_PATH.into()
+			"/".into()
 		};
 
-		// Get the command env.
-		let command_env = command.env(&self.server).await?;
-
-		// Get the process env.
-		let process_env = state.env.as_ref();
-
-		// Merge the environment.
-		let mut env =
-			super::util::merge_env(&self.server, &artifacts_path, process_env, &*command_env)
-				.await?;
+		// Render the env.
+		let mut env = render_env(&artifacts_path, &command.env)?;
 
 		// Render the executable.
-		let Some(tg::command::Executable::Artifact(executable)) =
-			command.executable(&self.server).await?.as_ref().cloned()
-		else {
-			return Err(tg::error!("invalid executable"));
+		let Some(executable) = command.executable else {
+			return Err(tg::error!("missing executable"));
 		};
-		let executable = render(&self.server, &executable.into(), &artifacts_path).await?;
+		let executable = match executable {
+			tg::command::data::Executable::Artifact(artifact) => {
+				render_value(&artifacts_path, &tg::object::Id::from(artifact).into())
+			},
+			tg::command::data::Executable::Module(_) => {
+				return Err(tg::error!("invalid executable"));
+			},
+			tg::command::data::Executable::Path(exe) => which(&exe, &env).await?,
+		};
 
-		if chroot.is_some() {
-			// Set `$HOME`.
-			env.insert("HOME".to_owned(), HOME_DIRECTORY_GUEST_PATH.to_owned());
-			// Set `$OUTPUT`.
-			let output_guest_path =
-				std::path::PathBuf::from(OUTPUT_PARENT_DIRECTORY_GUEST_PATH).join("output");
+		// Set `$OUTPUT`.
+		if root_bind_mount {
 			env.insert(
 				"OUTPUT".to_owned(),
-				output_guest_path.to_str().unwrap().to_owned(),
+				output_path.join("output").to_str().unwrap().to_owned(),
 			);
 		} else {
-			// Set OUTPUT to the host path.
-			env.insert(
-				"OUTPUT".to_owned(),
-				output_parent
-					.path()
-					.join("output")
-					.to_str()
-					.unwrap()
-					.to_owned(),
-			);
+			env.insert("OUTPUT".to_owned(), "/output/output".to_owned());
 		}
 
 		// Set `$TANGRAM_URL`.
-		let url = proxy
-			.as_ref()
-			.map(|(_, url)| url.to_string())
-			.unwrap_or_else(|| {
+		let url = proxy.as_ref().map_or_else(
+			|| {
 				let path = self.server.path.join("socket").display().to_string();
 				let path = urlencoding::encode(&path);
 				format!("http+unix://{path}")
-			});
-		env.insert("TANGRAM_URL".to_owned(), url.to_string());
-
-		// Spawn the child.
-		let mut child = process::spawn(args, cwd, env, executable, chroot, state.network)?;
-
-		// Spawn the log task.
-		let log_task = super::util::post_log_task(
-			&self.server,
-			process,
-			remote,
-			child.stdout.take().unwrap(),
-			child.stderr.take().unwrap(),
+			},
+			|(_, url)| url.to_string(),
 		);
+		env.insert("TANGRAM_URL".to_owned(), url);
+
+		// Create the stdio.
+		let stdin = if let Some(tg::process::Stdio::Pty(pty)) = &state.stdin {
+			let arg = tg::pty::read::Arg {
+				remote: process.remote().cloned(),
+				master: true,
+			};
+			let size = self
+				.server
+				.get_pty_size(pty, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to get the pty size"))?;
+			let tty = sandbox::Tty {
+				rows: size.rows,
+				cols: size.cols,
+			};
+			sandbox::Stdio::Tty(tty)
+		} else {
+			sandbox::Stdio::Pipe
+		};
+		let stdout = if let Some(tg::process::Stdio::Pty(pty)) = &state.stdout {
+			let arg = tg::pty::read::Arg {
+				remote: process.remote().cloned(),
+				master: false,
+			};
+			let size = self
+				.server
+				.get_pty_size(pty, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to get the pty size"))?;
+			let tty = sandbox::Tty {
+				rows: size.rows,
+				cols: size.cols,
+			};
+			sandbox::Stdio::Tty(tty)
+		} else {
+			sandbox::Stdio::Pipe
+		};
+		let stderr = if let Some(tg::process::Stdio::Pty(pty)) = &state.stderr {
+			let arg = tg::pty::read::Arg {
+				remote: process.remote().cloned(),
+				master: false,
+			};
+			let size = self
+				.server
+				.get_pty_size(pty, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to get the pty size"))?;
+			let tty = sandbox::Tty {
+				rows: size.rows,
+				cols: size.cols,
+			};
+			sandbox::Stdio::Tty(tty)
+		} else {
+			sandbox::Stdio::Pipe
+		};
+		let user = command.user.unwrap_or_else(|| "root".into());
+
+		// Spawn the process.
+		let mut child = sandbox::Command::new(executable)
+			.args(args)
+			.chroot(root_path)
+			.cwd(cwd)
+			.envs(env)
+			.hostname(process.id().to_string())
+			.mounts(mounts)
+			.stderr(stderr)
+			.stdin(stdin)
+			.stdout(stdout)
+			.user(user)
+			.map_err(|source| tg::error!(!source, "invalid user"))?
+			.spawn()
+			.await
+			.map_err(|source| {
+				if source.raw_os_error() == Some(libc::ENOSYS) {
+					tg::error!(%errno = libc::ENOSYS, "cannot spawn within a container runtime without --privileged")
+				} else {
+					tg::error!(!source, "failed to spawn the child process")
+				}
+			})?;
+
+		// Spawn the stdio task.
+		let stdio_task = Task::spawn(|stop| {
+			let server = self.server.clone();
+			let process = process.clone();
+			let stdin = child.stdin.take().unwrap();
+			let stdout = child.stdout.take().unwrap();
+			let stderr = child.stderr.take().unwrap();
+			async move { stdio_task(&server, &process, stop, stdin, stdout, stderr).await }
+		});
+
+		// Spawn the signal task.
+		let signal_task = tokio::spawn({
+			let server = self.server.clone();
+			let process = process.clone();
+			let pid = child.pid();
+			async move {
+				signal_task(&server, pid, &process)
+					.await
+					.inspect_err(|source| tracing::error!(?source, "signal task failed"))
+					.ok();
+			}
+		});
 
 		// Wait for the child process to complete.
-		let exit = child
-			.wait()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process to exit"))?;
+		let exit = child.wait().await.map_err(
+			|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"),
+		)?;
+		let exit = match exit {
+			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
+			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
+		};
 
-		// Stop the proxy task.
+		// Stop and await the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
 			task.stop();
 			task.wait().await.unwrap();
 		}
 
-		// Join the i/o tasks.
-		let (input, output) = future::try_join(future::ok(Ok::<_, tg::Error>(())), log_task)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to join the i/o tasks"))?;
-		input.map_err(|source| tg::error!(!source, "the stdin task failed"))?;
-		output.map_err(|source| tg::error!(!source, "the log task failed"))?;
+		// Abort the signal task.
+		signal_task.abort();
+
+		// Stop and await the stdio task.
+		stdio_task.stop();
+		stdio_task.wait().await.unwrap()?;
 
 		// Create the output.
-		let output = output_parent.path().join("output");
+		let output = output_path.join("output");
 		let exists = tokio::fs::try_exists(&output)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to determine in the path exists"))?;

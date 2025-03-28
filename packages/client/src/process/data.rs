@@ -1,7 +1,10 @@
-use crate::{self as tg, util::serde::is_false};
+use crate::{
+	self as tg,
+	util::serde::{is_false, is_true, return_true},
+};
 use itertools::Itertools as _;
 use serde_with::serde_as;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeSet, path::PathBuf};
 use time::format_description::well_known::Rfc3339;
 
 #[serde_as]
@@ -22,18 +25,12 @@ pub struct Data {
 	pub created_at: time::OffsetDateTime,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cwd: Option<PathBuf>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub dequeued_at: Option<time::OffsetDateTime>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]
 	pub enqueued_at: Option<time::OffsetDateTime>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub env: Option<BTreeMap<String, String>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
@@ -51,6 +48,9 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub mounts: Vec<tg::process::data::Mount>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub network: bool,
@@ -70,6 +70,15 @@ pub struct Data {
 	pub started_at: Option<time::OffsetDateTime>,
 
 	pub status: tg::process::Status,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stderr: Option<tg::process::Stdio>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdin: Option<tg::process::Stdio>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdout: Option<tg::process::Stdio>,
 }
 
 impl Data {
@@ -82,10 +91,15 @@ impl Data {
 			.into_iter()
 			.flatten();
 		let command = std::iter::once(self.command.clone().into());
+		let mounts = self
+			.mounts
+			.iter()
+			.flat_map(tg::process::data::Mount::children);
 		std::iter::empty()
 			.chain(logs)
 			.chain(output)
 			.chain(command)
+			.chain(mounts)
 			.collect()
 	}
 }
@@ -96,4 +110,21 @@ where
 {
 	use serde::Deserialize as _;
 	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Mount {
+	pub source: PathBuf,
+
+	pub target: PathBuf,
+
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub readonly: bool,
+}
+
+impl Mount {
+	#[must_use]
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		BTreeSet::new()
+	}
 }

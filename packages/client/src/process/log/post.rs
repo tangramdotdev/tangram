@@ -9,6 +9,8 @@ pub struct Arg {
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
 
+	pub stream: tg::process::log::Stream,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 }

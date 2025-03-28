@@ -1,5 +1,7 @@
-use futures::TryFutureExt as _;
-use std::path::{Path, PathBuf};
+use std::{
+	os::unix::fs::PermissionsExt,
+	path::{Path, PathBuf},
+};
 
 pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
 	let path = path.as_ref();
@@ -27,8 +29,27 @@ pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<Path
 }
 
 pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
-	let path = path.as_ref();
-	tokio::fs::remove_file(path)
-		.or_else(|_| tokio::fs::remove_dir_all(path))
+	fn remove_inner(path: &Path) -> std::io::Result<()> {
+		let metadata = std::fs::symlink_metadata(path)?;
+		if metadata.permissions().readonly() {
+			let mut mode = metadata.permissions().mode();
+			mode |= 0o200;
+			let permissions = std::fs::Permissions::from_mode(mode);
+			std::fs::set_permissions(path, permissions).ok();
+		}
+		if metadata.is_dir() {
+			for entry in std::fs::read_dir(path)? {
+				remove_inner(&entry?.path())?;
+			}
+			std::fs::remove_dir(path)?;
+		} else {
+			std::fs::remove_file(path)?;
+		}
+		Ok(())
+	}
+
+	let path = path.as_ref().to_owned();
+	tokio::task::spawn_blocking(move || remove_inner(&path))
 		.await
+		.unwrap()
 }

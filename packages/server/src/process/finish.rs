@@ -12,11 +12,10 @@ impl Server {
 	pub async fn try_finish_process(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
+		mut arg: tg::process::finish::Arg,
 	) -> tg::Result<tg::process::finish::Output> {
 		// If the remote arg is set, then forward the request.
-		let remote = arg.remote.as_ref();
-		if let Some(remote) = remote {
+		if let Some(remote) = arg.remote.take() {
 			let client = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::process::finish::Arg {
 				remote: None,
@@ -75,7 +74,7 @@ impl Server {
 			return Err(tg::error!("failed to find the process"));
 		};
 
-		// Get the children.
+		// Get a database connection.
 		let connection = self
 			.database
 			.connection()
@@ -110,7 +109,7 @@ impl Server {
 					exit: None,
 					output: None,
 					remote: None,
-					status: tg::process::Status::Failed,
+					status: tg::process::Status::Finished,
 				};
 				let output = self.try_finish_process(&child, arg).await?;
 				Ok::<_, tg::Error>((child, output.finished))
@@ -124,7 +123,7 @@ impl Server {
 		if let (Some(output), Some(expected)) = (output.clone(), data.checksum.as_ref()) {
 			let value: tg::Value = output.try_into()?;
 			if let Err(checksum_error) = self.verify_checksum(&value, expected).boxed().await {
-				status = tg::process::status::Status::Failed;
+				status = tg::process::status::Status::Finished;
 				error = Some(checksum_error);
 			}
 		}
@@ -230,11 +229,12 @@ impl Server {
 			let server = self.clone();
 			let id = id.clone();
 			async move {
+				// Publish the last status update.
 				server
 					.messenger
 					.publish(format!("processes.{id}.status"), Bytes::new())
 					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
 					.ok();
 			}
 		});

@@ -41,6 +41,17 @@ pub enum Exit {
 	Signal { signal: i32 },
 }
 
+impl Exit {
+	#[must_use]
+	pub fn failed(&self) -> bool {
+		match self {
+			Self::Code { code } if *code != 0 => true,
+			Self::Signal { .. } => true,
+			Self::Code { .. } => false,
+		}
+	}
+}
+
 impl tg::Client {
 	pub async fn try_wait_process_future(
 		&self,

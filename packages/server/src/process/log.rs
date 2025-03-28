@@ -121,10 +121,7 @@ impl Server {
 
 		loop {
 			// Get the process's status.
-			let status = self
-				.try_get_current_process_status_local(id)
-				.await?
-				.ok_or_else(|| tg::error!(%process = id, "process does not exist"))?;
+			let status = self.get_current_process_status_local(id).await?;
 
 			// Send as many data events as possible.
 			loop {
@@ -269,11 +266,10 @@ impl Server {
 	pub async fn try_post_process_log(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::log::post::Arg,
+		mut arg: tg::process::log::post::Arg,
 	) -> tg::Result<tg::process::log::post::Output> {
 		// If the remote arg is set, then forward the request.
-		let remote = arg.remote.as_ref();
-		if let Some(remote) = remote {
+		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::process::log::post::Arg {
 				remote: None,
@@ -283,13 +279,26 @@ impl Server {
 			return Ok(output);
 		}
 
+		// Write logs to stderr.
+		if self.config.advanced.write_process_logs_to_stderr {
+			tokio::io::stderr().write_all(&arg.bytes).await.ok();
+		}
+
+		// Get the process data.
+		let data = self
+			.try_get_process_local(id)
+			.await?
+			.ok_or_else(|| tg::error!("not found"))?
+			.data;
+
 		// Verify the process is local and started.
-		if self.get_current_process_status_local(id).await? != tg::process::Status::Started {
+		if data.status != tg::process::Status::Started {
 			return Ok(tg::process::log::post::Output { added: false });
 		}
 
 		// Log.
-		self.try_add_process_log_to_file(id, arg.bytes).await?;
+		self.try_add_process_log_to_file(id, arg.bytes.clone())
+			.await?;
 
 		// Publish the message.
 		tokio::spawn({
@@ -304,6 +313,32 @@ impl Server {
 					.ok();
 			}
 		});
+
+		// Dup to stdout and stderr if appropriate.
+		if let (Some(stdout), tg::process::log::Stream::Stdout) = (data.stdout, arg.stream) {
+			match stdout {
+				tg::process::Stdio::Pipe(id) => {
+					self.send_pipe_event(&id, tg::pipe::Event::Chunk(arg.bytes.clone()))
+						.await?;
+				},
+				tg::process::Stdio::Pty(id) => {
+					self.send_pty_event(&id, tg::pty::Event::Chunk(arg.bytes.clone()), false)
+						.await?;
+				},
+			}
+		}
+		if let (Some(stderr), tg::process::log::Stream::Stderr) = (data.stderr, arg.stream) {
+			match stderr {
+				tg::process::Stdio::Pipe(id) => {
+					self.send_pipe_event(&id, tg::pipe::Event::Chunk(arg.bytes.clone()))
+						.await?;
+				},
+				tg::process::Stdio::Pty(id) => {
+					self.send_pty_event(&id, tg::pty::Event::Chunk(arg.bytes.clone()), false)
+						.await?;
+				},
+			}
+		}
 
 		Ok(tg::process::log::post::Output { added: true })
 	}

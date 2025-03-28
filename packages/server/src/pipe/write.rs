@@ -1,29 +1,30 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _, stream::TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
+use std::pin::pin;
 use tangram_client as tg;
-use tangram_http::{Body, response::builder::Ext as _};
+use tangram_futures::task::Stop;
+use tangram_http::{Body, request::Ext as _, response::builder::Ext};
 
 impl Server {
 	pub async fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		mut arg: tg::pipe::write::Arg,
 		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
 	) -> tg::Result<()> {
-		let sender = self
-			.pipes
-			.get(id)
-			.ok_or_else(|| tg::error!("failed to find the pipe"))?
-			.value()
-			.sender
-			.clone();
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote.clone()).await?;
+			return remote.write_pipe(id, arg, stream.boxed()).await;
+		}
 
-		let mut stream = std::pin::pin!(stream);
+		let deleted = self.pipe_deleted(id.clone());
+		let mut stream = pin!(stream.take_until(deleted));
 		while let Some(event) = stream.try_next().await? {
-			sender
-				.send(event)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
+			if let Err(error) = self.send_pipe_event(id, event).await {
+				tracing::error!(?error, %id, "failed to write pipe");
+				break;
+			}
 		}
 		Ok(())
 	}
@@ -40,6 +41,13 @@ impl Server {
 	{
 		// Parse the ID.
 		let id = id.parse()?;
+
+		// Get the query.
+		let arg = request.query_params().transpose()?.unwrap_or_default();
+
+		// Stop the stream when the server stops.
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stop = async move { stop.wait().await };
 
 		// Create the stream.
 		let body = request
@@ -74,10 +82,11 @@ impl Server {
 					},
 				}
 			})
+			.take_until(stop)
 			.boxed();
 
-		// Write.
-		handle.write_pipe(&id, stream).await?;
+		// Send the stream.
+		handle.write_pipe(&id, arg, stream).await?;
 
 		// Create the response.
 		let response = http::Response::builder().empty().unwrap();

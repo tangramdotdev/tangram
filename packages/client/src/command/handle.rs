@@ -4,7 +4,7 @@ use futures::{
 	TryStreamExt as _,
 	stream::{FuturesOrdered, FuturesUnordered},
 };
-use std::{collections::BTreeMap, ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, ops::Deref, path::PathBuf, sync::Arc};
 
 #[derive(Clone, Debug)]
 pub struct Command {
@@ -128,6 +128,7 @@ impl Command {
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
+		let cwd = object.cwd.clone();
 		let env = object
 			.env
 			.iter()
@@ -149,17 +150,37 @@ impl Command {
 					let module = Box::pin(module.data(handle)).await?;
 					tg::command::data::Executable::Module(module)
 				},
+				tg::command::Executable::Path(path) => {
+					tg::command::data::Executable::Path(path.clone())
+				},
 			};
 			Some(executable)
 		} else {
 			None
 		};
 		let host = object.host.clone();
+		let mounts = object
+			.mounts
+			.iter()
+			.map(|mount| mount.data(handle))
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+		let stdin = if let Some(stdin) = &object.stdin {
+			Some(stdin.id(handle).await?)
+		} else {
+			None
+		};
+		let user = object.user.clone();
 		Ok(Data {
 			args,
+			cwd,
 			env,
 			executable,
 			host,
+			mounts,
+			stdin,
+			user,
 		})
 	}
 }
@@ -173,6 +194,16 @@ impl Command {
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.args))
+	}
+
+	pub async fn cwd<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<impl Deref<Target = Option<PathBuf>> + use<H>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object(handle).await?.map(|object| &object.cwd))
 	}
 
 	pub async fn env<H>(
@@ -200,6 +231,16 @@ impl Command {
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.map(|object| &object.host))
+	}
+
+	pub async fn mounts<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<impl Deref<Target = Vec<tg::command::Mount>>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object(handle).await?.map(|object| &object.mounts))
 	}
 }
 

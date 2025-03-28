@@ -3,17 +3,25 @@ use futures::{Stream, StreamExt as _};
 use std::pin::Pin;
 use tangram_http::{Body, response::Ext as _};
 
+#[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+}
+
 impl Client {
 	pub async fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let uri = format!("/pipes/{id}/write");
+		let query = serde_urlencoded::to_string(arg).unwrap();
+		let uri = format!("/pipes/{id}?{query}");
 
 		// Create the body.
-		let body = Body::with_stream(stream.map(|result| {
+		let body = Body::with_stream(stream.map(move |result| {
 			let event = match result {
 				Ok(event) => match event {
 					tg::pipe::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),

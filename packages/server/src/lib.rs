@@ -51,6 +51,7 @@ mod package;
 mod pipe;
 mod process;
 mod progress;
+mod pty;
 mod pull;
 mod push;
 mod reference;
@@ -88,7 +89,6 @@ pub struct Inner {
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
 	processes: ProcessTaskMap,
-	pipes: DashMap<tg::pipe::Id, Pipe, fnv::FnvBuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Store,
@@ -102,11 +102,6 @@ type ArtifactCacheTaskMap = TaskMap<tg::artifact::Id, tg::Result<()>, fnv::FnvBu
 
 struct Http {
 	url: Url,
-}
-
-struct Pipe {
-	sender: tokio::sync::mpsc::Sender<tg::pipe::Event>,
-	receiver: Option<tokio::sync::mpsc::Receiver<tg::pipe::Event>>,
 }
 
 type ProcessPermits =
@@ -339,9 +334,6 @@ impl Server {
 				})?;
 		}
 
-		// Create the pipes.
-		let pipes = DashMap::default();
-
 		// Create the remotes.
 		let remotes = DashMap::default();
 
@@ -388,7 +380,6 @@ impl Server {
 			process_permits,
 			process_semaphore,
 			processes,
-			pipes,
 			remotes,
 			runtimes,
 			store,
@@ -639,46 +630,6 @@ impl Server {
 			async move {
 				tracing::trace!("started shutdown");
 
-				// Stop the compilers.
-				let compilers = server.compilers.read().unwrap().clone();
-				for compiler in compilers {
-					compiler.stop();
-					compiler.wait().await;
-				}
-
-				// Stop the HTTP task.
-				if let Some(task) = http_task {
-					task.stop();
-					let result = task.wait().await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the http task panicked");
-						}
-					}
-				}
-
-				// Abort the cleaner task.
-				if let Some(task) = cleaner_task {
-					task.abort();
-					let result = task.await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the clean task panicked");
-						}
-					}
-				}
-
-				// Abort the indexer task.
-				if let Some(task) = indexer_task {
-					task.abort();
-					let result = task.await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the index task panicked");
-						}
-					}
-				}
-
 				// Abort the runner task.
 				if let Some(task) = runner_task {
 					task.abort();
@@ -688,17 +639,7 @@ impl Server {
 							tracing::error!(?error, "the runner task panicked");
 						}
 					}
-				}
-
-				// Abort the watchdog task.
-				if let Some(task) = watchdog_task {
-					task.abort();
-					let result = task.await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the watchdog task panicked");
-						}
-					}
+					tracing::trace!("shutdown runner task");
 				}
 
 				// Abort the process tasks.
@@ -710,6 +651,63 @@ impl Server {
 							tracing::error!(?error, "a process task panicked");
 						}
 					}
+				}
+				tracing::trace!("shutdown process tasks");
+
+				// Stop the compilers.
+				let compilers = server.compilers.read().unwrap().clone();
+				for compiler in compilers {
+					compiler.stop();
+					compiler.wait().await;
+				}
+				tracing::trace!("shutdown compiler tasks");
+
+				// Stop the HTTP task.
+				if let Some(task) = http_task {
+					task.stop();
+					let result = task.wait().await;
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the http task panicked");
+						}
+					}
+					tracing::trace!("shutdown http task");
+				}
+
+				// Abort the cleaner task.
+				if let Some(task) = cleaner_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the clean task panicked");
+						}
+					}
+					tracing::trace!("shutdown cleaner task");
+				}
+
+				// Abort the indexer task.
+				if let Some(task) = indexer_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the index task panicked");
+						}
+					}
+					tracing::trace!("shutdown indexer task");
+				}
+
+				// Abort the watchdog task.
+				if let Some(task) = watchdog_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the watchdog task panicked");
+						}
+					}
+					tracing::trace!("shutdown watchdog task");
 				}
 
 				// Remove the runtimes.
@@ -725,12 +723,14 @@ impl Server {
 						}
 					}
 				}
+				tracing::trace!("shutdown artifact cache tasks");
 
 				// Stop the VFS.
 				let vfs = server.vfs.lock().unwrap().take();
 				if let Some(vfs) = vfs {
 					vfs.stop();
 					vfs.wait().await;
+					tracing::trace!("shutdown vfs task");
 				}
 
 				// Remove the temp paths.
@@ -741,11 +741,13 @@ impl Server {
 					.collect::<FuturesUnordered<_>>()
 					.collect::<()>()
 					.await;
+				tracing::trace!("removed temps");
 
 				// Release the lock file.
 				let lock_file = server.lock_file.lock().unwrap().take();
 				if let Some(lock_file) = lock_file {
 					lock_file.set_len(0).await.ok();
+					tracing::trace!("released lockfile");
 				}
 
 				tracing::trace!("finished shutdown");
@@ -827,8 +829,9 @@ impl Server {
 				let path = urlencoding::decode(path)
 					.map_err(|source| tg::error!(!source, "invalid url"))?;
 				let path = Path::new(path.as_ref());
-				let listener = UnixListener::bind(path)
-					.map_err(|source| tg::error!(!source, "failed to bind"))?;
+				let listener = UnixListener::bind(path).map_err(
+					|source| tg::error!(!source, %path = path.display(), "failed to bind"),
+				)?;
 				tokio_util::either::Either::Left(listener)
 			},
 			"http" => {
@@ -898,8 +901,8 @@ impl Server {
 						Body::with_body(tangram_http::idle::Body::new(idle.token(), body))
 					}
 				})
-				.layer(tangram_http::layer::compression::RequestDecompressionLayer)
-				.layer(tangram_http::layer::compression::ResponseCompressionLayer::default())
+				// .layer(tangram_http::layer::compression::RequestDecompressionLayer)
+				// .layer(tangram_http::layer::compression::ResponseCompressionLayer::default())
 				.service_fn({
 					let handle = handle.clone();
 					move |request| {
@@ -1012,17 +1015,34 @@ impl Server {
 				Self::handle_format_package_request(handle, request).boxed()
 			},
 
+			// Ptys.
+			(http::Method::POST, ["ptys"]) => {
+				Self::handle_create_pty_request(handle, request).boxed()
+			},
+			(http::Method::DELETE, ["ptys", pipe]) => {
+				Self::handle_delete_pty_request(handle, request, pipe).boxed()
+			},
+			(http::Method::GET, ["ptys", pipe, "window"]) => {
+				Self::handle_get_pty_size_request(handle, request, pipe).boxed()
+			},
+			(http::Method::GET, ["ptys", pipe]) => {
+				Self::handle_read_pty_request(handle, request, pipe).boxed()
+			},
+			(http::Method::POST, ["ptys", pipe]) => {
+				Self::handle_write_pty_request(handle, request, pipe).boxed()
+			},
+
 			// Pipes.
 			(http::Method::POST, ["pipes"]) => {
-				Self::handle_open_pipe_request(handle, request).boxed()
+				Self::handle_create_pipe_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["pipes", pipe, "close"]) => {
-				Self::handle_close_pipe_request(handle, request, pipe).boxed()
+			(http::Method::DELETE, ["pipes", pipe]) => {
+				Self::handle_delete_pipe_request(handle, request, pipe).boxed()
 			},
-			(http::Method::POST, ["pipes", pipe, "read"]) => {
+			(http::Method::GET, ["pipes", pipe]) => {
 				Self::handle_read_pipe_request(handle, request, pipe).boxed()
 			},
-			(http::Method::POST, ["pipes", pipe, "write"]) => {
+			(http::Method::POST, ["pipes", pipe]) => {
 				Self::handle_write_pipe_request(handle, request, pipe).boxed()
 			},
 
@@ -1044,6 +1064,12 @@ impl Server {
 			},
 			(http::Method::POST, ["processes", process, "start"]) => {
 				Self::handle_start_process_request(handle, request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "signal"]) => {
+				Self::handle_post_process_signal_request(handle, request, process).boxed()
+			},
+			(http::Method::GET, ["processes", process, "signal"]) => {
+				Self::handle_get_process_signal_request(handle, request, process).boxed()
 			},
 			(http::Method::GET, ["processes", process, "status"]) => {
 				Self::handle_get_process_status_request(handle, request, process).boxed()
@@ -1315,28 +1341,78 @@ impl tg::Handle for Server {
 		self.format_package(arg)
 	}
 
-	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
-		self.open_pipe()
+	fn create_pty(
+		&self,
+		arg: tg::pty::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
+		self.create_pty(arg)
 	}
 
-	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
-		self.close_pipe(id)
+	fn delete_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pty(id, arg)
+	}
+
+	fn get_pty_size(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> + Send {
+		self.get_pty_size(id, arg)
+	}
+
+	fn read_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
+	{
+		self.read_pty(id, arg)
+	}
+
+	fn write_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.write_pty(id, arg, stream)
+	}
+
+	fn create_pipe(
+		&self,
+		arg: tg::pipe::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
+		self.create_pipe(arg)
+	}
+
+	fn delete_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pipe(id, arg)
 	}
 
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
 	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
 	{
-		self.read_pipe(id)
+		self.read_pipe(id, arg)
 	}
 
 	fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.write_pipe(id, stream)
+		self.write_pipe(id, arg, stream)
 	}
 
 	fn try_get_process_metadata(
@@ -1374,6 +1450,28 @@ impl tg::Handle for Server {
 		arg: tg::process::start::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::start::Output>> {
 		self.try_start_process(id, arg)
+	}
+
+	fn signal_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.post_process_signal(id, arg)
+	}
+
+	fn try_get_process_signal_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_get_process_signal_stream(id, arg)
 	}
 
 	fn try_get_process_status_stream(

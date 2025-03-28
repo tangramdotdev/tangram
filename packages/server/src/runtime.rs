@@ -59,6 +59,7 @@ impl Runtime {
 			let arg = tg::process::log::post::Arg {
 				bytes: error.to_string().into(),
 				remote: process.remote().cloned(),
+				stream: tg::process::log::Stream::Stderr,
 			};
 			self.server()
 				.try_post_process_log(process.id(), arg)
@@ -75,6 +76,9 @@ impl Runtime {
 			return Ok(output);
 		}
 
+		// Ensure the process is loaded.
+		let state = process.load(self.server()).await?;
+
 		// Run the process.
 		let output = match self {
 			Runtime::Builtin(runtime) => runtime.run(process).boxed().await,
@@ -86,7 +90,6 @@ impl Runtime {
 		};
 
 		// If the process has a checksum, then compute the checksum of the output.
-		let state = process.load(self.server()).await?;
 		if let (Some(value), Some(checksum)) = (&output.output, &state.checksum) {
 			self::util::compute_checksum(self, process, value, checksum).await?;
 		}
@@ -120,12 +123,14 @@ impl Runtime {
 			checksum: Some(tangram_client::Checksum::None),
 			command: state.command.id(self.server()).await.ok(),
 			create: false,
-			cwd: None,
-			env: None,
+			mounts: Vec::new(),
 			network: false,
 			parent: None,
 			remote: process.remote().cloned(),
 			retry: state.retry,
+			stderr: None,
+			stdin: None,
+			stdout: None,
 		};
 
 		// Spawn the process.
@@ -152,12 +157,14 @@ impl Runtime {
 								checksum: child_process.data.checksum,
 								command: Some(child_process.data.command),
 								create: false,
-								cwd: None,
-								env: None,
+								mounts: child_process.data.mounts,
 								network: child_process.data.network,
 								parent: Some(process.id().clone()),
 								remote: process.remote().cloned(),
 								retry: child_process.data.retry,
+								stderr: None,
+								stdin: None,
+								stdout: None,
 							};
 							server.try_spawn_process(arg).await?;
 						}
@@ -184,6 +191,7 @@ impl Runtime {
 				while let Some(chunk) = stream.try_next().await? {
 					let arg = tg::process::log::post::Arg {
 						bytes: chunk.bytes,
+						stream: tg::process::log::Stream::Stderr, /* TODO: split log streams */
 						remote: process.remote().cloned(),
 					};
 					server.try_post_process_log(process.id(), arg).await?;
@@ -210,7 +218,7 @@ impl Runtime {
 		let ((), (), output) = futures::try_join!(children_task, log_task, wait_task)?;
 
 		// If the process did not succeed, then return its output.
-		if !output.status.is_succeeded() {
+		if output.error.is_some() || output.exit.as_ref().is_some_and(tg::process::Exit::failed) {
 			let value = output.output.map(tg::Value::try_from).transpose()?;
 			let output = Output {
 				error: None,

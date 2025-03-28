@@ -82,7 +82,7 @@ where
 		});
 
 		// Create the event handler task.
-		let event_task = tokio::task::spawn({
+		let event_task = tokio::spawn({
 			let log = log.clone();
 			async move {
 				log.init().await?;

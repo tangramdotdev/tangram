@@ -1,24 +1,44 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, TryFutureExt, TryStreamExt as _, future};
 use tangram_client as tg;
 use tangram_futures::task::Stop;
-use tangram_http::Body;
-use tokio_stream::wrappers::ReceiverStream;
+use tangram_http::{Body, request::Ext as _};
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub async fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
+		mut arg: tg::pipe::read::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
-		let receiver = self
-			.pipes
-			.get_mut(id)
-			.ok_or_else(|| tg::error!("failed to find the pipe"))?
-			.receiver
-			.take()
-			.ok_or_else(|| tg::error!("failed to get the pipe"))?;
-		let stream = ReceiverStream::new(receiver).map(Ok);
-		Ok(stream)
+		// Forward to a remote if requested.
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote).await?;
+			let stream = remote.read_pipe(id, arg).await?.boxed();
+			return Ok(stream);
+		}
+
+		// Create the stream from the messenger.
+		let name = tg::Id::new_uuidv7(tg::id::Kind::Pipe);
+		let stream = self
+			.messenger
+			.stream_subscribe(id.to_string(), Some(name.to_string()))
+			.await
+			.map_err(|source| tg::error!(!source, "the pipe was closed or does not exist"))?
+			.map_err(|source| tg::error!(!source, "stream error"))
+			.and_then(|message| {
+				future::ready({
+					serde_json::from_slice::<tg::pipe::Event>(&message.payload)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
+				})
+			})
+			.boxed();
+
+		let deleted = self
+			.pipe_deleted(id.clone())
+			.inspect_err(|e| tracing::error!(?e, "failed to check if pipe was deleted"));
+
+		Ok(stream.take_until(deleted).boxed())
 	}
 }
 
@@ -34,12 +54,17 @@ impl Server {
 		// Parse the ID.
 		let id = id.parse()?;
 
+		// Get the query.
+		let arg = request.query_params().transpose()?.unwrap_or_default();
+
 		// Get the stream.
-		let stream = handle.read_pipe(&id).await?;
+		let stream = handle.read_pipe(&id, arg).await?;
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
+		let stop = async move {
+			stop.wait().await;
+		};
 		let stream = stream.take_until(stop);
 
 		// Create the body.

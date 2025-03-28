@@ -92,10 +92,8 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				checksum text,
 				command text not null,
 				created_at text not null,
-				cwd text,
 				dequeued_at text,
 				enqueued_at text,
-				env text,
 				error text,
 				exit text,
 				finished_at text,
@@ -103,11 +101,15 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				host text not null,
 				id text primary key,
 				log text,
+				mounts text,
 				network integer not null,
 				output text,
 				retry integer not null,
 				started_at text,
 				status text not null,
+				stderr text,
+				stdin text,
+				stdout text,
 				touched_at text
 			);
 
@@ -134,6 +136,19 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create index process_children_index on process_children (process, position);
 
 			create index process_children_child_process_index on process_children (child, process);
+
+			create table pipes (
+				id text primary key,
+				created_at text not null,
+				closed integer not null default 0
+			);
+
+			create table ptys (
+				id text primary key,
+				created_at text not null,
+				window_size text,
+				closed integer not null default 0
+			);
 
 			create table remotes (
 				name text primary key,

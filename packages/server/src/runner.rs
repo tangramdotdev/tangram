@@ -122,18 +122,18 @@ impl Server {
 		// Determine the status.
 		let status = match (&output.output, &output.error, &output.exit) {
 			(_, Some(_), _) | (_, _, Some(tg::process::Exit::Signal { signal: _ })) => {
-				tg::process::Status::Failed
+				tg::process::Status::Finished
 			},
 			(_, _, Some(tg::process::Exit::Code { code })) if *code != 0 => {
-				tg::process::Status::Failed
+				tg::process::Status::Finished
 			},
-			_ => tg::process::Status::Succeeded,
+			_ => tg::process::Status::Finished,
 		};
 
 		// Get the output data.
 		let value = match &output.output {
 			Some(output) => Some(output.data(self).await?),
-			None if status == tg::process::Status::Succeeded => Some(tg::value::Data::Null),
+			None if status == tg::process::Status::Finished => Some(tg::value::Data::Null),
 			None => None,
 		};
 
@@ -160,6 +160,7 @@ impl Server {
 								let arg = tg::process::log::post::Arg {
 									bytes: message.into(),
 									remote: process.remote().cloned(),
+									stream: tg::process::log::Stream::Stderr,
 								};
 								self.try_post_process_log(process.id(), arg).await.ok();
 							}

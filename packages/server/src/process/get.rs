@@ -3,7 +3,6 @@ use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream}
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use serde_with::serde_as;
-use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
@@ -38,7 +37,6 @@ impl Server {
 		#[serde_as]
 		#[derive(serde::Deserialize)]
 		struct Row {
-			cwd: Option<PathBuf>,
 			cacheable: bool,
 			checksum: Option<tg::Checksum>,
 			command: tg::command::Id,
@@ -50,7 +48,6 @@ impl Server {
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			enqueued_at: Option<time::OffsetDateTime>,
-			env: Option<db::value::Json<BTreeMap<String, String>>>,
 			error: Option<db::value::Json<tg::Error>>,
 			exit: Option<db::value::Json<tg::process::Exit>>,
 			#[serde(default)]
@@ -64,11 +61,19 @@ impl Server {
 			output: Option<db::value::Json<tg::value::Data>>,
 			retry: bool,
 			#[serde(default)]
+			mounts: Option<db::value::Json<Vec<tg::process::data::Mount>>>,
+			#[serde(default)]
 			network: bool,
 			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			started_at: Option<time::OffsetDateTime>,
 			status: tg::process::Status,
+			#[serde(default)]
+			stderr: Option<tg::process::Stdio>,
+			#[serde(default)]
+			stdin: Option<tg::process::Stdio>,
+			#[serde(default)]
+			stdout: Option<tg::process::Stdio>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -78,10 +83,8 @@ impl Server {
 					checksum,
 					command,
 					created_at,
-					cwd,
 					dequeued_at,
 					enqueued_at,
-					env,
 					error,
 					exit,
 					finished_at,
@@ -90,9 +93,13 @@ impl Server {
 					log,
 					output,
 					retry,
+					mounts,
 					network,
 					started_at,
-					status
+					status,
+					stderr,
+					stdin,
+					stdout
 				from processes
 				where id = {p}1;
 			"
@@ -109,10 +116,8 @@ impl Server {
 				children: None,
 				command: row.command,
 				created_at: row.created_at,
-				cwd: row.cwd,
 				dequeued_at: row.dequeued_at,
 				enqueued_at: row.enqueued_at,
-				env: row.env.map(|env| env.0),
 				error: row.error.map(|error| error.0),
 				exit: row.exit.map(|exit| exit.0),
 				finished_at: row.finished_at,
@@ -121,9 +126,13 @@ impl Server {
 				log: row.log,
 				output: row.output.map(|output| output.0),
 				retry: row.retry,
+				mounts: row.mounts.map(|output| output.0).unwrap_or_default(),
 				network: row.network,
 				started_at: row.started_at,
 				status: row.status,
+				stderr: row.stderr,
+				stdin: row.stdin,
+				stdout: row.stdout,
 			};
 			tg::process::get::Output { data }
 		});

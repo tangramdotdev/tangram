@@ -6,11 +6,10 @@ use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::Messenger;
 
 impl Server {
-	pub async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
+	pub async fn put_tag(&self, tag: &tg::Tag, mut arg: tg::tag::put::Arg) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
-		let remote = arg.remote.as_ref();
-		if let Some(remote) = remote {
-			let remote = self.get_remote_client(remote.clone()).await?;
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote).await?;
 			let arg = tg::tag::put::Arg {
 				remote: None,
 				..arg.clone()

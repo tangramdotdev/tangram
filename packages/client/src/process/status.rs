@@ -20,8 +20,7 @@ pub enum Status {
 	Dequeued,
 	Started,
 	Finishing,
-	Failed,
-	Succeeded,
+	Finished,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -34,13 +33,6 @@ pub struct Arg {
 pub enum Event {
 	Status(Status),
 	End,
-}
-
-impl Status {
-	#[must_use]
-	pub fn is_finished(&self) -> bool {
-		matches!(self, Status::Failed | Status::Succeeded)
-	}
 }
 
 impl tg::Process {
@@ -130,8 +122,7 @@ impl std::fmt::Display for Status {
 			Self::Dequeued => write!(f, "dequeued"),
 			Self::Started => write!(f, "started"),
 			Self::Finishing => write!(f, "finishing"),
-			Self::Failed => write!(f, "failed"),
-			Self::Succeeded => write!(f, "succeeded"),
+			Self::Finished => write!(f, "finished"),
 		}
 	}
 }
@@ -146,8 +137,7 @@ impl std::str::FromStr for Status {
 			"dequeued" => Ok(Self::Dequeued),
 			"started" => Ok(Self::Started),
 			"finishing" => Ok(Self::Finishing),
-			"failed" => Ok(Self::Failed),
-			"succeeded" => Ok(Self::Succeeded),
+			"finished" => Ok(Self::Finished),
 			status => Err(tg::error!(%status, "invalid value")),
 		}
 	}

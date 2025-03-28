@@ -79,7 +79,7 @@ impl Cli {
 		// Spawn the process.
 		options.spawn.sandbox = true;
 		let process = self
-			.spawn_process(options.spawn, reference, trailing)
+			.spawn_process(options.spawn, reference, trailing, None, None, None)
 			.boxed()
 			.await?;
 
@@ -166,7 +166,7 @@ impl Cli {
 							exit: None,
 							output: None,
 							remote,
-							status: tg::process::Status::Failed,
+							status: tg::process::Status::Finished,
 						};
 						process
 							.finish(&handle, arg)

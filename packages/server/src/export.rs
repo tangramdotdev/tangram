@@ -542,8 +542,8 @@ impl Server {
 				(Some(0), Some(0))
 			};
 			let (output_count, output_weight) = if arg.outputs {
-				if data.status.is_succeeded() {
-					let metadata = data
+				if data.status.is_finished() {
+					let metadata: Vec<Option<tangram_client::object::Metadata>> = data
 						.output
 						.as_ref()
 						.map(tg::value::Data::children)

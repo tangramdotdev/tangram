@@ -11,11 +11,10 @@ impl Server {
 	pub async fn try_start_process(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::start::Arg,
+		mut arg: tg::process::start::Arg,
 	) -> tg::Result<tg::process::start::Output> {
 		// If the remote arg is set, then forward the request.
-		let remote = arg.remote.as_ref();
-		if let Some(remote) = remote {
+		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::process::start::Arg { remote: None };
 			let output = remote.try_start_process(id, arg).await?;

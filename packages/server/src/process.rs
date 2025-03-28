@@ -3,19 +3,20 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
-mod children;
-mod dequeue;
-mod finish;
-mod get;
-mod heartbeat;
-mod log;
-mod metadata;
-mod put;
-mod spawn;
-mod start;
-mod status;
-mod touch;
-mod wait;
+pub(crate) mod children;
+pub(crate) mod dequeue;
+pub(crate) mod finish;
+pub(crate) mod get;
+pub(crate) mod heartbeat;
+pub(crate) mod log;
+pub(crate) mod metadata;
+pub(crate) mod put;
+pub(crate) mod signal;
+pub(crate) mod spawn;
+pub(crate) mod start;
+pub(crate) mod status;
+pub(crate) mod touch;
+pub(crate) mod wait;
 
 impl Server {
 	pub(crate) async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {

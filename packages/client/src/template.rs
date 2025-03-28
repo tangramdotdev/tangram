@@ -95,6 +95,17 @@ impl Template {
 
 impl Data {
 	#[must_use]
+	pub fn with_components(components: impl IntoIterator<Item = component::Data>) -> Self {
+		let components = components.into_iter().collect();
+		Self { components }
+	}
+
+	#[must_use]
+	pub fn components(&self) -> &[component::Data] {
+		&self.components
+	}
+
+	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		self.components
 			.iter()
@@ -103,6 +114,30 @@ impl Data {
 				component::Data::Artifact(id) => Some(id.clone().into()),
 			})
 			.collect()
+	}
+
+	pub fn try_render<'a, F>(&'a self, mut f: F) -> tg::Result<String>
+	where
+		F: (FnMut(&'a self::component::Data) -> tg::Result<Cow<'a, str>>) + 'a,
+	{
+		let mut string = String::new();
+		for component in &self.components {
+			let component = f(component)?;
+			string.push_str(&component);
+		}
+		Ok(string)
+	}
+
+	pub fn render<'a, F>(&'a self, mut f: F) -> String
+	where
+		F: (FnMut(&'a self::component::Data) -> Cow<'a, str>) + 'a,
+	{
+		let mut string = String::new();
+		for component in &self.components {
+			let component = f(component);
+			string.push_str(&component);
+		}
+		string
 	}
 
 	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
@@ -272,6 +307,24 @@ impl From<tg::File> for Component {
 
 impl From<tg::Symlink> for Component {
 	fn from(value: tg::Symlink) -> Self {
+		Self::Artifact(value.into())
+	}
+}
+
+impl From<tg::directory::Id> for component::Data {
+	fn from(value: tg::directory::Id) -> Self {
+		Self::Artifact(value.into())
+	}
+}
+
+impl From<tg::file::Id> for component::Data {
+	fn from(value: tg::file::Id) -> Self {
+		Self::Artifact(value.into())
+	}
+}
+
+impl From<tg::symlink::Id> for component::Data {
+	fn from(value: tg::symlink::Id) -> Self {
 		Self::Artifact(value.into())
 	}
 }

@@ -11,7 +11,6 @@ use sourcemap::SourceMap;
 use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, pin::pin, rc::Rc, task::Poll};
 use tangram_client as tg;
 use tangram_v8::{FromV8 as _, ToV8};
-use tokio::io::AsyncWriteExt as _;
 
 mod error;
 mod syscall;
@@ -87,6 +86,7 @@ impl Runtime {
 						.await
 				}
 			});
+
 		let abort_handle = task.abort_handle();
 		scopeguard::defer! {
 			abort_handle.abort();
@@ -96,6 +96,7 @@ impl Runtime {
 			}
 		};
 
+		// Get the output.
 		let (error, exit, output) = match task.await.unwrap() {
 			Ok(output) => (None, None::<tg::process::Exit>, Some(output)),
 			Err(error) => (Some(error), None, None),
@@ -145,21 +146,25 @@ impl Runtime {
 			async move {
 				while let Some(message) = log_receiver.recv().await {
 					let syscall::log::Message { contents, .. } = message;
-					if server.config.advanced.write_process_logs_to_stderr {
-						tokio::io::stderr()
-							.write_all(contents.as_bytes())
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to write process log to stderr");
-							})
-							.ok();
-					}
 					let bytes = Bytes::from(contents);
-					let arg = tg::process::log::post::Arg {
-						bytes: bytes.clone(),
-						remote: process.remote().map(ToOwned::to_owned),
-					};
-					server.try_post_process_log(process.id(), arg).await.ok();
+					match message.level {
+						syscall::log::Level::Log => {
+							let arg = tg::process::log::post::Arg {
+								bytes: bytes.clone(),
+								remote: process.remote().map(ToOwned::to_owned),
+								stream: tg::process::log::Stream::Stdout,
+							};
+							server.try_post_process_log(process.id(), arg).await.ok();
+						},
+						syscall::log::Level::Error => {
+							let arg = tg::process::log::post::Arg {
+								bytes: bytes.clone(),
+								remote: process.remote().map(ToOwned::to_owned),
+								stream: tg::process::log::Stream::Stderr,
+							};
+							server.try_post_process_log(process.id(), arg).await.ok();
+						},
+					}
 				}
 				Ok::<(), tg::Error>(())
 			}

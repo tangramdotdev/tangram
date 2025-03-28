@@ -246,48 +246,6 @@ where
 		}
 	}
 
-	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
-		match self {
-			Either::Left(s) => s.open_pipe().left_future(),
-			Either::Right(s) => s.open_pipe().right_future(),
-		}
-	}
-
-	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			Either::Left(s) => s.close_pipe(id).left_future(),
-			Either::Right(s) => s.close_pipe(id).right_future(),
-		}
-	}
-
-	fn read_pipe(
-		&self,
-		id: &tg::pipe::Id,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
-	{
-		match self {
-			Either::Left(s) => s
-				.read_pipe(id)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.read_pipe(id)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn write_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			Either::Left(s) => s.write_pipe(id, stream).left_future(),
-			Either::Right(s) => s.write_pipe(id, stream).right_future(),
-		}
-	}
-
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -369,6 +327,40 @@ where
 		match self {
 			Either::Left(s) => s.try_start_process(id, arg).left_future(),
 			Either::Right(s) => s.try_start_process(id, arg).right_future(),
+		}
+	}
+
+	fn signal_process(
+		&self,
+		id: &crate::process::Id,
+		arg: crate::process::signal::post::Arg,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.signal_process(id, arg).left_future(),
+			Either::Right(s) => s.signal_process(id, arg).right_future(),
+		}
+	}
+
+	fn try_get_process_signal_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.try_get_process_signal_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			Either::Right(s) => s
+				.try_get_process_signal_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
 		}
 	}
 
@@ -475,6 +467,119 @@ where
 		match self {
 			Either::Left(s) => s.heartbeat_process(id, arg).left_future(),
 			Either::Right(s) => s.heartbeat_process(id, arg).right_future(),
+		}
+	}
+
+	fn create_pipe(
+		&self,
+		arg: tg::pipe::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
+		match self {
+			Either::Left(s) => s.create_pipe(arg).left_future(),
+			Either::Right(s) => s.create_pipe(arg).right_future(),
+		}
+	}
+
+	fn delete_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.delete_pipe(id, arg).left_future(),
+			Either::Right(s) => s.delete_pipe(id, arg).right_future(),
+		}
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
+		match self {
+			Either::Left(s) => s
+				.read_pipe(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.read_pipe(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.write_pipe(id, arg, stream).left_future(),
+			Either::Right(s) => s.write_pipe(id, arg, stream).right_future(),
+		}
+	}
+
+	fn create_pty(
+		&self,
+		arg: tg::pty::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
+		match self {
+			Either::Left(s) => s.create_pty(arg).left_future(),
+			Either::Right(s) => s.create_pty(arg).right_future(),
+		}
+	}
+
+	fn delete_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.delete_pty(id, arg).left_future(),
+			Either::Right(s) => s.delete_pty(id, arg).right_future(),
+		}
+	}
+
+	fn get_pty_size(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> {
+		match self {
+			Either::Left(s) => s.get_pty_size(id, arg).left_future(),
+			Either::Right(s) => s.get_pty_size(id, arg).right_future(),
+		}
+	}
+
+	fn read_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
+	{
+		match self {
+			Either::Left(s) => s
+				.read_pty(id, arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.read_pty(id, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
+	fn write_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.write_pty(id, arg, stream).left_future(),
+			Either::Right(s) => s.write_pty(id, arg, stream).right_future(),
 		}
 	}
 

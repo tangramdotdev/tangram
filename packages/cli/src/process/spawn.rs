@@ -1,6 +1,6 @@
 use crate::Cli;
 use itertools::Itertools as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tangram_client::{self as tg, Handle as _};
 use tangram_either::Either;
 
@@ -35,6 +35,10 @@ pub struct Options {
 	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
 	pub create: bool,
 
+	/// Set the working directory for the process.
+	#[arg(short = 'C', long)]
+	pub cwd: Option<PathBuf>,
+
 	/// Set environment variables.
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub env: Vec<Vec<String>>,
@@ -46,6 +50,13 @@ pub struct Options {
 	/// If this flag is set, the package's lockfile will not be updated.
 	#[arg(long)]
 	pub locked: bool,
+
+	#[arg(long)]
+	pub mount: Vec<Either<tg::process::Mount, tg::command::Mount>>,
+
+	/// Enable network access if sandboxed
+	#[arg(long)]
+	pub network: bool,
 
 	/// The remote to use.
 	#[allow(clippy::option_option)]
@@ -63,13 +74,17 @@ pub struct Options {
 	/// Tag the process.
 	#[arg(long)]
 	pub tag: Option<tg::Tag>,
+
+	/// Allocate a terminal when running the process.
+	#[arg(short, long)]
+	pub tty: bool,
 }
 
 impl Cli {
 	pub async fn command_process_spawn(&self, args: Args) -> tg::Result<()> {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 		let process = self
-			.spawn_process(args.options, reference, args.trailing)
+			.spawn_process(args.options, reference, args.trailing, None, None, None)
 			.await?;
 		println!("{}", process.id());
 		Ok(())
@@ -80,6 +95,9 @@ impl Cli {
 		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
+		stderr: Option<tg::process::Stdio>,
+		stdin: Option<tg::process::Stdio>,
+		stdout: Option<tg::process::Stdio>,
 	) -> tg::Result<tg::Process> {
 		let handle = self.handle().await?;
 
@@ -88,6 +106,9 @@ impl Cli {
 			.remote
 			.clone()
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
+
+		// Determine if the process is sandboxed.
+		let sandbox = options.sandbox || remote.is_some();
 
 		// If the reference is a path to a directory and the path does not contain a root module, then init.
 		if let Ok(path) = reference.item().try_unwrap_path_ref() {
@@ -139,12 +160,18 @@ impl Cli {
 			object
 		};
 
-		// Create the command.
-		let command = if let tg::Object::Command(command) = object {
-			// If the object is a command, then use it.
-			command
+		// Create the command builder.
+		let mut command_env = None;
+		let mut command = if let tg::Object::Command(command) = object {
+			let object = command.object(&handle).await?;
+			command_env = Some(object.env.clone());
+			tg::Command::builder(object.host.clone())
+				.args(object.args.clone())
+				.cwd(object.cwd.clone())
+				.executable(object.executable.clone())
+				.mounts(object.mounts.clone())
+				.stdin(object.stdin.clone())
 		} else {
-			// Otherwise, the object must be a directory containing a root module, or a file.
 			let executable = match object {
 				tg::Object::Directory(directory) => {
 					let mut name = None;
@@ -215,53 +242,74 @@ impl Cli {
 				.fragment()
 				.map_or("default", |fragment| fragment);
 
-			// Get the args.
-			let mut args_: Vec<tg::Value> = options
-				.arg
-				.into_iter()
-				.map(|arg| arg.parse())
-				.chain(trailing.into_iter().map(tg::Value::String).map(Ok))
-				.try_collect::<tg::Value, _, _>()?;
-			args_.insert(0, target.into());
-
-			// Get the env.
-			let mut env: tg::value::Map = options
-				.env
-				.into_iter()
-				.flatten()
-				.map(|env| {
-					let map = env
-						.parse::<tg::Value>()?
-						.try_unwrap_map()
-						.map_err(|_| tg::error!("expected a map"))?
-						.into_iter();
-					Ok::<_, tg::Error>(map)
-				})
-				.try_fold(tg::value::Map::new(), |mut map, item| {
-					map.extend(item?);
-					Ok::<_, tg::Error>(map)
-				})?;
-
-			// Set the TANGRAM_HOST environment variable if it is not set.
-			if !env.contains_key("TANGRAM_HOST") {
-				let host = if let Some(host) = options.host {
-					host
-				} else {
-					tg::host().to_owned()
-				};
-				env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
-			}
-
 			// Choose the host.
 			let host = "js";
 
 			// Create the command.
-			tg::command::Builder::new(host)
+			tg::Command::builder(host)
+				.arg(target.into())
 				.executable(Some(executable))
-				.args(args_)
-				.env(env)
-				.build()
 		};
+
+		// Get the args.
+		let args_: Vec<tg::Value> = options
+			.arg
+			.into_iter()
+			.map(|arg| arg.parse())
+			.chain(trailing.into_iter().map(tg::Value::String).map(Ok))
+			.try_collect::<tg::Value, _, _>()?;
+		command = command.args(args_);
+
+		// Set the cwd.
+		if !sandbox {
+			let cwd = std::env::current_dir()
+				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
+			command = command.cwd(cwd);
+			// let user = std::env::who
+		}
+		if let Some(cwd) = options.cwd {
+			command = command.cwd(cwd);
+		}
+
+		// Set the env.
+		let mut env = tg::value::Map::new();
+		if !sandbox {
+			env.extend(std::env::vars().map(|(key, value)| (key, value.into())));
+		}
+		for (key, value) in command_env.into_iter().flatten() {
+			insert_env(&mut env, key, value)?;
+		}
+		for string in options.env.into_iter().flatten() {
+			let map = string
+				.parse::<tg::Value>()?
+				.try_unwrap_map()
+				.map_err(|_| tg::error!("expected a map"))?;
+			for (key, value) in map {
+				insert_env(&mut env, key, value)?;
+			}
+		}
+		if !env.contains_key("TANGRAM_HOST") {
+			let host = if let Some(host) = options.host {
+				host
+			} else {
+				tg::host().to_owned()
+			};
+			env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
+		}
+		command = command.env(env);
+
+		// Set the mounts.
+		for mount in &options.mount {
+			if let Either::Right(mount) = mount {
+				command = command.mount(mount.clone());
+			}
+		}
+
+		// Create the command.
+		let command = command.build();
+
+		// Determine if the network is enabled.
+		let network = !sandbox;
 
 		// Determine the retry.
 		let retry = options.retry;
@@ -278,33 +326,41 @@ impl Cli {
 			self.render_progress_stream(stream).await?;
 		}
 
-		// Handle build vs run.
-		let (cwd, env, network) = if options.sandbox {
-			let cwd = None;
-			let env = None;
-			let network = false;
-			(cwd, env, network)
-		} else {
-			let cwd =
-				Some(std::env::current_dir().map_err(|source| {
-					tg::error!(!source, "failed to get the working directory")
-				})?);
-			let env = Some(std::env::vars().collect());
-			let network = true;
-			(cwd, env, network)
-		};
+		// Get the mounts.
+		let mut mounts = Vec::new();
+		if !sandbox {
+			mounts.push(tg::process::data::Mount {
+				source: "/".into(),
+				target: "/".into(),
+				readonly: false,
+			});
+		}
+		for mount in &options.mount {
+			if let Either::Left(mount) = mount {
+				let source = tokio::fs::canonicalize(&mount.source)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+				mounts.push(tg::process::data::Mount {
+					source,
+					target: mount.target.clone(),
+					readonly: mount.readonly,
+				});
+			}
+		}
 
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
 			checksum: options.checksum,
 			command: Some(command.id(&handle).await?.clone()),
 			create: options.create,
-			cwd,
-			env,
+			mounts,
 			network,
 			parent: None,
 			remote: remote.clone(),
 			retry,
+			stderr,
+			stdin,
+			stdout,
 		};
 		let process = tg::Process::spawn(&handle, arg).await?;
 
@@ -321,4 +377,122 @@ impl Cli {
 
 		Ok(process)
 	}
+}
+
+/// Produce a single environment map by applying the mutations from each in order to a base map.
+fn insert_env(env: &mut tg::value::Map, key: String, value: tg::Value) -> tg::Result<()> {
+	if let Ok(mutation) = value.clone().try_unwrap_mutation() {
+		match mutation {
+			tg::Mutation::Unset => {
+				env.remove(&key);
+			},
+			tg::Mutation::Set { value } => {
+				env.insert(key, *value.clone());
+			},
+			tg::Mutation::SetIfUnset { value } => {
+				let existing = env.get(&key);
+				if existing.is_none() {
+					env.insert(key, *value.clone());
+				}
+			},
+			tg::Mutation::Prepend { values } => {
+				if let Some(existing) = env.get(&key).cloned() {
+					let existing = existing
+						.try_unwrap_array()
+						.map_err(|source| tg::error!(!source, "cannot prepend to a non-array"))?;
+					let mut combined_values = values.clone();
+					combined_values.extend(existing.iter().cloned());
+					env.insert(key, tg::Value::Array(combined_values));
+				} else {
+					env.insert(key, tg::Value::Array(values));
+				}
+			},
+			tg::Mutation::Append { values } => {
+				if let Some(existing) = env.get(&key).cloned() {
+					let existing = existing
+						.try_unwrap_array()
+						.map_err(|source| tg::error!(!source, "cannot apppend to a non-array"))?;
+					let mut combined_values = existing.clone();
+					combined_values.extend(values.iter().cloned());
+					env.insert(key, tg::Value::Array(combined_values));
+				} else {
+					env.insert(key, tg::Value::Array(values));
+				}
+			},
+			tg::Mutation::Prefix {
+				separator,
+				template,
+			} => {
+				if let Some(existing) = env.get(&key).cloned() {
+					let existing_components = match existing {
+						tg::Value::String(s) => {
+							vec![tg::template::Component::String(s)]
+						},
+						tg::Value::Object(obj) => {
+							let artifact = match obj {
+								tangram_client::Object::Directory(directory) => directory.into(),
+								tangram_client::Object::File(file) => file.into(),
+								tangram_client::Object::Symlink(symlink) => symlink.into(),
+								_ => {
+									return Err(tg::error!("expected directory, file, or symlink"));
+								},
+							};
+							vec![tg::template::Component::Artifact(artifact)]
+						},
+						tg::Value::Template(template) => template.components().to_vec(),
+						_ => {
+							return Err(tg::error!("expected string, artifact, or template"));
+						},
+					};
+					let template_components = template.components();
+					let mut combined_template = template_components.to_vec();
+					if let Some(sep) = separator {
+						combined_template.push(tg::template::Component::String(sep));
+					}
+					combined_template.extend(existing_components);
+					env.insert(key, tg::Value::Template(combined_template.into()));
+				} else {
+					env.insert(key, tg::Value::Template(template));
+				}
+			},
+			tg::Mutation::Suffix {
+				separator,
+				template,
+			} => {
+				if let Some(existing) = env.get(&key).cloned() {
+					let existing_components = match existing {
+						tg::Value::String(s) => {
+							vec![tg::template::Component::String(s)]
+						},
+						tg::Value::Object(obj) => {
+							let artifact = match obj {
+								tangram_client::Object::Directory(directory) => directory.into(),
+								tangram_client::Object::File(file) => file.into(),
+								tangram_client::Object::Symlink(symlink) => symlink.into(),
+								_ => {
+									return Err(tg::error!("expected directory, file, or symlink"));
+								},
+							};
+							vec![tg::template::Component::Artifact(artifact)]
+						},
+						tg::Value::Template(template) => template.components().to_vec(),
+						_ => {
+							return Err(tg::error!("expected string, artifact, or template"));
+						},
+					};
+					let mut combined_template = existing_components.clone();
+					if let Some(separator) = separator {
+						combined_template.push(tg::template::Component::String(separator));
+					}
+					combined_template.extend(template.components().iter().cloned());
+					env.insert(key, tg::Value::Template(combined_template.into()));
+				} else {
+					env.insert(key, tg::Value::Template(template));
+				}
+			},
+		}
+	} else {
+		env.insert(key, value);
+	}
+	Ok(())
 }

@@ -36,7 +36,6 @@ pub enum Event {
 pub struct Chunk {
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
-
 	pub position: u64,
 }
 

@@ -10,7 +10,7 @@ use std::{
 	time::Duration,
 };
 use tangram_http::Body;
-use time::{Date, Month, OffsetDateTime, Time, format_description::well_known::Rfc3339};
+use time::format_description::well_known::Rfc3339;
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite},
 	net::{TcpStream, UnixStream},
@@ -81,6 +81,7 @@ pub mod pipe;
 pub mod position;
 pub mod process;
 pub mod progress;
+pub mod pty;
 pub mod pull;
 pub mod push;
 pub mod range;
@@ -152,8 +153,8 @@ impl Client {
 				http::HeaderName::from_str("x-tg-version").unwrap(),
 				http::HeaderValue::from_str(&version).unwrap(),
 			)
-			.layer(tangram_http::layer::compression::RequestCompressionLayer::default())
-			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
+			// .layer(tangram_http::layer::compression::RequestCompressionLayer::default())
+			// .layer(tangram_http::layer::compression::ResponseDecompressionLayer)
 			.service(service);
 		let service = Service::new(service);
 		Self(Arc::new(Inner {
@@ -602,10 +603,10 @@ impl Client {
 	}
 
 	#[must_use]
-	pub fn compatibility_date() -> OffsetDateTime {
-		OffsetDateTime::new_utc(
-			Date::from_calendar_date(2025, Month::January, 1).unwrap(),
-			Time::MIDNIGHT,
+	pub fn compatibility_date() -> time::OffsetDateTime {
+		time::OffsetDateTime::new_utc(
+			time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap(),
+			time::Time::MIDNIGHT,
 		)
 	}
 
@@ -763,30 +764,6 @@ impl tg::Handle for Client {
 		self.format_package(arg)
 	}
 
-	fn open_pipe(&self) -> impl Future<Output = tg::Result<tg::pipe::open::Output>> {
-		self.open_pipe()
-	}
-
-	fn close_pipe(&self, id: &tg::pipe::Id) -> impl Future<Output = tg::Result<()>> {
-		self.close_pipe(id)
-	}
-
-	fn read_pipe(
-		&self,
-		id: &tg::pipe::Id,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
-	{
-		self.read_pipe(id)
-	}
-
-	fn write_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.write_pipe(id, stream)
-	}
-
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -852,6 +829,28 @@ impl tg::Handle for Client {
 		self.heartbeat_process(id, arg)
 	}
 
+	fn signal_process(
+		&self,
+		id: &crate::process::Id,
+		arg: crate::process::signal::post::Arg,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		self.post_process_signal(id, arg)
+	}
+
+	fn try_get_process_signal_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_get_process_signal_stream(id, arg)
+	}
+
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
@@ -909,6 +908,80 @@ impl tg::Handle for Client {
 		arg: tg::process::touch::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.touch_process(id, arg)
+	}
+
+	fn create_pipe(
+		&self,
+		arg: tg::pipe::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
+		self.create_pipe(arg)
+	}
+
+	fn delete_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pipe(id, arg)
+	}
+
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
+		self.read_pipe(id, arg)
+	}
+
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.write_pipe(id, arg, stream)
+	}
+
+	fn create_pty(
+		&self,
+		arg: tg::pty::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
+		self.create_pty(arg)
+	}
+
+	fn delete_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pty(id, arg)
+	}
+
+	fn get_pty_size(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> {
+		self.get_pty_size(id, arg)
+	}
+
+	fn read_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
+	{
+		self.read_pty(id, arg)
+	}
+
+	fn write_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.write_pty(id, arg, stream)
 	}
 
 	fn try_get_reference(

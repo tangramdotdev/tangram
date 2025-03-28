@@ -295,9 +295,19 @@ impl Cli {
 		// Drop the handle.
 		runtime.block_on(async {
 			let handle = cli.handle.lock().unwrap().take();
-			if let Some(Either::Right(server)) = handle {
-				server.stop();
-				server.wait().await;
+			match handle {
+				Some(Either::Left(client)) => {
+					client
+						.disconnect()
+						.await
+						.inspect_err(|error| eprintln!("failed to disconnect: {error}"))
+						.ok();
+				},
+				Some(Either::Right(server)) => {
+					server.stop();
+					server.wait().await;
+				},
+				None => (),
 			}
 		});
 

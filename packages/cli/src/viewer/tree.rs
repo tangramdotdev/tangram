@@ -454,6 +454,7 @@ where
 		}
 
 		// Create the status stream.
+
 		let mut status = process.status(handle).await?;
 		while let Some(status) = status.try_next().await? {
 			let indicator = match status {
@@ -462,7 +463,7 @@ where
 				tg::process::Status::Dequeued => Indicator::Dequeued,
 				tg::process::Status::Started => Indicator::Started,
 				tg::process::Status::Finishing => Indicator::Finishing,
-				tg::process::Status::Failed | tg::process::Status::Succeeded => {
+				tg::process::Status::Finished => {
 					// Remove the child if necessary.
 					if options.condensed_processes {
 						let update = move |node: Rc<RefCell<Node>>| {
@@ -490,10 +491,13 @@ where
 						return Ok(());
 					}
 
-					match status {
-						tg::process::Status::Failed => Indicator::Failed,
-						tg::process::Status::Succeeded => Indicator::Succeeded,
-						_ => unreachable!(),
+					let state = process.load(handle).await?;
+					let failed = state.error.is_some()
+						|| state.exit.as_ref().is_some_and(tg::process::Exit::failed);
+					if failed {
+						Indicator::Failed
+					} else {
+						Indicator::Succeeded
 					}
 				},
 			};
@@ -619,9 +623,7 @@ where
 				.is_none_or(|status| {
 					matches!(
 						status,
-						tg::process::Status::Finishing
-							| tg::process::Status::Failed
-							| tg::process::Status::Succeeded
+						tg::process::Status::Finishing | tg::process::Status::Finished
 					)
 				});
 			let handle = handle.clone();
@@ -1162,10 +1164,29 @@ where
 					map.insert("referent".to_owned(), tg::Value::Map(referent));
 					tg::Value::Map(map)
 				},
+				tg::command::Executable::Path(path) => {
+					tg::Value::String(path.to_string_lossy().to_string())
+				},
 			};
 			children.push(("executable".to_owned(), value));
 		}
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
+		if !object.mounts.is_empty() {
+			let mut array = Vec::new();
+			for mount in &object.mounts {
+				let mut map = BTreeMap::new();
+				map.insert(
+					"source".to_owned(),
+					tg::Value::Object(mount.source.clone().into()),
+				);
+				map.insert(
+					"target".to_owned(),
+					tg::Value::String(mount.target.to_string_lossy().to_string()),
+				);
+				array.push(tg::Value::Map(map));
+			}
+			children.push(("mounts".to_owned(), tg::Value::Array(array)));
+		}
 		command.unload();
 
 		// Send the update.

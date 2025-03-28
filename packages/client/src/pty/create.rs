@@ -3,17 +3,24 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub id: tg::pipe::Id,
+	pub id: tg::pty::Id,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+	pub window_size: tg::pty::Size,
 }
 
 impl tg::Client {
-	pub async fn open_pipe(&self) -> tg::Result<tg::pipe::open::Output> {
+	pub async fn create_pty(&self, arg: Arg) -> tg::Result<tg::pty::create::Output> {
 		let method = http::Method::POST;
-		let uri = "/pipes";
+		let uri = "/ptys";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.empty()
+			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

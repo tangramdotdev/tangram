@@ -264,10 +264,19 @@ impl Lmdb {
 						for (id, bytes, reference) in message.items {
 							if let Some(bytes) = bytes {
 								let key = (0, id.to_bytes(), 0);
-								db.put(&mut transaction, &key.pack_to_vec(), &bytes)
-									.map_err(|source| {
-										tg::error!(!source, "failed to put the value")
-									})?;
+								let flags = lmdb::PutFlags::NO_OVERWRITE;
+								let result = db.put_with_flags(
+									&mut transaction,
+									flags,
+									&key.pack_to_vec(),
+									&bytes,
+								);
+								match result {
+									Ok(()) | Err(lmdb::Error::Mdb(lmdb::MdbError::KeyExist)) => (),
+									Err(error) => {
+										return Err(tg::error!(!error, "failed to put the value"));
+									},
+								}
 							}
 							let key = (0, id.to_bytes(), 1);
 							let touched_at = message.touched_at.to_le_bytes();

@@ -30,11 +30,12 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
-
 		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some() || sandboxed;
+		let cacheable = arg.checksum.is_some()
+			|| (!arg.network
+				&& arg.stdin.is_none()
+				&& arg.stdout.is_none()
+				&& arg.stderr.is_none());
 
 		// If the process is not cacheable, then spawn a local process, add it as a child of the parent, and return it.
 		if !cacheable {
@@ -109,7 +110,7 @@ impl Server {
 								exit: None,
 								output: None,
 								remote: None,
-								status: tg::process::Status::Failed,
+								status: tg::process::Status::Finished,
 							};
 							server.try_finish_process(&local_id, arg).boxed().await.ok();
 						}
@@ -156,12 +157,12 @@ impl Server {
 		struct Row {
 			id: tg::process::Id,
 			error: Option<db::value::Json<tg::Error>>,
-			status: tg::process::Status,
+			exit: Option<db::value::Json<tg::process::Exit>>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id, error, status
+				select id, error, exit
 				from processes
 				where
 					cacheable = 1 and
@@ -172,7 +173,7 @@ impl Server {
 			"
 		);
 		let params = db::params![arg.command, arg.checksum];
-		let Some(Row { id, error, status }) = connection
+		let Some(Row { id, error, exit }) = connection
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -184,12 +185,16 @@ impl Server {
 		drop(connection);
 
 		// If the process is canceled, then return.
-		if error.is_some_and(|error| matches!(error.0.code, Some(tg::error::Code::Cancelation))) {
+		if error
+			.as_ref()
+			.is_some_and(|error| matches!(error.0.code, Some(tg::error::Code::Cancelation)))
+		{
 			return Ok(None);
 		}
 
-		// If the process is failed and the retry flag is set, then return.
-		if status.is_failed() && arg.retry {
+		// If the process failed and the retry flag is set, then return.
+		let failed = error.is_some() || exit.is_some_and(|e| e.0.failed());
+		if failed && arg.retry {
 			return Ok(None);
 		}
 
@@ -223,17 +228,18 @@ impl Server {
 		// Create an ID.
 		let id = tg::process::Id::new();
 
+		// Determine if the process is cacheable.
+		let cacheable = arg.checksum.is_some()
+			|| (!arg.network
+				&& arg.stdin.is_none()
+				&& arg.stdout.is_none()
+				&& arg.stderr.is_none());
+
 		// Create the log file.
 		let path = self.logs_path().join(id.to_string());
 		tokio::fs::File::create(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
-
-		// Determine if the process is sandboxed.
-		let sandboxed = arg.cwd.is_none() && arg.env.is_none() && !arg.network;
-
-		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some() || sandboxed;
 
 		// Get the host.
 		let command = tg::Command::with_id(arg.command.clone().unwrap());
@@ -256,13 +262,15 @@ impl Server {
 					checksum,
 					command,
 					created_at,
-					cwd,
 					enqueued_at,
-					env,
 					host,
+					mounts,
 					network,
 					retry,
 					status,
+					stderr,
+					stdin,
+					stdout,
 					touched_at
 				)
 				values (
@@ -278,21 +286,25 @@ impl Server {
 					{p}10,
 					{p}11,
 					{p}12,
-					{p}13
+					{p}13,
+					{p}14,
+					{p}15
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
 					checksum = {p}3,
 					command = {p}4,
 					created_at = {p}5,
-					cwd = {p}6,
-					enqueued_at = {p}7,
-					env = {p}8,
-					host = {p}9,
-					network = {p}10,
-					retry = {p}11,
-					status = {p}12,
-					touched_at = {p}13;
+					enqueued_at = {p}6,
+					host = {p}7,
+					mounts = {p}8,
+					network = {p}9,
+					retry = {p}10,
+					status = {p}11,
+					stderr = {p}12,
+					stdin = {p}13,
+					stdout = {p}14,
+					touched_at = {p}15;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc();
@@ -302,19 +314,22 @@ impl Server {
 			arg.checksum,
 			arg.command,
 			now.format(&Rfc3339).unwrap(),
-			arg.cwd,
 			now.format(&Rfc3339).unwrap(),
-			arg.env.as_ref().map(db::value::Json),
 			host,
+			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			arg.retry,
 			tg::process::Status::Enqueued,
+			arg.stderr,
+			arg.stdin,
+			arg.stdout,
 			now.format(&Rfc3339).unwrap(),
 		];
 		connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
 
 		// Touch the command.
 		if let Some(command) = &arg.command {

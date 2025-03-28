@@ -15,7 +15,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		let process = tg::Process::new(args.process, None, None, None, None);
 		let output = process.wait(&handle).await?;
-		let output = if output.status.is_succeeded() {
+		let output = if output.status.is_finished() {
 			output
 				.output
 				.ok_or_else(|| tg::error!("expected the output to be set"))?
