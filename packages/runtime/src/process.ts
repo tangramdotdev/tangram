@@ -82,7 +82,7 @@ export class Process {
 			"env" in arg ? { env: arg.env } : undefined,
 			"executable" in arg ? { executable: arg.executable } : undefined,
 			"host" in arg ? { host: arg.host } : undefined,
-			"mounts" in arg ? { mounts: commandMounts } : undefined,
+			commandMounts.length > 0 ? { mounts: commandMounts } : undefined,
 		);
 		let network =
 			"network" in arg ? arg.network : tg.Process.current.#state!.network;
@@ -114,6 +114,8 @@ export class Process {
 	static async build(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		return await Process.run(
 			{
+				cwd: undefined,
+				mounts: undefined,
 				network: false,
 				stdin: undefined,
 				stdout: undefined,
