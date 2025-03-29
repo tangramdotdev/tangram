@@ -1,9 +1,9 @@
-use clap::{CommandFactory as _, Parser as _};
+use clap::Parser as _;
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
-use tangram_client::{self as tg, Client, handle::Ext as _};
+use tangram_client::{self as tg, Client, Handle as _, handle::Ext as _};
 use tangram_either::Either;
 use tangram_server::Server;
 use tokio::io::AsyncWriteExt as _;
@@ -340,6 +340,12 @@ impl Cli {
 			Mode::Server => Either::Right(self.server().await?),
 		};
 
+		// Get the health and print diagnostic.
+		let health = handle.health().await?;
+		for diagnostic in &health.diagnostics {
+			Self::print_diagnostic(diagnostic);
+		}
+
 		// Set the handle.
 		self.handle.lock().unwrap().replace(handle.clone());
 
@@ -405,11 +411,12 @@ impl Cli {
 				break 'a;
 			}
 
-			let Some(server_version) = &client.health().await?.version else {
+			let health = client.health().await?;
+			let Some(server_version) = &health.version else {
 				break 'a;
 			};
 
-			if Args::command().get_version().unwrap() == server_version {
+			if &version() == server_version {
 				break 'a;
 			}
 

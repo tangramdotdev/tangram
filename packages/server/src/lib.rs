@@ -79,6 +79,7 @@ pub struct Inner {
 	compilers: RwLock<Vec<Compiler>>,
 	config: Config,
 	database: Database,
+	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	file_descriptor_semaphore: tokio::sync::Semaphore,
 	http: Option<Http>,
 	index: Database,
@@ -260,6 +261,13 @@ impl Server {
 			},
 		};
 
+		// Create the diagnostics.
+		let diagnostics = Mutex::new(Vec::new());
+
+		// Create the file system semaphore.
+		let file_descriptor_semaphore =
+			tokio::sync::Semaphore::new(config.advanced.file_descriptor_semaphore_size);
+
 		// Create the index.
 		let index = match &config.index {
 			self::config::Database::Sqlite(options) => {
@@ -296,10 +304,6 @@ impl Server {
 				Either::Right(database)
 			},
 		};
-
-		// Create the file system semaphore.
-		let file_descriptor_semaphore =
-			tokio::sync::Semaphore::new(config.advanced.file_descriptor_semaphore_size);
 
 		// Create the local pool handle.
 		let local_pool_handle = config
@@ -370,9 +374,10 @@ impl Server {
 			compilers,
 			config,
 			database,
-			index,
+			diagnostics,
 			file_descriptor_semaphore,
 			http,
+			index,
 			local_pool_handle,
 			lock_file,
 			messenger,
@@ -556,6 +561,18 @@ impl Server {
 			}
 		}
 
+		// Spawn the diagnostics task.
+		let diagnostics_task = Some(tokio::spawn({
+			let server = server.clone();
+			async move {
+				server
+					.diagnostics_task()
+					.await
+					.inspect_err(|error| tracing::error!(?error))
+					.ok();
+			}
+		}));
+
 		// Spawn the cleaner task.
 		let cleaner_task = server.config.cleaner.clone().map(|config| {
 			tokio::spawn({
@@ -672,6 +689,11 @@ impl Server {
 						}
 					}
 					tracing::trace!("shutdown http task");
+				}
+
+				// Abort the diagnostics task.
+				if let Some(task) = diagnostics_task {
+					task.abort();
 				}
 
 				// Abort the cleaner task.

@@ -1,5 +1,6 @@
 use crate::Server;
 use num::ToPrimitive;
+use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
@@ -70,13 +71,59 @@ impl Server {
 		};
 
 		let health = tg::Health {
-			processes: Some(processes),
 			database: Some(database),
+			diagnostics: self.diagnostics.lock().unwrap().clone(),
 			file_descriptor_semaphore: Some(file_descriptor_semaphore),
+			processes: Some(processes),
 			version: Some(self.version.clone()),
 		};
 
 		Ok(health)
+	}
+
+	pub(crate) async fn diagnostics_task(&self) -> tg::Result<()> {
+		loop {
+			let mut diagnostics = Vec::new();
+			if let Some(latest) = self.try_get_latest_version().await {
+				let version = &self.version;
+				if &latest != version {
+					diagnostics.push(tg::Diagnostic {
+						location: None,
+						severity: tg::diagnostic::Severity::Warning,
+						message: format!(
+							r#"A new version of tangram is available. The latest version is "{latest}". You are on version "{version}"."#,
+						),
+					});
+				}
+			}
+			*self.diagnostics.lock().unwrap() = diagnostics;
+			tokio::time::sleep(Duration::from_secs(3600)).await;
+		}
+	}
+
+	async fn try_get_latest_version(&self) -> Option<String> {
+		#[derive(serde::Deserialize)]
+		struct Output {
+			name: String,
+		}
+		let output: Output = reqwest::Client::new()
+			.request(
+				http::Method::GET,
+				"https://api.github.com/repos/tangramdotdev/tangram/releases/latest",
+			)
+			.header("Accept", "application/vnd.github+json")
+			.header("User-Agent", "tangram")
+			.send()
+			.await
+			.inspect_err(|error| tracing::warn!(%error, "failed to get response from github"))
+			.ok()?
+			.json()
+			.await
+			.inspect_err(
+				|error| tracing::warn!(%error, "failed to deserialize response from github"),
+			)
+			.ok()?;
+		Some(output.name)
 	}
 }
 
