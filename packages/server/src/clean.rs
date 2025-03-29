@@ -93,7 +93,7 @@ impl Server {
 		);
 		let params = db::params![max_touched_at, config.batch_size];
 		let processes = connection
-			.query_all_value_into(statement.into(), params)
+			.query_all_value_into::<tg::process::Id>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
