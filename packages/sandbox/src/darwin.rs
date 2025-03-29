@@ -38,14 +38,11 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	let executable = cstring(&command.executable);
 
 	if command.chroot.is_some() {
-		return Err(std::io::Error::other(
-			"chroot unsupported on darwin targets",
-		));
+		return Err(std::io::Error::other("chroot is not allowed on darwin"));
 	}
+
 	if command.uid.is_some() || command.gid.is_some() {
-		return Err(std::io::Error::other(
-			"uid/gid is unsupported on darwin targets",
-		));
+		return Err(std::io::Error::other("uid/gid is not allowed on darwin"));
 	}
 
 	// Create stdio.
@@ -363,40 +360,38 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 		.unwrap();
 	}
 
-	if root_mount {
-		return Ok(CString::new(profile).unwrap());
-	}
-
 	for mount in &command.mounts {
-		if mount.source != mount.target {
-			return Err(std::io::Error::other(
-				"the source and target paths must be the same",
-			));
-		}
-		let path = &mount.source;
-		if mount.readonly {
-			writedoc!(
-				profile,
-				r"
-					(allow process-exec* (subpath {0}))
-					(allow file-read* (path-ancestors {0}))
-					(allow file-read* (subpath {0}))
-				",
-				escape(path.as_os_str().as_bytes()),
-			)
-			.unwrap();
-		} else {
-			writedoc!(
-				profile,
-				r"
-					(allow process-exec* (subpath {0}))
-					(allow file-read* (subpath {0}))
-					(allow file-read* (path-ancestors {0}))
-					(allow file-write* (subpath {0}))
-				",
-				escape(path.as_os_str().as_bytes()),
-			)
-			.unwrap();
+		if root_mount {
+			if mount.source != mount.target {
+				return Err(std::io::Error::other(
+					"the source and target paths must be the same",
+				));
+			}
+			let path = &mount.source;
+			if mount.readonly {
+				writedoc!(
+					profile,
+					r"
+						(allow process-exec* (subpath {0}))
+						(allow file-read* (path-ancestors {0}))
+						(allow file-read* (subpath {0}))
+					",
+					escape(path.as_os_str().as_bytes()),
+				)
+				.unwrap();
+			} else {
+				writedoc!(
+					profile,
+					r"
+						(allow process-exec* (subpath {0}))
+						(allow file-read* (subpath {0}))
+						(allow file-read* (path-ancestors {0}))
+						(allow file-write* (subpath {0}))
+					",
+					escape(path.as_os_str().as_bytes()),
+				)
+				.unwrap();
+			}
 		}
 	}
 

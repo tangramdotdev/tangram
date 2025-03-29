@@ -172,6 +172,12 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
+		// Delete process logs.
+		for id in &processes {
+			let path = self.logs_path().join(id.to_string());
+			tokio::fs::remove_file(path).await.ok();
+		}
+
 		// Delete cache entries.
 		tokio::task::spawn_blocking({
 			let server = self.clone();

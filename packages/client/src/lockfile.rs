@@ -52,10 +52,10 @@ pub enum Symlink {
 	},
 
 	Artifact {
+		artifact: Entry,
+
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		id: Option<tg::symlink::Id>,
-
-		artifact: Entry,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		subpath: Option<PathBuf>,
