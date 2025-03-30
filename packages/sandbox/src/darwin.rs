@@ -373,24 +373,42 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 					profile,
 					r"
 						(allow process-exec* (subpath {0}))
-						(allow file-read* (path-ancestors {0}))
 						(allow file-read* (subpath {0}))
 					",
 					escape(path.as_os_str().as_bytes()),
 				)
 				.unwrap();
+				if path != Path::new("/") {
+					writedoc!(
+						profile,
+						r"
+							(allow file-read* (path-ancestors {0}))
+						",
+						escape(path.as_os_str().as_bytes()),
+					)
+					.unwrap();
+				}
 			} else {
 				writedoc!(
 					profile,
 					r"
 						(allow process-exec* (subpath {0}))
 						(allow file-read* (subpath {0}))
-						(allow file-read* (path-ancestors {0}))
 						(allow file-write* (subpath {0}))
 					",
 					escape(path.as_os_str().as_bytes()),
 				)
 				.unwrap();
+				if path != Path::new("/") {
+					writedoc!(
+						profile,
+						r"
+							(allow file-read* (path-ancestors {0}))
+						",
+						escape(path.as_os_str().as_bytes()),
+					)
+					.unwrap();
+				}
 			}
 		}
 	}
