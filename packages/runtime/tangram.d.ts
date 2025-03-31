@@ -646,7 +646,7 @@ declare namespace tg {
 			user?: string | undefined;
 
 			/** The command's stdin. */
-			stdin?: tg.Blob.Id | undefined;
+			stdin?: tg.Blob.Arg | undefined;
 		};
 
 		export type Object = {
@@ -1054,10 +1054,13 @@ declare namespace tg {
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
 
+			/** Suppress stderr. */
 			stderr?: undefined;
 
-			stdin?: undefined;
+			/** Ignore stdin, or set it to a blob. */
+			stdin?: tg.Blob.Arg | undefined;
 
+			/** Suppress stdout. */
 			stdout?: undefined;
 
 			/** The command's user. */

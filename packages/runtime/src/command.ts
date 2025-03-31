@@ -134,7 +134,7 @@ export class Command<
 		if (!host) {
 			throw new Error("cannot create a command without a host");
 		}
-		let stdin = undefined;
+		let stdin = await tg.blob(arg.stdin);
 		let user = arg.user;
 		let object = {
 			args: args_,
@@ -288,7 +288,7 @@ export namespace Command {
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
 		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
-		stdin?: tg.Blob.Id | undefined;
+		stdin?: tg.Blob.Arg | undefined;
 		user?: string | undefined;
 	};
 

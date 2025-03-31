@@ -56,19 +56,25 @@ export class Process {
 			mounts = tg.Process.current.#state!.mounts;
 		}
 
+		// Infer the stdin of the process or command.
+		let processStdin = tg.Process.current.#state!.stdin;
+		let commandStdin: tg.Blob.Arg | undefined = undefined;
+		if ("stdin" in arg) {
+			processStdin = undefined;
+			if (arg.stdin) {
+				commandStdin = arg.stdin;
+			}
+		}
+
+		// Infer the stderr and stdout.
 		let stderr = tg.Process.current.#state!.stdout;
 		if ("stderr" in arg) {
 			stderr = arg.stderr;
-		}
-		let stdin = tg.Process.current.#state!.stdin;
-		if ("stdin" in arg) {
-			stdin = arg.stdin;
 		}
 		let stdout = tg.Process.current.#state!.stdout;
 		if ("stdout" in arg) {
 			stdout = arg.stdout;
 		}
-
 		let command = await tg.command(
 			{
 				cwd: Process.current.command().then((command) => command.cwd()),
@@ -81,6 +87,7 @@ export class Process {
 			"env" in arg ? { env: arg.env } : undefined,
 			"executable" in arg ? { executable: arg.executable } : undefined,
 			"host" in arg ? { host: arg.host } : undefined,
+			commandStdin ? { stdin: commandStdin } : undefined,
 			commandMounts.length > 0 ? { mounts: commandMounts } : undefined,
 		);
 		let network =
@@ -95,7 +102,7 @@ export class Process {
 			remote: undefined,
 			retry: false,
 			stderr,
-			stdin,
+			stdin: processStdin,
 			stdout,
 		});
 		return new tg.Process({
@@ -358,7 +365,7 @@ export namespace Process {
 			| undefined;
 		network?: boolean | undefined;
 		stderr?: undefined;
-		stdin?: undefined;
+		stdin?: tg.Blob.Arg | undefined;
 		stdout?: undefined;
 	};
 

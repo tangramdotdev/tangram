@@ -158,22 +158,37 @@ pub async fn stdio_task(
 	stderr: sandbox::Stderr,
 ) -> tg::Result<()> {
 	let state = process.load(server).await?;
-	if !state.cacheable {
-		stdin.shutdown().await.ok();
-	}
 
 	let stdin = tokio::spawn({
 		let server = server.clone();
-		let io = process.load(&server).await?.stdin.clone();
+		let io = state.stdin.clone();
+		let blob = state.command.load(&server).await?.stdin.clone();
 		let remote = process.remote().cloned();
+
 		async move {
-			let Some(io) = io.as_ref() else {
-				return;
-			};
-			input(&server, io, remote, stdin, stop)
-				.await
-				.inspect_err(|source| tracing::error!(?source, "failed to write stdin"))
-				.ok();
+			if let Some(io) = io {
+				// Write stdin from pipe/pty.
+				input(&server, &io, remote, &mut stdin, stop)
+					.await
+					.inspect_err(|source| tracing::error!(?source, "failed to write stdin"))
+					.ok();
+			} else if let Some(blob) = blob {
+				// Copy blobs to stdin.
+				let Ok(mut reader) = blob
+					.read(&server, tg::blob::read::Arg::default())
+					.await
+					.inspect_err(|error| tracing::error!(?error, "failed to read blob"))
+				else {
+					return;
+				};
+				tokio::io::copy(&mut reader, &mut stdin)
+					.await
+					.inspect_err(|error| tracing::error!(?error, "failed to copy blob"))
+					.ok();
+			}
+
+			// Shutdown stdin to make sure the process exits if it's reading from stdin.
+			stdin.shutdown().await.ok();
 		}
 	});
 
@@ -280,7 +295,7 @@ async fn input(
 	server: &Server,
 	stdio: &tg::process::Stdio,
 	remote: Option<String>,
-	mut stdin: sandbox::Stdin,
+	stdin: &mut sandbox::Stdin,
 	stop: Stop,
 ) -> tg::Result<()> {
 	match stdio {
