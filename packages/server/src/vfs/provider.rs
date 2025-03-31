@@ -330,12 +330,41 @@ impl vfs::Provider for Provider {
 		Ok(target)
 	}
 
-	async fn listxattrs(&self, _id: u64) -> std::io::Result<Vec<String>> {
-		Ok(Vec::new())
+	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
+		let node = self.get(id).await?;
+		if node
+			.artifact
+			.as_ref()
+			.map(tg::Artifact::is_file)
+			.unwrap_or(false)
+		{
+			Ok(vec![tg::file::XATTR_LOCK_NAME.to_owned()])
+		} else {
+			Ok(Vec::new())
+		}
 	}
 
-	async fn getxattr(&self, _id: u64, _name: &str) -> std::io::Result<Option<Bytes>> {
-		Ok(None)
+	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
+		let node = self.get(id).await?;
+		let Some(artifact) = node.artifact else {
+			return Ok(None);
+		};
+		if !artifact.is_file() || name != tg::file::XATTR_LOCK_NAME {
+			return Ok(None);
+		}
+		let artifact = artifact
+			.id(&self.server)
+			.await
+			.map_err(|_| std::io::Error::from_raw_os_error(libc::EIO))?;
+		let lock = self
+			.server
+			.create_lockfile_for_artifact(&artifact, false)
+			.map_err(|error| {
+				tracing::error!(?error, %artifact, "failed to create lockfile");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+		let bytes = serde_json::to_vec(&lock).unwrap().into();
+		Ok(Some(bytes))
 	}
 
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {
