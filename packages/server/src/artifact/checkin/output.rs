@@ -10,7 +10,7 @@ use std::{
 	collections::BTreeSet,
 	ffi::OsStr,
 	os::unix::fs::PermissionsExt as _,
-	path::{Path, PathBuf},
+	path::PathBuf,
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
@@ -230,6 +230,7 @@ impl Server {
 					} else {
 						let reference = crate::store::CacheReference {
 							artifact: output.id.clone(),
+							subpath: None,
 							position: blob.position,
 							length: blob.length,
 						};
@@ -531,9 +532,6 @@ impl Server {
 				self.update_permissions(input, output, output_index, temp.path().to_owned())
 					.await?;
 
-				// Reset the file times to epoch.
-				self.set_file_times_to_epoch(&temp.path(), true).await?;
-
 				// Rename to the cache directory.
 				let dest = self
 					.cache_path()
@@ -547,9 +545,6 @@ impl Server {
 
 				// Update hardlinks.
 				self.write_links(input, output, output_index).await?;
-
-				// Reset the top-level object times to epoch post-rename.
-				self.set_file_times_to_epoch(dest, false).await?;
 			}
 			// Recurse.
 			stack.extend(output.nodes[output_index].edges.iter().map(|e| e.node));
@@ -634,30 +629,6 @@ impl Server {
 		}
 
 		Ok(())
-	}
-
-	async fn set_file_times_to_epoch(
-		&self,
-		dest: impl AsRef<Path>,
-		recursive: bool,
-	) -> tg::Result<()> {
-		let dest = dest.as_ref();
-		tokio::task::spawn_blocking({
-			let dest = dest.to_path_buf();
-			move || {
-				let mut visited = BTreeSet::new();
-				set_file_times_to_epoch_inner(&dest, recursive, &mut visited)?;
-				Ok::<_, tg::Error>(())
-			}
-		})
-		.await
-		.map_err(|error| {
-			tg::error!(
-				source = error,
-				"failed to set file times to epoch for {:?}",
-				dest
-			)
-		})?
 	}
 
 	async fn update_permissions(
@@ -814,35 +785,4 @@ impl Server {
 
 		Err(tg::error!(?symlink = &output.nodes[symlink], "invalid symlink"))
 	}
-}
-
-fn set_file_times_to_epoch_inner(
-	path: &Path,
-	recursive: bool,
-	visited: &mut BTreeSet<PathBuf>,
-) -> tg::Result<()> {
-	if !visited.insert(path.to_owned()) {
-		return Ok(());
-	}
-
-	let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-	if recursive && path.is_dir() {
-		for entry in std::fs::read_dir(path)
-			.map_err(|error| tg::error!(source = error, "could not read dir"))?
-		{
-			let entry =
-				entry.map_err(|error| tg::error!(source = error, "could not read entry"))?;
-			set_file_times_to_epoch_inner(&entry.path(), recursive, visited)?;
-		}
-	}
-
-	filetime::set_symlink_file_times(path, epoch, epoch).map_err(|source| {
-		tg::error!(
-			source = source,
-			"failed to set the modified time for {:?}",
-			path
-		)
-	})?;
-
-	Ok(())
 }

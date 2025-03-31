@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use bytes::Bytes;
 use tangram_client as tg;
 
@@ -49,8 +51,10 @@ pub struct DeleteBatchArg {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CacheReference {
 	pub artifact: tg::artifact::Id,
-	pub position: u64,
 	pub length: u64,
+	pub position: u64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub subpath: Option<PathBuf>,
 }
 
 impl Store {

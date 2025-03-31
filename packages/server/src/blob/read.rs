@@ -152,9 +152,12 @@ impl Reader {
 		let id = blob.id(server).await?;
 		let cache_reference = server.store.try_get_cache_reference(&id.into()).await?;
 		let reader = if let Some(cache_reference) = cache_reference {
-			let path = server
+			let mut path = server
 				.cache_path()
 				.join(cache_reference.artifact.to_string());
+			if let Some(subpath) = &cache_reference.subpath {
+				path.push(subpath);
+			}
 			let file = tokio::fs::File::open(path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to open the file"))?;

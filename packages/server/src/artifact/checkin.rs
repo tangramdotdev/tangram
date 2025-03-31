@@ -1,4 +1,4 @@
-use crate::{Server, blob::create::Blob, temp::Temp, util::iter::Ext as _};
+use crate::{Server, blob::create::Blob};
 use bytes::Bytes;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
@@ -7,14 +7,9 @@ use futures::{
 use indoc::indoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use reflink_copy::reflink;
 use std::{
-	collections::BTreeMap,
-	os::unix::fs::PermissionsExt as _,
-	panic::AssertUnwindSafe,
-	path::{Path, PathBuf},
-	sync::Arc,
-	time::Instant,
+	collections::BTreeMap, ops::Not as _, os::unix::fs::PermissionsExt as _,
+	panic::AssertUnwindSafe, path::PathBuf, sync::Arc, time::Instant,
 };
 use tangram_client as tg;
 use tangram_futures::stream::Ext as _;
@@ -223,17 +218,24 @@ impl Server {
 		Self::checkin_create_objects(&mut state, 0)?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 
+		// Set the touch time.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+
+		// Get the root node's ID.
+		let root = state.graph.nodes[0].object.as_ref().unwrap().id.clone();
+		let root =
+			tg::artifact::Id::try_from(root).map_err(|_| tg::error!("expected an artifact"))?;
+
 		// Write the objects to the database and the store.
 		let state = Arc::new(state);
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let cache_future = tokio::spawn({
 			let server = self.clone();
 			let arg = arg.clone();
-			let state = state.clone();
+			let root = root.clone();
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_cache_task(&arg, &state)
+					.checkin_cache_task(&arg, &root, touched_at)
 					.map_err(|source| tg::error!(!source, "failed to copy the blobs"))
 					.await?;
 				tracing::trace!(elapsed = ?start.elapsed(), "copy blobs");
@@ -244,14 +246,15 @@ impl Server {
 		let messenger_future = tokio::spawn({
 			let server = self.clone();
 			let state = state.clone();
+			let root = root.clone();
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_messenger_task(&state, touched_at)
+					.checkin_messenger_task(&state, &root, touched_at)
+					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to write the objects to the messenger")
-					})
-					.await?;
+					})?;
 				tracing::trace!(elapsed = ?start.elapsed(), "write objects to messenger");
 				Ok::<_, tg::Error>(())
 			}
@@ -259,35 +262,27 @@ impl Server {
 		.map(|result| result.unwrap());
 		let store_future = tokio::spawn({
 			let server = self.clone();
+			let arg = arg.clone();
 			let state = state.clone();
+			let root = root.clone();
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_store_task(&state, touched_at)
+					.checkin_store_task(&arg, &state, &root, touched_at)
+					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to write the objects to the store")
-					})
-					.await?;
+					})?;
 				tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 				Ok::<_, tg::Error>(())
 			}
 		})
 		.map(|result| result.unwrap());
 		futures::try_join!(cache_future, messenger_future, store_future)?;
-		let state = Arc::into_inner(state).unwrap();
-
-		// Get the root node's ID.
-		let artifact = state.graph.nodes[0]
-			.object
-			.as_ref()
-			.unwrap()
-			.id
-			.clone()
-			.try_into()
-			.map_err(|_| tg::error!("expected an artifact"))?;
+		let _state = Arc::into_inner(state).unwrap();
 
 		// Create the output.
-		let output = tg::artifact::checkin::Output { artifact };
+		let output = tg::artifact::checkin::Output { artifact: root };
 
 		Ok(output)
 	}
@@ -542,191 +537,49 @@ impl Server {
 	async fn checkin_cache_task(
 		&self,
 		arg: &tg::artifact::checkin::Arg,
-		state: &Arc<State>,
+		root: &tg::artifact::Id,
+		touched_at: i64,
 	) -> tg::Result<()> {
-		let destructive = arg.destructive;
-		state
-			.graph
-			.nodes
-			.iter()
-			.filter_map(
-				|node| match (&node.path, &node.metadata, &node.object, &node.variant) {
-					(
-						Some(path),
-						Some(metadata),
-						Some(Object {
-							id: tg::object::Id::File(id),
-							..
-						}),
-						Variant::File(File { executable, .. }),
-					) => Some((path.clone(), metadata.clone(), id.clone(), *executable)),
-					_ => None,
-				},
-			)
-			.batches(100)
-			.map(|batch| {
-				let server = self.clone();
-				tokio::task::spawn_blocking(move || {
-					for (path, metadata, id, executable) in batch {
-						server.checkin_cache_file(
-							&path,
-							&metadata,
-							&id,
-							executable,
-							destructive,
-						)?;
-					}
-					Ok::<_, tg::Error>(())
-				})
-				.map(|result| result.unwrap())
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<()>()
-			.await?;
+		// Rename the path to the cache directory.
+		let src = &arg.path;
+		let dst = self.cache_path().join(root.to_string());
+		let result = tokio::fs::rename(src, dst).await;
+		match result {
+			Ok(()) => (),
+			Err(error)
+				if matches!(
+					error.kind(),
+					std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::DirectoryNotEmpty,
+				) => {},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"failed to rename the path to the cache directory"
+				));
+			},
+		}
+
+		// Send a message for the cache entry.
+		let message = crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
+			id: root.clone(),
+			touched_at,
+		});
+		let message = serde_json::to_vec(&message)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		self.messenger
+			.publish("index".to_owned(), message.into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+
 		Ok(())
 	}
 
-	fn checkin_cache_file(
+	async fn checkin_messenger_task(
 		&self,
-		path: &Path,
-		metadata: &std::fs::Metadata,
-		id: &tg::file::Id,
-		executable: bool,
-		destructive: bool,
+		state: &Arc<State>,
+		root: &tg::artifact::Id,
+		touched_at: i64,
 	) -> tg::Result<()> {
-		let src = path;
-		let dst = &self.cache_path().join(id.to_string());
-		let mode = if executable { 0o755 } else { 0o644 };
-		if destructive {
-			Self::checkin_cache_file_destructive(metadata, executable, src, dst)?;
-		} else if metadata.permissions().mode() == mode {
-			Self::checkin_cache_file_direct(src, dst)?;
-		} else {
-			self.checkin_cache_file_temp(executable, src, dst)?;
-		}
-		Ok(())
-	}
-
-	fn checkin_cache_file_destructive(
-		metadata: &std::fs::Metadata,
-		executable: bool,
-		src: &Path,
-		dst: &Path,
-	) -> tg::Result<()> {
-		let mode = if executable { 0o755 } else { 0o644 };
-		if metadata.permissions().mode() != mode {
-			let permissions = std::fs::Permissions::from_mode(mode);
-			std::fs::set_permissions(src, permissions)
-				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
-		}
-		let result = std::fs::hard_link(src, dst);
-		match result {
-			Ok(()) => (),
-			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					"failed to hard link the file to the blobs directory"
-				));
-			},
-		}
-		Ok(())
-	}
-
-	fn checkin_cache_file_direct(src: &Path, dst: &Path) -> tg::Result<()> {
-		let mut done = false;
-		let mut error = None;
-		if !done {
-			let result = reflink(src, dst);
-			match result {
-				Ok(()) => {
-					done = true;
-				},
-				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-					done = true;
-				},
-				Err(error_) => {
-					error = Some(error_);
-				},
-			}
-		}
-		if !done {
-			let result = std::fs::copy(src, dst);
-			match result {
-				Ok(_) => {
-					done = true;
-				},
-				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-					done = true;
-				},
-				Err(error_) => {
-					error = Some(error_);
-				},
-			}
-		}
-		if !done {
-			return Err(
-				tg::error!(?error, %src = src.display(), %dst = dst.display(), "failed to copy the file"),
-			);
-		}
-		Ok(())
-	}
-
-	fn checkin_cache_file_temp(&self, executable: bool, src: &Path, dst: &Path) -> tg::Result<()> {
-		let temp = Temp::new(self);
-		let mut done = false;
-		let mut error = None;
-		match reflink(src, temp.path()) {
-			Ok(()) => {
-				done = true;
-			},
-			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-				done = true;
-			},
-			Err(error_) => {
-				error = Some(error_);
-			},
-		}
-		if !done {
-			let result = std::fs::copy(src, temp.path());
-			match result {
-				Ok(_) => {
-					done = true;
-				},
-				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-					done = true;
-				},
-				Err(error_) => {
-					error = Some(error_);
-				},
-			}
-		}
-		if !done {
-			return Err(
-				tg::error!(?error, %src= src.display(), %dst = dst.display(),"failed to copy the file"),
-			);
-		}
-		let mode = if executable { 0o755 } else { 0o644 };
-		let permissions = std::fs::Permissions::from_mode(mode);
-		std::fs::set_permissions(temp.path(), permissions)
-			.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
-		let result = std::fs::rename(temp.path(), dst);
-		match result {
-			Ok(()) => (),
-			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					%src = src.display(),
-					%dst = dst.display(),
-					"failed to rename the file to the blobs directory"
-				));
-			},
-		}
-		Ok(())
-	}
-
-	async fn checkin_messenger_task(&self, state: &Arc<State>, touched_at: i64) -> tg::Result<()> {
 		for node in &state.graph.nodes {
 			let object = node.object.as_ref().unwrap();
 
@@ -745,55 +598,74 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
-			// Send a message for the cache entry.
-			if let (Some(Object { id, .. }), Variant::File(_)) = (&node.object, &node.variant) {
-				let id = id.clone().try_into().unwrap();
-				let message =
-					crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
-						id,
-						touched_at,
-					});
-				let message = serde_json::to_vec(&message)
-					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-				self.messenger
-					.publish("index".to_owned(), message.into())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-			}
-
 			// Send messages for the blob.
-			if let (
-				Some(Object { id, .. }),
-				Variant::File(File {
-					blob: Some(blob), ..
-				}),
-			) = (&node.object, &node.variant)
+			if let Variant::File(File {
+				blob: Some(blob), ..
+			}) = &node.variant
 			{
-				let id = id.clone().try_into().unwrap();
-				self.blob_create_messenger(blob, Some(id), touched_at)
-					.await?;
+				let mut stack = vec![blob];
+				while let Some(blob) = stack.pop() {
+					let children = blob
+						.data
+						.as_ref()
+						.map(tg::blob::Data::children)
+						.unwrap_or_default();
+					let id = blob.id.clone().into();
+					let size = blob.size;
+					let message =
+						crate::index::Message::PutObject(crate::index::PutObjectMessage {
+							cache_reference: Some(root.clone()),
+							children,
+							id,
+							size,
+							touched_at,
+						});
+					let message = serde_json::to_vec(&message)
+						.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+					self.messenger
+						.publish("index".to_owned(), message.into())
+						.await
+						.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+					stack.extend(&blob.children);
+				}
 			}
 		}
 		Ok(())
 	}
 
-	async fn checkin_store_task(&self, state: &State, touched_at: i64) -> tg::Result<()> {
+	async fn checkin_store_task(
+		&self,
+		arg: &tg::artifact::checkin::Arg,
+		state: &State,
+		root: &tg::artifact::Id,
+		touched_at: i64,
+	) -> tg::Result<()> {
 		let mut objects = Vec::with_capacity(state.graph.nodes.len());
 		for node in &state.graph.nodes {
 			let object = node.object.as_ref().unwrap();
 			objects.push((object.id.clone(), Some(object.bytes.clone()), None));
-			if let (
-				Some(Object { id, .. }),
-				Variant::File(File {
-					blob: Some(blob), ..
-				}),
-			) = (&node.object, &node.variant)
+			if let Variant::File(File {
+				blob: Some(blob), ..
+			}) = &node.variant
 			{
-				let artifact = tg::artifact::Id::try_from(id.clone()).unwrap();
 				let mut stack = vec![blob];
 				while let Some(blob) = stack.pop() {
+					let subpath = node
+						.path
+						.as_ref()
+						.unwrap()
+						.strip_prefix(&arg.path)
+						.unwrap()
+						.to_owned();
+					let subpath = subpath
+						.to_str()
+						.unwrap()
+						.is_empty()
+						.not()
+						.then_some(subpath);
 					let reference = crate::store::CacheReference {
-						artifact: artifact.clone(),
+						artifact: root.clone(),
+						subpath,
 						position: blob.position,
 						length: blob.length,
 					};

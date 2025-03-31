@@ -90,11 +90,11 @@ impl Server {
 		};
 
 		// Read the leaf from the file.
-		let mut file = match tokio::fs::File::open(
-			self.cache_path().join(cache_reference.artifact.to_string()),
-		)
-		.await
-		{
+		let mut path = self.cache_path().join(cache_reference.artifact.to_string());
+		if let Some(subpath) = &cache_reference.subpath {
+			path.push(subpath);
+		}
+		let mut file = match tokio::fs::File::open(path).await {
 			Ok(file) => file,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
 			Err(error) => {

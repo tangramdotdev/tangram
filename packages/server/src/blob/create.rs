@@ -276,7 +276,7 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn blob_create_messenger(
+	async fn blob_create_messenger(
 		&self,
 		blob: &Blob,
 		cache_reference: Option<tg::artifact::Id>,
@@ -336,6 +336,7 @@ impl Server {
 					.as_ref()
 					.map(|artifact| crate::store::CacheReference {
 						artifact: artifact.clone(),
+						subpath: None,
 						position: blob.position,
 						length: blob.length,
 					});
