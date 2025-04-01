@@ -237,8 +237,8 @@ where
 					let stop = async move { stop.wait().await };
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
-						.chain(stream::once(future::ok(tg::pipe::Event::End)))
 						.take_until(stop)
+						.chain(stream::once(future::ok(tg::pipe::Event::End)))
 						.boxed();
 					let arg = tg::pipe::write::Arg { remote };
 					handle.write_pipe(&id, arg, stream).await?;
@@ -247,12 +247,12 @@ where
 					let stop = async move { stop.wait().await };
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pty::Event::Chunk))
-						.chain(stream::once(future::ok(tg::pty::Event::End)))
 						.take_until(stop)
+						.chain(stream::once(future::ok(tg::pty::Event::End)))
 						.boxed();
 					let arg = tg::pty::write::Arg {
-						remote,
 						master: true,
+						remote,
 					};
 					handle.write_pty(&id, arg, stream).await?;
 				},
@@ -290,7 +290,7 @@ where
 	// Join the stdout and stderr tasks.
 	let (stdout_result, stderr_result) = future::join(stdout_task, stderr_task).await;
 
-	// Stop and join stdin.
+	// Stop and await the stdin task.
 	stdin_task.stop();
 	stdin_task.wait().await.unwrap()?;
 
