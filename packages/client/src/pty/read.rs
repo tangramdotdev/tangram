@@ -70,16 +70,16 @@ impl Client {
 						.to_str()
 						.map_err(|source| tg::error!(!source, "invalid event"))?;
 					match event {
-						"window-size" => {
+						"size" => {
 							let data = trailers
 								.get("x-tg-data")
 								.ok_or_else(|| tg::error!("missing data"))?
 								.to_str()
 								.map_err(|source| tg::error!(!source, "invalid data"))?;
-							let window_size = serde_json::from_str(data).map_err(|source| {
+							let size = serde_json::from_str(data).map_err(|source| {
 								tg::error!(!source, "failed to deserialize the header value")
 							})?;
-							Ok(tg::pty::Event::Size(window_size))
+							Ok(tg::pty::Event::Size(size))
 						},
 						"end" => Ok(tg::pty::Event::End),
 						"error" => {

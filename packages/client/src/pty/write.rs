@@ -28,8 +28,7 @@ impl Client {
 					tg::pty::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),
 					tg::pty::Event::Size(size) => {
 						let mut trailers = http::HeaderMap::new();
-						trailers
-							.insert("x-tg-event", http::HeaderValue::from_static("window-size"));
+						trailers.insert("x-tg-event", http::HeaderValue::from_static("size"));
 						let json = serde_json::to_string(&size).unwrap();
 						trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 						hyper::body::Frame::trailers(trailers)
