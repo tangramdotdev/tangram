@@ -31,8 +31,8 @@ impl fmt::Display for Error {
 		match self {
 			Error::NotFound => write!(f, "stream not found"),
 			Error::StreamClosed => write!(f, "stream closed"),
-			Error::SendError => write!(f, "subject closed"),
-			Error::StreamSendError => write!(f, "stream closed"),
+			Error::SendError => write!(f, "failed to publish to subject"),
+			Error::StreamSendError => write!(f, "failed to publish to stream"),
 		}
 	}
 }
@@ -49,19 +49,20 @@ struct Stream {
 }
 
 struct State {
+	last_sequence: RwLock<u64>,
 	notify: tokio::sync::watch::Sender<()>,
-	receivers: RwLock<Vec<channel::Sender<Message>>>,
-	last_sequence: crossbeam::utils::CachePadded<AtomicU64>,
 	pending: RwLock<BTreeSet<u64>>,
+	receivers: RwLock<Vec<channel::Sender<(u64, Message)>>>,
 	task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl Stream {
-	pub fn new(subject: String) -> Self {
+	pub fn new(subject: &str) -> Self {
+		let subject = subject.to_owned();
 		let (sender, receiver) = channel::bounded::<(u64, Bytes)>(256);
 		let (notify, mut changed) = tokio::sync::watch::channel(());
 		let receivers = RwLock::new(Vec::new());
-		let last_sequence = crossbeam::utils::CachePadded::new(AtomicU64::new(0));
+		let last_sequence = RwLock::new(0);
 		let state = Arc::new(State {
 			notify,
 			receivers,
@@ -102,12 +103,12 @@ impl Stream {
 						.iter()
 						.map(|consumer| {
 							deliver_stream_message(
-								&state,
 								consumer,
 								&counter,
-								sequence_number,
-								&subject,
 								&payload,
+								sequence_number,
+								&state,
+								&subject,
 							)
 						})
 						.collect::<FuturesUnordered<_>>()
@@ -122,20 +123,23 @@ impl Stream {
 
 	async fn publish(&self, payload: Bytes) -> Result<(), Error> {
 		// Acquire a new sequence number.
-		let sequence_number = self.state.last_sequence.fetch_add(1, Ordering::AcqRel);
+		let mut last_sequence = self.state.last_sequence.write().await;
+		let sequence_number = *last_sequence;
+		*last_sequence += 1;
 
 		// Update the pending state.
 		self.state.pending.write().await.insert(sequence_number);
 
-		// Send the message. This is wrapped in a task to avoid a race condition where we cannot close the channel while it is full.
-		let sender = self.sender.clone();
-		let future = async move { sender.send((sequence_number, payload)).await.ok() };
-		tokio::spawn(future);
+		// Send the message.
+		self.sender
+			.send((sequence_number, payload))
+			.await
+			.map_err(|_| Error::StreamSendError)?;
 
 		Ok(())
 	}
 
-	async fn subscribe(&self) -> channel::Receiver<Message> {
+	async fn subscribe(&self) -> channel::Receiver<(u64, Message)> {
 		let mut receivers = self.state.receivers.write().await;
 		let (sender, receiver) = channel::bounded(256);
 		receivers.push(sender);
@@ -143,7 +147,7 @@ impl Stream {
 		receiver
 	}
 
-	async fn close(&mut self) {
+	async fn close(&self) {
 		self.sender.close();
 		let mut receivers = self.state.receivers.write().await;
 		while let Some(receiver) = receivers.pop() {
@@ -165,17 +169,17 @@ impl Drop for State {
 }
 
 fn deliver_stream_message(
-	state: &Arc<State>,
-	consumer: &channel::Sender<Message>,
+	consumer: &channel::Sender<(u64, Message)>,
 	counter: &Arc<AtomicU64>,
-	sequence_number: u64,
-	subject: &String,
 	payload: &Bytes,
+	sequence_number: u64,
+	state: &Arc<State>,
+	subject: &str,
 ) -> impl Future<Output = ()> + Send {
 	let state = state.clone();
 	let consumer = consumer.clone();
 	let counter = counter.clone();
-	let subject = subject.clone();
+	let subject = subject.to_string();
 	let payload = payload.clone();
 	async move {
 		let ack = {
@@ -203,12 +207,12 @@ fn deliver_stream_message(
 			let payload = payload.clone();
 			async move {
 				deliver_stream_message(
-					&state,
 					&consumer,
 					&counter,
-					sequence_number,
-					&subject,
 					&payload,
+					sequence_number,
+					&state,
+					&subject,
 				)
 				.await;
 			}
@@ -219,7 +223,7 @@ fn deliver_stream_message(
 			payload: payload.clone(),
 			acker,
 		};
-		consumer.send(message).await.ok();
+		consumer.send((sequence_number, message)).await.ok();
 	}
 }
 
@@ -271,20 +275,27 @@ impl Messenger {
 	async fn create_stream(&self, name: String) -> Result<(), Error> {
 		self.streams
 			.entry(name.clone())
-			.or_insert_with(|| Stream::new(name));
+			.or_insert_with(|| Stream::new(&name));
 		Ok(())
 	}
 
 	async fn destroy_stream(&self, name: String) -> Result<(), Error> {
-		let (_, mut stream) = self.streams.remove(&name).ok_or_else(|| Error::NotFound)?;
-		stream.close().await;
+		// Close the stream.
+		{
+			let stream = self.streams.get(&name).ok_or(Error::NotFound)?;
+			stream.close().await;
+		}
+
+		// Remove the stream.
+		self.streams.remove(&name);
+
 		Ok(())
 	}
 
 	async fn stream_publish(&self, name: String, payload: Bytes) -> Result<(), Error> {
 		self.streams
 			.get(&name)
-			.ok_or_else(|| Error::NotFound)?
+			.ok_or(Error::NotFound)?
 			.publish(payload)
 			.await
 	}
@@ -296,14 +307,16 @@ impl Messenger {
 		let receiver = self
 			.streams
 			.get(&name)
-			.ok_or_else(|| Error::NotFound)?
+			.ok_or(Error::NotFound)?
 			.subscribe()
-			.await;
+			.await
+			.map(move |(_, msg)| msg);
 		Ok(receiver)
 	}
 
 	async fn stream_info(&self, name: String) -> Result<StreamInfo, Error> {
-		let stream = self.streams.get(&name).ok_or_else(|| Error::NotFound)?;
+		let stream = self.streams.get(&name).ok_or(Error::NotFound)?;
+		let last_sequence = *stream.state.last_sequence.read().await;
 		let first_sequence = stream
 			.state
 			.pending
@@ -313,7 +326,6 @@ impl Messenger {
 			.min()
 			.copied()
 			.unwrap_or(0);
-		let last_sequence = stream.state.last_sequence.load(Ordering::Relaxed);
 		Ok(StreamInfo {
 			first_sequence,
 			last_sequence,
