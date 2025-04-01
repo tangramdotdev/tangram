@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::Message;
+use crate::{Acker, Message, StreamInfo};
 use async_nats as nats;
 use bytes::Bytes;
 use futures::prelude::*;
@@ -15,6 +15,7 @@ pub enum Error {
 	Publish(nats::PublishError),
 	Subscribe(nats::SubscribeError),
 	GetStream(nats::jetstream::context::GetStreamError),
+	Info(nats::jetstream::context::RequestError),
 	CreateStream(nats::jetstream::context::CreateStreamError),
 	Consumer(nats::jetstream::stream::ConsumerError),
 	Stream(nats::jetstream::consumer::StreamError),
@@ -29,6 +30,7 @@ impl fmt::Display for Error {
 			Self::Publish(e) => write!(f, "{e}"),
 			Self::Subscribe(e) => write!(f, "{e}"),
 			Self::GetStream(e) => write!(f, "{e}"),
+			Self::Info(e) => write!(f, "{e}"),
 			Self::CreateStream(e) => write!(f, "{e}"),
 			Self::Consumer(e) => write!(f, "{e}"),
 			Self::Stream(e) => write!(f, "{e}"),
@@ -94,9 +96,13 @@ impl Messenger {
 			.messages()
 			.await
 			.map_err(Error::Stream)?
-			.map_ok(|message| Message {
-				subject: message.subject.to_string(),
-				payload: message.payload.clone(),
+			.map_ok(|message| {
+				let (message, acker) = message.split();
+				Message {
+					subject: message.subject.to_string(),
+					payload: message.payload.clone(),
+					acker: acker.into(),
+				}
 			})
 			.map_err(Error::Messages);
 
@@ -107,10 +113,21 @@ impl Messenger {
 		self.jetstream
 			.publish(name, payload)
 			.await
-			.map_err(Error::PublishStream)?
-			.await
 			.map_err(Error::PublishStream)?;
 		Ok(())
+	}
+
+	async fn stream_info(&self, name: String) -> Result<StreamInfo, Error> {
+		let mut stream = self
+			.jetstream
+			.get_stream(name)
+			.await
+			.map_err(Error::GetStream)?;
+		let info = stream.info().await.map_err(Error::Info)?;
+		Ok(StreamInfo {
+			first_sequence: info.state.first_sequence,
+			last_sequence: info.state.last_sequence,
+		})
 	}
 }
 
@@ -141,6 +158,7 @@ impl crate::Messenger for Messenger {
 						.map(|message| Message {
 							subject: message.subject.to_string(),
 							payload: message.payload,
+							acker: Acker::default(),
 						})
 						.left_stream()
 				})
@@ -154,6 +172,7 @@ impl crate::Messenger for Messenger {
 						.map(|message| Message {
 							subject: message.subject.to_string(),
 							payload: message.payload,
+							acker: Acker::default(),
 						})
 						.right_stream()
 				})
@@ -189,5 +208,20 @@ impl crate::Messenger for Messenger {
 		>,
 	> + Send {
 		self.stream_subscribe(name, consumer_name)
+	}
+
+	fn stream_info(
+		&self,
+		name: String,
+	) -> impl Future<Output = Result<crate::StreamInfo, Self::Error>> + Send {
+		self.stream_info(name)
+	}
+}
+
+impl From<nats::jetstream::message::Acker> for Acker {
+	fn from(value: nats::jetstream::message::Acker) -> Self {
+		let ack = async move { value.ack().await };
+		let retry = future::ready(());
+		Acker::new(ack, retry)
 	}
 }

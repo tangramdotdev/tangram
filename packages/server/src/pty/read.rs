@@ -70,11 +70,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "the pty was closed or does not exist"))?
 			.map_err(|source| tg::error!(!source, "stream error"))
-			.and_then(|message| {
-				future::ready({
-					serde_json::from_slice::<tg::pty::Event>(&message.payload)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
-				})
+			.and_then(|message| async move {
+				message.acker.ack().await.ok();
+				serde_json::from_slice::<tg::pty::Event>(&message.payload)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
 			})
 			.boxed();
 

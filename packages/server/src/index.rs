@@ -1,5 +1,4 @@
 use crate::{Server, database::Database, util::iter::Ext as _};
-use async_nats as nats;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use indoc::indoc;
 use num::ToPrimitive as _;
@@ -12,7 +11,7 @@ use std::{
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-use tangram_messenger::Messenger;
+use tangram_messenger::{Acker, Messenger};
 use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -79,11 +78,27 @@ pub enum ProcessObjectKind {
 	Output,
 }
 
-type Acker = nats::jetstream::message::Acker;
-
 impl Server {
 	pub async fn index(&self) -> tg::Result<()> {
-		Err(tg::error!("unimplemented"))
+		let mut info = self
+			.messenger
+			.stream_info("index".into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
+
+		// Get the most recent sequence number.
+		let last_sequence = info.last_sequence;
+
+		// Wait for the indexing task to catch up.
+		while last_sequence > info.first_sequence {
+			tokio::task::yield_now().await;
+			info = self
+				.messenger
+				.stream_info("index".into())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
+		}
+		Ok(())
 	}
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
@@ -119,7 +134,7 @@ impl Server {
 	async fn indexer_task_create_message_stream(
 		&self,
 		config: &crate::config::Indexer,
-	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Option<Acker>)>>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
 		match &self.messenger {
 			Either::Left(messenger) => self
 				.indexer_task_create_message_stream_memory(config, messenger)
@@ -136,7 +151,7 @@ impl Server {
 		&self,
 		config: &crate::config::Indexer,
 		messenger: &tangram_messenger::memory::Messenger,
-	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Option<Acker>)>>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
 		messenger
 			.create_stream("index".into())
 			.await
@@ -147,12 +162,13 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the objects stream"))?
 			.map_err(|source| tg::error!(!source, "stream error"))
 			.and_then(|message| {
+				let (payload, acker) = message.split();
 				future::ready({
-					serde_json::from_slice::<Message>(&message.payload)
+					serde_json::from_slice::<Message>(&payload)
 						.map_err(|source| {
 							tg::error!(!source, "failed to deserialize the message payload")
 						})
-						.map(|msg| (msg, None))
+						.map(|msg| (msg, acker))
 				})
 			})
 			.inspect_err(|error| {
@@ -168,7 +184,7 @@ impl Server {
 		&self,
 		config: &crate::config::Indexer,
 		messenger: &tangram_messenger::nats::Messenger,
-	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Option<Acker>)>>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
 		// Get the stream.
 		let stream_config = async_nats::jetstream::stream::Config {
 			name: "index".to_string(),
@@ -212,7 +228,7 @@ impl Server {
 						continue;
 					},
 				};
-				messages.push((message, Some(acker)));
+				messages.push((message, acker.into()));
 			}
 			Ok(Some((messages, consumer)))
 		})
@@ -224,7 +240,7 @@ impl Server {
 	async fn indexer_task_handle_messages(
 		&self,
 		config: &crate::config::Indexer,
-		messages: Vec<(Message, Option<Acker>)>,
+		messages: Vec<(Message, Acker)>,
 	) -> tg::Result<()> {
 		if messages.is_empty() {
 			return Ok(());
@@ -300,11 +316,10 @@ impl Server {
 
 			// Acknowledge the messages.
 			future::try_join_all(ackers.into_iter().map(async |acker| {
-				if let Some(acker) = acker {
-					acker.ack().await.map_err(|source| {
-						tg::error!(!source, "failed to acknowledge the message")
-					})?;
-				}
+				acker
+					.ack()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to acknowledge the message"))?;
 				Ok::<_, tg::Error>(())
 			}))
 			.await?;
@@ -1079,7 +1094,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
-					where objects.id = new.id 
+					where objects.id = new.id
 					group by objects.id, objects.size
 				) as updates
 				where objects.id = updates.id;
@@ -1105,7 +1120,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
-					where objects.id = new.id 
+					where objects.id = new.id
 					group by objects.id, objects.size
 				) as updates
 				where objects.id = updates.id;

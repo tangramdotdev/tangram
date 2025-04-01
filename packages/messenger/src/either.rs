@@ -102,4 +102,14 @@ where
 				.right_future(),
 		}
 	}
+
+	fn stream_info(
+		&self,
+		name: String,
+	) -> impl Future<Output = Result<crate::StreamInfo, Self::Error>> + Send {
+		match self {
+			Either::Left(s) => s.stream_info(name).map_err(Either::Left).left_future(),
+			Either::Right(s) => s.stream_info(name).map_err(Either::Right).right_future(),
+		}
+	}
 }
