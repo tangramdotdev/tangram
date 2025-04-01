@@ -426,7 +426,7 @@ async fn directory_with_symlink_cycle() {
 		    },
 		    "tangram.lock": {
 		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      },\n      \"id\": \"dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"id\": \"sym_01gs8v0w26ks7573pm013qytg2p82fvhyzcwg6hnncjb1gx0077060\",\n      \"artifact\": 0,\n      \"subpath\": \"link\"\n    }\n  ]\n}"
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      },\n      \"id\": \"dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"artifact\": 0,\n      \"id\": \"sym_01gs8v0w26ks7573pm013qytg2p82fvhyzcwg6hnncjb1gx0077060\",\n      \"subpath\": \"link\"\n    }\n  ]\n}"
 		    }
 		  }
 		}
