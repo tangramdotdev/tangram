@@ -84,6 +84,16 @@ impl Server {
 		visited: im::HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
 	) -> tg::Result<()> {
+		// Create the path.
+		let path = self.cache_path().join(id.to_string());
+
+		// If the path exists, then return.
+		let exists = std::fs::exists(&path)
+			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
+		if dbg!(exists) {
+			return Ok(());
+		}
+
 		// Create the temp.
 		let temp = Temp::new(self);
 
@@ -99,9 +109,6 @@ impl Server {
 
 		// Cache the artifact.
 		self.cache_inner(&mut state, temp.path(), id, artifact)?;
-
-		// Create the path.
-		let path = self.cache_path().join(id.to_string());
 
 		// Rename the temp to the path.
 		let src = temp.path();
