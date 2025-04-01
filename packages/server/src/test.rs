@@ -51,7 +51,7 @@ impl Context {
 			connections: 1,
 			path: path.join("database"),
 		});
-		let index = crate::config::Database::Sqlite(crate::config::SqliteDatabase {
+		let index = crate::config::Index::Sqlite(crate::config::SqliteIndex {
 			connections: 1,
 			path: path.join("index"),
 		});

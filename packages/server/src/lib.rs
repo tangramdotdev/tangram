@@ -270,7 +270,7 @@ impl Server {
 
 		// Create the index.
 		let index = match &config.index {
-			self::config::Database::Sqlite(options) => {
+			self::config::Index::Sqlite(options) => {
 				let initialize = Arc::new(|connection: &sqlite::Connection| {
 					connection.pragma_update(None, "auto_vaccum", "incremental")?;
 					connection.pragma_update(None, "busy_timeout", "5000")?;
@@ -293,7 +293,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to create the index"))?;
 				Either::Left(database)
 			},
-			self::config::Database::Postgres(options) => {
+			self::config::Index::Postgres(options) => {
 				let options = db::postgres::DatabaseOptions {
 					url: options.url.clone(),
 					connections: options.connections,

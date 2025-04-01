@@ -27,6 +27,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub http: Option<Either<bool, Http>>,
 
+	/// Configure the index.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index: Option<Index>,
+
 	/// Configure the indexer task.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub indexer: Option<Either<bool, Indexer>>,
@@ -175,6 +179,37 @@ pub struct Http {
 	/// The URL the server will bind to.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Url>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Index {
+	Postgres(PostgresIndex),
+	Sqlite(SqliteIndex),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PostgresIndex {
+	/// The number of connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connections: Option<usize>,
+
+	/// The URL.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Url>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SqliteIndex {
+	/// The number of connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connections: Option<usize>,
+
+	/// The path.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
 }
 
 #[serde_as]

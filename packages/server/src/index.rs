@@ -719,7 +719,7 @@ impl Server {
 			.values()
 			.map(|message| message.size.to_i64().unwrap())
 			.collect::<Vec<_>>();
-		let touched_at = unique_messages
+		let touched_ats = unique_messages
 			.values()
 			.map(|message| {
 				time::OffsetDateTime::from_unix_timestamp(message.touched_at)
@@ -748,11 +748,11 @@ impl Server {
 			"
 				call insert_objects_and_children(
 					$1::text[],
-					$2::int8[],
-					$3::text[],
+					$2::text[],
+					$3::int8[],
 					$4::text[],
-					$5::int8[],
-					$6::text[]
+					$5::text[],
+					$6::int8[]
 				);
 			"
 		);
@@ -762,11 +762,11 @@ impl Server {
 				statement,
 				&[
 					&ids.as_slice(),
+					&cache_references.as_slice(),
 					&size.as_slice(),
-					&touched_at.as_slice(),
+					&touched_ats.as_slice(),
 					&children.as_slice(),
 					&parent_indices.as_slice(),
-					&cache_references.as_slice(),
 				],
 			)
 			.await

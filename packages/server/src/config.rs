@@ -8,7 +8,7 @@ pub struct Config {
 	pub cleaner: Option<Cleaner>,
 	pub database: Database,
 	pub http: Option<Http>,
-	pub index: Database,
+	pub index: Index,
 	pub indexer: Option<Indexer>,
 	pub messenger: Messenger,
 	pub path: PathBuf,
@@ -75,6 +75,24 @@ pub struct SqliteDatabase {
 #[derive(Clone, Debug, Default)]
 pub struct Http {
 	pub url: Option<Url>,
+}
+
+#[derive(Clone, Debug)]
+pub enum Index {
+	Postgres(PostgresIndex),
+	Sqlite(SqliteIndex),
+}
+
+#[derive(Clone, Debug)]
+pub struct PostgresIndex {
+	pub connections: usize,
+	pub url: Url,
+}
+
+#[derive(Clone, Debug)]
+pub struct SqliteIndex {
+	pub connections: usize,
+	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -165,7 +183,7 @@ impl Config {
 			connections: 1,
 			path: path.join("database"),
 		});
-		let index = Database::Sqlite(SqliteDatabase {
+		let index = Index::Sqlite(SqliteIndex {
 			connections: 1,
 			path: path.join("index"),
 		});

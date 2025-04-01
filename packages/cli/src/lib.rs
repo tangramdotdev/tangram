@@ -510,11 +510,10 @@ impl Cli {
 				connections: parallelism,
 				path: path.join("database"),
 			});
-		let index =
-			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
-				connections: parallelism,
-				path: path.join("index"),
-			});
+		let index = tangram_server::config::Index::Sqlite(tangram_server::config::SqliteIndex {
+			connections: parallelism,
+			path: path.join("index"),
+		});
 		let http = Some(tangram_server::config::Http::default());
 		let indexer = Some(tangram_server::config::Indexer::default());
 		let messenger = tangram_server::config::Messenger::default();
@@ -682,6 +681,38 @@ impl Cli {
 				}
 				config.http = Some(http_);
 			},
+		}
+
+		// Set the index config.
+		if let Some(index) = self.config.as_ref().and_then(|config| config.index.clone()) {
+			config.index = match index {
+				self::config::Index::Sqlite(index) => {
+					let mut index_ = tangram_server::config::SqliteIndex {
+						connections: parallelism,
+						path: config.path.clone(),
+					};
+					if let Some(connections) = index.connections {
+						index_.connections = connections;
+					}
+					if let Some(path) = index.path {
+						index_.path = path;
+					}
+					tangram_server::config::Index::Sqlite(index_)
+				},
+				self::config::Index::Postgres(index) => {
+					let mut database_ = tangram_server::config::PostgresIndex {
+						connections: parallelism,
+						url: "postgres://localhost:5432".parse().unwrap(),
+					};
+					if let Some(connections) = index.connections {
+						database_.connections = connections;
+					}
+					if let Some(url) = index.url {
+						database_.url = url;
+					}
+					tangram_server::config::Index::Postgres(database_)
+				},
+			};
 		}
 
 		// Set the indexer config.
