@@ -90,7 +90,7 @@ impl Server {
 		// If the path exists, then return.
 		let exists = std::fs::exists(&path)
 			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
-		if dbg!(exists) {
+		if exists {
 			return Ok(());
 		}
 
