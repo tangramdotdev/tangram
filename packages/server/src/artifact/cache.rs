@@ -8,7 +8,6 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_futures::stream::TryExt;
 use tangram_messenger::Messenger as _;
 
 #[cfg(test)]
@@ -29,42 +28,6 @@ impl Server {
 		artifact: &tg::artifact::Id,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
 	) -> tg::Result<()> {
-		// Check if this artifact is complete.
-		let complete = self
-			.try_get_object_complete_metadata_local(&artifact.clone().into())
-			.await?
-			.map(|metadata| metadata.complete)
-			.unwrap_or(false);
-		if !complete {
-			// Pull the object.
-			let stream = self
-				.pull(tg::pull::Arg {
-					items: vec![Either::Right(artifact.clone().into())],
-					..tg::pull::Arg::default()
-				})
-				.await
-				.map_err(|source| tg::error!(!source, %artifact, "failed to pull object"))?;
-			std::pin::pin!(stream)
-				.try_last()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to await stream"))?;
-
-			// Wait for indexing to complete.
-			self.index()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to index"))?;
-
-			// Verify that indexing has completed.
-			let complete = self
-				.try_get_object_complete_metadata_local(&artifact.clone().into())
-				.await?
-				.ok_or_else(|| tg::error!(%artifact, "expected the object to exist"))?
-				.complete;
-			if !complete {
-				return Err(tg::error!(%artifact, "failed to check if the artifact was complete"));
-			}
-		}
-
 		let server = self.clone();
 		let id = artifact.clone();
 		let artifact = Either::Right(artifact.clone());

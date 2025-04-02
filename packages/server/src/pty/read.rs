@@ -81,8 +81,9 @@ impl Server {
 					.ack()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to ack message"))?;
-				serde_json::from_slice::<tg::pty::Event>(&message.payload)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
+				let event = serde_json::from_slice::<tg::pty::Event>(&message.payload)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+				Ok::<_, tg::Error>(event)
 			})
 			.boxed();
 
