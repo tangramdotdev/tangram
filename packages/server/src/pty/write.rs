@@ -1,9 +1,5 @@
 use crate::Server;
-use futures::{
-	Stream, StreamExt as _,
-	future,
-	stream::TryStreamExt as _,
-};
+use futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use std::pin::pin;
 use tangram_client as tg;

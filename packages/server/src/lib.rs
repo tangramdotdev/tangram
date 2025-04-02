@@ -1611,11 +1611,23 @@ impl tg::Handle for Server {
 		self.health()
 	}
 
-	fn index(&self) -> impl Future<Output = tg::Result<()>> {
+	fn index(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
 		self.index()
 	}
 
-	fn clean(&self) -> impl Future<Output = tg::Result<()>> {
+	fn clean(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
 		self.clean()
 	}
 

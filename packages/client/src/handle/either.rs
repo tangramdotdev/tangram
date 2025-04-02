@@ -650,17 +650,41 @@ where
 		}
 	}
 
-	fn index(&self) -> impl Future<Output = tg::Result<()>> {
+	fn index(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
 		match self {
-			Either::Left(s) => s.index().left_future(),
-			Either::Right(s) => s.index().right_future(),
+			Either::Left(s) => s
+				.index()
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.index()
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 
-	fn clean(&self) -> impl Future<Output = tg::Result<()>> {
+	fn clean(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
 		match self {
-			Either::Left(s) => s.clean().left_future(),
-			Either::Right(s) => s.clean().right_future(),
+			Either::Left(s) => s
+				.clean()
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.clean()
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 

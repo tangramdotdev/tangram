@@ -329,9 +329,21 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> + Send;
 
-	fn index(&self) -> impl Future<Output = tg::Result<()>> + Send;
+	fn index(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send;
 
-	fn clean(&self) -> impl Future<Output = tg::Result<()>> + Send;
+	fn clean(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn list_tags(
 		&self,

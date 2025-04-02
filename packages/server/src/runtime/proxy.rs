@@ -488,12 +488,16 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn index(&self) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
+	async fn index(
+		&self,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
-	async fn clean(&self) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
+	async fn clean(
+		&self,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
 	async fn list_tags(&self, _arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
