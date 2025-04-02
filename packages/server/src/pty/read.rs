@@ -64,24 +64,35 @@ impl Server {
 			format!("{id}_slave")
 		};
 		let name = tg::Id::new_uuidv7(tg::id::Kind::Pty);
+		let deleted = self
+			.pty_deleted(id.clone())
+			.inspect_err(|error| tracing::error!(?error, "failed to check if pty was deleted"));
+
 		let stream = self
 			.messenger
 			.stream_subscribe(stream, Some(name.to_string()))
 			.await
 			.map_err(|source| tg::error!(!source, "the pty was closed or does not exist"))?
 			.map_err(|source| tg::error!(!source, "stream error"))
+			.take_until(deleted)
 			.and_then(|message| async move {
-				message.acker.ack().await.ok();
-				serde_json::from_slice::<tg::pty::Event>(&message.payload)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
+				message
+					.acker
+					.ack()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to ack message"))?;
+				let event = serde_json::from_slice::<tg::pty::Event>(&message.payload)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+				match &event {
+					tg::pty::Event::Chunk(chunk) => eprintln!("recv {chunk:?}"),
+					tg::pty::Event::Size(sz) => eprintln!("recv {sz:?}"),
+					tg::pty::Event::End => eprintln!("recv END"),
+				};
+				Ok::<_, tg::Error>(event)
 			})
 			.boxed();
 
-		let deleted = self
-			.pty_deleted(id.clone())
-			.inspect_err(|error| tracing::error!(?error, "failed to check if pty was deleted"));
-
-		Ok(stream.take_until(deleted).boxed())
+		Ok(stream.boxed())
 	}
 }
 

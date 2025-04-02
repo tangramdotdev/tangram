@@ -206,6 +206,9 @@ fn deliver_stream_message(
 			let subject = subject.clone();
 			let payload = payload.clone();
 			async move {
+				if consumer.is_closed() {
+					return;
+				}
 				deliver_stream_message(
 					&consumer,
 					&counter,
@@ -217,12 +220,14 @@ fn deliver_stream_message(
 				.await;
 			}
 		};
+
 		let acker = Acker::new(ack, retry);
 		let message = Message {
 			subject: subject.clone(),
 			payload: payload.clone(),
 			acker,
 		};
+
 		consumer.send((sequence_number, message)).await.ok();
 	}
 }
@@ -304,6 +309,7 @@ impl Messenger {
 		&self,
 		name: String,
 	) -> Result<impl futures::Stream<Item = Message> + Send + 'static, Error> {
+		let mut last = None;
 		let receiver = self
 			.streams
 			.get(&name)
@@ -408,7 +414,7 @@ impl Deref for Messenger {
 #[cfg(test)]
 mod tests {
 	use super::Messenger;
-	use futures::stream::TryStreamExt as _;
+	use futures::{StreamExt, stream::TryStreamExt as _};
 
 	#[tokio::test]
 	async fn stream() {
@@ -437,5 +443,38 @@ mod tests {
 		let m = std::pin::pin!(sub2).try_next().await.unwrap().unwrap();
 		assert_eq!(m.payload.as_ref(), b"hello!");
 		m.split().1.ack().await.ok();
+	}
+
+	#[tokio::test]
+	async fn messages_in_order() {
+		let messenger: Messenger = Messenger::new();
+
+		messenger.create_stream("stream".into()).await.unwrap();
+
+		// Create a subscriber
+		let stream = messenger.stream_subscribe("stream".into()).await.unwrap();
+
+		// Spawn a task to dump messages to the stream.
+		tokio::spawn(async move {
+			for i in 1..1_000_000u32 {
+				let bytes = i.to_be_bytes().to_vec().into();
+				messenger
+					.stream_publish("stream".into(), bytes)
+					.await
+					.unwrap();
+			}
+			messenger.destroy_stream("stream".into()).await.unwrap();
+		});
+
+		// Drain the subscriber.
+		let mut last = 0;
+		let mut stream = std::pin::pin!(stream);
+		while let Some(message) = stream.next().await {
+			let (payload, acker) = message.split();
+			let i = u32::from_be_bytes(payload.as_ref().try_into().unwrap());
+			assert_eq!(last + 1, i);
+			last = i;
+			acker.ack().await.unwrap();
+		}
 	}
 }
