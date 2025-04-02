@@ -309,7 +309,6 @@ impl Messenger {
 		&self,
 		name: String,
 	) -> Result<impl futures::Stream<Item = Message> + Send + 'static, Error> {
-		let mut last = None;
 		let receiver = self
 			.streams
 			.get(&name)
