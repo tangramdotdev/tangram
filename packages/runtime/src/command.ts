@@ -134,7 +134,7 @@ export class Command<
 		if (!host) {
 			throw new Error("cannot create a command without a host");
 		}
-		let stdin = await tg.blob(arg.stdin);
+		let stdin = arg.stdin !== undefined ? await tg.blob(arg.stdin) : undefined;
 		let user = arg.user;
 		let object = {
 			args: args_,
