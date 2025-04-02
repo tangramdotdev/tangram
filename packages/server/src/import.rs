@@ -479,7 +479,7 @@ impl Server {
 								tg::error!(!source, "failed to serialize the message")
 							})?;
 							self.messenger
-								.publish("index".to_owned(), message.into())
+								.stream_publish("index".to_owned(), message.into())
 								.await
 								.map_err(|source| {
 									tg::error!(!source, "failed to publish the message")
