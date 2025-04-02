@@ -144,11 +144,16 @@ impl Runtime {
 			let server = self.server.clone();
 			let process = process.clone();
 			async move {
+				let state = process.load(&server).await?;
+
 				while let Some(message) = log_receiver.recv().await {
-					let syscall::log::Message { contents, .. } = message;
-					let bytes = Bytes::from(contents);
+					let syscall::log::Message { mut contents, .. } = message;
 					match message.level {
 						syscall::log::Level::Log => {
+							if matches!(&state.stdout, Some(tg::process::Stdio::Pty(_))) {
+								contents = contents.replace('\n', "\r\n");
+							}
+							let bytes = Bytes::from(contents);
 							let arg = tg::process::log::post::Arg {
 								bytes: bytes.clone(),
 								remote: process.remote().map(ToOwned::to_owned),
@@ -157,6 +162,10 @@ impl Runtime {
 							server.try_post_process_log(process.id(), arg).await.ok();
 						},
 						syscall::log::Level::Error => {
+							if matches!(&state.stderr, Some(tg::process::Stdio::Pty(_))) {
+								contents = contents.replace('\n', "\r\n");
+							}
+							let bytes = Bytes::from(contents);
 							let arg = tg::process::log::post::Arg {
 								bytes: bytes.clone(),
 								remote: process.remote().map(ToOwned::to_owned),

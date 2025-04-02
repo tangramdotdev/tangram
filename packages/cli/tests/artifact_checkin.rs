@@ -2388,6 +2388,14 @@ async fn test_artifact_checkin_inner(
 	}
 	let output = command.output().await.unwrap();
 
+	// Index
+	{
+		let mut command = server.tg();
+		command.arg("index");
+		let index_output = command.output().await.unwrap();
+		assert_success!(index_output);
+	}
+
 	// Get the object.
 	let id = std::str::from_utf8(&output.stdout)
 		.unwrap()

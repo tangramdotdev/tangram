@@ -153,9 +153,9 @@ pub async fn stdio_task(
 	server: &Server,
 	process: &tg::Process,
 	stop: Stop,
-	mut stdin: sandbox::Stdin,
-	stdout: sandbox::Stdout,
-	stderr: sandbox::Stderr,
+	stdin: Option<sandbox::Stdin>,
+	stdout: Option<sandbox::Stdout>,
+	stderr: Option<sandbox::Stderr>,
 ) -> tg::Result<()> {
 	let state = process.load(server).await?;
 
@@ -166,6 +166,9 @@ pub async fn stdio_task(
 		let remote = process.remote().cloned();
 
 		async move {
+			let Some(mut stdin) = stdin else {
+				return;
+			};
 			if let Some(io) = io {
 				// Write stdin from pipe/pty.
 				input(&server, &io, remote, &mut stdin, stop)
@@ -196,6 +199,7 @@ pub async fn stdio_task(
 		let server = server.clone();
 		let process = process.clone();
 		async move {
+			let Some(stdout) = stdout else { return Ok(()) };
 			output(&server, &process, tg::process::log::Stream::Stdout, stdout)
 				.await
 				.inspect_err(|source| tracing::error!(?source, "failed to read stdout"))
@@ -206,6 +210,7 @@ pub async fn stdio_task(
 		let server = server.clone();
 		let process = process.clone();
 		async move {
+			let Some(stderr) = stderr else { return Ok(()) };
 			output(&server, &process, tg::process::log::Stream::Stderr, stderr)
 				.await
 				.inspect_err(|source| tracing::error!(?source, "failed to read stderr"))

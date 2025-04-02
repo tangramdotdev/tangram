@@ -76,8 +76,8 @@ pub struct Options {
 	pub tag: Option<tg::Tag>,
 
 	/// Allocate a terminal when running the process.
-	#[arg(short, long)]
-	pub tty: bool,
+	#[arg(long)]
+	pub no_tty: bool,
 }
 
 impl Cli {

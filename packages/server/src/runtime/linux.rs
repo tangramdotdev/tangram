@@ -434,9 +434,9 @@ impl Runtime {
 		let stdio_task = Task::spawn(|stop| {
 			let server = self.server.clone();
 			let process = process.clone();
-			let stdin = child.stdin.take().unwrap();
-			let stdout = child.stdout.take().unwrap();
-			let stderr = child.stderr.take().unwrap();
+			let stdin = child.stdin.take();
+			let stdout = child.stdout.take();
+			let stderr = child.stderr.take();
 			async move { stdio_task(&server, &process, stop, stdin, stdout, stderr).await }
 		});
 

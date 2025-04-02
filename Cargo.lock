@@ -6097,6 +6097,7 @@ dependencies = [
  "bytes",
  "crossbeam",
  "dashmap 6.1.0",
+ "derive_more",
  "fnv",
  "futures",
  "tangram_either",

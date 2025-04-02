@@ -129,6 +129,7 @@ fn mount_and_chroot(context: &mut Context) {
 	}
 }
 
+#[allow(clippy::cast_possible_wrap)]
 fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
 	unsafe {
 		const BACKSLASH: libc::c_char = b'\\' as _;

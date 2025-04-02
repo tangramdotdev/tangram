@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryFutureExt, TryStreamExt as _, future};
+use futures::{Stream, StreamExt as _, TryFutureExt, TryStreamExt as _};
 use indoc::formatdoc;
 use tangram_client::{self as tg};
 use tangram_database::{self as db, Database as _, Query as _};
@@ -64,25 +64,30 @@ impl Server {
 			format!("{id}_slave")
 		};
 		let name = tg::Id::new_uuidv7(tg::id::Kind::Pty);
+		let deleted = self
+			.pty_deleted(id.clone())
+			.inspect_err(|error| tracing::error!(?error, "failed to check if pty was deleted"));
+
 		let stream = self
 			.messenger
 			.stream_subscribe(stream, Some(name.to_string()))
 			.await
 			.map_err(|source| tg::error!(!source, "the pty was closed or does not exist"))?
 			.map_err(|source| tg::error!(!source, "stream error"))
-			.and_then(|message| {
-				future::ready({
-					serde_json::from_slice::<tg::pty::Event>(&message.payload)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
-				})
+			.take_until(deleted)
+			.and_then(|message| async move {
+				message
+					.acker
+					.ack()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to ack message"))?;
+				let event = serde_json::from_slice::<tg::pty::Event>(&message.payload)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+				Ok::<_, tg::Error>(event)
 			})
 			.boxed();
 
-		let deleted = self
-			.pty_deleted(id.clone())
-			.inspect_err(|error| tracing::error!(?error, "failed to check if pty was deleted"));
-
-		Ok(stream.take_until(deleted).boxed())
+		Ok(stream.boxed())
 	}
 }
 
