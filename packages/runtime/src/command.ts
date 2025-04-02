@@ -47,12 +47,13 @@ export function command<
 		};
 		let cwd = undefined;
 		let mounts: Array<tg.Command.Mount> = [];
+		let env = {};
 		let stdin = undefined;
 		let user = undefined;
 		let object = {
 			args: args_,
 			cwd,
-			env: tg.Process.current.state!.command.state.object!.env,
+			env,
 			executable,
 			host: "js",
 			mounts,

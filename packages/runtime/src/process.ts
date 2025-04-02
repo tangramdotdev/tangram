@@ -92,9 +92,10 @@ export class Process {
 		);
 		let network =
 			"network" in arg ? arg.network : tg.Process.current.#state!.network;
+		let commandId = await command.id();
 		let output = await syscall("process_spawn", {
 			checksum,
-			command: await command.id(),
+			command: commandId,
 			create: false,
 			mounts,
 			network,
@@ -118,17 +119,107 @@ export class Process {
 	}
 
 	static async build(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
-		return await Process.run(
+		let arg = await Process.arg(...args);
+		let checksum = arg.checksum;
+		let commandMounts: Array<tg.Command.Mount> = [];
+		if ("mounts" in arg) {
+			commandMounts = await Promise.all(
+				(arg.mounts ?? []).map(async (mount) => {
+					if (typeof mount === "string" || mount instanceof tg.Template) {
+						try {
+							let commandMount = await tg.Command.Mount.parse(mount);
+							return commandMount;
+						} catch (_) {
+							try {
+								let processMount = await tg.Process.Mount.parse(mount);
+								throw new Error(
+									`cannot attach process mounts with tg.build: ${processMount}`,
+								);
+							} catch (e) {
+								throw new Error(`Failed to parse mount: ${mount}`, {
+									cause: e,
+								});
+							}
+						}
+					} else if ("readonly" in mount) {
+						throw new Error(
+							`cannot attach process mounts with tg.build: ${mount}`,
+						);
+					} else {
+						return mount;
+					}
+				}),
+			);
+		}
+
+		// Infer the stdin of the command.
+		let commandStdin: tg.Blob.Arg | undefined = undefined;
+		if ("stdin" in arg && arg.stdin !== undefined) {
+			commandStdin = arg.stdin;
+		}
+
+		let command = await tg.command(
 			{
-				cwd: undefined,
-				mounts: undefined,
-				network: false,
-				stdin: undefined,
-				stdout: undefined,
-				stderr: undefined,
+				host: Process.current.command().then((command) => command.host()),
 			},
-			...args,
+			arg.command,
+			"args" in arg ? { args: arg.args } : undefined,
+			"cwd" in arg ? { cwd: arg.cwd } : undefined,
+			"env" in arg ? { env: arg.env } : undefined,
+			"executable" in arg ? { executable: arg.executable } : undefined,
+			"host" in arg ? { host: arg.host } : undefined,
+			commandStdin ? { stdin: commandStdin } : undefined,
+			commandMounts.length > 0 ? { mounts: commandMounts } : undefined,
 		);
+		let network = "network" in arg ? arg.network : false;
+		if (network === true && checksum === undefined) {
+			throw new Error(
+				"checksum is required to build a command with network: true",
+			);
+		}
+
+		let commandId = await command.id();
+		let spawnOutput = await syscall("process_spawn", {
+			checksum,
+			command: commandId,
+			create: false,
+			mounts: [],
+			network,
+			parent: undefined,
+			remote: undefined,
+			retry: false,
+			stderr: undefined,
+			stdin: undefined,
+			stdout: undefined,
+		});
+		tg.log;
+		let process = new tg.Process({
+			id: spawnOutput.process,
+			remote: spawnOutput.remote,
+			state: undefined,
+		});
+		let output = await process.wait();
+
+		// If there is an error in the output, throw it.
+		if (output.error) {
+			throw output.error;
+		}
+
+		// Check the exit status.
+		if (
+			typeof output.exit === "object" &&
+			"code" in output.exit &&
+			output.exit.code !== 0
+		) {
+			throw new Error(`the process exited with code ${output.exit.code}`);
+		}
+		if (typeof output.exit === "object" && "signal" in output.exit) {
+			throw new Error(
+				`the process was terminated by signal ${output.exit.signal}`,
+			);
+		}
+
+		return output.output;
 	}
 
 	static async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
