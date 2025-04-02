@@ -129,6 +129,12 @@ impl Server {
 			},
 		}
 
+		// Set the file times to the epoch.
+		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+		filetime::set_symlink_file_times(&path, epoch, epoch).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+		)?;
+
 		// Spawn a task to publish a message to index the cache entry.
 		tokio::spawn({
 			let server = self.clone();
@@ -205,6 +211,12 @@ impl Server {
 				self.cache_inner_data(state, path, id, data)?;
 			},
 		}
+
+		// Set the file times to the epoch.
+		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+		)?;
 
 		Ok(())
 	}

@@ -8,8 +8,8 @@ use indoc::indoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{
-	collections::BTreeMap, ops::Not as _, os::unix::fs::PermissionsExt as _,
-	panic::AssertUnwindSafe, path::PathBuf, sync::Arc, time::Instant,
+	collections::BTreeMap, ops::Not as _, os::unix::fs::PermissionsExt, panic::AssertUnwindSafe,
+	path::PathBuf, sync::Arc, time::Instant,
 };
 use tangram_client as tg;
 use tangram_futures::stream::Ext as _;
@@ -39,6 +39,7 @@ pub struct Graph {
 #[derive(Clone, Debug)]
 struct Node {
 	edges: Vec<Edge>,
+	#[allow(dead_code)]
 	metadata: Option<std::fs::Metadata>,
 	object: Option<Object>,
 	path: Option<Arc<PathBuf>>,
@@ -540,6 +541,45 @@ impl Server {
 		root: &tg::artifact::Id,
 		touched_at: i64,
 	) -> tg::Result<()> {
+		tokio::task::spawn_blocking({
+			let path = arg.path.clone();
+			move || {
+				let mut stack = vec![path];
+				while let Some(path) = stack.pop() {
+					let metadata = std::fs::symlink_metadata(&path)
+						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+					if metadata.is_dir() {
+						let read_dir = std::fs::read_dir(&path)
+							.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+						for entry in read_dir {
+							let entry = entry.map_err(|source| {
+								tg::error!(!source, "failed to read the entry")
+							})?;
+							let path = entry.path();
+							stack.push(path);
+						}
+					}
+					let mode = metadata.permissions().mode();
+					let executable = mode & 0o111 != 0;
+					let new_mode = if executable { 0o755 } else { 0o644 };
+					if new_mode != mode {
+						let permissions = std::fs::Permissions::from_mode(new_mode);
+						std::fs::set_permissions(&path, permissions).map_err(|source| {
+							tg::error!(!source, "failed to set the permissions")
+						})?;
+					}
+					let epoch =
+						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+					filetime::set_symlink_file_times(&path, epoch, epoch).map_err(
+						|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+					)?;
+				}
+				Ok::<_, tg::Error>(())
+			}
+		})
+		.await
+		.unwrap()?;
+
 		// Rename the path to the cache directory.
 		let src = &arg.path;
 		let dst = self.cache_path().join(root.to_string());
@@ -558,6 +598,13 @@ impl Server {
 				));
 			},
 		}
+
+		// Set the file times to the epoch.
+		let path = self.cache_path().join(root.to_string());
+		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+		filetime::set_symlink_file_times(&path, epoch, epoch).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+		)?;
 
 		// Send a message for the cache entry.
 		let message = crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
