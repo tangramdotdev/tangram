@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::{
 	Stream, StreamExt as _,
-	future::{self, Inspect},
+	future,
 	stream::TryStreamExt as _,
 };
 use http_body_util::{BodyExt as _, BodyStream};

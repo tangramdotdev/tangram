@@ -151,7 +151,7 @@ impl Runtime {
 					match message.level {
 						syscall::log::Level::Log => {
 							if matches!(&state.stdout, Some(tg::process::Stdio::Pty(_))) {
-								contents = contents.replace("\n", "\r\n");
+								contents = contents.replace('\n', "\r\n");
 							}
 							let bytes = Bytes::from(contents);
 							let arg = tg::process::log::post::Arg {
@@ -163,7 +163,7 @@ impl Runtime {
 						},
 						syscall::log::Level::Error => {
 							if matches!(&state.stderr, Some(tg::process::Stdio::Pty(_))) {
-								contents = contents.replace("\n", "\r\n");
+								contents = contents.replace('\n', "\r\n");
 							}
 							let bytes = Bytes::from(contents);
 							let arg = tg::process::log::post::Arg {
