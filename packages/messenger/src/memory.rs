@@ -6,7 +6,6 @@ use dashmap::DashMap;
 use futures::{StreamExt as _, TryFutureExt, future, stream::FuturesUnordered};
 use std::{
 	collections::BTreeSet,
-	fmt,
 	ops::Deref,
 	sync::{
 		Arc, Mutex,
@@ -16,25 +15,17 @@ use std::{
 use tokio::sync::RwLock;
 
 pub struct Messenger(Arc<Inner>);
-#[derive(Debug)]
+
+#[derive(Debug, derive_more::Display, derive_more::Error)]
 pub enum Error {
+	#[display("stream not found")]
 	NotFound,
+	#[display("stream closed")]
 	StreamClosed,
+	#[display("failed to publish to subject")]
 	SendError,
+	#[display("failed to publish to stream")]
 	StreamSendError,
-}
-
-impl std::error::Error for Error {}
-
-impl fmt::Display for Error {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Error::NotFound => write!(f, "stream not found"),
-			Error::StreamClosed => write!(f, "stream closed"),
-			Error::SendError => write!(f, "failed to publish to subject"),
-			Error::StreamSendError => write!(f, "failed to publish to stream"),
-		}
-	}
 }
 
 pub struct Inner {

@@ -124,7 +124,7 @@ impl Server {
 			// Insert objects from the messages.
 			let result = self.indexer_task_handle_messages(config, messages).await;
 			if let Err(error) = result {
-				tracing::error!(?error, "failed to get a batch of messages");
+				tracing::error!(?error, "failed to handle the messages");
 				tokio::time::sleep(Duration::from_secs(1)).await;
 				continue;
 			}
@@ -153,29 +153,27 @@ impl Server {
 		messenger: &tangram_messenger::memory::Messenger,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
 		messenger
-			.create_stream("index".into())
+			.create_stream("index".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the subject"))?;
 		let stream = messenger
-			.stream_subscribe("index".to_string(), None)
+			.stream_subscribe("index".to_owned(), None)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe to the objects stream"))?
-			.map_err(|source| tg::error!(!source, "stream error"))
+			.map_err(|source| tg::error!(!source, "failed to subscribe to the index stream"))?
+			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
 			.and_then(|message| {
 				let (payload, acker) = message.split();
 				future::ready({
 					serde_json::from_slice::<Message>(&payload)
-						.map_err(|source| {
-							tg::error!(!source, "failed to deserialize the message payload")
+						.map_err(|error| {
+							tracing::error!(?error, "failed to deserialize the message");
+							tg::error!(!error, "failed to deserialize the message")
 						})
 						.map(|msg| (msg, acker))
 				})
 			})
-			.inspect_err(|error| {
-				tracing::error!(?error, "failed to deserialize the message");
-			})
 			.filter_map(|result| future::ready(result.ok()))
-			.ready_chunks(config.message_batch_size)
+			.chunks(config.message_batch_size)
 			.map(Ok);
 		Ok(stream)
 	}

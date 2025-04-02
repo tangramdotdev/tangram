@@ -20,6 +20,7 @@ crossbeam = { workspace = true }
 async-nats = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
+derive_more = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 uuid = { workspace = true }

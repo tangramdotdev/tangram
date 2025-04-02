@@ -1,5 +1,3 @@
-use std::fmt;
-
 use crate::{Acker, Message, StreamInfo};
 use async_nats as nats;
 use bytes::Bytes;
@@ -10,7 +8,7 @@ pub struct Messenger {
 	pub jetstream: nats::jetstream::Context,
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::Display, derive_more::Error)]
 pub enum Error {
 	Publish(nats::PublishError),
 	Subscribe(nats::SubscribeError),
@@ -21,23 +19,6 @@ pub enum Error {
 	Stream(nats::jetstream::consumer::StreamError),
 	Messages(nats::jetstream::consumer::pull::MessagesError),
 	PublishStream(nats::jetstream::context::PublishError),
-}
-
-impl std::error::Error for Error {}
-impl fmt::Display for Error {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match self {
-			Self::Publish(e) => write!(f, "{e}"),
-			Self::Subscribe(e) => write!(f, "{e}"),
-			Self::GetStream(e) => write!(f, "{e}"),
-			Self::Info(e) => write!(f, "{e}"),
-			Self::CreateStream(e) => write!(f, "{e}"),
-			Self::Consumer(e) => write!(f, "{e}"),
-			Self::Stream(e) => write!(f, "{e}"),
-			Self::Messages(e) => write!(f, "{e}"),
-			Self::PublishStream(e) => write!(f, "{e}"),
-		}
-	}
 }
 
 impl Messenger {
