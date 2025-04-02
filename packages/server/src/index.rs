@@ -182,7 +182,7 @@ impl Server {
 				})
 			})
 			.filter_map(|result| future::ready(result.ok()))
-			.chunks(config.message_batch_size)
+			.ready_chunks(config.message_batch_size)
 			.map(Ok);
 		Ok(stream)
 	}
