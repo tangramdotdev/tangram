@@ -177,9 +177,9 @@ fn deliver_stream_message(
 			let state = state.clone();
 			let counter = counter.clone();
 			async move {
-				// Decrement the counter. If we hit zero
+				// Decrement the counter.
 				let counter = counter.fetch_sub(1, Ordering::AcqRel);
-				if counter > 0 {
+				if counter > 1 {
 					return Ok(());
 				}
 
@@ -313,15 +313,7 @@ impl Messenger {
 	async fn stream_info(&self, name: String) -> Result<StreamInfo, Error> {
 		let stream = self.streams.get(&name).ok_or(Error::NotFound)?;
 		let last_sequence = *stream.state.last_sequence.read().await;
-		let first_sequence = stream
-			.state
-			.pending
-			.read()
-			.await
-			.iter()
-			.min()
-			.copied()
-			.unwrap_or(0);
+		let first_sequence = stream.state.pending.read().await.iter().min().copied();
 		Ok(StreamInfo {
 			first_sequence,
 			last_sequence,
@@ -466,5 +458,39 @@ mod tests {
 			last = i;
 			acker.ack().await.unwrap();
 		}
+	}
+
+	#[tokio::test]
+	async fn stream_info() {
+		let messenger: Messenger = Messenger::new();
+
+		messenger.create_stream("stream".into()).await.unwrap();
+
+		let subscriber = messenger.stream_subscribe("stream".into()).await.unwrap();
+
+		let info = messenger.stream_info("stream".into()).await.unwrap();
+		assert_eq!(info.first_sequence, None);
+		assert_eq!(info.last_sequence, 0);
+		messenger
+			.stream_publish("stream".into(), vec![].into())
+			.await
+			.unwrap();
+
+		let info = messenger.stream_info("stream".into()).await.unwrap();
+		assert_eq!(info.first_sequence, Some(0));
+		assert_eq!(info.last_sequence, 1);
+
+		std::pin::pin!(subscriber)
+			.next()
+			.await
+			.unwrap()
+			.acker
+			.ack()
+			.await
+			.unwrap();
+
+		let info = messenger.stream_info("stream".into()).await.unwrap();
+		assert_eq!(info.first_sequence, None);
+		assert_eq!(info.last_sequence, 1);
 	}
 }

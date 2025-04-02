@@ -141,7 +141,7 @@ impl Server {
 			"
 				select command
 				from processes
-				where id = {p}1 
+				where id = {p}1
 			",
 		);
 		let params = db::params![id];

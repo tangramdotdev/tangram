@@ -13,7 +13,10 @@ pub struct Message {
 
 #[derive(Clone, Debug)]
 pub struct StreamInfo {
-	pub first_sequence: u64,
+	/// The lowest sequence number in the stream. None if the stream is empty.
+	pub first_sequence: Option<u64>,
+
+	/// The most recently assigned sequence number.
 	pub last_sequence: u64,
 }
 

@@ -11,6 +11,7 @@ use std::{
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
+use tangram_http::{Body, response::builder::Ext as _};
 use tangram_messenger::{Acker, Messenger};
 use time::format_description::well_known::Rfc3339;
 
@@ -90,13 +91,21 @@ impl Server {
 		let last_sequence = info.last_sequence;
 
 		// Wait for the indexing task to catch up.
-		while last_sequence > info.first_sequence {
-			tokio::task::yield_now().await;
-			info = self
-				.messenger
-				.stream_info("index".into())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
+		loop {
+			match &info.first_sequence {
+				Some(first_sequence) if first_sequence <= &last_sequence => {
+					tokio::task::yield_now().await;
+					info = self
+						.messenger
+						.stream_info("index".into())
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to get the index stream info")
+						})?;
+					continue;
+				},
+				_ => break,
+			}
 		}
 		Ok(())
 	}
@@ -963,6 +972,20 @@ impl Server {
 		}
 
 		Ok(())
+	}
+}
+
+impl Server {
+	pub(crate) async fn handle_index_request<H>(
+		handle: &H,
+		_request: http::Request<Body>,
+	) -> tg::Result<http::Response<Body>>
+	where
+		H: tg::Handle,
+	{
+		handle.index().await?;
+		let response = http::Response::builder().empty().unwrap();
+		Ok(response)
 	}
 }
 

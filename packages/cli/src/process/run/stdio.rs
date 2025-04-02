@@ -25,7 +25,7 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// If the process is detached, don't create any interactive stdio.
-		if options.detach || !options.spawn.tty {
+		if options.detach || options.spawn.no_tty {
 			let stdin = create(&handle, remote.clone(), None).await?;
 			let stdout = create(&handle, remote.clone(), None).await?;
 			let stderr = create(&handle, remote.clone(), None).await?;

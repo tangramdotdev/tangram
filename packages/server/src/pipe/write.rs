@@ -1,9 +1,9 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, stream::TryStreamExt as _};
+use futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use std::pin::pin;
 use tangram_client as tg;
-use tangram_futures::task::Stop;
+use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext};
 
 impl Server {
@@ -82,6 +82,7 @@ impl Server {
 					},
 				}
 			})
+			.take_while_inclusive(|event| future::ready(!matches!(event, Ok(tg::pipe::Event::End))))
 			.take_until(stop)
 			.boxed();
 

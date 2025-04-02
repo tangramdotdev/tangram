@@ -999,6 +999,9 @@ impl Server {
 				Self::handle_read_blob_request(handle, request, blob).boxed()
 			},
 
+			// Indexing.
+			(http::Method::POST, ["index"]) => Self::handle_index_request(handle, request).boxed(),
+
 			// Items.
 			(http::Method::POST, ["export"]) => {
 				Self::handle_export_request(handle, request).boxed()

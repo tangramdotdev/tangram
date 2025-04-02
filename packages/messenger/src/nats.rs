@@ -106,7 +106,7 @@ impl Messenger {
 			.map_err(Error::GetStream)?;
 		let info = stream.info().await.map_err(Error::Info)?;
 		Ok(StreamInfo {
-			first_sequence: info.state.first_sequence,
+			first_sequence: Some(info.state.first_sequence),
 			last_sequence: info.state.last_sequence,
 		})
 	}
