@@ -96,7 +96,13 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 		Either::Right(None) => None,
 	};
 	let stderr = match parent_stderr {
-		Either::Left(_) => Some(Either::Left(pty.as_ref().unwrap().get_reader()?)),
+		Either::Left(_) => {
+			if matches!(stdout, Some(Either::Left(_))) {
+				None
+			} else {
+				Some(Either::Left(pty.as_ref().unwrap().get_reader()?))
+			}
+		},
 		Either::Right(Some(io)) => Some(Either::Right(io)),
 		Either::Right(None) => None,
 	};
