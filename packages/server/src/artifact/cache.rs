@@ -402,8 +402,7 @@ impl Server {
 		if !done {
 			let size = std::fs::metadata(src)
 				.ok()
-				.map(|metadata| metadata.len())
-				.unwrap_or(0);
+				.map_or(0, |metadata| metadata.len());
 			let result = reflink(src, dst);
 			match result {
 				Ok(()) => {
@@ -628,8 +627,7 @@ impl Server {
 				let src = &self.cache_path().join(id.to_string());
 				let size = std::fs::metadata(src)
 					.ok()
-					.map(|metadata| metadata.len())
-					.unwrap_or(0);
+					.map_or(0, |metadata| metadata.len());
 				let dst = &path;
 				let mut done = false;
 				let mut error = None;

@@ -134,7 +134,7 @@ serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-swc_core = { version = "16", features = [
+swc_core = { version = "19", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",

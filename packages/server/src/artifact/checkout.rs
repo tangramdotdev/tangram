@@ -412,8 +412,7 @@ impl Server {
 		if !done {
 			let size = std::fs::metadata(src)
 				.ok()
-				.map(|metadata| metadata.len())
-				.unwrap_or(0);
+				.map_or(0, |metadata| metadata.len());
 			let result = reflink(src, dst);
 			match result {
 				Ok(()) => {
@@ -643,8 +642,7 @@ impl Server {
 				if !done {
 					let size = std::fs::metadata(src)
 						.ok()
-						.map(|metadata| metadata.len())
-						.unwrap_or(0);
+						.map_or(0, |metadata| metadata.len());
 					let result = reflink(src, dst);
 					match result {
 						Ok(()) => {

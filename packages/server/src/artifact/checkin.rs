@@ -27,6 +27,7 @@ mod unify;
 struct State {
 	graph: Graph,
 	ignorer: Option<tangram_ignore::Ignorer>,
+	#[allow(dead_code)]
 	progress: crate::progress::Handle<tg::artifact::checkin::Output>,
 }
 
@@ -771,7 +772,7 @@ impl Server {
 			None,
 		);
 		let object_graph = self
-			.create_object_graph(&input_graph, &unification_graph, &root, &progress)
+			.create_object_graph(&input_graph, &unification_graph, &root, progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create objects"))?;
 		progress.finish("objects");
