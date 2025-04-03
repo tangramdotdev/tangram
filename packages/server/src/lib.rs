@@ -326,7 +326,7 @@ impl Server {
 		if let Either::Right(messenger) = messenger.as_ref() {
 			let stream_config = async_nats::jetstream::stream::Config {
 				name: "index".to_string(),
-				max_messages: i64::MAX,
+				retention: nats::jetstream::stream::RetentionPolicy::WorkQueue,
 				..Default::default()
 			};
 			messenger

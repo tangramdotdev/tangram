@@ -214,14 +214,9 @@ impl Server {
 		messenger: &tangram_messenger::nats::Messenger,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
 		// Get the stream.
-		let stream_config = async_nats::jetstream::stream::Config {
-			name: "index".to_string(),
-			max_messages: i64::MAX,
-			..Default::default()
-		};
 		let stream = messenger
 			.jetstream
-			.get_or_create_stream(stream_config)
+			.get_stream("index")
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 
@@ -236,31 +231,34 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the index consumer"))?;
 
 		// Create the stream.
-		let stream = stream::try_unfold(consumer, |consumer| async {
-			let mut batch = consumer
-				.batch()
-				.max_messages(config.message_batch_size)
-				.expires(config.message_batch_timeout)
-				.messages()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the batch"))?;
-			let mut messages = Vec::new();
-			while let Some(message) = batch.try_next().await? {
-				let (message, acker) = message.split();
-				let result = serde_json::from_slice::<Message>(&message.payload);
-				let message = match result {
-					Ok(message) => message,
-					Err(source) => {
-						tracing::error!(?source, "failed to deserialize the message payload");
-						acker.ack().await?;
-						continue;
-					},
-				};
-				messages.push((message, acker.into()));
-			}
-			Ok(Some((messages, consumer)))
-		})
-		.try_filter(|messages| future::ready(!messages.is_empty()));
+		let stream =
+			stream::try_unfold(consumer, |consumer| async {
+				let mut batch = consumer
+					.batch()
+					.max_messages(config.message_batch_size)
+					.expires(config.message_batch_timeout)
+					.messages()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the batch"))?;
+				let mut messages = Vec::new();
+				while let Some(message) = batch.try_next().await.map_err(|source| {
+					tg::error!(!source, "failed to get a message from the batch")
+				})? {
+					let (message, acker) = message.split();
+					let result = serde_json::from_slice::<Message>(&message.payload);
+					let message = match result {
+						Ok(message) => message,
+						Err(source) => {
+							tracing::error!(?source, "failed to deserialize the message payload");
+							acker.ack().await?;
+							continue;
+						},
+					};
+					messages.push((message, acker.into()));
+				}
+				Ok(Some((messages, consumer)))
+			})
+			.try_filter(|messages| future::ready(!messages.is_empty()));
 
 		Ok(stream)
 	}
