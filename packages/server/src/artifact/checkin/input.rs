@@ -313,43 +313,36 @@ impl Server {
 		drop(read_dir);
 		drop(permit);
 
-		let vec: Vec<_> = names
-			.into_iter()
-			.map(|name| {
-				async move {
-					let path = path.join(&name);
+		let mut vec = Vec::with_capacity(names.len());
+		for name in names {
+			let path = path.join(&name);
 
-					// Follow the edge.
-					let node = Box::pin(self.create_input_graph_inner(
-						Some(referrer),
-						name.as_ref(),
-						arg,
-						state,
-						progress,
-					))
-					.await
-					.map_err(
-						|source| tg::error!(!source, %path = path.display(), "failed to collect child input"),
-					)?;
+			// Follow the edge.
+			let node = Box::pin(self.create_input_graph_inner(
+				Some(referrer),
+				name.as_ref(),
+				arg,
+				state,
+				progress,
+			))
+			.await
+			.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to collect child input"),
+			)?;
 
-					// Create the edge.
-					let reference = tg::Reference::with_path(&name);
-					let edge = Edge {
-						kind: None,
-						reference,
-						subpath: None,
-						node: Some(node),
-						object: None,
-						path: None,
-						tag: None,
-					};
-					Ok::<_, tg::Error>(edge)
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-
+			// Create the edge.
+			let reference = tg::Reference::with_path(&name);
+			let edge = Edge {
+				kind: None,
+				reference,
+				subpath: None,
+				node: Some(node),
+				object: None,
+				path: None,
+				tag: None,
+			};
+			vec.push(edge);
+		}
 		Ok(vec)
 	}
 

@@ -741,7 +741,6 @@ impl Server {
 		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Create the input graph.
-		progress.log(tg::progress::Level::Info, "collecting input".into());
 		progress.start(
 			"input".into(),
 			"files".into(),
@@ -755,30 +754,35 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect the input"),
 			)?;
+		progress.finish("input");
 
 		// Create the unification graph and get its root node.
-		progress.log(tg::progress::Level::Info, "unifying".into());
 		let (unification_graph, root) = self
 			.create_unification_graph(&input_graph, arg.deterministic)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to unify dependencies"))?;
 
 		// Create the object graph.
-		progress.log(tg::progress::Level::Info, "creating objects".into());
+		progress.start(
+			"objects".into(),
+			"objects".into(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
 		let object_graph = self
-			.create_object_graph(&input_graph, &unification_graph, &root)
+			.create_object_graph(&input_graph, &unification_graph, &root, &progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create objects"))?;
+		progress.finish("objects");
 
 		// Create the output graph.
-		progress.log(tg::progress::Level::Info, "collecting output".into());
 		let output_graph = self
 			.create_output_graph(&input_graph, &object_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write objects"))?;
 
 		// Cache the files.
-		progress.log(tg::progress::Level::Info, "caching".into());
 		self.checkin_cache_task_old(&output_graph, &input_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to copy the blobs"))?;
@@ -794,10 +798,6 @@ impl Server {
 
 		// Copy or move to the cache directory.
 		if arg.cache || arg.destructive {
-			progress.log(
-				tg::progress::Level::Info,
-				"moving to cache directory".into(),
-			);
 			self.copy_or_move_to_cache_directory(&input_graph, &output_graph, 0, progress)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;

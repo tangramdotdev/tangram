@@ -63,6 +63,7 @@ impl Server {
 		input: &input::Graph,
 		unify: &unify::Graph,
 		root: &unify::Id,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<Arc<Graph>> {
 		let mut indices = BTreeMap::new();
 		let mut paths: BTreeMap<PathBuf, usize> = BTreeMap::new();
@@ -79,7 +80,7 @@ impl Server {
 			paths,
 			objects,
 		};
-		self.create_objects(input, &mut graph).await?;
+		self.create_objects(input, &mut graph, progress).await?;
 		Ok(Arc::new(graph))
 	}
 
@@ -138,7 +139,6 @@ impl Server {
 			};
 			nodes[index].edges.push(edge);
 		}
-
 		index
 	}
 
@@ -146,6 +146,7 @@ impl Server {
 		&self,
 		input: &input::Graph,
 		graph: &mut Graph,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<()> {
 		let mut file_metadata = BTreeMap::new();
 
@@ -221,6 +222,7 @@ impl Server {
 				// Get the metadata.
 				let metadata = self.compute_object_metadata(graph, index, &data, &file_metadata);
 				graph.nodes[index].metadata.replace(metadata);
+				progress.increment("objects", 1);
 			} else {
 				// Otherwise, construct an object graph.
 				let object_graph = tg::graph::Data {
@@ -235,6 +237,7 @@ impl Server {
 				graph
 					.graphs
 					.insert(id.clone(), (object_graph.clone(), metadata));
+				progress.increment("objects", 1);
 
 				for old_index in scc.iter().copied() {
 					// Get the index within the object graph.
@@ -265,6 +268,7 @@ impl Server {
 					graph.nodes[old_index].data.replace(data);
 					graph.nodes[old_index].id.replace(id.clone().into());
 					graph.objects.insert(id.into(), old_index);
+					progress.increment("objects", 1);
 				}
 
 				// Update metadata.
