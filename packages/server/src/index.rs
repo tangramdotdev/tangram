@@ -11,10 +11,11 @@ use std::{
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-use tangram_futures::task::Stop;
+use tangram_futures::{stream::Ext, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::{Acker, Messenger};
 use time::format_description::well_known::Rfc3339;
+use tokio_util::task::AbortOnDropHandle;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
@@ -84,34 +85,50 @@ impl Server {
 	pub async fn index(
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		let mut info = self
-			.messenger
-			.stream_info("index".into())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
+		let progress = crate::progress::Handle::new();
+		let task = tokio::spawn({
+			let progress = progress.clone();
+			let server = self.clone();
+			async move {
+				let mut info = server
+					.messenger
+					.stream_info("index".into())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
 
-		// Get the most recent sequence number.
-		let last_sequence = info.last_sequence;
+				// Get the most recent sequence number.
+				let mut first_sequence = info.first_sequence.unwrap_or(info.last_sequence);
+				let last_sequence = info.last_sequence;
+				progress.start(
+					"index".to_string(),
+					"progress".to_owned(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					Some(last_sequence - first_sequence),
+				);
 
-		// Wait for the indexing task to catch up.
-		loop {
-			match &info.first_sequence {
-				Some(first_sequence) if first_sequence <= &last_sequence => {
-					tokio::task::yield_now().await;
-					info = self
-						.messenger
-						.stream_info("index".into())
-						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to get the index stream info")
-						})?;
-					continue;
-				},
-				_ => break,
+				// Wait for the indexing task to catch up.
+				loop {
+					match info.first_sequence {
+						Some(sequence) if sequence <= last_sequence => {
+							progress.increment("index", sequence - first_sequence);
+							first_sequence = sequence;
+							info = server.messenger.stream_info("index".into()).await.map_err(
+								|source| tg::error!(!source, "failed to get the index stream info"),
+							)?;
+							continue;
+						},
+						_ => break,
+					}
+				}
+
+				progress.output(());
+				Ok::<_, tg::Error>(())
 			}
-		}
-
-		Ok(stream::once(future::ok(tg::progress::Event::Output(()))))
+		});
+		let abort_handle = AbortOnDropHandle::new(task);
+		let stream = progress.stream().attach(abort_handle);
+		Ok(stream)
 	}
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {

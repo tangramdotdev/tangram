@@ -1,13 +1,14 @@
 use super::Server;
-use futures::{Stream, StreamExt as _, future, stream};
+use futures::{Stream, StreamExt as _};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_futures::task::Stop;
+use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use time::format_description::well_known::Rfc3339;
+use tokio_util::task::AbortOnDropHandle;
 
 struct InnerOutput {
 	processes: Vec<tg::process::Id>,
@@ -19,33 +20,72 @@ impl Server {
 	pub async fn clean(
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		// Clean the temporary directory.
-		tokio::fs::remove_dir_all(self.temp_path())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to remove the temporary directory"))?;
-		tokio::fs::create_dir_all(self.temp_path())
-			.await
-			.map_err(|error| {
-				tg::error!(source = error, "failed to recreate the temporary directory")
-			})?;
+		let progress = crate::progress::Handle::new();
 
-		// Clean until there are no more items to remove.
-		let batch_size = self
-			.config
-			.cleaner
-			.as_ref()
-			.map_or(1024, |config| config.batch_size);
-		let ttl = Duration::from_secs(0);
-		let config = crate::config::Cleaner { batch_size, ttl };
-		loop {
-			let output = self.cleaner_task_inner(&config).await?;
-			let n = output.processes.len() + output.objects.len() + output.cache_entries.len();
-			if n == 0 {
-				break;
+		let task = tokio::spawn({
+			let progress = progress.clone();
+			let server = self.clone();
+			async move {
+				// Clean the temporary directory.
+				crate::util::fs::remove(server.temp_path())
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to remove the temporary directory")
+					})?;
+				tokio::fs::create_dir_all(server.temp_path())
+					.await
+					.map_err(|error| {
+						tg::error!(source = error, "failed to recreate the temporary directory")
+					})?;
+
+				// Clean until there are no more items to remove.
+				progress.start(
+					"cache".into(),
+					"cache entries".into(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					None,
+				);
+				progress.start(
+					"objects".into(),
+					"objects".into(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					None,
+				);
+				progress.start(
+					"processes".into(),
+					"processes".into(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					None,
+				);
+
+				let batch_size = server
+					.config
+					.cleaner
+					.as_ref()
+					.map_or(1024, |config| config.batch_size);
+				let ttl = Duration::from_secs(0);
+				let config = crate::config::Cleaner { batch_size, ttl };
+				loop {
+					let output = server.cleaner_task_inner(&config).await?;
+					progress.increment("cache", output.cache_entries.len().to_u64().unwrap());
+					progress.increment("objects", output.objects.len().to_u64().unwrap());
+					progress.increment("processes", output.processes.len().to_u64().unwrap());
+					let n =
+						output.processes.len() + output.objects.len() + output.cache_entries.len();
+					if n == 0 {
+						break;
+					}
+				}
+				progress.output(());
+				Ok::<_, tg::Error>(())
 			}
-		}
-
-		Ok(stream::once(future::ok(tg::progress::Event::Output(()))))
+		});
+		let abort_handle = AbortOnDropHandle::new(task);
+		let stream = progress.stream().attach(abort_handle);
+		Ok(stream)
 	}
 
 	pub(crate) async fn cleaner_task(&self, config: &crate::config::Cleaner) -> tg::Result<()> {
