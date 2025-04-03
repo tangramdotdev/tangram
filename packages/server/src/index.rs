@@ -197,14 +197,9 @@ impl Server {
 		messenger: &tangram_messenger::nats::Messenger,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
 		// Get the stream.
-		let stream_config = async_nats::jetstream::stream::Config {
-			name: "index".to_string(),
-			max_messages: i64::MAX,
-			..Default::default()
-		};
 		let stream = messenger
 			.jetstream
-			.get_or_create_stream(stream_config)
+			.get_stream("index")
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 

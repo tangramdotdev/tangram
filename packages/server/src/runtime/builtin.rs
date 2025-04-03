@@ -23,14 +23,14 @@ impl Runtime {
 	}
 
 	pub async fn run(&self, process: &tg::Process) -> super::Output {
-		let (error, exit, value) = match self.run_inner(process).await {
-			Ok(value) => (None, None::<tg::process::Exit>, Some(value)),
+		let (error, exit, output) = match self.run_inner(process).await {
+			Ok(output) => (None, None, Some(output)),
 			Err(error) => (Some(error), None, None),
 		};
 		super::Output {
 			error,
 			exit,
-			output: value,
+			output,
 		}
 	}
 
