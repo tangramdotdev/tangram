@@ -497,7 +497,7 @@ impl Server {
 		input: &input::Graph,
 		output: &Graph,
 		node: usize,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<()> {
 		let mut stack = vec![node];
 		let mut visited = vec![false; output.nodes.len()];
@@ -560,7 +560,7 @@ impl Server {
 		node: usize,
 		dest: PathBuf,
 		visited: &mut BTreeSet<PathBuf>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<()> {
 		// Check if we've visited this node.
 		let Some(input_index) = output.nodes[node].input else {

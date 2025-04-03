@@ -27,7 +27,7 @@ mod unify;
 struct State {
 	graph: Graph,
 	ignorer: Option<tangram_ignore::Ignorer>,
-	progress: Option<crate::progress::Handle<tg::artifact::checkin::Output>>,
+	progress: crate::progress::Handle<tg::artifact::checkin::Output>,
 }
 
 #[derive(Clone, Debug)]
@@ -97,7 +97,7 @@ impl Server {
 			let server = self.clone();
 			let progress = progress.clone();
 			async move {
-				let result = AssertUnwindSafe(server.check_in_artifact_inner(arg, Some(&progress)))
+				let result = AssertUnwindSafe(server.check_in_artifact_inner(arg, &progress))
 					.catch_unwind()
 					.await;
 				match result {
@@ -126,7 +126,7 @@ impl Server {
 	async fn check_in_artifact_inner(
 		&self,
 		mut arg: tg::artifact::checkin::Arg,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Canonicalize the path's parent.
 		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
@@ -172,7 +172,7 @@ impl Server {
 	async fn check_in_artifact_new(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Create the ignorer if necessary.
 		let ignorer = if arg.ignore {
@@ -189,7 +189,7 @@ impl Server {
 		let mut state = State {
 			graph,
 			ignorer,
-			progress: progress.cloned(),
+			progress: progress.clone(),
 		};
 
 		// Visit.
@@ -631,8 +631,6 @@ impl Server {
 	) -> tg::Result<()> {
 		for node in &state.graph.nodes {
 			let object = node.object.as_ref().unwrap();
-
-			// Send the index object message.
 			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
 				children: object.data.children(),
 				id: object.id.clone(),
@@ -740,9 +738,17 @@ impl Server {
 	async fn check_in_artifact_old(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Create the input graph.
+		progress.log(tg::progress::Level::Info, "collecting input".into());
+		progress.start(
+			"input".into(),
+			"files".into(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
 		let input_graph = self
 			.create_input_graph(arg.clone(), progress)
 			.await
@@ -751,24 +757,28 @@ impl Server {
 			)?;
 
 		// Create the unification graph and get its root node.
+		progress.log(tg::progress::Level::Info, "unifying".into());
 		let (unification_graph, root) = self
 			.create_unification_graph(&input_graph, arg.deterministic)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to unify dependencies"))?;
 
 		// Create the object graph.
+		progress.log(tg::progress::Level::Info, "creating objects".into());
 		let object_graph = self
 			.create_object_graph(&input_graph, &unification_graph, &root)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create objects"))?;
 
 		// Create the output graph.
+		progress.log(tg::progress::Level::Info, "collecting output".into());
 		let output_graph = self
 			.create_output_graph(&input_graph, &object_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write objects"))?;
 
 		// Cache the files.
+		progress.log(tg::progress::Level::Info, "caching".into());
 		self.checkin_cache_task_old(&output_graph, &input_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to copy the blobs"))?;
@@ -784,6 +794,10 @@ impl Server {
 
 		// Copy or move to the cache directory.
 		if arg.cache || arg.destructive {
+			progress.log(
+				tg::progress::Level::Info,
+				"moving to cache directory".into(),
+			);
 			self.copy_or_move_to_cache_directory(&input_graph, &output_graph, 0, progress)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
@@ -794,6 +808,7 @@ impl Server {
 
 		// If this is a non-destructive checkin, then attempt to write a lockfile.
 		if arg.lockfile && !arg.destructive && artifact.is_directory() {
+			progress.log(tg::progress::Level::Info, "writing lockfile".into());
 			self.try_write_lockfile(&input_graph, &object_graph)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;

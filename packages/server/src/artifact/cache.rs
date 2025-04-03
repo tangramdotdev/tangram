@@ -1,5 +1,6 @@
 use crate::{Server, temp::Temp};
 use futures::FutureExt as _;
+use num::ToPrimitive;
 use reflink_copy::reflink;
 use std::{
 	collections::HashMap,
@@ -9,6 +10,7 @@ use std::{
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_messenger::Messenger as _;
+use tokio_util::io::InspectReader;
 
 #[cfg(test)]
 mod tests;
@@ -229,10 +231,12 @@ impl Server {
 		graph: &tg::graph::Id,
 		node: usize,
 	) -> tg::Result<()> {
-		let node = state
+		let data = state
 			.graphs
 			.get(graph)
-			.ok_or_else(|| tg::error!("expected the graph to exist"))?
+			.ok_or_else(|| tg::error!("expected the graph to exist"))?;
+		let weight = data.serialize().unwrap().len().to_u64().unwrap();
+		let node = data
 			.nodes
 			.get(node)
 			.ok_or_else(|| tg::error!("expected the node to exist"))?
@@ -248,6 +252,7 @@ impl Server {
 				self.cache_inner_graph_symlink(state, path, id, graph, symlink)?;
 			},
 		}
+		state.progress.increment("bytes", weight);
 		Ok(())
 	}
 
@@ -395,13 +400,19 @@ impl Server {
 			}
 		}
 		if !done {
+			let size = std::fs::metadata(src)
+				.ok()
+				.map(|metadata| metadata.len())
+				.unwrap_or(0);
 			let result = reflink(src, dst);
 			match result {
 				Ok(()) => {
 					done = true;
+					state.progress.increment("bytes", size);
 				},
 				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
 					done = true;
+					state.progress.increment("bytes", size);
 				},
 				Err(error_) => {
 					error = Some(error_);
@@ -412,10 +423,16 @@ impl Server {
 			let server = self.clone();
 			let future = async move {
 				let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
-				let mut reader = tg::Blob::with_id(contents)
+				let reader = tg::Blob::with_id(contents)
 					.read(&server, tg::blob::read::Arg::default())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+				let mut reader = InspectReader::new(reader, {
+					let progress = state.progress.clone();
+					move |buf| {
+						progress.increment("bytes", buf.len().to_u64().unwrap());
+					}
+				});
 				let mut file_ = tokio::fs::File::create(&path)
 					.await
 					.map_err(|source| tg::error!(!source, ?path, "failed to create the file"))?;
@@ -544,6 +561,7 @@ impl Server {
 				self.cache_inner_data_symlink(state, path, id, symlink)?;
 			},
 		}
+		state.progress.increment("objects", 1);
 		Ok(())
 	}
 
@@ -554,6 +572,8 @@ impl Server {
 		id: &tg::artifact::Id,
 		directory: tg::directory::Data,
 	) -> tg::Result<()> {
+		let weight = directory.serialize().unwrap().len().to_u64().unwrap();
+		let progress = state.progress.clone();
 		match directory {
 			tg::directory::Data::Graph { graph, node } => {
 				let artifact = Either::Left((graph, node));
@@ -570,6 +590,7 @@ impl Server {
 				}
 			},
 		}
+		progress.increment("bytes", weight);
 		Ok(())
 	}
 
@@ -580,6 +601,8 @@ impl Server {
 		id: &tg::artifact::Id,
 		file: tg::file::Data,
 	) -> tg::Result<()> {
+		let weight = file.serialize().unwrap().len().to_u64().unwrap();
+		let progress = state.progress.clone();
 		match file {
 			tg::file::Data::Graph { graph, node } => {
 				let artifact = Either::Left((graph, node));
@@ -603,6 +626,10 @@ impl Server {
 
 				// Copy the file.
 				let src = &self.cache_path().join(id.to_string());
+				let size = std::fs::metadata(src)
+					.ok()
+					.map(|metadata| metadata.len())
+					.unwrap_or(0);
 				let dst = &path;
 				let mut done = false;
 				let mut error = None;
@@ -618,9 +645,11 @@ impl Server {
 					match result {
 						Ok(()) => {
 							done = true;
+							state.progress.increment("bytes", size);
 						},
 						Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
 							done = true;
+							state.progress.increment("bytes", size);
 						},
 						Err(error_) => {
 							error = Some(error_);
@@ -632,9 +661,11 @@ impl Server {
 					match result {
 						Ok(()) => {
 							done = true;
+							state.progress.increment("bytes", size);
 						},
 						Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
 							done = true;
+							state.progress.increment("bytes", size);
 						},
 						Err(error_) => {
 							error = Some(error_);
@@ -645,10 +676,16 @@ impl Server {
 					let server = self.clone();
 					let future = async move {
 						let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
-						let mut reader = tg::Blob::with_id(contents)
+						let reader = tg::Blob::with_id(contents)
 							.read(&server, tg::blob::read::Arg::default())
 							.await
 							.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+						let mut reader = InspectReader::new(reader, {
+							let progress = state.progress.clone();
+							move |buf| {
+								progress.increment("bytes", buf.len().to_u64().unwrap());
+							}
+						});
 						let mut file = tokio::fs::File::create(&path).await.map_err(|source| {
 							tg::error!(!source, ?path, "failed to create the file")
 						})?;
@@ -679,6 +716,7 @@ impl Server {
 				}
 			},
 		}
+		progress.increment("bytes", weight);
 		Ok(())
 	}
 
@@ -689,6 +727,8 @@ impl Server {
 		id: &tg::artifact::Id,
 		symlink: tg::symlink::Data,
 	) -> tg::Result<()> {
+		let weight = symlink.serialize().unwrap().len().to_u64().unwrap();
+		let progress = state.progress.clone();
 		match symlink {
 			tg::symlink::Data::Graph { graph, node } => {
 				let artifact = Either::Left((graph, node));
@@ -731,6 +771,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 			},
 		}
+		progress.increment("bytes", weight);
 		Ok(())
 	}
 }

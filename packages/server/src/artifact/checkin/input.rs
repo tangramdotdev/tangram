@@ -47,7 +47,7 @@ impl Server {
 	pub(super) async fn create_input_graph(
 		&self,
 		arg: tg::artifact::checkin::Arg,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<Graph> {
 		// Create the ignore matcher.
 		let ignore_matcher = Self::ignore_matcher_for_checkin().await?;
@@ -86,7 +86,7 @@ impl Server {
 		path: &'a Path,
 		arg: &'a tg::artifact::checkin::Arg,
 		state: &'a RwLock<State>,
-		progress: Option<&'a crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &'a crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> impl Future<Output = tg::Result<usize>> + Send + 'a {
 		async move {
 			// Get the full path.
@@ -183,6 +183,7 @@ impl Server {
 			state.write().await.graph.nodes[node].edges = edges;
 
 			// Return the created node.
+			progress.increment("input", 1);
 			Ok(node)
 		}
 	}
@@ -251,7 +252,7 @@ impl Server {
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
 		metadata: std::fs::Metadata,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<Vec<Edge>> {
 		if metadata.is_dir() {
 			Box::pin(self.get_directory_edges(referrer, path, arg, state, progress)).await
@@ -270,7 +271,7 @@ impl Server {
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<Vec<Edge>> {
 		// Get the directory entries.
 		let mut names = Vec::new();
@@ -358,7 +359,7 @@ impl Server {
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<Vec<Edge>> {
 		// Get the lockfile if it exists.
 		let lockfile = state.read().await.graph.nodes[referrer].lockfile.clone();
@@ -382,14 +383,12 @@ impl Server {
 				Ok(analysis) => analysis,
 				Err(error) => {
 					// If analyzing the module fails, report a diagnostic and continue.
-					if let Some(progress) = progress {
-						let diagnostic = tg::Diagnostic {
-							location: None,
-							severity: tg::diagnostic::Severity::Error,
-							message: format!("failed to analyze the module: {error}"),
-						};
-						progress.diagnostic(diagnostic);
-					}
+					let diagnostic = tg::Diagnostic {
+						location: None,
+						severity: tg::diagnostic::Severity::Error,
+						message: format!("failed to analyze the module: {error}"),
+					};
+					progress.diagnostic(diagnostic);
 					break 'a None;
 				},
 			};
@@ -514,7 +513,7 @@ impl Server {
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<Edge> {
 		// Follow path dependencies.
 		let import_path = import
@@ -591,7 +590,7 @@ impl Server {
 		_path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<Edge> {
 		let node = if let Either::Left(path) = &referent.item {
 			let node =
@@ -624,7 +623,7 @@ impl Server {
 		path: &Path,
 		arg: &tg::artifact::checkin::Arg,
 		state: &RwLock<State>,
-		_progress: Option<&crate::progress::Handle<tg::artifact::checkin::Output>>,
+		_progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<Vec<Edge>> {
 		// Check if this node's edges have already been created.
 		let existing = state.read().await.graph.nodes[referrer].edges.clone();
