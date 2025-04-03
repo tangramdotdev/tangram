@@ -139,9 +139,6 @@ enum Command {
 
 	Download(self::blob::download::Args),
 
-	#[command(alias = "x")]
-	Exec(self::process::exec::Args),
-
 	Export(self::export::Args),
 
 	Extract(self::artifact::extract::Args),
@@ -1023,7 +1020,6 @@ impl Cli {
 			Command::Decompress(args) => self.command_blob_decompress(args).boxed(),
 			Command::Document(args) => self.command_package_document(args).boxed(),
 			Command::Download(args) => self.command_blob_download(args).boxed(),
-			Command::Exec(args) => self.command_process_exec(args).boxed(),
 			Command::Export(args) => self.command_export(args).boxed(),
 			Command::Extract(args) => self.command_artifact_extract(args).boxed(),
 			Command::Format(args) => self.command_package_format(args).boxed(),

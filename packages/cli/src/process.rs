@@ -4,7 +4,6 @@ use tangram_client as tg;
 pub mod build;
 pub mod cancel;
 pub mod children;
-pub mod exec;
 pub mod get;
 pub mod log;
 pub mod metadata;
