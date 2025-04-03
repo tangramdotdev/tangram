@@ -199,6 +199,38 @@ impl Server {
 		.await
 		.unwrap()?;
 
+		// Get a database connection.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Delete closed or stale pipes/ptys
+		let max_created_at = time::OffsetDateTime::from_unix_timestamp(now - 24 * 60 * 60)
+			.unwrap()
+			.format(&Rfc3339)
+			.unwrap();
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from pipes
+				where
+					closed = 1
+					or created_at < {p}1;
+
+				delete from ptys
+				where
+					closed = 1
+					or created_at < {p}1;
+			"
+		);
+		let params = db::params![max_created_at];
+		connection
+			.execute(statement.clone().into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to delete ptys and pipes"))?;
+
 		let output = InnerOutput {
 			processes,
 			objects,
