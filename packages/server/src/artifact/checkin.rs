@@ -559,14 +559,16 @@ impl Server {
 							stack.push(path);
 						}
 					}
-					let mode = metadata.permissions().mode();
-					let executable = mode & 0o111 != 0;
-					let new_mode = if executable { 0o755 } else { 0o644 };
-					if new_mode != mode {
-						let permissions = std::fs::Permissions::from_mode(new_mode);
-						std::fs::set_permissions(&path, permissions).map_err(|source| {
-							tg::error!(!source, "failed to set the permissions")
-						})?;
+					if !metadata.is_symlink() {
+						let mode = metadata.permissions().mode();
+						let executable = mode & 0o111 != 0;
+						let new_mode = if executable { 0o755 } else { 0o644 };
+						if new_mode != mode {
+							let permissions = std::fs::Permissions::from_mode(new_mode);
+							std::fs::set_permissions(&path, permissions).map_err(
+								|source| tg::error!(!source, %path = path.display(), "failed to set the permissions"),
+							)?;
+						}
 					}
 					let epoch =
 						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
