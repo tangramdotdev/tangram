@@ -9,6 +9,8 @@ use num::ToPrimitive as _;
 use rusqlite as sqlite;
 use std::{borrow::Cow, path::PathBuf, sync::Arc};
 
+pub use sqlite::Connection as RawConnection;
+
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
 	Sqlite(sqlite::Error),
@@ -24,7 +26,6 @@ pub struct DatabaseOptions {
 type Initialize = Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
 
 pub struct Database {
-	#[allow(dead_code)]
 	options: DatabaseOptions,
 	read_pool: Pool<Connection>,
 	write_pool: Pool<Connection>,
@@ -147,6 +148,17 @@ impl Database {
 	#[must_use]
 	pub fn write_pool(&self) -> &Pool<Connection> {
 		&self.write_pool
+	}
+
+	pub fn create_connection(&self, read_only: bool) -> Result<sqlite::Connection, Error> {
+		let mut flags = rusqlite::OpenFlags::default();
+		flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_CREATE);
+		if read_only {
+			flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE);
+			flags.insert(rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY);
+		}
+		let connection = sqlite::Connection::open_with_flags(&self.options.path, flags)?;
+		Ok(connection)
 	}
 }
 
