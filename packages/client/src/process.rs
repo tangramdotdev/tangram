@@ -2,7 +2,7 @@ use crate::{self as tg, handle::Ext as _, host, util::arc::Ext as _};
 use std::{
 	ops::Deref,
 	str::FromStr as _,
-	sync::{Arc, LazyLock, RwLock},
+	sync::{Arc, OnceLock, RwLock},
 };
 
 pub use self::{
@@ -49,15 +49,7 @@ pub struct Inner {
 	token: Option<String>,
 }
 
-// Global static to hold the process ID once retrieved
-static PROCESS_ID: LazyLock<Result<tg::process::Id, tg::Error>> = LazyLock::new(|| {
-	std::env::var("TANGRAM_PROCESS")
-		.map_err(|source| tg::error!(!source, "unable to locate current process ID"))
-		.and_then(|id_str| {
-			tg::process::Id::from_str(&id_str)
-				.map_err(|source| tg::error!(!source, %id_str, "could not parse process ID"))
-		})
-});
+static CACHED_PROCESS: OnceLock<tg::Result<Option<tg::Process>>> = OnceLock::new();
 
 impl Process {
 	#[must_use]
@@ -83,20 +75,12 @@ impl Process {
 	where
 		H: tg::Handle,
 	{
-		let id = match &*PROCESS_ID {
-			Ok(id) => id,
-			Err(e) => return Err(e.clone()),
-		};
-		let output = handle
-			.try_get_process(id)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "unable to look up process"))?;
-		let Some(output) = output else {
-			return Ok(None);
-		};
-		let state = tg::process::State::try_from(output.data)?;
-		let process = Self::new(id.clone(), None, Some(state), None, None);
-		Ok(Some(process))
+		if let Some(result) = CACHED_PROCESS.get() {
+			return result.clone();
+		}
+		let result = Self::get_current_process(handle).await;
+		let _ = CACHED_PROCESS.set(result.clone());
+		result
 	}
 
 	#[must_use]
@@ -428,6 +412,29 @@ impl Process {
 			.output
 			.ok_or_else(|| tg::error!(%process = process.id(), "expected the output to be set"))?;
 		Ok(output)
+	}
+
+	async fn get_current_process<H>(handle: &H) -> tg::Result<Option<Self>>
+	where
+		H: tg::Handle,
+	{
+		let id = std::env::var("TANGRAM_PROCESS")
+			.map_err(|source| tg::error!(!source, "unable to locate current process ID"))?;
+		let id = tg::process::Id::from_str(&id)
+			.map_err(|source| tg::error!(!source, %id, "could not parse process ID"))?;
+
+		let output = handle
+			.try_get_process(&id)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "unable to look up process"))?;
+
+		let Some(output) = output else {
+			return Ok(None);
+		};
+
+		let state = tg::process::State::try_from(output.data)?;
+		let process = Self::new(id, None, Some(state), None, None);
+		Ok(Some(process))
 	}
 }
 
