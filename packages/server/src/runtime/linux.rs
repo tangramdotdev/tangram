@@ -339,6 +339,9 @@ impl Runtime {
 			env.insert("OUTPUT".to_owned(), "/output/output".to_owned());
 		}
 
+		// Set `$TANGRAM_PROCESS`.
+		env.insert("TANGRAM_PROCESS".to_owned(), process.id().to_string());
+
 		// Set `$TANGRAM_URL`.
 		let url = proxy.as_ref().map_or_else(
 			|| {

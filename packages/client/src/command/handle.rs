@@ -242,6 +242,13 @@ impl Command {
 	{
 		Ok(self.object(handle).await?.map(|object| &object.mounts))
 	}
+
+	pub async fn stdin<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = Option<tg::Blob>>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object(handle).await?.map(|object| &object.stdin))
+	}
 }
 
 impl std::fmt::Display for Command {
