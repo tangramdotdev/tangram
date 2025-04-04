@@ -276,7 +276,7 @@ impl Server {
 	) -> tg::Result<Option<tg::import::ProcessComplete>> {
 		// Get a database connection.
 		let connection = self
-			.database
+			.index
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -286,7 +286,6 @@ impl Server {
 		struct Row {
 			complete: bool,
 			commands_complete: bool,
-			logs_complete: bool,
 			outputs_complete: bool,
 		}
 		let p = connection.p();
@@ -295,7 +294,6 @@ impl Server {
 				select
 					complete,
 					commands_complete,
-					logs_complete,
 					outputs_complete
 				from processes
 				where id = {p}1;
@@ -318,7 +316,7 @@ impl Server {
 			commands_complete: row.commands_complete,
 			complete: row.complete,
 			id: id.clone(),
-			logs_complete: row.logs_complete,
+			logs_complete: false,
 			outputs_complete: row.outputs_complete,
 		};
 

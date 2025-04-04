@@ -1,7 +1,6 @@
 use crate::Server;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use indoc::{formatdoc, indoc};
-use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
@@ -49,7 +48,13 @@ impl Server {
 		// Add to database.
 		match &self.database {
 			Either::Left(database) => {
-				Self::put_process_sqlite(database, id, arg, &now.format(&Rfc3339).unwrap()).await?;
+				let index = self
+					.index
+					.as_ref()
+					.left()
+					.ok_or_else(|| tg::error!("expected a sqlite database"))?;
+				Self::put_process_sqlite(database, index, id, arg, &now.format(&Rfc3339).unwrap())
+					.await?;
 			},
 			Either::Right(database) => {
 				Self::put_process_postgres(database, id, arg, &now.format(&Rfc3339).unwrap())
@@ -62,6 +67,7 @@ impl Server {
 
 	pub(crate) async fn put_process_sqlite(
 		database: &db::sqlite::Database,
+		index: &db::sqlite::Database,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 		touched_at: &str,
@@ -212,35 +218,48 @@ impl Server {
 				.try_collect::<()>()
 				.await?;
 		}
+		// Commit the transaction.
+		Arc::into_inner(transaction)
+			.unwrap()
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Drop the connection.
+		drop(connection);
+
+		// Create a database connection.
+		let mut connection = index
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a transaction"))?;
+		let transaction = Arc::new(transaction);
 
 		// Insert the objects.
 		let statement = formatdoc!(
 			"
-				insert into process_objects (process, object)
-				values (?1, ?2)
-				on conflict (process, object) do nothing;
+				insert into process_objects (process, object, kind)
+				values (?1, ?2, ?3)
+				on conflict (process, object, kind) do nothing;
 			"
 		);
-		let objects = arg
-			.data
-			.log
-			.into_iter()
-			.map_into()
-			.chain(
-				arg.data
-					.output
-					.as_ref()
-					.map(tg::value::Data::children)
-					.into_iter()
-					.flatten(),
-			)
-			.chain(std::iter::once(arg.data.command.clone().into()));
+		let objects = std::iter::once((arg.data.command.to_string(), "command")).chain(
+			arg.data.output.as_ref().into_iter().filter_map(|data| {
+				data.try_unwrap_object_ref()
+					.ok()
+					.map(|object| (object.to_string(), "output"))
+			}),
+		);
 		objects
-			.map(|object| {
+			.map(|(object, kind)| {
 				let transaction = transaction.clone();
 				let statement = statement.clone();
 				async move {
-					let params = db::params![id, object];
+					let params = db::params![id, object, kind];
 					transaction
 						.execute(statement.into(), params)
 						.await
