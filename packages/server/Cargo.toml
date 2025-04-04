@@ -14,11 +14,11 @@ version = { workspace = true }
 workspace = true
 
 [features]
-default = ["js-formatting"]
-js-formatting = [
-    "dep:biome_js_formatter",
-    "dep:biome_js_parser",
-    "dep:biome_js_syntax",
+default = ["format"]
+format = [
+  "dep:biome_js_formatter",
+  "dep:biome_js_parser",
+  "dep:biome_js_syntax",
 ]
 
 [build-dependencies]
