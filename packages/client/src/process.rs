@@ -2,7 +2,7 @@ use crate::{self as tg, handle::Ext as _, host, util::arc::Ext as _};
 use std::{
 	ops::Deref,
 	str::FromStr as _,
-	sync::{Arc, RwLock},
+	sync::{Arc, LazyLock, RwLock},
 };
 
 pub use self::{
@@ -49,6 +49,16 @@ pub struct Inner {
 	token: Option<String>,
 }
 
+// Global static to hold the process ID once retrieved
+static PROCESS_ID: LazyLock<Result<tg::process::Id, tg::Error>> = LazyLock::new(|| {
+	std::env::var("TANGRAM_PROCESS")
+		.map_err(|source| tg::error!(!source, "unable to locate current process ID"))
+		.and_then(|id_str| {
+			tg::process::Id::from_str(&id_str)
+				.map_err(|source| tg::error!(!source, %id_str, "could not parse process ID"))
+		})
+});
+
 impl Process {
 	#[must_use]
 	pub fn new(
@@ -73,19 +83,19 @@ impl Process {
 	where
 		H: tg::Handle,
 	{
-		let id = std::env::var("TANGRAM_PROCESS")
-			.map_err(|source| tg::error!(!source, "unable to locate current process ID"))?;
-		let id = tg::process::Id::from_str(&id)
-			.map_err(|source| tg::error!(!source, %id, "could not parse process ID"))?;
+		let id = match &*PROCESS_ID {
+			Ok(id) => id,
+			Err(e) => return Err(e.clone()),
+		};
 		let output = handle
-			.try_get_process(&id)
+			.try_get_process(id)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "unable to look up process"))?;
 		let Some(output) = output else {
 			return Ok(None);
 		};
 		let state = tg::process::State::try_from(output.data)?;
-		let process = Self::new(id, None, Some(state), None, None);
+		let process = Self::new(id.clone(), None, Some(state), None, None);
 		Ok(Some(process))
 	}
 
