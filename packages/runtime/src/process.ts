@@ -19,6 +19,7 @@ export class Process {
 	}
 
 	static async spawn(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Process> {
+		// TODO - mirror the client. Most processing should live in run. This fn should not even be variadic?
 		let arg = await Process.arg(...args);
 		let checksum = arg.checksum;
 		let mounts: Array<tg.Process.Mount> = [];
