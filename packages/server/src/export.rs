@@ -750,7 +750,7 @@ impl Server {
 		let export_task = tokio::task::spawn_blocking({
 			let server = self.clone();
 			let arg = arg.clone();
-			move || server.export_sync_inner(arg, import_receiver, export_sender)
+			move || server.export_sync_inner(&arg, import_receiver, export_sender)
 		});
 
 		// Create the stream
@@ -762,7 +762,7 @@ impl Server {
 
 	fn export_sync_inner(
 		self,
-		arg: tg::export::Arg,
+		arg: &tg::export::Arg,
 		import_receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
 		export_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<()> {
@@ -800,7 +800,7 @@ impl Server {
 		for item in &arg.items {
 			let result = match item {
 				Either::Left(process) => {
-					Self::export_sync_inner_process(&arg, None, process, &mut state).map(|_| ())
+					Self::export_sync_inner_process(arg, None, process, &mut state).map(|_| ())
 				},
 				Either::Right(object) => {
 					Self::export_sync_inner_object(None, object, &mut state).map(|_| ())
@@ -1689,8 +1689,6 @@ impl ExportSyncState {
 					commands_count,
 					commands_weight,
 					count,
-					logs_count,
-					logs_weight,
 					outputs_count,
 					outputs_weight
 				from processes
@@ -1698,7 +1696,7 @@ impl ExportSyncState {
 			"
 		);
 		let mut statement = self
-			.database
+			.index
 			.prepare_cached(&statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
@@ -1716,25 +1714,25 @@ impl ExportSyncState {
 		let count = row
 			.get::<_, Option<u64>>(2)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let logs_count = row
+		// // let logs_count = row
+		// // 	.get::<_, Option<u64>>(3)
+		// // 	.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		// // let logs_weight = row
+		// // 	.get::<_, Option<u64>>(4)
+		// // 	.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let outputs_count = row
 			.get::<_, Option<u64>>(3)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let logs_weight = row
-			.get::<_, Option<u64>>(4)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let outputs_count = row
-			.get::<_, Option<u64>>(5)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let outputs_weight = row
-			.get::<_, Option<u64>>(6)
+			.get::<_, Option<u64>>(4)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		Ok(tg::export::ProcessComplete {
 			commands_count,
 			commands_weight,
 			count,
 			id: id.clone(),
-			logs_count,
-			logs_weight,
+			logs_count: None,
+			logs_weight: None,
 			outputs_count,
 			outputs_weight,
 		})
@@ -1742,6 +1740,7 @@ impl ExportSyncState {
 
 	fn get_object_bytes(&mut self, id: &tg::object::Id) -> tg::Result<Bytes> {
 		// Try to get the bytes from the store directly.
+		#[allow(clippy::match_wildcard_for_single_variants)]
 		match &self.server.store {
 			crate::store::Store::Lmdb(lmdb) => {
 				let transaction = lmdb
@@ -1772,6 +1771,7 @@ impl ExportSyncState {
 
 	fn get_cached_object_bytes(&mut self, id: &tg::object::Id) -> tg::Result<Bytes> {
 		// Try to get the reference from the store.
+		#[allow(clippy::match_wildcard_for_single_variants)]
 		let reference = match &self.server.store {
 			crate::store::Store::Lmdb(lmdb) => {
 				let transaction = lmdb
