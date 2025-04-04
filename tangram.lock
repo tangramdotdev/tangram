@@ -5,11 +5,2560 @@
       "entries": {
         "tangram.ts": 1
       },
-      "id": "dir_014r97ndvjbk8968xkb50ftvtc9kxwv5ng29enaahpq0bdx1v2xdmg"
+      "id": "dir_01jp69h159s8e2stvvm552kkqzc3e2ragyw2d14k00hqx3edq6exj0"
     },
     {
       "kind": "file",
-      "id": "fil_01mx4qse40crmv7emn242096c4y13drc18n288qm0p6z9hb1we4se0"
+      "contents": "blb_01ptan68y962xmvkzbppngtd2xyr0x3v3sgg12gnw4jcxa94ff9ntg",
+      "dependencies": {
+        ".": {
+          "item": 0
+        },
+        "bun?path=..%2Fpackages%2Fpackages%2Fbun": {
+          "item": 2,
+          "subpath": "tangram.ts"
+        },
+        "rust?path=..%2Fpackages%2Fpackages%2Frust": {
+          "item": 96,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fpackages%2Fpackages%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01ja5tksyqgc6z60dwc2r4kvzkp1cfw7y9f7b3zgg0es5nhjw6906g"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 3
+      },
+      "id": "dir_014h3rgeyydg3e5hw1e15m307fyr0naesnfmnc9cm54at0n9qm3800"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01w3n4753qt91sjr4da9wwe9t7x0pc0x0qftysk3v10167mpwm0esg"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "args.tg.ts": 5,
+        "assert.tg.ts": 6,
+        "autotools": 7,
+        "autotools.tg.ts": 17,
+        "bootstrap": 18,
+        "bootstrap.tg.ts": 22,
+        "certificates.tg.ts": 23,
+        "command.tg.ts": 24,
+        "directory.tg.ts": 25,
+        "download.tg.ts": 26,
+        "env.tg.ts": 27,
+        "file.tg.ts": 28,
+        "image": 29,
+        "image.tg.ts": 31,
+        "patch.tg.ts": 32,
+        "phases.tg.ts": 33,
+        "sdk": 34,
+        "sdk.tg.ts": 71,
+        "tangram.ts": 72,
+        "triple.tg.ts": 73,
+        "utils": 74,
+        "utils.tg.ts": 91,
+        "wrap": 92,
+        "wrap.tg.ts": 95
+      },
+      "id": "dir_016ccz5ge0eare9esyb7dk5cp46tenptq039x39pc5x38yb09fyka0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_015yhyfq2xsxbvn7839wvy6hyyz6sbtgkx61jy74g4h8h6apwrac6g",
+      "dependencies": {
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01w7x3rj6k6qyw3pw22tv4aexjv6w9cc1b1hy396bt1mh1c1hd9k1g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01jxe1y7vz67w8bbp0rn44t6bjb31333na1bcsffs2bwjmndc61q00",
+      "dependencies": {
+        "./command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./wrap.tg.ts": {
+          "item": 4,
+          "subpath": "wrap.tg.ts"
+        }
+      },
+      "id": "fil_015cggpzws4vazd9fj8b37nqjvga601q61x3tt70vd2a9r6f0k12jg"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "autoconf.tg.ts": 8,
+        "automake.tg.ts": 9,
+        "gettext.tg.ts": 10,
+        "help2man.tg.ts": 11,
+        "libtool.tg.ts": 12,
+        "m4.tg.ts": 13,
+        "perl.tg.ts": 14,
+        "pkgconf.tg.ts": 15,
+        "texinfo.tg.ts": 16
+      },
+      "id": "dir_012rfcgge25bzz4j2gga0q194tvaf02etmmajypt5kwmn8h01r625g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_013ffk64zz1hc7bcn73ywn9jnwt3t2yg1f63rxb7715w43f440qp6g",
+      "dependencies": {
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01zv6h2ww8c445yx7m5rq0znpd0xvxx6e4vd1beb63f1hyv24vhr7g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01gzyvv1kde6bpd6a0r2v6sxytmkqkx11qsevdaaj9vs5n72q292v0",
+      "dependencies": {
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_019nhnfktk0ma2533z27sjz314v252r7xc23pq74dzhh3bwvfg2w80"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01pw6ehwyxk266qzewfgw4jq2stn60642qpvs5cw3e9a5k8d8jyj40",
+      "dependencies": {
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_0159cerk53bd6yhh5xm825mmdxb0528v288h6y5tfayax9pp5da4ng"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01y763r5y8e3j4m2576gf58z5h32f393anmcdjkr50rtrhvw3naeg0",
+      "dependencies": {
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_011z0yd0ky0hqb76xnpvf6dbgphsdmvag1kdzh5gx8n12tpwbe3kxg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_0189vabwws2z9f1vftkby006f97vee4vpnfhsw4zcm0gfh30ak9gcg",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01stw9dehmktgd7k7nhgfpv125e7ef0sy7wfnaan9kryctvn1bq7h0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_0120z7s2fzn7gqwqehx0vwe0n49eazwh8w6r2dr10xg2rcff07qk8g",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01z2s8at23326gabghpcg9dpqzddpxf4epx8r5kjvw34ex962a9hpg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_0161k8k4vwpavdnhed5wsa64059yj4v9caqnq11xz0nw7yxszryzqg",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./perl_macos_version.patch": {
+          "item": 4,
+          "subpath": "autotools/perl_macos_version.patch"
+        },
+        "./perl_no_fix_deps.patch": {
+          "item": 4,
+          "subpath": "autotools/perl_no_fix_deps.patch"
+        }
+      },
+      "id": "fil_01ngnvpfqgg7a15m9sdae2en78vsd6ww0qjm0aq31chd54ch286vs0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01mygn2z2a7bjq0zny0wbrrqgd0w697h24f674kk07xekbk59fb15g",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01e021qczj8f17zpnvtceqkkzq4ns4k7xvx23rjwceeg3y68wb49ng"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01p63nt5z3q1pttkf596rd8xgwf7z62c4fc5c2ebpq3dczwxem6rkg",
+      "dependencies": {
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01an9vza14d7mfcb2wfxn472yaxyhc6btns84079syd28k15z8czeg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01k36fr2sgajzn743xg411agmegnhhjbh6xkepjnya841ve7d6g7bg",
+      "dependencies": {
+        "./sdk/dependencies.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01z24x280xj3c0yhrgv90r8bk9pznrda5bmf0r694xhd0exb0pj7ag"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "make.tg.ts": 19,
+        "musl.tg.ts": 20,
+        "sdk.tg.ts": 21
+      },
+      "id": "dir_01y6yabg1t3sch34x5czcjt4365ndff7e8t96bey3cank9eayc2gd0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01mp8c26c47v8v5fxv5rtr35259fk4q08zpzv3chvcfzm5f3rkd5r0",
+      "dependencies": {
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./sdk.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap/sdk.tg.ts"
+        }
+      },
+      "id": "fil_01arnfdyb5x769gve2y0t74jnhtj4a505e4qn172rnkfaxdexg5t5g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_015r6ewrwd23zpdxwzyaqmb18khwz0wfa8cgrazg2ttk136a22v0mg",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./musl_permission.patch": {
+          "item": 4,
+          "subpath": "bootstrap/musl_permission.patch"
+        }
+      },
+      "id": "fil_01h49dxbbre4nmj6fc8fc1j1zss4wng87mhtqq8am0y3ga5ty3mad0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01xvm4qz8j017d6gptv9grggf4v3e25bg9aq71pmy957ak3m7c3bmg",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01sqt6a6jxdhrqpqp409h8g4n8c17apyyrxyrc9twjwwvrkn86y47g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01kv5q0wt6z6017ev9cvwej6w38mpvv17mnqan40j3rd3nppzqdzv0",
+      "dependencies": {
+        "./bootstrap/make.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap/make.tg.ts"
+        },
+        "./bootstrap/musl.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap/musl.tg.ts"
+        },
+        "./bootstrap/sdk.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap/sdk.tg.ts"
+        },
+        "./command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01jsn3fp5x13k6g63hd8ps9dw2y8b5sgsmzwkxpcvq6tkgtysjqdz0"
+    },
+    {
+      "kind": "file",
+      "id": "fil_011s6e6hrswbn3tpxa9r5y4rn1w8nb5pqqpqdcyg27rsmf36yx1ejg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01jktang38j3y0krb85s5gt3dym0payqeerwa1pc3kvsrjgfzec7hg",
+      "dependencies": {
+        "./bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_017nwhz01xp8680dbm1gvsvq16ddtgmqr2vx60n35h6j22v4t0r520"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01m0gqx668gccaeesr7y8rs8ndcd8929aqs1hvjyxmd6md9vspyv9g",
+      "dependencies": {
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01k4cmj23p09d3rhcd23ygt3xnm319kj1gjcsag4xrn4hj0zgjdtfg"
+    },
+    {
+      "kind": "file",
+      "id": "fil_01s6dph4kmqrzyqdcwvfehn1baajt4rpg0qez3yr3h3tzb1cx29fng"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_012hnr5df5wrs4ebghcc1bdz2vw5a9ervgzx1g7hp62tt1c12rte90",
+      "dependencies": {
+        "./bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./utils/coreutils.tg.ts": {
+          "item": 4,
+          "subpath": "utils/coreutils.tg.ts"
+        },
+        "./wrap.tg.ts": {
+          "item": 4,
+          "subpath": "wrap.tg.ts"
+        }
+      },
+      "id": "fil_01qcaeztnngn0phc2e60avat3kxm114gea9y8a2kdnjvbv2a84fhb0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01rzwfpk74hh8xc6wjp5h2zap5330aehwx37ps93x6gwv3czjpt4k0",
+      "dependencies": {
+        "./bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "./command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01xahzbek9rtxpb6wn8zb4a6nw27hys6efbxh65cjr5vy9tstzrrrg"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "container.tg.ts": 30
+      },
+      "id": "dir_0197msg70xf0f3nxdyt6ayjg0h0d239s1q6yshyqe5wezgjsaxmqsg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_015a9zrdhk9m27fj80t0wtdt2eyck9h53qbw6crsx97c8h68nkwvj0",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "../sdk/dependencies/zstd.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/zstd.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01rcnx97k1rzvpk14rd00n6q5pkdxvezx46w81h44vsfc9fp4zf7vg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01jb87jbs30jxp3cdfddq97r682ggg52p9epne8ejg377d0v66fcz0",
+      "dependencies": {
+        "./bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "./image/container.tg.ts": {
+          "item": 4,
+          "subpath": "image/container.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01642x93ts7wg746c5jm4jw4j4qeksn2xsra8jce3w5fa3ccvj9k8g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01q7k4dj4r74vypxyh49rhwqshtss03yp0cv04ntf6xx6n4fe6tb9g",
+      "dependencies": {
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01y7vj9t5zbjdf7t3qhdxz1nh5a9heyw5gxf1hyt608cpv8bmhme0g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01egryqfc20ck3k879g0jyybhfswwwn7me3t394j0prfjvrt8vrx70",
+      "dependencies": {
+        "./command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_017ysveg6g6bqh765nq91g4h8hf2qf6rtg65ncxenwa5fqqm1f2vk0"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "cmake.tg.ts": 35,
+        "dependencies": 36,
+        "dependencies.tg.ts": 47,
+        "gnu": 48,
+        "gnu.tg.ts": 52,
+        "kernel_headers.tg.ts": 53,
+        "libc": 54,
+        "libc.tg.ts": 57,
+        "llvm": 58,
+        "llvm.tg.ts": 67,
+        "mold.tg.ts": 68,
+        "ninja.tg.ts": 69,
+        "proxy.tg.ts": 70
+      },
+      "id": "dir_01s3sqj3nt00f74pkw2wkshx20y7efj6vg8rb317bwgbsxgw9ymdr0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_017jfr9hs7fbbchqfzh41gs5zc26rp3mz8rqx7qnsn5f8keb54za5g",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./ninja.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/ninja.tg.ts"
+        }
+      },
+      "id": "fil_01ccptnf028nhtwzmmnvz5fzp2k378d11pwyqrddzy6xg8a1h5ev3g"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "bison.tg.ts": 37,
+        "flex.tg.ts": 38,
+        "gmp.tg.ts": 39,
+        "isl.tg.ts": 40,
+        "libxcrypt.tg.ts": 41,
+        "mpc.tg.ts": 42,
+        "mpfr.tg.ts": 43,
+        "python.tg.ts": 44,
+        "zlib.tg.ts": 45,
+        "zstd.tg.ts": 46
+      },
+      "id": "dir_01xb6rxs6mdzdhd40v5h16tv9ct5pm1f20cbayejvcn73sk6zfc2eg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01w08w5m6dcy5s2svxgjyw7gt1y08brygg7aq5tyg3p1wj7at9r5c0",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01hfjhj5fg0gqve3b4sdhncz77ty1aw65aga8m0en779tr9afzs15g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01exq8cqgyhj8frfqvtgmvsttrzwg7xdy1btqbw84e5wyt0v9js6n0",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01q6am8kxwtj01xpddshe69pfv5fapwshar4wkzvj3e7afx3hc0j9g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01td2atefa7mc4v1zs4hkv0p8ex765sgv863eeh6rrnv13wa36e0hg",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01jv2tembkkzshxn25zs57q6y2xvkqgq60y52122pf4ete6bd39660"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_011and0hgk35y5vdfej0s58rgw4k39beda0yxj2cq7cpy3y2mvms6g",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01x9kaxvdvc6z3qxk5tt6kz8aq955m8mr9wkrjpcze6z6cgf4g6n00"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01n07rgtfm7szqm35cvjynw09y0t7jh03hwz37jckgg6vcakkxa6dg",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01gnk4f1tdh30z9zg1b6kwyr27jnfnpk4h5888vnmwmywt3brnb4wg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_0191wr49qjqbc33wnc2k1pazbkx3c9j39ry66f44btymmprd618erg",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01xnntk48a7xzgja0smzb99q0yygsgzkj7zge6bwfe622t3xqc41rg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01jdeqcgmxmnw5ssre1hjs20qtd014zphm9g1pds5bnv6yyjbeshx0",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01zdtg8wnp1tesn9md7c7r1t993xm79kchzv3dyrmd1twsgr4xf7c0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01j2f73hfzj45rqrgw1gqm58386tn53cnnrr1pwpq07wq006d22130",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_014x0n27ghmtg6156gf7tepecw95f2gxxs2p5ny6y7yrpnqfqe3nr0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01n1ssexf69cctvnyc6tgpjw4zm02v624ndbh5z8k0gkcea4tpaz3g",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_011e92kvx0h1ps5grd7y6aw4cs82t5w8cvyy5xtgzat6csnwr6161g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01xrqanztfatx9avp5bb60qzssptk17ac5z7t5ya8ty9cg3krgcw40",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01dssnaakt2m1ge0p062j07webtvsf1xzkpejfmvtmq2p6c8jm179g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_0172h2j8ejq8whsm87w2cd6ae5wegjhksd1aw161dz92pq8aayk3kg",
+      "dependencies": {
+        "../autotools/autoconf.tg.ts": {
+          "item": 4,
+          "subpath": "autotools/autoconf.tg.ts"
+        },
+        "../autotools/automake.tg.ts": {
+          "item": 4,
+          "subpath": "autotools/automake.tg.ts"
+        },
+        "../autotools/gettext.tg.ts": {
+          "item": 4,
+          "subpath": "autotools/gettext.tg.ts"
+        },
+        "../autotools/help2man.tg.ts": {
+          "item": 4,
+          "subpath": "autotools/help2man.tg.ts"
+        },
+        "../autotools/libtool.tg.ts": {
+          "item": 4,
+          "subpath": "autotools/libtool.tg.ts"
+        },
+        "../autotools/m4.tg.ts": {
+          "item": 4,
+          "subpath": "autotools/m4.tg.ts"
+        },
+        "../autotools/perl.tg.ts": {
+          "item": 4,
+          "subpath": "autotools/perl.tg.ts"
+        },
+        "../autotools/pkgconf.tg.ts": {
+          "item": 4,
+          "subpath": "autotools/pkgconf.tg.ts"
+        },
+        "../autotools/texinfo.tg.ts": {
+          "item": 4,
+          "subpath": "autotools/texinfo.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils/grep.tg.ts": {
+          "item": 4,
+          "subpath": "utils/grep.tg.ts"
+        },
+        "../utils/libiconv.tg.ts": {
+          "item": 4,
+          "subpath": "utils/libiconv.tg.ts"
+        },
+        "../utils/sed.tg.ts": {
+          "item": 4,
+          "subpath": "utils/sed.tg.ts"
+        },
+        "./dependencies/bison.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/bison.tg.ts"
+        },
+        "./dependencies/flex.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/flex.tg.ts"
+        },
+        "./dependencies/gmp.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/gmp.tg.ts"
+        },
+        "./dependencies/isl.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/isl.tg.ts"
+        },
+        "./dependencies/libxcrypt.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/libxcrypt.tg.ts"
+        },
+        "./dependencies/mpc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/mpc.tg.ts"
+        },
+        "./dependencies/mpfr.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/mpfr.tg.ts"
+        },
+        "./dependencies/python.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/python.tg.ts"
+        },
+        "./dependencies/zlib.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/zlib.tg.ts"
+        },
+        "./dependencies/zstd.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/zstd.tg.ts"
+        }
+      },
+      "id": "fil_01de7kmbav2fm420patr9z4rkz9m6az630q8f8xm0bzbwh9qxtf810"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "binutils.tg.ts": 49,
+        "gcc.tg.ts": 50,
+        "toolchain.tg.ts": 51
+      },
+      "id": "dir_01e81fkvrbq0y6tt1h4ez2s8fw1z95f7qah997c53rssxws1p3rmzg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01bp996mkzye67hrj3jvnnnzb3ptab944pdenws5jncv2s1c0kf08g",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01txr4gbsmeecfchnkk8pekekn6vzacxatet2hy7gxbrb4see5jzj0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01z19k4jjg2dbbdsp5ngj5nesg2230rf976djfw7mbrqyx3sdxk3g0",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "../../sdk.tg.ts": {
+          "item": 4,
+          "subpath": "sdk.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../dependencies.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies.tg.ts"
+        },
+        "../libc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/libc.tg.ts"
+        },
+        "../libc/glibc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/libc/glibc.tg.ts"
+        }
+      },
+      "id": "fil_01fzf0974jjbj7wdy9wepgpzg35fvqhkkv23dzfpvsj0zkmbdnhh40"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_016bm247t0chhb39dgxr9kpvh44cb964srptqg4xtajc9rkany25kg",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../dependencies.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies.tg.ts"
+        },
+        "../kernel_headers.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/kernel_headers.tg.ts"
+        },
+        "../libc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/libc.tg.ts"
+        },
+        "../proxy.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/proxy.tg.ts"
+        },
+        "./binutils.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu/binutils.tg.ts"
+        },
+        "./gcc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu/gcc.tg.ts"
+        }
+      },
+      "id": "fil_01tkn62tn38gkgv7e6cck286nq7w9expkd6s8whrbbecpf5mfw0bq0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01ezq7gh9k1hxbjzmwc9mmqnd7bq1w4z407peqhve3pdh974ez56t0",
+      "dependencies": {
+        "./gnu/binutils.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu/binutils.tg.ts"
+        },
+        "./gnu/gcc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu/gcc.tg.ts"
+        },
+        "./gnu/toolchain.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu/toolchain.tg.ts"
+        }
+      },
+      "id": "fil_01jetwj82d1zq4zwc7jz2tsxsbpv0eew1easxj2nevzyw61r32rzn0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01m5b5rdch592q53fxemm0mrmvqr0qmcsn4av9jj6hb1692vjjs4b0",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_0126j4dj4s9gxkfy62nn3x29tj6raahpsjhkxy3c7nkzx8rjrt01g0"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "glibc.tg.ts": 55,
+        "musl.tg.ts": 56
+      },
+      "id": "dir_01jy46gp39p5513j5264es769raw3zm2m58yzcdvkx9nb11b0n874g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01v6erw6tcrsfzgfjrwbx122dcmhecknxytqz57jrfyab12cn91jw0",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01hm7ctsfmyhh7m0ee2bn90jems2ytyttdh8p35ckmdya61mbnvf7g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01e3bcyw7xcm6gfbnp930rgzgvf8xpxdvhp62xknty9b3s3hn0yws0",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./musl_permission.patch": {
+          "item": 4,
+          "subpath": "sdk/libc/musl_permission.patch"
+        }
+      },
+      "id": "fil_011d6tf0hr4zf0ka6qyr06dr9025rrak2qsaxrzqp8zx9fgr9ttsag"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01ewnx0a3e4xad1ttv191gvcn43bvmnf18zr7hthf1e0h3pmtqyrfg",
+      "dependencies": {
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./kernel_headers.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/kernel_headers.tg.ts"
+        },
+        "./libc/glibc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/libc/glibc.tg.ts"
+        },
+        "./libc/musl.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/libc/musl.tg.ts"
+        }
+      },
+      "id": "fil_01s51exdkdxx16krp7a62tb5te8c3bmtxxccd7zemktawgnd5cdez0"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "apple_libdispatch.tg.ts": 59,
+        "apple_libtapi.tg.ts": 60,
+        "cctools_port.tg.ts": 61,
+        "git.tg.ts": 62,
+        "libbsd.tg.ts": 63,
+        "libmd.tg.ts": 64,
+        "ncurses.tg.ts": 65,
+        "systemtap-sdt.tg.ts": 66
+      },
+      "id": "dir_017j04mfzbf2ptn1hspdmx0k6cbs1zj2c1qgdfm0c8x2g98ve6d7jg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01tkxw1akd0hyb270yzrvnjjp2dbdcxp0ng81p9hbdn60gxstpkz70",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../cmake.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/cmake.tg.ts"
+        },
+        "./libbsd.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/libbsd.tg.ts"
+        }
+      },
+      "id": "fil_012rj0y0m5e9ke7q3q7kxph85fdq4dk7gws2j9smccxea2a0wc9ck0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01xgwg8s7yqqaxf5e9mafr53q1tfw0aed60xp5pmr4qs3rrffde0c0",
+      "dependencies": {
+        "../../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../cmake.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/cmake.tg.ts"
+        },
+        "../dependencies.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies.tg.ts"
+        },
+        "../ninja.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/ninja.tg.ts"
+        }
+      },
+      "id": "fil_0176pq9q1mm4fvrtfby1nh6a70pxwrxrmdej72y8z4jzj5rjqh7zd0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01zje7gvxpvxxe2ds3rk1rcspjj902bc8xzzv7p53b7q0qr729hxh0",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./apple_libdispatch.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/apple_libdispatch.tg.ts"
+        },
+        "./apple_libtapi.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/apple_libtapi.tg.ts"
+        }
+      },
+      "id": "fil_01xrv64gjqn07tp9mmaw5nyw52gf4v25nc634w4a2ghcdgv0anjzb0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01syyc6ctcv8ecbs6tcrggr2h585qcaxe418zd3xwgcdqqw0355zdg",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../dependencies/zlib.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/zlib.tg.ts"
+        }
+      },
+      "id": "fil_01w70cmnh82kn4sj0dge0nb9e58kmb16w8h6vg15eeefxapne4z8eg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01x4c6hwp64tz3msj76x5pjg5m5kb695jd1c2km028s9xw8nxen0z0",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./libmd.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/libmd.tg.ts"
+        }
+      },
+      "id": "fil_0106xpm1bvj0m51161ez71wn8pctn9hfd5nvs1jkqeenrr6v13gy40"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01f21jyayr4dxbwfcrndstgzv9gascve4dqkw4xzgd48pmmmpzkpwg",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01w681n9zpv99ejb2kbka4psrgc2pnm7a6mqyj1y115xebegapjkr0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01nb5a400xtsz1q307c90zmwd37kwjkf7pzxe7hhv9jknjhfbnrbp0",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_017jv3a881mk4688phpjmxs5ytfreqcvqyzasxvzvksaf7mr8607yg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01gbpvmqy2tn8z70e6a2j9f73k50bjbj8ezysq9brd75qs2dx36bbg",
+      "dependencies": {
+        "../../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_0155ewzn2c3vnfx9xbwq8td37r2gfapmz59s71rnr1t18yknhhz4a0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01ht99gkhpry37dkz9edk88vs4hx9v0jdnnqr9kqv9w33anfb5fpw0",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../wrap/test/inspectProcess.c": {
+          "item": 4,
+          "subpath": "wrap/test/inspectProcess.c"
+        },
+        "./cmake.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/cmake.tg.ts"
+        },
+        "./dependencies.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies.tg.ts"
+        },
+        "./libc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/libc.tg.ts"
+        },
+        "./llvm/apple_libdispatch.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/apple_libdispatch.tg.ts"
+        },
+        "./llvm/apple_libtapi.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/apple_libtapi.tg.ts"
+        },
+        "./llvm/cctools_port.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/cctools_port.tg.ts"
+        },
+        "./llvm/cmake": {
+          "item": 4,
+          "subpath": "sdk/llvm/cmake"
+        },
+        "./llvm/git.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/git.tg.ts"
+        },
+        "./llvm/libbsd.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/libbsd.tg.ts"
+        },
+        "./llvm/libmd.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/libmd.tg.ts"
+        },
+        "./llvm/ncurses.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm/ncurses.tg.ts"
+        }
+      },
+      "id": "fil_01c4sf8jkqxw49d9yctj3p4wr7k8xtdnkr2m92pjcd79s1nz2h0h3g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01ksemsd5hn5szdbr60ypx77qbe0pqmp24zg4wy0ag6wqhndqcf5ag",
+      "dependencies": {
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./cmake.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/cmake.tg.ts"
+        },
+        "./dependencies/zstd.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies/zstd.tg.ts"
+        },
+        "./mold_blake3_disable_neon_flag.patch": {
+          "item": 4,
+          "subpath": "sdk/mold_blake3_disable_neon_flag.patch"
+        }
+      },
+      "id": "fil_01mqj5sfjar3jjvhk5kt84jgn6h0z4th7hxn8pf4d9efhfdg9mtk30"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01gw2cfg15t1gzyqmrra4w8e429x8qa02bezcswrxe79cy1capbbzg",
+      "dependencies": {
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./cmake.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/cmake.tg.ts"
+        }
+      },
+      "id": "fil_0124yva6k7awbhjnthh6ykjz1twp3ymhwwg5x768h0hpedmjdk2g00"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01grdpmh2240rf6zy59hmd8cbxhgqk9vjevqegxtv6q7wk646sc3ag",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../wrap/injection.tg.ts": {
+          "item": 4,
+          "subpath": "wrap/injection.tg.ts"
+        },
+        "../wrap/test/inspectProcess.c": {
+          "item": 4,
+          "subpath": "wrap/test/inspectProcess.c"
+        },
+        "../wrap/workspace.tg.ts": {
+          "item": 4,
+          "subpath": "wrap/workspace.tg.ts"
+        },
+        "./gnu.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu.tg.ts"
+        },
+        "./llvm.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm.tg.ts"
+        }
+      },
+      "id": "fil_01gjsh9mavbmycgs2ya9x3qb673exx49byxfsedfycngqp08cnxrh0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_0147p3dxrgd0wpcvjfdshhjr8gapg29n0bzfctyn9yzfbpgn71df3g",
+      "dependencies": {
+        "./bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "./command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "./sdk/cmake.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/cmake.tg.ts"
+        },
+        "./sdk/dependencies.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/dependencies.tg.ts"
+        },
+        "./sdk/gnu.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu.tg.ts"
+        },
+        "./sdk/gnu/binutils.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu/binutils.tg.ts"
+        },
+        "./sdk/kernel_headers.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/kernel_headers.tg.ts"
+        },
+        "./sdk/libc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/libc.tg.ts"
+        },
+        "./sdk/llvm.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/llvm.tg.ts"
+        },
+        "./sdk/mold.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/mold.tg.ts"
+        },
+        "./sdk/ninja.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/ninja.tg.ts"
+        },
+        "./sdk/proxy.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/proxy.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01zsv56j92ehx0wx8jkybrqggnnyvb4kzsqa3bzwfwvwcey8sdnqqg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01yhwbg39wvqbp7yn2sg8hq388fbmf11g1xk1p6kya7k05f1112qx0",
+      "dependencies": {
+        "./args.tg.ts": {
+          "item": 4,
+          "subpath": "args.tg.ts"
+        },
+        "./assert.tg.ts": {
+          "item": 4,
+          "subpath": "assert.tg.ts"
+        },
+        "./autotools.tg.ts": {
+          "item": 4,
+          "subpath": "autotools.tg.ts"
+        },
+        "./bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "./certificates.tg.ts": {
+          "item": 4,
+          "subpath": "certificates.tg.ts"
+        },
+        "./command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "./directory.tg.ts": {
+          "item": 4,
+          "subpath": "directory.tg.ts"
+        },
+        "./download.tg.ts": {
+          "item": 4,
+          "subpath": "download.tg.ts"
+        },
+        "./env.tg.ts": {
+          "item": 4,
+          "subpath": "env.tg.ts"
+        },
+        "./file.tg.ts": {
+          "item": 4,
+          "subpath": "file.tg.ts"
+        },
+        "./image.tg.ts": {
+          "item": 4,
+          "subpath": "image.tg.ts"
+        },
+        "./patch.tg.ts": {
+          "item": 4,
+          "subpath": "patch.tg.ts"
+        },
+        "./phases.tg.ts": {
+          "item": 4,
+          "subpath": "phases.tg.ts"
+        },
+        "./sdk.tg.ts": {
+          "item": 4,
+          "subpath": "sdk.tg.ts"
+        },
+        "./sdk/proxy.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/proxy.tg.ts"
+        },
+        "./triple.tg.ts": {
+          "item": 4,
+          "subpath": "triple.tg.ts"
+        },
+        "./utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./wrap.tg.ts": {
+          "item": 4,
+          "subpath": "wrap.tg.ts"
+        },
+        "./wrap/injection.tg.ts": {
+          "item": 4,
+          "subpath": "wrap/injection.tg.ts"
+        },
+        "./wrap/workspace.tg.ts": {
+          "item": 4,
+          "subpath": "wrap/workspace.tg.ts"
+        }
+      },
+      "id": "fil_015bp3bhxmdm34ymy46abrejfa6zaym4m9rdt8q2bhqghvbv42m7d0"
+    },
+    {
+      "kind": "file",
+      "id": "fil_01xg2s3s1b2knycgwn7mxc64g156knmhssj50nbyjd4b9413vttn00"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "attr.tg.ts": 75,
+        "bash.tg.ts": 76,
+        "bzip2.tg.ts": 77,
+        "coreutils.tg.ts": 78,
+        "diffutils.tg.ts": 79,
+        "file_cmds.tg.ts": 80,
+        "findutils.tg.ts": 81,
+        "gawk.tg.ts": 82,
+        "grep.tg.ts": 83,
+        "gzip.tg.ts": 84,
+        "libiconv.tg.ts": 85,
+        "make.tg.ts": 86,
+        "patch.tg.ts": 87,
+        "sed.tg.ts": 88,
+        "tar.tg.ts": 89,
+        "xz.tg.ts": 90
+      },
+      "id": "dir_0179t6hqc2ravh76de6mr30tx96x8heph974dmps49vdsfkt3qk3zg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01tnj3tmq7k191aq0jfbk1rwk6ja21fw69sws78vnn1a4ytbpmwkfg",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./attr_basename.patch": {
+          "item": 4,
+          "subpath": "utils/attr_basename.patch"
+        }
+      },
+      "id": "fil_01zencm64arg5m3gkbk8wggn65mr4fbmyakr1b6kne3k3fz2zx9bwg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01anjj07pabv35mbv4hhwb5pyz05apy8ytnkshhw3d3xqd5m1wxvt0",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./bash-use-guarded-gettext-header.patch": {
+          "item": 4,
+          "subpath": "utils/bash-use-guarded-gettext-header.patch"
+        }
+      },
+      "id": "fil_01htnfm1xz3mrwk4k8ve7b2rb1qvy585nj2q44q4zpn0nx8v20b13g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01t0xfxr15rh0nh5cn0ynhwrz0h0aa7ae7xct9nj5h5jf1c4er85n0",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./bzip2_dylib_detect_os.patch": {
+          "item": 4,
+          "subpath": "utils/bzip2_dylib_detect_os.patch"
+        }
+      },
+      "id": "fil_01yyh62560r550wnhdqsd53d85esaxfsrr1sryanpm2jyxz8sybgng"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_0187rvhebxxnyzshcvr0d35phe1vwmapan80ywhk6nwqn3ghjq75m0",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./attr.tg.ts": {
+          "item": 4,
+          "subpath": "utils/attr.tg.ts"
+        },
+        "./coreutils-always-preserve-xattrs.patch": {
+          "item": 4,
+          "subpath": "utils/coreutils-always-preserve-xattrs.patch"
+        },
+        "./file_cmds.tg.ts": {
+          "item": 4,
+          "subpath": "utils/file_cmds.tg.ts"
+        },
+        "./libiconv.tg.ts": {
+          "item": 4,
+          "subpath": "utils/libiconv.tg.ts"
+        }
+      },
+      "id": "fil_01jja7h1f7bs11n92f6kqe2n4nwzsn03ajm6dhd6c7m4c4hypyq48g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_018g8ww2bzw0xv55b4v7bsakec22qapbcb5sg42mnk6xptbk3pbkzg",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        }
+      },
+      "id": "fil_01w4g8w57khhr3g58pbcrpk82qaemr8axhy5gf8a7fqc6k0dc3m90g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01rnvj52ps0d3nnv744m250nd82y005qxqxxxk1dt7npfrjzdw8t6g",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01nnp87sc5zvkf2x1a68rgz9evdyt9tn7e47aap356s1gk2n0z31gg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_015895m1gtn90e06j0ez2qxgjbc6k7472ddy7bvv4xp4c4jxtcs560",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./findutils-disable-locate.diff": {
+          "item": 4,
+          "subpath": "utils/findutils-disable-locate.diff"
+        }
+      },
+      "id": "fil_01fwgncpz3m96g8s6cpst62pbtjtfxdgcph41etwz2x6qgnx5cq06g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01yxe5vd1rnyt1tygp7ekvpk4qxfdmexdbr9nsf2tc93bz4146k5ng",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        }
+      },
+      "id": "fil_01ph14hcgrtjeh7xkz6t5ym4h6xmkwfavhjv83jvhk9wp9pcsnjedg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01gwvmncbjgdnnh1wccr8cv4m7e4r5s7ymr073rq87jd218xezg45g",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        }
+      },
+      "id": "fil_01fsxb2ma3r8strke2jw92tvq2ahzpdedrzrd79k0gs6p8fm268sr0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_011aam45c2bk4h1vhzs6e9y53qveg10bs5x2bn67g2r4krwgg4zrmg",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        }
+      },
+      "id": "fil_01ykpmhmyfnktqckckt26b5980tgx8r7609nrh3xbne317axtba84g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01x9rmymzcnrtm1rgjvzwexjymcktspg7tnbmb0z9ahgd77g02ge2g",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        }
+      },
+      "id": "fil_01dbcdyk1sw1rkdznf34a255rchpkw7452k3crc0es90nam3d37e7g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01r33c2hwpyecdgr0hf46c8yhcgkn3cnj27t3n8g6ps6f11105zjwg",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        }
+      },
+      "id": "fil_01zzxsrw9q9ecmkjwaz94br85zyjxqkwz977g60tbxevxy2mnwb4m0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01xhqmmd01hfybk9dr4qvjg2z2faq6s28d3ed9rfhbbee5mj1ef5ag",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./attr.tg.ts": {
+          "item": 4,
+          "subpath": "utils/attr.tg.ts"
+        },
+        "./coreutils.tg.ts": {
+          "item": 4,
+          "subpath": "utils/coreutils.tg.ts"
+        },
+        "./diffutils.tg.ts": {
+          "item": 4,
+          "subpath": "utils/diffutils.tg.ts"
+        },
+        "./libiconv.tg.ts": {
+          "item": 4,
+          "subpath": "utils/libiconv.tg.ts"
+        },
+        "./patch-rlimit-fix.patch": {
+          "item": 4,
+          "subpath": "utils/patch-rlimit-fix.patch"
+        }
+      },
+      "id": "fil_01ab90rg2v7p791n4q0335gsk8hg7m5xnyb04qzssdqkv4pegt3820"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01gyfe70kvsxjg6rt3m2cz234a049a2rfq2h62nhmqq8ph3e9c3jk0",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        }
+      },
+      "id": "fil_019j7dm8aym44efesex4erab88pcpbcd9s4v1fe2wzp46fryzdpvs0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_0164z3883hajywxqhqmss41t8jy8ypaawqbg0thsa8469ev57cfx60",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        },
+        "./libiconv.tg.ts": {
+          "item": 4,
+          "subpath": "utils/libiconv.tg.ts"
+        }
+      },
+      "id": "fil_01h20f7wtnp8hkj4a7hfdkcjj3scsyy5jewr8txd45qn6f3mndg4r0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_018eyry5de948bt58d3kz642qy80n8q6v2r903n70hhrbqqyk8hjng",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "../utils.tg.ts": {
+          "item": 4,
+          "subpath": "utils.tg.ts"
+        }
+      },
+      "id": "fil_0160dtv44qe0w2kpyx43mevn9des41eszfy2h5ybgxxxvy5qn7ys6g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01shem79256v00ffnsg7jxy9d6q04w358efc69vt744wnbjr20jpn0",
+      "dependencies": {
+        "./bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./utils/attr.tg.ts": {
+          "item": 4,
+          "subpath": "utils/attr.tg.ts"
+        },
+        "./utils/bash.tg.ts": {
+          "item": 4,
+          "subpath": "utils/bash.tg.ts"
+        },
+        "./utils/bzip2.tg.ts": {
+          "item": 4,
+          "subpath": "utils/bzip2.tg.ts"
+        },
+        "./utils/coreutils.tg.ts": {
+          "item": 4,
+          "subpath": "utils/coreutils.tg.ts"
+        },
+        "./utils/diffutils.tg.ts": {
+          "item": 4,
+          "subpath": "utils/diffutils.tg.ts"
+        },
+        "./utils/file_cmds.tg.ts": {
+          "item": 4,
+          "subpath": "utils/file_cmds.tg.ts"
+        },
+        "./utils/findutils.tg.ts": {
+          "item": 4,
+          "subpath": "utils/findutils.tg.ts"
+        },
+        "./utils/gawk.tg.ts": {
+          "item": 4,
+          "subpath": "utils/gawk.tg.ts"
+        },
+        "./utils/grep.tg.ts": {
+          "item": 4,
+          "subpath": "utils/grep.tg.ts"
+        },
+        "./utils/gzip.tg.ts": {
+          "item": 4,
+          "subpath": "utils/gzip.tg.ts"
+        },
+        "./utils/libiconv.tg.ts": {
+          "item": 4,
+          "subpath": "utils/libiconv.tg.ts"
+        },
+        "./utils/make.tg.ts": {
+          "item": 4,
+          "subpath": "utils/make.tg.ts"
+        },
+        "./utils/patch.tg.ts": {
+          "item": 4,
+          "subpath": "utils/patch.tg.ts"
+        },
+        "./utils/sed.tg.ts": {
+          "item": 4,
+          "subpath": "utils/sed.tg.ts"
+        },
+        "./utils/tar.tg.ts": {
+          "item": 4,
+          "subpath": "utils/tar.tg.ts"
+        },
+        "./utils/xz.tg.ts": {
+          "item": 4,
+          "subpath": "utils/xz.tg.ts"
+        }
+      },
+      "id": "fil_01qfahek0byje3gm8js6192mqa5q0xvqs0nehrw5fj3b2ak867qspg"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "injection.tg.ts": 93,
+        "workspace.tg.ts": 94
+      },
+      "id": "dir_014bfjbryrx3tv7grdr0xw0gtcp0rmx2wn39sq50avbh5e353jsxcg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_012x2f1z1xrm8na4bffw2e98fkn73xhd2g7vf9t2mmr738ewtnqrdg",
+      "dependencies": {
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../sdk/gnu.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./injection": {
+          "item": 4,
+          "subpath": "wrap/injection"
+        }
+      },
+      "id": "fil_01f56faawr84vv6f04j58z017hes1y6pae749173a1t5yxvnga1r70"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_0145k9r5yspj7sxnb57c82b3498q3mh2cs7bwtqj5kcst9c4e4syzg",
+      "dependencies": {
+        "../Cargo.lock": {
+          "item": 4,
+          "subpath": "Cargo.lock"
+        },
+        "../Cargo.toml": {
+          "item": 4,
+          "subpath": "Cargo.toml"
+        },
+        "../bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "../packages": {
+          "item": 4,
+          "subpath": "packages"
+        },
+        "../sdk/gnu.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu.tg.ts"
+        },
+        "../tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01eyp5wwqs0y7aycfqeajvkq3h0m631x7gafx8k9b9eqw23k6mqspg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01vkxq7mevxb7efpjyfx8mtjtzq14zzm4r9685h1m936f6k5pnj6w0",
+      "dependencies": {
+        "./bootstrap.tg.ts": {
+          "item": 4,
+          "subpath": "bootstrap.tg.ts"
+        },
+        "./command.tg.ts": {
+          "item": 4,
+          "subpath": "command.tg.ts"
+        },
+        "./sdk/gnu.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/gnu.tg.ts"
+        },
+        "./sdk/libc.tg.ts": {
+          "item": 4,
+          "subpath": "sdk/libc.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "./wrap/injection.tg.ts": {
+          "item": 4,
+          "subpath": "wrap/injection.tg.ts"
+        },
+        "./wrap/test/driver.c": {
+          "item": 4,
+          "subpath": "wrap/test/driver.c"
+        },
+        "./wrap/test/greet.c": {
+          "item": 4,
+          "subpath": "wrap/test/greet.c"
+        },
+        "./wrap/test/inspectProcess.c": {
+          "item": 4,
+          "subpath": "wrap/test/inspectProcess.c"
+        },
+        "./wrap/workspace.tg.ts": {
+          "item": 4,
+          "subpath": "wrap/workspace.tg.ts"
+        }
+      },
+      "id": "fil_015azs436rbk72rdtfxpzv4x40g1cpv8qyk9jvwrj412kw2brjrv40"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "build.tg.ts": 97,
+        "cargo.tg.ts": 129,
+        "proxy.tg.ts": 132,
+        "tangram.ts": 135
+      },
+      "id": "dir_01kmw9641ms457s5d77za1gee2b1yrqprvyjxfr5cv9fw1c4bhf8rg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01md5ptxtyw8ee59zqqmkfp2s9hxdz21g0v1vg87dt4r0a3xhqj5ag",
+      "dependencies": {
+        "./proxy.tg.ts": {
+          "item": 96,
+          "subpath": "proxy.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 96,
+          "subpath": "tangram.ts"
+        },
+        "./tests": {
+          "item": 96,
+          "subpath": "tests"
+        },
+        "curl?path=..%2Fcurl": {
+          "item": 98,
+          "subpath": "tangram.ts"
+        },
+        "libpsl?path=..%2Flibpsl": {
+          "item": 100,
+          "subpath": "tangram.ts"
+        },
+        "openssl?path=..%2Fopenssl": {
+          "item": 119,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "zlib?path=..%2Fzlib": {
+          "item": 125,
+          "subpath": "tangram.ts"
+        },
+        "zstd?path=..%2Fzstd": {
+          "item": 127,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01410b660148w3p90qygbm7e8cx47s55v7pr48msr7cb5zcyrmx6f0"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 99
+      },
+      "id": "dir_01sapb3ft5m4tdfmwk1j0zamxhvvywmddn37hzbhjwzwwg37scrtjg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_016qshfm2s40xk726dtcaxcesn011t7scrvv22w9y5jhk2q5es0w70",
+      "dependencies": {
+        "libpsl?path=..%2Flibpsl": {
+          "item": 100,
+          "subpath": "tangram.ts"
+        },
+        "openssl?path=..%2Fopenssl": {
+          "item": 119,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "zlib?path=..%2Fzlib": {
+          "item": 125,
+          "subpath": "tangram.ts"
+        },
+        "zstd?path=..%2Fzstd": {
+          "item": 127,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_014dfsxfjr7vnf6fc19vk9wab1nqqyjrjphfdgn4whr06y668fq4c0"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 101
+      },
+      "id": "dir_01zbv4g7hn35p34msrc0svtet0maa5x6a2tkc4s81hym5e47rykv60"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01pgxx6tp07vqdcgmxhcs516xdvf39hrwb2j9x9ccepd3hbdxatym0",
+      "dependencies": {
+        "python?path=..%2Fpython": {
+          "item": 102,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_0132dg78hn3cf87mrd08hdxnzmvngthae8ee3631t926qe7zgc0rp0"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "requirements.tg.ts": 103,
+        "tangram.ts": 104
+      },
+      "id": "dir_01zh2ffpx3p2qaavkkvvbsadw3mz4ya139wpn8w2jmmykw9jnp1xpg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01j4x4mahyvnsayh8ref7xnsm99y1r8bvp4tsqmkdxcv4xrdbf8xzg",
+      "dependencies": {
+        "./tangram.ts": {
+          "item": 102,
+          "subpath": "tangram.ts"
+        },
+        "rust?path=..%2Frust": {
+          "item": 96,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_012815kacrfx6d7t017k8h0g9c2hx4ewmhw8pmjbsbjsyj4j3a3acg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01c8mtw8v2zxceker6y07aa44dkp7bz1qzzs2xcy4ygar3xqbc8hkg",
+      "dependencies": {
+        "./requirements.tg.ts": {
+          "item": 102,
+          "subpath": "requirements.tg.ts"
+        },
+        "bzip2?path=..%2Fbzip2": {
+          "item": 105,
+          "subpath": "tangram.ts"
+        },
+        "libffi?path=..%2Flibffi": {
+          "item": 113,
+          "subpath": "tangram.ts"
+        },
+        "libxcrypt?path=..%2Flibxcrypt": {
+          "item": 115,
+          "subpath": "tangram.ts"
+        },
+        "mpdecimal?path=..%2Fmpdecimal": {
+          "item": 117,
+          "subpath": "tangram.ts"
+        },
+        "ncurses?path=..%2Fncurses": {
+          "item": 111,
+          "subpath": "tangram.ts"
+        },
+        "openssl?path=..%2Fopenssl": {
+          "item": 119,
+          "subpath": "tangram.ts"
+        },
+        "readline?path=..%2Freadline": {
+          "item": 121,
+          "subpath": "tangram.ts"
+        },
+        "sqlite?path=..%2Fsqlite": {
+          "item": 123,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "zlib?path=..%2Fzlib": {
+          "item": 125,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01tksah5n3qb7frj430hzawcp09s1xqwvrma2n443e07tqgmhrxv8g"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 106
+      },
+      "id": "dir_01qcaew1vnphcdcg2sdmh2jkpe3yjz69jyw8vegmcybj8dy6k42adg"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01rzzm4xwh93qn44jb82d0gm8svs4ekh9a6dvepq7qsahy57z34x8g",
+      "dependencies": {
+        "./bzip2_dylib_detect_os.patch": {
+          "item": 105,
+          "subpath": "bzip2_dylib_detect_os.patch"
+        },
+        "bash?path=..%2Fbash": {
+          "item": 107,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_012m67k6gnrpf72p8gk9018m7wp81hv4kcqq0sed2qyq3jstetq9zg"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 108
+      },
+      "id": "dir_01xxk97mjj4hyvz267q9g6rxfyh9qh3f3xr1kq23q73ckrsedfbj7g"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "libiconv?path=..%2Flibiconv": {
+          "item": 109,
+          "subpath": "tangram.ts"
+        },
+        "ncurses?path=..%2Fncurses": {
+          "item": 111,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01axk69sb4f0jhzjrj8yjs6gmvfsq6p1hkb4rwa29bckx0p9cg8490"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 110
+      },
+      "id": "dir_01ce8eb77ng0g30rnatf5pj6h9cs2h9v11cw8bpcpqscby07zq0sjg"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01xpd75j4ccptn6py6bhb83qt90a798617nx54gdqjgkza3arph3zg"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 112
+      },
+      "id": "dir_01shx667ervwhseq4fmdq6sthpcxdng8q1j58rve0zn9k3bx4v27wg"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01jxyyeh3zys9xrsrbfcqveqbfrxfqdq7bjtbrfkmw6mjrbywn7p30"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 114
+      },
+      "id": "dir_01wdxchyt0bbr4n3h2egxe3g9h1dxk6p1ssnhf6wqqpxsg7eag69m0"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_012fx140befc8yh2h3xkcnnrczcyvenyv0vgbrae3nhjbhxchgtg2g"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 116
+      },
+      "id": "dir_012f1j4trpam69fvsvkcq5qbx2g4v2f8z2755w0yjtdcawsh042ne0"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01bmsemc37qwn16qgx436yj43y6p6ydwkmxa114a7beftcmjvns5ag"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 118
+      },
+      "id": "dir_012nwhj0maffmrd07sc9gbxzn81xja5jyz4d1pedfy4gxbf3m8bxe0"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01ryt5rfm45hg050b4h4w5kqscep5c87m12868fn586ekrmg2yyq90"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 120
+      },
+      "id": "dir_01w7b40c99ck1bch7ddveyyemmmvtpkcas2x0rfak1zhbev7dvcsk0"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01zx53e2bt0gww9d5d79keacjd4rep0zj4exwsactk5bcx34x883wg"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 122
+      },
+      "id": "dir_010ezvng5v2ct9p70bwf68129n1wrrmx6qgad1jza3c96ch3t8wm6g"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "ncurses?path=..%2Fncurses": {
+          "item": 111,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01jwz3m68p13zkb08nky4ch7rcpnqszjjy06zzdz73p08x1ze0jw40"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 124
+      },
+      "id": "dir_01m9rzbgxgbbrjprtqq3k88gwvravcbvbcr6sjea2b9dg3h92sj7h0"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "ncurses?path=..%2Fncurses": {
+          "item": 111,
+          "subpath": "tangram.ts"
+        },
+        "readline?path=..%2Freadline": {
+          "item": 121,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "zlib?path=..%2Fzlib": {
+          "item": 125,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01v3tdw7pad5t8anabj0khnwwk8hs3c1jr21v1bmhrxc330yabpxb0"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 126
+      },
+      "id": "dir_01b9fb78bnm4v3mgxcfj6phctphxs7my2t10bvm3m8s23rvzjmnh0g"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_0115jwh0dmrevzaenfjseawe1excrcxdm49077ft9t1c9y46c00wvg"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 128
+      },
+      "id": "dir_01hcwnnezs6m8wmzqp28qhtae265nwnsww7gjd5d76ep2tbz299twg"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01ydaaa9eq62b7psb6kn1g6hpa2034ssr2zmyt13xty60z83cpvy9g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_019g5khhqvqnfcym3k5c1ym9csp1353hyjtkpz5bbb0jky6f5dwc8g",
+      "dependencies": {
+        "./proxy.tg.ts": {
+          "item": 96,
+          "subpath": "proxy.tg.ts"
+        },
+        "./tangram.ts": {
+          "item": 96,
+          "subpath": "tangram.ts"
+        },
+        "./tests": {
+          "item": 96,
+          "subpath": "tests"
+        },
+        "openssl?path=..%2Fopenssl": {
+          "item": 119,
+          "subpath": "tangram.ts"
+        },
+        "pkg-config?path=..%2Fpkg-config": {
+          "item": 130,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_014h6sxqkqsynhjbt6j9qsjgyvj78wg9rjx50cee94ny03g6xzebkg"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 131
+      },
+      "id": "dir_01jbdrgq5rms2j5gmknm9605pjc06xrg02wfrm9vxdkyyqdkr8amyg"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "zlib?path=..%2Fzlib": {
+          "item": 125,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01jfvbp02xytzwmn6wr874sa89ahvq0s7fycxzfhc1rt6qatnemrb0"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_015wz0170egzybc59t826bz7jj40tw02n8fvsqf37wqmepgphs2y4g",
+      "dependencies": {
+        "./proxy/Cargo.lock": {
+          "item": 96,
+          "subpath": "proxy/Cargo.lock"
+        },
+        "./proxy/Cargo.toml": {
+          "item": 96,
+          "subpath": "proxy/Cargo.toml"
+        },
+        "./proxy/src": {
+          "item": 96,
+          "subpath": "proxy/src"
+        },
+        "./tangram.ts": {
+          "item": 96,
+          "subpath": "tangram.ts"
+        },
+        "./tests": {
+          "item": 96,
+          "subpath": "tests"
+        },
+        "openssl?path=..%2Fopenssl": {
+          "item": 119,
+          "subpath": "tangram.ts"
+        },
+        "pkgconf?path=..%2Fpkgconf": {
+          "item": 133,
+          "subpath": "tangram.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_016ghs7zjbzexnz17wewnxym76h0jndqysm3dwtkfz3h7b3jq2e720"
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": 134
+      },
+      "id": "dir_01ggkcyvtdh77sy6g69h5j6z07yzyg1z9ar1ha1q9xtg94pvmsty0g"
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_0115kgtpsm9d6v9kj39e0yk3m3cgs72xrcn26m7errca7n9bpbcx1g"
+    },
+    {
+      "kind": "file",
+      "contents": "blb_01raeygqf6x03earncvvjrge9s6m10hgf9f513b3t6g1fmpw6v5vx0",
+      "dependencies": {
+        "./build.tg.ts": {
+          "item": 96,
+          "subpath": "build.tg.ts"
+        },
+        "./cargo.tg.ts": {
+          "item": 96,
+          "subpath": "cargo.tg.ts"
+        },
+        "./proxy.tg.ts": {
+          "item": 96,
+          "subpath": "proxy.tg.ts"
+        },
+        "std?path=..%2Fstd": {
+          "item": 4,
+          "subpath": "tangram.ts"
+        },
+        "zlib?path=..%2Fzlib": {
+          "item": 125,
+          "subpath": "tangram.ts"
+        }
+      },
+      "id": "fil_01gyrva0rq4pmg3bccrn99cbnk28as2r5xze5r5rz523t0b3qm5vjg"
     }
   ]
 }
