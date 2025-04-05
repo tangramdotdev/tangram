@@ -246,6 +246,10 @@ impl Lmdb {
 								db.delete(&mut transaction, &key.pack_to_vec()).map_err(
 									|source| tg::error!(!source, "failed to delete the object"),
 								)?;
+								let key = (0, id.to_bytes(), 2);
+								db.delete(&mut transaction, &key.pack_to_vec()).map_err(
+									|source| tg::error!(!source, "failed to delete the object"),
+								)?;
 							}
 						}
 						transaction.commit().map_err(|source| {

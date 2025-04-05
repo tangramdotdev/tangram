@@ -93,6 +93,11 @@ impl Fdb {
 				let key = (0, arg.id.to_bytes(), 1);
 				let value = arg.touched_at.to_le_bytes();
 				transaction.set(&key.pack_to_vec(), &value);
+				if let Some(reference) = &arg.cache_reference {
+					let key = (0, arg.id.to_bytes(), 2);
+					let value = serde_json::to_vec(reference).unwrap();
+					transaction.set(&key.pack_to_vec(), &value);
+				}
 				Ok(())
 			})
 			.await
