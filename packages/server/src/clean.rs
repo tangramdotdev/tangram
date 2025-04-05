@@ -246,7 +246,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Delete closed or stale pipes/ptys
+		// Delete pipes and ptys.
 		let max_created_at = time::OffsetDateTime::from_unix_timestamp(now - 24 * 60 * 60)
 			.unwrap()
 			.format(&Rfc3339)
@@ -255,14 +255,18 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				delete from pipes
-				where
-					closed = 1
-					or created_at < {p}1;
-
+				where closed = 1 or created_at < {p}1;
+			"
+		);
+		let params = db::params![max_created_at];
+		connection
+			.execute(statement.clone().into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to delete ptys and pipes"))?;
+		let statement = formatdoc!(
+			"
 				delete from ptys
-				where
-					closed = 1
-					or created_at < {p}1;
+				where closed = 1 or created_at < {p}1;
 			"
 		);
 		let params = db::params![max_created_at];
