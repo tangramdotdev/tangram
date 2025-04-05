@@ -233,7 +233,6 @@ impl Server {
 						};
 						if !(process_complete.complete
 							|| process_complete.commands_complete
-							|| process_complete.logs_complete
 							|| process_complete.outputs_complete)
 						{
 							return;
@@ -316,7 +315,6 @@ impl Server {
 			commands_complete: row.commands_complete,
 			complete: row.complete,
 			id: id.clone(),
-			logs_complete: false,
 			outputs_complete: row.outputs_complete,
 		};
 

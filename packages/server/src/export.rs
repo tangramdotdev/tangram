@@ -41,7 +41,6 @@ struct Node {
 struct ProcessComplete {
 	pub commands_complete: bool,
 	pub complete: bool,
-	pub logs_complete: bool,
 	pub outputs_complete: bool,
 }
 
@@ -374,7 +373,7 @@ impl Server {
 			.flat_map(|chunk| chunk.data)
 			.collect_vec();
 
-		// Handle the command, log, and output.
+		// Handle the command and output.
 		let current_output = graph.get_complete(&Either::Left(process));
 
 		let mut objects: Vec<tg::object::Id> = Vec::new();
@@ -387,19 +386,6 @@ impl Server {
 			});
 			if !commands_complete {
 				objects.push(data.command.clone().into());
-			}
-		}
-		if arg.logs {
-			let logs_complete = current_output.as_ref().is_some_and(|either| {
-				either
-					.as_ref()
-					.left()
-					.is_some_and(|output| output.logs_complete)
-			});
-			if !logs_complete {
-				if let Some(log) = data.log.clone() {
-					objects.push(log.clone().into());
-				}
 			}
 		}
 		if arg.outputs {
@@ -507,9 +493,9 @@ impl Server {
 			Some(1)
 		};
 		let (object_count, object_weight) = if arg.recursive {
-			// If the push is recursive, then use the logs', outputs', and commands' counts and weights.
-			let logs_count = if arg.logs {
-				process_complete.logs_count
+			// If the push is recursive, then use the outputs', and command's counts and weights.
+			let commands_count = if arg.commands {
+				process_complete.commands_count
 			} else {
 				Some(0)
 			};
@@ -518,18 +504,12 @@ impl Server {
 			} else {
 				Some(0)
 			};
-			let commands_count = if arg.commands {
-				process_complete.commands_count
-			} else {
-				Some(0)
-			};
 			let count = std::iter::empty()
-				.chain(Some(logs_count))
-				.chain(Some(outputs_count))
 				.chain(Some(commands_count))
+				.chain(Some(outputs_count))
 				.sum::<Option<u64>>();
-			let logs_weight = if arg.logs {
-				process_complete.logs_weight
+			let commands_weight = if arg.commands {
+				process_complete.commands_weight
 			} else {
 				Some(0)
 			};
@@ -538,32 +518,22 @@ impl Server {
 			} else {
 				Some(0)
 			};
-			let commands_weight = if arg.commands {
-				process_complete.commands_weight
-			} else {
-				Some(0)
-			};
 			let weight = std::iter::empty()
-				.chain(Some(logs_weight))
-				.chain(Some(outputs_weight))
 				.chain(Some(commands_weight))
+				.chain(Some(outputs_weight))
 				.sum::<Option<u64>>();
 			(count, weight)
 		} else {
-			// If the push is not recursive, then use the count and weight of the log, output, and command.
-			let (log_count, log_weight) = if arg.logs {
-				if let Some(log) = data.log.as_ref() {
-					if let Some(metadata) = src.try_get_object_metadata(&log.clone().into()).await?
-					{
-						(metadata.count, metadata.weight)
-					} else {
-						(Some(0), Some(0))
-					}
+			// If the push is not recursive, then use the count and weight of the command and output.
+			let (command_count, command_weight) = {
+				if let Some(metadata) = src
+					.try_get_object_metadata(&data.command.clone().into())
+					.await?
+				{
+					(metadata.count, metadata.weight)
 				} else {
 					(Some(0), Some(0))
 				}
-			} else {
-				(Some(0), Some(0))
 			};
 			let (output_count, output_weight) = if arg.outputs {
 				if data.status.is_finished() {
@@ -592,25 +562,13 @@ impl Server {
 			} else {
 				(Some(0), Some(0))
 			};
-			let (command_count, command_weight) = {
-				if let Some(metadata) = src
-					.try_get_object_metadata(&data.command.clone().into())
-					.await?
-				{
-					(metadata.count, metadata.weight)
-				} else {
-					(Some(0), Some(0))
-				}
-			};
 			let count = std::iter::empty()
-				.chain(Some(log_count))
-				.chain(Some(output_count))
 				.chain(Some(command_count))
+				.chain(Some(output_count))
 				.sum::<Option<u64>>();
 			let weight = std::iter::empty()
-				.chain(Some(log_weight))
-				.chain(Some(output_weight))
 				.chain(Some(command_weight))
+				.chain(Some(output_weight))
 				.sum::<Option<u64>>();
 			(count, weight)
 		};
@@ -682,8 +640,6 @@ impl Server {
 			commands_count: Option<u64>,
 			commands_weight: Option<u64>,
 			count: Option<u64>,
-			logs_count: Option<u64>,
-			logs_weight: Option<u64>,
 			outputs_count: Option<u64>,
 			outputs_weight: Option<u64>,
 		}
@@ -694,8 +650,6 @@ impl Server {
 					commands_count,
 					commands_weight,
 					count,
-					logs_count,
-					logs_weight,
 					outputs_count,
 					outputs_weight
 				from processes
@@ -717,8 +671,6 @@ impl Server {
 			commands_weight: row.as_ref().and_then(|row| row.commands_weight),
 			count: row.as_ref().and_then(|row| row.count),
 			id: id.clone(),
-			logs_count: row.as_ref().and_then(|row| row.logs_count),
-			logs_weight: row.as_ref().and_then(|row| row.logs_weight),
 			outputs_count: row.as_ref().and_then(|row| row.outputs_count),
 			outputs_weight: row.as_ref().and_then(|row| row.outputs_weight),
 		};
@@ -880,19 +832,6 @@ impl Server {
 			});
 			if !commands_complete {
 				objects.push(data.command.clone().into());
-			}
-		}
-		if arg.logs {
-			let logs_complete = current_output.as_ref().is_some_and(|either| {
-				either
-					.as_ref()
-					.left()
-					.is_some_and(|output| output.logs_complete)
-			});
-			if !logs_complete {
-				if let Some(log) = data.log.clone() {
-					objects.push(log.clone().into());
-				}
 			}
 		}
 		if arg.outputs {
@@ -1577,9 +1516,9 @@ impl ExportSyncState {
 			Some(1)
 		};
 		let (object_count, object_weight) = if arg.recursive {
-			// If the push is recursive, then use the logs', outputs', and commands' counts and weights.
-			let logs_count = if arg.logs {
-				process_complete.logs_count
+			// If the push is recursive, then use the outputs', and command's counts and weights.
+			let commands_count = if arg.commands {
+				process_complete.commands_count
 			} else {
 				Some(0)
 			};
@@ -1588,18 +1527,12 @@ impl ExportSyncState {
 			} else {
 				Some(0)
 			};
-			let commands_count = if arg.commands {
-				process_complete.commands_count
-			} else {
-				Some(0)
-			};
 			let count = std::iter::empty()
-				.chain(Some(logs_count))
-				.chain(Some(outputs_count))
 				.chain(Some(commands_count))
+				.chain(Some(outputs_count))
 				.sum::<Option<u64>>();
-			let logs_weight = if arg.logs {
-				process_complete.logs_weight
+			let commands_weight = if arg.commands {
+				process_complete.commands_weight
 			} else {
 				Some(0)
 			};
@@ -1608,28 +1541,16 @@ impl ExportSyncState {
 			} else {
 				Some(0)
 			};
-			let commands_weight = if arg.commands {
-				process_complete.commands_weight
-			} else {
-				Some(0)
-			};
 			let weight = std::iter::empty()
-				.chain(Some(logs_weight))
-				.chain(Some(outputs_weight))
 				.chain(Some(commands_weight))
+				.chain(Some(outputs_weight))
 				.sum::<Option<u64>>();
 			(count, weight)
 		} else {
-			// If the push is not recursive, then use the count and weight of the log, output, and command.
-			let (log_count, log_weight) = if arg.logs {
-				if let Some(log) = data.log.as_ref() {
-					let metadata = self.get_object_metadata(&log.clone().into())?;
-					(metadata.count, metadata.weight)
-				} else {
-					(Some(0), Some(0))
-				}
-			} else {
-				(Some(0), Some(0))
+			// If the push is not recursive, then use the count and weight of the command and output.
+			let (command_count, command_weight) = {
+				let metadata = self.get_object_metadata(&data.command.clone().into())?;
+				(metadata.count, metadata.weight)
 			};
 			let (output_count, output_weight) = if arg.outputs {
 				if data.status.is_finished() {
@@ -1656,19 +1577,13 @@ impl ExportSyncState {
 			} else {
 				(Some(0), Some(0))
 			};
-			let (command_count, command_weight) = {
-				let metadata = self.get_object_metadata(&data.command.clone().into())?;
-				(metadata.count, metadata.weight)
-			};
 			let count = std::iter::empty()
-				.chain(Some(log_count))
-				.chain(Some(output_count))
 				.chain(Some(command_count))
+				.chain(Some(output_count))
 				.sum::<Option<u64>>();
 			let weight = std::iter::empty()
-				.chain(Some(log_weight))
-				.chain(Some(output_weight))
 				.chain(Some(command_weight))
+				.chain(Some(output_weight))
 				.sum::<Option<u64>>();
 			(count, weight)
 		};
@@ -1714,12 +1629,6 @@ impl ExportSyncState {
 		let count = row
 			.get::<_, Option<u64>>(2)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		// // let logs_count = row
-		// // 	.get::<_, Option<u64>>(3)
-		// // 	.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		// // let logs_weight = row
-		// // 	.get::<_, Option<u64>>(4)
-		// // 	.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let outputs_count = row
 			.get::<_, Option<u64>>(3)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
@@ -1731,16 +1640,13 @@ impl ExportSyncState {
 			commands_weight,
 			count,
 			id: id.clone(),
-			logs_count: None,
-			logs_weight: None,
 			outputs_count,
 			outputs_weight,
 		})
 	}
 
+	#[allow(clippy::match_wildcard_for_single_variants)]
 	fn get_object_bytes(&mut self, id: &tg::object::Id) -> tg::Result<Bytes> {
-		// Try to get the bytes from the store directly.
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match &self.server.store {
 			crate::store::Store::Lmdb(lmdb) => {
 				let transaction = lmdb
@@ -1769,9 +1675,8 @@ impl ExportSyncState {
 		self.get_cached_object_bytes(id)
 	}
 
+	#[allow(clippy::match_wildcard_for_single_variants)]
 	fn get_cached_object_bytes(&mut self, id: &tg::object::Id) -> tg::Result<Bytes> {
-		// Try to get the reference from the store.
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		let reference = match &self.server.store {
 			crate::store::Store::Lmdb(lmdb) => {
 				let transaction = lmdb
@@ -1880,7 +1785,6 @@ impl ProcessComplete {
 		Self {
 			commands_complete: false,
 			complete: false,
-			logs_complete: false,
 			outputs_complete: false,
 		}
 	}
@@ -1891,14 +1795,12 @@ impl From<tg::import::ProcessComplete> for ProcessComplete {
 		let tg::import::ProcessComplete {
 			commands_complete,
 			complete,
-			logs_complete,
 			outputs_complete,
 			..
 		} = value;
 		Self {
 			commands_complete,
 			complete,
-			logs_complete,
 			outputs_complete,
 		}
 	}
