@@ -37,8 +37,8 @@ impl Fdb {
 				let mut empty = true;
 				let mut bytes = Vec::new();
 				while let Some(entries) = stream.try_next().await? {
-					empty = false;
 					for entry in entries {
+						empty = false;
 						bytes.extend_from_slice(entry.value());
 					}
 				}
