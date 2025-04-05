@@ -9,8 +9,6 @@ use num::ToPrimitive as _;
 use rusqlite as sqlite;
 use std::{borrow::Cow, path::PathBuf, sync::Arc};
 
-pub use sqlite::Connection as RawConnection;
-
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
 	Sqlite(sqlite::Error),
