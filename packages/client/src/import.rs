@@ -51,9 +51,6 @@ pub struct ProcessComplete {
 	pub id: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub logs_complete: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs_complete: bool,
 }
 

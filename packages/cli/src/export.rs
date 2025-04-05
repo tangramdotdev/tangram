@@ -78,7 +78,6 @@ impl Cli {
 			commands: args.commands,
 			items: vec![item],
 			remote,
-			logs: args.logs,
 			outputs: args.outputs,
 			recursive: args.recursive,
 		};

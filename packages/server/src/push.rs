@@ -83,12 +83,6 @@ impl Server {
 												&& metadata.commands_count.is_some()
 												&& metadata.commands_weight.is_some();
 										}
-										// if arg.logs {
-										// 	complete = complete
-										// 		&& metadata.logs_count.is_some() && metadata
-										// 		.logs_weight
-										// 		.is_some();
-										// }
 										if arg.outputs {
 											complete = complete
 												&& metadata.outputs_count.is_some()
@@ -131,14 +125,6 @@ impl Server {
 									total_bytes += commands_weight;
 								}
 							}
-							// if arg.logs {
-							// 	if let Some(logs_count) = metadata.logs_count {
-							// 		total_objects += logs_count;
-							// 	}
-							// 	if let Some(logs_weight) = metadata.logs_weight {
-							// 		total_bytes += logs_weight;
-							// 	}
-							// }
 							if arg.outputs {
 								if let Some(outputs_count) = metadata.outputs_count {
 									total_objects += outputs_count;
@@ -173,7 +159,6 @@ impl Server {
 		let export_arg = tg::export::Arg {
 			commands: arg.commands,
 			items: arg.items.clone(),
-			logs: arg.logs,
 			outputs: arg.outputs,
 			recursive: arg.recursive,
 			remote: None,
@@ -225,12 +210,6 @@ impl Server {
 											process_complete.commands_weight
 										{
 											bytes += commands_weight;
-										}
-										if let Some(logs_count) = process_complete.logs_count {
-											objects += logs_count;
-										}
-										if let Some(logs_weight) = process_complete.logs_weight {
-											bytes += logs_weight;
 										}
 										if let Some(outputs_count) = process_complete.outputs_count
 										{
