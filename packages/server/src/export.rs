@@ -8,10 +8,10 @@ use futures::{
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use rusqlite::fallible_streaming_iterator::FallibleStreamingIterator;
+use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
 use smallvec::SmallVec;
 use std::{
-	io::{Read, Seek},
+	io::{Read as _, Seek as _},
 	panic::AssertUnwindSafe,
 	path::PathBuf,
 	pin::{Pin, pin},
@@ -56,8 +56,8 @@ struct InnerProcessOutput {
 }
 
 struct ExportSyncState {
-	database: tangram_database::sqlite::RawConnection,
-	index: tangram_database::sqlite::RawConnection,
+	database: sqlite::Connection,
+	index: sqlite::Connection,
 	file: Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
 	graph: Graph,
 	receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
