@@ -2,7 +2,7 @@ use super::ignore;
 use crate::{Server, lockfile::ParsedLockfile};
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use std::{
-	collections::BTreeMap,
+	collections::{BTreeMap, HashMap},
 	path::{Path, PathBuf},
 	sync::Arc,
 };
@@ -727,23 +727,31 @@ impl Server {
 impl Graph {
 	// Find the roots of every node.
 	fn find_roots(&mut self) {
+		// Build a HashMap of paths to node indices.
+		let mut path_to_node: HashMap<PathBuf, usize> = HashMap::new();
+		for (idx, node) in self.nodes.iter().enumerate() {
+			path_to_node.insert(node.arg.path.clone(), idx);
+		}
 		'outer: for node in 0..self.nodes.len() {
-			// Find an ancestor.
-			let ancestor = (0..self.nodes.len()).find(|ancestor| {
-				// Cannot be an ancestor of self.
-				if *ancestor == node {
-					return false;
+			// Find an ancestor using the path HashMap
+			let ancestor = {
+				let node_path = &self.nodes[node].arg.path;
+				let mut current_path = node_path.as_path();
+				let mut result = None;
+
+				// Walk up the path hierarchy
+				while let Some(parent_path) = current_path.parent() {
+					if let Some(&idx) = path_to_node.get(parent_path) {
+						// Skip non-directories
+						if self.nodes[idx].metadata.is_dir() && idx != node {
+							result = Some(idx);
+							break;
+						}
+					}
+					current_path = parent_path;
 				}
-				// Skip non-directories.
-				if !self.nodes[*ancestor].metadata.is_dir() {
-					return false;
-				}
-				self.nodes[node]
-					.arg
-					.path
-					.strip_prefix(&self.nodes[*ancestor].arg.path)
-					.is_ok()
-			});
+				result
+			};
 
 			// If there are no ancestors of this node, strip its parent.
 			let Some(ancestor) = ancestor else {
