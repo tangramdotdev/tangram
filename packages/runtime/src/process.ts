@@ -55,8 +55,6 @@ export class Process {
 		} else {
 			mounts = tg.Process.current.#state!.mounts;
 		}
-
-		// Infer the stdin of the process or command.
 		let processStdin = tg.Process.current.#state!.stdin;
 		let commandStdin: tg.Blob.Arg | undefined = undefined;
 		if ("stdin" in arg) {
@@ -65,8 +63,6 @@ export class Process {
 				commandStdin = arg.stdin;
 			}
 		}
-
-		// Infer the stderr and stdout.
 		let stderr = tg.Process.current.#state!.stdout;
 		if ("stderr" in arg) {
 			stderr = arg.stderr;
@@ -151,13 +147,10 @@ export class Process {
 				}),
 			);
 		}
-
-		// Infer the stdin of the command.
 		let commandStdin: tg.Blob.Arg | undefined = undefined;
 		if ("stdin" in arg && arg.stdin !== undefined) {
 			commandStdin = arg.stdin;
 		}
-
 		let command = await tg.command(
 			{
 				host: Process.current.command().then((command) => command.host()),
@@ -177,7 +170,6 @@ export class Process {
 				"checksum is required to build a command with network: true",
 			);
 		}
-
 		let commandId = await command.id();
 		let spawnOutput = await syscall("process_spawn", {
 			checksum,
@@ -192,20 +184,15 @@ export class Process {
 			stdin: undefined,
 			stdout: undefined,
 		});
-		tg.log;
 		let process = new tg.Process({
 			id: spawnOutput.process,
 			remote: spawnOutput.remote,
 			state: undefined,
 		});
 		let output = await process.wait();
-
-		// If there is an error in the output, throw it.
 		if (output.error) {
 			throw output.error;
 		}
-
-		// Check the exit status.
 		if (
 			typeof output.exit === "object" &&
 			"code" in output.exit &&
@@ -218,7 +205,6 @@ export class Process {
 				`the process was terminated by signal ${output.exit.signal}`,
 			);
 		}
-
 		return output.output;
 	}
 

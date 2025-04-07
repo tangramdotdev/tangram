@@ -2,7 +2,7 @@ use crate::{self as tg, handle::Ext as _, host, util::arc::Ext as _};
 use std::{
 	ops::Deref,
 	str::FromStr as _,
-	sync::{Arc, OnceLock, RwLock},
+	sync::{Arc, Mutex, RwLock},
 };
 
 pub use self::{
@@ -37,6 +37,8 @@ pub mod stdio;
 pub mod touch;
 pub mod wait;
 
+static CURRENT: Mutex<Option<tg::Process>> = Mutex::new(None);
+
 #[derive(Clone, Debug)]
 pub struct Process(Arc<Inner>);
 
@@ -48,8 +50,6 @@ pub struct Inner {
 	metadata: RwLock<Option<Arc<Metadata>>>,
 	token: Option<String>,
 }
-
-static CACHED_PROCESS: OnceLock<tg::Result<Option<tg::Process>>> = OnceLock::new();
 
 impl Process {
 	#[must_use]
@@ -75,12 +75,24 @@ impl Process {
 	where
 		H: tg::Handle,
 	{
-		if let Some(result) = CACHED_PROCESS.get() {
-			return result.clone();
+		if let Some(process) = CURRENT.lock().unwrap().as_ref() {
+			return Ok(Some(process.clone()));
 		}
-		let result = Self::get_current_process(handle).await;
-		let _ = CACHED_PROCESS.set(result.clone());
-		result
+		let id = std::env::var("TANGRAM_PROCESS")
+			.map_err(|source| tg::error!(!source, "failed to get the current process ID"))?;
+		let id = tg::process::Id::from_str(&id)
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the current process ID"))?;
+		let output = handle
+			.try_get_process(&id)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the current process"))?;
+		let Some(output) = output else {
+			return Ok(None);
+		};
+		let state = tg::process::State::try_from(output.data)?;
+		let process = Self::new(id, None, Some(state), None, None);
+		CURRENT.lock().unwrap().replace(process.clone());
+		Ok(Some(process))
 	}
 
 	#[must_use]
@@ -171,7 +183,6 @@ impl Process {
 		H: tg::Handle,
 	{
 		let arg = if let Some(current) = Self::current(handle).await? {
-			// Check current process for mounts, merge with arg mounts.
 			let state = current.state().read().unwrap().clone();
 			let mounts = state.as_ref().map(|state| state.mounts.clone());
 			let mut current_mount_data = vec![];
@@ -186,8 +197,6 @@ impl Process {
 					"cannot tg::Process::build() with path mounts. Try tg::Process::run()"
 				));
 			}
-
-			// Check current command for data to inherit.
 			let current_command = state.as_ref().map(|state| state.command.clone());
 			let mut current_command_mounts = vec![];
 			let mut current_command_env = None;
@@ -203,8 +212,6 @@ impl Process {
 				current_command_host = Some(object.host.clone());
 				current_command_stdin = Some(object.stdin.clone());
 			}
-
-			// Construct the command combining the arg and the current command.
 			let mut command_builder = if let Some(id) = &arg.command {
 				let command = tg::Command::with_id(id.clone());
 				let object = command.object(handle).await?;
@@ -228,8 +235,6 @@ impl Process {
 			}
 			let command = command_builder.build();
 			let command_id = command.id(handle).await?;
-
-			// Finish constructing arg.
 			let checksum = arg.checksum;
 			let network = if arg.network {
 				arg.network
@@ -289,7 +294,6 @@ impl Process {
 		H: tg::Handle,
 	{
 		let arg = if let Some(current) = Self::current(handle).await? {
-			// Check current process for mounts, merge with arg mounts.
 			let state = current.state().read().unwrap().clone();
 			let current_mounts = state.as_ref().map(|state| state.mounts.clone());
 			let mut mount_data = vec![];
@@ -301,8 +305,6 @@ impl Process {
 						.collect::<Result<Vec<_>, _>>()?;
 			}
 			mount_data.extend(arg.mounts);
-
-			// Check current command for data to inherit.
 			let current_command = state.as_ref().map(|state| state.command.clone());
 			let mut current_command_mounts = vec![];
 			let mut current_command_env = None;
@@ -318,15 +320,11 @@ impl Process {
 				current_command_host = Some(object.host.clone());
 				current_command_stdin = Some(object.stdin.clone());
 			}
-
-			// Infer stdin.
 			let mut process_stdin = state.as_ref().and_then(|state| state.stdin.clone());
 			if let Some(stdin) = &arg.stdin {
 				process_stdin = Some(stdin.clone());
 				current_command_stdin = None;
 			}
-
-			// Infer stdout and stderr.
 			let stderr = if let Some(stderr) = &arg.stderr {
 				Some(stderr.clone())
 			} else {
@@ -337,8 +335,6 @@ impl Process {
 			} else {
 				state.as_ref().and_then(|state| state.stdout.clone())
 			};
-
-			// Construct the command combining the arg and the current command.
 			let mut command_builder = if let Some(id) = &arg.command {
 				let command = tg::Command::with_id(id.clone());
 				let object = command.object(handle).await?;
@@ -362,8 +358,6 @@ impl Process {
 			}
 			let command = command_builder.build();
 			let command_id = command.id(handle).await?;
-
-			// Finish constructing arg.
 			let checksum = arg.checksum;
 			let network = if arg.network {
 				arg.network
@@ -386,7 +380,6 @@ impl Process {
 		} else {
 			arg
 		};
-
 		let process = Self::spawn(handle, arg).await?;
 		let output = process.wait(handle).await?;
 		if output.status != tg::process::Status::Finished {
@@ -412,29 +405,6 @@ impl Process {
 			.output
 			.ok_or_else(|| tg::error!(%process = process.id(), "expected the output to be set"))?;
 		Ok(output)
-	}
-
-	async fn get_current_process<H>(handle: &H) -> tg::Result<Option<Self>>
-	where
-		H: tg::Handle,
-	{
-		let id = std::env::var("TANGRAM_PROCESS")
-			.map_err(|source| tg::error!(!source, "unable to locate current process ID"))?;
-		let id = tg::process::Id::from_str(&id)
-			.map_err(|source| tg::error!(!source, %id, "could not parse process ID"))?;
-
-		let output = handle
-			.try_get_process(&id)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "unable to look up process"))?;
-
-		let Some(output) = output else {
-			return Ok(None);
-		};
-
-		let state = tg::process::State::try_from(output.data)?;
-		let process = Self::new(id, None, Some(state), None, None);
-		Ok(Some(process))
 	}
 }
 
