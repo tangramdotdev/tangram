@@ -97,7 +97,7 @@ impl Server {
 		}
 
 		// Create the task.
-		let (event_sender, event_receiver) = tokio::sync::mpsc::channel(256);
+		let (event_sender, event_receiver) = tokio::sync::mpsc::channel(4096);
 		let task = tokio::spawn({
 			let server = self.clone();
 			async move {
@@ -686,10 +686,10 @@ impl Server {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
 		// Create a sender/receiver pair for export events.
-		let (export_sender, export_receiver) = tokio::sync::mpsc::channel(256);
+		let (export_sender, export_receiver) = tokio::sync::mpsc::channel(4096);
 
 		// Spawn a task to drain import events and dump into a channel that can be consumed synchronously.
-		let (import_sender, import_receiver) = tokio::sync::mpsc::channel(256);
+		let (import_sender, import_receiver) = tokio::sync::mpsc::channel(4096);
 		let import_task = tokio::spawn(async move {
 			let mut stream = std::pin::pin!(stream);
 			while let Some(event) = stream.try_next().await? {
@@ -924,7 +924,6 @@ impl Server {
 	) -> tg::Result<InnerObjectOutput> {
 		// Handle any pending completeness messages.
 		state.handle_import_complete();
-		tracing::debug!(%object, "exporting object");
 
 		// Get the object.
 		let bytes = state.get_object_bytes(object)?;
@@ -975,6 +974,7 @@ impl Server {
 				Self::export_sync_inner_object(Some(&Either::Right(object)), child, state)
 			})
 			.try_collect()?;
+
 		let (children_count, children_weight) = children
 			.into_iter()
 			.fold((0, 0), |a, b| (a.0 + b.count, a.1 + b.weight));
@@ -985,6 +985,7 @@ impl Server {
 			.weight
 			.unwrap_or_else(|| size + children_weight);
 		let output = InnerObjectOutput { count, weight };
+
 		Ok(output)
 	}
 }
