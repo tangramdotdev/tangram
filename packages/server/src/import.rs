@@ -540,16 +540,17 @@ impl Server {
 				return Ok(None);
 			};
 			Ok(Some((item, reader)))
-		});
-
-		// Stop the incoming stream when the server stops.
-		let stop = async move {
-			stop.wait().await;
-		};
-		let stream = stream.take_until(stop).boxed();
+		})
+		.boxed();
 
 		// Create the outgoing stream.
 		let stream = handle.import(arg, stream).await?;
+
+		// Stop the output stream when the server stops.
+		let stop = async move {
+			stop.wait().await;
+		};
+		let stream = stream.take_until(stop);
 
 		// Create the response body.
 		let (content_type, body) = match accept
