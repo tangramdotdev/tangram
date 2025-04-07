@@ -15,7 +15,7 @@ use std::{
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-use tangram_futures::stream::Ext as _;
+use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
@@ -723,6 +723,9 @@ impl Server {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()?;
 
+		// Get the stop signal.
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+
 		// Create the incoming stream.
 		let stream = request
 			.sse()
@@ -742,6 +745,12 @@ impl Server {
 
 		// Create the outgoing stream.
 		let stream = handle.export(arg, stream).await?;
+
+		// Stop the outgoing stream when the server stops.
+		let stop = async move {
+			stop.wait().await;
+		};
+		let stream = stream.take_until(stop);
 
 		// Create the response body.
 		let (content_type, body) = match accept

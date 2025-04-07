@@ -1,9 +1,12 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, stream::FuturesUnordered};
+use futures::{
+	Stream, StreamExt as _,
+	stream::{BoxStream, FuturesUnordered},
+};
 use std::{pin::pin, time::Duration};
 use tangram_client::{self as tg};
 use tangram_either::Either;
-use tangram_futures::stream::Ext as _;
+use tangram_futures::{stream::Ext as _, task::Task};
 use tangram_http::{Body, request::Ext as _};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
@@ -166,137 +169,178 @@ impl Server {
 		});
 		let indicator_total_task_abort_handle = AbortOnDropHandle::new(indicator_total_task);
 
-		let (export_item_sender, export_item_receiver) = tokio::sync::mpsc::channel(1024);
-		let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
-
-		// Start the export.
-		let export_arg = tg::export::Arg {
-			commands: arg.commands,
-			items: arg.items.clone(),
-			logs: arg.logs,
-			outputs: arg.outputs,
-			recursive: arg.recursive,
-			remote: None,
-		};
-		let import_event_stream = ReceiverStream::new(import_event_receiver);
-		let export_event_stream = src.export(export_arg, import_event_stream.boxed()).await?;
-
-		// Start the import.
-		let import_arg = tg::import::Arg {
-			items: arg.items.clone(),
-			remote: None,
-		};
-		let export_item_stream = ReceiverStream::new(export_item_receiver);
-		let import_event_stream = dst.import(import_arg, export_item_stream.boxed()).await?;
-
 		// Spawn the task.
 		let task = tokio::spawn({
 			let progress = progress.clone();
-			async move {
-				let export_future = {
-					let progress = progress.clone();
-					async move {
-						let mut export_event_stream = pin!(export_event_stream);
-						while let Some(result) = export_event_stream.next().await {
-							match result {
-								Ok(tg::export::Event::Item(item)) => {
-									let result = export_item_sender.send(Ok(item)).await;
-									if let Err(error) = result {
-										progress.error(tg::error!(
-											!error,
-											"failed to send export item"
-										));
-										break;
-									}
-								},
-								Ok(tg::export::Event::Complete(complete)) => match complete {
-									tg::export::Complete::Process(process_complete) => {
-										if let Some(processes) = process_complete.count {
-											progress.increment("processes", processes);
-										}
-										let mut objects = 0;
-										let mut bytes = 0;
-										if let Some(commands_count) =
-											process_complete.commands_count
-										{
-											objects += commands_count;
-										}
-										if let Some(commands_weight) =
-											process_complete.commands_weight
-										{
-											bytes += commands_weight;
-										}
-										if let Some(logs_count) = process_complete.logs_count {
-											objects += logs_count;
-										}
-										if let Some(logs_weight) = process_complete.logs_weight {
-											bytes += logs_weight;
-										}
-										if let Some(outputs_count) = process_complete.outputs_count
-										{
-											objects += outputs_count;
-										}
-										if let Some(outputs_weight) =
-											process_complete.outputs_weight
-										{
-											bytes += outputs_weight;
-										}
-										progress.increment("objects", objects);
-										progress.increment("bytes", bytes);
-									},
-									tg::export::Complete::Object(object_complete) => {
-										if let Some(count) = object_complete.count {
-											progress.increment("objects", count);
-										}
-										if let Some(weight) = object_complete.weight {
-											progress.increment("bytes", weight);
-										}
-									},
-								},
-								Ok(tg::export::Event::End) => (),
-								Err(error) => {
-									progress.error(error);
-								},
-							}
-						}
-					}
-				};
-				let import_future = {
-					let progress = progress.clone();
-					async move {
-						let mut import_event_stream = pin!(import_event_stream);
-						while let Some(result) = import_event_stream.next().await {
-							match result {
-								Ok(tg::import::Event::Complete(complete)) => {
-									// Try to send the import event to the exporter. Report if this fails, but do not abort.
-									import_event_sender.send(Ok(complete)).await.ok();
-								},
-								Ok(tg::import::Event::Progress(import_progress)) => {
-									if let Some(processes) = import_progress.processes {
-										progress.increment("processes", processes);
-									}
-									progress.increment("objects", import_progress.objects);
-									progress.increment("bytes", import_progress.bytes);
-								},
-								Ok(tg::import::Event::End) => (),
-								Err(error) => progress.error(error),
-							}
-						}
-					}
-				};
-				futures::join!(export_future, import_future);
-				progress.finish("processes");
-				progress.finish("objects");
-				progress.finish("bytes");
-				progress.output(());
-			}
+			let arg = arg.clone();
+			let src = src.clone();
+			let dst = dst.clone();
+			Self::push_or_pull_task(arg, progress, src, dst)
 		});
+
 		let abort_handle = AbortOnDropHandle::new(task);
 		let progress_stream = progress
 			.stream()
 			.attach(abort_handle)
 			.attach(indicator_total_task_abort_handle);
 		Ok(progress_stream)
+	}
+
+	async fn push_or_pull_task<S, D>(
+		arg: tg::push::Arg,
+		progress: crate::progress::Handle<()>,
+		src: S,
+		dst: D,
+	) -> tg::Result<()>
+	where
+		S: tg::Handle,
+		D: tg::Handle,
+	{
+		loop {
+			// Create channels to send events.
+			let (export_item_sender, export_item_receiver) = tokio::sync::mpsc::channel(1024);
+			let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
+
+			// Start the export.
+			let export_arg = tg::export::Arg {
+				commands: arg.commands,
+				items: arg.items.clone(),
+				logs: arg.logs,
+				outputs: arg.outputs,
+				recursive: arg.recursive,
+				remote: None,
+			};
+			let import_event_stream = ReceiverStream::new(import_event_receiver);
+			let export_event_stream = src
+				.export(export_arg, import_event_stream.boxed())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create an export stream"))?;
+
+			// Start the import.
+			let import_arg = tg::import::Arg {
+				items: arg.items.clone(),
+				remote: None,
+			};
+			let export_item_stream = ReceiverStream::new(export_item_receiver);
+			let import_event_stream = dst
+				.import(import_arg, export_item_stream.boxed())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create a import stream"))?;
+
+			// Drain the streams.
+			let finished = Self::drain_import_and_export_streams(
+				progress.clone(),
+				import_event_sender,
+				import_event_stream.boxed(),
+				export_item_sender,
+				export_event_stream.boxed(),
+			)
+			.await;
+
+			// Exit the loop if both streams completed, else retry.
+			if finished {
+				break;
+			}
+		}
+		progress.finish("processes");
+		progress.finish("objects");
+		progress.finish("bytes");
+		progress.output(());
+		Ok(())
+	}
+
+	async fn drain_import_and_export_streams(
+		progress: crate::progress::Handle<()>,
+		import_event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::import::Complete>>,
+		import_event_stream: BoxStream<'static, tg::Result<tg::import::Event>>,
+		export_item_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Item>>,
+		export_event_stream: BoxStream<'static, tg::Result<tg::export::Event>>,
+	) -> bool {
+		let export_future = {
+			let progress = progress.clone();
+			async move {
+				let mut export_event_stream = pin!(export_event_stream);
+				while let Some(result) = export_event_stream.next().await {
+					match result {
+						Ok(tg::export::Event::Item(item)) => {
+							let result = export_item_sender.send(Ok(item)).await;
+							if let Err(error) = result {
+								progress.error(tg::error!(!error, "failed to send export item"));
+								break;
+							}
+						},
+						Ok(tg::export::Event::Complete(complete)) => match complete {
+							tg::export::Complete::Process(process_complete) => {
+								if let Some(processes) = process_complete.count {
+									progress.increment("processes", processes);
+								}
+								let mut objects = 0;
+								let mut bytes = 0;
+								if let Some(commands_count) = process_complete.commands_count {
+									objects += commands_count;
+								}
+								if let Some(commands_weight) = process_complete.commands_weight {
+									bytes += commands_weight;
+								}
+								if let Some(logs_count) = process_complete.logs_count {
+									objects += logs_count;
+								}
+								if let Some(logs_weight) = process_complete.logs_weight {
+									bytes += logs_weight;
+								}
+								if let Some(outputs_count) = process_complete.outputs_count {
+									objects += outputs_count;
+								}
+								if let Some(outputs_weight) = process_complete.outputs_weight {
+									bytes += outputs_weight;
+								}
+								progress.increment("objects", objects);
+								progress.increment("bytes", bytes);
+							},
+							tg::export::Complete::Object(object_complete) => {
+								if let Some(count) = object_complete.count {
+									progress.increment("objects", count);
+								}
+								if let Some(weight) = object_complete.weight {
+									progress.increment("bytes", weight);
+								}
+							},
+						},
+						Ok(tg::export::Event::End) => return true,
+						Err(error) => {
+							progress.error(error);
+						},
+					}
+				}
+				false
+			}
+		};
+		let import_future = {
+			let progress = progress.clone();
+			async move {
+				let mut import_event_stream = pin!(import_event_stream);
+				while let Some(result) = import_event_stream.next().await {
+					match result {
+						Ok(tg::import::Event::Complete(complete)) => {
+							// Try to send the import event to the exporter. Report if this fails, but do not abort.
+							import_event_sender.send(Ok(complete)).await.ok();
+						},
+						Ok(tg::import::Event::Progress(import_progress)) => {
+							if let Some(processes) = import_progress.processes {
+								progress.increment("processes", processes);
+							}
+							progress.increment("objects", import_progress.objects);
+							progress.increment("bytes", import_progress.bytes);
+						},
+						Ok(tg::import::Event::End) => return true,
+						Err(error) => progress.error(error),
+					}
+				}
+				false
+			}
+		};
+		let (export_finished, import_finished) = futures::join!(export_future, import_future);
+		export_finished && import_finished
 	}
 }
 
