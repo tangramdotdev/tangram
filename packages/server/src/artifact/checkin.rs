@@ -234,10 +234,11 @@ impl Server {
 			let server = self.clone();
 			let arg = arg.clone();
 			let root = root.clone();
+			let state = state.clone();
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_cache_task(&arg, &root, touched_at)
+					.checkin_cache_task(&arg, &root, state, touched_at)
 					.map_err(|source| tg::error!(!source, "failed to copy the blobs"))
 					.await?;
 				tracing::trace!(elapsed = ?start.elapsed(), "copy blobs");
@@ -540,6 +541,7 @@ impl Server {
 		&self,
 		arg: &tg::artifact::checkin::Arg,
 		root: &tg::artifact::Id,
+		state: Arc<State>,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		tokio::task::spawn_blocking({
@@ -547,23 +549,29 @@ impl Server {
 			move || {
 				let mut stack = vec![path];
 				while let Some(path) = stack.pop() {
-					let metadata = std::fs::symlink_metadata(&path)
-						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+					let index = *state.graph.paths.get(&path).unwrap();
+					let metadata = state.graph.nodes[index].metadata.as_ref().unwrap();
 					if metadata.is_dir() {
-						let read_dir = std::fs::read_dir(&path)
-							.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-						for entry in read_dir {
-							let entry = entry.map_err(|source| {
-								tg::error!(!source, "failed to read the entry")
-							})?;
-							let path = entry.path();
-							stack.push(path);
-						}
+						let children = state.graph.nodes[index].edges.iter().filter_map(|edge| {
+							state
+								.graph
+								.nodes
+								.get(edge.node?)
+								.unwrap()
+								.path
+								.as_deref()
+								.cloned()
+						});
+						stack.extend(children);
 					}
 					if !metadata.is_symlink() {
 						let mode = metadata.permissions().mode();
 						let executable = mode & 0o111 != 0;
-						let new_mode = if executable { 0o755 } else { 0o644 };
+						let new_mode = if metadata.is_dir() || executable {
+							0o755
+						} else {
+							0o644
+						};
 						if new_mode != mode {
 							let permissions = std::fs::Permissions::from_mode(new_mode);
 							std::fs::set_permissions(&path, permissions).map_err(
