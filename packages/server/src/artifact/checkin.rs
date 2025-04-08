@@ -549,20 +549,20 @@ impl Server {
 			move || {
 				let mut stack = vec![path];
 				while let Some(path) = stack.pop() {
-					let metadata = {
-						let index = *state.graph.paths.get(&path).unwrap();
-						state.graph.nodes[index].metadata.as_ref().unwrap()
-					};
+					let index = *state.graph.paths.get(&path).unwrap();
+					let metadata = state.graph.nodes[index].metadata.as_ref().unwrap();
 					if metadata.is_dir() {
-						let read_dir = std::fs::read_dir(&path)
-							.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-						for entry in read_dir {
-							let entry = entry.map_err(|source| {
-								tg::error!(!source, "failed to read the entry")
-							})?;
-							let path = entry.path();
-							stack.push(path);
-						}
+						let children = state.graph.nodes[index].edges.iter().filter_map(|edge| {
+							state
+								.graph
+								.nodes
+								.get(edge.node?)
+								.unwrap()
+								.path
+								.as_deref()
+								.cloned()
+						});
+						stack.extend(children);
 					}
 					if !metadata.is_symlink() {
 						let mode = metadata.permissions().mode();
