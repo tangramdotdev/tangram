@@ -57,41 +57,46 @@ impl tg::Process {
 			tg::mutation::mutate(&mut env, key, value)?;
 		}
 		builder = builder.env(env);
-		let mounts = command
-			.as_ref()
-			.map(|command| command.mounts.clone())
-			.into_iter()
-			.flatten();
-		builder = builder.mounts(mounts);
-		// let arg_command_mounts = vec![];
-		// let arg_process_mounts = vec![];
-		builder = builder.mounts(arg.mounts.as_ref());
-		let stdin = if arg.stdin.is_none() {
-			command.stdin.clone()
-		} else {
-			let arg_stdin = arg.stdin.unwrap();
-			if let Some(arg_stdin) = arg_stdin {
-				if let Either::Right(blob) = arg_stdin {
-					Some(blob)
-				} else {
-					None
+		let mut command_mounts = vec![];
+		let mut process_mount_data = vec![];
+		// If there are mounts in the arg, use those and only those.
+		if let Some(mounts) = arg.mounts {
+			for mount in mounts {
+				match mount {
+					Either::Left(process_mount) => process_mount_data.push(process_mount.data()),
+					Either::Right(command_mount) => command_mounts.push(command_mount),
 				}
-			} else {
-				None
 			}
+		} else {
+			// If the arg mounts were None, check if there are command mounts.
+			if let Some(mounts) = command.as_ref().map(|command| command.mounts.clone()) {
+				command_mounts = mounts;
+			}
+			// Check if there are process mounts.
+			if let Some(mounts) = state.as_ref().map(|state| state.mounts.clone()) {
+				process_mount_data = mounts.iter().map(super::mount::Mount::data).collect();
+			}
+		}
+		builder = builder.mounts(command_mounts);
+		let stdin = if arg.stdin.is_none() {
+			command
+				.as_ref()
+				.map(|command| command.stdin.clone())
+				.unwrap_or_default()
+		} else if let Some(Some(Either::Right(blob))) = &arg.stdin {
+			Some(blob.clone())
+		} else {
+			None
 		};
 		builder = builder.stdin(stdin);
-		builder = builder.user(command.user.clone());
+		if let Some(Some(user)) = command.as_ref().map(|command| command.user.clone()) {
+			builder = builder.user(user);
+		}
 		let command = builder.build();
 		let command_id = command.id(handle).await?;
-		let checksum = arg.checksum;
-		let mounts = arg
-			.mounts
-			.or_else(|| state.as_ref().map(|state| state.mounts.clone()))
-			.unwrap_or_default()
-			.into_iter()
-			.map(|mount| mount.data())
-			.collect();
+		let checksum = arg
+			.checksum
+			.or(state.as_ref().and_then(|state| state.checksum.clone()));
 		let network = arg
 			.network
 			.or(state.as_ref().map(|state| state.network))
@@ -121,7 +126,7 @@ impl tg::Process {
 			cached: arg.cached,
 			checksum,
 			command: Some(command_id),
-			mounts,
+			mounts: process_mount_data,
 			network,
 			parent: arg.parent,
 			remote: arg.remote,

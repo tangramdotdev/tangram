@@ -45,7 +45,6 @@ impl tg::Artifact {
 				.map(|compression| compression.to_string())
 				.into(),
 		];
-		let executable = tg::command::Executable::Path("archive".into());
 		tg::Command::builder(host, executable).args(args).build()
 	}
 }
