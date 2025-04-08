@@ -149,14 +149,12 @@ impl Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-
 		let position = response
 			.headers()
 			.get("x-tg-position")
 			.map(|v| v.to_str().unwrap().parse::<u64>())
 			.transpose()
 			.map_err(|_| tg::error!("expected an integer"))?;
-
 		let frames = BodyStream::new(response.into_body());
 		let stream = stream::try_unfold(
 			(position, frames),

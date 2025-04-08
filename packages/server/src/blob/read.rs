@@ -596,6 +596,7 @@ impl Server {
 			response = response.header("x-tg-position", position);
 		}
 		let response = response.body(body).unwrap();
+
 		Ok(response)
 	}
 }

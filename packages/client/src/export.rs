@@ -170,14 +170,14 @@ impl tg::Client {
 		}
 		let (reader, trailers) = response.reader_and_trailers();
 
-		let stream1 = stream::try_unfold(reader, |mut reader| async move {
+		let reader_events = stream::try_unfold(reader, |mut reader| async move {
 			let Some(item) = tg::export::Event::from_reader(&mut reader).await? else {
 				return Ok(None);
 			};
 			Ok(Some((item, reader)))
 		});
 
-		let stream2 = trailers
+		let trailer_events = trailers
 			.map_err(|source| tg::error!(!source, "failed to get the trailers"))
 			.and_then(|trailers| async move {
 				let event = trailers
@@ -202,7 +202,8 @@ impl tg::Client {
 				}
 			});
 
-		let stream = stream::select(stream1, stream2);
+		let stream = stream::select(reader_events, trailer_events);
+
 		Ok(stream)
 	}
 }
