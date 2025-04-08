@@ -167,6 +167,15 @@ impl Process {
 	{
 		handle.wait_process(&self.id).await?.try_into()
 	}
+
+	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
+	where
+		H: tg::Handle,
+	{
+		let wait = self.wait(handle).await?;
+		let output = wait.into_output()?;
+		Ok(output)
+	}
 }
 
 impl Deref for Process {

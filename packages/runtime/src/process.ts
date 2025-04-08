@@ -37,7 +37,6 @@ export class Process {
 			commandStdin = arg.stdin;
 		}
 		let command = await tg.command(
-			arg.command,
 			"args" in arg ? { args: arg.args } : undefined,
 			"cwd" in arg ? { cwd: arg.cwd } : undefined,
 			"env" in arg ? { env: arg.env } : undefined,
@@ -176,7 +175,6 @@ export class Process {
 				cwd: currentCommand.cwd(),
 				env: currentCommand.env(),
 			},
-			arg.command,
 			"args" in arg ? { args: arg.args } : undefined,
 			"cwd" in arg ? { cwd: arg.cwd } : undefined,
 			"env" in arg ? { env: arg.env } : undefined,
@@ -423,7 +421,6 @@ export namespace Process {
 	export type BuildArgObject = {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
-		command?: tg.Command.Arg | undefined;
 		cwd?: string | undefined;
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
@@ -444,7 +441,6 @@ export namespace Process {
 	export type RunArgObject = {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
-		command?: tg.Command.Arg | undefined;
 		cwd?: string | undefined;
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;

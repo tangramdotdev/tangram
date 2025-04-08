@@ -1,5 +1,4 @@
 use crate as tg;
-use futures::FutureExt as _;
 
 impl tg::Artifact {
 	pub async fn bundle<H>(&self, handle: &H) -> tg::Result<Self>
@@ -7,8 +6,15 @@ impl tg::Artifact {
 		H: tg::Handle,
 	{
 		let command = self.bundle_command();
-		let arg = tg::process::build::Arg::default();
-		let output = tg::Process::build(handle, &command, arg).boxed().await?;
+		let arg = tg::process::spawn::Arg {
+			command: Some(command.id(handle).await?),
+			..Default::default()
+		};
+		let output = tg::Process::spawn(handle, arg)
+			.await?
+			.wait(handle)
+			.await?
+			.into_output()?;
 		let artifact = output.try_into()?;
 		Ok(artifact)
 	}

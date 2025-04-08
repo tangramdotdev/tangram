@@ -10,8 +10,15 @@ impl tg::Artifact {
 		H: tg::Handle,
 	{
 		let command = self.checksum_command(algorithm);
-		let arg = tg::process::build::Arg::default();
-		let output = tg::Process::build(handle, &command, arg).await?;
+		let arg = tg::process::spawn::Arg {
+			command: Some(command.id(handle).await?),
+			..Default::default()
+		};
+		let output = tg::Process::spawn(handle, arg)
+			.await?
+			.wait(handle)
+			.await?
+			.into_output()?;
 		let checksum = output
 			.try_unwrap_string()
 			.ok()

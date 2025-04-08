@@ -18,8 +18,15 @@ impl tg::Blob {
 		H: tg::Handle,
 	{
 		let command = self.compress_command(format);
-		let arg = tg::process::build::Arg::default();
-		let output = tg::Process::build(handle, &command, arg).await?;
+		let arg = tg::process::spawn::Arg {
+			command: Some(command.id(handle).await?),
+			..Default::default()
+		};
+		let output = tg::Process::spawn(handle, arg)
+			.await?
+			.wait(handle)
+			.await?
+			.into_output()?;
 		let blob = output.try_into()?;
 		Ok(blob)
 	}
@@ -27,8 +34,8 @@ impl tg::Blob {
 	#[must_use]
 	pub fn compress_command(&self, format: tg::blob::compress::Format) -> tg::Command {
 		let host = "builtin";
-		let executable = tg::command::Executable::Path("compress".into());
 		let args = vec![self.clone().into(), format.to_string().into()];
+		let executable = tg::command::Executable::Path("compress".into());
 		tg::Command::builder(host, executable).args(args).build()
 	}
 }

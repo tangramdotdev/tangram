@@ -196,27 +196,10 @@ impl Cli {
 			result
 		};
 
-		// Handle the result.
-		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
-
-		// Return an error if necessary.
-		if let Some(error) = wait.error {
-			return Err(error);
-		}
-		match &wait.exit {
-			Some(tg::process::Exit::Code { code }) if *code != 0 => {
-				return Err(tg::error!("the process exited with code {code}"));
-			},
-			Some(tg::process::Exit::Signal { signal }) => {
-				return Err(tg::error!("the process exited with signal {signal}"));
-			},
-			_ => (),
-		}
-
 		// Get the output.
-		let output: tg::Value = wait
-			.output
-			.ok_or_else(|| tg::error!("expected the output to be set"))?;
+		let output = result
+			.map_err(|source| tg::error!(!source, "failed to await the process"))?
+			.into_output()?;
 
 		// Check out the output if requested.
 		if let Some(path) = options.checkout {
