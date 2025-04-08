@@ -15,7 +15,8 @@ impl tg::Artifact {
 	#[must_use]
 	pub fn extract_command(blob: &tg::Blob) -> tg::Command {
 		let host = "builtin";
-		let args = vec!["extract".into(), blob.clone().into()];
-		tg::Command::builder(host).args(args).build()
+		let executable = tg::command::Executable::Path("extract".into());
+		let args = vec![blob.clone().into()];
+		tg::Command::builder(host, executable).args(args).build()
 	}
 }

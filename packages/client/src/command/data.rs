@@ -16,8 +16,7 @@ pub struct Command {
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub env: tg::value::data::Map,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub executable: Option<tg::command::data::Executable>,
+	pub executable: tg::command::data::Executable,
 
 	pub host: String,
 
@@ -65,10 +64,7 @@ impl Command {
 
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		let executable = self
-			.executable
-			.iter()
-			.flat_map(tg::command::data::Executable::children);
+		let executable = self.executable.children();
 		let args = self.args.iter().flat_map(tg::value::Data::children);
 		let env = self.env.values().flat_map(tg::value::Data::children);
 		let mounts = self

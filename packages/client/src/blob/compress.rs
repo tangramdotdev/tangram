@@ -27,12 +27,9 @@ impl tg::Blob {
 	#[must_use]
 	pub fn compress_command(&self, format: tg::blob::compress::Format) -> tg::Command {
 		let host = "builtin";
-		let args = vec![
-			"compress".into(),
-			self.clone().into(),
-			format.to_string().into(),
-		];
-		tg::Command::builder(host).args(args).build()
+		let executable = tg::command::Executable::Path("compress".into());
+		let args = vec![self.clone().into(), format.to_string().into()];
+		tg::Command::builder(host, executable).args(args).build()
 	}
 }
 

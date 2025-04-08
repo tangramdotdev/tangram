@@ -120,8 +120,6 @@ impl Runtime {
 		let root = command
 			.executable(&self.server)
 			.await?
-			.as_ref()
-			.ok_or_else(|| tg::error!("expected the command to have an executable"))?
 			.try_unwrap_module_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected the executable to be a module"))?

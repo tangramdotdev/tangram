@@ -82,12 +82,9 @@ pub async fn compute_checksum(
 	}
 
 	let host = "builtin";
-	let args = vec![
-		"checksum".into(),
-		value.clone(),
-		algorithm.to_string().into(),
-	];
-	let command = tg::Command::builder(host).args(args).build();
+	let executable = tg::command::Executable::Path("checksum".into());
+	let args = vec![value.clone(), algorithm.to_string().into()];
+	let command = tg::Command::builder(host, executable).args(args).build();
 
 	// If the process is remote, push the command.
 	let remote = process.remote();

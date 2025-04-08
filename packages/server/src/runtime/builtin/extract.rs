@@ -23,7 +23,7 @@ impl Runtime {
 
 		// Get the blob.
 		let blob: tg::Blob = args
-			.get(1)
+			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
 			.clone()
 			.try_into()
@@ -88,7 +88,7 @@ impl Runtime {
 			tg::artifact::archive::Format::Zip => {
 				self.extract_zip(&temp, reader).await?;
 			},
-		};
+		}
 
 		// Check in the temp.
 		let stream = self

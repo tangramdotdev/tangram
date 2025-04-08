@@ -23,7 +23,8 @@ impl tg::Blob {
 	#[must_use]
 	pub fn download_command(url: &Url) -> tg::Command {
 		let host = "builtin";
+		let executable = tg::command::Executable::Path("download".into());
 		let args = vec!["download".into(), url.to_string().into()];
-		tg::Command::builder(host).args(args).build()
+		tg::Command::builder(host, executable).args(args).build()
 	}
 }

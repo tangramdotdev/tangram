@@ -156,7 +156,7 @@ pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 		let mut status = 0;
 		if libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0) == -1 {
 			return Err(std::io::Error::last_os_error());
-		};
+		}
 		if libc::WIFEXITED(status) {
 			let code = libc::WEXITSTATUS(status);
 			Ok(ExitStatus::Code(code))

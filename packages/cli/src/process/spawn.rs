@@ -165,10 +165,9 @@ impl Cli {
 		let mut command = if let tg::Object::Command(command) = object {
 			let object = command.object(&handle).await?;
 			command_env = Some(object.env.clone());
-			tg::Command::builder(object.host.clone())
+			tg::Command::builder(object.host.clone(), object.executable.clone())
 				.args(object.args.clone())
 				.cwd(object.cwd.clone())
-				.executable(object.executable.clone())
 				.mounts(object.mounts.clone())
 				.stdin(object.stdin.clone())
 		} else {
@@ -246,9 +245,7 @@ impl Cli {
 			let host = "js";
 
 			// Create the command.
-			tg::Command::builder(host)
-				.arg(target.into())
-				.executable(Some(executable))
+			tg::Command::builder(host, executable).arg(target.into())
 		};
 
 		// Get the args.

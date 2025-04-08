@@ -37,18 +37,17 @@ impl Runtime {
 	async fn run_inner(&self, process: &tg::Process) -> tg::Result<tg::Value> {
 		let server = &self.server;
 
-		// Get the args.
-		let args = process.command(server).await?.args(server).await?;
-
-		// Get the name.
-		let name = args
-			.first()
-			.ok_or_else(|| tg::error!("expected at least one arg"))?
-			.try_unwrap_string_ref()
+		// Get the executable.
+		let command = process.command(server).await?;
+		let executable = command.executable(server).await?;
+		let name = executable
+			.try_unwrap_path_ref()
 			.ok()
-			.ok_or_else(|| tg::error!("expected the first arg to be a string"))?;
+			.ok_or_else(|| tg::error!("expected the path variant of executable"))?
+			.to_str()
+			.unwrap();
 
-		let value = match name.as_str() {
+		let value = match name {
 			"archive" => self.archive(process).boxed(),
 			"bundle" => self.bundle(process).boxed(),
 			"checksum" => self.checksum(process).boxed(),

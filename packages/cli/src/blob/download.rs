@@ -17,8 +17,11 @@ impl Cli {
 	pub async fn command_blob_download(&self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let host = "builtin";
-		let command_args = vec!["download".into(), args.url.to_string().into()];
-		let command = tg::Command::builder(host).args(command_args).build();
+		let executable = tg::command::Executable::Path("download".into());
+		let command_args = vec![args.url.to_string().into()];
+		let command = tg::Command::builder(host, executable)
+			.args(command_args)
+			.build();
 		let command = command.id(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
 		self.build_process(args.build, reference, vec![]).await?;

@@ -187,7 +187,7 @@ impl Server {
 					.try_into()
 					.map_err(|_| tg::error!("expected a graph"))?;
 					state.graphs.insert(graph.clone(), data);
-				};
+				}
 				Either::Left((graph, node))
 			},
 

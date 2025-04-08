@@ -16,7 +16,7 @@ impl Runtime {
 
 		// Get the artifact.
 		let artifact: tg::Artifact = args
-			.get(1)
+			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
 			.clone()
 			.try_into()

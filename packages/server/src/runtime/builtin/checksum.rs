@@ -11,7 +11,7 @@ impl Runtime {
 
 		// Get the object.
 		let object = args
-			.get(1)
+			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
 			.clone()
 			.try_unwrap_object()
@@ -20,7 +20,7 @@ impl Runtime {
 
 		// Get the algorithm.
 		let algorithm = args
-			.get(2)
+			.get(1)
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
 			.try_unwrap_string_ref()
 			.ok()

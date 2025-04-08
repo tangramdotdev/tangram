@@ -15,7 +15,8 @@ impl tg::Blob {
 	#[must_use]
 	pub fn decompress_command(&self) -> tg::Command {
 		let host = "builtin";
-		let args = vec!["decompress".into(), self.clone().into()];
-		tg::Command::builder(host).args(args).build()
+		let executable = tg::command::Executable::Path("decompress".into());
+		let args = vec![self.clone().into()];
+		tg::Command::builder(host, executable).args(args).build()
 	}
 }

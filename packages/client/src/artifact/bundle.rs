@@ -16,7 +16,8 @@ impl tg::Artifact {
 	#[must_use]
 	pub fn bundle_command(&self) -> tg::Command {
 		let host = "builtin";
+		let executable = tg::command::Executable::Path("bundle".into());
 		let args = vec!["bundle".into(), self.clone().into()];
-		tg::Command::builder(host).args(args).build()
+		tg::Command::builder(host, executable).args(args).build()
 	}
 }

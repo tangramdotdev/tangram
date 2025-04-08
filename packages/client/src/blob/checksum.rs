@@ -23,11 +23,8 @@ impl tg::Blob {
 	#[must_use]
 	pub fn checksum_command(&self, algorithm: tg::checksum::Algorithm) -> tg::Command {
 		let host = "builtin";
-		let args = vec![
-			"checksum".into(),
-			self.clone().into(),
-			algorithm.to_string().into(),
-		];
-		tg::Command::builder(host).args(args).build()
+		let executable = tg::command::Executable::Path("checksum".into());
+		let args = vec![self.clone().into(), algorithm.to_string().into()];
+		tg::Command::builder(host, executable).args(args).build()
 	}
 }

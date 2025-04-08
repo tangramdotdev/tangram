@@ -30,15 +30,15 @@ impl tg::Artifact {
 		compression: Option<tg::blob::compress::Format>,
 	) -> tg::Command {
 		let host = "builtin";
+		let executable = tg::command::Executable::Path("archive".into());
 		let args = vec![
-			"archive".into(),
 			self.clone().into(),
 			format.to_string().into(),
 			compression
 				.map(|compression| compression.to_string())
 				.into(),
 		];
-		tg::Command::builder(host).args(args).build()
+		tg::Command::builder(host, executable).args(args).build()
 	}
 }
 

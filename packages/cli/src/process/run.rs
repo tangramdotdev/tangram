@@ -276,7 +276,7 @@ where
 		async move {
 			if stdout == stderr {
 				return Ok(());
-			};
+			}
 			stdio_task_inner(&handle, &stderr, remote, tokio::io::stderr()).await?;
 			Ok::<_, tg::Error>(())
 		}

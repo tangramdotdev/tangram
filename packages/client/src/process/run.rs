@@ -30,7 +30,7 @@ impl tg::Process {
 			None
 		};
 		let command = command.object(handle).await?;
-		let mut builder = tg::Command::builder(command.host.clone());
+		let mut builder = tg::Command::builder(command.host.clone(), command.executable.clone());
 		builder = builder.args(command.args.clone());
 		let cwd = std::env::current_dir()
 			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
@@ -48,7 +48,6 @@ impl tg::Process {
 			builder = builder.mounts(object.mounts.clone());
 		}
 		builder = builder.env(env);
-		builder = builder.executable(command.executable.clone());
 		builder = builder.host(command.host.clone());
 		builder = builder.mounts(command.mounts.clone());
 		let stdin = if arg.stdin.is_none() {

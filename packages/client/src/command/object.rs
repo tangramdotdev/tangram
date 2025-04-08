@@ -8,7 +8,7 @@ pub struct Command {
 	pub args: tg::value::Array,
 	pub cwd: Option<PathBuf>,
 	pub env: tg::value::Map,
-	pub executable: Option<tg::command::Executable>,
+	pub executable: tg::command::Executable,
 	pub host: String,
 	pub mounts: Vec<tg::command::Mount>,
 	pub stdin: Option<tg::Blob>,
@@ -39,11 +39,7 @@ impl Command {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		std::iter::empty()
-			.chain(
-				self.executable
-					.iter()
-					.flat_map(tg::command::Executable::object),
-			)
+			.chain(self.executable.object())
 			.chain(self.args.iter().flat_map(tg::Value::objects))
 			.chain(self.env.values().flat_map(tg::Value::objects))
 			.chain(self.mounts.iter().flat_map(tg::command::Mount::object))
@@ -99,7 +95,7 @@ impl TryFrom<Data> for Command {
 			.into_iter()
 			.map(|(key, data)| Ok::<_, tg::Error>((key, data.try_into()?)))
 			.try_collect()?;
-		let executable = data.executable.map(Into::into);
+		let executable = data.executable.into();
 		let host = data.host;
 		let mounts = data.mounts.into_iter().map(Into::into).collect();
 		let stdin = data.stdin.map(tg::Blob::with_id);
