@@ -30,6 +30,7 @@ serde_urlencoded = { workspace = true }
 sync_wrapper = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
