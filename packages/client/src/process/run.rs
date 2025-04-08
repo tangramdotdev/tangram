@@ -58,23 +58,20 @@ impl tg::Process {
 		}
 		builder = builder.env(env);
 		let mut command_mounts = vec![];
-		let mut process_mount_data = vec![];
-		// If there are mounts in the arg, use those and only those.
+		let mut process_mounts = vec![];
 		if let Some(mounts) = arg.mounts {
 			for mount in mounts {
 				match mount {
-					Either::Left(process_mount) => process_mount_data.push(process_mount.data()),
-					Either::Right(command_mount) => command_mounts.push(command_mount),
+					Either::Left(mount) => process_mounts.push(mount.data()),
+					Either::Right(mount) => command_mounts.push(mount),
 				}
 			}
 		} else {
-			// If the arg mounts were None, check if there are command mounts.
 			if let Some(mounts) = command.as_ref().map(|command| command.mounts.clone()) {
 				command_mounts = mounts;
 			}
-			// Check if there are process mounts.
 			if let Some(mounts) = state.as_ref().map(|state| state.mounts.clone()) {
-				process_mount_data = mounts.iter().map(super::mount::Mount::data).collect();
+				process_mounts = mounts.iter().map(super::mount::Mount::data).collect();
 			}
 		}
 		builder = builder.mounts(command_mounts);
@@ -126,7 +123,7 @@ impl tg::Process {
 			cached: arg.cached,
 			checksum,
 			command: Some(command_id),
-			mounts: process_mount_data,
+			mounts: process_mounts,
 			network,
 			parent: arg.parent,
 			remote: arg.remote,
