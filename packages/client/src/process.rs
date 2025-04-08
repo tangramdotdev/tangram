@@ -1,7 +1,7 @@
 use crate::{self as tg, handle::Ext as _, util::arc::Ext as _};
 use std::{
 	ops::Deref,
-	sync::{Arc, RwLock},
+	sync::{Arc, Mutex, RwLock},
 };
 
 pub use self::{
@@ -16,6 +16,7 @@ pub use self::{
 	wait::{Exit, Wait},
 };
 
+pub mod build;
 pub mod children;
 pub mod data;
 pub mod dequeue;
@@ -27,6 +28,7 @@ pub mod log;
 pub mod metadata;
 pub mod mount;
 pub mod put;
+pub mod run;
 pub mod signal;
 pub mod spawn;
 pub mod start;
@@ -35,6 +37,8 @@ pub mod status;
 pub mod stdio;
 pub mod touch;
 pub mod wait;
+
+static CURRENT: Mutex<Option<tg::Process>> = Mutex::new(None);
 
 #[derive(Clone, Debug)]
 pub struct Process(Arc<Inner>);
@@ -66,6 +70,19 @@ impl Process {
 			metadata,
 			token,
 		}))
+	}
+
+	pub fn current() -> tg::Result<Option<Self>> {
+		if let Some(process) = CURRENT.lock().unwrap().as_ref() {
+			return Ok(Some(process.clone()));
+		}
+		let Ok(id) = std::env::var("TANGRAM_PROCESS") else {
+			return Ok(None);
+		};
+		let id = id.parse()?;
+		let process = Self::new(id, None, None, None, None);
+		CURRENT.lock().unwrap().replace(process.clone());
+		Ok(Some(process))
 	}
 
 	#[must_use]
@@ -149,27 +166,6 @@ impl Process {
 		H: tg::Handle,
 	{
 		handle.wait_process(&self.id).await?.try_into()
-	}
-
-	pub async fn run<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Value>
-	where
-		H: tg::Handle,
-	{
-		let process = Self::spawn(handle, arg).await?;
-		let output = process.wait(handle).await?;
-		if output.status != tg::process::Status::Finished {
-			let error = output.error.unwrap_or_else(|| {
-				tg::error!(
-					%process = process.id(),
-					"the process failed",
-				)
-			});
-			return Err(error);
-		}
-		let output = output
-			.output
-			.ok_or_else(|| tg::error!(%process = process.id(), "expected the output to be set"))?;
-		Ok(output)
 	}
 }
 

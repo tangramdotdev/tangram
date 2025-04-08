@@ -144,6 +144,9 @@ impl Runtime {
 			output_path.to_str().unwrap().to_owned(),
 		);
 
+		// Set `$TANGRAM_PROCESS`.
+		env.insert("TANGRAM_PROCESS".to_owned(), process.id().to_string());
+
 		// Set `$TANGRAM_URL`.
 		let url = proxy.as_ref().map_or_else(
 			|| {
@@ -163,7 +166,7 @@ impl Runtime {
 				(artifacts_path.clone(), artifacts_path.clone(), true),
 				(cwd.clone(), cwd.clone(), false),
 			]);
-		};
+		}
 		mounts.extend(
 			state
 				.mounts

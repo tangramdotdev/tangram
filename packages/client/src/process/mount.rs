@@ -14,19 +14,16 @@ impl Mount {
 		Vec::new()
 	}
 
-	pub async fn data<H>(&self, _handle: &H) -> tg::Result<tg::process::data::Mount>
-	where
-		H: tg::Handle,
-	{
+	#[must_use]
+	pub fn data(&self) -> tg::process::data::Mount {
 		let source = self.source.clone();
 		let target = self.target.clone();
 		let readonly = self.readonly;
-		let mount = tg::process::data::Mount {
+		tg::process::data::Mount {
 			source,
 			target,
 			readonly,
-		};
-		Ok(mount)
+		}
 	}
 }
 

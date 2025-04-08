@@ -71,7 +71,6 @@ pub async fn spawn(
 			// Spawn.
 			let retry = *parent.retry(&server).await?;
 			let arg = tg::process::spawn::Arg {
-				create: true,
 				parent: Some(parent.id().clone()),
 				remote: parent.remote().cloned(),
 				retry,

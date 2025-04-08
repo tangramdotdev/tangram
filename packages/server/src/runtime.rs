@@ -80,7 +80,7 @@ impl Runtime {
 		let state = process.load(self.server()).await?;
 
 		// Run the process.
-		let output = match self {
+		let wait = match self {
 			Runtime::Builtin(runtime) => runtime.run(process).boxed().await,
 			#[cfg(target_os = "macos")]
 			Runtime::Darwin(runtime) => runtime.run(process).boxed().await,
@@ -90,11 +90,11 @@ impl Runtime {
 		};
 
 		// If the process has a checksum, then compute the checksum of the output.
-		if let (Some(value), Some(checksum)) = (&output.output, &state.checksum) {
+		if let (Some(value), Some(checksum)) = (&wait.output, &state.checksum) {
 			self::util::compute_checksum(self, process, value, checksum).await?;
 		}
 
-		Ok(output)
+		Ok(wait)
 	}
 
 	async fn try_reuse_process(&self, process: &tg::Process) -> tg::Result<Option<Output>> {
@@ -120,9 +120,9 @@ impl Runtime {
 
 		// Try spawning the command with the checksum "none".
 		let arg = tg::process::spawn::Arg {
+			cached: Some(true),
 			checksum: Some(tangram_client::Checksum::None),
 			command: state.command.id(self.server()).await.ok(),
-			create: false,
 			mounts: Vec::new(),
 			network: false,
 			parent: None,
@@ -154,9 +154,9 @@ impl Runtime {
 					for child in chunk.data {
 						if let Some(child_process) = server.try_get_process(&child).await? {
 							let arg = tg::process::spawn::Arg {
+								cached: Some(true),
 								checksum: child_process.data.checksum,
 								command: Some(child_process.data.command),
-								create: false,
 								mounts: child_process.data.mounts,
 								network: child_process.data.network,
 								parent: Some(process.id().clone()),
@@ -215,21 +215,21 @@ impl Runtime {
 		.and_then(future::ready);
 
 		// Join the tasks.
-		let ((), (), output) = futures::try_join!(children_task, log_task, wait_task)?;
+		let ((), (), wait) = futures::try_join!(children_task, log_task, wait_task)?;
 
 		// If the process did not succeed, then return its output.
-		if output.error.is_some() || output.exit.as_ref().is_some_and(tg::process::Exit::failed) {
-			let value = output.output.map(tg::Value::try_from).transpose()?;
+		if wait.error.is_some() || wait.exit.as_ref().is_some_and(tg::process::Exit::failed) {
+			let value = wait.output.map(tg::Value::try_from).transpose()?;
 			let output = Output {
 				error: None,
-				exit: output.exit,
+				exit: wait.exit,
 				output: value,
 			};
 			return Ok(Some(output));
 		}
 
-		// If the process had no output or the output cannot be converted to a `tg::Value`, return.
-		let value = output
+		// If the process had no output or the output cannot be converted to a `tg::Value`, then return.
+		let value = wait
 			.output
 			.ok_or_else(|| tg::error!("expected the output to be set"))?;
 		let value = tg::Value::try_from(value)?;
@@ -243,7 +243,7 @@ impl Runtime {
 				tg::error!("checksums do not match, expected {checksum}, actual {actual_checksum}");
 			let output = Output {
 				error: Some(error),
-				exit: output.exit,
+				exit: wait.exit,
 				output: None,
 			};
 			return Ok(Some(output));
@@ -252,7 +252,7 @@ impl Runtime {
 		// Create the output.
 		let output = Output {
 			error: None,
-			exit: output.exit,
+			exit: wait.exit,
 			output: Some(value),
 		};
 

@@ -10,11 +10,8 @@ impl tg::Blob {
 		H: tg::Handle,
 	{
 		let command = self.checksum_command(algorithm);
-		let arg = tg::process::spawn::Arg {
-			command: Some(command.id(handle).await?),
-			..Default::default()
-		};
-		let output = tg::Process::run(handle, arg).await?;
+		let arg = tg::process::build::Arg::default();
+		let output = tg::Process::build(handle, &command, arg).await?;
 		let checksum = output
 			.try_unwrap_string()
 			.ok()

@@ -159,3 +159,67 @@ export namespace Mutation {
 		| "prefix"
 		| "suffix";
 }
+
+export let mutate = async (
+	object: { [key: string]: tg.Value },
+	key: string,
+	mutation: tg.MaybeMutation,
+) => {
+	if (!(mutation instanceof tg.Mutation)) {
+		object[key] = mutation;
+	} else if (mutation.inner.kind === "unset") {
+		delete object[key];
+	} else if (mutation.inner.kind === "set") {
+		object[key] = mutation.inner.value;
+	} else if (mutation.inner.kind === "set_if_unset") {
+		if (!(key in object)) {
+			object[key] = mutation.inner.value;
+		}
+	} else if (mutation.inner.kind === "prepend") {
+		if (!(key in object) || object[key] === undefined) {
+			object[key] = [];
+		}
+		let array = object[key];
+		tg.assert(array instanceof Array);
+		object[key] = [...flatten(mutation.inner.values), ...array];
+	} else if (mutation.inner.kind === "append") {
+		if (!(key in object) || object[key] === undefined) {
+			object[key] = [];
+		}
+		let array = object[key];
+		tg.assert(array instanceof Array);
+		object[key] = [...array, ...flatten(mutation.inner.values)];
+	} else if (mutation.inner.kind === "prefix") {
+		if (!(key in object)) {
+			object[key] = await tg.template();
+		}
+		let value = object[key];
+		tg.assert(
+			value === undefined ||
+				typeof value === "string" ||
+				tg.Artifact.is(value) ||
+				value instanceof tg.Template,
+		);
+		object[key] = await tg.Template.join(
+			mutation.inner.separator,
+			mutation.inner.template,
+			value,
+		);
+	} else if (mutation.inner.kind === "suffix") {
+		if (!(key in object)) {
+			object[key] = await tg.template();
+		}
+		let value = object[key];
+		tg.assert(
+			value === undefined ||
+				typeof value === "string" ||
+				tg.Artifact.is(value) ||
+				value instanceof tg.Template,
+		);
+		object[key] = await tg.Template.join(
+			mutation.inner.separator,
+			value,
+			mutation.inner.template,
+		);
+	}
+};

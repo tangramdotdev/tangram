@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import { flatten } from "./util.ts";
+import { flatten, mergeMaybeMutationMaps } from "./util.ts";
 
 export let file = async (...args: tg.Args<File.Arg>) => {
 	return await File.new(...args);
@@ -70,7 +70,7 @@ export class File {
 			contents: "append",
 			dependencies: "append",
 		});
-		let arg = await tg.Args.applyMutations(mutations);
+		let arg = await mergeMaybeMutationMaps(mutations);
 		if (arg.dependencies !== undefined) {
 			let dependencies: { [reference: tg.Reference]: tg.Referent<tg.Object> } =
 				{};

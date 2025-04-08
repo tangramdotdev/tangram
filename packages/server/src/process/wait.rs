@@ -22,7 +22,7 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		Ok(Some(async move {
+		let future = async move {
 			let status = stream
 				.try_last()
 				.await?
@@ -38,7 +38,8 @@ impl Server {
 				status: output.data.status,
 			};
 			Ok(Some(output))
-		}))
+		};
+		Ok(Some(future))
 	}
 }
 

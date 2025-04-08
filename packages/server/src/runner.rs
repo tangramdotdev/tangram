@@ -117,10 +117,10 @@ impl Server {
 		}
 
 		// Run.
-		let output = self.process_task_inner(process).await?;
+		let wait = self.process_task_inner(process).await?;
 
 		// Determine the status.
-		let status = match (&output.output, &output.error, &output.exit) {
+		let status = match (&wait.output, &wait.error, &wait.exit) {
 			(_, Some(_), _) | (_, _, Some(tg::process::Exit::Signal { signal: _ })) => {
 				tg::process::Status::Finished
 			},
@@ -131,7 +131,7 @@ impl Server {
 		};
 
 		// Get the output data.
-		let value = match &output.output {
+		let value = match &wait.output {
 			Some(output) => Some(output.data(self).await?),
 			None if status == tg::process::Status::Finished => Some(tg::value::Data::Null),
 			None => None,
@@ -176,8 +176,8 @@ impl Server {
 
 		// Finish the process.
 		let arg = tg::process::finish::Arg {
-			error: output.error,
-			exit: output.exit,
+			error: wait.error,
+			exit: wait.exit,
 			output: value,
 			remote: process.remote().cloned(),
 			status,

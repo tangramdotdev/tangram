@@ -27,13 +27,13 @@ pub struct Options {
 	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
 	pub arg: Vec<String>,
 
+	/// Set this flag to true to require a cached process. Set this flag to false to require a new process to be created.
+	#[arg(long, action = clap::ArgAction::Set)]
+	pub cached: Option<bool>,
+
 	/// Whether to check out the output. The output must be an artifact. A path to check out to may be provided.
 	#[arg(long)]
 	pub checksum: Option<tg::Checksum>,
-
-	/// If false, don't create a new process.
-	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
-	pub create: bool,
 
 	/// Set the working directory for the process.
 	#[arg(short = 'C', long)]
@@ -265,7 +265,6 @@ impl Cli {
 			let cwd = std::env::current_dir()
 				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
 			command = command.cwd(cwd);
-			// let user = std::env::who
 		}
 		if let Some(cwd) = options.cwd {
 			command = command.cwd(cwd);
@@ -277,7 +276,7 @@ impl Cli {
 			env.extend(std::env::vars().map(|(key, value)| (key, value.into())));
 		}
 		for (key, value) in command_env.into_iter().flatten() {
-			insert_env(&mut env, key, value)?;
+			tg::mutation::mutate(&mut env, key, value)?;
 		}
 		for string in options.env.into_iter().flatten() {
 			let map = string
@@ -285,7 +284,7 @@ impl Cli {
 				.try_unwrap_map()
 				.map_err(|_| tg::error!("expected a map"))?;
 			for (key, value) in map {
-				insert_env(&mut env, key, value)?;
+				tg::mutation::mutate(&mut env, key, value)?;
 			}
 		}
 		if !env.contains_key("TANGRAM_HOST") {
@@ -350,9 +349,9 @@ impl Cli {
 
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
+			cached: options.cached,
 			checksum: options.checksum,
 			command: Some(command.id(&handle).await?.clone()),
-			create: options.create,
 			mounts,
 			network,
 			parent: None,
@@ -377,122 +376,4 @@ impl Cli {
 
 		Ok(process)
 	}
-}
-
-/// Produce a single environment map by applying the mutations from each in order to a base map.
-fn insert_env(env: &mut tg::value::Map, key: String, value: tg::Value) -> tg::Result<()> {
-	if let Ok(mutation) = value.clone().try_unwrap_mutation() {
-		match mutation {
-			tg::Mutation::Unset => {
-				env.remove(&key);
-			},
-			tg::Mutation::Set { value } => {
-				env.insert(key, *value.clone());
-			},
-			tg::Mutation::SetIfUnset { value } => {
-				let existing = env.get(&key);
-				if existing.is_none() {
-					env.insert(key, *value.clone());
-				}
-			},
-			tg::Mutation::Prepend { values } => {
-				if let Some(existing) = env.get(&key).cloned() {
-					let existing = existing
-						.try_unwrap_array()
-						.map_err(|source| tg::error!(!source, "cannot prepend to a non-array"))?;
-					let mut combined_values = values.clone();
-					combined_values.extend(existing.iter().cloned());
-					env.insert(key, tg::Value::Array(combined_values));
-				} else {
-					env.insert(key, tg::Value::Array(values));
-				}
-			},
-			tg::Mutation::Append { values } => {
-				if let Some(existing) = env.get(&key).cloned() {
-					let existing = existing
-						.try_unwrap_array()
-						.map_err(|source| tg::error!(!source, "cannot apppend to a non-array"))?;
-					let mut combined_values = existing.clone();
-					combined_values.extend(values.iter().cloned());
-					env.insert(key, tg::Value::Array(combined_values));
-				} else {
-					env.insert(key, tg::Value::Array(values));
-				}
-			},
-			tg::Mutation::Prefix {
-				separator,
-				template,
-			} => {
-				if let Some(existing) = env.get(&key).cloned() {
-					let existing_components = match existing {
-						tg::Value::String(s) => {
-							vec![tg::template::Component::String(s)]
-						},
-						tg::Value::Object(obj) => {
-							let artifact = match obj {
-								tangram_client::Object::Directory(directory) => directory.into(),
-								tangram_client::Object::File(file) => file.into(),
-								tangram_client::Object::Symlink(symlink) => symlink.into(),
-								_ => {
-									return Err(tg::error!("expected directory, file, or symlink"));
-								},
-							};
-							vec![tg::template::Component::Artifact(artifact)]
-						},
-						tg::Value::Template(template) => template.components().to_vec(),
-						_ => {
-							return Err(tg::error!("expected string, artifact, or template"));
-						},
-					};
-					let template_components = template.components();
-					let mut combined_template = template_components.to_vec();
-					if let Some(sep) = separator {
-						combined_template.push(tg::template::Component::String(sep));
-					}
-					combined_template.extend(existing_components);
-					env.insert(key, tg::Value::Template(combined_template.into()));
-				} else {
-					env.insert(key, tg::Value::Template(template));
-				}
-			},
-			tg::Mutation::Suffix {
-				separator,
-				template,
-			} => {
-				if let Some(existing) = env.get(&key).cloned() {
-					let existing_components = match existing {
-						tg::Value::String(s) => {
-							vec![tg::template::Component::String(s)]
-						},
-						tg::Value::Object(obj) => {
-							let artifact = match obj {
-								tangram_client::Object::Directory(directory) => directory.into(),
-								tangram_client::Object::File(file) => file.into(),
-								tangram_client::Object::Symlink(symlink) => symlink.into(),
-								_ => {
-									return Err(tg::error!("expected directory, file, or symlink"));
-								},
-							};
-							vec![tg::template::Component::Artifact(artifact)]
-						},
-						tg::Value::Template(template) => template.components().to_vec(),
-						_ => {
-							return Err(tg::error!("expected string, artifact, or template"));
-						},
-					};
-					let mut combined_template = existing_components.clone();
-					if let Some(separator) = separator {
-						combined_template.push(tg::template::Component::String(separator));
-					}
-					combined_template.extend(template.components().iter().cloned());
-					env.insert(key, tg::Value::Template(combined_template.into()));
-				} else {
-					env.insert(key, tg::Value::Template(template));
-				}
-			},
-		}
-	} else {
-		env.insert(key, value);
-	}
-	Ok(())
 }
