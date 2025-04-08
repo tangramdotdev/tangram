@@ -40,15 +40,39 @@ impl tg::Process {
 		for (key, value) in std::env::vars() {
 			tg::mutation::mutate(&mut env, key, value.into())?;
 		}
+		// Inherit from current command.
+		let mut current_command_stdin = None;
+		if let Some(current) = state.as_ref().map(|state| state.command.clone()) {
+			let object = current.object(handle).await?;
+			if !object.mounts.is_empty() {
+				builder = builder.mounts(object.mounts.clone());
+			}
+			if !object.env.is_empty() {
+				for (key, value) in object.env.clone() {
+					tg::mutation::mutate(&mut env, key, value)?;
+				}
+			}
+			if let Some(stdin) = &object.stdin {
+				current_command_stdin = Some(stdin.clone());
+			}
+		}
+		// Inherit from arg after current command.
 		for (key, value) in command.env.clone() {
 			tg::mutation::mutate(&mut env, key, value)?;
 		}
+		// Inherit from arg.
 		builder = builder.env(env);
 		builder = builder.executable(command.executable.clone());
 		builder = builder.host(command.host.clone());
 		builder = builder.mounts(command.mounts.clone());
 		let stdin = if arg.stdin.is_none() {
-			command.stdin.clone()
+			if command.stdin.is_some() {
+				command.stdin.clone()
+			} else if current_command_stdin.is_some() {
+				current_command_stdin.clone()
+			} else {
+				None
+			}
 		} else {
 			None
 		};
