@@ -138,7 +138,7 @@ export class Command<
 			throw new Error("cannot create a command without a host");
 		}
 		if (!executable) {
-			throw new Error("cannot create an executable without a host");
+			throw new Error("cannot create an command without an executable");
 		}
 		let stdin = arg.stdin !== undefined ? await tg.blob(arg.stdin) : undefined;
 		let user = arg.user;

@@ -106,7 +106,7 @@ export class Process {
 						executable: await tg.symlink("/bin/sh"),
 					};
 				} else if (arg instanceof tg.Command) {
-					return { command: await arg.object() };
+					return { ...(await arg.object()) };
 				} else {
 					return arg;
 				}
@@ -244,7 +244,7 @@ export class Process {
 						executable: await tg.symlink("/bin/sh"),
 					};
 				} else if (arg instanceof tg.Command) {
-					return { command: await arg.object() };
+					return { ...(await arg.object()) };
 				} else {
 					return arg;
 				}
