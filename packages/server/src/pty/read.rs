@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _, TryFutureExt, TryStreamExt as _};
 use indoc::formatdoc;
-use tangram_client::{self as tg};
+use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};
 use tangram_futures::task::Stop;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
