@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client::{self as tg};
+use tangram_client as tg;
 
 /// Bundle an artifact.
 #[derive(Clone, Debug, clap::Args)]

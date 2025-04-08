@@ -1,6 +1,6 @@
 use crate::Cli;
 use std::pin::pin;
-use tangram_client::{self as tg};
+use tangram_client as tg;
 use tokio::io::AsyncWriteExt as _;
 
 /// Cat artifacts.
