@@ -274,7 +274,7 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select from pipes
+				select id from pipes
 				where closed = 1 or created_at < {p}1
 				limit {p}2;
 			"
@@ -287,7 +287,7 @@ impl Server {
 
 		let statement = formatdoc!(
 			"
-				select from ptys
+				select id from ptys
 				where closed = 1 or created_at < {p}1
 				limit {p}2;
 			"
