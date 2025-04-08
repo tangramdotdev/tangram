@@ -63,11 +63,22 @@ impl tg::Process {
 			.into_iter()
 			.flatten();
 		builder = builder.mounts(mounts);
+		// let arg_command_mounts = vec![];
+		// let arg_process_mounts = vec![];
 		builder = builder.mounts(arg.mounts.as_ref());
 		let stdin = if arg.stdin.is_none() {
 			command.stdin.clone()
 		} else {
-			None
+			let arg_stdin = arg.stdin.unwrap();
+			if let Some(arg_stdin) = arg_stdin {
+				if let Either::Right(blob) = arg_stdin {
+					Some(blob)
+				} else {
+					None
+				}
+			} else {
+				None
+			}
 		};
 		builder = builder.stdin(stdin);
 		builder = builder.user(command.user.clone());
@@ -88,9 +99,16 @@ impl tg::Process {
 		let stderr = arg
 			.stderr
 			.unwrap_or_else(|| state.as_ref().and_then(|state| state.stderr.clone()));
-		let stdin = arg
-			.stdin
-			.unwrap_or_else(|| state.as_ref().and_then(|state| state.stdin.clone()));
+		let stdin = arg.stdin.unwrap_or_else(|| {
+			state
+				.as_ref()
+				.and_then(|state| state.stdin.clone().map(Either::Left))
+		});
+		let stdin = match stdin {
+			None => None,
+			Some(Either::Left(stdio)) => Some(stdio),
+			Some(Either::Right(_)) => return Err(tg::error!("expected stdio")),
+		};
 		let stdout = arg
 			.stdout
 			.unwrap_or_else(|| state.as_ref().and_then(|state| state.stdout.clone()));
