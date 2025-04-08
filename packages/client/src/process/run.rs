@@ -45,9 +45,7 @@ impl tg::Process {
 		}
 		if let Some(current) = state.as_ref().map(|state| state.command.clone()) {
 			let object = current.object(handle).await?;
-			if !object.mounts.is_empty() {
-				builder = builder.mounts(object.mounts.clone());
-			}
+			builder = builder.mounts(object.mounts.clone());
 		}
 		builder = builder.env(env);
 		builder = builder.executable(command.executable.clone());
