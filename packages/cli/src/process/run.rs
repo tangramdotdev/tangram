@@ -144,13 +144,13 @@ impl Cli {
 			}
 		});
 
-		// Wait for the output.
+		// Await the process.
 		let result = process
 			.wait(&handle)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the output"));
+			.map_err(|source| tg::error!(!source, "failed await the process"));
 
-		// End streams.
+		// Close stdio.
 		self.close_stdio(&stdio).await?;
 
 		// Stop and await the stdio task.
@@ -165,10 +165,16 @@ impl Cli {
 		// Restore termios.
 		drop(stdio);
 
-		let output = result?;
+		// Handle the result.
+		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
 
-		// Print a value if it exists and is non-null.
-		if let Some(value) = output.output {
+		// Return an error if necessary.
+		if let Some(error) = wait.error {
+			return Err(error);
+		}
+
+		// Print the output if it is set and is not null.
+		if let Some(value) = wait.output {
 			if !value.is_null() {
 				let stdout = std::io::stdout();
 				let output = if stdout.is_terminal() {
@@ -184,36 +190,25 @@ impl Cli {
 			}
 		}
 
-		// Return an error if appropriate.
-		if let Some(error) = output.error {
-			return Err(tg::error!(!error, "the process failed"));
-		}
-
-		// Check the exit status.
-		let code = match output.exit {
-			Some(tg::process::Exit::Code { code }) => Some(code),
-			Some(tg::process::Exit::Signal { signal }) => Some(128 + signal),
-			None => None,
-		};
-
 		// Fork and exit.
-		if let Some(code) = code {
-			fork_and_exit(code).map_err(|source| tg::error!(!source, "failed to fork"))?;
+		let code = match wait.exit {
+			Some(tg::process::Exit::Code { code }) => code,
+			Some(tg::process::Exit::Signal { signal }) => 128 + signal,
+			None => {
+				return Err(tg::error!("expected the exit to be set"));
+			},
+		};
+		let pid = unsafe { libc::fork() };
+		if pid < 0 {
+			let error = std::io::Error::last_os_error();
+			return Err(tg::error!(!error, "failed to fork"));
+		}
+		if pid > 0 {
+			std::process::exit(code);
 		}
 
 		Ok(())
 	}
-}
-
-fn fork_and_exit(code: i32) -> std::io::Result<()> {
-	let pid = unsafe { libc::fork() };
-	if pid < 0 {
-		return Err(std::io::Error::last_os_error());
-	}
-	if pid > 0 {
-		std::process::exit(code);
-	}
-	Ok(())
 }
 
 async fn stdio_task<H>(

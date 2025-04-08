@@ -181,7 +181,7 @@ impl Cli {
 				}
 			});
 
-			// Wait for the process's output.
+			// Await the process.
 			let result = process.wait(&handle).await;
 
 			// Abort the cancel task.
@@ -196,25 +196,14 @@ impl Cli {
 			result
 		};
 
-		// Get the output or return an error if waiting for the process failed.
-		let output =
-			result.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
+		// Handle the result.
+		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
 
-		// Return an error if appropriate.
-		if output
-			.error
-			.as_ref()
-			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancelation)))
-		{
-			return Err(tg::error!(
-				code = tg::error::Code::Cancelation,
-				"the process was canceled"
-			));
+		// Return an error if necessary.
+		if let Some(error) = wait.error {
+			return Err(error);
 		}
-		if let Some(source) = output.error {
-			return Err(tg::error!(!source, "the process failed"));
-		}
-		match &output.exit {
+		match &wait.exit {
 			Some(tg::process::Exit::Code { code }) if *code != 0 => {
 				return Err(tg::error!("the process exited with code {code}"));
 			},
@@ -223,9 +212,11 @@ impl Cli {
 			},
 			_ => (),
 		}
-		let output: tg::Value = output
+
+		// Get the output.
+		let output: tg::Value = wait
 			.output
-			.ok_or_else(|| tg::error!("expected an output"))?;
+			.ok_or_else(|| tg::error!("expected the output to be set"))?;
 
 		// Check out the output if requested.
 		if let Some(path) = options.checkout {

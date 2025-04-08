@@ -1,18 +1,15 @@
-use crate::{
-	self as tg,
-	util::serde::{is_false, is_true, return_true},
-};
+use crate::{self as tg, util::serde::is_false};
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cached: Option<bool>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
 	pub command: Option<tg::command::Id>,
-
-	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub create: bool,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::process::data::Mount>,
@@ -67,23 +64,5 @@ impl tg::Client {
 		}
 		let output = response.json().await?;
 		Ok(output)
-	}
-}
-
-impl Default for Arg {
-	fn default() -> Self {
-		Self {
-			checksum: None,
-			command: None,
-			create: true,
-			mounts: Vec::new(),
-			network: false,
-			parent: None,
-			remote: None,
-			retry: false,
-			stderr: None,
-			stdin: None,
-			stdout: None,
-		}
 	}
 }

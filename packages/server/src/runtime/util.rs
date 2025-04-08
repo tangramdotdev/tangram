@@ -133,14 +133,12 @@ pub async fn compute_checksum(
 		}
 	}
 
-	let arg = tg::process::spawn::Arg {
-		command: Some(command.id(runtime.server()).await?),
-		create: true,
+	let arg = tg::process::build::Arg {
 		parent: Some(process.id().clone()),
 		remote: remote.cloned(),
 		..Default::default()
 	};
-	let output = tg::Process::run(runtime.server(), arg).await?;
+	let output = tg::Process::build(runtime.server(), &command, arg).await?;
 	let output = output
 		.try_unwrap_string()
 		.map_err(|source| tg::error!(!source, "expected a string"))?;

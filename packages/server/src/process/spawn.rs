@@ -64,8 +64,8 @@ impl Server {
 			return Ok(Some(output));
 		}
 
-		// If create is false, then attempt to get a remote process.
-		if !arg.create {
+		// If cached is true, then attempt to get a remote process.
+		if matches!(arg.cached, Some(true)) {
 			let Some(id) = self.try_get_cached_process_remote(&arg).await? else {
 				return Ok(None);
 			};
@@ -393,7 +393,7 @@ impl Server {
 				let arg = arg.clone();
 				Box::pin(async move {
 					let arg = tg::process::spawn::Arg {
-						create: false,
+						cached: Some(true),
 						remote: None,
 						..arg.clone()
 					};

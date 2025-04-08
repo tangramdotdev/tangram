@@ -409,3 +409,124 @@ impl std::fmt::Display for Mutation {
 		Ok(())
 	}
 }
+
+pub fn mutate(map: &mut tg::value::Map, key: String, value: tg::Value) -> tg::Result<()> {
+	if let Ok(mutation) = value.clone().try_unwrap_mutation() {
+		match mutation {
+			tg::Mutation::Unset => {
+				map.remove(&key);
+			},
+			tg::Mutation::Set { value } => {
+				map.insert(key, *value.clone());
+			},
+			tg::Mutation::SetIfUnset { value } => {
+				let existing = map.get(&key);
+				if existing.is_none() {
+					map.insert(key, *value.clone());
+				}
+			},
+			tg::Mutation::Prepend { values } => {
+				if let Some(existing) = map.get(&key).cloned() {
+					let existing = existing.try_unwrap_array().map_err(|source| {
+						tg::error!(!source, "cannot prepend to a value that is not an array")
+					})?;
+					let mut combined_values = values.clone();
+					combined_values.extend(existing.iter().cloned());
+					map.insert(key, tg::Value::Array(combined_values));
+				} else {
+					map.insert(key, tg::Value::Array(values));
+				}
+			},
+			tg::Mutation::Append { values } => {
+				if let Some(existing) = map.get(&key).cloned() {
+					let existing = existing.try_unwrap_array().map_err(|source| {
+						tg::error!(!source, "cannot apppend to a value that is not an array")
+					})?;
+					let mut combined_values = existing.clone();
+					combined_values.extend(values.iter().cloned());
+					map.insert(key, tg::Value::Array(combined_values));
+				} else {
+					map.insert(key, tg::Value::Array(values));
+				}
+			},
+			tg::Mutation::Prefix {
+				separator,
+				template,
+			} => {
+				if let Some(existing) = map.get(&key).cloned() {
+					let existing_components = match existing {
+						tg::Value::String(s) => {
+							vec![tg::template::Component::String(s)]
+						},
+						tg::Value::Object(object) => {
+							let artifact = match object {
+								tg::Object::Directory(directory) => directory.into(),
+								tg::Object::File(file) => file.into(),
+								tg::Object::Symlink(symlink) => symlink.into(),
+								_ => {
+									return Err(tg::error!(
+										"expected a directory, file, or symlink"
+									));
+								},
+							};
+							vec![tg::template::Component::Artifact(artifact)]
+						},
+						tg::Value::Template(template) => template.components().to_vec(),
+						_ => {
+							return Err(tg::error!("expected a string, artifact, or template"));
+						},
+					};
+					let template_components = template.components();
+					let mut combined_template = template_components.to_vec();
+					if let Some(sep) = separator {
+						combined_template.push(tg::template::Component::String(sep));
+					}
+					combined_template.extend(existing_components);
+					map.insert(key, tg::Value::Template(combined_template.into()));
+				} else {
+					map.insert(key, tg::Value::Template(template));
+				}
+			},
+			tg::Mutation::Suffix {
+				separator,
+				template,
+			} => {
+				if let Some(existing) = map.get(&key).cloned() {
+					let existing_components = match existing {
+						tg::Value::String(s) => {
+							vec![tg::template::Component::String(s)]
+						},
+						tg::Value::Object(object) => {
+							let artifact = match object {
+								tg::Object::Directory(directory) => directory.into(),
+								tg::Object::File(file) => file.into(),
+								tg::Object::Symlink(symlink) => symlink.into(),
+								_ => {
+									return Err(tg::error!(
+										"expected a directory, file, or symlink"
+									));
+								},
+							};
+							vec![tg::template::Component::Artifact(artifact)]
+						},
+						tg::Value::Template(template) => template.components().to_vec(),
+						_ => {
+							return Err(tg::error!("expected a string, artifact, or template"));
+						},
+					};
+					let mut combined_template = existing_components.clone();
+					if let Some(separator) = separator {
+						combined_template.push(tg::template::Component::String(separator));
+					}
+					combined_template.extend(template.components().iter().cloned());
+					map.insert(key, tg::Value::Template(combined_template.into()));
+				} else {
+					map.insert(key, tg::Value::Template(template));
+				}
+			},
+		}
+	} else {
+		map.insert(key, value);
+	}
+	Ok(())
+}

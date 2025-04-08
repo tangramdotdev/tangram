@@ -4,6 +4,7 @@ import {
 	type MaybeNestedArray,
 	type MaybePromise,
 	flatten,
+	mergeMaybeMutationMaps,
 } from "./util.ts";
 
 type FunctionArg<
@@ -120,12 +121,13 @@ export class Command<
 		let arg = await Command.arg(...args);
 		let args_ = arg.args ?? [];
 		let cwd = arg.cwd;
-		let env = await tg.Args.applyMutations(flatten(arg.env ?? []));
+		let env = await mergeMaybeMutationMaps(flatten(arg.env ?? []));
 		let executable = arg.executable;
-		let host = arg.host;
+		let host =
+			arg.host ?? ((await tg.Process.current.env("TANGRAM_HOST")) as string);
 		let mounts = await Promise.all(
 			(arg.mounts ?? []).map(async (mount) => {
-				if (mount instanceof tg.Template || typeof mount === "string") {
+				if (typeof mount === "string" || mount instanceof tg.Template) {
 					return await tg.Command.Mount.parse(mount);
 				} else {
 					return mount;
@@ -162,14 +164,9 @@ export class Command<
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
-					const host = await tg.Process.current
-						.command()
-						.then((command) => command.env())
-						.then((env) => env.TANGRAM_HOST);
 					return {
 						args: ["-c", arg],
 						executable: "/bin/sh",
-						host,
 					};
 				} else if (arg instanceof Command) {
 					return await arg.object();
@@ -182,7 +179,7 @@ export class Command<
 			args: "append",
 			env: "append",
 		});
-		let arg = await tg.Args.applyMutations(mutations);
+		let arg = await mergeMaybeMutationMaps(mutations);
 		return arg;
 	}
 
@@ -258,7 +255,7 @@ export class Command<
 		return this.#f;
 	}
 
-	async build(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
+	async build(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		return await tg.Process.build(
 			this as Command<Array<tg.Value>, tg.Value>,
 			...args,

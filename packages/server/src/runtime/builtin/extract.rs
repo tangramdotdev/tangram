@@ -276,7 +276,7 @@ async fn detect_archive_format(
 	}
 
 	// If we can detect a compression format from the magic bytes, assume tar.
-	if let Some(compression) = tg::blob::compress::Format::from_magic(&magic_bytes) {
+	if let Some(compression) = tg::blob::compress::Format::with_magic_number(&magic_bytes) {
 		return Ok((tg::artifact::archive::Format::Tar, Some(compression)));
 	}
 

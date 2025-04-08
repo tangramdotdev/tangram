@@ -123,7 +123,7 @@ async fn detect_compression(
 		.await
 		.map_err(|source| tg::error!(!source, "failed to read magic bytes"))?;
 
-	let result = tg::blob::compress::Format::from_magic(&magic_bytes[..bytes_read]);
+	let result = tg::blob::compress::Format::with_magic_number(&magic_bytes[..bytes_read]);
 	match result {
 		Some(format) => Ok(format),
 		None => Err(tg::error!(%id = blob.id(server).await?, "unrecognized compression format")),
