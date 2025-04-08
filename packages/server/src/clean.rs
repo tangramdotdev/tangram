@@ -14,6 +14,8 @@ struct InnerOutput {
 	processes: Vec<tg::process::Id>,
 	objects: Vec<tg::object::Id>,
 	cache_entries: Vec<tg::artifact::Id>,
+	pipes: Vec<tg::pipe::Id>,
+	ptys: Vec<tg::pty::Id>,
 }
 
 impl Server {
@@ -60,7 +62,20 @@ impl Server {
 					Some(0),
 					None,
 				);
-
+				progress.start(
+					"pipes".into(),
+					"pipes".into(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					None,
+				);
+				progress.start(
+					"ptys".into(),
+					"ptys".into(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					None,
+				);
 				let batch_size = server
 					.config
 					.cleaner
@@ -73,6 +88,8 @@ impl Server {
 					progress.increment("cache", output.cache_entries.len().to_u64().unwrap());
 					progress.increment("objects", output.objects.len().to_u64().unwrap());
 					progress.increment("processes", output.processes.len().to_u64().unwrap());
+					progress.increment("pipes", output.pipes.len().to_u64().unwrap());
+					progress.increment("ptys", output.ptys.len().to_u64().unwrap());
 					let n =
 						output.processes.len() + output.objects.len() + output.cache_entries.len();
 					if n == 0 {
@@ -93,8 +110,11 @@ impl Server {
 			let result = self.cleaner_task_inner(config).await;
 			match result {
 				Ok(output) => {
-					let n =
-						output.processes.len() + output.objects.len() + output.cache_entries.len();
+					let n = output.processes.len()
+						+ output.objects.len()
+						+ output.cache_entries.len()
+						+ output.pipes.len()
+						+ output.ptys.len();
 					if n == 0 {
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
@@ -254,31 +274,48 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				delete from pipes
-				where closed = 1 or created_at < {p}1;
+				select from pipes
+				where closed = 1 or created_at < {p}1
+				limit {p}2;
 			"
 		);
-		let params = db::params![max_created_at];
-		connection
-			.execute(statement.clone().into(), params)
+		let params = db::params![max_created_at, config.batch_size];
+		let pipes = connection
+			.query_all_value_into::<tg::pipe::Id>(statement.clone().into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to delete ptys and pipes"))?;
+
 		let statement = formatdoc!(
 			"
-				delete from ptys
-				where closed = 1 or created_at < {p}1;
+				select from ptys
+				where closed = 1 or created_at < {p}1
+				limit {p}2;
 			"
 		);
 		let params = db::params![max_created_at];
-		connection
-			.execute(statement.clone().into(), params)
+		let ptys = connection
+			.query_all_value_into::<tg::pty::Id>(statement.clone().into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to delete ptys and pipes"))?;
+		drop(connection);
+
+		for id in &pipes {
+			self.delete_pipe(id, tg::pipe::delete::Arg::default())
+				.await
+				.ok();
+		}
+		for id in &ptys {
+			self.delete_pty(id, tg::pty::delete::Arg::default())
+				.await
+				.ok();
+		}
 
 		let output = InnerOutput {
 			processes,
 			objects,
 			cache_entries,
+			pipes,
+			ptys,
 		};
 
 		Ok(output)
