@@ -4,7 +4,9 @@ use crate::{
 	util::serde::{BytesBase64, SeekFromString},
 };
 use bytes::Bytes;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, stream};
+use http_body_util::BodyStream;
+use num::ToPrimitive;
 use serde_with::serde_as;
 use std::pin::pin;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
@@ -25,6 +27,7 @@ pub struct Arg {
 	pub size: Option<u64>,
 }
 
+#[derive(Debug)]
 pub enum Event {
 	Chunk(Chunk),
 	End,
@@ -136,7 +139,6 @@ impl Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
@@ -147,31 +149,64 @@ impl Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let content_type = response
-			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
-			.transpose()?;
-		if !matches!(
-			content_type
-				.as_ref()
-				.map(|content_type| (content_type.type_(), content_type.subtype())),
-			Some((mime::TEXT, mime::EVENT_STREAM)),
-		) {
-			return Err(tg::error!(?content_type, "invalid content type"));
-		}
-		let stream = response
-			.sse()
-			.map_err(|source| tg::error!(!source, "failed to read an event"))
-			.and_then(|event| {
-				future::ready(
-					if event.event.as_deref().is_some_and(|event| event == "error") {
-						match event.try_into() {
-							Ok(error) | Err(error) => Err(error),
-						}
-					} else {
-						event.try_into()
+		let position = response
+			.headers()
+			.get("x-tg-position")
+			.map(|v| v.to_str().unwrap().parse::<u64>())
+			.transpose()
+			.map_err(|_| tg::error!("expected an integer"))?;
+		let frames = BodyStream::new(response.into_body());
+		let stream = stream::try_unfold(
+			(position, frames),
+			|(mut position, mut frames)| async move {
+				let Some(frame) = frames
+					.try_next()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read body"))?
+				else {
+					return Ok(None);
+				};
+				let event = match frame.into_data() {
+					Ok(bytes) => {
+						let position = position
+							.as_mut()
+							.ok_or_else(|| tg::error!("expected a position"))?;
+						let chunk = Chunk {
+							position: *position,
+							bytes,
+						};
+						*position += chunk.bytes.len().to_u64().unwrap();
+						tg::blob::read::Event::Chunk(chunk)
 					},
-				)
-			});
+					Err(error) => {
+						let trailers = error
+							.into_trailers()
+							.map_err(|_| tg::error!("expected trailers"))?;
+						let event = trailers
+							.get("x-tg-event")
+							.ok_or_else(|| tg::error!("missing event"))?
+							.to_str()
+							.map_err(|source| tg::error!(!source, "invalid event"))?;
+						match event {
+							"end" => tg::blob::read::Event::End,
+							"error" => {
+								let data = trailers
+									.get("x-tg-data")
+									.ok_or_else(|| tg::error!("missing data"))?
+									.to_str()
+									.map_err(|source| tg::error!(!source, "invalid data"))?;
+								let error = serde_json::from_str(data).map_err(|source| {
+									tg::error!(!source, "failed to deserialize the header value")
+								})?;
+								return Err(error);
+							},
+							_ => return Err(tg::error!(%event, "unknown event")),
+						}
+					},
+				};
+				Ok(Some((event, (position, frames))))
+			},
+		);
 		Ok(Some(stream))
 	}
 }

@@ -3,7 +3,7 @@ use crate::{
 	util::serde::{CommaSeparatedString, is_false},
 };
 use bytes::Bytes;
-use futures::{Stream, StreamExt as _, stream};
+use futures::{Stream, StreamExt as _, TryStreamExt, stream};
 use num::ToPrimitive as _;
 use serde_with::serde_as;
 use std::pin::Pin;
@@ -168,13 +168,41 @@ impl tg::Client {
 		) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let reader = response.reader();
-		let stream = stream::try_unfold(reader, |mut reader| async move {
+		let (reader, trailers) = response.reader_and_trailers();
+
+		let reader_events = stream::try_unfold(reader, |mut reader| async move {
 			let Some(item) = tg::export::Event::from_reader(&mut reader).await? else {
 				return Ok(None);
 			};
 			Ok(Some((item, reader)))
 		});
+
+		let trailer_events = trailers
+			.map_err(|source| tg::error!(!source, "failed to get the trailers"))
+			.and_then(|trailers| async move {
+				let event = trailers
+					.get("x-tg-event")
+					.ok_or_else(|| tg::error!("missing event"))?
+					.to_str()
+					.map_err(|source| tg::error!(!source, "invalid event"))?;
+				match event {
+					"end" => Ok(tg::export::Event::End),
+					"error" => {
+						let data = trailers
+							.get("x-tg-data")
+							.ok_or_else(|| tg::error!("missing data"))?
+							.to_str()
+							.map_err(|source| tg::error!(!source, "invalid data"))?;
+						let error = serde_json::from_str(data).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the header value")
+						})?;
+						Err(error)
+					},
+					_ => Err(tg::error!("invalid event")),
+				}
+			});
+
+		let stream = stream::select(reader_events, trailer_events);
 
 		Ok(stream)
 	}

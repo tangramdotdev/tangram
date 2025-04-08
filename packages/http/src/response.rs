@@ -1,8 +1,10 @@
 use crate::{Body, Error, sse};
 use bytes::Bytes;
 use futures::{Stream, TryStreamExt as _, future};
+use http::HeaderMap;
 use http_body_util::{BodyExt as _, BodyStream};
 use tokio::io::AsyncBufRead;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::io::StreamReader;
 
 pub mod builder;
@@ -32,6 +34,13 @@ pub trait Ext: Sized {
 		T: serde::de::DeserializeOwned;
 
 	fn reader(self) -> impl AsyncBufRead + Send + 'static;
+
+	fn reader_and_trailers(
+		self,
+	) -> (
+		impl AsyncBufRead + Send + 'static,
+		impl Stream<Item = Result<HeaderMap, Error>> + Send + 'static,
+	);
 
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static;
 }
@@ -98,6 +107,33 @@ impl Ext for http::Response<Body> {
 				.try_filter_map(|frame| future::ok(frame.into_data().ok()))
 				.map_err(std::io::Error::other),
 		)
+	}
+
+	fn reader_and_trailers(
+		self,
+	) -> (
+		impl AsyncBufRead + Send + 'static,
+		impl Stream<Item = Result<HeaderMap, Error>> + Send + 'static,
+	) {
+		let (send, recv) = tokio::sync::mpsc::unbounded_channel();
+		let stream = BodyStream::new(self.into_body())
+			.try_filter_map(move |item| {
+				future::ok({
+					match item.into_data() {
+						Ok(data) => Some(data),
+						Err(frame) => {
+							if let Ok(trailers) = frame.into_trailers() {
+								send.send(Ok(trailers)).ok();
+							}
+							None
+						},
+					}
+				})
+			})
+			.map_err(std::io::Error::other);
+		let reader = StreamReader::new(stream);
+		let trailers = UnboundedReceiverStream::new(recv);
+		(reader, trailers)
 	}
 
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static {

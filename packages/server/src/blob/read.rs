@@ -91,7 +91,6 @@ impl Server {
 			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
-
 		Ok(Some(receiver.attach(abort_handle)))
 	}
 
@@ -554,9 +553,6 @@ impl Server {
 		// Get the query.
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
-		// Get the accept header.
-		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
-
 		// Get the stream.
 		let Some(stream) = handle.try_read_blob_stream(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
@@ -565,33 +561,41 @@ impl Server {
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 		let stop = async move { stop.wait().await };
-		let stream = stream.take_until(stop);
+		let mut stream = stream.take_until(stop).boxed().peekable();
 
-		// Create the body.
-		let (content_type, body) = match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
+		let mut position = None;
+		if let Some(Ok(tg::blob::read::Event::Chunk(chunk))) =
+			std::pin::Pin::new(&mut stream).peek().await
 		{
-			Some((mime::TEXT, mime::EVENT_STREAM)) => {
-				let content_type = mime::TEXT_EVENT_STREAM;
-				let stream = stream.map(|result| match result {
-					Ok(event) => event.try_into(),
-					Err(error) => error.try_into(),
-				});
-				let body = Body::with_sse_stream(stream);
-				(content_type, body)
-			},
+			position.replace(chunk.position);
+		}
 
-			_ => {
-				return Err(tg::error!(?accept, "invalid accept header"));
+		// Create the frame stream.
+		let frames = stream.map(|event| match event {
+			Ok(tg::blob::read::Event::Chunk(chunk)) => {
+				Ok::<_, tg::Error>(hyper::body::Frame::data(chunk.bytes))
 			},
-		};
+			Ok(tg::blob::read::Event::End) => {
+				let mut trailers = http::HeaderMap::new();
+				trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
+				Ok(hyper::body::Frame::trailers(trailers))
+			},
+			Err(error) => {
+				let mut trailers = http::HeaderMap::new();
+				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
+				let json = serde_json::to_string(&error).unwrap();
+				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
+				Ok(hyper::body::Frame::trailers(trailers))
+			},
+		});
+		let body = Body::with_stream(frames);
 
 		// Create the response.
-		let response = http::Response::builder()
-			.header(http::header::CONTENT_TYPE, content_type.to_string())
-			.body(body)
-			.unwrap();
+		let mut response = http::Response::builder();
+		if let Some(position) = position {
+			response = response.header("x-tg-position", position);
+		}
+		let response = response.body(body).unwrap();
 
 		Ok(response)
 	}
