@@ -42,6 +42,7 @@ export class Process {
 			"env" in arg ? { env: arg.env } : undefined,
 			"executable" in arg ? { executable: arg.executable } : undefined,
 			"host" in arg ? { host: arg.host } : undefined,
+			"user" in arg ? { user: arg.user } : undefined,
 			commandMounts !== undefined ? { mounts: commandMounts } : undefined,
 			commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 		);
@@ -183,6 +184,7 @@ export class Process {
 			"env" in arg ? { env: arg.env } : undefined,
 			"executable" in arg ? { executable: arg.executable } : undefined,
 			"host" in arg ? { host: arg.host } : undefined,
+			"user" in arg ? { user: arg.user } : undefined,
 			commandMounts !== undefined ? { mounts: commandMounts } : undefined,
 			commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 		);
@@ -431,6 +433,7 @@ export namespace Process {
 		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		network?: boolean | undefined;
 		stdin?: tg.Blob.Arg | undefined;
+		user?: string | undefined;
 	};
 
 	export type RunArg =
