@@ -37,12 +37,12 @@ export class Process {
 			commandStdin = arg.stdin;
 		}
 		let command = await tg.command(
-			arg.command,
 			"args" in arg ? { args: arg.args } : undefined,
 			"cwd" in arg ? { cwd: arg.cwd } : undefined,
 			"env" in arg ? { env: arg.env } : undefined,
 			"executable" in arg ? { executable: arg.executable } : undefined,
 			"host" in arg ? { host: arg.host } : undefined,
+			"user" in arg ? { user: arg.user } : undefined,
 			commandMounts !== undefined ? { mounts: commandMounts } : undefined,
 			commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 		);
@@ -106,7 +106,7 @@ export class Process {
 						executable: await tg.symlink("/bin/sh"),
 					};
 				} else if (arg instanceof tg.Command) {
-					return { command: await arg.object() };
+					return { ...(await arg.object()) };
 				} else {
 					return arg;
 				}
@@ -122,6 +122,7 @@ export class Process {
 
 	static async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		let state = tg.Process.current.#state!;
+		let currentCommand = await Process.current.command();
 		let arg = await Process.runArg(...args);
 		let checksum = arg.checksum;
 		let processMounts: Array<tg.Process.Mount> = [];
@@ -152,6 +153,7 @@ export class Process {
 				}
 			}
 		} else {
+			commandMounts = await currentCommand.mounts();
 			processMounts = state.mounts;
 		}
 		let processStdin = state.stdin;
@@ -161,6 +163,8 @@ export class Process {
 			if (arg.stdin !== undefined) {
 				commandStdin = arg.stdin;
 			}
+		} else {
+			commandStdin = await currentCommand.stdin();
 		}
 		let stderr = state.stdout;
 		if ("stderr" in arg) {
@@ -170,18 +174,17 @@ export class Process {
 		if ("stdout" in arg) {
 			stdout = arg.stdout;
 		}
-		let currentCommand = await Process.current.command();
 		let command = await tg.command(
 			{
 				cwd: currentCommand.cwd(),
 				env: currentCommand.env(),
 			},
-			arg.command,
 			"args" in arg ? { args: arg.args } : undefined,
 			"cwd" in arg ? { cwd: arg.cwd } : undefined,
 			"env" in arg ? { env: arg.env } : undefined,
 			"executable" in arg ? { executable: arg.executable } : undefined,
 			"host" in arg ? { host: arg.host } : undefined,
+			"user" in arg ? { user: arg.user } : undefined,
 			commandMounts !== undefined ? { mounts: commandMounts } : undefined,
 			commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 		);
@@ -241,7 +244,7 @@ export class Process {
 						executable: await tg.symlink("/bin/sh"),
 					};
 				} else if (arg instanceof tg.Command) {
-					return { command: await arg.object() };
+					return { ...(await arg.object()) };
 				} else {
 					return arg;
 				}
@@ -423,7 +426,6 @@ export namespace Process {
 	export type BuildArgObject = {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
-		command?: tg.Command.Arg | undefined;
 		cwd?: string | undefined;
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
@@ -431,6 +433,7 @@ export namespace Process {
 		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		network?: boolean | undefined;
 		stdin?: tg.Blob.Arg | undefined;
+		user?: string | undefined;
 	};
 
 	export type RunArg =
@@ -444,7 +447,6 @@ export namespace Process {
 	export type RunArgObject = {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
-		command?: tg.Command.Arg | undefined;
 		cwd?: string | undefined;
 		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
@@ -456,6 +458,7 @@ export namespace Process {
 		stderr?: undefined;
 		stdin?: tg.Blob.Arg | undefined;
 		stdout?: undefined;
+		user?: string | undefined;
 	};
 
 	export type State = {

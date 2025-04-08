@@ -17,8 +17,15 @@ impl tg::Artifact {
 		H: tg::Handle,
 	{
 		let command = self.archive_command(format, compression);
-		let arg = tg::process::build::Arg::default();
-		let output = tg::Process::build(handle, &command, arg).await?;
+		let arg = tg::process::spawn::Arg {
+			command: Some(command.id(handle).await?),
+			..Default::default()
+		};
+		let output = tg::Process::spawn(handle, arg)
+			.await?
+			.wait(handle)
+			.await?
+			.into_output()?;
 		let blob = output.try_into()?;
 		Ok(blob)
 	}
@@ -30,15 +37,15 @@ impl tg::Artifact {
 		compression: Option<tg::blob::compress::Format>,
 	) -> tg::Command {
 		let host = "builtin";
+		let executable = tg::command::Executable::Path("archive".into());
 		let args = vec![
-			"archive".into(),
 			self.clone().into(),
 			format.to_string().into(),
 			compression
 				.map(|compression| compression.to_string())
 				.into(),
 		];
-		tg::Command::builder(host).args(args).build()
+		tg::Command::builder(host, executable).args(args).build()
 	}
 }
 

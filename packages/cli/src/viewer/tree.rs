@@ -704,7 +704,7 @@ where
 
 		let mut title = String::new();
 		match &*executable {
-			Some(tg::command::Executable::Module(module)) => {
+			tg::command::Executable::Module(module) => {
 				if let Some(path) = &module.referent.path {
 					let path = module
 						.referent
@@ -716,8 +716,10 @@ where
 					write!(title, "{tag}").unwrap();
 				}
 			},
-			None => write!(title, "builtin").unwrap(),
-			_ => (),
+			tg::command::Executable::Path(path) => {
+				write!(title, "{}", path.display()).unwrap();
+			},
+			tg::command::Executable::Artifact(_) => (),
 		}
 
 		let host = command.host(handle).await.ok();
@@ -1133,43 +1135,41 @@ where
 		let mut children = Vec::new();
 		children.push(("args".to_owned(), tg::Value::Array(object.args.clone())));
 		children.push(("env".to_owned(), tg::Value::Map(object.env.clone())));
-		if let Some(executable) = &object.executable {
-			let value = match executable {
-				tg::command::Executable::Artifact(artifact) => {
-					tg::Value::Object(artifact.clone().into())
-				},
-				tg::command::Executable::Module(module) => {
-					let mut map = BTreeMap::new();
-					map.insert(
-						"kind".to_owned(),
-						tg::Value::String(module.kind.to_string()),
-					);
+		let value = match &object.executable {
+			tg::command::Executable::Artifact(artifact) => {
+				tg::Value::Object(artifact.clone().into())
+			},
+			tg::command::Executable::Module(module) => {
+				let mut map = BTreeMap::new();
+				map.insert(
+					"kind".to_owned(),
+					tg::Value::String(module.kind.to_string()),
+				);
 
-					let mut referent = BTreeMap::new();
-					referent.insert(
-						"item".to_owned(),
-						tg::Value::Object(module.referent.item.clone()),
-					);
-					if let Some(path) = &module.referent.path {
-						let path = path.to_string_lossy().to_string();
-						referent.insert("path".to_owned(), tg::Value::String(path));
-					}
-					if let Some(subpath) = &module.referent.subpath {
-						let subpath = subpath.to_string_lossy().to_string();
-						referent.insert("subpath".to_owned(), tg::Value::String(subpath));
-					}
-					if let Some(tag) = &module.referent.tag {
-						referent.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
-					}
-					map.insert("referent".to_owned(), tg::Value::Map(referent));
-					tg::Value::Map(map)
-				},
-				tg::command::Executable::Path(path) => {
-					tg::Value::String(path.to_string_lossy().to_string())
-				},
-			};
-			children.push(("executable".to_owned(), value));
-		}
+				let mut referent = BTreeMap::new();
+				referent.insert(
+					"item".to_owned(),
+					tg::Value::Object(module.referent.item.clone()),
+				);
+				if let Some(path) = &module.referent.path {
+					let path = path.to_string_lossy().to_string();
+					referent.insert("path".to_owned(), tg::Value::String(path));
+				}
+				if let Some(subpath) = &module.referent.subpath {
+					let subpath = subpath.to_string_lossy().to_string();
+					referent.insert("subpath".to_owned(), tg::Value::String(subpath));
+				}
+				if let Some(tag) = &module.referent.tag {
+					referent.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
+				}
+				map.insert("referent".to_owned(), tg::Value::Map(referent));
+				tg::Value::Map(map)
+			},
+			tg::command::Executable::Path(path) => {
+				tg::Value::String(path.to_string_lossy().to_string())
+			},
+		};
+		children.push(("executable".to_owned(), value));
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
 		if !object.mounts.is_empty() {
 			let mut array = Vec::new();

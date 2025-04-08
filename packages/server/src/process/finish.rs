@@ -255,12 +255,9 @@ impl Server {
 		} else {
 			expected.algorithm()
 		};
-		let args = vec![
-			"checksum".into(),
-			value.clone(),
-			algorithm.to_string().into(),
-		];
-		let command = tg::Command::builder(host).args(args).build();
+		let executable = tg::command::Executable::Path("checksum".into());
+		let args = vec![value.clone(), algorithm.to_string().into()];
+		let command = tg::Command::builder(host, executable).args(args).build();
 		let command_id = command
 			.id(self)
 			.await

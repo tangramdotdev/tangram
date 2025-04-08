@@ -17,27 +17,8 @@ impl Cli {
 		// Get the process.
 		let process = tg::Process::new(args.process, None, None, None, None);
 
-		// Await the process.
-		let wait = process.wait(&handle).await?;
-
-		// Return an error if necessary.
-		if let Some(error) = wait.error {
-			return Err(error);
-		}
-		match &wait.exit {
-			Some(tg::process::Exit::Code { code }) if *code != 0 => {
-				return Err(tg::error!("the process exited with code {code}"));
-			},
-			Some(tg::process::Exit::Signal { signal }) => {
-				return Err(tg::error!("the process exited with signal {signal}"));
-			},
-			_ => (),
-		}
-
 		// Get the output.
-		let output: tg::Value = wait
-			.output
-			.ok_or_else(|| tg::error!("expected the output to be set"))?;
+		let output = process.output(&handle).await?;
 
 		// Print the output.
 		let stdout = std::io::stdout();

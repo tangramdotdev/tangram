@@ -82,12 +82,9 @@ pub async fn compute_checksum(
 	}
 
 	let host = "builtin";
-	let args = vec![
-		"checksum".into(),
-		value.clone(),
-		algorithm.to_string().into(),
-	];
-	let command = tg::Command::builder(host).args(args).build();
+	let executable = tg::command::Executable::Path("checksum".into());
+	let args = vec![value.clone(), algorithm.to_string().into()];
+	let command = tg::Command::builder(host, executable).args(args).build();
 
 	// If the process is remote, push the command.
 	let remote = process.remote();
@@ -133,12 +130,14 @@ pub async fn compute_checksum(
 		}
 	}
 
-	let arg = tg::process::build::Arg {
+	let arg = tg::process::spawn::Arg {
+		command: Some(command.id(runtime.server()).await?),
 		parent: Some(process.id().clone()),
 		remote: remote.cloned(),
 		..Default::default()
 	};
-	let output = tg::Process::build(runtime.server(), &command, arg).await?;
+	let process = tg::Process::spawn(runtime.server(), arg).await?;
+	let output = process.output(runtime.server()).await?;
 	let output = output
 		.try_unwrap_string()
 		.map_err(|source| tg::error!(!source, "expected a string"))?;

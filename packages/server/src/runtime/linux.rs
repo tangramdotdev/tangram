@@ -316,10 +316,7 @@ impl Runtime {
 		let mut env = render_env(&artifacts_path, &command.env)?;
 
 		// Render the executable.
-		let Some(executable) = command.executable else {
-			return Err(tg::error!("missing executable"));
-		};
-		let executable = match executable {
+		let executable = match command.executable {
 			tg::command::data::Executable::Artifact(artifact) => {
 				render_value(&artifacts_path, &tg::object::Id::from(artifact).into())
 			},

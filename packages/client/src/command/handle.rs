@@ -14,8 +14,11 @@ pub struct Command {
 pub type State = tg::object::State<Id, Object>;
 
 impl Command {
-	pub fn builder(host: impl Into<String>) -> Builder {
-		Builder::new(host)
+	pub fn builder(
+		host: impl Into<String>,
+		executable: impl Into<tg::command::Executable>,
+	) -> Builder {
+		Builder::new(host, executable)
 	}
 
 	#[must_use]
@@ -140,23 +143,18 @@ impl Command {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await?;
-		let executable = if let Some(executable) = object.executable.as_ref() {
-			let executable = match executable {
-				tg::command::Executable::Artifact(artifact) => {
-					let artifact = artifact.id(handle).await?;
-					tg::command::data::Executable::Artifact(artifact)
-				},
-				tg::command::Executable::Module(module) => {
-					let module = Box::pin(module.data(handle)).await?;
-					tg::command::data::Executable::Module(module)
-				},
-				tg::command::Executable::Path(path) => {
-					tg::command::data::Executable::Path(path.clone())
-				},
-			};
-			Some(executable)
-		} else {
-			None
+		let executable = match &object.executable {
+			tg::command::Executable::Artifact(artifact) => {
+				let artifact = artifact.id(handle).await?;
+				tg::command::data::Executable::Artifact(artifact)
+			},
+			tg::command::Executable::Module(module) => {
+				let module = Box::pin(module.data(handle)).await?;
+				tg::command::data::Executable::Module(module)
+			},
+			tg::command::Executable::Path(path) => {
+				tg::command::data::Executable::Path(path.clone())
+			},
 		};
 		let host = object.host.clone();
 		let mounts = object
@@ -219,7 +217,7 @@ impl Command {
 	pub async fn executable<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl Deref<Target = Option<tg::command::Executable>>>
+	) -> tg::Result<impl Deref<Target = tg::command::Executable>>
 	where
 		H: tg::Handle,
 	{

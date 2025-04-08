@@ -6,7 +6,7 @@ pub struct Builder {
 	args: Vec<tg::Value>,
 	cwd: Option<PathBuf>,
 	env: BTreeMap<String, tg::Value>,
-	executable: Option<tg::command::Executable>,
+	executable: tg::command::Executable,
 	host: String,
 	mounts: Vec<tg::command::Mount>,
 	stdin: Option<tg::Blob>,
@@ -15,12 +15,12 @@ pub struct Builder {
 
 impl Builder {
 	#[must_use]
-	pub fn new(host: impl Into<String>) -> Self {
+	pub fn new(host: impl Into<String>, executable: impl Into<tg::command::Executable>) -> Self {
 		Self {
 			args: Vec::new(),
 			cwd: None,
 			env: BTreeMap::new(),
-			executable: None,
+			executable: executable.into(),
 			host: host.into(),
 			mounts: Vec::new(),
 			stdin: None,
@@ -67,7 +67,7 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn executable(mut self, executable: impl Into<Option<tg::command::Executable>>) -> Self {
+	pub fn executable(mut self, executable: impl Into<tg::command::Executable>) -> Self {
 		self.executable = executable.into();
 		self
 	}

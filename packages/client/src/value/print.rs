@@ -534,13 +534,11 @@ where
 		if !object.env.is_empty() {
 			self.map_entry("env", |s| s.map(&object.env))?;
 		}
-		if let Some(executable) = &object.executable {
-			self.map_entry("executable", |s| match executable {
-				tg::command::Executable::Artifact(artifact) => s.artifact(artifact),
-				tg::command::Executable::Module(module) => s.command_module(module),
-				tg::command::Executable::Path(path) => s.string(path.to_string_lossy().as_ref()),
-			})?;
-		}
+		self.map_entry("executable", |s| match &object.executable {
+			tg::command::Executable::Artifact(artifact) => s.artifact(artifact),
+			tg::command::Executable::Module(module) => s.command_module(module),
+			tg::command::Executable::Path(path) => s.string(path.to_string_lossy().as_ref()),
+		})?;
 		self.map_entry("host", |s| s.string(&object.host))?;
 		if !object.mounts.is_empty() {
 			self.map_entry("mounts", |s| {

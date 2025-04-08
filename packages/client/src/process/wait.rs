@@ -52,6 +52,29 @@ impl Exit {
 	}
 }
 
+impl Wait {
+	pub fn into_output(self) -> tg::Result<tg::Value> {
+		if let Some(error) = self.error {
+			return Err(error);
+		}
+		match self.exit {
+			Some(tg::process::Exit::Code { code }) => {
+				if code != 0 {
+					return Err(tg::error!("the process exited with code {code}"));
+				}
+			},
+			Some(tg::process::Exit::Signal { signal }) => {
+				return Err(tg::error!("the process exited with signal {signal}"));
+			},
+			_ => (),
+		}
+		let output = self
+			.output
+			.ok_or_else(|| tg::error!("expected the output to be set"))?;
+		Ok(output)
+	}
+}
+
 impl tg::Client {
 	pub async fn try_wait_process_future(
 		&self,

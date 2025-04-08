@@ -15,7 +15,7 @@ impl Runtime {
 
 		// Get the blob.
 		let blob: tg::Blob = args
-			.get(1)
+			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
 			.clone()
 			.try_into()

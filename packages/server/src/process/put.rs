@@ -55,7 +55,7 @@ impl Server {
 				Self::put_process_postgres(database, id, arg, &now.format(&Rfc3339).unwrap())
 					.await?;
 			},
-		};
+		}
 
 		Ok(())
 	}

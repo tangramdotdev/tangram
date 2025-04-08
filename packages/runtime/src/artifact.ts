@@ -42,7 +42,7 @@ export namespace Artifact {
 		format: ArchiveFormat,
 		compression?: tg.Blob.CompressionFormat,
 	): Promise<tg.Blob> => {
-		const args = ["archive", artifact, format];
+		const args: Array<tg.Value> = [artifact, format];
 		if (compression !== undefined) {
 			if (format === "zip") {
 				throw new Error("compression is not supported for zip archives");
@@ -52,6 +52,7 @@ export namespace Artifact {
 		let value = await tg.build({
 			args,
 			env: undefined,
+			executable: "archive",
 			host: "builtin",
 		});
 		tg.assert(tg.Blob.is(value));
@@ -60,8 +61,9 @@ export namespace Artifact {
 
 	export let extract = async (blob: tg.Blob): Promise<Artifact> => {
 		let value = await tg.build({
-			args: ["extract", blob],
+			args: [blob],
 			env: undefined,
+			executable: "extract",
 			host: "builtin",
 		});
 		tg.assert(Artifact.is(value));
@@ -70,8 +72,9 @@ export namespace Artifact {
 
 	export let bundle = async (artifact: Artifact): Promise<Artifact> => {
 		let value = await tg.build({
-			args: ["bundle", artifact],
+			args: [artifact],
 			env: undefined,
+			executable: "bundle",
 			host: "builtin",
 		});
 		tg.assert(Artifact.is(value));
@@ -83,8 +86,9 @@ export namespace Artifact {
 		algorithm: tg.Checksum.Algorithm,
 	): Promise<tg.Checksum> => {
 		let value = await tg.build({
-			args: ["checksum", artifact, algorithm],
+			args: [artifact, algorithm],
 			env: undefined,
+			executable: "checksum",
 			host: "builtin",
 		});
 		return value as tg.Checksum;
