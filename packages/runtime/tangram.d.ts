@@ -1016,6 +1016,47 @@ declare namespace tg {
 	export namespace Process {
 		export type Id = string;
 
+		export type BuildArg =
+			| undefined
+			| string
+			| tg.Artifact
+			| tg.Template
+			| tg.Command
+			| BuildArgObject;
+
+		
+		export type BuildArgObject = {
+			/** The command's arguments. */
+			args?: Array<tg.Value> | undefined;
+
+			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
+			checksum?: tg.Checksum | undefined;
+
+			/** The command's working directory. **/
+			cwd?: string | undefined;
+			
+			/** The command's environment. */
+			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
+			
+			/** The command's executable. */
+			executable?: tg.Command.ExecutableArg | undefined;
+			
+			/** The command's host. */
+			host?: string | undefined;
+			
+			/** The command's mounts. */
+			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
+			
+			/** Configure whether the process has access to the network. **/
+			network?: boolean | undefined;
+			
+			/** Ignore stdin, or set it to a blob. */
+			stdin?: tg.Blob.Arg | undefined;
+			
+			/** The command's user. */
+			user?: string | undefined;
+		};
+
 		export type RunArg =
 			| undefined
 			| string
@@ -1030,9 +1071,6 @@ declare namespace tg {
 
 			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
 			checksum?: tg.Checksum | undefined;
-
-			/** The command to spawn. **/
-			command?: tg.Command.Arg | undefined;
 
 			/** The command's working directory. **/
 			cwd?: string | undefined;
