@@ -5,6 +5,7 @@ use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
 	io::{IsTerminal as _, Write as _},
+	os::fd::AsRawFd,
 	pin::pin,
 	sync::Arc,
 	time::Duration,
@@ -199,32 +200,68 @@ where
 			.write(true)
 			.open("/dev/tty")
 			.map_err(|source| tg::error!(!source, "failed to open /dev/tty"))?;
+		let ttyfd = tty.as_raw_fd();
+
+		// Set up the backend.
 		let backend = tui::backend::CrosstermBackend::new(tty);
 		let mut terminal = tui::Terminal::new(backend)
 			.map_err(|source| tg::error!(!source, "failed to create the terminal backend"))?;
 
-		// Set up the terminal.
-		ct::terminal::enable_raw_mode()
-			.map_err(|source| tg::error!(!source, "failed to enable the terminal's raw mode"))?;
+		// Enable mouse capture and enter an alternate screen.
 		ct::execute!(
 			terminal.backend_mut(),
 			ct::event::EnableMouseCapture,
 			ct::terminal::EnterAlternateScreen,
 		)
-		.map_err(|source| tg::error!(!source, "failed to set up the terminal"))?;
+		.map_err(|source| tg::error!(!source, "failed to enable mouse capture"))?;
+
+		// Get the termios and enable raw mode.
+		let termios = unsafe {
+			// Get the original termios.
+			let mut termios = std::mem::MaybeUninit::uninit();
+			if libc::tcgetattr(ttyfd, termios.as_mut_ptr()) != 0 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to get termios"
+				));
+			}
+			let old_termios = termios.assume_init();
+
+			// Enable raw mode.
+			let mut new_termios = old_termios;
+			new_termios.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
+			new_termios.c_iflag &=
+				!(libc::IXON | libc::ICRNL | libc::BRKINT | libc::INPCK | libc::ISTRIP);
+			new_termios.c_oflag &= !(libc::OPOST);
+			if libc::tcsetattr(ttyfd, libc::TCSAFLUSH, std::ptr::addr_of!(new_termios)) != 0 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to set raw mode"
+				));
+			}
+
+			// Return the original termios.
+			old_termios
+		};
 
 		// Create the event stream.
 		let mut events = ct::event::EventStream::new();
 
 		// Run the event loop.
-		while !stop.stopped() && !self.stopped {
+		let result = loop {
+			if stop.stopped() || self.stopped {
+				break Ok(());
+			}
+
 			// Update.
 			self.update();
 
-			// Render.
-			terminal
-				.draw(|frame| self.render(frame.area(), frame.buffer_mut()))
-				.map_err(|source| tg::error!(!source, "failed to render the frame"))?;
+			// Try to render.
+			if let Err(source) =
+				terminal.draw(|frame| self.render(frame.area(), frame.buffer_mut()))
+			{
+				break Err(tg::error!(!source, "failed to render the frame"));
+			}
 
 			// Wait for and handle an event.
 			let sleep = tokio::time::sleep(Duration::from_millis(100));
@@ -236,23 +273,26 @@ where
 					self.handle(&event);
 				},
 				future::Either::Right((Err(error), _)) => {
-					return Err(error);
+					break Err(error);
 				},
 				_ => (),
 			}
+		};
+
+		// Restore the original termios, ignoring errors.
+		unsafe {
+			libc::tcsetattr(ttyfd, libc::TCSAFLUSH, std::ptr::addr_of!(termios));
 		}
 
-		// Reset the terminal.
+		// Disable mouse capture and leave the alternate screen, ignoring errors.
 		ct::execute!(
 			terminal.backend_mut(),
 			ct::event::DisableMouseCapture,
 			ct::terminal::LeaveAlternateScreen,
 		)
-		.map_err(|source| tg::error!(!source, "failed to reset the terminal"))?;
-		ct::terminal::disable_raw_mode()
-			.map_err(|source| tg::error!(!source, "failed to disable the terminal's raw mode"))?;
+		.ok();
 
-		Ok(())
+		result
 	}
 
 	pub async fn run_inline(&mut self, stop: Stop) -> tg::Result<()> {
