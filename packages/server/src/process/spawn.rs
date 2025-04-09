@@ -110,7 +110,6 @@ impl Server {
 								exit: None,
 								output: None,
 								remote: None,
-								status: tg::process::Status::Finished,
 							};
 							server.try_finish_process(&local_id, arg).boxed().await.ok();
 						}

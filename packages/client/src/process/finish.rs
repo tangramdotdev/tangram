@@ -13,8 +13,6 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
-
-	pub status: tg::process::Status,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

@@ -119,7 +119,6 @@ impl Cli {
 						exit: None,
 						output: None,
 						remote,
-						status: tg::process::Status::Finished,
 					};
 					process
 						.finish(&handle, arg)

@@ -119,29 +119,18 @@ impl Server {
 		// Run.
 		let wait = self.process_task_inner(process).await?;
 
-		// Determine the status.
-		let status = match (&wait.output, &wait.error, &wait.exit) {
-			(_, Some(_), _) | (_, _, Some(tg::process::Exit::Signal { signal: _ })) => {
-				tg::process::Status::Finished
-			},
-			(_, _, Some(tg::process::Exit::Code { code })) if *code != 0 => {
-				tg::process::Status::Finished
-			},
-			_ => tg::process::Status::Finished,
-		};
-
-		// Get the output data.
-		let value = match &wait.output {
-			Some(output) => Some(output.data(self).await?),
-			None if status == tg::process::Status::Finished => Some(tg::value::Data::Null),
-			None => None,
+		// Get the output.
+		let output = if let Some(output) = &wait.output {
+			Some(output.data(self).await?)
+		} else {
+			None
 		};
 
 		// If the process is remote, then push the output.
 		if let Some(remote) = process.remote() {
-			if let Some(value) = &value {
+			if let Some(output) = &output {
 				// Push the objects.
-				let objects = value.children();
+				let objects = output.children();
 				let arg = tg::push::Arg {
 					items: objects.into_iter().map(Either::Right).collect(),
 					remote: remote.to_owned(),
@@ -178,9 +167,8 @@ impl Server {
 		let arg = tg::process::finish::Arg {
 			error: wait.error,
 			exit: wait.exit,
-			output: value,
+			output,
 			remote: process.remote().cloned(),
-			status,
 		};
 		self.try_finish_process(process.id(), arg).await?;
 

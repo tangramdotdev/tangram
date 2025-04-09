@@ -31,7 +31,6 @@ impl Cli {
 			exit: None,
 			output: None,
 			remote,
-			status: tg::process::Status::Finished,
 		};
 		handle.try_finish_process(&args.process, arg).await?;
 

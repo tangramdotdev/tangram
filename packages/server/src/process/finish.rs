@@ -39,7 +39,6 @@ impl Server {
 		let tg::process::finish::Arg {
 			mut error,
 			output,
-			mut status,
 			exit,
 			..
 		} = arg;
@@ -109,7 +108,6 @@ impl Server {
 					exit: None,
 					output: None,
 					remote: None,
-					status: tg::process::Status::Finished,
 				};
 				let output = self.try_finish_process(&child, arg).await?;
 				Ok::<_, tg::Error>((child, output.finished))
@@ -123,7 +121,6 @@ impl Server {
 		if let (Some(output), Some(expected)) = (output.clone(), data.checksum.as_ref()) {
 			let value: tg::Value = output.try_into()?;
 			if let Err(checksum_error) = self.verify_checksum(&value, expected).boxed().await {
-				status = tg::process::status::Status::Finished;
 				error = Some(checksum_error);
 			}
 		}
@@ -188,7 +185,7 @@ impl Server {
 			finished_at,
 			output.clone().map(db::value::Json),
 			exit.map(db::value::Json),
-			status,
+			tg::process::Status::Finished,
 			id,
 			now.format(&Rfc3339).unwrap(),
 		];
