@@ -18,6 +18,14 @@ struct InnerOutput {
 	ptys: Vec<tg::pty::Id>,
 }
 
+struct Count {
+	processes: u64,
+	objects: u64,
+	cache_entries: u64,
+	pipes: u64,
+	ptys: u64,
+}
+
 impl Server {
 	pub async fn clean(
 		&self,
@@ -40,51 +48,70 @@ impl Server {
 						tg::error!(source = error, "failed to recreate the temporary directory")
 					})?;
 
+				let count = server.count_items().await?;
+
 				// Clean until there are no more items to remove.
-				progress.start(
-					"cache".into(),
-					"cache entries".into(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					None,
-				);
-				progress.start(
-					"objects".into(),
-					"objects".into(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					None,
-				);
-				progress.start(
-					"processes".into(),
-					"processes".into(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					None,
-				);
-				progress.start(
-					"pipes".into(),
-					"pipes".into(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					None,
-				);
-				progress.start(
-					"ptys".into(),
-					"ptys".into(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					None,
-				);
-				let batch_size = server
-					.config
-					.cleaner
-					.as_ref()
-					.map_or(1024, |config| config.batch_size);
-				let ttl = Duration::from_secs(0);
-				let config = crate::config::Cleaner { batch_size, ttl };
+				if count.cache_entries > 0 {
+					progress.start(
+						"cache".into(),
+						"cache entries".into(),
+						tg::progress::IndicatorFormat::Normal,
+						Some(0),
+						Some(count.cache_entries),
+					);
+				}
+				if count.objects > 0 {
+					progress.start(
+						"objects".into(),
+						"objects".into(),
+						tg::progress::IndicatorFormat::Normal,
+						Some(0),
+						Some(count.objects),
+					);
+				}
+				if count.processes > 0 {
+					progress.start(
+						"processes".into(),
+						"processes".into(),
+						tg::progress::IndicatorFormat::Normal,
+						Some(0),
+						Some(count.processes),
+					);
+				}
+				if count.pipes > 0 {
+					progress.start(
+						"pipes".into(),
+						"pipes".into(),
+						tg::progress::IndicatorFormat::Normal,
+						Some(0),
+						Some(count.pipes),
+					);
+				}
+				if count.ptys > 0 {
+					progress.start(
+						"ptys".into(),
+						"ptys".into(),
+						tg::progress::IndicatorFormat::Normal,
+						Some(0),
+						Some(count.ptys),
+					);
+				}
+
 				loop {
-					let output = server.cleaner_task_inner(&config).await?;
+					let now = time::OffsetDateTime::now_utc().unix_timestamp();
+					let ttl = Duration::from_secs(0);
+					let batch_size = server
+						.config
+						.cleaner
+						.as_ref()
+						.map_or(1024, |config| config.batch_size);
+					let output = match server.cleaner_task_inner(now, ttl, batch_size).await {
+						Ok(output) => output,
+						Err(error) => {
+							progress.error(error);
+							break;
+						},
+					};
 					progress.increment("cache", output.cache_entries.len().to_u64().unwrap());
 					progress.increment("objects", output.objects.len().to_u64().unwrap());
 					progress.increment("processes", output.processes.len().to_u64().unwrap());
@@ -107,7 +134,10 @@ impl Server {
 
 	pub(crate) async fn cleaner_task(&self, config: &crate::config::Cleaner) -> tg::Result<()> {
 		loop {
-			let result = self.cleaner_task_inner(config).await;
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let ttl = config.ttl;
+			let batch_size = config.batch_size;
+			let result = self.cleaner_task_inner(now, ttl, batch_size).await;
 			match result {
 				Ok(output) => {
 					let n = output.processes.len()
@@ -127,10 +157,98 @@ impl Server {
 		}
 	}
 
-	async fn cleaner_task_inner(&self, config: &crate::config::Cleaner) -> tg::Result<InnerOutput> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+	async fn count_items(&self) -> tg::Result<Count> {
+		// Get an index connection.
+		let connection = self
+			.index
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Count cache entries.
+		let statement = formatdoc!(
+			"
+				select count(*) from cache_entries;
+			"
+		);
+		let params = db::params![];
+		let cache_entries = connection
+			.query_one_value_into::<u64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+
+		// Count processes.
+		let statement: String = formatdoc!(
+			"
+				select count(*) from processes;
+			"
+		);
+		let params = db::params![];
+		let processes = connection
+			.query_one_value_into::<u64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+
+		// Count objects
+		let statement = formatdoc!(
+			"
+				select count(*) from objects;
+			"
+		);
+		let params = db::params![];
+		let objects = connection
+			.query_one_value_into::<u64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Count pipes and ptys.
+		let statement = formatdoc!(
+			"
+				select count(*) from pipes;
+			"
+		);
+		let params = db::params![];
+		let pipes = connection
+			.query_one_value_into::<u64>(statement.clone().into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
+
+		let statement = formatdoc!(
+			"
+				select count(*) from ptys;
+			"
+		);
+		let params = db::params![];
+		let ptys = connection
+			.query_one_value_into::<u64>(statement.clone().into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the ptys"))
+			.inspect_err(|error| tracing::error!(?error, "{error}"))?;
+		drop(connection);
+		Ok(Count {
+			cache_entries,
+			objects,
+			processes,
+			pipes,
+			ptys,
+		})
+	}
+
+	async fn cleaner_task_inner(
+		&self,
+		now: i64,
+		ttl: std::time::Duration,
+		batch_size: usize,
+	) -> tg::Result<InnerOutput> {
 		let max_touched_at =
-			time::OffsetDateTime::from_unix_timestamp(now - config.ttl.as_secs().to_i64().unwrap())
+			time::OffsetDateTime::from_unix_timestamp(now - ttl.as_secs().to_i64().unwrap())
 				.unwrap()
 				.format(&Rfc3339)
 				.unwrap();
@@ -155,7 +273,7 @@ impl Server {
 				returning id;
 			"
 		);
-		let params = db::params![max_touched_at, config.batch_size];
+		let params = db::params![max_touched_at, batch_size];
 		let processes = connection
 			.query_all_value_into::<tg::process::Id>(statement.into(), params)
 			.await
@@ -174,7 +292,7 @@ impl Server {
 				returning id;
 			"
 		);
-		let params = db::params![max_touched_at, config.batch_size];
+		let params = db::params![max_touched_at, batch_size];
 		let objects = connection
 			.query_all_value_into(statement.into(), params)
 			.await
@@ -193,7 +311,7 @@ impl Server {
 				returning id;
 			"
 		);
-		let params = db::params![max_touched_at, config.batch_size];
+		let params = db::params![max_touched_at, batch_size];
 		let cache_entries = connection
 			.query_all_value_into::<tg::artifact::Id>(statement.into(), params)
 			.await
@@ -206,7 +324,7 @@ impl Server {
 		let arg = crate::store::DeleteBatchArg {
 			ids: objects.clone(),
 			now,
-			ttl: config.ttl.as_secs(),
+			ttl: ttl.as_secs(),
 		};
 		self.store.delete_batch(arg).await?;
 
@@ -262,15 +380,16 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.write_connection()
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Delete pipes and ptys.
-		let max_created_at = time::OffsetDateTime::from_unix_timestamp(now - 24 * 60 * 60)
-			.unwrap()
-			.format(&Rfc3339)
-			.unwrap();
+		let max_created_at =
+			time::OffsetDateTime::from_unix_timestamp(now.saturating_sub(24 * 60 * 60))
+				.unwrap()
+				.format(&Rfc3339)
+				.unwrap();
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -279,7 +398,7 @@ impl Server {
 				limit {p}2;
 			"
 		);
-		let params = db::params![max_created_at, config.batch_size];
+		let params = db::params![max_created_at, batch_size];
 		let pipes = connection
 			.query_all_value_into::<tg::pipe::Id>(statement.clone().into(), params)
 			.await
@@ -292,11 +411,12 @@ impl Server {
 				limit {p}2;
 			"
 		);
-		let params = db::params![max_created_at];
+		let params = db::params![max_created_at, batch_size];
 		let ptys = connection
 			.query_all_value_into::<tg::pty::Id>(statement.clone().into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to delete ptys and pipes"))?;
+			.map_err(|source| tg::error!(!source, "failed to delete ptys and pipes"))
+			.inspect_err(|error| tracing::error!(?error, "{error}"))?;
 		drop(connection);
 
 		for id in &pipes {
