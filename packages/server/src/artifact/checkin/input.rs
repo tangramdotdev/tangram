@@ -379,12 +379,22 @@ impl Server {
 					let diagnostic = tg::Diagnostic {
 						location: None,
 						severity: tg::diagnostic::Severity::Error,
-						message: format!("failed to analyze the module: {error}"),
+						message: format!("failed to analyze {}: {error}", path.display()),
 					};
 					progress.diagnostic(diagnostic);
 					break 'a None;
 				},
 			};
+
+			// Emit any errors as diagnostics.
+			for error in analysis.errors {
+				let diagnostic = tg::Diagnostic {
+					location: None,
+					severity: tg::diagnostic::Severity::Error,
+					message: format!("{error}"),
+				};
+				progress.diagnostic(diagnostic);
+			}
 
 			Some(analysis.imports)
 		};

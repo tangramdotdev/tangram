@@ -1,19 +1,19 @@
 use super::Compiler;
-use itertools::Itertools as _;
 use std::{
 	collections::{BTreeMap, HashSet},
 	rc::Rc,
 };
 use swc::ecma::{ast, visit::VisitWith};
-use swc_core::{self as swc, common::Spanned};
+use swc_core as swc;
 use tangram_client as tg;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Analysis {
+	pub errors: Vec<Error>,
 	pub imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
-	pub metadata: Option<BTreeMap<String, tg::value::Data>>,
 }
 
+#[derive(Clone, Debug)]
 pub struct Error {
 	pub message: String,
 	pub line: usize,
@@ -34,21 +34,10 @@ impl Compiler {
 		let mut visitor = Visitor::new(source_map);
 		program.visit_with(&mut visitor);
 
-		// Handle any errors.
-		let errors = visitor.errors;
-		if !errors.is_empty() {
-			let message = errors
-				.iter()
-				.map(ToString::to_string)
-				.collect_vec()
-				.join("\n");
-			return Err(tg::error!("{message}"));
-		}
-
 		// Create the output.
 		let output = Analysis {
 			imports: visitor.imports,
-			metadata: visitor.metadata,
+			errors: visitor.errors,
 		};
 
 		Ok(output)
@@ -81,7 +70,6 @@ impl std::fmt::Display for Error {
 struct Visitor {
 	errors: Vec<Error>,
 	imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
-	metadata: Option<BTreeMap<String, tg::value::Data>>,
 	source_map: Rc<swc::common::SourceMap>,
 }
 
@@ -96,34 +84,6 @@ impl Visitor {
 
 impl swc::ecma::visit::Visit for Visitor {
 	fn visit_export_decl(&mut self, n: &ast::ExportDecl) {
-		// Check that this export statement has a declaration.
-		let Some(decl) = n.decl.as_var() else {
-			n.visit_children_with(self);
-			return;
-		};
-
-		// Visit each declaration.
-		for decl in &decl.decls {
-			// Get the object from the declaration.
-			let ast::VarDeclarator { name, init, .. } = decl;
-			let Some(ident) = name.as_ident().map(|ident| &ident.sym) else {
-				continue;
-			};
-			if ident != "metadata" {
-				continue;
-			}
-			let Some(init) = init.as_deref() else {
-				continue;
-			};
-			let Some(metadata) = self.expr_to_json(init) else {
-				continue;
-			};
-			let Ok(metadata) = serde_json::from_value(metadata) else {
-				continue;
-			};
-			self.metadata = Some(metadata);
-		}
-
 		n.visit_children_with(self);
 	}
 
@@ -247,68 +207,6 @@ impl Visitor {
 		// Add the import.
 		self.imports.insert(import);
 	}
-
-	fn expr_to_json(&mut self, expr: &ast::Expr) -> Option<serde_json::Value> {
-		let loc = self.source_map.lookup_char_pos(expr.span_lo());
-		match expr {
-			ast::Expr::Lit(ast::Lit::Null(_)) => Some(serde_json::Value::Null),
-			ast::Expr::Lit(ast::Lit::Bool(value)) => Some(serde_json::Value::Bool(value.value)),
-			ast::Expr::Lit(ast::Lit::Num(value)) => {
-				let Some(value) = serde_json::Number::from_f64(value.value) else {
-					self.errors.push(Error::new("invalid number", &loc));
-					return None;
-				};
-				Some(serde_json::Value::Number(value))
-			},
-			ast::Expr::Lit(ast::Lit::Str(value)) => {
-				Some(serde_json::Value::String(value.value.to_string()))
-			},
-			ast::Expr::Array(ast::ArrayLit { elems, .. }) => {
-				let mut array = Vec::new();
-				for elem in elems {
-					let Some(elem) = elem else {
-						self.errors
-							.push(Error::new("array holes are not allowed", &loc));
-						continue;
-					};
-					let value = self.expr_to_json(elem.expr.as_ref())?;
-					array.push(value);
-				}
-				Some(serde_json::Value::Array(array))
-			},
-			ast::Expr::Object(ast::ObjectLit { props, .. }) => {
-				let mut output = serde_json::Map::new();
-				for prop in props {
-					let Some(prop) = prop.as_prop() else {
-						self.errors
-							.push(Error::new("spread properties are not allowed", &loc));
-						continue;
-					};
-					let Some(key_value) = prop.as_key_value() else {
-						self.errors
-							.push(Error::new("only key-value properties are allowed", &loc));
-						continue;
-					};
-					let key = match &key_value.key {
-						ast::PropName::Ident(ident) => ident.sym.to_string(),
-						ast::PropName::Str(value) => value.value.to_string(),
-						_ => {
-							self.errors.push(Error::new("keys must be strings", &loc));
-							continue;
-						},
-					};
-					let value = self.expr_to_json(key_value.value.as_ref())?;
-					output.insert(key, value);
-				}
-				Some(serde_json::Value::Object(output))
-			},
-			_ => {
-				self.errors
-					.push(Error::new("values must be valid JSON", &loc));
-				None
-			},
-		}
-	}
 }
 
 #[cfg(test)]
@@ -318,7 +216,6 @@ mod tests {
 	#[test]
 	fn test_analyze() {
 		let text = r#"
-			export let metadata = { description: "Hello, World!" };
 			import defaultImport from "tg:default_import";
 			import { namedImport } from "./named_import.tg.js";
 			import * as namespaceImport from "tg:namespace_import";
@@ -331,15 +228,8 @@ mod tests {
 			export { namedExport } from "tg:named_export";
 			export * as namespaceExport from "./namespace_export.ts";
 		"#;
-		let left = Compiler::analyze_module(text.to_owned()).unwrap();
-		let metadata = Some(
-			[(
-				"description".to_owned(),
-				tg::value::Data::String("Hello, World!".to_owned()),
-			)]
-			.into(),
-		);
-		let imports = [
+		let found = Compiler::analyze_module(text.to_owned()).unwrap().imports;
+		let expected = [
 			"tg:default_import",
 			"./named_import.tg.js",
 			"tg:namespace_import",
@@ -353,7 +243,6 @@ mod tests {
 		.into_iter()
 		.map(|specifier| tg::Import::with_specifier_and_attributes(specifier, None).unwrap())
 		.collect();
-		let right = Analysis { imports, metadata };
-		assert_eq!(left, right);
+		assert_eq!(found, expected);
 	}
 }
