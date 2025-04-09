@@ -116,7 +116,6 @@ impl Server {
 							info = server.messenger.stream_info("index".into()).await.map_err(
 								|source| tg::error!(!source, "failed to get the index stream info"),
 							)?;
-							continue;
 						},
 						_ => break,
 					}
@@ -156,7 +155,6 @@ impl Server {
 			if let Err(error) = result {
 				tracing::error!(?error, "failed to handle the messages");
 				tokio::time::sleep(Duration::from_secs(1)).await;
-				continue;
 			}
 		}
 	}
