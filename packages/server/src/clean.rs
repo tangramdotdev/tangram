@@ -229,8 +229,7 @@ impl Server {
 		let ptys = connection
 			.query_one_value_into::<u64>(statement.clone().into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the ptys"))
-			.inspect_err(|error| tracing::error!(?error, "{error}"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
 		drop(connection);
 		Ok(Count {
 			cache_entries,
@@ -402,7 +401,7 @@ impl Server {
 		let pipes = connection
 			.query_all_value_into::<tg::pipe::Id>(statement.clone().into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to delete ptys and pipes"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the pipes"))?;
 
 		let statement = formatdoc!(
 			"
@@ -415,8 +414,7 @@ impl Server {
 		let ptys = connection
 			.query_all_value_into::<tg::pty::Id>(statement.clone().into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to delete ptys and pipes"))
-			.inspect_err(|error| tracing::error!(?error, "{error}"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the ptys "))?;
 		drop(connection);
 
 		for id in &pipes {
