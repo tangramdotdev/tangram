@@ -70,9 +70,9 @@ impl Server {
 		let id = id.parse::<tg::object::Id>()?;
 		let bytes = request.bytes().await?;
 
-		let found = tg::object::Id::new(id.kind(), &bytes);
-		if id != found {
-			let error = tg::error!(%expected = id, %found, "invalid object id");
+		let actual = tg::object::Id::new(id.kind(), &bytes);
+		if id != actual {
+			let error = tg::error!(%expected = id, %actual, "invalid object id");
 			let response = http::Response::builder()
 				.status(http::StatusCode::BAD_REQUEST)
 				.bytes(serde_json::to_vec(&error).unwrap())

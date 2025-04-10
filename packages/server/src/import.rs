@@ -536,9 +536,9 @@ impl Server {
 				return Ok(None);
 			};
 			if let tg::export::Item::Object(object) = &item {
-				let found = tg::object::Id::new(object.id.kind(), &object.bytes);
-				if object.id != found {
-					return Err(tg::error!(%expected = object.id, %found, "invalid object id"));
+				let actual = tg::object::Id::new(object.id.kind(), &object.bytes);
+				if object.id != actual {
+					return Err(tg::error!(%expected = object.id, %actual, "invalid object id"));
 				}
 			}
 			Ok(Some((item, reader)))
