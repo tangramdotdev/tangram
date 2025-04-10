@@ -113,6 +113,7 @@ impl Cli {
 				.unwrap();
 				write!(line, " {spinner}").unwrap();
 				if let (Some(current), Some(total)) = (indicator.current, indicator.total) {
+					let current = current.min(total);
 					write!(line, " [").unwrap();
 					let last = current * LENGTH / total;
 					for _ in 0..last {
