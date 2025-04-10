@@ -540,10 +540,10 @@ where
 			tg::command::Executable::Path(path) => s.string(path.to_string_lossy().as_ref()),
 		})?;
 		self.map_entry("host", |s| s.string(&object.host))?;
-		if !object.mounts.is_empty() {
+		if let Some(mounts) = &object.mounts {
 			self.map_entry("mounts", |s| {
 				s.start_array()?;
-				for mount in &object.mounts {
+				for mount in mounts {
 					s.start_map()?;
 					s.map_entry("source", |s| s.artifact(&mount.source))?;
 					s.map_entry("target", |s| {

@@ -125,15 +125,18 @@ export class Command<
 		let executable = arg.executable;
 		let host =
 			arg.host ?? ((await tg.Process.current.env("TANGRAM_HOST")) as string);
-		let mounts = await Promise.all(
-			(arg.mounts ?? []).map(async (mount) => {
-				if (typeof mount === "string" || mount instanceof tg.Template) {
-					return await tg.Command.Mount.parse(mount);
-				} else {
-					return mount;
-				}
-			}),
-		);
+		let mounts: Array<tg.Command.Mount> | undefined = undefined;
+		if (arg.mounts && arg.mounts.length > 0) {
+			mounts = await Promise.all(
+				arg.mounts.map(async (mount) => {
+					if (typeof mount === "string" || mount instanceof tg.Template) {
+						return await tg.Command.Mount.parse(mount);
+					} else {
+						return mount;
+					}
+				}),
+			);
+		}
 		if (!host) {
 			throw new Error("cannot create a command without a host");
 		}
@@ -250,7 +253,7 @@ export class Command<
 		return (await this.object()).user;
 	}
 
-	async mounts(): Promise<Array<tg.Command.Mount>> {
+	async mounts(): Promise<Array<tg.Command.Mount> | undefined> {
 		return (await this.object()).mounts;
 	}
 
@@ -374,9 +377,9 @@ export namespace Command {
 		args: Array<tg.Value>;
 		cwd: string | undefined;
 		env: { [key: string]: tg.Value };
-		executable: tg.Command.Executable | undefined;
+		executable: tg.Command.Executable;
 		host: string;
-		mounts: Array<tg.Command.Mount>;
+		mounts: Array<tg.Command.Mount> | undefined;
 		stdin: tg.Blob | undefined;
 		user: string | undefined;
 	};

@@ -10,7 +10,7 @@ pub struct Command {
 	pub env: tg::value::Map,
 	pub executable: tg::command::Executable,
 	pub host: String,
-	pub mounts: Vec<tg::command::Mount>,
+	pub mounts: Option<Vec<tg::command::Mount>>,
 	pub stdin: Option<tg::Blob>,
 	pub user: Option<String>,
 }
@@ -42,7 +42,13 @@ impl Command {
 			.chain(self.executable.object())
 			.chain(self.args.iter().flat_map(tg::Value::objects))
 			.chain(self.env.values().flat_map(tg::Value::objects))
-			.chain(self.mounts.iter().flat_map(tg::command::Mount::object))
+			.chain(
+				self.mounts
+					.as_deref()
+					.unwrap_or_default()
+					.iter()
+					.flat_map(tg::command::Mount::object),
+			)
 			.collect()
 	}
 }
@@ -97,7 +103,9 @@ impl TryFrom<Data> for Command {
 			.try_collect()?;
 		let executable = data.executable.into();
 		let host = data.host;
-		let mounts = data.mounts.into_iter().map(Into::into).collect();
+		let mounts = data
+			.mounts
+			.map(|mounts| mounts.into_iter().map(Into::into).collect());
 		let stdin = data.stdin.map(tg::Blob::with_id);
 		let user = data.user;
 		Ok(Self {

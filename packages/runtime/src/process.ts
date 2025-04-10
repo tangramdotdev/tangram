@@ -106,7 +106,26 @@ export class Process {
 						executable: await tg.symlink("/bin/sh"),
 					};
 				} else if (arg instanceof tg.Command) {
-					return { ...(await arg.object()) };
+					let object = await arg.object();
+					let ret: tg.Process.RunArgObject = {
+						args: object.args,
+						env: object.env,
+						executable: object.executable,
+						host: object.host,
+					};
+					if (object.cwd !== undefined) {
+						ret.cwd = object.cwd;
+					}
+					if (object.mounts !== undefined) {
+						ret.mounts = object.mounts;
+					}
+					if (object.stdin !== undefined) {
+						ret.stdin = object.stdin;
+					}
+					if (object.user !== undefined) {
+						ret.user = object.user;
+					}
+					return ret;
 				} else {
 					return arg;
 				}
@@ -244,7 +263,26 @@ export class Process {
 						executable: await tg.symlink("/bin/sh"),
 					};
 				} else if (arg instanceof tg.Command) {
-					return { ...(await arg.object()) };
+					let object = await arg.object();
+					let ret: tg.Process.RunArgObject = {
+						args: object.args,
+						env: object.env,
+						executable: object.executable,
+						host: object.host,
+					};
+					if (object.cwd !== undefined) {
+						ret.cwd = object.cwd;
+					}
+					if (object.mounts !== undefined) {
+						ret.mounts = object.mounts;
+					}
+					if (object.stdin !== undefined) {
+						ret.stdin = object.stdin;
+					}
+					if (object.user !== undefined) {
+						ret.user = object.user;
+					}
+					return ret;
 				} else {
 					return arg;
 				}
@@ -319,7 +357,7 @@ export class Process {
 	async mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>> {
 		let commandMounts = await (await this.command()).mounts();
 		await this.load();
-		return [...this.#state!.mounts, ...commandMounts];
+		return [...this.#state!.mounts, ...(commandMounts ?? [])];
 	}
 
 	async network(): Promise<boolean> {

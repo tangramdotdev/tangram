@@ -1171,9 +1171,9 @@ where
 		};
 		children.push(("executable".to_owned(), value));
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		if !object.mounts.is_empty() {
+		if let Some(mounts) = &object.mounts {
 			let mut array = Vec::new();
-			for mount in &object.mounts {
+			for mount in mounts {
 				let mut map = BTreeMap::new();
 				map.insert(
 					"source".to_owned(),
