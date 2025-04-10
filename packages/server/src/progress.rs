@@ -180,7 +180,7 @@ impl<T> Handle<T> {
 					.ok();
 			},
 			tg::progress::Event::Output(_) => return Some(Ok(event)),
-		};
+		}
 		None
 	}
 

@@ -60,7 +60,7 @@ impl Server {
 						tg::error!(!source, %artifact, "failed to pull or index the artifact");
 					progress.error(error);
 					return;
-				};
+				}
 
 				let title = if arg.path.is_none() {
 					"checking out..."
