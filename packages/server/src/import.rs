@@ -233,7 +233,6 @@ impl Server {
 						};
 						if !(process_complete.complete
 							|| process_complete.commands_complete
-							|| process_complete.logs_complete
 							|| process_complete.outputs_complete)
 						{
 							return;
@@ -266,7 +265,7 @@ impl Server {
 				}
 			});
 		}
-		// join_set.join_all().await;
+		join_set.join_all().await;
 		Ok(())
 	}
 
@@ -276,7 +275,7 @@ impl Server {
 	) -> tg::Result<Option<tg::import::ProcessComplete>> {
 		// Get a database connection.
 		let connection = self
-			.database
+			.index
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -286,7 +285,6 @@ impl Server {
 		struct Row {
 			complete: bool,
 			commands_complete: bool,
-			logs_complete: bool,
 			outputs_complete: bool,
 		}
 		let p = connection.p();
@@ -295,7 +293,6 @@ impl Server {
 				select
 					complete,
 					commands_complete,
-					logs_complete,
 					outputs_complete
 				from processes
 				where id = {p}1;
@@ -318,7 +315,6 @@ impl Server {
 			commands_complete: row.commands_complete,
 			complete: row.complete,
 			id: id.clone(),
-			logs_complete: row.logs_complete,
 			outputs_complete: row.outputs_complete,
 		};
 

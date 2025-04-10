@@ -2,6 +2,7 @@ use crate::Server;
 use futures::{FutureExt as _, future};
 use indoc::formatdoc;
 use itertools::Itertools as _;
+use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
@@ -50,6 +51,53 @@ impl Server {
 		drop(connection);
 
 		Ok(output)
+	}
+
+	pub(crate) fn get_object_metadata_local_sync(
+		index: &sqlite::Connection,
+		id: &tg::object::Id,
+	) -> tg::Result<tg::object::Metadata> {
+		Self::try_get_object_metadata_local_sync(index, id)?
+			.ok_or_else(|| tg::error!("failed to find the object"))
+	}
+
+	pub(crate) fn try_get_object_metadata_local_sync(
+		index: &sqlite::Connection,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		let statement = formatdoc!(
+			"
+				select count, depth, weight
+				from objects
+				where id = ?1;
+			"
+		);
+		let mut statement = index
+			.prepare_cached(&statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut rows = statement
+			.query([id.to_string()])
+			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
+		rows.advance()
+			.map_err(|source| tg::error!(!source, "query failed"))?;
+		let Some(row) = rows.get() else {
+			return Ok(None);
+		};
+		let count = row
+			.get::<_, Option<u64>>(0)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let depth = row
+			.get::<_, Option<u64>>(1)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let weight = row
+			.get::<_, Option<u64>>(2)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let metadata = tg::object::Metadata {
+			count,
+			depth,
+			weight,
+		};
+		Ok(Some(metadata))
 	}
 
 	async fn try_get_object_metadata_remote(

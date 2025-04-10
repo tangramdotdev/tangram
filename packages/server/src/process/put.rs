@@ -1,7 +1,6 @@
 use crate::Server;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use indoc::{formatdoc, indoc};
-use itertools::Itertools as _;
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
@@ -19,7 +18,19 @@ impl Server {
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc();
 
-		// Send process message.
+		// Insert the process into the database.
+		match &self.database {
+			Either::Left(database) => {
+				Self::put_process_sqlite(id, &arg, database, &now.format(&Rfc3339).unwrap())
+					.await?;
+			},
+			Either::Right(database) => {
+				Self::put_process_postgres(id, &arg, database, &now.format(&Rfc3339).unwrap())
+					.await?;
+			},
+		}
+
+		// Publish the process message.
 		let output = arg
 			.data
 			.output
@@ -46,24 +57,13 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
-		// Add to database.
-		match &self.database {
-			Either::Left(database) => {
-				Self::put_process_sqlite(database, id, arg, &now.format(&Rfc3339).unwrap()).await?;
-			},
-			Either::Right(database) => {
-				Self::put_process_postgres(database, id, arg, &now.format(&Rfc3339).unwrap())
-					.await?;
-			},
-		}
-
 		Ok(())
 	}
 
 	pub(crate) async fn put_process_sqlite(
-		database: &db::sqlite::Database,
 		id: &tg::process::Id,
-		arg: tg::process::put::Arg,
+		arg: &tg::process::put::Arg,
+		database: &db::sqlite::Database,
 		touched_at: &str,
 	) -> tg::Result<()> {
 		// Get a database connection.
@@ -167,7 +167,7 @@ impl Server {
 			arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.host,
 			arg.data.log,
-			(!arg.data.mounts.is_empty()).then_some(db::value::Json(arg.data.mounts)),
+			(!arg.data.mounts.is_empty()).then_some(db::value::Json(arg.data.mounts.clone())),
 			arg.data.network,
 			arg.data.output.as_ref().map(db::value::Json),
 			arg.data.retry,
@@ -212,46 +212,6 @@ impl Server {
 				.try_collect::<()>()
 				.await?;
 		}
-
-		// Insert the objects.
-		let statement = formatdoc!(
-			"
-				insert into process_objects (process, object)
-				values (?1, ?2)
-				on conflict (process, object) do nothing;
-			"
-		);
-		let objects = arg
-			.data
-			.log
-			.into_iter()
-			.map_into()
-			.chain(
-				arg.data
-					.output
-					.as_ref()
-					.map(tg::value::Data::children)
-					.into_iter()
-					.flatten(),
-			)
-			.chain(std::iter::once(arg.data.command.clone().into()));
-		objects
-			.map(|object| {
-				let transaction = transaction.clone();
-				let statement = statement.clone();
-				async move {
-					let params = db::params![id, object];
-					transaction
-						.execute(statement.into(), params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-					Ok::<_, tg::Error>(())
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<()>()
-			.await?;
-
 		// Commit the transaction.
 		Arc::into_inner(transaction)
 			.unwrap()
@@ -266,9 +226,9 @@ impl Server {
 	}
 
 	pub(crate) async fn put_process_postgres(
-		database: &db::postgres::Database,
 		id: &tg::process::Id,
-		arg: tg::process::put::Arg,
+		arg: &tg::process::put::Arg,
+		database: &db::postgres::Database,
 		touched_at: &str,
 	) -> tg::Result<()> {
 		// Get a database connection.
@@ -366,7 +326,7 @@ impl Server {
 				&[
 					&id.to_string(),
 					&i64::from(arg.data.cacheable),
-					&arg.data.checksum.map(|checksum| checksum.to_string()),
+					&arg.data.checksum.as_ref().map(ToString::to_string),
 					&arg.data.command.to_string(),
 					&arg.data.created_at.format(&Rfc3339).unwrap(),
 					&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),

@@ -67,13 +67,12 @@ impl Server {
 							loop {
 								match item {
 									tangram_either::Either::Left(process) => {
-										let Some(tg::process::metadata::Output {
-											metadata, ..
-										}) = src.try_get_process_metadata(process).await.map_err(
-											|source| {
+										let Some(metadata) = src
+											.try_get_process_metadata(process)
+											.await
+											.map_err(|source| {
 												tg::error!(!source, "failed to get the process")
-											},
-										)?
+											})?
 										else {
 											return Err(tg::error!("failed to get the process"));
 										};
@@ -192,7 +191,6 @@ impl Server {
 			let export_arg = tg::export::Arg {
 				commands: arg.commands,
 				items: arg.items.clone(),
-				logs: arg.logs,
 				outputs: arg.outputs,
 				recursive: arg.recursive,
 				remote: None,
@@ -242,12 +240,6 @@ impl Server {
 									if let Some(commands_weight) = process_complete.commands_weight
 									{
 										bytes += commands_weight;
-									}
-									if let Some(logs_count) = process_complete.logs_count {
-										objects += logs_count;
-									}
-									if let Some(logs_weight) = process_complete.logs_weight {
-										bytes += logs_weight;
 									}
 									if let Some(outputs_count) = process_complete.outputs_count {
 										objects += outputs_count;

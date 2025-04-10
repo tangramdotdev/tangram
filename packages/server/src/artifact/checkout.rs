@@ -215,7 +215,7 @@ impl Server {
 				if !state.graphs.contains_key(&graph) {
 					let data = match &self.store {
 						crate::Store::Lmdb(store) => {
-							store.try_get_object_data(&graph.clone().into())?
+							store.try_get_object_data_sync(&graph.clone().into())?
 						},
 						crate::Store::Memory(store) => {
 							store.try_get_object_data(&graph.clone().into())?
@@ -233,7 +233,7 @@ impl Server {
 			// Otherwise, get the artifact's data.
 			Either::Right(id) => {
 				let data = match &self.store {
-					crate::Store::Lmdb(store) => store.try_get_object_data(&id.into())?,
+					crate::Store::Lmdb(store) => store.try_get_object_data_sync(&id.into())?,
 					crate::Store::Memory(store) => store.try_get_object_data(&id.into())?,
 					_ => return Err(tg::error!("not yet implemented")),
 				}

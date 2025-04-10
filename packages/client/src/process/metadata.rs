@@ -2,12 +2,6 @@ use crate as tg;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	#[serde(flatten)]
-	pub metadata: Metadata,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Metadata {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub commands_count: Option<u64>,
@@ -35,7 +29,7 @@ impl tg::Client {
 	pub async fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
-	) -> tg::Result<Option<tg::process::metadata::Output>> {
+	) -> tg::Result<Option<tg::process::Metadata>> {
 		let method = http::Method::GET;
 		let uri = format!("/processes/{id}/metadata");
 		let request = http::request::Builder::default()

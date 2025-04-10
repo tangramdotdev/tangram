@@ -11,18 +11,18 @@ use time::format_description::well_known::Rfc3339;
 use tokio_util::task::AbortOnDropHandle;
 
 struct InnerOutput {
-	processes: Vec<tg::process::Id>,
-	objects: Vec<tg::object::Id>,
 	cache_entries: Vec<tg::artifact::Id>,
+	objects: Vec<tg::object::Id>,
 	pipes: Vec<tg::pipe::Id>,
+	processes: Vec<tg::process::Id>,
 	ptys: Vec<tg::pty::Id>,
 }
 
 struct Count {
-	processes: u64,
-	objects: u64,
 	cache_entries: u64,
+	objects: u64,
 	pipes: u64,
+	processes: u64,
 	ptys: u64,
 }
 
@@ -234,8 +234,8 @@ impl Server {
 		Ok(Count {
 			cache_entries,
 			objects,
-			processes,
 			pipes,
+			processes,
 			ptys,
 		})
 	}
@@ -429,10 +429,10 @@ impl Server {
 		}
 
 		let output = InnerOutput {
-			processes,
-			objects,
 			cache_entries,
+			objects,
 			pipes,
+			processes,
 			ptys,
 		};
 

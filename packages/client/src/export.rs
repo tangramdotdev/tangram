@@ -20,9 +20,6 @@ pub struct Arg {
 	pub items: Vec<Either<tg::process::Id, tg::object::Id>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub logs: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -40,9 +37,6 @@ pub struct QueryArg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	items: Vec<Either<tg::process::Id, tg::object::Id>>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub logs: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
@@ -80,12 +74,6 @@ pub struct ProcessComplete {
 	pub count: Option<u64>,
 
 	pub id: tg::process::Id,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub logs_count: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub logs_weight: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub outputs_count: Option<u64>,
@@ -435,7 +423,6 @@ impl From<Arg> for QueryArg {
 		Self {
 			commands: value.commands,
 			items: value.items,
-			logs: value.logs,
 			outputs: value.outputs,
 			recursive: value.recursive,
 			remote: value.remote,
@@ -448,7 +435,6 @@ impl From<QueryArg> for Arg {
 		Self {
 			commands: value.commands,
 			items: value.items,
-			logs: value.logs,
 			outputs: value.outputs,
 			recursive: value.recursive,
 			remote: value.remote,
