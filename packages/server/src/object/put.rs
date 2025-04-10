@@ -67,8 +67,19 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let id = id.parse()?;
+		let id = id.parse::<tg::object::Id>()?;
 		let bytes = request.bytes().await?;
+
+		let actual = tg::object::Id::new(id.kind(), &bytes);
+		if id != actual {
+			let error = tg::error!(%expected = id, %actual, "invalid object id");
+			let response = http::Response::builder()
+				.status(http::StatusCode::BAD_REQUEST)
+				.bytes(serde_json::to_vec(&error).unwrap())
+				.unwrap();
+			return Ok(response);
+		}
+
 		let arg = tg::object::put::Arg { bytes };
 		handle.put_object(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
