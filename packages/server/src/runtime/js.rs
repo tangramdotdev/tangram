@@ -98,8 +98,14 @@ impl Runtime {
 
 		// Get the output.
 		let (error, exit, output) = match task.await.unwrap() {
-			Ok(output) => (None, None::<tg::process::Exit>, Some(output)),
-			Err(error) => (Some(error), None, None),
+			Ok(output) => {
+				let exit = tg::process::Exit::Code { code: 0 };
+				(None, Some(exit), Some(output))
+			},
+			Err(error) => {
+				let exit = tg::process::Exit::Code { code: 1 };
+				(Some(error), Some(exit), None)
+			},
 		};
 
 		super::Output {
