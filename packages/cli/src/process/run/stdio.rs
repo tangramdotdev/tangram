@@ -1,6 +1,6 @@
 use super::{Options, signal::handle_sigwinch};
 use crate::Cli;
-use futures::{StreamExt, future, stream};
+use futures::{StreamExt as _, future, stream};
 use std::{
 	io::IsTerminal as _,
 	mem::MaybeUninit,

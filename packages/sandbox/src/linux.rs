@@ -6,7 +6,7 @@ use crate::{
 use num::ToPrimitive;
 use std::ffi::CString;
 use tangram_either::Either;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 mod guest;
 mod init;

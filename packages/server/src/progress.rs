@@ -153,30 +153,33 @@ impl<T> Handle<T> {
 			},
 		};
 		match event {
-			tg::progress::Event::Log(e) => {
-				self.log(e.level.unwrap_or(tg::progress::Level::Info), e.message);
-			},
-			tg::progress::Event::Diagnostic(e) => {
-				self.diagnostic(e);
-			},
-			tg::progress::Event::Start(e) => {
-				self.start(
-					e.name.clone(),
-					e.title.clone(),
-					e.format,
-					e.current,
-					e.total,
+			tg::progress::Event::Log(event) => {
+				self.log(
+					event.level.unwrap_or(tg::progress::Level::Info),
+					event.message,
 				);
 			},
-			tg::progress::Event::Update(e) => {
+			tg::progress::Event::Diagnostic(event) => {
+				self.diagnostic(event);
+			},
+			tg::progress::Event::Start(event) => {
+				self.start(
+					event.name.clone(),
+					event.title.clone(),
+					event.format,
+					event.current,
+					event.total,
+				);
+			},
+			tg::progress::Event::Update(event) => {
 				self.sender
-					.try_send(Ok(tg::progress::Event::Update(e)))
+					.try_send(Ok(tg::progress::Event::Update(event)))
 					.ok();
 			},
-			tg::progress::Event::Finish(e) => {
-				self.indicators.write().unwrap().shift_remove(&e.name);
+			tg::progress::Event::Finish(event) => {
+				self.indicators.write().unwrap().shift_remove(&event.name);
 				self.sender
-					.try_send(Ok(tg::progress::Event::Finish(e)))
+					.try_send(Ok(tg::progress::Event::Finish(event)))
 					.ok();
 			},
 			tg::progress::Event::Output(_) => return Some(Ok(event)),

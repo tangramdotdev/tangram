@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryFutureExt, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};

@@ -8,7 +8,7 @@ use num::ToPrimitive;
 use std::{
 	ffi::{CStr, CString},
 	fmt::Write,
-	os::unix::ffi::OsStrExt,
+	os::unix::ffi::OsStrExt as _,
 	path::Path,
 };
 use tangram_either::Either;

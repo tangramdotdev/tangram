@@ -1,5 +1,5 @@
 use std::{
-	os::unix::fs::PermissionsExt,
+	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
 };
 
