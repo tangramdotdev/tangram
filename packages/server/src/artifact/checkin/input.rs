@@ -64,9 +64,16 @@ impl Server {
 		});
 
 		// Create the graph.
+		progress.start(
+			"files".into(),
+			"files".into(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
 		Box::pin(self.create_input_graph_inner(None, arg.path.as_ref(), &arg, &state, progress))
 			.await?;
-		progress.finish("checkin-files");
+		progress.finish("files");
 
 		// Get the graph.
 		let State { mut graph, .. } = state.into_inner();
@@ -191,7 +198,7 @@ impl Server {
 			state.write().await.graph.nodes[node].edges = edges;
 
 			// Return the created node.
-			progress.increment("checkin-files", 1);
+			progress.increment("files", 1);
 			Ok(node)
 		}
 	}
