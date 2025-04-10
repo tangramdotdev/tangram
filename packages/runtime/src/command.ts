@@ -258,18 +258,18 @@ export class Command<
 		return this.#f;
 	}
 
-	async build(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
-		return await tg.Process.build(
+	async build(...args: tg.Args<tg.Command.BuildArg>): Promise<R> {
+		return (await tg.Process.build(
 			this as Command<Array<tg.Value>, tg.Value>,
 			...args,
-		);
+		)) as R;
 	}
 
-	async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
-		return await tg.Process.run(
+	async run(...args: tg.Args<tg.Command.RunArg>): Promise<R> {
+		return (await tg.Process.run(
 			this as Command<Array<tg.Value>, tg.Value>,
 			...args,
-		);
+		)) as R;
 	}
 }
 
@@ -381,6 +381,15 @@ export namespace Command {
 		mounts: Array<tg.Command.Mount>;
 		stdin: tg.Blob | undefined;
 		user: string | undefined;
+	};
+
+	export type BuildArg = {
+		checksum?: tg.Checksum | undefined;
+		network?: boolean | undefined;
+	};
+
+	export type RunArg = BuildArg & {
+		mounts?: Array<string | tg.Template | tg.Process.Mount> | undefined;
 	};
 
 	export type State = tg.Object.State<Command.Id, Command.Object>;
