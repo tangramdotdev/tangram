@@ -606,10 +606,10 @@ declare namespace tg {
 		user(): Promise<string | undefined>;
 
 		/** Build this command and return the process's output. */
-		build(...args: tg.Args<tg.Command.SpawnBuildArg>): Promise<R>;
+		build(...args: tg.Args<tg.Command.BuildArg>): Promise<R>;
 
 		/** Run this command and return the process's output. */
-		run(...args: tg.Args<tg.Command.SpawnRunArg>): Promise<R>;
+		run(...args: tg.Args<tg.Command.RunArg>): Promise<R>;
 	}
 
 	export namespace Command {
@@ -674,7 +674,7 @@ declare namespace tg {
 			) => Promise<tg.Command.Mount>;
 		}
 
-		export type SpawnBuildArg = {
+		export type BuildArg = {
 			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
 			checksum?: tg.Checksum | undefined;
  			
@@ -682,7 +682,7 @@ declare namespace tg {
 			network?: boolean | undefined;
 		};
 		
-		export type SpawnRunArg = SpawnBuildArg & {
+		export type RunArg = BuildArg & {
 			/** The process's mounts. */
 			mounts?:
 				| Array<string | tg.Template | tg.Process.Mount>
