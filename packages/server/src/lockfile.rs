@@ -83,7 +83,7 @@ impl Server {
 		}
 		let index = nodes.len();
 		let artifact = match &self.store {
-			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data(&id.clone().into())?,
+			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data_sync(&id.clone().into())?,
 			crate::store::Store::Memory(memory) => {
 				memory.try_get_object_data(&id.clone().into())?
 			},
@@ -268,7 +268,7 @@ impl Server {
 		}
 
 		let graph: tg::graph::Data = match &self.store {
-			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data(&id.clone().into())?,
+			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data_sync(&id.clone().into())?,
 			crate::store::Store::Memory(memory) => {
 				memory.try_get_object_data(&id.clone().into())?
 			},

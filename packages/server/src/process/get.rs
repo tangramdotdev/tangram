@@ -1,7 +1,8 @@
 use crate::Server;
 use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
+use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
 use serde_with::serde_as;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
@@ -141,6 +142,207 @@ impl Server {
 		drop(connection);
 
 		Ok(output)
+	}
+
+	pub(crate) fn try_get_process_local_sync(
+		database: &sqlite::Connection,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Data>> {
+		// Get the process.
+		let statement = indoc!(
+			"
+				select
+					cacheable,
+					checksum,
+					command,
+					created_at,
+					dequeued_at,
+					enqueued_at,
+					error,
+					exit,
+					finished_at,
+					host,
+					log,
+					output,
+					retry,
+					mounts,
+					network,
+					started_at,
+					status,
+					stderr,
+					stdin,
+					stdout
+				from processes
+				where id = ?1;
+			"
+		);
+		let mut statement = database
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
+		let mut rows = statement
+			.query([id.to_string()])
+			.map_err(|source| tg::error!(!source, "query failed"))?;
+		rows.advance()
+			.map_err(|source| tg::error!(!source, "query failed"))?;
+		let Some(row) = rows.get() else {
+			return Ok(None);
+		};
+
+		// Deserialize the row.
+		let cacheable = row
+			.get::<_, u64>(0)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?
+			== 1;
+		let checksum = row
+			.get::<_, Option<String>>(1)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| s.parse())
+			.transpose()?;
+		let command = row
+			.get::<_, String>(2)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.parse()?;
+		let created_at = row
+			.get::<_, String>(3)
+			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+		let dequeued_at = row
+			.get::<_, Option<String>>(4)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+		let enqueued_at = row
+			.get::<_, Option<String>>(5)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+		let error = row
+			.get::<_, Option<String>>(6)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| serde_json::from_str(&s))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+		let exit = row
+			.get::<_, Option<String>>(7)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| serde_json::from_str(&s))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+		let finished_at = row
+			.get::<_, Option<String>>(8)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+		let host = row
+			.get::<_, String>(9)
+			.map_err(|source| tg::error!(!source, "expected a string"))?;
+		let log = row
+			.get::<_, Option<String>>(10)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| s.parse())
+			.transpose()?;
+		let output = row
+			.get::<_, Option<String>>(11)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| serde_json::from_str(&s))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+		let retry = row
+			.get::<_, u64>(12)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?
+			== 1;
+		let mounts = row
+			.get::<_, Option<String>>(13)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| serde_json::from_str(&s))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize"))?
+			.unwrap_or_default();
+		let network = row
+			.get::<_, u64>(14)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?
+			== 1;
+		let started_at = row
+			.get::<_, Option<String>>(15)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+		let status = row
+			.get::<_, String>(16)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.parse()?;
+		let stderr = row
+			.get::<_, Option<String>>(17)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| s.parse())
+			.transpose()?;
+		let stdin = row
+			.get::<_, Option<String>>(18)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| s.parse())
+			.transpose()?;
+		let stdout = row
+			.get::<_, Option<String>>(19)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| s.parse())
+			.transpose()?;
+
+		// Get the children.
+		let statement = indoc!(
+			"
+				select child
+				from process_children
+				where process = ?1;
+			"
+		);
+		let mut statement = database
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut rows = statement
+			.query([id.to_string()])
+			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
+		let mut children = Vec::new();
+		while let Some(row) = rows.get() {
+			let id = row
+				.get::<_, String>(0)
+				.map_err(|source| tg::error!(!source, "expected a string"))?
+				.parse()?;
+			children.push(id);
+			rows.advance()
+				.map_err(|source| tg::error!(!source, "query failed"))?;
+		}
+
+		let data = tg::process::Data {
+			cacheable,
+			checksum,
+			children: Some(children),
+			command,
+			created_at,
+			dequeued_at,
+			enqueued_at,
+			error,
+			exit,
+			finished_at,
+			host,
+			id: id.clone(),
+			log,
+			output,
+			retry,
+			mounts,
+			network,
+			started_at,
+			status,
+			stderr,
+			stdin,
+			stdout,
+		};
+
+		Ok(Some(data))
 	}
 
 	async fn try_get_process_remote(

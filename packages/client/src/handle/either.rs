@@ -281,7 +281,7 @@ where
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::process::metadata::Output>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> {
 		match self {
 			Either::Left(s) => s.try_get_process_metadata(id).left_future(),
 			Either::Right(s) => s.try_get_process_metadata(id).right_future(),

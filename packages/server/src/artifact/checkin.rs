@@ -238,7 +238,7 @@ impl Server {
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_cache_task(&arg, &root, state, touched_at)
+					.checkin_cache_task(state, &arg, &root, touched_at)
 					.map_err(|source| tg::error!(!source, "failed to copy the blobs"))
 					.await?;
 				tracing::trace!(elapsed = ?start.elapsed(), "copy blobs");
@@ -539,9 +539,9 @@ impl Server {
 
 	async fn checkin_cache_task(
 		&self,
+		state: Arc<State>,
 		arg: &tg::artifact::checkin::Arg,
 		root: &tg::artifact::Id,
-		state: Arc<State>,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		tokio::task::spawn_blocking({

@@ -265,7 +265,7 @@ impl Server {
 				}
 			});
 		}
-		// join_set.join_all().await;
+		join_set.join_all().await;
 		Ok(())
 	}
 

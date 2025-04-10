@@ -28,7 +28,7 @@ impl Server {
 				Self::put_process_postgres(id, &arg, database, &now.format(&Rfc3339).unwrap())
 					.await?;
 			},
-		};
+		}
 
 		// Publish the process message.
 		let output = arg

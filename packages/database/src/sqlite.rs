@@ -148,10 +148,10 @@ impl Database {
 		&self.write_pool
 	}
 
-	pub fn create_connection(&self, read_only: bool) -> Result<sqlite::Connection, Error> {
+	pub fn create_connection(&self, readonly: bool) -> Result<sqlite::Connection, Error> {
 		let mut flags = rusqlite::OpenFlags::default();
 		flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_CREATE);
-		if read_only {
+		if readonly {
 			flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE);
 			flags.insert(rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY);
 		}

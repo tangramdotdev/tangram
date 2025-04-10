@@ -143,7 +143,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::process::metadata::Output>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> + Send;
 
 	fn try_get_process(
 		&self,

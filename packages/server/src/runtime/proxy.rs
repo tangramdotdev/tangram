@@ -264,7 +264,7 @@ impl tg::Handle for Proxy {
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<Option<tg::process::metadata::Output>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> {
 		self.server.try_get_process_metadata(id)
 	}
 

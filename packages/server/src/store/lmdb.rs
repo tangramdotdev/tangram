@@ -107,6 +107,43 @@ impl Lmdb {
 		Ok(bytes)
 	}
 
+	pub fn try_get_sync(
+		&self,
+		id: &tangram_client::object::Id,
+	) -> Result<Option<Bytes>, tangram_client::Error> {
+		let transaction = self
+			.env
+			.read_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let key = (0, id.to_bytes(), 0);
+		let Some(bytes) = self
+			.db
+			.get(&transaction, &key.pack_to_vec())
+			.map_err(|source| tg::error!(!source, "failed to get the value"))?
+		else {
+			return Ok(None);
+		};
+		let bytes = Bytes::copy_from_slice(bytes);
+		Ok::<_, tg::Error>(Some(bytes))
+	}
+
+	pub fn try_get_object_data_sync(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Data>> {
+		let transaction = self.env.read_txn().unwrap();
+		let key = (0, id.to_bytes(), 0);
+		let Some(bytes) = self
+			.db
+			.get(&transaction, &key.pack_to_vec())
+			.map_err(|source| tg::error!(!source, "failed to get the value"))?
+		else {
+			return Ok(None);
+		};
+		let data = tg::object::Data::deserialize(id.kind(), bytes)?;
+		Ok(Some(data))
+	}
+
 	pub async fn try_get_cache_reference(
 		&self,
 		id: &tangram_client::object::Id,
@@ -135,6 +172,27 @@ impl Lmdb {
 		.map_err(|source| tg::error!(!source, "the task panicked"))?
 		.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
 		Ok(reference)
+	}
+
+	pub fn try_get_cache_reference_sync(
+		&self,
+		id: &tangram_client::object::Id,
+	) -> Result<Option<CacheReference>, tangram_client::Error> {
+		let transaction = self
+			.env
+			.read_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let key = (0, id.to_bytes(), 2);
+		let Some(bytes) = self
+			.db
+			.get(&transaction, &key.pack_to_vec())
+			.map_err(|source| tg::error!(!source, "failed to get the value"))?
+		else {
+			return Ok(None);
+		};
+		let reference = serde_json::from_slice(bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
+		Ok::<_, tg::Error>(Some(reference))
 	}
 
 	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
@@ -324,20 +382,6 @@ impl Lmdb {
 				},
 			}
 		}
-	}
-
-	pub fn try_get_object_data(&self, id: &tg::object::Id) -> tg::Result<Option<tg::object::Data>> {
-		let transaction = self.env.read_txn().unwrap();
-		let key = (0, id.to_bytes(), 0);
-		let Some(bytes) = self
-			.db
-			.get(&transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, "failed to get the value"))?
-		else {
-			return Ok(None);
-		};
-		let data = tg::object::Data::deserialize(id.kind(), bytes)?;
-		Ok(Some(data))
 	}
 }
 
