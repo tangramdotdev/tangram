@@ -797,17 +797,14 @@ impl Server {
 		);
 		transaction
 			.inner()
-			.execute(
-				statement,
-				&[
-					&ids.as_slice(),
-					&cache_references.as_slice(),
-					&size.as_slice(),
-					&touched_ats.as_slice(),
-					&children.as_slice(),
-					&parent_indices.as_slice(),
-				],
-			)
+			.execute(statement, &[
+				&ids.as_slice(),
+				&cache_references.as_slice(),
+				&size.as_slice(),
+				&touched_ats.as_slice(),
+				&children.as_slice(),
+				&parent_indices.as_slice(),
+			])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
 
@@ -878,14 +875,11 @@ impl Server {
 				);
 				transaction
 					.inner()
-					.execute(
-						statement,
-						&[
-							&message.id.to_string(),
-							&positions.as_slice(),
-							&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
-						],
-					)
+					.execute(statement, &[
+						&message.id.to_string(),
+						&positions.as_slice(),
+						&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
+					])
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
@@ -897,21 +891,18 @@ impl Server {
 			if !message.objects.is_empty() {
 				let statement = indoc!(
 					"
-						insert into process_objects (process, object)
+						insert into process_objects (process, object, kind)
 						select $1, unnest($2::text[]), unnest($3::text[])
 						on conflict (process, object, kind) do nothing;
 					"
 				);
 				transaction
 					.inner()
-					.execute(
-						statement,
-						&[
-							&message.id.to_string(),
-							&objects.iter().map(ToString::to_string).collect::<Vec<_>>(),
-							&kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
-						],
-					)
+					.execute(statement, &[
+						&message.id.to_string(),
+						&objects.iter().map(ToString::to_string).collect::<Vec<_>>(),
+						&kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
+					])
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
