@@ -2,6 +2,7 @@ use crate::{
 	self as tg,
 	util::serde::{CommaSeparatedString, is_false},
 };
+use async_compression::tokio::bufread::ZstdDecoder;
 use bytes::Bytes;
 use futures::{Stream, StreamExt as _, TryStreamExt, stream};
 use num::ToPrimitive as _;
@@ -9,7 +10,9 @@ use serde_with::serde_as;
 use std::pin::Pin;
 use tangram_either::Either;
 use tangram_futures::{read::Ext as _, write::Ext as _};
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use tangram_http::{
+	Body, header::content_encoding::ContentEncoding, request::builder::Ext as _, response::Ext as _,
+};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -134,6 +137,10 @@ impl tg::Client {
 				mime::APPLICATION_OCTET_STREAM.to_string(),
 			)
 			.header(
+				http::header::ACCEPT_ENCODING,
+				ContentEncoding::Zstd.to_string(),
+			)
+			.header(
 				http::header::CONTENT_TYPE,
 				mime::TEXT_EVENT_STREAM.to_string(),
 			)
@@ -144,6 +151,16 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
+
+		let content_encoding = response
+			.parse_header::<ContentEncoding, _>(http::header::CONTENT_ENCODING)
+			.transpose()?;
+		let response = match content_encoding {
+			None => response,
+			Some(ContentEncoding::Zstd) => {
+				response.map(|body| Body::with_reader(ZstdDecoder::new(body.into_reader())))
+			},
+		};
 
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
@@ -156,6 +173,7 @@ impl tg::Client {
 		) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
+
 		let (reader, trailers) = response.reader_and_trailers();
 
 		let reader_events = stream::try_unfold(reader, |mut reader| async move {

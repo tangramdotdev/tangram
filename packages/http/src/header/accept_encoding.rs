@@ -11,6 +11,13 @@ pub struct Preference {
 	pub weight: Option<f64>,
 }
 
+#[derive(Debug, derive_more::Display, derive_more::Error)]
+pub enum FromStrError {
+	MissingEncoding,
+	InvalidWeight,
+	ContentEncoding(super::content_encoding::FromStrError),
+}
+
 impl std::fmt::Display for AcceptEncoding {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		for (i, preference) in self.preferences.iter().enumerate() {
@@ -24,7 +31,7 @@ impl std::fmt::Display for AcceptEncoding {
 }
 
 impl std::str::FromStr for AcceptEncoding {
-	type Err = &'static str;
+	type Err = FromStrError;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let preferences = s
@@ -48,16 +55,20 @@ impl std::fmt::Display for Preference {
 }
 
 impl std::str::FromStr for Preference {
-	type Err = &'static str;
+	type Err = FromStrError;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let mut parts = s.split(';');
-		let encoding = parts.next().ok_or("missing encoding")?.parse()?;
+		let encoding = parts
+			.next()
+			.ok_or(FromStrError::MissingEncoding)?
+			.parse()
+			.map_err(FromStrError::ContentEncoding)?;
 		let weight = parts
 			.next()
 			.map(str::parse)
 			.transpose()
-			.map_err(|_| "invalid weight")?;
+			.map_err(|_| FromStrError::InvalidWeight)?;
 		Ok(Preference { encoding, weight })
 	}
 }

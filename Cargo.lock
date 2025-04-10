@@ -6012,6 +6012,7 @@ dependencies = [
 name = "tangram_client"
 version = "0.0.0"
 dependencies = [
+ "async-compression",
  "blake3",
  "byte-unit",
  "byteorder",

@@ -1,4 +1,5 @@
 use crate::Server;
+use async_compression::tokio::bufread::ZstdEncoder;
 use dashmap::DashMap;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered,
@@ -18,7 +19,11 @@ use tangram_client::{self as tg, handle::Ext};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
-use tangram_http::{Body, request::Ext as _};
+use tangram_http::{
+	Body,
+	header::{accept_encoding::AcceptEncoding, content_encoding::ContentEncoding},
+	request::Ext as _,
+};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -1096,6 +1101,11 @@ impl Server {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()?;
 
+		// Get the accept encoding header.
+		let accept_encoding = request
+			.parse_header::<AcceptEncoding, _>(http::header::ACCEPT_ENCODING)
+			.transpose()?;
+
 		// Get the stop signal.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 
@@ -1131,7 +1141,7 @@ impl Server {
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
 			Some((mime::APPLICATION, mime::OCTET_STREAM)) => {
-				let content_type = mime::APPLICATION_OCTET_STREAM;
+				let content_type = Some(mime::APPLICATION_OCTET_STREAM);
 				let stream = stream.then(|result| async {
 					let frame = match result {
 						Ok(item) => {
@@ -1149,15 +1159,31 @@ impl Server {
 					};
 					Ok::<_, tg::Error>(frame)
 				});
-				(Some(content_type), Body::with_stream(stream))
+				let body = Body::with_stream(stream);
+				(content_type, body)
 			},
 			_ => {
 				return Err(tg::error!(?accept, "invalid accept header"));
 			},
 		};
+		let (content_encoding, body) = if accept_encoding.is_some_and(|accept_encoding| {
+			accept_encoding
+				.preferences
+				.iter()
+				.any(|preference| preference.encoding == ContentEncoding::Zstd)
+		}) {
+			let body = Body::with_reader(ZstdEncoder::new(body.into_reader()));
+			(Some(ContentEncoding::Zstd), body)
+		} else {
+			(None, body)
+		};
 
 		// Create the response.
 		let mut response = http::Response::builder();
+		if let Some(content_encoding) = content_encoding {
+			response =
+				response.header(http::header::CONTENT_ENCODING, content_encoding.to_string());
+		}
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}

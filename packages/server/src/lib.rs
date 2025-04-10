@@ -923,8 +923,6 @@ impl Server {
 						Body::with_body(tangram_http::idle::Body::new(idle.token(), body))
 					}
 				})
-				// .layer(tangram_http::layer::compression::RequestDecompressionLayer)
-				// .layer(tangram_http::layer::compression::ResponseCompressionLayer::default())
 				.service_fn({
 					let handle = handle.clone();
 					move |request| {
