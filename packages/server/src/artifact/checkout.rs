@@ -72,14 +72,14 @@ impl Server {
 				let count = metadata.as_ref().and_then(|metadata| metadata.count);
 				let weight = metadata.as_ref().and_then(|metadata| metadata.weight);
 				progress.start(
-					"checkout-objects".to_owned(),
+					"objects".to_owned(),
 					"objects".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
 					count,
 				);
 				progress.start(
-					"checkout-bytes".to_owned(),
+					"bytes".to_owned(),
 					"bytes".to_owned(),
 					tg::progress::IndicatorFormat::Bytes,
 					Some(0),

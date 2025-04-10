@@ -30,7 +30,7 @@ impl Server {
 		let progress = crate::progress::Handle::new();
 		if arg.items.iter().any(Either::is_left) {
 			progress.start(
-				"pull-processes".to_owned(),
+				"processes".to_owned(),
 				"processes".to_owned(),
 				tg::progress::IndicatorFormat::Normal,
 				Some(0),
@@ -38,14 +38,14 @@ impl Server {
 			);
 		}
 		progress.start(
-			"pull-objects".to_owned(),
+			"objects".to_owned(),
 			"objects".to_owned(),
 			tg::progress::IndicatorFormat::Normal,
 			Some(0),
 			None,
 		);
 		progress.start(
-			"pull-bytes".to_owned(),
+			"bytes".to_owned(),
 			"bytes".to_owned(),
 			tg::progress::IndicatorFormat::Bytes,
 			Some(0),
@@ -67,12 +67,13 @@ impl Server {
 							loop {
 								match item {
 									tangram_either::Either::Left(process) => {
-										let Some(metadata) = src
-											.try_get_process_metadata(process)
-											.await
-											.map_err(|source| {
+										let Some(tg::process::metadata::Output {
+											metadata, ..
+										}) = src.try_get_process_metadata(process).await.map_err(
+											|source| {
 												tg::error!(!source, "failed to get the process")
-											})?
+											},
+										)?
 										else {
 											return Err(tg::error!("failed to get the process"));
 										};
@@ -114,7 +115,7 @@ impl Server {
 						Either::Left(metadata) => {
 							if let Some(count) = metadata.count {
 								total_processes += count;
-								progress.set_total("pull-processes", total_processes);
+								progress.set_total("processes", total_processes);
 							}
 							if arg.commands {
 								if let Some(commands_count) = metadata.commands_count {
@@ -132,17 +133,17 @@ impl Server {
 									total_bytes += outputs_weight;
 								}
 							}
-							progress.set_total("pull-objects", total_objects);
-							progress.set_total("pull-bytes", total_bytes);
+							progress.set_total("objects", total_objects);
+							progress.set_total("bytes", total_bytes);
 						},
 						Either::Right(metadata) => {
 							if let Some(count) = metadata.count {
 								total_objects += count;
-								progress.set_total("pull-objects", total_objects);
+								progress.set_total("objects", total_objects);
 							}
 							if let Some(weight) = metadata.weight {
 								total_bytes += weight;
-								progress.set_total("pull-bytes", total_bytes);
+								progress.set_total("bytes", total_bytes);
 							}
 						},
 					}
@@ -191,6 +192,7 @@ impl Server {
 			let export_arg = tg::export::Arg {
 				commands: arg.commands,
 				items: arg.items.clone(),
+				logs: arg.logs,
 				outputs: arg.outputs,
 				recursive: arg.recursive,
 				remote: None,
@@ -230,7 +232,7 @@ impl Server {
 							Ok(tg::export::Event::Complete(complete)) => match complete {
 								tg::export::Complete::Process(process_complete) => {
 									if let Some(processes) = process_complete.count {
-										progress.increment("pull-processes", processes);
+										progress.increment("processes", processes);
 									}
 									let mut objects = 0;
 									let mut bytes = 0;
@@ -241,21 +243,27 @@ impl Server {
 									{
 										bytes += commands_weight;
 									}
+									if let Some(logs_count) = process_complete.logs_count {
+										objects += logs_count;
+									}
+									if let Some(logs_weight) = process_complete.logs_weight {
+										bytes += logs_weight;
+									}
 									if let Some(outputs_count) = process_complete.outputs_count {
 										objects += outputs_count;
 									}
 									if let Some(outputs_weight) = process_complete.outputs_weight {
 										bytes += outputs_weight;
 									}
-									progress.increment("pull-objects", objects);
-									progress.increment("pull-bytes", bytes);
+									progress.increment("objects", objects);
+									progress.increment("bytes", bytes);
 								},
 								tg::export::Complete::Object(object_complete) => {
 									if let Some(count) = object_complete.count {
-										progress.increment("pull-objects", count);
+										progress.increment("objects", count);
 									}
 									if let Some(weight) = object_complete.weight {
-										progress.increment("pull-bytes", weight);
+										progress.increment("bytes", weight);
 									}
 								},
 							},
@@ -281,10 +289,10 @@ impl Server {
 							},
 							Ok(tg::import::Event::Progress(import_progress)) => {
 								if let Some(processes) = import_progress.processes {
-									progress.increment("pull-processes", processes);
+									progress.increment("processes", processes);
 								}
-								progress.increment("pull-objects", import_progress.objects);
-								progress.increment("pull-bytes", import_progress.bytes);
+								progress.increment("objects", import_progress.objects);
+								progress.increment("bytes", import_progress.bytes);
 							},
 							Ok(tg::import::Event::End) => return true,
 							Err(error) => progress.error(error),
@@ -304,9 +312,9 @@ impl Server {
 			}
 		}
 
-		progress.finish("pull-processes");
-		progress.finish("pull-objects");
-		progress.finish("pull-bytes");
+		progress.finish("processes");
+		progress.finish("objects");
+		progress.finish("bytes");
 		progress.output(());
 
 		Ok(())

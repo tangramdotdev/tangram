@@ -222,7 +222,7 @@ impl Server {
 				// Get the metadata.
 				let metadata = self.compute_object_metadata(graph, index, &data, &file_metadata);
 				graph.nodes[index].metadata.replace(metadata);
-				progress.increment("checkin-objects", 1);
+				progress.increment("objects", 1);
 			} else {
 				// Otherwise, construct an object graph.
 				let object_graph = tg::graph::Data {

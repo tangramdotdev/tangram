@@ -53,7 +53,7 @@ impl Server {
 				// Clean until there are no more items to remove.
 				if count.cache_entries > 0 {
 					progress.start(
-						"clean-cache".into(),
+						"cache".into(),
 						"cache entries".into(),
 						tg::progress::IndicatorFormat::Normal,
 						Some(0),
@@ -62,7 +62,7 @@ impl Server {
 				}
 				if count.objects > 0 {
 					progress.start(
-						"clean-objects".into(),
+						"objects".into(),
 						"objects".into(),
 						tg::progress::IndicatorFormat::Normal,
 						Some(0),
@@ -71,7 +71,7 @@ impl Server {
 				}
 				if count.processes > 0 {
 					progress.start(
-						"clean-processes".into(),
+						"processes".into(),
 						"processes".into(),
 						tg::progress::IndicatorFormat::Normal,
 						Some(0),
@@ -80,7 +80,7 @@ impl Server {
 				}
 				if count.pipes > 0 {
 					progress.start(
-						"clean-pipes".into(),
+						"pipes".into(),
 						"pipes".into(),
 						tg::progress::IndicatorFormat::Normal,
 						Some(0),
@@ -89,7 +89,7 @@ impl Server {
 				}
 				if count.ptys > 0 {
 					progress.start(
-						"clean-ptys".into(),
+						"ptys".into(),
 						"ptys".into(),
 						tg::progress::IndicatorFormat::Normal,
 						Some(0),
@@ -112,11 +112,11 @@ impl Server {
 							break;
 						},
 					};
-					progress.increment("clean-cache", output.cache_entries.len().to_u64().unwrap());
-					progress.increment("clean-objects", output.objects.len().to_u64().unwrap());
-					progress.increment("clean-processes", output.processes.len().to_u64().unwrap());
-					progress.increment("clean-pipes", output.pipes.len().to_u64().unwrap());
-					progress.increment("clean-ptys", output.ptys.len().to_u64().unwrap());
+					progress.increment("cache", output.cache_entries.len().to_u64().unwrap());
+					progress.increment("objects", output.objects.len().to_u64().unwrap());
+					progress.increment("processes", output.processes.len().to_u64().unwrap());
+					progress.increment("pipes", output.pipes.len().to_u64().unwrap());
+					progress.increment("ptys", output.ptys.len().to_u64().unwrap());
 					let n =
 						output.processes.len() + output.objects.len() + output.cache_entries.len();
 					if n == 0 {
