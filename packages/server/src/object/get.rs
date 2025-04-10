@@ -54,6 +54,7 @@ impl Server {
 		id: &tg::object::Id,
 		file: &mut Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
 		let mut bytes = match &self.store {
 			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_sync(id)?,
 			crate::store::Store::Memory(memory) => memory.try_get(id),
@@ -158,6 +159,7 @@ impl Server {
 		file: &mut Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
 	) -> tg::Result<Option<Bytes>> {
 		// Get the cache reference.
+		#[allow(clippy::match_wildcard_for_single_variants)]
 		let cache_reference = match &self.store {
 			crate::store::Store::Lmdb(lmdb) => {
 				lmdb.try_get_cache_reference_sync(&id.clone().into())?

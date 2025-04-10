@@ -64,18 +64,33 @@ impl Server {
 		});
 
 		// Create the graph.
+		progress.start(
+			"files".into(),
+			"files".into(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
 		Box::pin(self.create_input_graph_inner(None, arg.path.as_ref(), &arg, &state, progress))
 			.await?;
+		progress.finish("files");
 
 		// Get the graph.
 		let State { mut graph, .. } = state.into_inner();
 
 		// Find roots and subpaths.
+		progress.spinner("roots", "finding roots...");
 		graph.find_roots();
+		progress.finish("roots");
+
+		progress.spinner("subpaths", "fixing subpaths...");
 		graph.find_subpaths();
+		progress.finish("subpaths");
 
 		// Validate the graph.
+		progress.spinner("validate", "validating...");
 		graph.validate()?;
+		progress.finish("validate");
 
 		Ok(graph)
 	}
@@ -183,7 +198,7 @@ impl Server {
 			state.write().await.graph.nodes[node].edges = edges;
 
 			// Return the created node.
-			progress.increment("input", 1);
+			progress.increment("files", 1);
 			Ok(node)
 		}
 	}

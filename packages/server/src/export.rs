@@ -15,7 +15,7 @@ use std::{
 	pin::{Pin, pin},
 	sync::{Arc, RwLock, Weak, atomic::AtomicBool},
 };
-use tangram_client::{self as tg, handle::Ext};
+use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};

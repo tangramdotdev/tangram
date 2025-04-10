@@ -5,7 +5,7 @@ use std::{
 	os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
 	task::{Context, Poll},
 };
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream};
 
 #[allow(clippy::struct_field_names)]
 #[derive(Clone)]

@@ -82,6 +82,8 @@ impl Server {
 			return Ok(*visited);
 		}
 		let index = nodes.len();
+
+		#[allow(clippy::match_wildcard_for_single_variants)]
 		let artifact = match &self.store {
 			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data_sync(&id.clone().into())?,
 			crate::store::Store::Memory(memory) => {
@@ -266,7 +268,7 @@ impl Server {
 		if let Some(existing) = graphs.get(id) {
 			return Ok(existing.clone());
 		}
-
+		#[allow(clippy::match_wildcard_for_single_variants)]
 		let graph: tg::graph::Data = match &self.store {
 			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data_sync(&id.clone().into())?,
 			crate::store::Store::Memory(memory) => {

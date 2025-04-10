@@ -3,7 +3,7 @@ use async_broadcast as broadcast;
 use async_channel as channel;
 use bytes::Bytes;
 use dashmap::DashMap;
-use futures::{StreamExt as _, TryFutureExt, future, stream::FuturesUnordered};
+use futures::{StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered};
 use std::{
 	collections::BTreeSet,
 	ops::Deref,
@@ -396,7 +396,7 @@ impl Deref for Messenger {
 #[cfg(test)]
 mod tests {
 	use super::Messenger;
-	use futures::{StreamExt, stream::TryStreamExt as _};
+	use futures::{StreamExt as _, stream::TryStreamExt as _};
 
 	#[tokio::test]
 	async fn stream() {

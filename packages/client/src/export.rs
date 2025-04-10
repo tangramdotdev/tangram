@@ -4,7 +4,7 @@ use crate::{
 };
 use async_compression::tokio::bufread::ZstdDecoder;
 use bytes::Bytes;
-use futures::{Stream, StreamExt as _, TryStreamExt, stream};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, stream};
 use num::ToPrimitive as _;
 use serde_with::serde_as;
 use std::pin::Pin;
