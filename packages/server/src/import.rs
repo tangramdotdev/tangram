@@ -535,6 +535,12 @@ impl Server {
 			let Some(item) = tg::export::Item::from_reader(&mut reader).await? else {
 				return Ok(None);
 			};
+			if let tg::export::Item::Object(object) = &item {
+				let found = tg::object::Id::new(object.id.kind(), &object.bytes);
+				if object.id != found {
+					return Err(tg::error!(%expected = object.id, %found, "invalid object id"));
+				}
+			}
 			Ok(Some((item, reader)))
 		})
 		.boxed();
