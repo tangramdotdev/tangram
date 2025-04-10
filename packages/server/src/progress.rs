@@ -1,7 +1,11 @@
 use futures::{Stream, StreamExt as _, future, stream};
 use indexmap::IndexMap;
+use itertools::Itertools;
 use std::{
-	sync::{Arc, Mutex, RwLock, atomic::AtomicU64},
+	sync::{
+		Arc, Mutex, RwLock,
+		atomic::{AtomicU64, Ordering},
+	},
 	time::Duration,
 };
 use tangram_client as tg;
@@ -50,6 +54,16 @@ impl<T> Handle<T> {
 		self.sender.try_send(Ok(event)).ok();
 	}
 
+	pub fn spinner(&self, name: &str, title: &str) {
+		self.start(
+			name.to_owned(),
+			title.to_owned(),
+			tg::progress::IndicatorFormat::Normal,
+			None,
+			None,
+		);
+	}
+
 	pub fn start(
 		&self,
 		name: String,
@@ -85,7 +99,21 @@ impl<T> Handle<T> {
 	}
 
 	pub fn finish(&self, name: &str) {
-		self.indicators.write().unwrap().shift_remove(name);
+		let Some(indicator) = self.indicators.write().unwrap().shift_remove(name) else {
+			return;
+		};
+		let indicator = tg::progress::Indicator {
+			current: indicator
+				.current
+				.map(|current| current.load(Ordering::Relaxed)),
+			format: indicator.format,
+			name: indicator.name,
+			title: indicator.title.into_inner().unwrap(),
+			total: indicator.total.map(|total| total.load(Ordering::Relaxed)),
+		};
+		self.sender
+			.try_send(Ok(tg::progress::Event::Finish(indicator)))
+			.ok();
 	}
 
 	pub fn output(&self, output: T) {
@@ -111,6 +139,62 @@ impl<T> Handle<T> {
 				Ok(tg::progress::Event::Output(_)) | Err(_)
 			))
 		})
+	}
+
+	pub fn forward<U>(
+		&self,
+		event: tg::Result<tg::progress::Event<U>>,
+	) -> Option<tg::Result<tg::progress::Event<U>>> {
+		let event = match event {
+			Ok(event) => event,
+			Err(error) => {
+				self.sender.try_send(Err(error)).ok();
+				return None;
+			},
+		};
+		match event {
+			tg::progress::Event::Log(e) => {
+				self.log(e.level.unwrap_or(tg::progress::Level::Info), e.message);
+			},
+			tg::progress::Event::Diagnostic(e) => {
+				self.diagnostic(e);
+			},
+			tg::progress::Event::Start(e) => {
+				self.start(
+					e.name.clone(),
+					e.title.clone(),
+					e.format,
+					e.current,
+					e.total,
+				);
+			},
+			tg::progress::Event::Update(e) => {
+				self.sender
+					.try_send(Ok(tg::progress::Event::Update(e)))
+					.ok();
+			},
+			tg::progress::Event::Finish(e) => {
+				self.indicators.write().unwrap().shift_remove(&e.name);
+				self.sender
+					.try_send(Ok(tg::progress::Event::Finish(e)))
+					.ok();
+			},
+			tg::progress::Event::Output(_) => return Some(Ok(event)),
+		};
+		None
+	}
+
+	pub fn finish_all(&self) {
+		let names = self
+			.indicators
+			.read()
+			.unwrap()
+			.keys()
+			.cloned()
+			.collect_vec();
+		for name in names {
+			self.finish(&name);
+		}
 	}
 
 	fn get_indicator_update_events(

@@ -750,8 +750,9 @@ impl Server {
 		progress: &crate::progress::Handle<tg::artifact::checkin::Output>,
 	) -> tg::Result<tg::artifact::checkin::Output> {
 		// Create the input graph.
+		progress.spinner("input", "collecting input...");
 		progress.start(
-			"input".into(),
+			"checkin-files".into(),
 			"files".into(),
 			tg::progress::IndicatorFormat::Normal,
 			Some(0),
@@ -764,16 +765,20 @@ impl Server {
 				|source| tg::error!(!source, %path = arg.path.display(), "failed to collect the input"),
 			)?;
 		progress.finish("input");
+		progress.finish("checkin-files");
 
 		// Create the unification graph and get its root node.
+		progress.spinner("unify", "unifying...");
 		let (unification_graph, root) = self
 			.create_unification_graph(&input_graph, arg.deterministic)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to unify dependencies"))?;
+		progress.finish("unify");
 
 		// Create the object graph.
+		progress.spinner("create-objects", "creating objects...");
 		progress.start(
-			"objects".into(),
+			"checkin-objects".into(),
 			"objects".into(),
 			tg::progress::IndicatorFormat::Normal,
 			Some(0),
@@ -783,20 +788,26 @@ impl Server {
 			.create_object_graph(&input_graph, &unification_graph, &root, progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create objects"))?;
-		progress.finish("objects");
+		progress.finish("create-objects");
+		progress.finish("checkin-objects");
 
 		// Create the output graph.
+		progress.spinner("output", "collecting output...");
 		let output_graph = self
 			.create_output_graph(&input_graph, &object_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write objects"))?;
+		progress.finish("output");
 
 		// Cache the files.
+		progress.spinner("cache", "caching objects...");
 		self.checkin_cache_task_old(&output_graph, &input_graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to copy the blobs"))?;
+		progress.finish("cache");
 
 		// Write the output to the database and the store.
+		progress.spinner("output", "writing output...");
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		futures::try_join!(
 			self.write_output_to_messenger(output_graph.clone(), object_graph.clone(), touched_at)
@@ -804,6 +815,7 @@ impl Server {
 			self.write_output_to_store(output_graph.clone(), object_graph.clone(), touched_at)
 				.map_err(|source| tg::error!(!source, "failed to store the objects"))
 		)?;
+		progress.finish("output");
 
 		// Copy or move to the cache directory.
 		if arg.cache || arg.destructive {

@@ -30,6 +30,9 @@ impl Server {
 		artifact: &tg::artifact::Id,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
 	) -> tg::Result<()> {
+		// Ensure that the artifact is complete.
+		self.ensure_artifact_is_complete(artifact, progress).await?;
+
 		let server = self.clone();
 		let id = artifact.clone();
 		let artifact = Either::Right(artifact.clone());
@@ -174,6 +177,7 @@ impl Server {
 			// If the artifact refers to a graph, then add it to the state.
 			Either::Left((graph, node)) => {
 				if !state.graphs.contains_key(&graph) {
+					#[allow(clippy::match_wildcard_for_single_variants)]
 					let data = match &self.store {
 						crate::Store::Lmdb(store) => {
 							store.try_get_object_data_sync(&graph.clone().into())?
@@ -193,6 +197,7 @@ impl Server {
 
 			// Otherwise, get the artifact's data.
 			Either::Right(id) => {
+				#[allow(clippy::match_wildcard_for_single_variants)]
 				let data = match &self.store {
 					crate::Store::Lmdb(store) => store.try_get_object_data_sync(&id.into())?,
 					crate::Store::Memory(store) => store.try_get_object_data(&id.into())?,

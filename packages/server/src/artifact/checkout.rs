@@ -51,17 +51,41 @@ impl Server {
 			let arg = arg.clone();
 			let progress = progress.clone();
 			async move {
+				// Ensure that the artifact is complete.
+				if let Err(source) = server
+					.ensure_artifact_is_complete(&artifact, &progress)
+					.await
+				{
+					let error =
+						tg::error!(!source, %artifact, "failed to pull or index the artifact");
+					progress.error(error);
+					return;
+				};
+
+				let title = if arg.path.is_none() {
+					"checkout"
+				} else {
+					"cache"
+				};
+				progress.start(
+					"checkout".to_owned(),
+					title.to_owned(),
+					tg::progress::IndicatorFormat::Normal,
+					None,
+					None,
+				);
+
 				let count = metadata.as_ref().and_then(|metadata| metadata.count);
 				let weight = metadata.as_ref().and_then(|metadata| metadata.weight);
 				progress.start(
-					"objects".to_owned(),
+					"checkout-objects".to_owned(),
 					"objects".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
 					count,
 				);
 				progress.start(
-					"bytes".to_owned(),
+					"checkout-bytes".to_owned(),
 					"bytes".to_owned(),
 					tg::progress::IndicatorFormat::Bytes,
 					Some(0),
@@ -70,8 +94,7 @@ impl Server {
 				let result = AssertUnwindSafe(server.check_out_task(artifact, arg, &progress))
 					.catch_unwind()
 					.await;
-				progress.finish("objects");
-				progress.finish("bytes");
+				progress.finish_all();
 				match result {
 					Ok(Ok(output)) => {
 						progress.output(output);
@@ -213,6 +236,7 @@ impl Server {
 			// If the artifact refers to a graph, then add it to the state.
 			Either::Left((graph, node)) => {
 				if !state.graphs.contains_key(&graph) {
+					#[allow(clippy::match_wildcard_for_single_variants)]
 					let data = match &self.store {
 						crate::Store::Lmdb(store) => {
 							store.try_get_object_data_sync(&graph.clone().into())?
@@ -232,6 +256,7 @@ impl Server {
 
 			// Otherwise, get the artifact's data.
 			Either::Right(id) => {
+				#[allow(clippy::match_wildcard_for_single_variants)]
 				let data = match &self.store {
 					crate::Store::Lmdb(store) => store.try_get_object_data_sync(&id.into())?,
 					crate::Store::Memory(store) => store.try_get_object_data(&id.into())?,

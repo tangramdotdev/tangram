@@ -101,7 +101,7 @@ impl Server {
 				let last_sequence = info.last_sequence;
 				progress.start(
 					"index".to_string(),
-					"progress".to_owned(),
+					"items".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
 					Some(last_sequence - first_sequence),
