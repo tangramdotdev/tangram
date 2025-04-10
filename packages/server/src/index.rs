@@ -897,7 +897,7 @@ impl Server {
 			if !message.objects.is_empty() {
 				let statement = indoc!(
 					"
-						insert into process_objects (process, object)
+						insert into process_objects (process, object, kind)
 						select $1, unnest($2::text[]), unnest($3::text[])
 						on conflict (process, object, kind) do nothing;
 					"

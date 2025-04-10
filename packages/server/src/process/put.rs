@@ -266,9 +266,9 @@ impl Server {
 					retry,
 					started_at,
 					status,
+					stderr,
 					stdin,
 					stdout,
-					stderr,
 					touched_at
 				)
 				values (
@@ -313,9 +313,9 @@ impl Server {
 					retry = $16,
 					started_at = $17,
 					status = $18,
-					stdin = $19,
-					stdout = $20,
-					stderr = $21,
+					stderr = $19,
+					stdin = $20,
+					stdout = $21,
 					touched_at = $22;
 
 			"
@@ -346,9 +346,9 @@ impl Server {
 					&i64::from(arg.data.retry),
 					&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
 					&serde_json::to_string(&arg.data.status).unwrap(),
+					&serde_json::to_string(&arg.data.stderr.as_ref()).unwrap(),
 					&serde_json::to_string(&arg.data.stdin.as_ref()).unwrap(),
 					&serde_json::to_string(&arg.data.stdout.as_ref()).unwrap(),
-					&serde_json::to_string(&arg.data.stderr.as_ref()).unwrap(),
 					&touched_at,
 				],
 			)
