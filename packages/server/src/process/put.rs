@@ -321,34 +321,37 @@ impl Server {
 			"
 		);
 		transaction
-			.execute(statement, &[
-				&id.to_string(),
-				&i64::from(arg.data.cacheable),
-				&arg.data.checksum.as_ref().map(ToString::to_string),
-				&arg.data.command.to_string(),
-				&arg.data.created_at.format(&Rfc3339).unwrap(),
-				&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&serde_json::to_string(&arg.data.error.as_ref()).unwrap(),
-				&serde_json::to_string(&arg.data.exit.as_ref()).unwrap(),
-				&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&arg.data.host,
-				&arg.data
-					.log
-					.as_ref()
-					.map(|log| serde_json::to_string(&log).unwrap()),
-				&(!arg.data.mounts.is_empty())
-					.then(|| serde_json::to_string(&arg.data.mounts).unwrap()),
-				&i64::from(arg.data.network),
-				&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
-				&i64::from(arg.data.retry),
-				&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
-				&serde_json::to_string(&arg.data.status).unwrap(),
-				&serde_json::to_string(&arg.data.stderr.as_ref()).unwrap(),
-				&serde_json::to_string(&arg.data.stdin.as_ref()).unwrap(),
-				&serde_json::to_string(&arg.data.stdout.as_ref()).unwrap(),
-				&touched_at,
-			])
+			.execute(
+				statement,
+				&[
+					&id.to_string(),
+					&i64::from(arg.data.cacheable),
+					&arg.data.checksum.as_ref().map(ToString::to_string),
+					&arg.data.command.to_string(),
+					&arg.data.created_at.format(&Rfc3339).unwrap(),
+					&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&serde_json::to_string(&arg.data.error.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.exit.as_ref()).unwrap(),
+					&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&arg.data.host,
+					&arg.data
+						.log
+						.as_ref()
+						.map(|log| serde_json::to_string(&log).unwrap()),
+					&(!arg.data.mounts.is_empty())
+						.then(|| serde_json::to_string(&arg.data.mounts).unwrap()),
+					&i64::from(arg.data.network),
+					&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
+					&i64::from(arg.data.retry),
+					&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&serde_json::to_string(&arg.data.status).unwrap(),
+					&serde_json::to_string(&arg.data.stderr.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.stdin.as_ref()).unwrap(),
+					&serde_json::to_string(&arg.data.stdout.as_ref()).unwrap(),
+					&touched_at,
+				],
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -363,11 +366,14 @@ impl Server {
 					"
 				);
 				transaction
-					.execute(statement, &[
-						&id.to_string(),
-						&positions.as_slice(),
-						&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
-					])
+					.execute(
+						statement,
+						&[
+							&id.to_string(),
+							&positions.as_slice(),
+							&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
+						],
+					)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
