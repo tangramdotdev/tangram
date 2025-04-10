@@ -26,13 +26,7 @@ impl Server {
 						..tg::pull::Arg::default()
 					})
 					.await?;
-				progress.start(
-					"pull".into(),
-					"pulling".into(),
-					tg::progress::IndicatorFormat::Normal,
-					None,
-					None,
-				);
+				progress.spinner("pull", "pulling...");
 				let mut stream = std::pin::pin!(stream);
 				while let Some(event) = stream.next().await {
 					progress.forward(event);

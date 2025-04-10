@@ -63,17 +63,11 @@ impl Server {
 				};
 
 				let title = if arg.path.is_none() {
-					"checkout"
+					"checking out..."
 				} else {
-					"cache"
+					"caching..."
 				};
-				progress.start(
-					"checkout".to_owned(),
-					title.to_owned(),
-					tg::progress::IndicatorFormat::Normal,
-					None,
-					None,
-				);
+				progress.spinner("checkout", title);
 
 				let count = metadata.as_ref().and_then(|metadata| metadata.count);
 				let weight = metadata.as_ref().and_then(|metadata| metadata.weight);
