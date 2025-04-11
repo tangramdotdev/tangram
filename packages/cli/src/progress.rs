@@ -41,7 +41,7 @@ impl Cli {
 			output: None,
 		};
 
-		let timeout = std::time::Duration::from_millis(500);
+		let timeout = std::time::Duration::from_millis(20);
 		loop {
 			let result = tokio::time::timeout(timeout, stream.next()).await;
 			state.clear();
