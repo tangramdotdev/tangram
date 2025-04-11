@@ -47,6 +47,7 @@ pub struct Cli {
 	config: Option<Config>,
 	handle: Mutex<Option<Either<Client, Server>>>,
 	mode: Mode,
+	exit_code: Mutex<i32>,
 }
 
 #[derive(Clone, Debug, clap::Parser)]
@@ -277,6 +278,7 @@ impl Cli {
 		let cli = Cli {
 			args,
 			config,
+			exit_code: Mutex::new(0),
 			handle,
 			mode,
 		};
@@ -313,15 +315,15 @@ impl Cli {
 
 		// Handle the result.
 		let code = match result {
-			Ok(()) => 0.into(),
+			Ok(()) => cli.exit_code.into_inner().unwrap().try_into().unwrap_or(1),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
 				Cli::print_error(&error, cli.config.as_ref());
-				1.into()
+				1u8
 			},
 		};
 
-		code
+		code.into()
 	}
 
 	async fn handle(&self) -> tg::Result<Either<Client, Server>> {

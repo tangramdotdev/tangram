@@ -113,20 +113,6 @@ impl Cli {
 			},
 		};
 
-		// Set raw mode.
-		if let Some((fd, mut termios)) = termios {
-			unsafe {
-				termios.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
-				termios.c_iflag &=
-					!(libc::IXON | libc::ICRNL | libc::BRKINT | libc::INPCK | libc::ISTRIP);
-				termios.c_oflag &= !(libc::OPOST);
-				if libc::tcsetattr(fd, libc::TCSADRAIN, std::ptr::addr_of!(termios)) != 0 {
-					let source = std::io::Error::last_os_error();
-					return Err(tg::error!(!source, "failed to set terminal to raw mode"));
-				}
-			}
-		}
-
 		Ok(Stdio {
 			termios,
 			remote,
@@ -210,6 +196,24 @@ fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg:
 		};
 
 		Ok((termios, size))
+	}
+}
+
+impl Stdio {
+	pub fn set_raw_mode(&self) -> tg::Result<()> {
+		if let Some((fd, mut termios)) = self.termios {
+			unsafe {
+				termios.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
+				termios.c_iflag &=
+					!(libc::IXON | libc::ICRNL | libc::BRKINT | libc::INPCK | libc::ISTRIP);
+				termios.c_oflag &= !(libc::OPOST);
+				if libc::tcsetattr(fd, libc::TCSADRAIN, std::ptr::addr_of!(termios)) != 0 {
+					let source = std::io::Error::last_os_error();
+					return Err(tg::error!(!source, "failed to set terminal to raw mode"));
+				}
+			}
+		}
+		Ok(())
 	}
 }
 

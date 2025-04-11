@@ -2,7 +2,7 @@ use self::signal::handle_signals;
 use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
-use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
+use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use std::{
 	io::{IsTerminal as _, Read as _},
 	pin::pin,
@@ -80,16 +80,6 @@ impl Cli {
 			return Ok(());
 		}
 
-		// Spawn a task for stdout and stderr before spawing the process.
-		let stdio_task = tokio::spawn({
-			let handle = handle.clone();
-			let stdin = stdio.stdin.clone();
-			let stdout = stdio.stdout.clone();
-			let stderr = stdio.stderr.clone();
-			let remote = stdio.remote.clone();
-			async move { stdio_task(&handle, stdin, stdout, stderr, remote).await }
-		});
-
 		// Spawn the process.
 		let process = self
 			.spawn_process(
@@ -105,6 +95,19 @@ impl Cli {
 
 		// Print the process ID.
 		eprint!("{} process {}\r\n", "info".blue().bold(), process.id());
+
+		// Enable raw mode.
+		stdio.set_raw_mode()?;
+
+		// Spawn the stdio task.
+		let stdio_task = tokio::spawn({
+			let handle = handle.clone();
+			let stdin = stdio.stdin.clone();
+			let stdout = stdio.stdout.clone();
+			let stderr = stdio.stderr.clone();
+			let remote = stdio.remote.clone();
+			async move { stdio_task(&handle, stdin, stdout, stderr, remote).await }
+		});
 
 		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
 		let cancel_task = tokio::spawn({
@@ -197,14 +200,7 @@ impl Cli {
 				return Err(tg::error!("expected the exit to be set"));
 			},
 		};
-		let pid = unsafe { libc::fork() };
-		if pid < 0 {
-			let error = std::io::Error::last_os_error();
-			return Err(tg::error!(!error, "failed to fork"));
-		}
-		if pid > 0 {
-			std::process::exit(code);
-		}
+		*self.exit_code.lock().unwrap() = code;
 
 		Ok(())
 	}
@@ -295,7 +291,7 @@ where
 	Ok(())
 }
 
-fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
+fn stdin_stream() -> impl Stream<Item = tg::Result<Bytes>> + Send + 'static {
 	// Create a send/receive pair for sending stdin chunks. The channel is bounded to 1 to avoid buffering stdin messages.
 	let (send, recv) = tokio::sync::mpsc::channel(1);
 
@@ -317,7 +313,6 @@ fn stdin_stream() -> ReceiverStream<tg::Result<Bytes>> {
 			}
 		}
 	});
-
 	ReceiverStream::new(recv)
 }
 
