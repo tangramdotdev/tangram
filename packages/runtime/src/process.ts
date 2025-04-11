@@ -354,6 +354,10 @@ export class Process {
 		}
 	}
 
+	async executable(): Promise<tg.Command.Executable> {
+		return await (await this.command()).executable();
+	}
+
 	async mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>> {
 		let commandMounts = await (await this.command()).mounts();
 		await this.load();

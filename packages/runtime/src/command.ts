@@ -237,7 +237,7 @@ export class Command<
 		return (await this.object()).env;
 	}
 
-	async executable(): Promise<tg.Command.Executable | undefined> {
+	async executable(): Promise<tg.Command.Executable> {
 		return (await this.object()).executable;
 	}
 

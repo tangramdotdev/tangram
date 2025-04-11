@@ -591,7 +591,7 @@ declare namespace tg {
 		env(): Promise<{ [key: string]: tg.Value }>;
 
 		/** Get this command's executable. */
-		executable(): Promise<tg.Command.Executable | undefined>;
+		executable(): Promise<tg.Command.Executable>;
 
 		/** Get this command's host. */
 		host(): Promise<string>;
@@ -1004,7 +1004,7 @@ declare namespace tg {
 		env(name: string): Promise<tg.Value | undefined>;
 
 		/** Get this process's command's executable. */
-		executable(): Promise<tg.Command.Executable | undefined>;
+		executable(): Promise<tg.Command.Executable>;
 
 		/** Get the mounts for this process and its command. */
 		mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>>;
