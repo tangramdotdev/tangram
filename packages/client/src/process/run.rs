@@ -51,10 +51,14 @@ impl tg::Process {
 		builder = builder.cwd(cwd);
 		let mut env = BTreeMap::new();
 		for (key, value) in std::env::vars() {
-			tg::mutation::mutate(&mut env, key, value.into())?;
+			env.insert(key, value.into());
 		}
 		for (key, value) in arg.env.clone() {
-			tg::mutation::mutate(&mut env, key, value)?;
+			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
+				mutation.apply(&mut env, &key)?;
+			} else {
+				env.insert(key, value);
+			}
 		}
 		builder = builder.env(env);
 		let mut command_mounts = vec![];

@@ -1,5 +1,4 @@
 import type * as tg from "./index.ts";
-import { mutate } from "./mutation.ts";
 
 export let flatten = <T>(value: MaybeNestedArray<T>): Array<T> => {
 	if (value instanceof Array) {
@@ -42,22 +41,3 @@ export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 	: T extends { [key: string]: tg.Value }
 		? MaybeMutationMap<T>
 		: never;
-
-export let mergeMaybeMutationMaps = async <
-	T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
->(
-	maps: Array<tg.MaybeMutationMap<T>>,
-): Promise<T> => {
-	return await maps.reduce(
-		async (object, mutations) => {
-			if (mutations === undefined) {
-				return Promise.resolve({}) as Promise<T>;
-			}
-			for (let [key, mutation] of Object.entries(mutations)) {
-				await mutate(await object, key, mutation);
-			}
-			return object;
-		},
-		Promise.resolve({}) as Promise<T>,
-	);
-};

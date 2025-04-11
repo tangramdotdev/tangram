@@ -26,6 +26,9 @@ pub enum Mutation {
 		separator: Option<String>,
 		template: tg::Template,
 	},
+	Merge {
+		value: tg::value::Map,
+	},
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -54,6 +57,9 @@ pub enum Data {
 		separator: Option<String>,
 		template: tg::template::Data,
 	},
+	Merge {
+		value: tg::value::data::Map,
+	},
 }
 
 impl Mutation {
@@ -65,6 +71,7 @@ impl Mutation {
 				values.iter().flat_map(tg::Value::objects).collect()
 			},
 			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.objects(),
+			Self::Merge { value } => value.iter().flat_map(|(_key, val)| val.objects()).collect(),
 		}
 	}
 
@@ -110,10 +117,21 @@ impl Mutation {
 				template: template.data(handle).await?,
 				separator: separator.clone(),
 			},
+			Self::Merge { value } => Data::Merge {
+				value: value
+					.iter()
+					.map(|(key, val)| async {
+						let val = val.data(handle).await?;
+						Ok::<_, tg::Error>((key.clone(), val))
+					})
+					.collect::<FuturesOrdered<_>>()
+					.try_collect()
+					.await?,
+			},
 		})
 	}
 
-	pub fn apply(&self, key: &str, map: &mut tg::value::Map) -> tg::Result<()> {
+	pub fn apply(&self, map: &mut tg::value::Map, key: &str) -> tg::Result<()> {
 		match (self, map.get(key)) {
 			(Self::Unset, _) => {
 				map.remove(key);
@@ -228,6 +246,23 @@ impl Mutation {
 
 				map.insert(key.to_owned(), template.into());
 			},
+			(tg::Mutation::Merge { value }, None) => {
+				map.insert(key.to_owned(), value.clone().into());
+			},
+			(tg::Mutation::Merge { value }, Some(existing)) => {
+				let mut merged = existing
+					.try_unwrap_map_ref()
+					.map_err(|_| tg::error!("expected map, cannot merge"))?
+					.clone();
+				for (k, v) in value {
+					if let Ok(mutation) = v.try_unwrap_mutation_ref() {
+						mutation.apply(&mut merged, k)?;
+					} else {
+						merged.insert(k.into(), v.clone());
+					}
+				}
+				map.insert(key.into(), merged.into());
+			},
 		}
 		Ok(())
 	}
@@ -243,10 +278,14 @@ impl Data {
 				values.iter().flat_map(tg::value::Data::children).collect()
 			},
 			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.children(),
+			Self::Merge { value } => value
+				.iter()
+				.flat_map(|(_key, val)| val.children())
+				.collect(),
 		}
 	}
 
-	pub fn apply(&self, key: &str, map: &mut tg::value::data::Map) -> tg::Result<()> {
+	pub fn apply(&self, map: &mut tg::value::data::Map, key: &str) -> tg::Result<()> {
 		match (self, map.get(key)) {
 			(Self::Unset, _) => {
 				map.remove(key);
@@ -361,6 +400,23 @@ impl Data {
 
 				map.insert(key.to_owned(), template.into());
 			},
+			(Self::Merge { value }, None) => {
+				map.insert(key.to_owned(), value.clone().into());
+			},
+			(Self::Merge { value }, Some(existing)) => {
+				let mut merged = existing
+					.try_unwrap_map_ref()
+					.map_err(|_| tg::error!("expected map, cannot merge"))?
+					.clone();
+				for (k, v) in value {
+					if let Ok(mutation) = v.try_unwrap_mutation_ref() {
+						mutation.apply(&mut merged, k)?;
+					} else {
+						merged.insert(k.into(), v.clone());
+					}
+				}
+				map.insert(key.into(), merged.into());
+			},
 		}
 		Ok(())
 	}
@@ -398,6 +454,12 @@ impl TryFrom<Data> for Mutation {
 				template: template.try_into()?,
 				separator,
 			},
+			Data::Merge { value } => Self::Merge {
+				value: value
+					.into_iter()
+					.map(|(k, v)| Ok::<_, tg::Error>((k, v.try_into()?)))
+					.try_collect()?,
+			},
 		})
 	}
 }
@@ -408,125 +470,4 @@ impl std::fmt::Display for Mutation {
 		printer.mutation(self)?;
 		Ok(())
 	}
-}
-
-pub fn mutate(map: &mut tg::value::Map, key: String, value: tg::Value) -> tg::Result<()> {
-	if let Ok(mutation) = value.clone().try_unwrap_mutation() {
-		match mutation {
-			tg::Mutation::Unset => {
-				map.remove(&key);
-			},
-			tg::Mutation::Set { value } => {
-				map.insert(key, *value.clone());
-			},
-			tg::Mutation::SetIfUnset { value } => {
-				let existing = map.get(&key);
-				if existing.is_none() {
-					map.insert(key, *value.clone());
-				}
-			},
-			tg::Mutation::Prepend { values } => {
-				if let Some(existing) = map.get(&key).cloned() {
-					let existing = existing.try_unwrap_array().map_err(|source| {
-						tg::error!(!source, "cannot prepend to a value that is not an array")
-					})?;
-					let mut combined_values = values.clone();
-					combined_values.extend(existing.iter().cloned());
-					map.insert(key, tg::Value::Array(combined_values));
-				} else {
-					map.insert(key, tg::Value::Array(values));
-				}
-			},
-			tg::Mutation::Append { values } => {
-				if let Some(existing) = map.get(&key).cloned() {
-					let existing = existing.try_unwrap_array().map_err(|source| {
-						tg::error!(!source, "cannot apppend to a value that is not an array")
-					})?;
-					let mut combined_values = existing.clone();
-					combined_values.extend(values.iter().cloned());
-					map.insert(key, tg::Value::Array(combined_values));
-				} else {
-					map.insert(key, tg::Value::Array(values));
-				}
-			},
-			tg::Mutation::Prefix {
-				separator,
-				template,
-			} => {
-				if let Some(existing) = map.get(&key).cloned() {
-					let existing_components = match existing {
-						tg::Value::String(s) => {
-							vec![tg::template::Component::String(s)]
-						},
-						tg::Value::Object(object) => {
-							let artifact = match object {
-								tg::Object::Directory(directory) => directory.into(),
-								tg::Object::File(file) => file.into(),
-								tg::Object::Symlink(symlink) => symlink.into(),
-								_ => {
-									return Err(tg::error!(
-										"expected a directory, file, or symlink"
-									));
-								},
-							};
-							vec![tg::template::Component::Artifact(artifact)]
-						},
-						tg::Value::Template(template) => template.components().to_vec(),
-						_ => {
-							return Err(tg::error!("expected a string, artifact, or template"));
-						},
-					};
-					let template_components = template.components();
-					let mut combined_template = template_components.to_vec();
-					if let Some(sep) = separator {
-						combined_template.push(tg::template::Component::String(sep));
-					}
-					combined_template.extend(existing_components);
-					map.insert(key, tg::Value::Template(combined_template.into()));
-				} else {
-					map.insert(key, tg::Value::Template(template));
-				}
-			},
-			tg::Mutation::Suffix {
-				separator,
-				template,
-			} => {
-				if let Some(existing) = map.get(&key).cloned() {
-					let existing_components = match existing {
-						tg::Value::String(s) => {
-							vec![tg::template::Component::String(s)]
-						},
-						tg::Value::Object(object) => {
-							let artifact = match object {
-								tg::Object::Directory(directory) => directory.into(),
-								tg::Object::File(file) => file.into(),
-								tg::Object::Symlink(symlink) => symlink.into(),
-								_ => {
-									return Err(tg::error!(
-										"expected a directory, file, or symlink"
-									));
-								},
-							};
-							vec![tg::template::Component::Artifact(artifact)]
-						},
-						tg::Value::Template(template) => template.components().to_vec(),
-						_ => {
-							return Err(tg::error!("expected a string, artifact, or template"));
-						},
-					};
-					let mut combined_template = existing_components.clone();
-					if let Some(separator) = separator {
-						combined_template.push(tg::template::Component::String(separator));
-					}
-					combined_template.extend(template.components().iter().cloned());
-					map.insert(key, tg::Value::Template(combined_template.into()));
-				} else {
-					map.insert(key, tg::Value::Template(template));
-				}
-			},
-		}
-	} else {
-		map.insert(key, value);
-	}
-	Ok(())
 }

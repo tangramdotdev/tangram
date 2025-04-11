@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { flatten } from "./util.ts";
 
 export type Blob = tg.Leaf | tg.Branch;
 
@@ -21,10 +20,9 @@ export namespace Blob {
 
 	export let new_ = async (...args: tg.Args<Blob.Arg>): Promise<Blob> => {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		let flattened = flatten(resolved);
 		let children = (
 			await Promise.all(
-				flattened.map(async (arg) => {
+				resolved.map(async (arg) => {
 					if (arg === undefined) {
 						return [];
 					} else if (typeof arg === "string" || arg instanceof Uint8Array) {

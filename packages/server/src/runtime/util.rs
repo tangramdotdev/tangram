@@ -51,7 +51,7 @@ pub fn render_env(
 				value: Box::new(value.clone()),
 			},
 		};
-		mutation.apply(key, &mut output)?;
+		mutation.apply(&mut output, key)?;
 	}
 	let output = output
 		.iter()

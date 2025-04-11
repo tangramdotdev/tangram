@@ -1,11 +1,5 @@
 import * as tg from "./index.ts";
-import {
-	type MaybeMutationMap,
-	type MaybeNestedArray,
-	type MaybePromise,
-	flatten,
-	mergeMaybeMutationMaps,
-} from "./util.ts";
+import type { MaybeMutationMap, MaybePromise } from "./util.ts";
 
 type FunctionArg<
 	A extends Array<tg.Value> = Array<tg.Value>,
@@ -121,7 +115,7 @@ export class Command<
 		let arg = await Command.arg(...args);
 		let args_ = arg.args ?? [];
 		let cwd = arg.cwd;
-		let env = await mergeMaybeMutationMaps(flatten(arg.env ?? []));
+		let env = arg.env as tg.Command.Object["env"];
 		let executable = arg.executable;
 		let host =
 			arg.host ?? ((await tg.Process.current.env("TANGRAM_HOST")) as string);
@@ -160,9 +154,8 @@ export class Command<
 
 	static async arg(...args: tg.Args<Command.Arg>): Promise<Command.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		let flattened = flatten(resolved);
 		let objects = await Promise.all(
-			flattened.map(async (arg) => {
+			resolved.map(async (arg) => {
 				if (arg === undefined) {
 					return {};
 				} else if (
@@ -181,11 +174,10 @@ export class Command<
 				}
 			}),
 		);
-		let mutations = await tg.Args.createMutations(objects, {
+		let arg = await tg.Args.apply(objects, {
 			args: "append",
-			env: "append",
+			env: "merge",
 		});
-		let arg = await mergeMaybeMutationMaps(mutations);
 		return arg;
 	}
 
@@ -286,7 +278,7 @@ export namespace Command {
 	export type ArgObject = {
 		args?: Array<tg.Value> | undefined;
 		cwd?: string | undefined;
-		env?: MaybeNestedArray<MaybeMutationMap> | undefined;
+		env?: MaybeMutationMap | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
 		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;

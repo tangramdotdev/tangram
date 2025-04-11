@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { flatten, mergeMaybeMutationMaps } from "./util.ts";
 
 export let branch = async (...args: tg.Args<Branch.Arg>): Promise<Branch> => {
 	return await Branch.new(...args);
@@ -29,9 +28,8 @@ export class Branch {
 
 	static async arg(...args: tg.Args<Branch.Arg>): Promise<Branch.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		let flattened = flatten(resolved);
 		let objects = await Promise.all(
-			flattened.map(async (arg) => {
+			resolved.map(async (arg) => {
 				if (arg === undefined) {
 					return {};
 				} else if (arg instanceof Branch) {
@@ -44,10 +42,9 @@ export class Branch {
 				}
 			}),
 		);
-		let mutations = await tg.Args.createMutations(objects, {
+		let arg = await tg.Args.apply(objects, {
 			children: "append",
 		});
-		let arg = await mergeMaybeMutationMaps(mutations);
 		return arg;
 	}
 

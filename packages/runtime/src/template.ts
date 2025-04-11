@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { flatten } from "./util.ts";
 
 export async function template(
 	...args: tg.Args<Template.Arg>
@@ -39,10 +38,9 @@ export class Template {
 
 	static async new(...args: tg.Args<Template.Arg>): Promise<Template> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		let flattened = flatten(resolved);
 		let components = (
 			await Promise.all(
-				flattened.map(async (arg) => {
+				resolved.map(async (arg) => {
 					if (arg === undefined) {
 						return [];
 					} else if (typeof arg === "string" || tg.Artifact.is(arg)) {
