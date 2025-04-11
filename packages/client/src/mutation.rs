@@ -132,7 +132,7 @@ impl Mutation {
 	}
 
 	pub fn apply(&self, map: &mut tg::value::Map, key: &str) -> tg::Result<()> {
-		match (self, map.get(key)) {
+		match (self, map.get_mut(key)) {
 			(Self::Unset, _) => {
 				map.remove(key);
 			},
@@ -144,13 +144,10 @@ impl Mutation {
 				map.insert(key.into(), values.clone().into());
 			},
 			(Self::Prepend { values }, Some(tg::Value::Array(array))) => {
-				let array = values
-					.iter()
-					.chain(array.iter())
-					.cloned()
-					.collect::<Vec<_>>()
-					.into();
-				map.insert(key.into(), array);
+				array.splice(0..0, values.clone());
+			},
+			(Self::Append { values }, Some(tg::Value::Array(array))) => {
+				array.extend(values.clone());
 			},
 			(Self::Append { .. } | Self::Prepend { .. }, Some(_)) => {
 				return Err(tg::error!(%key, "expected an array"));
@@ -249,19 +246,17 @@ impl Mutation {
 			(tg::Mutation::Merge { value }, None) => {
 				map.insert(key.to_owned(), value.clone().into());
 			},
-			(tg::Mutation::Merge { value }, Some(existing)) => {
-				let mut merged = existing
-					.try_unwrap_map_ref()
-					.map_err(|_| tg::error!("expected map, cannot merge"))?
-					.clone();
+			(tg::Mutation::Merge { value }, Some(tg::Value::Map(existing))) => {
 				for (k, v) in value {
 					if let Ok(mutation) = v.try_unwrap_mutation_ref() {
-						mutation.apply(&mut merged, k)?;
+						mutation.apply(existing, k)?;
 					} else {
-						merged.insert(k.into(), v.clone());
+						existing.insert(k.into(), v.clone());
 					}
 				}
-				map.insert(key.into(), merged.into());
+			},
+			(tg::Mutation::Merge { .. }, Some(_)) => {
+				return Err(tg::error!(%key, "expected a map"));
 			},
 		}
 		Ok(())
@@ -286,7 +281,7 @@ impl Data {
 	}
 
 	pub fn apply(&self, map: &mut tg::value::data::Map, key: &str) -> tg::Result<()> {
-		match (self, map.get(key)) {
+		match (self, map.get_mut(key)) {
 			(Self::Unset, _) => {
 				map.remove(key);
 			},
@@ -298,13 +293,10 @@ impl Data {
 				map.insert(key.into(), values.clone().into());
 			},
 			(Self::Prepend { values }, Some(tg::value::Data::Array(array))) => {
-				let array = values
-					.iter()
-					.chain(array.iter())
-					.cloned()
-					.collect::<Vec<_>>()
-					.into();
-				map.insert(key.into(), array);
+				array.splice(0..0, values.clone());
+			},
+			(Self::Append { values }, Some(tg::value::Data::Array(array))) => {
+				array.extend(values.clone());
 			},
 			(Self::Append { .. } | Self::Prepend { .. }, Some(_)) => {
 				return Err(tg::error!(%key, "expected an array"));
@@ -403,19 +395,17 @@ impl Data {
 			(Self::Merge { value }, None) => {
 				map.insert(key.to_owned(), value.clone().into());
 			},
-			(Self::Merge { value }, Some(existing)) => {
-				let mut merged = existing
-					.try_unwrap_map_ref()
-					.map_err(|_| tg::error!("expected map, cannot merge"))?
-					.clone();
+			(Self::Merge { value }, Some(tg::value::Data::Map(existing))) => {
 				for (k, v) in value {
 					if let Ok(mutation) = v.try_unwrap_mutation_ref() {
-						mutation.apply(&mut merged, k)?;
+						mutation.apply(existing, k)?;
 					} else {
-						merged.insert(k.into(), v.clone());
+						existing.insert(k.into(), v.clone());
 					}
 				}
-				map.insert(key.into(), merged.into());
+			},
+			(Self::Merge { .. }, Some(_)) => {
+				return Err(tg::error!(%key, "expected a map"));
 			},
 		}
 		Ok(())
