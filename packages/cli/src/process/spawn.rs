@@ -165,11 +165,14 @@ impl Cli {
 		let mut command = if let tg::Object::Command(command) = object {
 			let object = command.object(&handle).await?;
 			command_env = Some(object.env.clone());
-			tg::Command::builder(object.host.clone(), object.executable.clone())
+			let mut builder = tg::Command::builder(object.host.clone(), object.executable.clone())
 				.args(object.args.clone())
 				.cwd(object.cwd.clone())
-				.mounts(object.mounts.clone())
-				.stdin(object.stdin.clone())
+				.stdin(object.stdin.clone());
+			if let Some(mounts) = &object.mounts {
+				builder = builder.mounts(mounts.clone());
+			}
+			builder
 		} else {
 			let executable = match object {
 				tg::Object::Directory(directory) => {

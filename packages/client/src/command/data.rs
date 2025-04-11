@@ -20,8 +20,8 @@ pub struct Command {
 
 	pub host: String,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::command::data::Mount>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub mounts: Option<Vec<tg::command::data::Mount>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdin: Option<tg::blob::Id>,
@@ -69,6 +69,8 @@ impl Command {
 		let env = self.env.values().flat_map(tg::value::Data::children);
 		let mounts = self
 			.mounts
+			.as_deref()
+			.unwrap_or_default()
 			.iter()
 			.flat_map(tg::command::data::Mount::children);
 		std::iter::empty()

@@ -157,13 +157,17 @@ impl Command {
 			},
 		};
 		let host = object.host.clone();
-		let mounts = object
-			.mounts
-			.iter()
-			.map(|mount| mount.data(handle))
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+		let mounts = if let Some(mounts) = &object.mounts {
+			let data = mounts
+				.iter()
+				.map(|mount| mount.data(handle))
+				.collect::<FuturesOrdered<_>>()
+				.try_collect()
+				.await?;
+			Some(data)
+		} else {
+			None
+		};
 		let stdin = if let Some(stdin) = &object.stdin {
 			Some(stdin.id(handle).await?)
 		} else {
@@ -234,7 +238,7 @@ impl Command {
 	pub async fn mounts<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl Deref<Target = Vec<tg::command::Mount>>>
+	) -> tg::Result<impl Deref<Target = Option<Vec<tg::command::Mount>>>>
 	where
 		H: tg::Handle,
 	{

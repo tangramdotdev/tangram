@@ -8,7 +8,7 @@ pub struct Builder {
 	env: BTreeMap<String, tg::Value>,
 	executable: tg::command::Executable,
 	host: String,
-	mounts: Vec<tg::command::Mount>,
+	mounts: Option<Vec<tg::command::Mount>>,
 	stdin: Option<tg::Blob>,
 	user: Option<String>,
 }
@@ -22,7 +22,7 @@ impl Builder {
 			env: BTreeMap::new(),
 			executable: executable.into(),
 			host: host.into(),
-			mounts: Vec::new(),
+			mounts: None,
 			stdin: None,
 			user: None,
 		}
@@ -80,13 +80,27 @@ impl Builder {
 
 	#[must_use]
 	pub fn mount(mut self, mount: tg::command::Mount) -> Self {
-		self.mounts.push(mount);
+		match &mut self.mounts {
+			Some(mounts) => {
+				mounts.push(mount);
+			},
+			None => {
+				self.mounts = Some(vec![mount]);
+			},
+		}
 		self
 	}
 
 	#[must_use]
 	pub fn mounts(mut self, mounts: impl IntoIterator<Item = tg::command::Mount>) -> Self {
-		self.mounts.extend(mounts);
+		match &mut self.mounts {
+			Some(existing_mounts) => {
+				existing_mounts.extend(mounts);
+			},
+			None => {
+				self.mounts = Some(mounts.into_iter().collect());
+			},
+		}
 		self
 	}
 

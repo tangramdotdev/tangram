@@ -67,7 +67,7 @@ impl tg::Process {
 				}
 			}
 		} else {
-			if let Some(mounts) = command.as_ref().map(|command| command.mounts.clone()) {
+			if let Some(mounts) = command.as_ref().and_then(|command| command.mounts.clone()) {
 				command_mounts = mounts;
 			}
 			if let Some(mounts) = state.as_ref().map(|state| state.mounts.clone()) {

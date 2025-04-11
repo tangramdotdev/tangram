@@ -591,7 +591,7 @@ declare namespace tg {
 		env(): Promise<{ [key: string]: tg.Value }>;
 
 		/** Get this command's executable. */
-		executable(): Promise<tg.Command.Executable | undefined>;
+		executable(): Promise<tg.Command.Executable>;
 
 		/** Get this command's host. */
 		host(): Promise<string>;
@@ -600,7 +600,7 @@ declare namespace tg {
 		object(): Promise<tg.Command.Object>;
 
 		/** Get this command's mounts. */
-		mounts(): Promise<Array<tg.Command.Mount>>;
+		mounts(): Promise<Array<tg.Command.Mount> | undefined>;
 
 		/** Get this command's user. */
 		user(): Promise<string | undefined>;
@@ -651,10 +651,13 @@ declare namespace tg {
 
 		export type Object = {
 			args: Array<tg.Value>;
+			cwd: string | undefined;
 			env: { [key: string]: tg.Value };
-			executable: tg.Command.Executable | undefined;
+			executable: tg.Command.Executable;
 			host: string;
-			mounts: Array<tg.Command.Mount>;
+			mounts: Array<tg.Command.Mount> | undefined;
+			stdin: tg.Blob | undefined;
+			user: string | undefined;
 		};
 
 		export type ExecutableArg = string | tg.Artifact | tg.Module;
@@ -1001,7 +1004,7 @@ declare namespace tg {
 		env(name: string): Promise<tg.Value | undefined>;
 
 		/** Get this process's command's executable. */
-		executable(): Promise<tg.Command.Executable | undefined>;
+		executable(): Promise<tg.Command.Executable>;
 
 		/** Get the mounts for this process and its command. */
 		mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>>;
