@@ -95,7 +95,6 @@ impl<T> State<T> {
 			},
 
 			tg::progress::Event::Finish(indicator) => {
-				eprintln!("finish {}", indicator.name);
 				self.indicators.shift_remove(&indicator.name);
 			},
 
