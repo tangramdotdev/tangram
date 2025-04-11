@@ -11,10 +11,11 @@ use std::{
 use tangram_client as tg;
 use tangram_futures::stream::TryExt as _;
 
-struct State {
+struct State<T> {
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	lines: Option<u16>,
 	tty: std::io::Stderr,
+	output: Option<T>,
 }
 
 impl Cli {
@@ -37,33 +38,33 @@ impl Cli {
 			indicators: IndexMap::new(),
 			lines: None,
 			tty,
+			output: None,
 		};
 
-		let timeout = std::time::Duration::from_millis(20);
+		let timeout = std::time::Duration::from_millis(500);
 		loop {
-			let future = tokio::time::timeout(timeout, stream.next());
-			match future.await {
-				Ok(Some(Ok(tg::progress::Event::Output(output)))) => {
-					return Ok(output);
+			let result = tokio::time::timeout(timeout, stream.next()).await;
+			state.clear();
+			match result {
+				Ok(Some(Ok(event))) => {
+					state.handle_event(event);
 				},
 				Ok(Some(Err(error))) => {
 					return Err(error);
 				},
 				Ok(None) => {
-					return Err(tg::error!("stream ended without output"));
-				},
-				Ok(Some(Ok(event))) => {
-					state.handle_event(event);
+					break;
 				},
 				Err(_) => (),
 			}
 			state.print();
 		}
+		state.output.ok_or_else(|| tg::error!("expected an output"))
 	}
 }
 
-impl State {
-	fn handle_event<T>(&mut self, event: tg::progress::Event<T>) {
+impl<T> State<T> {
+	fn handle_event(&mut self, event: tg::progress::Event<T>) {
 		match event {
 			tg::progress::Event::Log(log) => {
 				if let Some(level) = log.level {
@@ -94,10 +95,29 @@ impl State {
 			},
 
 			tg::progress::Event::Finish(indicator) => {
+				eprintln!("finish {}", indicator.name);
 				self.indicators.shift_remove(&indicator.name);
 			},
 
-			tg::progress::Event::Output(_) => unreachable!(),
+			tg::progress::Event::Output(output) => {
+				self.output.replace(output);
+			},
+		}
+	}
+
+	fn clear(&mut self) {
+		// Move the cursor back.
+		match self.lines {
+			Some(n) if n > 0 => {
+				ct::queue!(
+					self.tty,
+					ct::cursor::MoveToPreviousLine(n),
+					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+				)
+				.unwrap();
+				// eprintln!("clearing {n} lines");
+			},
+			_ => (),
 		}
 	}
 
@@ -106,25 +126,6 @@ impl State {
 		let size = ct::terminal::size().map_or((64, 64), |(columns, rows)| {
 			(columns.to_usize().unwrap(), rows.to_usize().unwrap())
 		});
-
-		// Move the cursor back.
-		match self.lines {
-			Some(n) if n > 0 => {
-				ct::queue!(
-					self.tty,
-					ct::cursor::MoveToPreviousLine(self.indicators.len().to_u16().unwrap()),
-				)
-				.unwrap();
-			},
-			_ => (),
-		}
-
-		// Clear the indicators.
-		ct::queue!(
-			self.tty,
-			ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-		)
-		.unwrap();
 
 		// Render the indicators.
 		let title_length = self
