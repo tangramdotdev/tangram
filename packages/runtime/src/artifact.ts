@@ -59,6 +59,21 @@ export namespace Artifact {
 		return value;
 	};
 
+	export let download = async (
+		url: string,
+		checksum: tg.Checksum,
+	): Promise<Artifact> => {
+		let value = await tg.build({
+			args: [url, true],
+			checksum,
+			env: undefined,
+			executable: "download",
+			host: "builtin",
+		});
+		tg.assert(tg.Artifact.is(value));
+		return value;
+	};
+
 	export let extract = async (blob: tg.Blob): Promise<Artifact> => {
 		let value = await tg.build({
 			args: [blob],

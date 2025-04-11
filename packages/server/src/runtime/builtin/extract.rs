@@ -1,6 +1,6 @@
 use super::Runtime;
 use crate::{Server, temp::Temp};
-use async_zip::base::read::seek::ZipFileReader;
+use async_zip::base::read::stream::ZipFileReader;
 use futures::AsyncReadExt as _;
 use std::{
 	os::unix::fs::PermissionsExt as _,
@@ -11,7 +11,7 @@ use tangram_client as tg;
 use tangram_futures::read::shared_position_reader::SharedPositionReader;
 use tangram_futures::stream::TryExt as _;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
-use tokio_util::compat::{FuturesAsyncReadCompatExt as _, TokioAsyncReadCompatExt as _};
+use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
 impl Runtime {
 	pub async fn extract(&self, process: &tg::Process) -> tg::Result<tg::Value> {
@@ -22,13 +22,15 @@ impl Runtime {
 		let args = command.args(server).await?;
 
 		// Get the blob.
-		let blob: tg::Blob = args
+		let blob = match args
 			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
-			.clone()
-			.try_into()
-			.ok()
-			.ok_or_else(|| tg::error!("expected a blob"))?;
+		{
+			tg::Value::Object(tg::Object::Branch(branch)) => tg::Blob::Branch(branch.clone()),
+			tg::Value::Object(tg::Object::Leaf(leaf)) => tg::Blob::Leaf(leaf.clone()),
+			tg::Value::Object(tg::Object::File(file)) => file.contents(server).await?,
+			_ => return Err(tg::error!("expected a file or blob")),
+		};
 
 		// Detect archive format.
 		let (format, compression) = detect_archive_format(server, &blob).await?;
@@ -128,10 +130,10 @@ impl Runtime {
 		Ok(artifact.into())
 	}
 
-	async fn extract_tar(
+	pub(super) async fn extract_tar(
 		&self,
 		temp: &Temp,
-		reader: SharedPositionReader<crate::blob::Reader>,
+		reader: impl tokio::io::AsyncBufRead + Send + 'static,
 		compression: Option<tangram_client::blob::compress::Format>,
 	) -> tg::Result<()> {
 		let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression {
@@ -158,20 +160,28 @@ impl Runtime {
 		Ok(())
 	}
 
-	async fn extract_zip(
+	pub(super) async fn extract_zip(
 		&self,
 		temp: &Temp,
-		reader: SharedPositionReader<crate::blob::Reader>,
+		reader: impl tokio::io::AsyncBufRead + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let mut reader = ZipFileReader::new(reader.compat())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the zip reader"))?;
-		for index in 0..reader.file().entries().len() {
-			// Get the reader.
-			let mut reader = reader
-				.reader_with_entry(index)
+		// Create the reader.
+		let mut ready = Some(ZipFileReader::with_tokio(reader));
+
+		// Extract.
+		loop {
+			let Some(mut reading) = ready
+				.take()
+				.unwrap()
+				.next_with_entry()
 				.await
-				.map_err(|source| tg::error!(!source, "unable to get the entry"))?;
+				.map_err(|source| tg::error!(!source, "failed to read first entry"))?
+			else {
+				break;
+			};
+
+			// Get the reader
+			let reader = reading.reader_mut();
 
 			// Get the path.
 			let filename = reader
@@ -235,6 +245,14 @@ impl Runtime {
 						.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 				}
 			}
+
+			// Advance the reader.
+			ready.replace(
+				reading
+					.done()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to advance the reader"))?,
+			);
 		}
 		Ok(())
 	}

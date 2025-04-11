@@ -97,7 +97,7 @@ export namespace Blob {
 		checksum: tg.Checksum,
 	): Promise<Blob> => {
 		let value = await tg.build({
-			args: [url],
+			args: [url, false],
 			checksum,
 			env: undefined,
 			executable: "download",

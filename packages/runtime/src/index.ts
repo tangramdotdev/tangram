@@ -43,7 +43,17 @@ let build = Process.build;
 let bundle = Artifact.bundle;
 let compress = Blob.compress;
 let decompress = Blob.decompress;
-let download = Blob.download;
+let download = (
+	url: string,
+	unpack: boolean,
+	checksum: Checksum,
+): Promise<Blob | Artifact> => {
+	if (unpack) {
+		return Artifact.download(url, checksum);
+	} else {
+		return Blob.download(url, checksum);
+	}
+};
 let extract = Artifact.extract;
 let run = Process.run;
 let $ = run;
