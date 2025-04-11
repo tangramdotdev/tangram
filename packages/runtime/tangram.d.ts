@@ -550,6 +550,13 @@ declare namespace tg {
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
+	export function command<
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	>(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): CommandBuilder;
 
 	/** A command. */
 	export interface Command<
@@ -983,11 +990,25 @@ declare namespace tg {
 			| "command";
 	}
 
-	export let build: (
+	export function build(
 		...args: tg.Args<tg.Process.BuildArg>
-	) => Promise<tg.Value>;
+	): Promise<tg.Value>;
+	export function build(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): BuildBuilder;
 
-	export let run: (...args: tg.Args<tg.Process.RunArg>) => Promise<tg.Value>;
+	export function run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value>;
+	export function run(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): RunBuilder;
+	
+	export function $(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value>;
+	export function $(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): RunBuilder;
 
 	/** The current process. */
 	export let process: tg.Process;
@@ -1142,7 +1163,72 @@ declare namespace tg {
 			) => Promise<tg.Process.Mount>;
 		}
 	}
-
+		
+	export class BuildBuilder {
+		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
+		checksum(
+			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
+		): this;
+		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
+		executable(executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>): this;
+		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+		mount(mounts: tg.Unresolved<tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>>): this;
+		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
+		then<TResult1 = tg.Value, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2>;
+	}
+	
+	export class CommandBuilder {
+		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
+		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
+		executable(executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>): this;
+		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+		mount(mounts: tg.Unresolved<tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>>): this;
+		then<TResult1 = tg.Value, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2>;
+	}
+	
+	export class RunBuilder {
+		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
+		checksum(
+			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
+		): this;
+		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
+		executable(executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>): this;
+		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+		mount(mounts: tg.Unresolved<tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>>>): this;
+		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
+		then<TResult1 = tg.Value, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2>;
+	}
+	
 	export type Reference = string;
 
 	export type Referent<T> = {

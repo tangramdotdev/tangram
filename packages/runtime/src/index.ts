@@ -3,8 +3,10 @@ import { Artifact } from "./artifact.ts";
 import { assert, unimplemented, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
 import { Branch, branch } from "./branch.ts";
+import { BuildBuilder } from "./build.ts";
 import { Checksum, checksum } from "./checksum.ts";
 import { Command, command } from "./command.ts";
+import { CommandBuilder } from "./commandBuilder.ts";
 import { Directory, directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
 import { Error_ } from "./error.ts";
@@ -21,6 +23,7 @@ import type { Reference } from "./reference.ts";
 import type { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
+import { RunBuilder } from "./run.ts";
 import { sleep } from "./sleep.ts";
 import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
@@ -44,14 +47,17 @@ let decompress = Blob.decompress;
 let download = Blob.download;
 let extract = Artifact.extract;
 let run = Process.run;
+let $ = run;
 
 export {
 	Args,
 	Artifact,
 	Blob,
 	Branch,
+	BuildBuilder,
 	Checksum,
 	Command,
+	CommandBuilder,
 	Directory,
 	Error_ as Error,
 	File,
@@ -60,9 +66,11 @@ export {
 	Mutation,
 	Object_ as Object,
 	Process,
+	RunBuilder,
 	Symlink,
 	Template,
 	Value,
+	$,
 	archive,
 	assert,
 	blob,

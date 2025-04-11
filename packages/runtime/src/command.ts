@@ -1,5 +1,6 @@
+import { CommandBuilder } from "./commandBuilder.ts";
 import * as tg from "./index.ts";
-import type { MaybeMutationMap, MaybePromise } from "./util.ts";
+import type { MaybeMutationMap } from "./util.ts";
 
 type FunctionArg<
 	A extends Array<tg.Value> = Array<tg.Value>,
@@ -22,8 +23,10 @@ export function command<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 >(
-	...args: [FunctionArg<A, R>] | tg.Args<Command.Arg>
-): MaybePromise<Command<A, R>> {
+	strings: TemplateStringsArray,
+	...placeholders: tg.Args<tg.Template.Arg>
+): CommandBuilder;
+export function command(...args: any): any {
 	if (
 		args.length === 1 &&
 		typeof args[0] === "object" &&
@@ -57,6 +60,15 @@ export function command<
 		};
 		let state = { object };
 		return new Command(state, arg.function);
+	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
+		let strings = args[0] as TemplateStringsArray;
+		let placeholders = args.slice(1);
+		let template = tg.template(strings, ...placeholders);
+		let arg = {
+			executable: "/bin/sh",
+			args: ["-c", template],
+		};
+		return new CommandBuilder(arg);
 	} else {
 		return Command.new(...(args as tg.Args<Command.Arg>));
 	}
