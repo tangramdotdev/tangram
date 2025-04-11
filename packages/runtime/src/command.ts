@@ -115,7 +115,7 @@ export class Command<
 		let arg = await Command.arg(...args);
 		let args_ = arg.args ?? [];
 		let cwd = arg.cwd;
-		let env = arg.env as tg.Command.Object["env"];
+		let env = arg.env ?? {};
 		let executable = arg.executable;
 		let host =
 			arg.host ?? ((await tg.Process.current.env("TANGRAM_HOST")) as string);
