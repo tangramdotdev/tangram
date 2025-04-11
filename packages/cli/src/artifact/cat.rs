@@ -12,7 +12,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_artifact_cat(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_artifact_cat(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let mut stdout = tokio::io::stdout();
 

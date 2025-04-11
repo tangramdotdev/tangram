@@ -2,7 +2,7 @@ use self::signal::handle_signals;
 use crate::Cli;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
-use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use std::{
 	io::{IsTerminal as _, Read as _},
 	pin::pin,
@@ -43,7 +43,7 @@ pub struct Options {
 }
 
 impl Cli {
-	pub async fn command_process_run(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_run(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Get the remote.
@@ -192,7 +192,7 @@ impl Cli {
 			}
 		}
 
-		// Fork and exit.
+		// Set the exit code.
 		let code = match wait.exit {
 			Some(tg::process::Exit::Code { code }) => code,
 			Some(tg::process::Exit::Signal { signal }) => 128 + signal,
@@ -200,7 +200,7 @@ impl Cli {
 				return Err(tg::error!("expected the exit to be set"));
 			},
 		};
-		*self.exit_code.lock().unwrap() = code;
+		self.exit_code.replace(code);
 
 		Ok(())
 	}

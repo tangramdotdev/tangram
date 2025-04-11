@@ -14,7 +14,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_blob_download(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_blob_download(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let host = "builtin";
 		let executable = tg::command::Executable::Path("download".into());

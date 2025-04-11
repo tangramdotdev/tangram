@@ -13,7 +13,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_object_metadata(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_object_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let metadata = handle.get_object_metadata(&args.object).await.map_err(
 			|source| tg::error!(!source, %id = args.object, "failed to get the object metadata"),

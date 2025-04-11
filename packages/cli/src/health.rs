@@ -7,7 +7,7 @@ use tangram_client::{self as tg, Handle as _};
 pub struct Args {}
 
 impl Cli {
-	pub async fn command_health(&self, _args: Args) -> tg::Result<()> {
+	pub async fn command_health(&mut self, _args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let health = handle.health().await?;
 		let health = serde_json::to_string_pretty(&health)

@@ -16,7 +16,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_artifact_checksum(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_artifact_checksum(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let algorithm = args.algorithm;

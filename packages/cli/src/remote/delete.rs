@@ -10,7 +10,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_remote_delete(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_remote_delete(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		handle.delete_remote(&args.name).await?;
 		Ok(())

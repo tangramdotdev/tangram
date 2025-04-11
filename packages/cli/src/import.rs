@@ -13,7 +13,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_import(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_import(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Get the remote.

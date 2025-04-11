@@ -23,7 +23,7 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_object(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_object(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Children(args) => {
 				self.command_object_children(args).await?;

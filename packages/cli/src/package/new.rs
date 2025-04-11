@@ -11,7 +11,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_package_new(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_package_new(&mut self, args: Args) -> tg::Result<()> {
 		let args = crate::package::init::Args { path: args.path };
 		self.command_package_init(args).await?;
 		Ok(())

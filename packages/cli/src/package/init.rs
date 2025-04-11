@@ -12,7 +12,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_package_init(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_package_init(&mut self, args: Args) -> tg::Result<()> {
 		// Get the path.
 		let path = std::path::absolute(args.path.unwrap_or_default())
 			.map_err(|source| tg::error!(!source, "failed to get the path"))?;

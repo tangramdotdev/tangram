@@ -7,7 +7,7 @@ use tangram_client as tg;
 pub struct Args {}
 
 impl Cli {
-	pub async fn command_server_run(&self, _args: Args) -> tg::Result<()> {
+	pub async fn command_server_run(&mut self, _args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Get the server.

@@ -31,7 +31,7 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_tag(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_tag(&mut self, args: Args) -> tg::Result<()> {
 		match args.command.unwrap_or(Command::Put(args.args)) {
 			Command::Delete(args) => {
 				self.command_tag_delete(args).await?;

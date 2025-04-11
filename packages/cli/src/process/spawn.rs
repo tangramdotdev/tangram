@@ -81,7 +81,7 @@ pub struct Options {
 }
 
 impl Cli {
-	pub async fn command_process_spawn(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 		let process = self
 			.spawn_process(args.options, reference, args.trailing, None, None, None)
@@ -91,7 +91,7 @@ impl Cli {
 	}
 
 	pub(crate) async fn spawn_process(
-		&self,
+		&mut self,
 		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,

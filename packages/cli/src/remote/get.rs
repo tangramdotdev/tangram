@@ -10,7 +10,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_remote_get(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_remote_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let remote = handle
 			.try_get_remote(&args.name)

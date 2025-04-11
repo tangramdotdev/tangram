@@ -16,7 +16,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_blob_compress(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_blob_compress(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let blob = tg::Blob::with_id(args.blob);
 		let format = args.format;

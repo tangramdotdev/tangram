@@ -19,7 +19,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_tree(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_tree(&mut self, args: Args) -> tg::Result<()> {
 		let args = crate::view::Args {
 			depth: args.depth,
 			kind: crate::view::Kind::Inline,

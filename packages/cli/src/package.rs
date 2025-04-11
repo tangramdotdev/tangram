@@ -31,7 +31,7 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_package(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_package(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Check(args) => self.command_package_check(args).await,
 			Command::Document(args) => self.command_package_document(args).await,

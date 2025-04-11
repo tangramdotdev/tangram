@@ -17,7 +17,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_blob_checksum(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_blob_checksum(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let blob = tg::Blob::with_id(args.blob);
 		let algorithm = args.algorithm;

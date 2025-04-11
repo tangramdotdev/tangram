@@ -19,7 +19,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_checksum(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_checksum(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let referent = self.get_reference(&args.reference).await?;
 		let Either::Right(object) = referent.item else {

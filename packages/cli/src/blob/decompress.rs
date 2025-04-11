@@ -13,7 +13,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_blob_decompress(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_blob_decompress(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let blob = tg::Blob::with_id(args.blob);
 		let command = blob.decompress_command();

@@ -7,7 +7,7 @@ use tangram_client::{self as tg, Handle as _};
 pub struct Args {}
 
 impl Cli {
-	pub async fn command_index(&self, _args: Args) -> tg::Result<()> {
+	pub async fn command_index(&mut self, _args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let stream = handle.index().await?;
 		self.render_progress_stream(stream).await?;

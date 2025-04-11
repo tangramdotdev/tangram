@@ -11,7 +11,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_cat(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_cat(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		for reference in &args.references {
 			let referent = self.get_reference(reference).await?;

@@ -39,7 +39,7 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_process(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Build(args) => {
 				self.command_process_build(args).await?;

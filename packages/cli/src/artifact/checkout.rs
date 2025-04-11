@@ -29,7 +29,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_artifact_checkout(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_artifact_checkout(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Get the absolute path.

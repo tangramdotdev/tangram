@@ -18,7 +18,7 @@ pub struct Stdio {
 
 impl Cli {
 	pub(crate) async fn create_stdio(
-		&self,
+		&mut self,
 		remote: Option<String>,
 		options: &Options,
 	) -> tg::Result<Stdio> {
@@ -122,7 +122,7 @@ impl Cli {
 		})
 	}
 
-	pub(super) async fn close_stdio(&self, stdio: &Stdio) -> tg::Result<()> {
+	pub(super) async fn close_stdio(&mut self, stdio: &Stdio) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		for io in [&stdio.stdin, &stdio.stdout, &stdio.stderr] {
 			match io {

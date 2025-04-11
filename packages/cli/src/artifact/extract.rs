@@ -14,7 +14,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_artifact_extract(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_artifact_extract(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let blob = match args.item {
 			Either::Left(id) => tg::Blob::with_id(id),

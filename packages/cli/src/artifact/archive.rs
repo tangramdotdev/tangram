@@ -19,7 +19,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_artifact_archive(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_artifact_archive(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let format = args.format;

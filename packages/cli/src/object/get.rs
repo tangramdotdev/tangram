@@ -28,7 +28,7 @@ pub enum Format {
 }
 
 impl Cli {
-	pub async fn command_object_get(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
 		let mut stdout = tokio::io::stdout();

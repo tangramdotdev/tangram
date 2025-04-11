@@ -2,7 +2,7 @@ use clap::Parser as _;
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
-use std::{fmt::Write as _, path::PathBuf, sync::Mutex, time::Duration};
+use std::{fmt::Write as _, path::PathBuf, time::Duration};
 use tangram_client::{self as tg, Client, Handle as _, handle::Ext as _};
 use tangram_either::Either;
 use tangram_server::Server;
@@ -45,9 +45,9 @@ pub mod test;
 pub struct Cli {
 	args: Args,
 	config: Option<Config>,
-	handle: Mutex<Option<Either<Client, Server>>>,
+	exit_code: Option<i32>,
+	handle: Option<Either<Client, Server>>,
 	mode: Mode,
-	exit_code: Mutex<i32>,
 }
 
 #[derive(Clone, Debug, clap::Parser)]
@@ -221,9 +221,6 @@ impl Cli {
 			},
 		};
 
-		// Create the handle.
-		let handle = Mutex::new(None);
-
 		// Get the mode.
 		let mode = match &args {
 			// If the command is `tg serve` or `tg server run`, then set the mode to `server`.
@@ -275,11 +272,11 @@ impl Cli {
 		}
 
 		// Create the CLI.
-		let cli = Cli {
+		let mut cli = Cli {
 			args,
 			config,
-			exit_code: Mutex::new(0),
-			handle,
+			exit_code: None,
+			handle: None,
 			mode,
 		};
 
@@ -293,7 +290,7 @@ impl Cli {
 
 		// Drop the handle.
 		runtime.block_on(async {
-			let handle = cli.handle.lock().unwrap().take();
+			let handle = cli.handle.take();
 			match handle {
 				Some(Either::Left(client)) => {
 					client
@@ -315,7 +312,7 @@ impl Cli {
 
 		// Handle the result.
 		let code = match result {
-			Ok(()) => cli.exit_code.into_inner().unwrap().try_into().unwrap_or(1),
+			Ok(()) => cli.exit_code.unwrap_or_default().to_u8().unwrap(),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
 				Cli::print_error(&error, cli.config.as_ref());
@@ -326,9 +323,9 @@ impl Cli {
 		code.into()
 	}
 
-	async fn handle(&self) -> tg::Result<Either<Client, Server>> {
+	async fn handle(&mut self) -> tg::Result<Either<Client, Server>> {
 		// If the handle has already been created, then return it.
-		if let Some(handle) = self.handle.lock().unwrap().clone() {
+		if let Some(handle) = self.handle.clone() {
 			return Ok(handle);
 		}
 
@@ -346,7 +343,7 @@ impl Cli {
 		}
 
 		// Set the handle.
-		self.handle.lock().unwrap().replace(handle.clone());
+		self.handle.replace(handle.clone());
 
 		Ok(handle)
 	}
@@ -1005,7 +1002,7 @@ impl Cli {
 	}
 
 	// Run the command.
-	async fn command(&self, args: Args) -> tg::Result<()> {
+	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Archive(args) => self.command_artifact_archive(args).boxed(),
 			Command::Artifact(args) => self.command_artifact(args).boxed(),
@@ -1200,7 +1197,7 @@ impl Cli {
 	}
 
 	async fn get_reference(
-		&self,
+		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>> {
 		let handle = self.handle().await?;
@@ -1221,7 +1218,7 @@ impl Cli {
 	}
 
 	async fn get_references(
-		&self,
+		&mut self,
 		references: &[tg::Reference],
 	) -> tg::Result<Vec<tg::Referent<Either<tg::Process, tg::Object>>>> {
 		let mut referents = Vec::with_capacity(references.len());

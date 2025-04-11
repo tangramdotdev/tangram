@@ -7,7 +7,7 @@ use tangram_client::{self as tg, Handle as _};
 pub struct Args {}
 
 impl Cli {
-	pub async fn command_lsp(&self, _args: Args) -> tg::Result<()> {
+	pub async fn command_lsp(&mut self, _args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		let stdin = Box::new(tokio::io::BufReader::new(tokio::io::stdin()));

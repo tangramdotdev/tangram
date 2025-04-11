@@ -27,7 +27,7 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_blob(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_blob(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Cat(args) => {
 				self.command_blob_cat(args).await?;

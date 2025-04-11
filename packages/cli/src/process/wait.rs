@@ -13,7 +13,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_process_wait(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_wait(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let output = handle.wait_process(&args.process).await?;
 		Self::output_json(&output, args.pretty).await?;

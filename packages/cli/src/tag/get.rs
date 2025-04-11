@@ -10,7 +10,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_tag_get(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_tag_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let tag = handle.get_tag(&args.pattern).await?;
 		let item = tag.item;

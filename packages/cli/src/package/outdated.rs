@@ -14,7 +14,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_package_outdated(&self, _args: Args) -> tg::Result<()> {
+	pub async fn command_package_outdated(&mut self, _args: Args) -> tg::Result<()> {
 		Err(tg::error!("unimplemented"))
 	}
 }

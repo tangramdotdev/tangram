@@ -7,7 +7,7 @@ use tangram_client as tg;
 pub struct Args {}
 
 impl Cli {
-	pub async fn command_server_restart(&self, _args: Args) -> tg::Result<()> {
+	pub async fn command_server_restart(&mut self, _args: Args) -> tg::Result<()> {
 		self.stop_server().await?;
 		self.start_server().await?;
 		Ok(())

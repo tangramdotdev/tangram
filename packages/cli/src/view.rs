@@ -37,7 +37,7 @@ pub enum Kind {
 }
 
 impl Cli {
-	pub async fn command_view(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_view(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Get the reference.

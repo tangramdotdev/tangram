@@ -11,7 +11,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_process_output(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_output(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Get the process.

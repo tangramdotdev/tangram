@@ -29,7 +29,7 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_artifact(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_artifact(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Archive(args) => {
 				self.command_artifact_archive(args).await?;

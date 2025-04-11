@@ -12,7 +12,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_process_status(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_status(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Get the stream.

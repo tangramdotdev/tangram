@@ -17,7 +17,7 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_tangram(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_tangram(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Update(args) => {
 				self.command_tangram_update(args).await?;

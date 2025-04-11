@@ -13,7 +13,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_process_metadata(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let metadata = handle.get_process_metadata(&args.process).await.map_err(
 			|source| tg::error!(!source, %id = args.process, "failed to get the process metadata"),

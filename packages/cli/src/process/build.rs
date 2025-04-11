@@ -50,7 +50,7 @@ pub enum View {
 }
 
 impl Cli {
-	pub async fn command_process_build(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_build(&mut self, args: Args) -> tg::Result<()> {
 		// Get the reference.
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
@@ -62,7 +62,7 @@ impl Cli {
 	}
 
 	pub async fn build_process(
-		&self,
+		&mut self,
 		mut options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,

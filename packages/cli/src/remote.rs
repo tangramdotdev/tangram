@@ -23,7 +23,7 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_remote(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_remote(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Delete(args) => {
 				self.command_remote_delete(args).await?;

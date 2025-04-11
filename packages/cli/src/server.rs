@@ -25,7 +25,7 @@ pub enum Command {
 }
 
 impl Cli {
-	pub async fn command_server(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_server(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Restart(args) => {
 				self.command_server_restart(args).await?;

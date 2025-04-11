@@ -7,7 +7,7 @@ use tangram_client::{self as tg, Handle as _};
 pub struct Args {}
 
 impl Cli {
-	pub async fn command_server_status(&self, _args: Args) -> tg::Result<()> {
+	pub async fn command_server_status(&mut self, _args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		if handle.health().await.is_ok() {
 			println!("started");

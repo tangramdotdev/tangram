@@ -14,7 +14,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_process_put(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_process_put(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let data = if let Some(data) = args.data {
 			data

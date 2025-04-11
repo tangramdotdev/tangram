@@ -10,7 +10,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_object_children(&self, args: Args) -> tg::Result<()> {
+	pub async fn command_object_children(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		// Print the children.

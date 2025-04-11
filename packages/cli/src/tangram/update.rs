@@ -7,7 +7,7 @@ use tangram_client as tg;
 pub struct Args {}
 
 impl Cli {
-	pub async fn command_tangram_update(&self, _args: Args) -> tg::Result<()> {
+	pub async fn command_tangram_update(&mut self, _args: Args) -> tg::Result<()> {
 		tokio::process::Command::new("/bin/sh")
 			.args(["-c", "curl -sSL https://www.tangram.dev/install.sh | sh"])
 			.status()
