@@ -826,12 +826,13 @@ impl Server {
 		// Get the artifact.
 		let artifact = output_graph.nodes[0].id.clone();
 
-		// If this is a non-destructive checkin, then attempt to write a lockfile.
+		// If this is a non-destructive checkin, then attempt to create a lockfile.
 		if arg.lockfile && !arg.destructive && artifact.is_directory() {
-			progress.log(tg::progress::Level::Info, "writing lockfile".into());
+			progress.spinner("lockfile", "creating lockfile...");
 			self.try_write_lockfile(&input_graph, &object_graph)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
+			progress.finish("lockfile");
 		}
 
 		// Create the output.

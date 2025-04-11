@@ -183,7 +183,7 @@ impl Server {
 				drop(file.take());
 				let mut path = self.cache_path().join(cache_reference.artifact.to_string());
 				if let Some(subpath) = &cache_reference.subpath {
-					path = self.cache_path().join(subpath);
+					path = path.join(subpath);
 				}
 				let file_ = std::fs::File::open(&path).map_err(
 					|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
