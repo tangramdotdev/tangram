@@ -964,7 +964,9 @@ declare namespace tg {
 			| "command";
 	}
 
-	export let build: (...args: tg.Args<tg.Process.BuildArg>) => Promise<tg.Value>;
+	export let build: (
+		...args: tg.Args<tg.Process.BuildArg>
+	) => Promise<tg.Value>;
 
 	export let run: (...args: tg.Args<tg.Process.RunArg>) => Promise<tg.Value>;
 
@@ -1027,7 +1029,6 @@ declare namespace tg {
 			| tg.Command
 			| BuildArgObject;
 
-		
 		export type BuildArgObject = {
 			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
@@ -1037,25 +1038,25 @@ declare namespace tg {
 
 			/** The command's working directory. **/
 			cwd?: string | undefined;
-			
+
 			/** The command's environment. */
 			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
-			
+
 			/** The command's executable. */
 			executable?: tg.Command.ExecutableArg | undefined;
-			
+
 			/** The command's host. */
 			host?: string | undefined;
-			
+
 			/** The command's mounts. */
 			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
-			
+
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
-			
+
 			/** Ignore stdin, or set it to a blob. */
 			stdin?: tg.Blob.Arg | undefined;
-			
+
 			/** The command's user. */
 			user?: string | undefined;
 		};
