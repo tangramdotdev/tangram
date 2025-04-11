@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { mergeMaybeMutationMaps } from "./mutation.ts";
 
 export type Args<T extends tg.Value = tg.Value> = Array<
 	tg.Unresolved<tg.ValueOrMaybeMutationMap<T>>
@@ -21,7 +20,22 @@ export namespace Args {
 		rules?: Rules<T>,
 	): Promise<T> => {
 		let mutations = await createMutations(args, rules);
-		let arg = await mergeMaybeMutationMaps(mutations);
+		let arg = await mutations.reduce(
+			async (map, mutations) => {
+				if (mutations === undefined) {
+					return Promise.resolve({}) as Promise<T>;
+				}
+				for (let [key, mutation] of Object.entries(mutations)) {
+					if (!(mutation instanceof tg.Mutation)) {
+						((await map) as Record<string, tg.Value>)[key] = mutation;
+					} else {
+						await mutation.apply(await map, key);
+					}
+				}
+				return map;
+			},
+			Promise.resolve({}) as Promise<T>,
+		);
 		return arg;
 	};
 

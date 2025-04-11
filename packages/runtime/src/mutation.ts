@@ -259,26 +259,3 @@ export namespace Mutation {
 		| "suffix"
 		| "merge";
 }
-
-export let mergeMaybeMutationMaps = async <
-	T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
->(
-	maps: Array<tg.MaybeMutationMap<T>>,
-): Promise<T> => {
-	return await maps.reduce(
-		async (map, mutations) => {
-			if (mutations === undefined) {
-				return Promise.resolve({}) as Promise<T>;
-			}
-			for (let [key, mutation] of Object.entries(mutations)) {
-				if (!(mutation instanceof tg.Mutation)) {
-					((await map) as Record<string, tg.Value>)[key] = mutation;
-				} else {
-					await mutation.apply(await map, key);
-				}
-			}
-			return map;
-		},
-		Promise.resolve({}) as Promise<T>,
-	);
-};
