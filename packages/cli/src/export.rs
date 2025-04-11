@@ -56,7 +56,7 @@ impl Cli {
 			},
 		};
 
-		// // Create the import stream.
+		// Create the import stream.
 		let stdin = tokio::io::stdin();
 		let stream = tangram_http::sse::decode(tokio::io::BufReader::new(stdin))
 			.map_err(|source| tg::error!(!source, "failed to read an event"))

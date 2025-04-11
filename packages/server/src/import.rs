@@ -59,19 +59,6 @@ impl Server {
 		let (object_sender, object_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::ObjectItem>(256);
 
-		// Send the items to the complete sender.
-		for item in arg.items.iter().cloned() {
-			let sent = complete_sender.try_send(item.clone()).is_ok();
-			if !sent {
-				tokio::spawn({
-					let complete_sender = complete_sender.clone();
-					async move {
-						complete_sender.send(item).await.ok();
-					}
-				});
-			}
-		}
-
 		// Spawn the complete task.
 		let complete_task = tokio::spawn({
 			let server = self.clone();
@@ -197,7 +184,9 @@ impl Server {
 		let progress_stream = progress.stream().map_ok(tg::import::Event::Progress);
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = stream::select(event_stream, progress_stream)
-			.take_while(|event| future::ready(!matches!(event, Ok(tg::import::Event::End))))
+			.take_while_inclusive(|event| {
+				future::ready(!matches!(event, Err(_) | Ok(tg::import::Event::End)))
+			})
 			.attach(abort_handle)
 			.attach(complete_task_abort_handle)
 			.attach(processes_task_abort_handle)

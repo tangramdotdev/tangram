@@ -183,9 +183,15 @@ impl Server {
 		D: tg::Handle,
 	{
 		loop {
+			// Set the progress to zero.
+			progress.set("processes", 0);
+			progress.set("objects", 0);
+			progress.set("bytes", 0);
+
 			// Create channels to send events.
 			let (export_item_sender, export_item_receiver) = tokio::sync::mpsc::channel(1024);
-			let (import_event_sender, import_event_receiver) = tokio::sync::mpsc::channel(1024);
+			let (import_complete_sender, import_complete_receiver) =
+				tokio::sync::mpsc::channel(1024);
 
 			// Start the export.
 			let export_arg = tg::export::Arg {
@@ -195,11 +201,11 @@ impl Server {
 				recursive: arg.recursive,
 				remote: None,
 			};
-			let import_event_stream = ReceiverStream::new(import_event_receiver);
+			let import_complete_stream = ReceiverStream::new(import_complete_receiver);
 			let export_event_stream = src
-				.export(export_arg, import_event_stream.boxed())
+				.export(export_arg, import_complete_stream.boxed())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create an export stream"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the export stream"))?;
 
 			// Start the import.
 			let import_arg = tg::import::Arg {
@@ -210,7 +216,7 @@ impl Server {
 			let import_event_stream = dst
 				.import(import_arg, export_item_stream.boxed())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create a import stream"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the import stream"))?;
 
 			// Create the export future.
 			let export_future = {
@@ -259,7 +265,9 @@ impl Server {
 									}
 								},
 							},
-							Ok(tg::export::Event::End) => return true,
+							Ok(tg::export::Event::End) => {
+								return true;
+							},
 							Err(error) => {
 								progress.error(error);
 							},
@@ -277,7 +285,7 @@ impl Server {
 					while let Some(result) = import_event_stream.next().await {
 						match result {
 							Ok(tg::import::Event::Complete(complete)) => {
-								import_event_sender.send(Ok(complete)).await.ok();
+								import_complete_sender.send(Ok(complete)).await.ok();
 							},
 							Ok(tg::import::Event::Progress(import_progress)) => {
 								if let Some(processes) = import_progress.processes {
@@ -286,8 +294,12 @@ impl Server {
 								progress.increment("objects", import_progress.objects);
 								progress.increment("bytes", import_progress.bytes);
 							},
-							Ok(tg::import::Event::End) => return true,
-							Err(error) => progress.error(error),
+							Ok(tg::import::Event::End) => {
+								return true;
+							},
+							Err(error) => {
+								progress.error(error);
+							},
 						}
 					}
 					false
@@ -296,9 +308,9 @@ impl Server {
 
 			// Join the futures.
 			let (export_finished, import_finished) = futures::join!(export_future, import_future);
-			let finished = export_finished && import_finished;
 
 			// If the export and import completed, then break.
+			let finished = export_finished && import_finished;
 			if finished {
 				break;
 			}

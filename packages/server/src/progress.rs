@@ -92,6 +92,16 @@ impl<T> Handle<T> {
 		}
 	}
 
+	pub fn set(&self, name: &str, value: u64) {
+		if let Some(indicator) = self.indicators.read().unwrap().get(name) {
+			indicator
+				.current
+				.as_ref()
+				.unwrap()
+				.store(value, std::sync::atomic::Ordering::Relaxed);
+		}
+	}
+
 	pub fn set_total(&self, name: &str, total: u64) {
 		if let Some(indicator) = self.indicators.write().unwrap().get_mut(name) {
 			indicator.total = Some(total.into());

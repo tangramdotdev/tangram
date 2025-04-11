@@ -121,6 +121,7 @@ impl tg::Client {
 		) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
+
 		let stream = response
 			.sse()
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
