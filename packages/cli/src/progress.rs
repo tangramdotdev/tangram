@@ -1,12 +1,13 @@
 use crate::{Cli, viewer::clip};
 use crossterm::{self as ct, style::Stylize as _};
-use futures::{Stream, StreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _, future};
 use indexmap::IndexMap;
 use num::ToPrimitive as _;
 use std::{
 	fmt::Write as _,
 	io::{IsTerminal as _, Write as _},
 	pin::pin,
+	time::Duration,
 };
 use tangram_client as tg;
 use tangram_futures::stream::TryExt as _;
@@ -24,14 +25,15 @@ impl Cli {
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
 	) -> tg::Result<T> {
 		let tty = std::io::stderr();
-		let mut stream = pin!(stream);
 
 		if !tty.is_terminal() {
-			return stream
+			let stream = pin!(stream);
+			let output = stream
 				.try_last()
 				.await?
 				.and_then(|event| event.try_unwrap_output().ok())
-				.ok_or_else(|| tg::error!("stream ended without output"));
+				.ok_or_else(|| tg::error!("stream ended without output"))?;
+			return Ok(output);
 		}
 
 		let mut state = State {
@@ -41,30 +43,45 @@ impl Cli {
 			output: None,
 		};
 
-		let timeout = std::time::Duration::from_millis(20);
+		let interval = Duration::from_millis(20);
+		let mut interval = tokio::time::interval(interval);
+		let mut stream = pin!(stream);
 		loop {
-			let result = tokio::time::timeout(timeout, stream.next()).await;
-			state.clear();
-			match result {
-				Ok(Some(Ok(event))) => {
-					state.handle_event(event);
+			let next = stream.next();
+			let tick = interval.tick().boxed();
+			let either = future::select(next, tick).await;
+			match either {
+				future::Either::Left((Some(Ok(event)), _)) => {
+					let is_update = event.is_update();
+					state.update(event);
+					if is_update {
+						continue;
+					}
 				},
-				Ok(Some(Err(error))) => {
+				future::Either::Left((Some(Err(error)), _)) => {
+					state.clear();
 					return Err(error);
 				},
-				Ok(None) => {
+				future::Either::Left((None, _)) => {
+					state.clear();
 					break;
 				},
-				Err(_) => (),
+				future::Either::Right(_) => (),
 			}
+			state.clear();
 			state.print();
 		}
-		state.output.ok_or_else(|| tg::error!("expected an output"))
+
+		let output = state
+			.output
+			.ok_or_else(|| tg::error!("expected an output"))?;
+
+		Ok(output)
 	}
 }
 
 impl<T> State<T> {
-	fn handle_event(&mut self, event: tg::progress::Event<T>) {
+	fn update(&mut self, event: tg::progress::Event<T>) {
 		match event {
 			tg::progress::Event::Log(log) => {
 				if let Some(level) = log.level {
@@ -105,8 +122,7 @@ impl<T> State<T> {
 	}
 
 	fn clear(&mut self) {
-		// Move the cursor back.
-		match self.lines {
+		match self.lines.take() {
 			Some(n) if n > 0 => {
 				ct::queue!(
 					self.tty,
@@ -114,7 +130,6 @@ impl<T> State<T> {
 					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 				)
 				.unwrap();
-				// eprintln!("clearing {n} lines");
 			},
 			_ => (),
 		}
@@ -197,9 +212,11 @@ impl<T> State<T> {
 			let line = clip(&line, size.0);
 			writeln!(self.tty, "{line}").unwrap();
 		}
-		self.lines.replace(self.indicators.len().to_u16().unwrap());
 
 		// Flush the tty.
 		self.tty.flush().unwrap();
+
+		// Set the lines.
+		self.lines.replace(self.indicators.len().to_u16().unwrap());
 	}
 }
