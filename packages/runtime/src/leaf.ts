@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { flatten } from "./util.ts";
 
 export let leaf = async (...args: tg.Args<Leaf.Arg>): Promise<Leaf> => {
 	return await Leaf.new(...args);
@@ -22,9 +21,8 @@ export class Leaf {
 
 	static async new(...args: tg.Args<Leaf.Arg>): Promise<Leaf> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		let flattened = flatten(resolved);
 		let objects = await Promise.all(
-			flattened.map(async (arg) => {
+			resolved.map(async (arg) => {
 				if (arg === undefined) {
 					return new Uint8Array();
 				} else if (typeof arg === "string") {

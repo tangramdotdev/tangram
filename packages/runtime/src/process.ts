@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { flatten, mergeMaybeMutationMaps } from "./util.ts";
 
 export class Process {
 	static current: tg.Process;
@@ -91,9 +90,8 @@ export class Process {
 		...args: tg.Args<tg.Process.BuildArg>
 	): Promise<tg.Process.BuildArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		let flattened = flatten(resolved);
 		let objects = await Promise.all(
-			flattened.map(async (arg) => {
+			resolved.map(async (arg) => {
 				if (arg === undefined) {
 					return {};
 				} else if (
@@ -131,18 +129,23 @@ export class Process {
 				}
 			}),
 		);
-		let mutations = await tg.Args.createMutations(objects, {
+		let arg = await tg.Args.apply(objects, {
 			args: "append",
-			env: "append",
+			env: "merge",
 		});
-		let arg = await mergeMaybeMutationMaps(mutations);
 		return arg;
 	}
 
 	static async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		let state = tg.Process.current.#state!;
 		let currentCommand = await Process.current.command();
-		let arg = await Process.runArg(...args);
+		let arg = await Process.runArg(
+			{
+				cwd: currentCommand.cwd(),
+				env: currentCommand.env(),
+			},
+			...args,
+		);
 		let checksum = arg.checksum;
 		let processMounts: Array<tg.Process.Mount> = [];
 		let commandMounts: Array<tg.Command.Mount> | undefined;
@@ -194,10 +197,6 @@ export class Process {
 			stdout = arg.stdout;
 		}
 		let command = await tg.command(
-			{
-				cwd: currentCommand.cwd(),
-				env: currentCommand.env(),
-			},
 			"args" in arg ? { args: arg.args } : undefined,
 			"cwd" in arg ? { cwd: arg.cwd } : undefined,
 			"env" in arg ? { env: arg.env } : undefined,
@@ -248,9 +247,8 @@ export class Process {
 		...args: tg.Args<tg.Process.RunArg>
 	): Promise<tg.Process.RunArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		let flattened = flatten(resolved);
 		let objects = await Promise.all(
-			flattened.map(async (arg) => {
+			resolved.map(async (arg) => {
 				if (arg === undefined) {
 					return {};
 				} else if (
@@ -288,11 +286,10 @@ export class Process {
 				}
 			}),
 		);
-		let mutations = await tg.Args.createMutations(objects, {
+		let arg = await tg.Args.apply(objects, {
 			args: "append",
-			env: "append",
+			env: "merge",
 		});
-		let arg = await mergeMaybeMutationMaps(mutations);
 		return arg;
 	}
 
@@ -469,7 +466,7 @@ export namespace Process {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
 		cwd?: string | undefined;
-		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
+		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
 		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
@@ -490,7 +487,7 @@ export namespace Process {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
 		cwd?: string | undefined;
-		env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
+		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
 		mounts?:

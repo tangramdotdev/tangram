@@ -93,6 +93,17 @@ impl ToV8 for tg::Mutation {
 				let value = separator.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
+			tg::Mutation::Merge { value: value_ } => {
+				let key =
+					v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
+				let value =
+					v8::String::new_external_onebyte_static(scope, "set".as_bytes()).unwrap();
+				object.set(scope, key.into(), value.into());
+				let key =
+					v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
+				let value = value_.clone().to_v8(scope).unwrap();
+				object.set(scope, key.into(), value);
+			},
 		}
 
 		let context = scope.get_current_context();
@@ -209,6 +220,14 @@ impl FromV8 for tg::Mutation {
 					template,
 					separator,
 				})
+			},
+			"merge" => {
+				let value_ =
+					v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
+				let value_ = inner.get(scope, value_.into()).unwrap();
+				let value_ = <_>::from_v8(scope, value_)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the value_"))?;
+				Ok(tg::Mutation::Merge { value: value_ })
 			},
 			kind => Err(tg::error!(%kind, "invalid mutation kind")),
 		}

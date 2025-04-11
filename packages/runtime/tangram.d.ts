@@ -53,6 +53,9 @@ declare namespace tg {
 
 		/** Assert that a value is a `tg.Value`. */
 		export let assert: (value: unknown) => asserts value is tg.Value;
+
+		/** Assert that a value is a valid map. */
+		export let isMap: (value: unknown) => value is { [key: string]: tg.Value };
 	}
 
 	export type Object =
@@ -631,7 +634,7 @@ declare namespace tg {
 			cwd?: string | undefined;
 
 			/** The command's environment. */
-			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
+			env?: tg.MaybeMutationMap | undefined;
 
 			/** The command's executable. */
 			executable?: tg.Command.ExecutableArg | undefined;
@@ -764,9 +767,16 @@ declare namespace tg {
 			separator?: string | undefined,
 		): Promise<tg.Mutation<tg.Template>>;
 
+		/** Create a merge mutation. */
+		static merge(
+			value: { [key: string]: tg.Value}
+		): Promise<tg.Mutation<{ [key: string]: tg.Value }>>;
+
 		static expect(value: unknown): tg.Mutation;
 
 		static assert(value: unknown): asserts value is tg.Mutation;
+
+		apply(map: { [key: string]: tg.Value }, key: string): Promise<void>;
 
 		get inner(): tg.Mutation.Inner;
 	}
@@ -793,7 +803,11 @@ declare namespace tg {
 					kind: "suffix";
 					template: T extends tg.Template ? tg.Template.Arg : never;
 					separator?: string | undefined;
-			  };
+			  }
+			| {
+					kind: "merge";
+					value: T extends { [key: string]: tg.Value } ? T : never;
+			};
 
 		export type Inner =
 			| { kind: "unset" }
@@ -816,7 +830,11 @@ declare namespace tg {
 					kind: "suffix";
 					template: tg.Template;
 					separator: string | undefined;
-			  };
+			  }
+			| {
+					kind: "merge";
+					value: { [key: string]: tg.Value }
+			};
 
 		export type Kind =
 			| "set"
@@ -825,7 +843,8 @@ declare namespace tg {
 			| "prepend"
 			| "append"
 			| "prefix"
-			| "suffix";
+			| "suffix"
+			| "merge";
 	}
 
 	/** Create a template. */
@@ -1040,7 +1059,7 @@ declare namespace tg {
 			cwd?: string | undefined;
 
 			/** The command's environment. */
-			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
+			env?: tg.MaybeMutationMap | undefined;
 
 			/** The command's executable. */
 			executable?: tg.Command.ExecutableArg | undefined;
@@ -1080,7 +1099,7 @@ declare namespace tg {
 			cwd?: string | undefined;
 
 			/** The command's environment. */
-			env?: tg.MaybeNestedArray<tg.MaybeMutationMap> | undefined;
+			env?: tg.MaybeMutationMap | undefined;
 
 			/** The command's executable. */
 			executable?: tg.Command.ExecutableArg | undefined;

@@ -1032,6 +1032,12 @@ where
 				children.push(("template".to_owned(), tg::Value::Template(template)));
 				children
 			},
+			tg::Mutation::Merge { value } => [
+				("kind".to_owned(), tg::Value::String("merge".to_owned())),
+				("value".to_owned(), tg::Value::Map(value)),
+			]
+			.into_iter()
+			.collect(),
 			tg::Mutation::Unset => [("kind".to_owned(), tg::Value::String("unset".to_owned()))]
 				.into_iter()
 				.collect(),

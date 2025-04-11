@@ -1,7 +1,7 @@
 import * as tg from "./index.ts";
 
 export type Args<T extends tg.Value = tg.Value> = Array<
-	tg.Unresolved<tg.MaybeNestedArray<tg.ValueOrMaybeMutationMap<T>>>
+	tg.Unresolved<tg.ValueOrMaybeMutationMap<T>>
 >;
 
 export namespace Args {
@@ -13,7 +13,33 @@ export namespace Args {
 			| ((arg: T[K]) => tg.MaybePromise<tg.Mutation<T[K]>>);
 	};
 
-	export let createMutations = async <
+	export let apply = async <
+		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
+	>(
+		args: Array<tg.MaybeMutationMap<T>>,
+		rules?: Rules<T>,
+	): Promise<T> => {
+		let mutations = await createMutations(args, rules);
+		let arg = await mutations.reduce(
+			async (map, mutations) => {
+				if (mutations === undefined) {
+					return Promise.resolve({}) as Promise<T>;
+				}
+				for (let [key, mutation] of Object.entries(mutations)) {
+					if (!(mutation instanceof tg.Mutation)) {
+						((await map) as Record<string, tg.Value>)[key] = mutation;
+					} else {
+						await mutation.apply(await map, key);
+					}
+				}
+				return map;
+			},
+			Promise.resolve({}) as Promise<T>,
+		);
+		return arg;
+	};
+
+	let createMutations = async <
 		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
 		R extends { [key: string]: tg.Value } = T,
 	>(
@@ -63,6 +89,9 @@ export namespace Args {
 										typeof value === "string",
 								);
 								object[key] = await tg.Mutation.suffix(value);
+								break;
+							case "merge":
+								object[key] = await tg.Mutation.merge(value);
 								break;
 							default:
 								return tg.unreachable(`unknown mutation kind "${mutation}"`);

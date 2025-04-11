@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { flatten } from "./util.ts";
 
 export let graph = async (...args: tg.Args<Graph.Arg>): Promise<Graph> => {
 	return await Graph.new(...args);
@@ -61,10 +60,9 @@ export class Graph {
 
 	static async arg(...args: tg.Args<Graph.Arg>): Promise<Graph.ArgObject> {
 		let resolved = await Promise.all(args.map(tg.resolve));
-		let flattened = flatten(resolved);
 		let nodes = [];
 		let offset = 0;
-		for (let arg of flattened) {
+		for (let arg of resolved) {
 			let argNodes = arg instanceof Graph ? await arg.nodes() : arg.nodes || [];
 			for (let argNode of argNodes) {
 				if (argNode.kind === "directory") {

@@ -276,7 +276,11 @@ impl Cli {
 			env.extend(std::env::vars().map(|(key, value)| (key, value.into())));
 		}
 		for (key, value) in command_env.into_iter().flatten() {
-			tg::mutation::mutate(&mut env, key, value)?;
+			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
+				mutation.apply(&mut env, &key)?;
+			} else {
+				env.insert(key, value);
+			}
 		}
 		for string in options.env.into_iter().flatten() {
 			let map = string
@@ -284,7 +288,11 @@ impl Cli {
 				.try_unwrap_map()
 				.map_err(|_| tg::error!("expected a map"))?;
 			for (key, value) in map {
-				tg::mutation::mutate(&mut env, key, value)?;
+				if let Ok(mutation) = value.try_unwrap_mutation_ref() {
+					mutation.apply(&mut env, &key)?;
+				} else {
+					env.insert(key, value);
+				}
 			}
 		}
 		if !env.contains_key("TANGRAM_HOST") {

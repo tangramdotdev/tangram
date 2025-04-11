@@ -635,6 +635,10 @@ where
 				}
 				self.map_entry("template", |s| s.template(template))?;
 			},
+			tg::Mutation::Merge { value } => {
+				self.map_entry("kind", |s| s.string("merge"))?;
+				self.map_entry("value", |s| s.map(value))?;
+			},
 		}
 		self.finish_map()?;
 		write!(self.writer, ")")?;

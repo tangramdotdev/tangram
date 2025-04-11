@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { flatten, mergeMaybeMutationMaps } from "./util.ts";
 
 export let file = async (...args: tg.Args<File.Arg>) => {
 	return await File.new(...args);
@@ -45,9 +44,8 @@ export class File {
 		if (resolved.some((arg) => typeof arg === "object" && "graph" in arg)) {
 			throw new Error("only a single graph arg is supported");
 		}
-		let flattened = flatten(resolved);
 		let objects = await Promise.all(
-			flattened.map(async (arg) => {
+			resolved.map(async (arg) => {
 				if (arg === undefined) {
 					return {};
 				} else if (
@@ -66,24 +64,10 @@ export class File {
 				}
 			}),
 		);
-		let mutations = await tg.Args.createMutations(objects, {
+		let arg = await tg.Args.apply(objects, {
 			contents: "append",
-			dependencies: "append",
+			dependencies: "merge",
 		});
-		let arg = await mergeMaybeMutationMaps(mutations);
-		if (arg.dependencies !== undefined) {
-			let dependencies: { [reference: tg.Reference]: tg.Referent<tg.Object> } =
-				{};
-			let allDependencies = arg.dependencies as Array<{
-				[reference: tg.Reference]: tg.Referent<tg.Object>;
-			}>;
-			for (let dependencyMap of allDependencies) {
-				for (let [reference, dependency] of Object.entries(dependencyMap)) {
-					dependencies = { ...dependencies, [reference]: dependency };
-				}
-			}
-			arg.dependencies = dependencies;
-		}
 		return arg;
 	}
 
