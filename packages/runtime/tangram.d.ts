@@ -1003,12 +1003,8 @@ declare namespace tg {
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
 	): RunBuilder;
-	
-	export function $(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value>;
-	export function $(
-		strings: TemplateStringsArray,
-		...placeholders: tg.Args<tg.Template.Arg>
-	): RunBuilder;
+
+	export let $: typeof run;
 
 	/** The current process. */
 	export let process: tg.Process;
