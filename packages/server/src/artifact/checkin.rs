@@ -859,9 +859,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_check_in_artifact_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

@@ -1,12 +1,11 @@
 use super::{Options, signal::handle_sigwinch};
 use crate::Cli;
-use futures::{StreamExt as _, future, stream};
 use std::{
 	io::IsTerminal as _,
 	mem::MaybeUninit,
 	os::fd::{AsRawFd as _, RawFd},
 };
-use tangram_client::{self as tg, Handle};
+use tangram_client as tg;
 
 pub struct Stdio {
 	pub termios: Option<(RawFd, libc::termios)>,
@@ -42,9 +41,9 @@ impl Cli {
 		// Open stdin.
 		let (termios, stdin) = if std::io::stdin().is_terminal() {
 			let fd = std::io::stdin().as_raw_fd();
-			let (termios, window_size) = get_termios_and_window_size(fd)
-				.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
-			let stdin = create(&handle, remote.clone(), Some(window_size)).await?;
+			let (termios, size) = get_termios_and_size(fd)
+				.map_err(|source| tg::error!(!source, "failed to get tty size"))?;
+			let stdin = create(&handle, remote.clone(), Some(size)).await?;
 			tokio::spawn({
 				let pipe = stdin.clone();
 				let handle = handle.clone();
@@ -67,9 +66,9 @@ impl Cli {
 			},
 			(None, true) => {
 				let fd = std::io::stdout().as_raw_fd();
-				let (termios, window_size) = get_termios_and_window_size(fd)
-					.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
-				let stdout = create(&handle, remote.clone(), Some(window_size)).await?;
+				let (termios, size) = get_termios_and_size(fd)
+					.map_err(|source| tg::error!(!source, "failed to get tty size"))?;
+				let stdout = create(&handle, remote.clone(), Some(size)).await?;
 				tokio::spawn({
 					let pipe = stdout.clone();
 					let handle = handle.clone();
@@ -94,9 +93,9 @@ impl Cli {
 			},
 			(None, true) => {
 				let fd = std::io::stderr().as_raw_fd();
-				let (termios, window_size) = get_termios_and_window_size(fd)
-					.map_err(|source| tg::error!(!source, "failed to get terminal size"))?;
-				let stderr = create(&handle, remote.clone(), Some(window_size)).await?;
+				let (termios, size) = get_termios_and_size(fd)
+					.map_err(|source| tg::error!(!source, "failed to get tty size"))?;
+				let stderr = create(&handle, remote.clone(), Some(size)).await?;
 				tokio::spawn({
 					let pipe = stderr.clone();
 					let handle = handle.clone();
@@ -121,45 +120,18 @@ impl Cli {
 			stderr,
 		})
 	}
-
-	pub(super) async fn close_stdio(&mut self, stdio: &Stdio) -> tg::Result<()> {
-		let handle = self.handle().await?;
-		for io in [&stdio.stdin, &stdio.stdout, &stdio.stderr] {
-			match io {
-				tg::process::Stdio::Pipe(pipe) => {
-					let arg = tg::pipe::write::Arg {
-						remote: stdio.remote.clone(),
-					};
-					let stream = stream::once(future::ok(tg::pipe::Event::End)).boxed();
-					handle.write_pipe(pipe, arg, stream).await.ok();
-				},
-				tg::process::Stdio::Pty(pty) => {
-					let arg = tg::pty::write::Arg {
-						remote: stdio.remote.clone(),
-						master: true,
-					};
-					let stream = stream::once(future::ok(tg::pty::Event::End)).boxed();
-					handle.write_pty(pty, arg, stream).await.ok();
-				},
-			}
-		}
-		Ok(())
-	}
 }
 
 async fn create<H>(
 	handle: &H,
 	remote: Option<String>,
-	window_size: Option<tg::pty::Size>,
+	size: Option<tg::pty::Size>,
 ) -> tg::Result<tg::process::Stdio>
 where
 	H: tg::Handle,
 {
-	if let Some(window_size) = window_size {
-		let arg = tg::pty::create::Arg {
-			remote,
-			window_size,
-		};
+	if let Some(size) = size {
+		let arg = tg::pty::create::Arg { remote, size };
 		let output = handle
 			.create_pty(arg)
 			.await
@@ -175,7 +147,7 @@ where
 	}
 }
 
-fn get_termios_and_window_size(fd: RawFd) -> std::io::Result<(libc::termios, tg::pty::Size)> {
+fn get_termios_and_size(fd: RawFd) -> std::io::Result<(libc::termios, tg::pty::Size)> {
 	unsafe {
 		// Get the termios.
 		let mut termios = MaybeUninit::zeroed();
@@ -209,11 +181,36 @@ impl Stdio {
 				termios.c_oflag &= !(libc::OPOST);
 				if libc::tcsetattr(fd, libc::TCSADRAIN, std::ptr::addr_of!(termios)) != 0 {
 					let source = std::io::Error::last_os_error();
-					return Err(tg::error!(!source, "failed to set terminal to raw mode"));
+					return Err(tg::error!(!source, "failed to set the tty to raw mode"));
 				}
 			}
 		}
 		Ok(())
+	}
+
+	pub(super) fn close(&self, handle: &impl tg::Handle) -> impl Future<Output = tg::Result<()>> + Send + 'static {
+		let handle = handle.clone();
+		let remote = self.remote.clone();
+		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
+		async move {
+			for io in io {
+				match io {
+					tg::process::Stdio::Pipe(pipe) => {
+						let arg = tg::pipe::delete::Arg {
+							remote: remote.clone(),
+						};
+						handle.delete_pipe(&pipe, arg).await.ok();
+					},
+					tg::process::Stdio::Pty(pty) => {
+						let arg = tg::pty::delete::Arg {
+							remote: remote.clone(),
+						};
+						handle.delete_pty(&pty, arg).await.ok();
+					},
+				}
+			}
+			Ok(())
+		}
 	}
 }
 

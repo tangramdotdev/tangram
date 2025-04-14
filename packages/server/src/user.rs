@@ -34,9 +34,7 @@ impl Server {
 
 		Ok(user)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_get_user_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

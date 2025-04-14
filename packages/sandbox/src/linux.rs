@@ -281,9 +281,11 @@ pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 	let status = child.socket.read_i32_le().await?;
 	if libc::WIFEXITED(status) {
 		let code = libc::WEXITSTATUS(status);
+		let code = code.to_u8().unwrap();
 		Ok(ExitStatus::Code(code))
 	} else if libc::WIFSIGNALED(status) {
 		let signal = libc::WTERMSIG(status);
+		let signal = signal.to_u8().unwrap();
 		Ok(ExitStatus::Signal(signal))
 	} else {
 		Err(std::io::Error::other(

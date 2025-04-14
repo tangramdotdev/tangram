@@ -266,10 +266,10 @@ impl Runtime {
 		});
 
 		// Wait for the process to complete.
-		let result = child.wait().await;
-		let exit = match result.map_err(
+		let exit = child.wait().await.map_err(
 			|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"),
-		)? {
+		)?;
+		let exit = match exit {
 			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
 			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
 		};

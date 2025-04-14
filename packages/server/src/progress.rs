@@ -143,9 +143,9 @@ impl<T> Handle<T> {
 		let updates = IntervalStream::new(interval)
 			.skip(1)
 			.flat_map(move |_| stream::iter(Self::get_indicator_update_events(&indicators)));
-		stream::select(receiver, updates).take_while_inclusive(|event| {
+		stream::select(receiver, updates).take_while_inclusive(|result| {
 			future::ready(!matches!(
-				event,
+				result,
 				Ok(tg::progress::Event::Output(_)) | Err(_)
 			))
 		})

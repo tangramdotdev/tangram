@@ -113,9 +113,7 @@ impl Server {
 
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_format_package_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

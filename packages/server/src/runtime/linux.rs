@@ -71,12 +71,7 @@ impl Runtime {
 		let output_path = temp.path().join("output");
 		let mut root_path = temp.path().join("root");
 		let mut mounts = Vec::with_capacity(
-			state.mounts.len()
-				+ command
-					.mounts
-					.as_ref()
-					.map(|mounts| mounts.len())
-					.unwrap_or_default(),
+			state.mounts.len() + command.mounts.as_ref().map(Vec::len).unwrap_or_default(),
 		);
 
 		// Create the output directory.
@@ -111,7 +106,7 @@ impl Runtime {
 							.find(|overlay| overlay.merged == mount.target)
 						{
 							break 'a overlay;
-						};
+						}
 						let upperdir = temp.path().join("upper").join(overlays.len().to_string());
 						let workdir = temp.path().join("work").join(overlays.len().to_string());
 						tokio::fs::create_dir_all(&upperdir).await.ok();
@@ -191,7 +186,7 @@ impl Runtime {
 					.find(|overlay| overlay.merged == Path::new("/"))
 				{
 					break 'a overlay;
-				};
+				}
 				let upperdir = temp.path().join("upper").join(overlays.len().to_string());
 				let workdir = temp.path().join("work").join(overlays.len().to_string());
 				tokio::fs::create_dir_all(&upperdir).await.ok();

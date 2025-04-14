@@ -99,8 +99,8 @@ pub struct Tty {
 
 #[derive(Debug)]
 pub enum ExitStatus {
-	Code(i32),
-	Signal(i32),
+	Code(u8),
+	Signal(u8),
 }
 
 impl Command {

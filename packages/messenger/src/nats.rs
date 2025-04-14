@@ -1,7 +1,7 @@
-use crate::{Acker, Message, StreamInfo};
+use crate::{Acker, Message, PublishFuture, Published, StreamInfo};
 use async_nats as nats;
 use bytes::Bytes;
-use futures::prelude::*;
+use futures::{FutureExt, TryFutureExt, prelude::*};
 
 pub struct Messenger {
 	pub client: nats::Client,
@@ -41,7 +41,7 @@ impl Messenger {
 		Ok(())
 	}
 
-	async fn destroy_stream(&self, name: String) -> Result<(), Error> {
+	async fn delete_stream(&self, name: String) -> Result<(), Error> {
 		self.jetstream
 			.delete_stream(name)
 			.await
@@ -52,7 +52,7 @@ impl Messenger {
 	async fn stream_subscribe(
 		&self,
 		name: String,
-		consumer_name: Option<String>,
+		consumer: Option<String>,
 	) -> Result<impl Stream<Item = Result<Message, Error>> + 'static + Send, Error> {
 		let stream = self
 			.jetstream
@@ -62,7 +62,7 @@ impl Messenger {
 
 		// Create a consumer.
 		let consumer_config = async_nats::jetstream::consumer::pull::Config {
-			durable_name: consumer_name,
+			durable_name: consumer,
 			..Default::default()
 		};
 
@@ -90,12 +90,26 @@ impl Messenger {
 		Ok(stream)
 	}
 
-	async fn stream_publish(&self, name: String, payload: Bytes) -> Result<(), Error> {
-		self.jetstream
+	async fn stream_publish(
+		&self,
+		name: String,
+		payload: Bytes,
+	) -> Result<PublishFuture<Error>, Error> {
+		let future = self
+			.jetstream
 			.publish(name, payload)
 			.await
 			.map_err(Error::PublishStream)?;
-		Ok(())
+		let inner = async move {
+			future
+				.await
+				.map(|ack| Published {
+					sequence: ack.sequence,
+				})
+				.map_err(Error::PublishStream)
+		}
+		.boxed();
+		Ok(PublishFuture { inner })
 	}
 
 	async fn stream_info(&self, name: String) -> Result<StreamInfo, Error> {
@@ -166,29 +180,29 @@ impl crate::Messenger for Messenger {
 		self.create_stream(name)
 	}
 
-	fn destroy_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
-		self.destroy_stream(name)
+	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
+		self.delete_stream(name)
 	}
 
 	fn stream_publish(
 		&self,
 		name: String,
 		payload: bytes::Bytes,
-	) -> impl Future<Output = Result<(), Self::Error>> + Send {
+	) -> impl Future<Output = Result<PublishFuture<Self::Error>, Self::Error>> + Send {
 		self.stream_publish(name, payload)
 	}
 
 	fn stream_subscribe(
 		&self,
 		name: String,
-		consumer_name: Option<String>,
+		consumer: Option<String>,
 	) -> impl Future<
 		Output = Result<
 			impl Stream<Item = Result<Message, Self::Error>> + Send + 'static,
 			Self::Error,
 		>,
 	> + Send {
-		self.stream_subscribe(name, consumer_name)
+		self.stream_subscribe(name, consumer)
 	}
 
 	fn stream_info(

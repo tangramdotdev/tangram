@@ -1,5 +1,4 @@
 use crate::Server;
-use bytes::Bytes;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};
@@ -14,23 +13,47 @@ impl Server {
 	) -> tg::Result<()> {
 		if let Some(remote) = arg.remote {
 			let remote = self.get_remote_client(remote).await?;
-			return remote
-				.delete_pipe(id, tg::pipe::delete::Arg::default())
-				.await;
+			let arg = tg::pipe::delete::Arg::default();
+			remote.delete_pipe(id, arg).await?;
+			return Ok(());
 		}
 
-		// Send a notification that this pipe is going to be deleted.
-		self.messenger
-			.publish(format!("pipes.{id}.deleted"), Bytes::new())
+		// Send the end message and wait for acknowledgement.
+		let sequence_number = self
+			.write_pipe_event(id, tg::pipe::Event::End)
+			.await?
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send pipe delete notification"))?;
+			.map_err(|source| tg::error!(!source, "failed to delete pipe stream"))?
+			.sequence;
 
-		// Remove the pipe from the database.
+		// Poll the stream until the end message has been acknowledged by all consumers.
+		let timeout = std::time::Duration::from_secs(10);
+		let duration = std::time::Duration::from_millis(50);
+		tokio::time::timeout(timeout, async {
+			loop {
+				let Ok(info) = self
+					.messenger
+					.stream_info(id.to_string())
+					.await
+					.inspect_err(|error| tracing::error!(?error, "failed to get stream info"))
+				else {
+					break;
+				};
+				if info.last_sequence >= sequence_number {
+					break;
+				}
+				tokio::time::sleep(duration).await;
+			}
+		})
+		.await
+		.ok();
+
+		// Delete the pipe from the database.
 		let connection = self
 			.database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to acquire a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -45,17 +68,16 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to delete the pipe"))?;
 		drop(connection);
 
-		// Delete the pipe.
+		// Delete the stream.
+		let name = id.to_string();
 		self.messenger
-			.destroy_stream(id.to_string())
+			.delete_stream(name)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to destroy the stream"))?;
+			.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
 
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_delete_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

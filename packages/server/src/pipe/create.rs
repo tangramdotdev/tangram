@@ -19,7 +19,13 @@ impl Server {
 		// Create the pipe ID.
 		let id = tg::pipe::Id::new();
 
-		// Insert the pipe.
+		// Create the stream.
+		self.messenger
+			.create_stream(id.to_string())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the stream"))?;
+
+		// Insert the pipe into the database.
 		let connection = self
 			.database
 			.write_connection()
@@ -39,18 +45,11 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		self.messenger
-			.create_stream(id.to_string())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the pipe"))?;
-
 		let output = tg::pipe::create::Output { id };
 
 		Ok(output)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_create_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

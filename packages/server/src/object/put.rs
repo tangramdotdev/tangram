@@ -56,9 +56,7 @@ impl Server {
 
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_put_object_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

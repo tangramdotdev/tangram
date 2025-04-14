@@ -30,9 +30,7 @@ impl Server {
 
 		Ok(output)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_document_package_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

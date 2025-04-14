@@ -208,9 +208,7 @@ impl Server {
 
 		Ok(Some(buffer.into()))
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_get_object_request<H>(
 		handle: &H,
 		_request: http::Request<Body>,

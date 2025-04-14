@@ -564,10 +564,7 @@ mod tests {
 				+ chunks.last().unwrap().bytes.len().to_u64().unwrap(),
 		};
 		let lines = scroll.read_lines(&chunks).unwrap();
-		assert_eq!(
-			&lines,
-			&["1——👍👌👉👈——", "2——👍👌👉👈——", "3——👍👌👉👈——",]
-		);
+		assert_eq!(&lines, &["1——👍👌👉👈——", "2——👍👌👉👈——", "3——👍👌👉👈——"]);
 
 		// Tailing case.
 		let chunks = vec![

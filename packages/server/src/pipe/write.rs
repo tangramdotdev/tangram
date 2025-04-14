@@ -18,19 +18,17 @@ impl Server {
 			return remote.write_pipe(id, arg, stream.boxed()).await;
 		}
 
-		let deleted = self.pipe_deleted(id.clone());
-		let mut stream = pin!(stream.take_until(deleted));
+		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			if let Err(error) = self.send_pipe_event(id, event).await {
-				tracing::error!(?error, %id, "failed to write pipe");
+			if matches!(event, tg::pipe::Event::End) {
 				break;
 			}
+			self.write_pipe_event(id, event).await?;
 		}
+
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_write_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
@@ -86,7 +84,6 @@ impl Server {
 			.take_until(stop)
 			.boxed();
 
-		// Send the stream.
 		handle.write_pipe(&id, arg, stream).await?;
 
 		// Create the response.

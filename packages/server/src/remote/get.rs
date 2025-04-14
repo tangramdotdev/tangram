@@ -11,7 +11,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		#[derive(Debug, serde::Deserialize)]
 		struct Row {
 			name: String,
@@ -36,9 +36,7 @@ impl Server {
 		});
 		Ok(output)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_get_remote_request<H>(
 		handle: &H,
 		_request: http::Request<Body>,

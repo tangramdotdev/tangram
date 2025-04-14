@@ -28,9 +28,7 @@ impl Server {
 		self.remotes.remove(name);
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_put_remote_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

@@ -3,7 +3,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger;
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub async fn put_tag(&self, tag: &tg::Tag, mut arg: tg::tag::put::Arg) -> tg::Result<()> {
@@ -22,7 +22,7 @@ impl Server {
 			.database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Insert the tag.
 		let p = connection.p();
@@ -53,9 +53,7 @@ impl Server {
 
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_put_tag_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

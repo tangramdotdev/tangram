@@ -1,6 +1,5 @@
-use crate::{self as tg, Client};
-use futures::{Stream, TryStreamExt as _};
-use http_body_util::{BodyExt as _, BodyStream};
+use crate as tg;
+use futures::{Stream, TryStreamExt as _, future};
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -11,38 +10,19 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
-impl Client {
-	pub async fn get_pty_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: Arg,
-	) -> tg::Result<Option<tg::pty::Size>> {
-		let method = http::Method::GET;
-		let uri = format!("/ptys/{id}/window");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.json(arg)
-			.unwrap();
-		self.send(request)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the response"))?
-			.json()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))
-	}
-
+impl tg::Client {
 	pub async fn read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/ptys/{id}?{query}");
+		let uri = format!("/ptys/{id}/read?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.empty()
 			.unwrap();
 		let response = self.send(request).await?;
@@ -56,48 +36,83 @@ impl Client {
 				.map_err(|source| tg::error!(!source, "failed to parse error"))?;
 			return Err(error);
 		}
-		let body = response
-			.into_body()
-			.map_err(|source| tg::error!(!source, "failed to read the body"));
-		let stream = BodyStream::new(body).and_then(|frame| async {
-			match frame.into_data() {
-				Ok(bytes) => Ok(tg::pty::Event::Chunk(bytes)),
-				Err(frame) => {
-					let trailers = frame.into_trailers().unwrap();
-					let event = trailers
-						.get("x-tg-event")
-						.ok_or_else(|| tg::error!("missing event"))?
-						.to_str()
-						.map_err(|source| tg::error!(!source, "invalid event"))?;
-					match event {
-						"size" => {
-							let data = trailers
-								.get("x-tg-data")
-								.ok_or_else(|| tg::error!("missing data"))?
-								.to_str()
-								.map_err(|source| tg::error!(!source, "invalid data"))?;
-							let size = serde_json::from_str(data).map_err(|source| {
-								tg::error!(!source, "failed to deserialize the header value")
-							})?;
-							Ok(tg::pty::Event::Size(size))
-						},
-						"end" => Ok(tg::pty::Event::End),
-						"error" => {
-							let data = trailers
-								.get("x-tg-data")
-								.ok_or_else(|| tg::error!("missing data"))?
-								.to_str()
-								.map_err(|source| tg::error!(!source, "invalid data"))?;
-							let error = serde_json::from_str(data).map_err(|source| {
-								tg::error!(!source, "failed to deserialize the header value")
-							})?;
-							Err(error)
-						},
-						_ => Err(tg::error!("invalid event")),
-					}
-				},
-			}
-		});
+		let content_type = response
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()?;
+		if !matches!(
+			content_type
+				.as_ref()
+				.map(|content_type| (content_type.type_(), content_type.subtype())),
+			Some((mime::TEXT, mime::EVENT_STREAM)),
+		) {
+			return Err(tg::error!(?content_type, "invalid content type"));
+		}
+		let stream = response
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			});
 		Ok(stream)
+	}
+}
+
+impl TryFrom<tg::pty::Event> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: tg::pty::Event) -> Result<Self, Self::Error> {
+		let event = match value {
+			tg::pty::Event::Chunk(bytes) => {
+				let data = data_encoding::BASE64.encode(&bytes);
+				tangram_http::sse::Event {
+					data,
+					..Default::default()
+				}
+			},
+			tg::pty::Event::Size(size) => {
+				let data = serde_json::to_string(&size)
+					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+				tangram_http::sse::Event {
+					event: Some("size".to_owned()),
+					data,
+					..Default::default()
+				}
+			},
+			tg::pty::Event::End => tangram_http::sse::Event {
+				event: Some("end".to_owned()),
+				..Default::default()
+			},
+		};
+		Ok(event)
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for tg::pty::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
+		match value.event.as_deref() {
+			None => {
+				let bytes = data_encoding::BASE64
+					.decode(value.data.as_bytes())
+					.map_err(|error| tg::error!(!error, "failed to decode the bytes"))?;
+				Ok(Self::Chunk(bytes.into()))
+			},
+			Some("size") => {
+				let size = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+				Ok(Self::Size(size))
+			},
+			Some("end") => Ok(Self::End),
+			_ => Err(tg::error!("invalid event")),
+		}
 	}
 }

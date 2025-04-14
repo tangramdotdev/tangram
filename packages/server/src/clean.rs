@@ -7,6 +7,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -334,7 +335,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Delete processes from the database.
+		// Delete processes.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -392,40 +393,53 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id from pipes
-				where closed = 1 or created_at < {p}1
-				limit {p}2;
+				delete from pipes
+				where id in (
+					select id from pipes
+					where created_at <= {p}1
+					limit {p}2
+				)
+				returning id;
 			"
 		);
 		let params = db::params![max_created_at, batch_size];
 		let pipes = connection
 			.query_all_value_into::<tg::pipe::Id>(statement.clone().into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the pipes"))?;
+			.map_err(|source| tg::error!(!source, "failed to delete the pipes"))?;
 
 		let statement = formatdoc!(
 			"
-				select id from ptys
-				where closed = 1 or created_at < {p}1
-				limit {p}2;
+				delete from ptys
+				where id in (
+					select id from ptys
+					where created_at <= {p}1
+					limit {p}2
+				)
+				returning id;
 			"
 		);
 		let params = db::params![max_created_at, batch_size];
 		let ptys = connection
 			.query_all_value_into::<tg::pty::Id>(statement.clone().into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the ptys "))?;
+			.map_err(|source| tg::error!(!source, "failed to delete the ptys"))?;
+
+		// Drop the database connection.
 		drop(connection);
 
 		for id in &pipes {
-			self.delete_pipe(id, tg::pipe::delete::Arg::default())
+			self.messenger
+				.delete_stream(id.to_string())
 				.await
-				.ok();
+				.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
 		}
+
 		for id in &ptys {
-			self.delete_pty(id, tg::pty::delete::Arg::default())
+			self.messenger
+				.delete_stream(id.to_string())
 				.await
-				.ok();
+				.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
 		}
 
 		let output = InnerOutput {
@@ -438,9 +452,7 @@ impl Server {
 
 		Ok(output)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_server_clean_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

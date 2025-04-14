@@ -11,9 +11,7 @@ impl Server {
 		let remote = self.get_remote_client(arg.remote.clone()).await?;
 		Self::push_or_pull(&remote, self, &arg).await
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_pull_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

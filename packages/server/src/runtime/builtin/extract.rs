@@ -61,12 +61,9 @@ impl Runtime {
 						remote: process.remote().cloned(),
 						stream: tg::process::log::Stream::Stderr,
 					};
-					if !server
-						.try_post_process_log(process.id(), arg)
-						.await
-						.map_or(true, |ok| ok.added)
-					{
-						break;
+					let result = server.try_post_process_log(process.id(), arg).await;
+					if let Err(error) = result {
+						tracing::error!(?error, "failed to post process log");
 					}
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				}

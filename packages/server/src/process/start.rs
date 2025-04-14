@@ -79,9 +79,7 @@ impl Server {
 
 		Ok(tg::process::start::Output { started })
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_start_process_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

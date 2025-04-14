@@ -71,9 +71,7 @@ impl Server {
 
 		Ok(None)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_dequeue_process_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

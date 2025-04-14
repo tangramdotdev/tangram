@@ -430,7 +430,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.try_post_process_log(id, arg).left_future(),
 			Either::Right(s) => s.try_post_process_log(id, arg).right_future(),

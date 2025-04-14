@@ -41,9 +41,7 @@ impl Server {
 		};
 		Ok(Some(future))
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_post_process_wait_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

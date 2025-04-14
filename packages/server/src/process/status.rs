@@ -179,9 +179,7 @@ impl Server {
 			.chain(stream::once(future::ok(tg::process::status::Event::End)));
 		Ok(Some(stream))
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_get_process_status_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

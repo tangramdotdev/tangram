@@ -56,9 +56,7 @@ impl Server {
 
 		Ok(output)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_heartbeat_process_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

@@ -152,20 +152,20 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed await the process"));
 
-		// Close stdio.
-		self.close_stdio(&stdio).await?;
+		// Close stdio, but defer waiting for the future to resolve until after stdio has been drained.
+		let close_future = stdio.close(&handle);
+		let close_task = tokio::spawn(close_future);
 
 		// Stop and await the stdio task.
 		stdio_task.await.unwrap()?;
+		drop(stdio);
+		close_task.await.ok();
 
 		// Abort the cancel task.
 		cancel_task.abort();
 
 		// Abort the signal task.
 		signal_task.abort();
-
-		// Restore termios.
-		drop(stdio);
 
 		// Handle the result.
 		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
@@ -192,15 +192,11 @@ impl Cli {
 			}
 		}
 
-		// Set the exit code.
-		let code = match wait.exit {
-			Some(tg::process::Exit::Code { code }) => code,
-			Some(tg::process::Exit::Signal { signal }) => 128 + signal,
-			None => {
-				return Err(tg::error!("expected the exit to be set"));
-			},
-		};
-		self.exit_code.replace(code);
+		// Set the exit.
+		let exit = wait
+			.exit
+			.ok_or_else(|| tg::error!("expected the exit to be set"))?;
+		self.exit.replace(exit);
 
 		Ok(())
 	}
@@ -244,7 +240,9 @@ where
 						master: true,
 						remote,
 					};
-					handle.write_pty(&id, arg, stream).await?;
+					handle
+						.write_pty(&id, arg, stream)
+						.await?;
 				},
 			}
 			Ok::<_, tg::Error>(())
@@ -308,7 +306,7 @@ fn stdin_stream() -> impl Stream<Item = tg::Result<Bytes>> + Send + 'static {
 				},
 				Err(source) => Err(tg::error!(!source, "failed to read stdin")),
 			};
-			if let Err(_error) = send.blocking_send(result) {
+			if send.blocking_send(result).is_err() {
 				break;
 			}
 		}

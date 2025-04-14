@@ -40,9 +40,7 @@ impl Server {
 
 		Ok(Some(stream))
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_get_process_signal_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

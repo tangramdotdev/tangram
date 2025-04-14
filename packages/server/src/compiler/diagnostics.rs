@@ -1,10 +1,9 @@
 use super::Compiler;
-use futures::{TryStreamExt as _, stream};
+use futures::{StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools as _;
 use lsp_types as lsp;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tokio_stream::StreamExt as _;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

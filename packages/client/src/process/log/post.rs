@@ -15,23 +15,14 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub added: bool,
-}
-
 impl tg::Process {
-	pub async fn post_log<H>(
-		&self,
-		handle: &H,
-		arg: tg::process::log::post::Arg,
-	) -> tg::Result<bool>
+	pub async fn post_log<H>(&self, handle: &H, arg: tg::process::log::post::Arg) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
 		let id = self.id();
-		let output = handle.try_post_process_log(id, arg).await?;
-		Ok(output.added)
+		handle.try_post_process_log(id, arg).await?;
+		Ok(())
 	}
 }
 
@@ -40,7 +31,7 @@ impl tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
-	) -> tg::Result<Output> {
+	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/processes/{id}/log");
 		let request = http::request::Builder::default()
@@ -57,7 +48,6 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.json().await?;
-		Ok(output)
+		Ok(())
 	}
 }

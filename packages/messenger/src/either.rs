@@ -1,4 +1,4 @@
-use crate::{Message, Messenger};
+use crate::{Message, Messenger, PublishFuture};
 use futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
 use tangram_either::Either;
 
@@ -55,7 +55,7 @@ where
 		}
 	}
 
-	fn destroy_stream(&self, subject: String) -> impl Future<Output = Result<(), Self::Error>> {
+	fn delete_stream(&self, subject: String) -> impl Future<Output = Result<(), Self::Error>> {
 		match self {
 			Either::Left(s) => s.create_stream(subject).map_err(Either::Left).left_future(),
 			Either::Right(s) => s
@@ -69,15 +69,27 @@ where
 		&self,
 		subject: String,
 		message: bytes::Bytes,
-	) -> impl Future<Output = Result<(), Self::Error>> {
+	) -> impl Future<Output = Result<PublishFuture<Self::Error>, Self::Error>> {
 		match self {
 			Either::Left(s) => s
 				.stream_publish(subject, message)
 				.map_err(Either::Left)
+				.map(|future| {
+					future.map(|inner| {
+						let inner = inner.map_err(Either::Left).boxed();
+						PublishFuture { inner }
+					})
+				})
 				.left_future(),
 			Either::Right(s) => s
 				.stream_publish(subject, message)
 				.map_err(Either::Right)
+				.map(|future| {
+					future.map(|inner| {
+						let inner = inner.map_err(Either::Right).boxed();
+						PublishFuture { inner }
+					})
+				})
 				.right_future(),
 		}
 	}
@@ -85,18 +97,18 @@ where
 	fn stream_subscribe(
 		&self,
 		subject: String,
-		consumer_name: Option<String>,
+		consumer: Option<String>,
 	) -> impl Future<
 		Output = Result<impl Stream<Item = Result<Message, Self::Error>> + 'static, Self::Error>,
 	> {
 		match self {
 			Either::Left(s) => s
-				.stream_subscribe(subject, consumer_name)
+				.stream_subscribe(subject, consumer)
 				.map_ok(|s| s.map_err(Either::Left).left_stream())
 				.map_err(Either::Left)
 				.left_future(),
 			Either::Right(s) => s
-				.stream_subscribe(subject, consumer_name)
+				.stream_subscribe(subject, consumer)
 				.map_ok(|s| s.map_err(Either::Right).right_stream())
 				.map_err(Either::Right)
 				.right_future(),

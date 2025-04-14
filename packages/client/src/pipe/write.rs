@@ -1,4 +1,4 @@
-use crate::{self as tg, Client};
+use crate as tg;
 use futures::{Stream, StreamExt as _};
 use std::pin::Pin;
 use tangram_http::{Body, response::Ext as _};
@@ -9,7 +9,7 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
-impl Client {
+impl tg::Client {
 	pub async fn write_pipe(
 		&self,
 		id: &tg::pipe::Id,
@@ -18,7 +18,7 @@ impl Client {
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(arg).unwrap();
-		let uri = format!("/pipes/{id}?{query}");
+		let uri = format!("/pipes/{id}/write?{query}");
 
 		// Create the body.
 		let body = Body::with_stream(stream.map(move |result| {

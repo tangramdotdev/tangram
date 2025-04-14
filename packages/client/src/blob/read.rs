@@ -1,5 +1,5 @@
 use crate::{
-	self as tg, Client,
+	self as tg,
 	handle::Ext as _,
 	util::serde::{BytesBase64, SeekFromString},
 };
@@ -127,7 +127,7 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 	}
 }
 
-impl Client {
+impl tg::Client {
 	pub async fn try_read_blob_stream(
 		&self,
 		id: &tg::blob::Id,

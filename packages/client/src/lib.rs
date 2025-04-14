@@ -888,7 +888,7 @@ impl tg::Handle for Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.try_post_process_log(id, arg)
 	}
 

@@ -1079,9 +1079,7 @@ impl Server {
 			object_weight,
 		})
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_export_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

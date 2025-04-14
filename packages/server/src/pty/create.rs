@@ -3,7 +3,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database, Query, params};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger;
+use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -16,8 +16,16 @@ impl Server {
 			return remote.create_pty(arg).await;
 		}
 
-		// Create the pty data.
 		let id = tg::pty::Id::new();
+
+		// Create the streams.
+		for end in ["master", "slave"] {
+			let name = format!("{id}_{end}");
+			self.messenger
+				.create_stream(name)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the stream"))?;
+		}
 
 		let connection = self
 			.database
@@ -27,30 +35,22 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into ptys (id, created_at, window_size)
+				insert into ptys (id, created_at, size)
 				values ({p}1, {p}2, {p}3);
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = params![id.to_string(), now, db::value::Json(arg.window_size),];
+		let params = params![id.to_string(), now, db::value::Json(arg.size)];
 		connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		for subject in ["master", "slave"] {
-			self.messenger
-				.create_stream(format!("{id}_{subject}"))
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the stream"))?;
-		}
-
 		let output = tg::pty::create::Output { id };
+
 		Ok(output)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_create_pty_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

@@ -390,9 +390,7 @@ impl Server {
 
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_put_process_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

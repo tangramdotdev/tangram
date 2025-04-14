@@ -1,7 +1,7 @@
 use crate::Server;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger;
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub(crate) async fn post_process_signal(
@@ -22,9 +22,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to signal the process"))?;
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_post_process_signal_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

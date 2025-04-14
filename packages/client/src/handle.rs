@@ -220,7 +220,7 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> + Send;
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_finish_process(
 		&self,

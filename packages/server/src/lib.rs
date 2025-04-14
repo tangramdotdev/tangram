@@ -1038,23 +1038,6 @@ impl Server {
 				Self::handle_format_package_request(handle, request).boxed()
 			},
 
-			// Ptys.
-			(http::Method::POST, ["ptys"]) => {
-				Self::handle_create_pty_request(handle, request).boxed()
-			},
-			(http::Method::DELETE, ["ptys", pipe]) => {
-				Self::handle_delete_pty_request(handle, request, pipe).boxed()
-			},
-			(http::Method::GET, ["ptys", pipe, "window"]) => {
-				Self::handle_get_pty_size_request(handle, request, pipe).boxed()
-			},
-			(http::Method::GET, ["ptys", pipe]) => {
-				Self::handle_read_pty_request(handle, request, pipe).boxed()
-			},
-			(http::Method::POST, ["ptys", pipe]) => {
-				Self::handle_write_pty_request(handle, request, pipe).boxed()
-			},
-
 			// Pipes.
 			(http::Method::POST, ["pipes"]) => {
 				Self::handle_create_pipe_request(handle, request).boxed()
@@ -1062,11 +1045,28 @@ impl Server {
 			(http::Method::DELETE, ["pipes", pipe]) => {
 				Self::handle_delete_pipe_request(handle, request, pipe).boxed()
 			},
-			(http::Method::GET, ["pipes", pipe]) => {
+			(http::Method::GET, ["pipes", pipe, "read"]) => {
 				Self::handle_read_pipe_request(handle, request, pipe).boxed()
 			},
-			(http::Method::POST, ["pipes", pipe]) => {
+			(http::Method::POST, ["pipes", pipe, "write"]) => {
 				Self::handle_write_pipe_request(handle, request, pipe).boxed()
+			},
+
+			// Ptys.
+			(http::Method::POST, ["ptys"]) => {
+				Self::handle_create_pty_request(handle, request).boxed()
+			},
+			(http::Method::DELETE, ["ptys", pty]) => {
+				Self::handle_delete_pty_request(handle, request, pty).boxed()
+			},
+			(http::Method::GET, ["ptys", pty, "size"]) => {
+				Self::handle_get_pty_size_request(handle, request, pty).boxed()
+			},
+			(http::Method::GET, ["ptys", pty, "read"]) => {
+				Self::handle_read_pty_request(handle, request, pty).boxed()
+			},
+			(http::Method::POST, ["ptys", pty, "write"]) => {
+				Self::handle_write_pty_request(handle, request, pty).boxed()
 			},
 
 			// Processes.
@@ -1538,7 +1538,7 @@ impl tg::Handle for Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::log::post::Output>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.try_post_process_log(id, arg)
 	}
 

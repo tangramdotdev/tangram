@@ -42,9 +42,7 @@ impl Server {
 		let output = tg::remote::list::Output { data };
 		Ok(output)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_list_remotes_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

@@ -1,15 +1,15 @@
 use crate as tg;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub id: tg::pipe::Id,
-}
-
 #[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub id: tg::pipe::Id,
 }
 
 impl tg::Client {

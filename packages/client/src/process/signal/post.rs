@@ -1,11 +1,12 @@
+use crate as tg;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
-use crate as tg;
-
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arg {
-	pub signal: tg::process::Signal,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	pub signal: tg::process::Signal,
 }
 
 impl tg::Client {
@@ -15,7 +16,6 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.json(arg)
 			.unwrap();
 		let response = self.send(request).await?;

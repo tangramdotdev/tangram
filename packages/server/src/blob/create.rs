@@ -353,9 +353,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_create_blob_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

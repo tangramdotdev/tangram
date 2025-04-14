@@ -1,5 +1,6 @@
 use tangram_cli::Cli;
+use tangram_client as tg;
 
-fn main() -> std::process::ExitCode {
+fn main() -> tg::process::Exit {
 	Cli::main()
 }

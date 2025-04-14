@@ -19,9 +19,7 @@ impl Server {
 		};
 		Ok(Some(output))
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_get_tag_request<H>(
 		handle: &H,
 		_request: http::Request<Body>,

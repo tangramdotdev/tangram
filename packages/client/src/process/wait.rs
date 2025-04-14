@@ -37,19 +37,8 @@ pub struct Wait {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Exit {
-	Code { code: i32 },
-	Signal { signal: i32 },
-}
-
-impl Exit {
-	#[must_use]
-	pub fn failed(&self) -> bool {
-		match self {
-			Self::Code { code } if *code != 0 => true,
-			Self::Signal { .. } => true,
-			Self::Code { .. } => false,
-		}
-	}
+	Code { code: u8 },
+	Signal { signal: u8 },
 }
 
 impl Wait {
@@ -72,6 +61,21 @@ impl Wait {
 			.output
 			.ok_or_else(|| tg::error!("expected the output to be set"))?;
 		Ok(output)
+	}
+}
+
+impl Exit {
+	pub const SUCCESS: Exit = Self::Code { code: 0 };
+
+	pub const FAILURE: Exit = Self::Code { code: 1 };
+
+	#[must_use]
+	pub fn failed(&self) -> bool {
+		match self {
+			Self::Code { code } if *code != 0 => true,
+			Self::Signal { .. } => true,
+			Self::Code { .. } => false,
+		}
 	}
 }
 
@@ -133,6 +137,21 @@ impl tg::Client {
 			})
 		});
 		Ok(Some(future))
+	}
+}
+
+impl Default for Exit {
+	fn default() -> Self {
+		Self::Code { code: 0 }
+	}
+}
+
+impl std::process::Termination for Exit {
+	fn report(self) -> std::process::ExitCode {
+		match self {
+			Exit::Code { code } => code.into(),
+			Exit::Signal { signal } => (signal + 128).into(),
+		}
 	}
 }
 

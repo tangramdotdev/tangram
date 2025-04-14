@@ -389,9 +389,7 @@ impl Server {
 
 		Ok(Some(output))
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_get_process_request<H>(
 		handle: &H,
 		_request: http::Request<Body>,

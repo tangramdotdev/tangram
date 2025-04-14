@@ -13,7 +13,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the process health.
 		#[derive(serde::Deserialize)]
@@ -125,9 +125,7 @@ impl Server {
 			.ok()?;
 		Some(output.name)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_server_health_request<H>(
 		handle: &H,
 		_request: http::Request<Body>,

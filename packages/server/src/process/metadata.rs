@@ -143,9 +143,7 @@ impl Server {
 
 		Ok(Some(metadata))
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_get_process_metadata_request<H>(
 		handle: &H,
 		_request: http::Request<Body>,

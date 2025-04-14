@@ -144,6 +144,67 @@ impl Server {
 		sender.try_send(Ok(tg::blob::read::Event::End)).ok();
 		Ok(())
 	}
+
+	pub(crate) async fn handle_read_blob_request<H>(
+		handle: &H,
+		request: http::Request<Body>,
+		id: &str,
+	) -> tg::Result<http::Response<Body>>
+	where
+		H: tg::Handle,
+	{
+		// Parse the ID.
+		let id = id.parse()?;
+
+		// Get the query.
+		let arg = request.query_params().transpose()?.unwrap_or_default();
+
+		// Get the stream.
+		let Some(stream) = handle.try_read_blob_stream(&id, arg).await? else {
+			return Ok(http::Response::builder().not_found().empty().unwrap());
+		};
+
+		// Stop the stream when the server stops.
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stop = async move { stop.wait().await };
+		let mut stream = stream.take_until(stop).boxed().peekable();
+
+		let mut position = None;
+		if let Some(Ok(tg::blob::read::Event::Chunk(chunk))) =
+			std::pin::Pin::new(&mut stream).peek().await
+		{
+			position.replace(chunk.position);
+		}
+
+		// Create the frame stream.
+		let frames = stream.map(|event| match event {
+			Ok(tg::blob::read::Event::Chunk(chunk)) => {
+				Ok::<_, tg::Error>(hyper::body::Frame::data(chunk.bytes))
+			},
+			Ok(tg::blob::read::Event::End) => {
+				let mut trailers = http::HeaderMap::new();
+				trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
+				Ok(hyper::body::Frame::trailers(trailers))
+			},
+			Err(error) => {
+				let mut trailers = http::HeaderMap::new();
+				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
+				let json = serde_json::to_string(&error).unwrap();
+				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
+				Ok(hyper::body::Frame::trailers(trailers))
+			},
+		});
+		let body = Body::with_stream(frames);
+
+		// Create the response.
+		let mut response = http::Response::builder();
+		if let Some(position) = position {
+			response = response.header("x-tg-position", position);
+		}
+		let response = response.body(body).unwrap();
+
+		Ok(response)
+	}
 }
 
 impl Reader {
@@ -535,68 +596,5 @@ async fn poll_read_inner(
 				return Ok(None);
 			},
 		}
-	}
-}
-
-impl Server {
-	pub(crate) async fn handle_read_blob_request<H>(
-		handle: &H,
-		request: http::Request<Body>,
-		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
-		// Parse the ID.
-		let id = id.parse()?;
-
-		// Get the query.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
-
-		// Get the stream.
-		let Some(stream) = handle.try_read_blob_stream(&id, arg).await? else {
-			return Ok(http::Response::builder().not_found().empty().unwrap());
-		};
-
-		// Stop the stream when the server stops.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
-		let mut stream = stream.take_until(stop).boxed().peekable();
-
-		let mut position = None;
-		if let Some(Ok(tg::blob::read::Event::Chunk(chunk))) =
-			std::pin::Pin::new(&mut stream).peek().await
-		{
-			position.replace(chunk.position);
-		}
-
-		// Create the frame stream.
-		let frames = stream.map(|event| match event {
-			Ok(tg::blob::read::Event::Chunk(chunk)) => {
-				Ok::<_, tg::Error>(hyper::body::Frame::data(chunk.bytes))
-			},
-			Ok(tg::blob::read::Event::End) => {
-				let mut trailers = http::HeaderMap::new();
-				trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
-				Ok(hyper::body::Frame::trailers(trailers))
-			},
-			Err(error) => {
-				let mut trailers = http::HeaderMap::new();
-				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-				let json = serde_json::to_string(&error).unwrap();
-				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-				Ok(hyper::body::Frame::trailers(trailers))
-			},
-		});
-		let body = Body::with_stream(frames);
-
-		// Create the response.
-		let mut response = http::Response::builder();
-		if let Some(position) = position {
-			response = response.header("x-tg-position", position);
-		}
-		let response = response.body(body).unwrap();
-
-		Ok(response)
 	}
 }

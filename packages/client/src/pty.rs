@@ -1,27 +1,21 @@
+use crate::util::serde::BytesBase64;
 use bytes::Bytes;
+use serde_with::serde_as;
 
-pub use self::id::Id;
+pub use self::{id::Id, size::Size};
 
 pub mod create;
 pub mod delete;
 pub mod id;
 pub mod read;
+pub mod size;
 pub mod write;
 
-#[derive(Copy, Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Data {
-	pub size: Size,
-}
-
-#[derive(Copy, Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Size {
-	pub rows: u16,
-	pub cols: u16,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde_as]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 pub enum Event {
-	Chunk(Bytes),
+	Chunk(#[serde_as(as = "BytesBase64")] Bytes),
 	Size(Size),
 	End,
 }

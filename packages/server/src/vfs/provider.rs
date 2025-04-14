@@ -427,7 +427,7 @@ impl Provider {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let statement = formatdoc!(
 			r"
 				create table nodes (

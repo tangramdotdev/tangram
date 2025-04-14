@@ -45,7 +45,7 @@ pub mod test;
 pub struct Cli {
 	args: Args,
 	config: Option<Config>,
-	exit_code: Option<i32>,
+	exit: Option<tg::process::Exit>,
 	handle: Option<Either<Client, Server>>,
 	mode: Mode,
 }
@@ -207,7 +207,7 @@ enum Command {
 
 impl Cli {
 	#[must_use]
-	pub fn main() -> std::process::ExitCode {
+	pub fn main() -> tg::process::Exit {
 		// Parse the args.
 		let args = Args::parse();
 
@@ -217,7 +217,7 @@ impl Cli {
 			Err(error) => {
 				eprintln!("{} failed to read the config", "error".red().bold());
 				Cli::print_error(&error, None);
-				return 1.into();
+				return tg::process::Exit::FAILURE;
 			},
 		};
 
@@ -275,7 +275,7 @@ impl Cli {
 		let mut cli = Cli {
 			args,
 			config,
-			exit_code: None,
+			exit: None,
 			handle: None,
 			mode,
 		};
@@ -311,16 +311,16 @@ impl Cli {
 		drop(runtime);
 
 		// Handle the result.
-		let code = match result {
-			Ok(()) => cli.exit_code.unwrap_or_default().to_u8().unwrap(),
+		let exit = match result {
+			Ok(()) => cli.exit.unwrap_or_default(),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
 				Cli::print_error(&error, cli.config.as_ref());
-				1u8
+				tg::process::Exit::FAILURE
 			},
 		};
 
-		code.into()
+		exit
 	}
 
 	async fn handle(&mut self) -> tg::Result<Either<Client, Server>> {

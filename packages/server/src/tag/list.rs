@@ -48,7 +48,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		#[derive(Clone, Debug, serde::Deserialize)]
 		struct Row {
@@ -104,9 +104,7 @@ impl Server {
 
 		Ok(output)
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_list_tags_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

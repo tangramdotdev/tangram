@@ -812,9 +812,7 @@ impl Server {
 
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_check_out_artifact_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

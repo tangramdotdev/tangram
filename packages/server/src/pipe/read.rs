@@ -1,7 +1,7 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use tangram_client as tg;
-use tangram_futures::task::Stop;
+use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::Messenger as _;
 
@@ -11,37 +11,38 @@ impl Server {
 		id: &tg::pipe::Id,
 		mut arg: tg::pipe::read::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
-		// Forward to a remote if requested.
+		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			let stream = remote.read_pipe(id, arg).await?.boxed();
-			return Ok(stream);
+			let stream = remote.read_pipe(id, arg).await?;
+			return Ok(stream.left_stream());
 		}
 
-		// Create the stream from the messenger.
-		let name = tg::Id::new_uuidv7(tg::id::Kind::Pipe);
+		// Create the stream.
+		let stream = id.to_string();
 		let stream = self
 			.messenger
-			.stream_subscribe(id.to_string(), Some(name.to_string()))
+			.stream_subscribe(stream, None)
 			.await
-			.map_err(|source| tg::error!(!source, "the pipe was closed or does not exist"))?
-			.map_err(|source| tg::error!(!source, "stream error"))
+			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
+			.map_err(|source| tg::error!(!source, "failed to get a message"))
 			.and_then(|message| async move {
-				message.acker.ack().await.ok();
-				serde_json::from_slice::<tg::pipe::Event>(&message.payload)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))
+				message
+					.acker
+					.ack()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
+				let event = serde_json::from_slice::<tg::pipe::Event>(&message.payload)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+				Ok::<_, tg::Error>(event)
 			})
-			.boxed();
+			.take_while_inclusive(|result| {
+				future::ready(!matches!(result, Ok(tg::pipe::Event::End) | Err(_)))
+			});
 
-		let deleted = self
-			.pipe_deleted(id.clone())
-			.inspect_err(|e| tracing::error!(?e, "failed to check if pipe was deleted"));
-
-		Ok(stream.take_until(deleted).boxed())
+		Ok(stream.right_stream())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_read_pipe_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

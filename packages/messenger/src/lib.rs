@@ -1,9 +1,20 @@
 use bytes::Bytes;
-use futures::{FutureExt as _, Stream, future::BoxFuture};
+use futures::{Stream, future::BoxFuture};
 
+pub use self::acker::Acker;
+
+pub mod acker;
 pub mod either;
 pub mod memory;
 pub mod nats;
+
+pub struct PublishFuture<E> {
+	inner: BoxFuture<'static, Result<Published, E>>,
+}
+
+pub struct Published {
+	pub sequence: u64,
+}
 
 pub struct Message {
 	pub subject: String,
@@ -20,13 +31,7 @@ pub struct StreamInfo {
 	pub last_sequence: u64,
 }
 
-pub struct Acker {
-	ack: Option<BoxFuture<'static, Result<(), StdError>>>,
-	acked: bool,
-	retry: Option<BoxFuture<'static, ()>>,
-}
-
-type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub trait Messenger {
 	type Error: std::error::Error + Send + 'static;
@@ -45,73 +50,44 @@ pub trait Messenger {
 
 	fn create_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-	fn destroy_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send;
+	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+	fn stream_info(
+		&self,
+		name: String,
+	) -> impl Future<Output = Result<StreamInfo, Self::Error>> + Send;
 
 	fn stream_publish(
 		&self,
 		name: String,
 		payload: Bytes,
-	) -> impl Future<Output = Result<(), Self::Error>> + Send;
+	) -> impl Future<Output = Result<PublishFuture<Self::Error>, Self::Error>> + Send;
 
 	fn stream_subscribe(
 		&self,
 		name: String,
-		consumer_name: Option<String>,
+		consumer: Option<String>,
 	) -> impl Future<
 		Output = Result<
 			impl Stream<Item = Result<Message, Self::Error>> + Send + 'static,
 			Self::Error,
 		>,
 	> + Send;
-
-	fn stream_info(
-		&self,
-		name: String,
-	) -> impl Future<Output = Result<StreamInfo, Self::Error>> + Send;
-}
-
-impl Default for Acker {
-	fn default() -> Self {
-		Self {
-			ack: None,
-			acked: true,
-			retry: None,
-		}
-	}
-}
-
-impl Acker {
-	pub fn new(
-		ack: impl Future<Output = Result<(), StdError>> + Send + 'static,
-		retry: impl Future<Output = ()> + Send + 'static,
-	) -> Self {
-		Self {
-			ack: Some(ack.boxed()),
-			acked: false,
-			retry: Some(retry.boxed()),
-		}
-	}
-
-	pub async fn ack(mut self) -> Result<(), StdError> {
-		if let Some(fut) = self.ack.take() {
-			fut.await?;
-		}
-		self.acked = true;
-		Ok(())
-	}
-}
-
-impl Drop for Acker {
-	fn drop(&mut self) {
-		drop(self.ack.take());
-		if let (false, Some(retry)) = (self.acked, self.retry.take()) {
-			tokio::spawn(retry);
-		}
-	}
 }
 
 impl Message {
 	pub fn split(self) -> (Bytes, Acker) {
 		(self.payload, self.acker)
+	}
+}
+
+impl<E> Future for PublishFuture<E> {
+	type Output = Result<Published, E>;
+	fn poll(
+		self: std::pin::Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+	) -> std::task::Poll<Self::Output> {
+		let future = &mut self.get_mut().inner;
+		std::pin::pin!(future).poll(cx)
 	}
 }

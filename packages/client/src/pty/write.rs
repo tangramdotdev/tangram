@@ -1,7 +1,7 @@
-use crate::{self as tg, Client};
+use crate as tg;
 use futures::{Stream, StreamExt as _};
 use std::pin::Pin;
-use tangram_http::{Body, response::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -10,7 +10,7 @@ pub struct Arg {
 	pub master: bool,
 }
 
-impl Client {
+impl tg::Client {
 	pub async fn write_pty(
 		&self,
 		id: &tg::pty::Id,
@@ -19,42 +19,19 @@ impl Client {
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(arg).unwrap();
-		let uri = format!("/ptys/{id}?{query}");
+		let uri = format!("/ptys/{id}/write?{query}");
 
 		// Create the body.
-		let body = Body::with_stream(stream.map(move |result| {
-			let event = match result {
-				Ok(event) => match event {
-					tg::pty::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),
-					tg::pty::Event::Size(size) => {
-						let mut trailers = http::HeaderMap::new();
-						trailers.insert("x-tg-event", http::HeaderValue::from_static("size"));
-						let json = serde_json::to_string(&size).unwrap();
-						trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-						hyper::body::Frame::trailers(trailers)
-					},
-					tg::pty::Event::End => {
-						let mut trailers = http::HeaderMap::new();
-						trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
-						hyper::body::Frame::trailers(trailers)
-					},
-				},
-				Err(error) => {
-					let mut trailers = http::HeaderMap::new();
-					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-					let json = serde_json::to_string(&error).unwrap();
-					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-					hyper::body::Frame::trailers(trailers)
-				},
-			};
-			Ok::<_, tg::Error>(event)
-		}));
+		let stream = stream.map(|e| match e {
+			Ok(e)=> e.try_into(),
+			Err(e) => e.try_into(),
+		});
 
 		// Create the request.
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.body(body)
+			.sse(stream)
 			.unwrap();
 
 		// Send the request.

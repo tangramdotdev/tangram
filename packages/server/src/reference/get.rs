@@ -113,9 +113,7 @@ impl Server {
 			},
 		}
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_get_reference_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

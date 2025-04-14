@@ -25,9 +25,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?;
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_delete_remote_request<H>(
 		handle: &H,
 		_request: http::Request<Body>,

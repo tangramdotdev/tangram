@@ -1,6 +1,5 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _};
-use http_body_util::{BodyExt as _, BodyStream};
 use std::pin::pin;
 use tangram_client as tg;
 use tangram_futures::{stream::Ext as _, task::Stop};
@@ -18,19 +17,17 @@ impl Server {
 			return remote.write_pty(id, arg, stream.boxed()).await;
 		}
 
-		let deleted = self.pty_deleted(id.clone());
-		let mut stream = pin!(stream.take_until(deleted));
+		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			if let Err(error) = self.send_pty_event(id, event, arg.master).await {
-				tracing::error!(?error, %id, "failed to write pty");
+			if matches!(event, tg::pty::Event::End) {
 				break;
 			}
+			self.write_pty_event(id, event, arg.master).await?;
 		}
+
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_write_pty_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
@@ -52,55 +49,16 @@ impl Server {
 		};
 
 		// Create the stream.
-		let body = request
-			.into_body()
-			.map_err(|source| tg::error!(!source, "failed to read the body"));
-
-		let stream = BodyStream::new(body)
-			.and_then(|frame| async {
-				match frame.into_data() {
-					Ok(bytes) => Ok(tg::pty::Event::Chunk(bytes)),
-					Err(frame) => {
-						let trailers = frame.into_trailers().unwrap();
-						let event = trailers
-							.get("x-tg-event")
-							.ok_or_else(|| tg::error!("missing event"))?
-							.to_str()
-							.map_err(|source| tg::error!(!source, "invalid event"))?;
-						match event {
-							"size" => {
-								let data = trailers
-									.get("x-tg-data")
-									.ok_or_else(|| tg::error!("missing data"))?
-									.to_str()
-									.map_err(|source| tg::error!(!source, "invalid data"))?;
-								let size = serde_json::from_str(data).map_err(|source| {
-									tg::error!(!source, "failed to deserialize the header value")
-								})?;
-								Ok(tg::pty::Event::Size(size))
-							},
-							"end" => Ok(tg::pty::Event::End),
-							"error" => {
-								let data = trailers
-									.get("x-tg-data")
-									.ok_or_else(|| tg::error!("missing data"))?
-									.to_str()
-									.map_err(|source| tg::error!(!source, "invalid data"))?;
-								let error = serde_json::from_str(data).map_err(|source| {
-									tg::error!(!source, "failed to deserialize the header value")
-								})?;
-								Err(error)
-							},
-							_ => Err(tg::error!("invalid event")),
-						}
-					},
-				}
+		let stream = request
+			.sse()
+			.map(|event| match event {
+				Ok(e) => e.try_into(),
+				Err(source) => Err(tg::error!(!source, "sse error")),
 			})
 			.take_while_inclusive(|event| future::ready(!matches!(event, Ok(tg::pty::Event::End))))
 			.take_until(stop)
 			.boxed();
 
-		// Send the stream.
 		handle.write_pty(&id, arg, stream).await?;
 
 		// Create the response.

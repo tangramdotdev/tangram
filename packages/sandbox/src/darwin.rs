@@ -159,9 +159,11 @@ pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 		}
 		if libc::WIFEXITED(status) {
 			let code = libc::WEXITSTATUS(status);
+			let code = code.to_u8().unwrap();
 			Ok(ExitStatus::Code(code))
 		} else if libc::WIFSIGNALED(status) {
 			let signal = libc::WTERMSIG(status);
+			let signal = signal.to_u8().unwrap();
 			Ok(ExitStatus::Signal(signal))
 		} else {
 			unreachable!();

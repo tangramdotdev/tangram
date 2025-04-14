@@ -1,4 +1,4 @@
-use crate::{self as tg, Client};
+use crate as tg;
 use futures::{Stream, TryStreamExt as _};
 use http_body_util::{BodyExt as _, BodyStream};
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
@@ -9,15 +9,15 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
-impl Client {
+impl tg::Client {
 	pub async fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/pipes/{id}?{query}");
+		let uri = format!("/pipes/{id}/read?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

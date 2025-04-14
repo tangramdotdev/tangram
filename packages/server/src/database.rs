@@ -139,15 +139,14 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create table pipes (
 				id text primary key,
-				created_at text not null,
-				closed integer not null default 0
+				created_at text not null
 			);
 
 			create table ptys (
 				id text primary key,
+				closed integer not null default 0,
 				created_at text not null,
-				window_size text,
-				closed integer not null default 0
+				size text
 			);
 
 			create table remotes (

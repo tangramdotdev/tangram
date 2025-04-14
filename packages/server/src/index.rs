@@ -990,9 +990,7 @@ impl Server {
 
 		Ok(())
 	}
-}
 
-impl Server {
 	pub(crate) async fn handle_index_request<H>(
 		handle: &H,
 		request: http::Request<Body>,

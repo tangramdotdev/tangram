@@ -1,5 +1,4 @@
 use crate as tg;
-use std::str::FromStr;
 
 pub mod get;
 pub mod post;
@@ -22,7 +21,7 @@ pub enum Signal {
 	SIGUSR2 = 12,
 }
 
-impl FromStr for Signal {
+impl std::str::FromStr for Signal {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		match s {
