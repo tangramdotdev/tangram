@@ -1,4 +1,6 @@
+import { BuildBuilder } from "./build.ts";
 import * as tg from "./index.ts";
+import { RunBuilder } from "./run.ts";
 
 export class Process {
 	static current: tg.Process;
@@ -17,7 +19,29 @@ export class Process {
 		return this.#state;
 	}
 
-	static async build(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
+	static async build(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value>;
+	static build(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): BuildBuilder;
+	static build(...args: any): any {
+		if (Array.isArray(args[0]) && "raw" in args[0]) {
+			let strings = args[0] as TemplateStringsArray;
+			let placeholders = args.slice(1);
+			let template = tg.template(strings, ...placeholders);
+			let arg = {
+				executable: "/bin/sh",
+				args: ["-c", template],
+			};
+			return new BuildBuilder(arg);
+		} else {
+			return Process.buildInner(...args);
+		}
+	}
+
+	static async buildInner(
+		...args: tg.Args<tg.Process.BuildArg>
+	): Promise<tg.Value> {
 		let arg = await Process.buildArg(...args);
 		let commandMounts: Array<tg.Command.Mount> | undefined;
 		if ("mounts" in arg && arg.mounts !== undefined) {
@@ -136,7 +160,29 @@ export class Process {
 		return arg;
 	}
 
-	static async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
+	static async run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value>;
+	static run(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): RunBuilder;
+	static run(...args: any): any {
+		if (Array.isArray(args[0]) && "raw" in args[0]) {
+			let strings = args[0] as TemplateStringsArray;
+			let placeholders = args.slice(1);
+			let template = tg.template(strings, ...placeholders);
+			let arg = {
+				executable: "/bin/sh",
+				args: ["-c", template],
+			};
+			return new RunBuilder(arg);
+		} else {
+			return Process.runInner(...args);
+		}
+	}
+
+	static async runInner(
+		...args: tg.Args<tg.Process.RunArg>
+	): Promise<tg.Value> {
 		let state = tg.Process.current.#state!;
 		let currentCommand = await Process.current.command();
 		let arg = await Process.runArg(
