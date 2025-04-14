@@ -175,15 +175,11 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			tg.assert(tg.Value.isMap(target));
 			let inner = this.#inner.value;
 			for (const innerKey in inner) {
-				if (innerKey in target) {
-					const mutation = inner[innerKey];
-					if (!(mutation instanceof tg.Mutation)) {
-						target[innerKey] = mutation;
-					} else {
-						await mutation.apply(target, innerKey);
-					}
+				const mutation = inner[innerKey];
+				if (!(mutation instanceof tg.Mutation)) {
+					target[innerKey] = mutation;
 				} else {
-					target[innerKey] = inner[innerKey];
+					await mutation.apply(target, innerKey);
 				}
 			}
 		}

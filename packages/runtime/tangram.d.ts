@@ -191,6 +191,9 @@ declare namespace tg {
 
 		/** Create a branch. */
 		static new(...args: tg.Args<tg.Branch.Arg>): Promise<tg.Branch>;
+		
+		/** Combine a set of branch args into a single branch arg object. */
+		static arg(...args: tg.Args<tg.Branch.Arg>): Promise<tg.Branch.ArgObject>;
 
 		/** Expect that a value is a `tg.Branch`. */
 		static expect(value: unknown): tg.Branch;
@@ -347,6 +350,9 @@ declare namespace tg {
 
 		/** Create a file. */
 		static new(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
+		
+		/** Combine a set of file args into a single file arg object. */
+		static arg(...args: tg.Args<tg.File.Arg>): Promise<tg.File.ArgObject>;
 
 		/** Expect that a value is a `tg.File`. */
 		static expect(value: unknown): tg.File;
@@ -415,6 +421,9 @@ declare namespace tg {
 
 		/** Create a symlink. */
 		static new(arg: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink>;
+		
+		/** Resolve a symlink arg into a symlink arg object. */
+		static arg(arg: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink.ArgObject>;
 
 		/** Expect that a value is a `tg.Symlink`. */
 		static expect(value: unknown): tg.Symlink;
@@ -462,6 +471,9 @@ declare namespace tg {
 
 		/** Create a graph. */
 		static new(...args: tg.Args<tg.Graph.Arg>): Promise<tg.Graph>;
+		
+		/** Combine a set of graph args into a single graph arg object. */
+		static arg(...args: tg.Args<tg.Graph.Arg>): Promise<tg.Graph.ArgObject>;
 
 		/** Expect that a value is a `tg.Graph`. */
 		static expect(value: unknown): tg.Graph;
@@ -582,6 +594,9 @@ declare namespace tg {
 			R extends tg.Value = tg.Value,
 		>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
 
+		/** Combine a set of command args into a single command arg object. */
+		static arg(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command.ArgObject>;
+	
 		/** Expect that a value is a `tg.Command`. */
 		static expect(value: unknown): tg.Command;
 
@@ -1016,6 +1031,16 @@ declare namespace tg {
 		/** Assert that a value is a `tg.Process`. */
 		static assert(value: unknown): asserts value is tg.Process;
 
+		/** Combine a set of build args into a single build arg object. */
+		static buildArg(
+			...args: tg.Args<tg.Process.BuildArg>
+		): Promise<tg.Process.BuildArgObject>;
+		
+		/** Combine a set of run args into a single build arg object. */
+		static runArg(
+			...args: tg.Args<tg.Process.RunArg>
+		): Promise<tg.Process.RunArgObject>;
+
 		/** Load the process's state. */
 		load(): Promise<void>;
 
@@ -1161,6 +1186,7 @@ declare namespace tg {
 	}
 		
 	export class BuildBuilder {
+		constructor(...args: tg.Args<tg.Process.BuildArgObject>);
 		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
 		checksum(
 			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
@@ -1184,6 +1210,7 @@ declare namespace tg {
 	}
 	
 	export class CommandBuilder {
+		constructor(...args: tg.Args<tg.Command.ArgObject>);
 		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
@@ -1203,6 +1230,7 @@ declare namespace tg {
 	}
 	
 	export class RunBuilder {
+		constructor(...args: tg.Args<tg.Process.RunArgObject>);
 		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
 		checksum(
 			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
