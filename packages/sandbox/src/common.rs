@@ -177,6 +177,7 @@ pub fn redirect_stdio(io: &mut GuestStdio) {
 	}
 }
 
+#[cfg(target_os = "linux")]
 pub fn socket_pair() -> std::io::Result<(tokio::net::UnixStream, std::os::unix::net::UnixStream)> {
 	let (r#async, sync) = tokio::net::UnixStream::pair()?;
 	let sync = sync.into_std()?;

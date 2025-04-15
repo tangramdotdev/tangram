@@ -23,7 +23,7 @@ impl tg::Client {
 
 		// Create the body.
 		let stream = stream.map(|e| match e {
-			Ok(e)=> e.try_into(),
+			Ok(e) => e.try_into(),
 			Err(e) => e.try_into(),
 		});
 
