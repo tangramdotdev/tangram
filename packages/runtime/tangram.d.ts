@@ -400,7 +400,7 @@ declare namespace tg {
 
 		type ArgObject =
 			| {
-					contents?: tg.Blob.Arg | undefined;
+					contents?: tg.Blob.Arg | Array<tg.Blob.Arg> | undefined;
 					dependencies?:
 						| { [reference: tg.Reference]: tg.Referent<tg.Object> }
 						| undefined;
