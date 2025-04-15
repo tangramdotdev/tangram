@@ -125,11 +125,11 @@ export class Process {
 				) {
 					return {
 						args: ["-c", arg],
-						executable: await tg.symlink("/bin/sh"),
+						executable: "/bin/sh",
 					};
 				} else if (arg instanceof tg.Command) {
 					let object = await arg.object();
-					let ret: tg.Process.RunArgObject = {
+					let ret: tg.Process.BuildArgObject = {
 						args: object.args,
 						env: object.env,
 						executable: object.executable,
@@ -304,7 +304,7 @@ export class Process {
 				) {
 					return {
 						args: ["-c", arg],
-						executable: await tg.symlink("/bin/sh"),
+						executable: "/bin/sh",
 					};
 				} else if (arg instanceof tg.Command) {
 					let object = await arg.object();

@@ -914,6 +914,20 @@ declare namespace tg {
 		tg.Unresolved<tg.MaybeNestedArray<tg.ValueOrMaybeMutationMap<T>>>
 	>;
 
+	export namespace Args {
+		export type Rules<
+			T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
+		> = {
+			[K in keyof T]:
+				| tg.Mutation.Kind
+				| ((arg: T[K]) => tg.MaybePromise<tg.Mutation<T[K]>>);
+		};
+
+		export function apply<
+			T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
+		>(args: Array<tg.MaybeMutationMap<T>>, rules?: Rules<T>): Promise<T>;
+	}
+
 	/* Compute a checksum. */
 	export let checksum: (
 		input: string | Uint8Array | tg.Blob | tg.Artifact,
