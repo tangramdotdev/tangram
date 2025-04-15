@@ -24,7 +24,9 @@ export class File {
 		if ("graph" in arg) {
 			return new File({ object: arg });
 		}
-		let contents = await tg.blob(arg.contents);
+		let contents = Array.isArray(arg.contents)
+			? await tg.blob(...arg.contents)
+			: await tg.blob(arg.contents);
 		let dependencies = arg.dependencies ?? {};
 		let executable = arg.executable ?? false;
 		const object = { contents, dependencies, executable };
