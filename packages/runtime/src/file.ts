@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { flatten } from "./util.ts";
 
 export let file = async (...args: tg.Args<File.Arg>) => {
 	return await File.new(...args);
@@ -24,7 +25,9 @@ export class File {
 		if ("graph" in arg) {
 			return new File({ object: arg });
 		}
-		let contents = await tg.blob(arg.contents);
+		let contents = Array.isArray(arg.contents)
+			? await tg.blob(...arg.contents)
+			: await tg.blob(arg.contents);
 		let dependencies = arg.dependencies ?? {};
 		let executable = arg.executable ?? false;
 		const object = { contents, dependencies, executable };
@@ -68,6 +71,7 @@ export class File {
 			contents: "append",
 			dependencies: "merge",
 		});
+		arg.contents = flatten(arg.contents);
 		return arg;
 	}
 
@@ -220,7 +224,7 @@ export namespace File {
 
 	export type ArgObject =
 		| {
-				contents?: tg.Blob.Arg | undefined;
+				contents?: tg.Blob.Arg | Array<tg.Blob.Arg> | undefined;
 				dependencies?:
 					| { [reference: tg.Reference]: tg.Referent<tg.Object> }
 					| undefined;
