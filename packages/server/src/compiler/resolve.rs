@@ -245,7 +245,7 @@ impl Compiler {
 				if let Some(import_path) = import_path {
 					let Some(module_parent) = module_path.parent() else {
 						return Err(
-							tg::error!(%path = module_path.display(), "could not get parent of module_path"),
+							tg::error!(%path = module_path.display(), "failed to get parent of module_path"),
 						);
 					};
 					let item = module_parent.join(import_path);

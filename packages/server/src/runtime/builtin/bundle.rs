@@ -138,7 +138,7 @@ impl Runtime {
 				} else {
 					let symlink_id = symlink.id(server).await?;
 					return Err(
-						tg::error!(%symlink_id, "could not determine target or artifact for symlink"),
+						tg::error!(%symlink_id, "failed to determine target or artifact for symlink"),
 					);
 				};
 

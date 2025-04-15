@@ -175,7 +175,7 @@ impl Client {
 			.map_err(|error| {
 				error!(
 					source = error,
-					"could not parse a URL from the TANGRAM_URL environment variable"
+					"failed to parse a URL from the TANGRAM_URL environment variable"
 				)
 			})?;
 		Ok(Self::new(url, None))

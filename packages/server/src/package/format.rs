@@ -46,11 +46,11 @@ impl Server {
 		let mut entries = Vec::new();
 		let mut read_dir = tokio::fs::read_dir(path)
 			.await
-			.map_err(|error| tg::error!(source = error, "could not read the directory"))?;
+			.map_err(|error| tg::error!(source = error, "failed to read the directory"))?;
 		while let Some(entry) = read_dir
 			.next_entry()
 			.await
-			.map_err(|error| tg::error!(source = error, "could not read the directory entry"))?
+			.map_err(|error| tg::error!(source = error, "failed to read the directory entry"))?
 		{
 			entries.push(entry);
 		}

@@ -152,6 +152,42 @@ impl Value {
 		printer.value(self).unwrap();
 		string
 	}
+
+	pub fn is_blob(&self) -> bool {
+		matches!(self, Self::Object(object) if object.is_blob())
+	}
+
+	pub fn is_artifact(&self) -> bool {
+		matches!(self, Self::Object(object) if object.is_artifact())
+	}
+
+	pub fn is_leaf(&self) -> bool {
+		matches!(self, Self::Object(object) if object.is_leaf())
+	}
+
+	pub fn is_branch(&self) -> bool {
+		matches!(self, Self::Object(object) if object.is_branch())
+	}
+
+	pub fn is_directory(&self) -> bool {
+		matches!(self, Self::Object(object) if object.is_directory())
+	}
+
+	pub fn is_file(&self) -> bool {
+		matches!(self, Self::Object(object) if object.is_file())
+	}
+
+	pub fn is_symlink(&self) -> bool {
+		matches!(self, Self::Object(object) if object.is_symlink())
+	}
+
+	pub fn is_graph(&self) -> bool {
+		matches!(self, Self::Object(object) if object.is_graph())
+	}
+
+	pub fn is_command(&self) -> bool {
+		matches!(self, Self::Object(object) if object.is_command())
+	}
 }
 
 impl Data {

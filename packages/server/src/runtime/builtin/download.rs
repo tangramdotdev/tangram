@@ -23,8 +23,6 @@ impl Runtime {
 
 		// Get the args.
 		let args = command.args(server).await?;
-
-		// Get the URL.
 		let url = args
 			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
@@ -33,13 +31,15 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected a string"))?
 			.parse::<Url>()
 			.map_err(|source| tg::error!(!source, "invalid url"))?;
-
-		// Get the unpack arg.
-		let unpack = *args
+		let extract = args
 			.get(1)
-			.ok_or_else(|| tg::error!("invalid number of arguments"))?
-			.try_unwrap_bool_ref()
-			.map_err(|_| tg::error!("expected a boolean"))?;
+			.map(|value| {
+				value
+					.try_unwrap_bool_ref()
+					.copied()
+					.map_err(|_| tg::error!("expected a boolean"))
+			})
+			.transpose()?;
 
 		// Send the request.
 		let response = reqwest::get(url.clone())
@@ -94,46 +94,51 @@ impl Runtime {
 		};
 
 		// Create the reader.
-		let reader = StreamReader::new(
-			response
-				.bytes_stream()
-				.map_err(std::io::Error::other)
-				.inspect_ok({
-					let n = downloaded.clone();
-					move |bytes| {
-						n.fetch_add(
-							bytes.len().to_u64().unwrap(),
-							std::sync::atomic::Ordering::Relaxed,
-						);
-					}
-				}),
-		);
+		let stream = response
+			.bytes_stream()
+			.map_err(std::io::Error::other)
+			.inspect_ok({
+				let n = downloaded.clone();
+				move |bytes| {
+					n.fetch_add(
+						bytes.len().to_u64().unwrap(),
+						std::sync::atomic::Ordering::Relaxed,
+					);
+				}
+			});
+		let reader = StreamReader::new(stream);
+		let mut reader = BufReader::with_capacity(8192, reader);
 
-		// Make sure the reader is buffered.
-		let mut reader = BufReader::with_capacity(512, reader);
+		// Fill the buffer.
+		let header = reader
+			.fill_buf()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to fill the buffer"))?;
 
+		// Detect the archive format.
+		let extract = match extract {
+			Some(true) => Some(
+				super::util::detect_archive_format(header)?
+					.ok_or_else(|| tg::error!("failed to determine the archive format"))?,
+			),
+			Some(false) => None,
+			None => super::util::detect_archive_format(header)?,
+		};
+
+		// Download or extract to the temp.
 		let temp = Temp::new(server);
-		if unpack {
-			// Pre-fill the buffer
-			let header = reader
-				.fill_buf()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to fill he buffer"))?;
-
-			// Detect the archive format.
-			let (format, compression) = detect_archive_format(header)?;
-
-			// Exract to the temp.
+		if let Some((format, compression)) = extract {
+			// Extract to the temp.
 			match format {
 				tg::artifact::archive::Format::Tar => {
-					self.extract_tar(&temp, reader, compression).await?
+					self.extract_tar(&temp, reader, compression).await?;
 				},
 				tg::artifact::archive::Format::Zip => {
 					self.extract_zip(&temp, reader).await?;
 				},
-			};
+			}
 		} else {
-			// Download the temp file.
+			// Download to the temp.
 			let mut file = tokio::fs::File::create(temp.path())
 				.await
 				.map_err(|source| tg::error!(!source, "failed create the temp file"))?;
@@ -142,7 +147,7 @@ impl Runtime {
 				.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
 		}
 
-		// Check in the temp file.
+		// Check in the temp.
 		let arg = tg::artifact::checkin::Arg {
 			cache: false,
 			destructive: true,
@@ -152,21 +157,9 @@ impl Runtime {
 			lockfile: false,
 			path: temp.path().to_owned(),
 		};
-
 		let artifact = tg::Artifact::check_in(server, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the downloaded file"))?;
-
-		let object: tg::Object = if unpack {
-			artifact.into()
-		} else {
-			artifact
-				.try_unwrap_file()
-				.map_err(|_| tg::error!("expected a file"))?
-				.contents(server)
-				.await?
-				.into()
-		};
 
 		// Abort and await the log task.
 		log_task.abort();
@@ -186,84 +179,17 @@ impl Runtime {
 		};
 		server.try_post_process_log(process.id(), arg).await.ok();
 
-		Ok(object.into())
-	}
-}
-
-fn detect_archive_format(
-	buffer: &[u8],
-) -> tg::Result<(
-	tg::artifact::archive::Format,
-	Option<tg::blob::compress::Format>,
-)> {
-	if buffer.len() < 2 {
-		return Err(tg::error!("download too small to be an archive"));
-	}
-
-	// Detect zip.
-	if buffer.split_at(2).0 == &[0x50, 0x4b] {
-		return Ok((tg::artifact::archive::Format::Zip, None));
-	}
-
-	// If we can detect a compression format from the magic bytes, assume tar.
-	if let Some(compression) = tg::blob::compress::Format::with_magic_number(buffer) {
-		return Ok((tg::artifact::archive::Format::Tar, Some(compression)));
-	}
-
-	// Otherwise, check for uncompressed ustar.
-	let ustar = buffer.split_at(257).0.split_at(5).0;
-	if ustar == b"ustar" {
-		return Ok((tg::artifact::archive::Format::Tar, None));
-	}
-
-	// If not ustar, check for a valid tar checksum.
-	if valid_tar_checksum(buffer)? {
-		return Ok((tg::artifact::archive::Format::Tar, None));
-	}
-
-	Err(tg::error!("unrecognized archive format"))
-}
-
-fn valid_tar_checksum(header: &[u8]) -> tg::Result<bool> {
-	if header.len() < 512 {
-		return Ok(false);
-	}
-
-	// Parse the checksum for the header record. This is an 8-byte field at offset 148.
-	// See <https://en.wikipedia.org/wiki/Tar_(computing)#File_format>
-	// "The checksum is calculated by taking the sum of the unsigned byte values of the header record with the eight checksum bytes taken to be ASCII spaces (decimal value 32). It is stored as a six digit octal number with leading zeroes followed by a NUL and then a space."
-	let offset = 148;
-	let field_size = 8;
-	let recorded_checksum = parse_octal_checksum(&header[offset..offset + field_size])?;
-
-	let mut checksum_calc = 0u32;
-	for (i, item) in header.iter().enumerate() {
-		// If we're in the checksum field, add ASCII space value.
-		if i >= offset && i < offset + field_size {
-			checksum_calc += 32;
+		let output = if extract.is_some() {
+			artifact.into()
 		} else {
-			checksum_calc += u32::from(*item);
-		}
-	}
+			artifact
+				.try_unwrap_file()
+				.map_err(|_| tg::error!("expected a file"))?
+				.contents(server)
+				.await?
+				.into()
+		};
 
-	let result = checksum_calc == recorded_checksum;
-	Ok(result)
-}
-
-fn parse_octal_checksum(bytes: &[u8]) -> tg::Result<u32> {
-	// Checksums are stored as octal ASCII digits terminated by a NUL or space.
-	let mut checksum_str = String::new();
-
-	for &byte in bytes {
-		if byte == 0 || byte == b' ' {
-			break;
-		}
-		checksum_str.push(byte as char);
-	}
-
-	// Convert octal string to u32
-	match u32::from_str_radix(checksum_str.trim(), 8) {
-		Ok(value) => Ok(value),
-		Err(_) => Err(tg::error!("Invalid tar checksum format")),
+		Ok(output)
 	}
 }

@@ -26,7 +26,7 @@ impl Server {
 				)?;
 				break 'a (lockfile_path, lockfile);
 			}
-			return Err(tg::error!("could not find a lockfile"));
+			return Err(tg::error!("failed to find a lockfile"));
 		};
 
 		// Find the package within the lockfile.

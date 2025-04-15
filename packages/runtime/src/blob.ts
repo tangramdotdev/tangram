@@ -67,13 +67,24 @@ export namespace Blob {
 		tg.assert(is(value));
 	};
 
+	export let checksum = async (
+		blob: Blob,
+		algorithm: tg.Checksum.Algorithm,
+	): Promise<tg.Checksum> => {
+		let value = await tg.build({
+			args: [blob, algorithm],
+			executable: "checksum",
+			host: "builtin",
+		});
+		return value as tg.Checksum;
+	};
+
 	export let compress = async (
 		blob: Blob,
 		format: CompressionFormat,
 	): Promise<Blob> => {
 		let value = await tg.build({
 			args: [blob, format],
-			env: undefined,
 			executable: "compress",
 			host: "builtin",
 		});
@@ -84,7 +95,6 @@ export namespace Blob {
 	export let decompress = async (blob: Blob): Promise<Blob> => {
 		let value = await tg.build({
 			args: [blob],
-			env: undefined,
 			executable: "decompress",
 			host: "builtin",
 		});
@@ -99,24 +109,10 @@ export namespace Blob {
 		let value = await tg.build({
 			args: [url, false],
 			checksum,
-			env: undefined,
 			executable: "download",
 			host: "builtin",
 		});
 		tg.assert(tg.Blob.is(value));
 		return value;
-	};
-
-	export let checksum = async (
-		blob: Blob,
-		algorithm: tg.Checksum.Algorithm,
-	): Promise<tg.Checksum> => {
-		let value = await tg.build({
-			args: [blob, algorithm],
-			env: undefined,
-			executable: "checksum",
-			host: "builtin",
-		});
-		return value as tg.Checksum;
 	};
 }

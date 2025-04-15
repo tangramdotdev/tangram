@@ -41,58 +41,36 @@ export namespace Artifact {
 		artifact: Artifact,
 		format: ArchiveFormat,
 		compression?: tg.Blob.CompressionFormat,
-	): Promise<tg.Blob> => {
-		const args: Array<tg.Value> = [artifact, format];
-		if (compression !== undefined) {
-			if (format === "zip") {
-				throw new Error("compression is not supported for zip archives");
-			}
-			args.push(compression);
-		}
+	): Promise<tg.File> => {
 		let value = await tg.build({
-			args,
-			env: undefined,
+			args: [artifact, format, compression],
 			executable: "archive",
 			host: "builtin",
 		});
-		tg.assert(tg.Blob.is(value));
-		return value;
-	};
-
-	export let download = async (
-		url: string,
-		checksum: tg.Checksum,
-	): Promise<Artifact> => {
-		let value = await tg.build({
-			args: [url, true],
-			checksum,
-			env: undefined,
-			executable: "download",
-			host: "builtin",
-		});
-		tg.assert(tg.Artifact.is(value));
-		return value;
-	};
-
-	export let extract = async (blob: tg.Blob): Promise<Artifact> => {
-		let value = await tg.build({
-			args: [blob],
-			env: undefined,
-			executable: "extract",
-			host: "builtin",
-		});
-		tg.assert(Artifact.is(value));
+		tg.assert(value instanceof tg.File);
 		return value;
 	};
 
 	export let bundle = async (artifact: Artifact): Promise<Artifact> => {
 		let value = await tg.build({
 			args: [artifact],
-			env: undefined,
 			executable: "bundle",
 			host: "builtin",
 		});
 		tg.assert(Artifact.is(value));
+		return value;
+	};
+
+	export let compress = async (
+		file: tg.File,
+		format: tg.Blob.CompressionFormat,
+	): Promise<tg.File> => {
+		let value = await tg.build({
+			args: [file, format],
+			executable: "compress",
+			host: "builtin",
+		});
+		tg.assert(value instanceof tg.File);
 		return value;
 	};
 
@@ -102,10 +80,49 @@ export namespace Artifact {
 	): Promise<tg.Checksum> => {
 		let value = await tg.build({
 			args: [artifact, algorithm],
-			env: undefined,
 			executable: "checksum",
 			host: "builtin",
 		});
 		return value as tg.Checksum;
+	};
+
+	export let decompress = async (file: tg.File): Promise<tg.File> => {
+		let value = await tg.build({
+			args: [file],
+			executable: "decompress",
+			host: "builtin",
+		});
+		tg.assert(value instanceof tg.File);
+		return value;
+	};
+
+	export let download = async (
+		url: string,
+		checksum: tg.Checksum,
+		extract?: boolean,
+	): Promise<Artifact> => {
+		let value = await tg.build({
+			args: [url, extract],
+			checksum,
+			executable: "download",
+			host: "builtin",
+		});
+		if (tg.Blob.is(value)) {
+			return tg.file(value);
+		} else if (tg.Artifact.is(value)) {
+			return value;
+		} else {
+			throw new Error("expected a blob or an artifact");
+		}
+	};
+
+	export let extract = async (file: tg.File): Promise<Artifact> => {
+		let value = await tg.build({
+			args: [file],
+			executable: "extract",
+			host: "builtin",
+		});
+		tg.assert(Artifact.is(value));
+		return value;
 	};
 }

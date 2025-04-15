@@ -9,6 +9,7 @@ mod compress;
 mod decompress;
 mod download;
 mod extract;
+mod util;
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -43,7 +44,7 @@ impl Runtime {
 		let name = executable
 			.try_unwrap_path_ref()
 			.ok()
-			.ok_or_else(|| tg::error!("expected the path variant of executable"))?
+			.ok_or_else(|| tg::error!("expected the executable to be a path"))?
 			.to_str()
 			.unwrap();
 
@@ -56,7 +57,7 @@ impl Runtime {
 			"download" => self.download(process).boxed(),
 			"extract" => self.extract(process).boxed(),
 			_ => {
-				return Err(tg::error!("unknown name"));
+				return Err(tg::error!("invalid executable"));
 			},
 		}
 		.await?;

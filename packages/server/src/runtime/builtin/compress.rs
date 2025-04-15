@@ -13,13 +13,15 @@ impl Runtime {
 		let args = command.args(server).await?;
 
 		// Get the blob.
-		let blob: tg::Blob = args
+		let input = args
 			.first()
-			.ok_or_else(|| tg::error!("invalid number of arguments"))?
-			.clone()
-			.try_into()
-			.ok()
-			.ok_or_else(|| tg::error!("expected a blob"))?;
+			.ok_or_else(|| tg::error!("invalid number of arguments"))?;
+		let blob = match input {
+			tg::Value::Object(tg::Object::Branch(branch)) => tg::Blob::Branch(branch.clone()),
+			tg::Value::Object(tg::Object::Leaf(leaf)) => tg::Blob::Leaf(leaf.clone()),
+			tg::Value::Object(tg::Object::File(file)) => file.contents(server).await?,
+			_ => return Err(tg::error!("expected a blob or a file")),
+		};
 
 		// Get the format.
 		let format = args
@@ -99,6 +101,15 @@ impl Runtime {
 			stream: tg::process::log::Stream::Stderr,
 		};
 		server.try_post_process_log(process.id(), arg).await.ok();
-		Ok(blob.into())
+
+		let output = if input.is_blob() {
+			blob.into()
+		} else if input.is_file() {
+			tg::File::with_contents(blob).into()
+		} else {
+			unreachable!()
+		};
+
+		Ok(output)
 	}
 }
