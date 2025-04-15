@@ -231,7 +231,9 @@ impl Server {
 			.query_one_value_into::<u64>(statement.clone().into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
+
 		drop(connection);
+
 		Ok(Count {
 			cache_entries,
 			objects,
@@ -380,7 +382,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
