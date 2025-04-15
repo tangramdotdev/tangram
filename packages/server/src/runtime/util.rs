@@ -168,10 +168,11 @@ pub async fn stdio_task(
 			};
 			if let Some(io) = io {
 				// Write stdin from pipe/pty.
-				input(&server, &io, remote, &mut stdin, stop)
+				input(server, io, remote, stdin, stop)
 					.await
 					.inspect_err(|source| tracing::error!(?source, "failed to write stdin"))
 					.ok();
+				return;
 			} else if let Some(blob) = blob {
 				// Copy blobs to stdin.
 				let Ok(mut reader) = blob
@@ -185,10 +186,8 @@ pub async fn stdio_task(
 					.await
 					.inspect_err(|error| tracing::error!(?error, "failed to copy blob"))
 					.ok();
+				return;
 			}
-
-			// Shutdown stdin to make sure the process exits if it's reading from stdin.
-			stdin.shutdown().await.ok();
 		}
 	});
 
@@ -293,70 +292,72 @@ fn signal_number(signal: tg::process::Signal) -> i32 {
 	}
 }
 
-async fn input(
-	server: &Server,
-	stdio: &tg::process::Stdio,
+fn input(
+	server: Server,
+	stdio: tg::process::Stdio,
 	remote: Option<String>,
-	stdin: &mut sandbox::Stdin,
+	mut stdin: sandbox::Stdin,
 	stop: Stop,
-) -> tg::Result<()> {
-	match stdio {
-		tg::process::Stdio::Pipe(id) => {
-			let arg = tg::pipe::read::Arg { remote };
-			let stream = server.read_pipe(id, arg).await?;
-			let mut stream = pin!(stream);
-			loop {
-				let stop = stop.wait();
-				let event = stream.try_next();
-				match future::select(event, pin!(stop)).await {
-					future::Either::Left((Ok(Some(tg::pipe::Event::Chunk(chunk))), _)) => {
-						stdin
-							.write_all(&chunk)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to write bytes"))?;
-					},
-					future::Either::Left((Err(source), _)) => {
-						return Err(source);
-					},
-					_ => break,
+) -> impl Future<Output = tg::Result<()>> + Send {
+	async move {
+		match stdio {
+			tg::process::Stdio::Pipe(id) => {
+				let arg = tg::pipe::read::Arg { remote };
+				let stream = server.read_pipe(&id, arg).await?;
+				let mut stream = pin!(stream);
+				loop {
+					let stop = stop.wait();
+					let event = stream.try_next();
+					match future::select(event, pin!(stop)).await {
+						future::Either::Left((Ok(Some(tg::pipe::Event::Chunk(chunk))), _)) => {
+							stdin
+								.write_all(&chunk)
+								.await
+								.map_err(|source| tg::error!(!source, "failed to write bytes"))?;
+						},
+						future::Either::Left((Err(source), _)) => {
+							return Err(source);
+						},
+						_ => break,
+					}
 				}
-			}
-		},
-		tg::process::Stdio::Pty(id) => {
-			let arg = tg::pty::read::Arg {
-				master: true,
-				remote,
-			};
-			let stream = server.read_pty(id, arg).await?;
-			let mut stream = pin!(stream);
-			loop {
-				let stop = stop.wait();
-				let event = stream.try_next();
-				match future::select(event, pin!(stop)).await {
-					future::Either::Left((Ok(Some(tg::pty::Event::Chunk(chunk))), _)) => {
-						stdin
-							.write_all(&chunk)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to write bytes"))?;
-					},
-					future::Either::Left((Ok(Some(tg::pty::Event::Size(size))), _)) => {
-						let tty = sandbox::Tty {
-							cols: size.cols,
-							rows: size.rows,
-						};
-						stdin.change_window_size(tty).await.map_err(|source| {
-							tg::error!(!source, "failed to change the PTY window size")
-						})?;
-					},
-					future::Either::Left((Err(source), _)) => {
-						return Err(source);
-					},
-					_ => break,
+			},
+			tg::process::Stdio::Pty(id) => {
+				let arg = tg::pty::read::Arg {
+					master: true,
+					remote,
+				};
+				let stream = server.read_pty(&id, arg).await?;
+				let mut stream = pin!(stream);
+				loop {
+					let stop = stop.wait();
+					let event = stream.try_next();
+					match future::select(event, pin!(stop)).await {
+						future::Either::Left((Ok(Some(tg::pty::Event::Chunk(chunk))), _)) => {
+							stdin
+								.write_all(&chunk)
+								.await
+								.map_err(|source| tg::error!(!source, "failed to write bytes"))?;
+						},
+						future::Either::Left((Ok(Some(tg::pty::Event::Size(size))), _)) => {
+							let tty = sandbox::Tty {
+								cols: size.cols,
+								rows: size.rows,
+							};
+							stdin.change_window_size(tty).map_err(|source| {
+								tg::error!(!source, "failed to change the PTY window size")
+							})?;
+						},
+						future::Either::Left((Err(source), _)) => {
+							return Err(source);
+						},
+						_ => break,
+					}
 				}
-			}
-		},
+			},
+		}
+		Ok(())
 	}
-	Ok(())
 }
 
 async fn output(

@@ -3,7 +3,6 @@ use std::{
 	os::unix::ffi::OsStrExt as _,
 	path::PathBuf,
 };
-use tangram_either::Either;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 mod common;
@@ -12,6 +11,7 @@ mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
 mod pty;
+mod stdio;
 
 #[allow(dead_code)]
 pub struct Command {
@@ -72,15 +72,15 @@ pub struct BindMount {
 }
 
 pub struct Stdin {
-	inner: Either<pty::Writer, tokio::net::UnixStream>,
+	inner: stdio::Writer,
 }
 
 pub struct Stdout {
-	inner: Either<pty::Reader, tokio::net::UnixStream>,
+	inner: stdio::Reader,
 }
 
 pub struct Stderr {
-	inner: Either<pty::Reader, tokio::net::UnixStream>,
+	inner: stdio::Reader,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -251,40 +251,28 @@ impl Child {
 }
 
 impl Stdin {
-	pub async fn change_window_size(&self, tty: Tty) -> std::io::Result<()> {
-		let Either::Left(pty) = &self.inner else {
-			return Err(std::io::Error::other("not a pty"));
-		};
-		pty.change_window_size(tty).await
+	pub fn change_window_size(&self, tty: Tty) -> std::io::Result<()> {
+		self.inner.change_window_size(tty)
 	}
 }
 
 impl AsyncWrite for Stdin {
 	fn is_write_vectored(&self) -> bool {
-		match &self.inner {
-			Either::Left(io) => io.is_write_vectored(),
-			Either::Right(io) => io.is_write_vectored(),
-		}
+		false
 	}
 
 	fn poll_flush(
 		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
+		_cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<Result<(), std::io::Error>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_flush(cx),
-			Either::Right(io) => std::pin::pin!(io).poll_flush(cx),
-		}
+		std::task::Poll::Ready(Ok(()))
 	}
 
 	fn poll_shutdown(
 		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
+		_cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<Result<(), std::io::Error>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_shutdown(cx),
-			Either::Right(io) => std::pin::pin!(io).poll_shutdown(cx),
-		}
+		std::task::Poll::Ready(Ok(()))
 	}
 
 	fn poll_write(
@@ -292,21 +280,7 @@ impl AsyncWrite for Stdin {
 		cx: &mut std::task::Context<'_>,
 		buf: &[u8],
 	) -> std::task::Poll<Result<usize, std::io::Error>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_write(cx, buf),
-			Either::Right(io) => std::pin::pin!(io).poll_write(cx, buf),
-		}
-	}
-
-	fn poll_write_vectored(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-		bufs: &[std::io::IoSlice<'_>],
-	) -> std::task::Poll<Result<usize, std::io::Error>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_write_vectored(cx, bufs),
-			Either::Right(io) => std::pin::pin!(io).poll_write_vectored(cx, bufs),
-		}
+		std::pin::pin!(&mut self.get_mut().inner).poll_write(cx, buf)
 	}
 }
 
@@ -316,10 +290,7 @@ impl AsyncRead for Stdout {
 		cx: &mut std::task::Context<'_>,
 		buf: &mut tokio::io::ReadBuf<'_>,
 	) -> std::task::Poll<std::io::Result<()>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_read(cx, buf),
-			Either::Right(io) => std::pin::pin!(io).poll_read(cx, buf),
-		}
+		std::pin::pin!(&mut self.get_mut().inner).poll_read(cx, buf)
 	}
 }
 
@@ -329,10 +300,7 @@ impl AsyncRead for Stderr {
 		cx: &mut std::task::Context<'_>,
 		buf: &mut tokio::io::ReadBuf<'_>,
 	) -> std::task::Poll<std::io::Result<()>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_read(cx, buf),
-			Either::Right(io) => std::pin::pin!(io).poll_read(cx, buf),
-		}
+		std::pin::pin!(&mut self.get_mut().inner).poll_read(cx, buf)
 	}
 }
 

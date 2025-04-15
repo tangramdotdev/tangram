@@ -12,6 +12,7 @@ version.workspace = true
 [dependencies]
 bytes = { workspace = true }
 dashmap = { workspace = true }
+futures = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }

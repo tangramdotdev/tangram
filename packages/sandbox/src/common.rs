@@ -1,16 +1,29 @@
-use crate::{Stdio, pty::Pty};
+use crate::{
+	Stdio,
+	pty::Pty,
+	stdio::{Reader, Writer},
+};
 use std::{
+	collections::VecDeque,
 	ffi::{CString, OsStr},
 	os::{
-		fd::{IntoRawFd as _, RawFd},
+		fd::{FromRawFd, IntoRawFd as _, OwnedFd, RawFd},
 		unix::ffi::OsStrExt as _,
 	},
 };
-use tangram_either::Either;
 
-pub type HostStdio = Either<Pty, Option<tokio::net::UnixStream>>;
+pub struct HostStdio {
+	pub stdin: Option<Writer>,
+	pub stdout: Option<Reader>,
+	pub stderr: Option<Reader>,
+}
 
-pub type GuestStdio = Either<Pty, Option<RawFd>>;
+pub struct GuestStdio {
+	pub pty: Option<Pty>,
+	pub stdin: Option<RawFd>,
+	pub stdout: Option<RawFd>,
+	pub stderr: Option<RawFd>,
+}
 
 pub struct CStringVec {
 	_strings: Vec<CString>,
@@ -25,72 +38,142 @@ impl CStringVec {
 	}
 }
 
-pub fn redirect_stdio(stdin: &mut GuestStdio, stdout: &mut GuestStdio, stderr: &mut GuestStdio) {
-	unsafe {
-		// Flag to make sure we only set the controlling terminal once.
-		let mut set_controlling_terminal = false;
-
-		// Dup stdin/stdout/stderr.
-		for (fd, io) in [
-			(libc::STDIN_FILENO, stdin),
-			(libc::STDOUT_FILENO, stdout),
-			(libc::STDERR_FILENO, stderr),
-		] {
-			match io {
-				Either::Left(pty) => {
-					// Set the controlling terminal if we haven't already.
-					if !set_controlling_terminal {
-						set_controlling_terminal = true;
-						if let Err(error) = pty.set_controlling_terminal() {
-							abort_errno!("failed to set controlling terminal {error}");
-						}
-					}
-
-					// Close the pty fd.
-					pty.close_pty();
-
-					// Dup the tty fd.
-					libc::dup2(pty.tty_fd.take().unwrap(), fd);
-				},
-				Either::Right(Some(io)) => {
-					libc::dup2(*io, fd);
-				},
-				Either::Right(None) => (),
+pub(crate) async fn create_stdio(
+	command: &crate::Command,
+) -> std::io::Result<(HostStdio, GuestStdio)> {
+	// Open a pty if necessary.
+	let tty = [command.stdin, command.stdout, command.stderr]
+		.into_iter()
+		.find_map(|io| {
+			if let Stdio::Tty(tty) = io {
+				Some(tty)
+			} else {
+				None
 			}
+		});
+	let mut pty = None;
+	let mut pty_reader = None;
+	let mut pty_writer = None;
+	if let Some(tty) = tty {
+		let mut pty_ = Pty::open(tty).await?;
+		let (reader, writer) = pty_.into_reader_writer()?;
+		pty.replace(pty_);
+		pty_reader.replace(reader);
+		pty_writer.replace(writer);
+	}
+
+	// Create stdio.
+	let mut host = HostStdio {
+		stdin: None,
+		stdout: None,
+		stderr: None,
+	};
+	let mut guest = GuestStdio {
+		pty,
+		stdin: None,
+		stdout: None,
+		stderr: None,
+	};
+
+	// Create stdin.
+	match command.stdin {
+		Stdio::Inherit | Stdio::Null => (),
+		Stdio::Tty(_) => {
+			host.stdin = pty_writer;
+			guest.stdin = guest.pty.as_ref().unwrap().tty_fd;
+		},
+		Stdio::Pipe => {
+			let (reader, writer) = pipe()?;
+			host.stdin.replace(writer);
+			guest.stdin.replace(reader.into_raw_fd());
+		},
+	}
+
+	// Create stdout.
+	match command.stdout {
+		Stdio::Inherit | Stdio::Null => (),
+		Stdio::Tty(_) => {
+			host.stdout = pty_reader.take();
+			guest.stdout = guest.pty.as_ref().unwrap().tty_fd;
+		},
+		Stdio::Pipe => {
+			eprintln!("stdout pipe");
+			let (reader, writer) = pipe()?;
+			host.stdout.replace(reader);
+			guest.stdout.replace(writer.into_raw_fd());
+		},
+	}
+
+	// Create stderr.
+	match command.stderr {
+		Stdio::Inherit | Stdio::Null => (),
+		Stdio::Tty(_) => {
+			host.stderr = pty_reader.take();
+			guest.stderr = guest.pty.as_ref().unwrap().tty_fd;
+		},
+		Stdio::Pipe => {
+			eprintln!("stderr pipe");
+			let (reader, writer) = pipe()?;
+			host.stderr.replace(reader);
+			guest.stderr.replace(writer.into_raw_fd());
+		},
+	}
+
+	Ok((host, guest))
+}
+
+pub fn pipe() -> std::io::Result<(Reader, Writer)> {
+	unsafe {
+		let mut fds = [0; 2];
+		if libc::pipe(fds.as_mut_ptr()) != 0 {
+			return Err(std::io::Error::last_os_error());
 		}
+		eprintln!("pipes: {fds:?}");
+		let reader = Reader {
+			file: OwnedFd::from_raw_fd(fds[0]),
+			buffer: VecDeque::new(),
+			future: None,
+		};
+		let writer = Writer {
+			file: OwnedFd::from_raw_fd(fds[1]),
+			isatty: false,
+			future: None,
+		};
+		Ok((reader, writer))
 	}
 }
 
-pub async fn stdio_pair(
-	stdio: Stdio,
-	pty: &mut Option<Pty>,
-) -> std::io::Result<(HostStdio, GuestStdio)> {
-	match stdio {
-		Stdio::Inherit => Ok((Either::Right(None), Either::Right(None))),
-		Stdio::Null => {
-			let fd = unsafe { libc::open(c"/dev/null".as_ptr(), libc::O_RDWR) };
-			if fd < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			Ok((Either::Right(None), Either::Right(Some(fd))))
-		},
-		Stdio::Pipe => {
-			let (host, guest) = socket_pair()?;
-			Ok((
-				Either::Right(Some(host)),
-				Either::Right(Some(guest.into_raw_fd())),
-			))
-		},
-		Stdio::Tty(tty) => {
-			// Open the PTY if it doesn't exist.
-			if pty.is_none() {
-				pty.replace(Pty::open(tty).await?);
-			}
-			let pty = pty.as_ref().unwrap();
-			let host = pty.clone();
-			let guest = pty.clone();
-			Ok((Either::Left(host), Either::Left(guest)))
-		},
+pub fn redirect_stdio(io: &mut GuestStdio) {
+	// Flag to make sure we only set the controlling terminal once.
+	if let Some(pty) = &mut io.pty {
+		if let Err(error) = pty.set_controlling_terminal() {
+			abort_errno!("failed to set controlling terminal {error}");
+		}
+		pty.close_pty();
+	}
+
+	// Dup stdio
+	for (src, dst) in [
+		(io.stdin, libc::STDIN_FILENO),
+		(io.stdout, libc::STDOUT_FILENO),
+		(io.stderr, libc::STDERR_FILENO),
+	] {
+		let Some(src) = src else {
+			continue;
+		};
+		unsafe {
+			libc::dup2(src, dst);
+		}
+	}
+
+	// Close unused. This is in a separate loop to avoid closing the same fd twice.
+	for src in [io.stdin, io.stdout, io.stderr] {
+		let Some(src) = src else {
+			continue;
+		};
+		unsafe {
+			libc::close(src);
+		}
 	}
 }
 
