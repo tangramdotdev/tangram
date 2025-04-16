@@ -6150,6 +6150,7 @@ dependencies = [
  "derive_more",
  "fnv",
  "futures",
+ "num",
  "tangram_either",
  "tokio",
  "uuid",

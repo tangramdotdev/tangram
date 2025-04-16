@@ -23,6 +23,7 @@ dashmap = { workspace = true }
 derive_more = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
+num = { workspace = true }
 uuid = { workspace = true }
 tangram_either = { workspace = true }
 tokio = { workspace = true }

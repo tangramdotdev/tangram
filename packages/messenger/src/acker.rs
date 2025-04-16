@@ -1,15 +1,15 @@
-use crate::BoxError;
+use crate::Error;
 use futures::{FutureExt as _, future::BoxFuture};
 
 pub struct Acker {
-	ack: Option<BoxFuture<'static, Result<(), BoxError>>>,
+	ack: Option<BoxFuture<'static, Result<(), Error>>>,
 	acked: bool,
 	retry: Option<BoxFuture<'static, ()>>,
 }
 
 impl Acker {
 	pub fn new(
-		ack: impl Future<Output = Result<(), BoxError>> + Send + 'static,
+		ack: impl Future<Output = Result<(), Error>> + Send + 'static,
 		retry: impl Future<Output = ()> + Send + 'static,
 	) -> Self {
 		Self {
@@ -19,7 +19,7 @@ impl Acker {
 		}
 	}
 
-	pub async fn ack(mut self) -> Result<(), BoxError> {
+	pub async fn ack(mut self) -> Result<(), Error> {
 		if let Some(fut) = self.ack.take() {
 			fut.await?;
 		}

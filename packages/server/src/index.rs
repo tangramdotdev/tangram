@@ -180,10 +180,6 @@ impl Server {
 		config: &crate::config::Indexer,
 		messenger: &tangram_messenger::memory::Messenger,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
-		messenger
-			.create_stream("index".to_owned())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the subject"))?;
 		let stream = messenger
 			.stream_subscribe("index".to_owned(), None)
 			.await
