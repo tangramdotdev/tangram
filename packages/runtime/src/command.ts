@@ -174,9 +174,14 @@ export class Command<
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
+					const host = await tg.Process.current
+						.command()
+						.then((command) => command.env())
+						.then((env) => env.TANGRAM_HOST);
 					return {
 						args: ["-c", arg],
 						executable: "/bin/sh",
+						host,
 					};
 				} else if (arg instanceof Command) {
 					return await arg.object();

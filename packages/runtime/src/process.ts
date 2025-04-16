@@ -42,7 +42,15 @@ export class Process {
 	static async buildInner(
 		...args: tg.Args<tg.Process.BuildArg>
 	): Promise<tg.Value> {
-		let arg = await Process.buildArg(...args);
+		let arg = await Process.buildArg(
+			{
+				env: {
+					TANGRAM_HOST: (await (await tg.Process.current.command()).env())!
+						.TANGRAM_HOST,
+				},
+			},
+			...args,
+		);
 		let commandMounts: Array<tg.Command.Mount> | undefined;
 		if ("mounts" in arg && arg.mounts !== undefined) {
 			commandMounts = await Promise.all(
@@ -126,6 +134,8 @@ export class Process {
 					return {
 						args: ["-c", arg],
 						executable: "/bin/sh",
+						host: (await (await tg.Process.current.command()).env())!
+							.TANGRAM_HOST,
 					};
 				} else if (arg instanceof tg.Command) {
 					let object = await arg.object();
@@ -305,6 +315,8 @@ export class Process {
 					return {
 						args: ["-c", arg],
 						executable: "/bin/sh",
+						host: (await (await tg.Process.current.command()).env())!
+							.TANGRAM_HOST,
 					};
 				} else if (arg instanceof tg.Command) {
 					let object = await arg.object();
