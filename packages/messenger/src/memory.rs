@@ -3,16 +3,16 @@ use async_broadcast as broadcast;
 use async_channel as channel;
 use bytes::Bytes;
 use dashmap::DashMap;
-use futures::{FutureExt, StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered};
+use futures::{StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered};
 use std::{
-	collections::BTreeSet,
+	collections::{BTreeSet, VecDeque},
 	ops::Deref,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicU64, AtomicUsize, Ordering},
+		atomic::{AtomicU64, Ordering},
 	},
 };
-use tokio::sync::{RwLock, oneshot};
+use tokio::sync::{Notify, RwLock};
 
 pub struct Messenger(Arc<Inner>);
 
@@ -30,6 +30,8 @@ pub enum Error {
 	Capacity,
 	#[display("the payload was larger than the stream capacity")]
 	PayloadTooLarge,
+	#[display("the stream is full")]
+	MessageCapacity,
 }
 
 pub struct Inner {
@@ -43,29 +45,31 @@ struct Stream {
 }
 
 struct State {
-	// The stream capacity.
-	capacity: usize,
+	// Notification channel that alerts when a new consumer is created.
+	consumer_created: Notify,
 
 	// List of consumers.
 	consumers: RwLock<Vec<channel::Sender<(u64, Message)>>>,
 
-	// Sequence counter. Messages are delivered in order.
-	last_sequence: RwLock<u64>,
-
-	// Notification channel that alerts when a new consumer is created.
-	notify: tokio::sync::watch::Sender<()>,
+	// Notification channel that alerts when a message is pending.
+	pending_message: Notify,
 
 	// Set of pending messages that have not yet been acknowledged.
 	pending_recvs: RwLock<BTreeSet<u64>>,
 
 	// Single producer channel that delivers messages to the broker.
-	producer: channel::Sender<(u64, oneshot::Sender<Result<Published, Error>>, Bytes)>,
+	producer: Mutex<Producer>,
 
 	// The message broker task, which pulls messages from the producer channel and delivers to each consumer.
 	message_broker_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
 
-	// The number of bytes in the stream.
-	used: AtomicUsize,
+struct Producer {
+	capacity: usize,
+	closed: bool,
+	messages: VecDeque<(u64, Bytes)>,
+	sequence: u64,
+	used: usize,
 }
 
 impl Stream {
@@ -73,20 +77,23 @@ impl Stream {
 		let subject = subject.to_owned();
 
 		// Create the state.
+		let consumer_created = Notify::new();
 		let consumers = RwLock::new(Vec::new());
-		let last_sequence = RwLock::new(0);
-		let (notify, mut changed) = tokio::sync::watch::channel(());
-		let (producer, receiver) = channel::bounded(256);
+		let pending_message = Notify::new();
 		let pending_recvs = RwLock::new(BTreeSet::new());
-		let used = AtomicUsize::new(0);
-		let state = Arc::new(State {
+		let producer = Mutex::new(Producer {
 			capacity,
+			closed: false,
+			messages: VecDeque::with_capacity(256),
+			sequence: 0,
+			used: 0,
+		});
+		let state = Arc::new(State {
+			consumer_created,
 			consumers,
-			last_sequence,
-			notify,
+			pending_message,
 			producer,
 			pending_recvs,
-			used,
 			message_broker_task: Mutex::new(None),
 		});
 
@@ -95,53 +102,48 @@ impl Stream {
 			let state = Arc::downgrade(&state);
 			let subject = subject.clone();
 			async move {
-				// Receive the next message.
-				while let Ok((sequence_number, tx, payload)) = receiver.recv().await {
-					// Exit early if the state has been dropped.
-					let Some(state) = state.upgrade() else {
-						break;
-					};
-
+				while let Some(state) = state.upgrade() {
 					// If there are no receivers, wait until one is added.
 					let is_empty = state.consumers.read().await.is_empty();
 					if is_empty {
 						// If the sender drops, this task is canceled and we can exit early.
-						if changed.changed().await.is_err() {
-							break;
-						}
+						state.consumer_created.notified().await;
 					}
 
-					// Acquire a lock on all current receivers. This implies that a message cannot be delivered to a receiver created after the message was sent, unless that is the first receiver.
-					let receivers = state.consumers.read().await;
+					// Wait for the next message.
+					state.pending_message.notified().await;
 
-					// Create a counter to track how many receivers have ack'd the message.
-					let counter = Arc::new(AtomicU64::new(receivers.len().try_into().unwrap()));
+					// Drain the channel.
+					while let Some((sequence, payload)) = {
+						let mut producer = state.producer.lock().unwrap();
+						producer.messages.pop_back()
+					}
+					{
+						let receivers = state.consumers.read().await;
 
-					// Deliver the payload to each consumer.
-					receivers
-						.iter()
-						.map(|consumer| {
-							deliver_stream_message(
-								consumer,
-								&counter,
-								&payload,
-								sequence_number,
-								&state,
-								&subject,
-							)
-						})
-						.collect::<FuturesUnordered<_>>()
-						.collect::<()>()
-						.await;
+						// Create a counter to track how many receivers have ack'd the message.
+						let counter = Arc::new(AtomicU64::new(receivers.len().try_into().unwrap()));
 
-					// Decrement the counter.
-					state.used.fetch_sub(payload.len(), Ordering::AcqRel);
+						// Deliver the payload to each consumer.
+						receivers
+							.iter()
+							.map(|consumer| {
+								deliver_stream_message(
+									consumer,
+									&counter,
+									&payload,
+									sequence,
+									&state,
+									&subject,
+								)
+							})
+							.collect::<FuturesUnordered<_>>()
+							.collect::<()>()
+							.await;
+						// Decrement the counter.
 
-					// Send the published ack.
-					tx.send(Ok(Published {
-						sequence: sequence_number,
-					}))
-					.ok();
+						state.producer.lock().unwrap().used -= payload.len();
+					}
 				}
 			}
 		});
@@ -153,73 +155,49 @@ impl Stream {
 		Self { state }
 	}
 
-	async fn publish(&self, payload: Bytes) -> Result<PublishFuture<Error>, Error> {
-		let (tx, rx) = tokio::sync::oneshot::channel();
+	fn publish(&self, payload: Bytes) -> Result<Published, Error> {
+		// Get the producer.
+		let mut producer = self.state.producer.lock().unwrap();
+
+		// Check if the producer is closed.
+		if producer.closed {
+			return Err(Error::StreamClosed);
+		}
 
 		// Check if the payload is small enough to fit the stream.
-		if payload.len() >= self.state.capacity {
+		if payload.len() >= producer.capacity {
 			return Err(Error::PayloadTooLarge);
 		}
 
 		// Check if there is enough capacity in the channel, bumping if possible and returning an error if not.
-		let mut used = self.state.used.load(Ordering::Acquire);
-		loop {
-			// Check if there is enough capacity for the message.
-			if used + payload.len() >= self.state.capacity {
-				return Err(Error::Capacity);
-			}
-
-			// Attempt to increment used, retrying on failure.
-			match self.state.used.compare_exchange(
-				used,
-				used + payload.len(),
-				Ordering::AcqRel,
-				Ordering::Acquire,
-			) {
-				Ok(_) => (), // If the CAS succeeds it means we can get a sequence number.
-				Err(curr) => {
-					used = curr;
-					continue;
-				},
-			}
-			break;
+		if producer.used + payload.len() > producer.capacity {
+			return Err(Error::Capacity);
 		}
 
-		// Get a sequence number and send the message. We use a lock instead of an atomic here to guarantee that messages are sent in the order that sequence numbers are acquired.
-		let mut last_sequence = self.state.last_sequence.write().await;
-		let sequence_number = *last_sequence;
-		*last_sequence += 1;
-		self.state
-			.producer
-			.send((sequence_number, tx, payload))
-			.await
-			.map_err(|_| Error::StreamSendError)?;
-		drop(last_sequence);
+		// Check if there is enough space in the producer.
+		if producer.messages.len() == producer.messages.capacity() {
+			return Err(Error::MessageCapacity);
+		}
 
-		// Update the pending recvs list to alert that there is a non-ack'd message.
-		self.state
-			.pending_recvs
-			.write()
-			.await
-			.insert(sequence_number);
+		// Send the message.
+		let sequence = producer.sequence;
+		producer.messages.push_front((sequence, payload));
+		producer.sequence += 1;
+		drop(producer);
 
-		// Create the publish future.
-		let inner = async move { rx.await.map_err(|_| Error::StreamSendError)? }.boxed();
-		let publish_future = PublishFuture { inner };
-
-		Ok(publish_future)
+		Ok(Published { sequence })
 	}
 
 	async fn subscribe(&self) -> channel::Receiver<(u64, Message)> {
 		let mut receivers = self.state.consumers.write().await;
 		let (sender, receiver) = channel::bounded(256);
 		receivers.push(sender);
-		self.state.notify.send_replace(());
+		self.state.consumer_created.notify_waiters();
 		receiver
 	}
 
 	async fn close(&self) {
-		self.state.producer.close();
+		self.state.producer.lock().unwrap().closed = true;
 		let mut receivers = self.state.consumers.write().await;
 		while let Some(receiver) = receivers.pop() {
 			receiver.close();
@@ -373,11 +351,14 @@ impl Messenger {
 		name: String,
 		payload: Bytes,
 	) -> Result<PublishFuture<Error>, Error> {
-		self.streams
+		let result = self.streams
 			.get(&name)
 			.ok_or(Error::NotFound)?
-			.publish(payload)
-			.await
+			.publish(payload);
+		let publish_ack = PublishFuture {
+			inner: Box::pin(future::ready(result))
+		};
+		Ok(publish_ack)
 	}
 
 	async fn stream_subscribe(
@@ -396,7 +377,7 @@ impl Messenger {
 
 	async fn stream_info(&self, name: String) -> Result<StreamInfo, Error> {
 		let stream = self.streams.get(&name).ok_or(Error::NotFound)?;
-		let last_sequence = *stream.state.last_sequence.read().await;
+		let last_sequence = stream.state.producer.lock().unwrap().sequence;
 		let first_sequence = stream
 			.state
 			.pending_recvs
@@ -439,7 +420,7 @@ impl crate::Messenger for Messenger {
 	}
 
 	fn create_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
-		self.create_stream(name, 65_536)
+		self.create_stream(name, 1 << 20)
 	}
 
 	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
