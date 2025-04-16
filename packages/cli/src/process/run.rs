@@ -240,9 +240,7 @@ where
 						master: true,
 						remote,
 					};
-					handle
-						.write_pty(&id, arg, stream)
-						.await?;
+					handle.write_pty(&id, arg, stream).await?;
 				},
 			}
 			Ok::<_, tg::Error>(())

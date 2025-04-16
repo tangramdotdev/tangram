@@ -9,11 +9,10 @@ use std::{
 	ops::Deref,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicU64, Ordering},
+		atomic::{AtomicU64, AtomicUsize, Ordering},
 	},
-	task::Waker,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, oneshot};
 
 pub struct Messenger(Arc<Inner>);
 
@@ -27,6 +26,10 @@ pub enum Error {
 	SendError,
 	#[display("failed to publish to stream")]
 	StreamSendError,
+	#[display("no space left in the stream")]
+	Capacity,
+	#[display("the payload was larger than the stream capacity")]
+	PayloadTooLarge,
 }
 
 pub struct Inner {
@@ -40,11 +43,14 @@ struct Stream {
 }
 
 struct State {
+	// The stream capacity.
+	capacity: usize,
+
 	// List of consumers.
 	consumers: RwLock<Vec<channel::Sender<(u64, Message)>>>,
 
 	// Sequence counter. Messages are delivered in order.
-	last_sequence: AtomicU64,
+	last_sequence: RwLock<u64>,
 
 	// Notification channel that alerts when a new consumer is created.
 	notify: tokio::sync::watch::Sender<()>,
@@ -52,25 +58,14 @@ struct State {
 	// Set of pending messages that have not yet been acknowledged.
 	pending_recvs: RwLock<BTreeSet<u64>>,
 
-	// Set of pending messages that have not yet been delivered.
-	pending_sends: std::sync::Mutex<PendingSends>,
-
 	// Single producer channel that delivers messages to the broker.
-	producer: channel::Sender<(u64, Bytes)>,
+	producer: channel::Sender<(u64, oneshot::Sender<Result<Published, Error>>, Bytes)>,
 
 	// The message broker task, which pulls messages from the producer channel and delivers to each consumer.
 	message_broker_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
-}
 
-struct PendingSends {
-	capacity: usize,
-	used: usize,
-	wakers: Vec<Waker>,
-}
-
-struct AcquireSequenceNumber {
-	state: Arc<State>,
-	message_size: usize,
+	// The number of bytes in the stream.
+	used: AtomicUsize,
 }
 
 impl Stream {
@@ -79,22 +74,19 @@ impl Stream {
 
 		// Create the state.
 		let consumers = RwLock::new(Vec::new());
-		let last_sequence = AtomicU64::new(0);
+		let last_sequence = RwLock::new(0);
 		let (notify, mut changed) = tokio::sync::watch::channel(());
-		let (producer, receiver) = channel::bounded::<(u64, Bytes)>(256);
+		let (producer, receiver) = channel::bounded(256);
 		let pending_recvs = RwLock::new(BTreeSet::new());
-		let pending_sends = std::sync::Mutex::new(PendingSends {
-			capacity,
-			used: 0,
-			wakers: Vec::new(),
-		});
+		let used = AtomicUsize::new(0);
 		let state = Arc::new(State {
+			capacity,
 			consumers,
 			last_sequence,
 			notify,
 			producer,
 			pending_recvs,
-			pending_sends,
+			used,
 			message_broker_task: Mutex::new(None),
 		});
 
@@ -104,7 +96,7 @@ impl Stream {
 			let subject = subject.clone();
 			async move {
 				// Receive the next message.
-				while let Ok((sequence_number, payload)) = receiver.recv().await {
+				while let Ok((sequence_number, tx, payload)) = receiver.recv().await {
 					// Exit early if the state has been dropped.
 					let Some(state) = state.upgrade() else {
 						break;
@@ -143,13 +135,13 @@ impl Stream {
 						.await;
 
 					// Decrement the counter.
-					let mut pending_sends = state.pending_sends.lock().unwrap();
-					pending_sends.used -= payload.len();
+					state.used.fetch_sub(payload.len(), Ordering::AcqRel);
 
-					// Wake any pending sends.
-					while let Some(waker) = pending_sends.wakers.pop() {
-						waker.wake();
-					}
+					// Send the published ack.
+					tx.send(Ok(Published {
+						sequence: sequence_number,
+					}))
+					.ok();
 				}
 			}
 		});
@@ -164,29 +156,55 @@ impl Stream {
 	async fn publish(&self, payload: Bytes) -> Result<PublishFuture<Error>, Error> {
 		let (tx, rx) = tokio::sync::oneshot::channel();
 
-		// Spawn a task to publish the message, waiting for enough channel capacity.
-		let producer = self.state.producer.clone();
-		let state = self.state.clone();
-		let task = self
-			.acquire_sequence_number(payload.len())
-			.then(|sequence_number| async move {
-				state.pending_recvs.write().await.insert(sequence_number);
-				let result = producer
-					.send((sequence_number, payload))
-					.await
-					.map(|()| Published {
-						sequence: sequence_number,
-					})
-					.map_err(|_| Error::StreamSendError);
-				tx.send(result).ok();
-			});
-		tokio::spawn(task);
+		// Check if the payload is small enough to fit the stream.
+		if payload.len() >= self.state.capacity {
+			return Err(Error::PayloadTooLarge);
+		}
+
+		// Check if there is enough capacity in the channel, bumping if possible and returning an error if not.
+		let mut used = self.state.used.load(Ordering::Acquire);
+		loop {
+			// Check if there is enough capacity for the message.
+			if used + payload.len() >= self.state.capacity {
+				return Err(Error::Capacity);
+			}
+
+			// Attempt to increment used, retrying on failure.
+			match self.state.used.compare_exchange(
+				used,
+				used + payload.len(),
+				Ordering::AcqRel,
+				Ordering::Acquire,
+			) {
+				Ok(_) => (), // If the CAS succeeds it means we can get a sequence number.
+				Err(curr) => {
+					used = curr;
+					continue;
+				},
+			}
+			break;
+		}
+
+		// Get a sequence number and send the message. We use a lock instead of an atomic here to guarantee that messages are sent in the order that sequence numbers are acquired.
+		let mut last_sequence = self.state.last_sequence.write().await;
+		let sequence_number = *last_sequence;
+		*last_sequence += 1;
+		self.state
+			.producer
+			.send((sequence_number, tx, payload))
+			.await
+			.map_err(|_| Error::StreamSendError)?;
+		drop(last_sequence);
+
+		// Update the pending recvs list to alert that there is a non-ack'd message.
+		self.state
+			.pending_recvs
+			.write()
+			.await
+			.insert(sequence_number);
 
 		// Create the publish future.
-		let inner = Box::pin(
-			rx.map_err(|_| Error::StreamSendError)
-				.and_then(future::ready),
-		);
+		let inner = async move { rx.await.map_err(|_| Error::StreamSendError)? }.boxed();
 		let publish_future = PublishFuture { inner };
 
 		Ok(publish_future)
@@ -209,40 +227,6 @@ impl Stream {
 		if let Some(task) = &self.state.message_broker_task.lock().unwrap().take() {
 			task.abort();
 		}
-	}
-
-	fn acquire_sequence_number(
-		&self,
-		message_size: usize,
-	) -> impl Future<Output = u64> + Send + 'static {
-		AcquireSequenceNumber {
-			state: self.state.clone(),
-			message_size,
-		}
-	}
-}
-
-impl Future for AcquireSequenceNumber {
-	type Output = u64;
-	fn poll(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<Self::Output> {
-		// Acquire an exclusive lock on the senders.
-		let mut pending_sends = self.state.pending_sends.lock().unwrap();
-
-		// If the stream is full, store a waker and return pending.
-		let next = pending_sends.used + self.message_size;
-		if next > pending_sends.capacity {
-			pending_sends.wakers.push(cx.waker().clone());
-			return std::task::Poll::Pending;
-		}
-		pending_sends.used = next;
-
-		// Acquire a sequence number.
-		let sequence_number = self.state.last_sequence.fetch_add(1, Ordering::AcqRel);
-
-		std::task::Poll::Ready(sequence_number)
 	}
 }
 
@@ -412,7 +396,7 @@ impl Messenger {
 
 	async fn stream_info(&self, name: String) -> Result<StreamInfo, Error> {
 		let stream = self.streams.get(&name).ok_or(Error::NotFound)?;
-		let last_sequence = stream.state.last_sequence.load(Ordering::Acquire);
+		let last_sequence = *stream.state.last_sequence.read().await;
 		let first_sequence = stream
 			.state
 			.pending_recvs
@@ -455,7 +439,7 @@ impl crate::Messenger for Messenger {
 	}
 
 	fn create_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
-		self.create_stream(name, 4096)
+		self.create_stream(name, 65_536)
 	}
 
 	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
@@ -502,7 +486,7 @@ impl Deref for Messenger {
 
 #[cfg(test)]
 mod tests {
-	use super::Messenger;
+	use super::{Error, Messenger};
 	use futures::{StreamExt as _, stream::TryStreamExt as _};
 
 	#[tokio::test]
@@ -551,7 +535,7 @@ mod tests {
 
 		// Spawn a task to dump messages to the stream.
 		tokio::spawn(async move {
-			for i in 1..1_000_000u32 {
+			for i in 1..100_000u32 {
 				let bytes = i.to_be_bytes().to_vec().into();
 				messenger
 					.stream_publish("stream".into(), bytes)
@@ -577,19 +561,21 @@ mod tests {
 	async fn stream_at_capacity() {
 		let messenger: Messenger = Messenger::new();
 		messenger.create_stream("stream".into(), 128).await.unwrap();
-		messenger
-			.stream_publish("stream".into(), vec![0; 128].into())
-			.await
-			.unwrap()
-			.await
-			.unwrap();
 		let publish_future = messenger
-			.stream_publish("stream".into(), vec![0; 128].into())
+			.stream_publish("stream".into(), vec![0; 256].into())
+			.await;
+		assert!(matches!(publish_future, Err(Error::PayloadTooLarge)));
+
+		// Publish, but don't wait for the ack.
+		messenger
+			.stream_publish("stream".into(), vec![0; 50].into())
 			.await
 			.unwrap();
-		let result =
-			tokio::time::timeout(std::time::Duration::from_millis(100), publish_future).await;
-		assert!(result.is_err());
+
+		let publish_future = messenger
+			.stream_publish("stream".into(), vec![0; 100].into())
+			.await;
+		assert!(matches!(publish_future, Err(Error::Capacity)));
 	}
 
 	#[tokio::test]

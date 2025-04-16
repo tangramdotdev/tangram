@@ -188,7 +188,10 @@ impl Stdio {
 		Ok(())
 	}
 
-	pub(super) fn close(&self, handle: &impl tg::Handle) -> impl Future<Output = tg::Result<()>> + Send + 'static {
+	pub(super) fn close(
+		&self,
+		handle: &impl tg::Handle,
+	) -> impl Future<Output = tg::Result<()>> + Send + 'static {
 		let handle = handle.clone();
 		let remote = self.remote.clone();
 		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
