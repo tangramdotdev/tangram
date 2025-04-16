@@ -25,6 +25,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{Body, response::builder::Ext as _};
+use tangram_messenger::Messenger as _;
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
 	net::{TcpListener, UnixListener},
@@ -323,20 +324,16 @@ impl Server {
 				Messenger::Right(tangram_messenger::nats::Messenger::new(client))
 			},
 		};
-		if let Either::Right(messenger) = messenger.as_ref() {
-			let stream_config = async_nats::jetstream::stream::Config {
-				name: "index".to_string(),
-				retention: nats::jetstream::stream::RetentionPolicy::WorkQueue,
-				..Default::default()
-			};
-			messenger
-				.jetstream
-				.get_or_create_stream(stream_config)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to ensure the index stream exists")
-				})?;
-		}
+
+		// Get or create the index stream.
+		let stream_config = tangram_messenger::StreamConfig {
+			max_bytes: None,
+			max_messages: None,
+		};
+		messenger
+			.get_or_create_stream("index".to_owned(), stream_config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to ensure the index stream exists"))?;
 
 		// Create the remotes.
 		let remotes = DashMap::default();

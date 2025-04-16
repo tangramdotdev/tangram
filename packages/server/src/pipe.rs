@@ -13,7 +13,7 @@ impl Server {
 		id: &tg::pipe::Id,
 		event: tg::pipe::Event,
 	) -> tg::Result<
-		messenger::PublishFuture<<crate::messenger::Messenger as messenger::Messenger>::Error>,
+		impl Future<Output = Result<messenger::StreamPublishInfo, messenger::Error>> + Send,
 	> {
 		let name = id.to_string();
 		let payload = serde_json::to_vec(&event)

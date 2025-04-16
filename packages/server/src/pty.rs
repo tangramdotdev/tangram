@@ -16,7 +16,7 @@ impl Server {
 		event: tg::pty::Event,
 		master: bool,
 	) -> tg::Result<
-		messenger::PublishFuture<<crate::messenger::Messenger as messenger::Messenger>::Error>,
+		impl Future<Output = Result<messenger::StreamPublishInfo, messenger::Error>> + Send,
 	> {
 		let name = if master {
 			format!("{pty}_master")
