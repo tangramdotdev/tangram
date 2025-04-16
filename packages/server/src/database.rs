@@ -144,7 +144,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create table ptys (
 				id text primary key,
-				closed integer not null default 0,
 				created_at text not null,
 				size text
 			);
