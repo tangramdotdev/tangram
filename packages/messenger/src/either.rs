@@ -57,9 +57,9 @@ where
 
 	fn delete_stream(&self, subject: String) -> impl Future<Output = Result<(), Self::Error>> {
 		match self {
-			Either::Left(s) => s.create_stream(subject).map_err(Either::Left).left_future(),
+			Either::Left(s) => s.delete_stream(subject).map_err(Either::Left).left_future(),
 			Either::Right(s) => s
-				.create_stream(subject)
+				.delete_stream(subject)
 				.map_err(Either::Right)
 				.right_future(),
 		}
