@@ -167,11 +167,6 @@ impl Stream {
 			return Err(Error::Capacity);
 		}
 
-		// Check if there is enough space in the producer.
-		if producer.messages.len() == producer.messages.capacity() {
-			return Err(Error::MessageCapacity);
-		}
-
 		// Send the message.
 		let sequence = producer.sequence;
 		producer.used += payload.len();
