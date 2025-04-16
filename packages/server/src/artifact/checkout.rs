@@ -58,8 +58,11 @@ impl Server {
 				{
 					let error =
 						tg::error!(!source, %artifact, "failed to pull or index the artifact");
-					progress.error(error);
-					return;
+					tracing::warn!(?error);
+					progress.log(
+						tg::progress::Level::Warning,
+						"pull/index failed, object may be incomplete".into(),
+					);
 				}
 
 				let title = if arg.path.is_none() {
@@ -184,11 +187,14 @@ impl Server {
 		scopeguard::defer! {
 			abort_handle.abort();
 		}
-		task.await.unwrap()?;
 
-		let output = tg::artifact::checkout::Output { path };
+		// Delete the partially constructed output if checkout failed.
+		if let Err(error) = task.await.unwrap() {
+			crate::util::fs::remove(&path).await.ok();
+			return Err(error);
+		}
 
-		Ok(output)
+		Ok(tg::artifact::checkout::Output { path })
 	}
 
 	fn check_out_dependency(
