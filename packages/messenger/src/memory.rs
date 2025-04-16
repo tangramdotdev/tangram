@@ -412,7 +412,7 @@ impl crate::Messenger for Messenger {
 	}
 
 	fn create_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
-		self.create_stream(name, 1 << 20)
+		self.create_stream(name, usize::MAX)
 	}
 
 	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
