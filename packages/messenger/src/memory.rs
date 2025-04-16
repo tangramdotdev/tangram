@@ -3,7 +3,7 @@ use async_broadcast as broadcast;
 use async_channel as channel;
 use bytes::Bytes;
 use dashmap::DashMap;
-use futures::{future, stream::FuturesUnordered, StreamExt as _, TryFutureExt as _};
+use futures::{StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered};
 use std::{
 	collections::{BTreeSet, VecDeque},
 	ops::Deref,
@@ -115,10 +115,7 @@ impl Stream {
 
 					// Drain the channel.
 					while let Some((sequence, payload)) = {
-						let mut producer = state
-							.producer
-							.lock()
-							.unwrap();
+						let mut producer = state.producer.lock().unwrap();
 						producer.messages.pop_back()
 					} {
 						let receivers = state.consumers.read().await;
@@ -153,11 +150,7 @@ impl Stream {
 
 	fn publish(&self, payload: Bytes) -> Result<Published, Error> {
 		// Get the producer.
-		let mut producer = self
-			.state
-			.producer
-			.lock()
-			.unwrap();
+		let mut producer = self.state.producer.lock().unwrap();
 
 		// Check if the producer is closed.
 		if producer.closed {
@@ -280,10 +273,7 @@ fn deliver_stream_message(
 			acker,
 		};
 
-		consumer
-			.send((sequence_number, message))
-			.await
-			.ok();
+		consumer.send((sequence_number, message)).await.ok();
 	}
 }
 
