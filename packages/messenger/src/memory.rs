@@ -3,7 +3,7 @@ use async_broadcast as broadcast;
 use async_channel as channel;
 use bytes::Bytes;
 use dashmap::DashMap;
-use futures::{StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered};
+use futures::{future, stream::FuturesUnordered, StreamExt as _, TryFutureExt as _};
 use std::{
 	collections::{BTreeSet, VecDeque},
 	ops::Deref,
@@ -84,7 +84,7 @@ impl Stream {
 		let producer = Mutex::new(Producer {
 			capacity,
 			closed: false,
-			messages: VecDeque::with_capacity(256),
+			messages: VecDeque::with_capacity(4096),
 			sequence: 0,
 			used: 0,
 		});
@@ -115,10 +115,12 @@ impl Stream {
 
 					// Drain the channel.
 					while let Some((sequence, payload)) = {
-						let mut producer = state.producer.lock().unwrap();
+						let mut producer = state
+							.producer
+							.lock()
+							.unwrap();
 						producer.messages.pop_back()
-					}
-					{
+					} {
 						let receivers = state.consumers.read().await;
 
 						// Create a counter to track how many receivers have ack'd the message.
@@ -129,19 +131,13 @@ impl Stream {
 							.iter()
 							.map(|consumer| {
 								deliver_stream_message(
-									consumer,
-									&counter,
-									&payload,
-									sequence,
-									&state,
-									&subject,
+									consumer, &counter, &payload, sequence, &state, &subject,
 								)
 							})
 							.collect::<FuturesUnordered<_>>()
 							.collect::<()>()
 							.await;
 						// Decrement the counter.
-
 						state.producer.lock().unwrap().used -= payload.len();
 					}
 				}
@@ -157,7 +153,11 @@ impl Stream {
 
 	fn publish(&self, payload: Bytes) -> Result<Published, Error> {
 		// Get the producer.
-		let mut producer = self.state.producer.lock().unwrap();
+		let mut producer = self
+			.state
+			.producer
+			.lock()
+			.unwrap();
 
 		// Check if the producer is closed.
 		if producer.closed {
@@ -181,9 +181,12 @@ impl Stream {
 
 		// Send the message.
 		let sequence = producer.sequence;
-		producer.messages.push_front((sequence, payload));
+		producer.used += payload.len();
 		producer.sequence += 1;
+		producer.messages.push_front((sequence, payload));
 		drop(producer);
+
+		self.state.pending_message.notify_waiters();
 
 		Ok(Published { sequence })
 	}
@@ -277,7 +280,10 @@ fn deliver_stream_message(
 			acker,
 		};
 
-		consumer.send((sequence_number, message)).await.ok();
+		consumer
+			.send((sequence_number, message))
+			.await
+			.ok();
 	}
 }
 
@@ -351,12 +357,13 @@ impl Messenger {
 		name: String,
 		payload: Bytes,
 	) -> Result<PublishFuture<Error>, Error> {
-		let result = self.streams
+		let result = self
+			.streams
 			.get(&name)
 			.ok_or(Error::NotFound)?
 			.publish(payload);
 		let publish_ack = PublishFuture {
-			inner: Box::pin(future::ready(result))
+			inner: Box::pin(future::ready(result)),
 		};
 		Ok(publish_ack)
 	}
