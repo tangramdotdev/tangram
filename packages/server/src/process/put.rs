@@ -331,7 +331,10 @@ impl Server {
 					&arg.data.created_at.format(&Rfc3339).unwrap(),
 					&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
 					&arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
-					&serde_json::to_string(&arg.data.error.as_ref()).unwrap(),
+					&arg.data
+						.error
+						.as_ref()
+						.map(|error| serde_json::to_string(error).unwrap()),
 					&serde_json::to_string(&arg.data.exit.as_ref()).unwrap(),
 					&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 					&arg.data.host,
@@ -342,13 +345,16 @@ impl Server {
 					&(!arg.data.mounts.is_empty())
 						.then(|| serde_json::to_string(&arg.data.mounts).unwrap()),
 					&i64::from(arg.data.network),
-					&serde_json::to_string(&arg.data.output.as_ref()).unwrap(),
+					&arg.data
+						.output
+						.as_ref()
+						.map(|error| serde_json::to_string(error).unwrap()),
 					&i64::from(arg.data.retry),
 					&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
-					&serde_json::to_string(&arg.data.status).unwrap(),
-					&serde_json::to_string(&arg.data.stderr.as_ref()).unwrap(),
-					&serde_json::to_string(&arg.data.stdin.as_ref()).unwrap(),
-					&serde_json::to_string(&arg.data.stdout.as_ref()).unwrap(),
+					&arg.data.status.to_string(),
+					&arg.data.stderr.as_ref().map(ToString::to_string),
+					&arg.data.stdin.as_ref().map(ToString::to_string),
+					&arg.data.stdout.as_ref().map(ToString::to_string),
 					&touched_at,
 				],
 			)
