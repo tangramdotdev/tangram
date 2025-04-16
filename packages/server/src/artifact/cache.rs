@@ -31,7 +31,10 @@ impl Server {
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
 	) -> tg::Result<()> {
 		// Ensure that the artifact is complete.
-		self.ensure_artifact_is_complete(artifact, progress).await?;
+		self.ensure_artifact_is_complete(artifact, progress)
+			.await
+			.inspect_err(|error| tracing::warn!(?error, "object may be incomplete"))
+			.ok();
 
 		let server = self.clone();
 		let id = artifact.clone();
