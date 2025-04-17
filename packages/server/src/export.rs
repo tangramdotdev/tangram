@@ -272,21 +272,6 @@ impl Server {
 
 		// Export each item.
 		for item in &arg.items {
-			let len = state.import_complete_receiver.len();
-			let mut buffer = Vec::with_capacity(len);
-			state
-				.import_complete_receiver
-				.blocking_recv_many(&mut buffer, len);
-			for complete in buffer {
-				match complete {
-					tg::import::Complete::Process(ref process_complete) => {
-						state.graph.update_complete(&Either::Left(process_complete));
-					},
-					tg::import::Complete::Object(ref object_complete) => {
-						state.graph.update_complete(&Either::Right(object_complete));
-					},
-				}
-			}
 			let result = match item {
 				Either::Left(process) => self
 					.export_sync_inner_process(&mut state, arg, None, process)
