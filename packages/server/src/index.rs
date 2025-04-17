@@ -957,8 +957,10 @@ impl Server {
 		for message in messages {
 			let statement = indoc!(
 				"
-					insert or replace into tags (tag, item)
-					values ($1, $2);
+					insert into tags (tag, item)
+					values ($1, $2)
+					on conflict (tag) do update
+					set tag = $1, item = $2;
 				"
 			);
 			let params = db::params![message.tag, message.item];
