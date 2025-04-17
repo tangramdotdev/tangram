@@ -169,7 +169,7 @@ impl Messenger {
 		_name: String,
 		_payloads: Vec<Bytes>,
 	) -> Result<impl Future<Output = Result<Vec<StreamPublishInfo>, Error>>, Error> {
-		Ok(future::ok(todo!()))
+		Ok(future::err(Error::Other("unimplemented".into())))
 	}
 
 	async fn stream_batch_subscribe(
@@ -300,7 +300,6 @@ impl crate::Messenger for Messenger {
 impl From<nats::jetstream::message::Acker> for Acker {
 	fn from(value: nats::jetstream::message::Acker) -> Self {
 		let ack = async move { value.ack().await.map_err(Error::other) };
-		let retry = future::ready(());
-		Acker::new(ack, retry)
+		Acker::new(ack)
 	}
 }

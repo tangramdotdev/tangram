@@ -13,7 +13,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
-use tangram_messenger::{Acker, Messenger};
+use tangram_messenger::{Acker, BatchConfig, Messenger};
 use time::format_description::well_known::Rfc3339;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -180,8 +180,13 @@ impl Server {
 		config: &crate::config::Indexer,
 		messenger: &tangram_messenger::memory::Messenger,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
+		let batch_config = BatchConfig {
+			max_bytes: None,
+			max_messages: Some(config.message_batch_size.to_u64().unwrap()),
+			timeout: Some(config.message_batch_timeout),
+		};
 		let stream = messenger
-			.stream_subscribe("index".to_owned(), Some("index".to_owned()))
+			.stream_batch_subscribe("index".to_owned(), Some("index".to_owned()), batch_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the index stream"))?
 			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
