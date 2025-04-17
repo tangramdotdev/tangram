@@ -118,7 +118,7 @@ impl Messenger {
 	async fn stream_subscribe(
 		&self,
 		name: String,
-		consumer: String,
+		consumer: Option<String>,
 	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
 		let stream = self
 			.streams
@@ -147,7 +147,7 @@ impl Messenger {
 	async fn stream_batch_subscribe(
 		&self,
 		name: String,
-		consumer: String,
+		consumer: Option<String>,
 		config: BatchConfig,
 	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + 'static + Send, Error> {
 		let stream = self
@@ -211,7 +211,7 @@ impl crate::Messenger for Messenger {
 	fn stream_subscribe(
 		&self,
 		name: String,
-		consumer: String,
+		consumer: Option<String>,
 	) -> impl Future<
 		Output = Result<
 			impl futures::Stream<Item = Result<Message, Error>> + Send + 'static,
@@ -234,7 +234,7 @@ impl crate::Messenger for Messenger {
 	fn stream_batch_subscribe(
 		&self,
 		name: String,
-		consumer: String,
+		consumer: Option<String>,
 		config: crate::BatchConfig,
 	) -> impl Future<
 		Output = Result<
@@ -332,9 +332,10 @@ impl Stream {
 
 	async fn batch_subscribe(
 		&self,
-		consumer: String,
+		consumer: Option<String>,
 		config: crate::BatchConfig,
 	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+		let consumer = consumer.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
 		let stream = self.state.clone();
 
 		// Acquire a lock on the stream.
@@ -474,7 +475,7 @@ impl Stream {
 
 	async fn subscribe(
 		&self,
-		consumer: String,
+		consumer: Option<String>,
 	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
 		self.batch_subscribe(
 			consumer,
@@ -518,7 +519,7 @@ mod tests {
 		assert_eq!(infos[3].sequence, 3);
 		let messages = stream
 			.batch_subscribe(
-				"consumer".into(),
+				None,
 				BatchConfig {
 					max_bytes: None,
 					max_messages: None,

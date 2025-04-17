@@ -19,10 +19,7 @@ impl Server {
 		}
 
 		// Send the end message and wait for acknowledgement.
-		let info = self
-			.write_pipe_event(id, tg::pipe::Event::End)
-			.await
-			.ok();
+		let info = self.write_pipe_event(id, tg::pipe::Event::End).await.ok();
 
 		// Poll the stream until the end message has been acknowledged by all consumers.
 		let timeout = std::time::Duration::from_secs(10);
@@ -71,10 +68,7 @@ impl Server {
 
 		// Delete the stream.
 		let name = id.to_string();
-		self.messenger
-			.delete_stream(name)
-			.await
-			.ok();
+		self.messenger.delete_stream(name).await.ok();
 
 		Ok(())
 	}

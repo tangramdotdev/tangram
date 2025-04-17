@@ -93,10 +93,7 @@ impl Server {
 		// Delete the streams.
 		for end in ["master", "slave"] {
 			let name = format!("{id}_{end}");
-			self.messenger
-				.delete_stream(name)
-				.await
-				.ok();
+			self.messenger.delete_stream(name).await.ok();
 		}
 
 		Ok(())
