@@ -19,15 +19,18 @@ impl Server {
 		}
 
 		// Send the end message and wait for acknowledgement.
-		let sequence_number = self
+		let info = self
 			.write_pipe_event(id, tg::pipe::Event::End)
-			.await?
-			.sequence;
+			.await
+			.ok();
 
 		// Poll the stream until the end message has been acknowledged by all consumers.
 		let timeout = std::time::Duration::from_secs(10);
 		let duration = std::time::Duration::from_millis(50);
 		tokio::time::timeout(timeout, async {
+			let Some(pipe) = info else {
+				return;
+			};
 			loop {
 				let Ok(info) = self
 					.messenger
@@ -37,7 +40,7 @@ impl Server {
 				else {
 					break;
 				};
-				if info.last_sequence >= sequence_number {
+				if info.last_sequence >= pipe.sequence {
 					break;
 				}
 				tokio::time::sleep(duration).await;
@@ -71,7 +74,7 @@ impl Server {
 		self.messenger
 			.delete_stream(name)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
+			.ok();
 
 		Ok(())
 	}
