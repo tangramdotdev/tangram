@@ -660,7 +660,8 @@ impl Server {
 		});
 		let message = serde_json::to_vec(&message)
 			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-		self.messenger
+		let _published = self
+			.messenger
 			.stream_publish("index".to_owned(), message.into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
@@ -685,7 +686,8 @@ impl Server {
 			});
 			let message = serde_json::to_vec(&message)
 				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-			self.messenger
+			let _published = self
+				.messenger
 				.stream_publish("index".to_owned(), message.into())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
@@ -714,7 +716,8 @@ impl Server {
 						});
 					let message = serde_json::to_vec(&message)
 						.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-					self.messenger
+					let _published = self
+						.messenger
 						.stream_publish("index".to_owned(), message.into())
 						.await
 						.map_err(|source| tg::error!(!source, "failed to publish the message"))?;

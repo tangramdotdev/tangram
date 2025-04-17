@@ -25,7 +25,6 @@ impl Server {
 			}
 			self.write_pipe_event(id, event).await?;
 		}
-
 		Ok(())
 	}
 

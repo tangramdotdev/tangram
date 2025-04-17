@@ -1,4 +1,5 @@
 use crate::Server;
+use bytes::Bytes;
 use tangram_client as tg;
 use tangram_messenger::{self as messenger, Messenger as _};
 
@@ -12,18 +13,26 @@ impl Server {
 		&self,
 		id: &tg::pipe::Id,
 		event: tg::pipe::Event,
-	) -> tg::Result<
-		impl Future<Output = Result<messenger::StreamPublishInfo, messenger::Error>> + Send,
-	> {
+	) -> tg::Result<messenger::StreamPublishInfo> {
 		let name = id.to_string();
-		let payload = serde_json::to_vec(&event)
+		let payload: Bytes = serde_json::to_vec(&event)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?
 			.into();
-		let future = self
-			.messenger
-			.stream_publish(name, payload)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-		Ok(future)
+		loop {
+			let result = self
+				.messenger
+				.stream_publish(name.clone(), payload.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
+				.await;
+			match result {
+				Ok(info) => return Ok(info),
+				Err(messenger::Error::MaxBytes | messenger::Error::MaxMessages) => {
+					tokio::task::yield_now().await;
+					continue;
+				},
+				Err(source) => return Err(tg::error!(!source, "failed to publish message")),
+			}
+		}
 	}
 }

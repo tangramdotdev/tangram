@@ -22,8 +22,8 @@ impl Server {
 		for end in ["master", "slave"] {
 			let name = format!("{id}_{end}");
 			let config = messenger::StreamConfig {
-				max_bytes: todo!(),
-				max_messages: todo!(),
+				max_bytes: Some(65_536),
+				max_messages: Some(256),
 			};
 			self.messenger
 				.get_or_create_stream(name, config)

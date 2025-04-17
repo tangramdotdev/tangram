@@ -22,8 +22,6 @@ impl Server {
 		let sequence_number = self
 			.write_pipe_event(id, tg::pipe::Event::End)
 			.await?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to delete pipe stream"))?
 			.sequence;
 
 		// Poll the stream until the end message has been acknowledged by all consumers.

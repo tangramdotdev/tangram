@@ -19,14 +19,10 @@ impl Server {
 		let master = self
 			.write_pty_event(id, tg::pty::Event::End, true)
 			.await?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send event to pty stream"))?
 			.sequence;
 		let slave = self
 			.write_pty_event(id, tg::pty::Event::End, false)
 			.await?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send event to pty stream"))?
 			.sequence;
 
 		// Poll the master/slave streams until the end message has been acknowledged by all consumers.

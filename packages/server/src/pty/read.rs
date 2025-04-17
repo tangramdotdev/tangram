@@ -24,9 +24,10 @@ impl Server {
 		} else {
 			format!("{id}_slave")
 		};
+		let consumer_name = uuid::Uuid::now_v7().to_string();
 		let stream = self
 			.messenger
-			.stream_subscribe(stream, None)
+			.stream_subscribe(stream, consumer_name)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
 			.map_err(|source| tg::error!(!source, "failed to get a message"))

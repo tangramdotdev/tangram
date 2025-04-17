@@ -126,7 +126,7 @@ impl Messenger {
 	async fn stream_subscribe(
 		&self,
 		name: String,
-		consumer: Option<String>,
+		consumer: String,
 	) -> Result<impl Stream<Item = Result<Message, Error>> + 'static + Send, Error> {
 		// Get the stream.
 		let stream = self
@@ -137,7 +137,7 @@ impl Messenger {
 
 		// Get or create the consumer.
 		let consumer_config = async_nats::jetstream::consumer::pull::Config {
-			durable_name: consumer,
+			durable_name: Some(consumer),
 			..Default::default()
 		};
 		let consumer = stream
@@ -166,8 +166,8 @@ impl Messenger {
 
 	async fn stream_batch_publish(
 		&self,
-		name: String,
-		payloads: Vec<Bytes>,
+		_name: String,
+		_payloads: Vec<Bytes>,
 	) -> Result<impl Future<Output = Result<Vec<StreamPublishInfo>, Error>>, Error> {
 		Ok(future::ok(todo!()))
 	}
@@ -175,7 +175,7 @@ impl Messenger {
 	async fn stream_batch_subscribe(
 		&self,
 		name: String,
-		consumer: Option<String>,
+		consumer: String,
 		config: BatchConfig,
 	) -> Result<impl Stream<Item = Result<Message, Error>> + 'static + Send, Error> {
 		// Get the stream.
@@ -187,7 +187,7 @@ impl Messenger {
 
 		// Get or create the consumer.
 		let consumer_config = async_nats::jetstream::consumer::pull::Config {
-			durable_name: consumer,
+			durable_name: Some(consumer),
 			..Default::default()
 		};
 		let consumer = stream
@@ -261,7 +261,7 @@ impl crate::Messenger for Messenger {
 	fn stream_subscribe(
 		&self,
 		name: String,
-		consumer: Option<String>,
+		consumer: String,
 	) -> impl Future<
 		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
 	> + Send {
@@ -288,7 +288,7 @@ impl crate::Messenger for Messenger {
 	fn stream_batch_subscribe(
 		&self,
 		name: String,
-		consumer: Option<String>,
+		consumer: String,
 		config: crate::BatchConfig,
 	) -> impl Future<
 		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
