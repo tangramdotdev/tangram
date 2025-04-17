@@ -307,6 +307,8 @@ impl Server {
 			.query([id.to_string()])
 			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
 		let mut children = Vec::new();
+		rows.advance()
+			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
 		while let Some(row) = rows.get() {
 			let id = row
 				.get::<_, String>(0)
