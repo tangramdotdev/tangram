@@ -832,7 +832,7 @@ impl Server {
 					where id = $2;
 				"
 			);
-			let params = db::params![touched_at, message.id];
+			let params = db::params![touched_at, message.id.to_string()];
 			transaction
 				.execute(statement.into(), params)
 				.await
@@ -935,11 +935,11 @@ impl Server {
 			let statement = indoc!(
 				"
 					update processes
-					set touched_at = ?1
-					where id = ?2;
+					set touched_at = $1
+					where id = $2;
 				"
 			);
-			let params = db::params![touched_at, message.id];
+			let params = db::params![touched_at, message.id.to_string()];
 			transaction
 				.execute(statement.into(), params)
 				.await
