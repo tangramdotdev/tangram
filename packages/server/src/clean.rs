@@ -438,10 +438,12 @@ impl Server {
 		}
 
 		for id in &ptys {
-			self.messenger
-				.delete_stream(id.to_string())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
+			for name in ["master", "slave"] {
+				self.messenger
+					.delete_stream(format!("{id}_{name}"))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
+			}
 		}
 
 		let output = InnerOutput {
