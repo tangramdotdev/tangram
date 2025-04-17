@@ -81,7 +81,7 @@ where
 	fn stream_subscribe(
 		&self,
 		subject: String,
-		consumer: String,
+		consumer: Option<String>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<Message, Error>> + 'static, Error>>
 	{
 		match self {
@@ -118,7 +118,7 @@ where
 	fn stream_batch_subscribe(
 		&self,
 		name: String,
-		consumer: String,
+		consumer: Option<String>,
 		config: BatchConfig,
 	) -> impl Future<
 		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,

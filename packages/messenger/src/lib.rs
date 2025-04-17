@@ -78,7 +78,7 @@ pub trait Messenger {
 	fn stream_subscribe(
 		&self,
 		name: String,
-		consumer: String,
+		consumer: Option<String>,
 	) -> impl Future<
 		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
 	> + Send;
@@ -94,7 +94,7 @@ pub trait Messenger {
 	fn stream_batch_subscribe(
 		&self,
 		name: String,
-		consumer: String,
+		consumer: Option<String>,
 		config: BatchConfig,
 	) -> impl Future<
 		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,

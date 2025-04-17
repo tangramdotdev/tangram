@@ -181,13 +181,7 @@ impl Server {
 		messenger: &tangram_messenger::memory::Messenger,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
 		let stream = messenger
-			.stream_subscribe(
-				"index".to_owned(),
-				config
-					.consumer_name
-					.clone()
-					.unwrap_or_else(|| "indexer".to_owned()),
-			)
+			.stream_subscribe("index".to_owned(), Some("index".to_owned()))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the index stream"))?
 			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
