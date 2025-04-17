@@ -532,7 +532,7 @@ impl Server {
 			"
 				insert into process_children (process, position, child)
 				values (?1, ?2, ?3)
-				on conflict do nothing;
+				on conflict (process, child) do nothing;
 			"
 		);
 		let mut child_statement = transaction
@@ -875,7 +875,7 @@ impl Server {
 					"
 						insert into process_children (process, position, child)
 						select $1, unnest($2::int8[]), unnest($3::text[])
-						on conflict do nothing;
+						on conflict (process, child) do nothing;
 					"
 				);
 				transaction
