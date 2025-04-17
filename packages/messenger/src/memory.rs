@@ -358,11 +358,13 @@ impl Stream {
 
 		// Construct the state.
 		struct State {
+			config: BatchConfig,
 			consumer: String,
 			notify: Arc<Notify>,
 			stream: Arc<RwLock<StreamState>>,
 		}
 		let state = State {
+			config,
 			consumer,
 			notify,
 			stream,
@@ -383,13 +385,8 @@ impl Stream {
 				}
 			}
 
-			// Get a write lock on the stream.
+			// Acquire a lock on the stream.
 			let mut stream = state.stream.write().await;
-
-			// Check if the stream is closed.
-			if stream.messages.is_empty() && stream.closed {
-				return Ok(None);
-			}
 
 			// Get the consumer.
 			let first_sequence = stream.consumers.get_mut(&state.consumer).unwrap().sequence;
@@ -400,7 +397,8 @@ impl Stream {
 				.iter()
 				.skip_while(|(sequence, _)| *sequence < first_sequence)
 				.take(
-					config
+					state
+						.config
 						.max_messages
 						.map_or(stream.messages.len(), |max| max.to_usize().unwrap()),
 				)
@@ -436,7 +434,7 @@ impl Stream {
 			let messages = undelivered
 				.into_iter()
 				.map(|(_, payload)| {
-					let acker = Acker::new(future::ok(()), future::ready(()));
+					let acker = Acker::new(future::ok(()));
 					Ok(Message {
 						acker,
 						payload,
