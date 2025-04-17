@@ -18,17 +18,20 @@ impl Server {
 		// Send the end message to master/slave streams and wait for acknowledgement.
 		let master = self
 			.write_pty_event(id, tg::pty::Event::End, true)
-			.await?
-			.sequence;
+			.await
+			.ok();
 		let slave = self
 			.write_pty_event(id, tg::pty::Event::End, false)
-			.await?
-			.sequence;
+			.await
+			.ok();
 
 		// Poll the master/slave streams until the end message has been acknowledged by all consumers.
 		let timeout = std::time::Duration::from_secs(10);
 		let duration = std::time::Duration::from_millis(50);
 		let poll_master = async {
+			let Some(master) = master else {
+				return;
+			};
 			loop {
 				let Ok(info) = self
 					.messenger
@@ -38,13 +41,16 @@ impl Server {
 				else {
 					break;
 				};
-				if info.last_sequence >= master {
+				if info.last_sequence >= master.sequence {
 					break;
 				}
 				tokio::time::sleep(duration).await;
 			}
 		};
 		let poll_slave = async {
+			let Some(slave) = slave else {
+				return;
+			};
 			loop {
 				let Ok(info) = self
 					.messenger
@@ -54,7 +60,7 @@ impl Server {
 				else {
 					break;
 				};
-				if info.last_sequence >= slave {
+				if info.last_sequence >= slave.sequence {
 					break;
 				}
 				tokio::time::sleep(duration).await;
@@ -90,7 +96,7 @@ impl Server {
 			self.messenger
 				.delete_stream(name)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
+				.ok();
 		}
 
 		Ok(())
