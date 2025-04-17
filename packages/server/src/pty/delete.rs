@@ -78,7 +78,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				delete from ptys
-				where id = {p};
+				where id = {p}1;
 			"
 		);
 		let params = db::params![id];

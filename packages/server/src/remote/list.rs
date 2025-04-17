@@ -1,5 +1,5 @@
 use crate::Server;
-use indoc::formatdoc;
+use indoc::indoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
@@ -20,7 +20,7 @@ impl Server {
 			name: String,
 			url: Url,
 		}
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				select name, url
 				from remotes

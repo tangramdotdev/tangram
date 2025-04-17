@@ -1,6 +1,6 @@
 use super::Server;
 use futures::{Stream, StreamExt as _};
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 use num::ToPrimitive as _;
 use std::time::Duration;
 use tangram_client as tg;
@@ -167,7 +167,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Count cache entries.
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				select count(*) from cache_entries;
 			"
@@ -179,7 +179,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 
 		// Count processes.
-		let statement: String = formatdoc!(
+		let statement = indoc!(
 			"
 				select count(*) from processes;
 			"
@@ -191,7 +191,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
 		// Count objects
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				select count(*) from objects;
 			"
@@ -210,25 +210,25 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Count pipes and ptys.
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				select count(*) from pipes;
 			"
 		);
 		let params = db::params![];
 		let pipes = connection
-			.query_one_value_into::<u64>(statement.clone().into(), params)
+			.query_one_value_into::<u64>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
 
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				select count(*) from ptys;
 			"
 		);
 		let params = db::params![];
 		let ptys = connection
-			.query_one_value_into::<u64>(statement.clone().into(), params)
+			.query_one_value_into::<u64>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
 

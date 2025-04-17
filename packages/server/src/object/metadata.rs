@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{FutureExt as _, future};
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
 use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
 use tangram_client::{self as tg, handle::Ext as _};
@@ -65,7 +65,7 @@ impl Server {
 		index: &sqlite::Connection,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				select count, depth, weight
 				from objects
@@ -73,7 +73,7 @@ impl Server {
 			"
 		);
 		let mut statement = index
-			.prepare_cached(&statement)
+			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query([id.to_string()])

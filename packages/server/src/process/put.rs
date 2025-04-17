@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
-use indoc::{formatdoc, indoc};
+use indoc::indoc;
 use num::ToPrimitive;
 use std::sync::Arc;
 use tangram_client as tg;
@@ -185,19 +185,18 @@ impl Server {
 
 		// Insert the children.
 		if let Some(children) = &arg.data.children {
-			let statement = formatdoc!(
+			let statement = indoc!(
 				"
 					insert into process_children (process, position, child)
 					values (?1, ?2, ?3)
 					on conflict (process, child) do nothing;
-			"
+				"
 			);
 			children
 				.iter()
 				.enumerate()
 				.map(|(position, child)| {
 					let transaction = transaction.clone();
-					let statement = statement.clone();
 					async move {
 						let params = db::params![id, position, child];
 						transaction

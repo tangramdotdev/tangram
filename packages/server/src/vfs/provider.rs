@@ -2,7 +2,7 @@ use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::TryStreamExt as _;
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 use num::ToPrimitive;
 use rusqlite as sqlite;
 use std::{
@@ -428,7 +428,7 @@ impl Provider {
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let statement = formatdoc!(
+		let statement = indoc!(
 			r"
 				create table nodes (
 					id integer primary key autoincrement,
@@ -444,7 +444,7 @@ impl Provider {
 		connection
 			.with(move |connection| {
 				connection
-					.execute_batch(&statement)
+					.execute_batch(statement)
 					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
 				Ok::<_, tg::Error>(())
 			})
