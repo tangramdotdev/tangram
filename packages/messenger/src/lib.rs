@@ -39,6 +39,10 @@ pub struct BatchConfig {
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
 pub enum Error {
+	NotFound,
+	MaxMessages,
+	MaxBytes,
+	PublishFailed,
 	Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
@@ -74,7 +78,7 @@ pub trait Messenger {
 	fn stream_subscribe(
 		&self,
 		name: String,
-		consumer: Option<String>,
+		consumer: String,
 	) -> impl Future<
 		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
 	> + Send;
@@ -90,7 +94,7 @@ pub trait Messenger {
 	fn stream_batch_subscribe(
 		&self,
 		name: String,
-		consumer: Option<String>,
+		consumer: String,
 		config: BatchConfig,
 	) -> impl Future<
 		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,

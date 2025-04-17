@@ -21,8 +21,8 @@ impl Server {
 
 		// Create the stream.
 		let config = messenger::StreamConfig {
-			max_bytes: todo!(),
-			max_messages: todo!(),
+			max_bytes: Some(65_536), // standard pipe capacity on Linux
+			max_messages: Some(256), // small enough to provide some back pressure
 		};
 		self.messenger
 			.get_or_create_stream(id.to_string(), config)

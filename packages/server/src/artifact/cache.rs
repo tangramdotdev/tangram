@@ -150,7 +150,7 @@ impl Server {
 					});
 				let message = serde_json::to_vec(&message)
 					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-				server
+				let _published = server
 					.messenger
 					.stream_publish("index".to_owned(), message.into())
 					.await
