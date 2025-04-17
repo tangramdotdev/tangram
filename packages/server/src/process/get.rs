@@ -43,37 +43,26 @@ impl Server {
 			command: tg::command::Id,
 			#[serde_as(as = "Rfc3339")]
 			created_at: time::OffsetDateTime,
-			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			dequeued_at: Option<time::OffsetDateTime>,
-			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			enqueued_at: Option<time::OffsetDateTime>,
 			error: Option<db::value::Json<tg::Error>>,
 			exit: Option<db::value::Json<tg::process::Exit>>,
-			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			finished_at: Option<time::OffsetDateTime>,
 			host: String,
 			id: tg::process::Id,
-			#[serde(default)]
 			log: Option<tg::blob::Id>,
-			#[serde(default)]
 			output: Option<db::value::Json<tg::value::Data>>,
 			retry: bool,
-			#[serde(default)]
 			mounts: Option<db::value::Json<Vec<tg::process::data::Mount>>>,
-			#[serde(default)]
 			network: bool,
-			#[serde(default)]
 			#[serde_as(as = "Option<Rfc3339>")]
 			started_at: Option<time::OffsetDateTime>,
 			status: tg::process::Status,
-			#[serde(default)]
 			stderr: Option<tg::process::Stdio>,
-			#[serde(default)]
 			stdin: Option<tg::process::Stdio>,
-			#[serde(default)]
 			stdout: Option<tg::process::Stdio>,
 		}
 		let p = connection.p();

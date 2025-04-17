@@ -335,7 +335,10 @@ impl Server {
 						.error
 						.as_ref()
 						.map(|error| serde_json::to_string(error).unwrap()),
-					&serde_json::to_string(&arg.data.exit.as_ref()).unwrap(),
+					&arg.data
+						.exit
+						.as_ref()
+						.map(|exit| serde_json::to_string(exit).unwrap()),
 					&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 					&arg.data.host,
 					&arg.data
