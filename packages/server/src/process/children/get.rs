@@ -1,5 +1,4 @@
 use crate::Server;
-use bytes::Bytes;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use indoc::formatdoc;
 use itertools::Itertools as _;
@@ -287,62 +286,6 @@ impl Server {
 				tg::process::children::get::Event::End,
 			)));
 		Ok(Some(stream))
-	}
-
-	pub(crate) async fn try_add_process_child(
-		&self,
-		parent: &tg::process::Id,
-		child: &tg::process::Id,
-	) -> tg::Result<bool> {
-		// Verify the process is local and started.
-		if self.try_get_current_process_status_local(parent).await?
-			!= Some(tg::process::Status::Started)
-		{
-			return Ok(false);
-		}
-
-		// Get a database connection.
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Add the child to the database.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into process_children (process, position, child)
-				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2)
-				on conflict (process, child) do nothing;
-			"
-		);
-		let params = db::params![parent, child];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		// Publish the message.
-		tokio::spawn({
-			let server = self.clone();
-			let id = parent.clone();
-			async move {
-				let subject = format!("processes.{id}.children");
-				let payload = Bytes::new();
-				server
-					.messenger
-					.publish(subject, payload)
-					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
-					.ok();
-			}
-		});
-
-		Ok(true)
 	}
 
 	pub(crate) async fn handle_get_process_children_request<H>(
