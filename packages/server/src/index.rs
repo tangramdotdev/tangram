@@ -1345,9 +1345,9 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create unique index process_children_process_child_index on process_children (process, child);
 
-			create index process_children_index on process_children (process, position);
+			create unique index process_children_index on process_children (process, position);
 
-			create index process_children_child_process_index on process_children (child, process);
+			create index process_children_child_process_index on process_children (child);
 
 			create trigger process_children_insert_trigger
 			after insert on process_children
