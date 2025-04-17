@@ -188,7 +188,8 @@ impl Server {
 			let statement = formatdoc!(
 				"
 					insert into process_children (process, position, child)
-					values (?1, ?2, ?3);
+					values (?1, ?2, ?3)
+					on conflict do nothing;
 			"
 			);
 			children
@@ -368,7 +369,8 @@ impl Server {
 				let statement = indoc!(
 					"
 						insert into process_children (process, position, child)
-						select $1, unnest($2::int8[]), unnest($3::text[]);
+						select $1, unnest($2::int8[]), unnest($3::text[])
+						on conflict do nothing;
 					"
 				);
 				transaction
