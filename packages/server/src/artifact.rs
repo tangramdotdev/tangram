@@ -22,7 +22,7 @@ impl Server {
 				let stream = server
 					.pull(tg::pull::Arg {
 						items: vec![Either::Right(artifact.into())],
-						recursive: true,
+						remote: "default".to_owned(),
 						..tg::pull::Arg::default()
 					})
 					.await?;
