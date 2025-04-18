@@ -393,6 +393,7 @@ impl Server {
 				Box::pin(async move {
 					let arg = tg::process::spawn::Arg {
 						cached: Some(true),
+						parent: None,
 						remote: None,
 						..arg.clone()
 					};
