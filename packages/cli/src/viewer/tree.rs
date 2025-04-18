@@ -610,6 +610,25 @@ where
 			})
 			.unwrap();
 
+		// Get the output.
+		let output = handle.get_process(process.id())
+			.await?
+			.data
+			.output
+			.map(|data| tg::Value::try_from(data))
+			.transpose()?;
+		if let Some(output) = output {
+			let handle = handle.clone();
+			let update = move |node: Rc<RefCell<Node>>| {
+				let output = Self::create_node(&handle, &node, Some("output".into()), Some(&Item::Value(output)));
+				node.borrow_mut()
+					.children
+					.push(output);
+			};
+			update_sender.send(Box::new(update)).unwrap();
+		}
+
+
 		// Create the children stream.
 		let mut children = process
 			.children(handle, tg::process::children::get::Arg::default())
@@ -1286,7 +1305,7 @@ where
 
 	fn item_title(item: &Item) -> String {
 		match item {
-			Item::Process(process) => process.id().to_string(),
+			Item::Process(_) => String::new(),
 			Item::Value(value) => match value {
 				tg::Value::Null => "null".to_owned(),
 				tg::Value::Bool(bool) => {
