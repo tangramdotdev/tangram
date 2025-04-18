@@ -12,6 +12,7 @@ use std::{
 	panic::AssertUnwindSafe, path::PathBuf, sync::Arc, time::Instant,
 };
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::Messenger as _;
@@ -65,6 +66,7 @@ struct Directory {
 struct File {
 	blob: Option<Blob>,
 	executable: bool,
+	dependencies: BTreeMap<tg::Reference, tg::Referent<tg::object::Id>>,
 }
 
 #[derive(Clone, Debug)]
@@ -326,7 +328,7 @@ impl Server {
 		let index = if metadata.is_dir() {
 			self.checkin_visit_directory(state, path, metadata)?
 		} else if metadata.is_file() {
-			Self::checkin_visit_file(state, path, metadata)
+			Self::checkin_visit_file(state, path, metadata)?
 		} else if metadata.is_symlink() {
 			Self::checkin_visit_symlink(state, path, metadata)?
 		} else {
@@ -394,9 +396,43 @@ impl Server {
 		Ok(index)
 	}
 
-	fn checkin_visit_file(state: &mut State, path: PathBuf, metadata: std::fs::Metadata) -> usize {
+	fn checkin_visit_file(
+		state: &mut State,
+		path: PathBuf,
+		metadata: std::fs::Metadata,
+	) -> tg::Result<usize> {
+		let dependencies = if let Ok(Some(contents)) = xattr::get(&path, tg::file::XATTR_LOCK_NAME)
+		{
+			let lockfile = serde_json::from_slice::<tg::Lockfile>(&contents)
+				.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))?;
+			if lockfile.nodes.len() != 1 {
+				return Err(tg::error!(%path = path.display(), "expected single node in lockfile"));
+			}
+			let Some(tg::lockfile::Node::File(file_node)) = lockfile.nodes.first() else {
+				return Err(tg::error!(%path = path.display(), "expected a file node"));
+			};
+			file_node
+				.dependencies
+				.iter()
+				.try_fold(BTreeMap::new(), |mut acc, (key, value)| match &value.item {
+					Either::Left(_) => Err(tg::error!("found a graph node")),
+					Either::Right(object) => {
+						let value = tg::Referent {
+							item: object.clone(),
+							path: value.path.clone(),
+							subpath: value.subpath.clone(),
+							tag: value.tag.clone(),
+						};
+						acc.insert(key.clone(), value);
+						Ok(acc)
+					},
+				})?
+		} else {
+			BTreeMap::default()
+		};
 		let variant = Variant::File(File {
 			blob: None,
+			dependencies,
 			executable: metadata.permissions().mode() & 0o111 != 0,
 		});
 		let node = Node {
@@ -408,7 +444,7 @@ impl Server {
 		};
 		let index = state.graph.nodes.len();
 		state.graph.nodes.push(node);
-		index
+		Ok(index)
 	}
 
 	fn checkin_visit_symlink(
@@ -507,7 +543,7 @@ impl Server {
 			Variant::File(file) => {
 				let kind = tg::object::Kind::File;
 				let contents = file.blob.as_ref().unwrap().id.clone();
-				let dependencies = BTreeMap::new();
+				let dependencies = file.dependencies.clone();
 				let executable = file.executable;
 				let data = tg::file::Data::Normal {
 					contents,
