@@ -30,12 +30,6 @@ impl Server {
 		artifact: &tg::artifact::Id,
 		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
 	) -> tg::Result<()> {
-		// Ensure that the artifact is complete.
-		self.ensure_artifact_is_complete(artifact, progress)
-			.await
-			.inspect_err(|error| tracing::warn!(?error, "object may be incomplete"))
-			.ok();
-
 		let server = self.clone();
 		let id = artifact.clone();
 		let artifact = Either::Right(artifact.clone());
@@ -190,7 +184,7 @@ impl Server {
 						},
 						_ => return Err(tg::error!("not yet implemented")),
 					}
-					.ok_or_else(|| tg::error!("failed to get the value"))?
+					.ok_or_else(|| tg::error!("expected the object to be stored"))?
 					.try_into()
 					.map_err(|_| tg::error!("expected a graph"))?;
 					state.graphs.insert(graph.clone(), data);
@@ -202,11 +196,15 @@ impl Server {
 			Either::Right(id) => {
 				#[allow(clippy::match_wildcard_for_single_variants)]
 				let data = match &self.store {
-					crate::Store::Lmdb(store) => store.try_get_object_data_sync(&id.into())?,
-					crate::Store::Memory(store) => store.try_get_object_data(&id.into())?,
+					crate::Store::Lmdb(store) => {
+						store.try_get_object_data_sync(&id.clone().into())?
+					},
+					crate::Store::Memory(store) => store.try_get_object_data(&id.clone().into())?,
 					_ => return Err(tg::error!("not yet implemented")),
 				}
-				.ok_or_else(|| tg::error!("failed to get the value"))?;
+				.ok_or_else(
+					|| tg::error!(%root = state.artifact, %id = id.clone(), "expected the object to be stored"),
+				)?;
 				let data = tg::artifact::Data::try_from(data)?;
 				Either::Right(data)
 			},

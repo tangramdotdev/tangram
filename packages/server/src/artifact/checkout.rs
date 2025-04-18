@@ -51,27 +51,19 @@ impl Server {
 			let arg = arg.clone();
 			let progress = progress.clone();
 			async move {
-				// Ensure that the artifact is complete.
-				if let Err(source) = server
-					.ensure_artifact_is_complete(&artifact, &progress)
-					.await
-				{
-					let error =
-						tg::error!(!source, %artifact, "failed to pull or index the artifact");
+				// Pull the artifact's incomplete objects.
+				let result = server.pull_incompete(&artifact, &progress).await.map_err(
+					|source| tg::error!(!source, %artifact, "failed to pull or index the artifact"),
+				);
+				if let Err(error) = result {
 					tracing::warn!(?error);
 					progress.log(
 						tg::progress::Level::Warning,
-						"pull/index failed, object may be incomplete".into(),
+						"failed to pull the incomplete objects".into(),
 					);
 				}
 
-				let title = if arg.path.is_none() {
-					"checking out..."
-				} else {
-					"caching..."
-				};
-				progress.spinner("checkout", title);
-
+				progress.spinner("checkout", "checkout");
 				let count = metadata.as_ref().and_then(|metadata| metadata.count);
 				let weight = metadata.as_ref().and_then(|metadata| metadata.weight);
 				progress.start(
@@ -88,10 +80,13 @@ impl Server {
 					Some(0),
 					weight,
 				);
+
 				let result = AssertUnwindSafe(server.check_out_task(artifact, arg, &progress))
 					.catch_unwind()
 					.await;
+
 				progress.finish_all();
+
 				match result {
 					Ok(Ok(output)) => {
 						progress.output(output);

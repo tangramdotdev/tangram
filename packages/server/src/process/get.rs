@@ -181,7 +181,7 @@ impl Server {
 		let cacheable = row
 			.get::<_, u64>(0)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			== 1;
+			!= 0;
 		let checksum = row
 			.get::<_, Option<String>>(1)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
@@ -243,7 +243,7 @@ impl Server {
 		let retry = row
 			.get::<_, u64>(12)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			== 1;
+			!= 0;
 		let mounts = row
 			.get::<_, Option<String>>(13)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
@@ -254,7 +254,7 @@ impl Server {
 		let network = row
 			.get::<_, u64>(14)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			== 1;
+			!= 0;
 		let started_at = row
 			.get::<_, Option<String>>(15)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
