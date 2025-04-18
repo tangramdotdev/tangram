@@ -29,7 +29,14 @@ pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<Path
 }
 
 pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
-	fn remove_inner(path: &Path) -> std::io::Result<()> {
+	let path = path.as_ref().to_owned();
+	tokio::task::spawn_blocking(move || remove_sync(&path))
+		.await
+		.unwrap()
+}
+
+pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
+	fn inner(path: &Path) -> std::io::Result<()> {
 		let metadata = std::fs::symlink_metadata(path)?;
 		if metadata.permissions().readonly() {
 			let mut mode = metadata.permissions().mode();
@@ -39,7 +46,7 @@ pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
 		}
 		if metadata.is_dir() {
 			for entry in std::fs::read_dir(path)? {
-				remove_inner(&entry?.path())?;
+				inner(&entry?.path())?;
 			}
 			std::fs::remove_dir(path)?;
 		} else {
@@ -47,9 +54,5 @@ pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
 		}
 		Ok(())
 	}
-
-	let path = path.as_ref().to_owned();
-	tokio::task::spawn_blocking(move || remove_inner(&path))
-		.await
-		.unwrap()
+	inner(path.as_ref())
 }

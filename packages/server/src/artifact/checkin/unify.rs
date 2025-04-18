@@ -462,7 +462,7 @@ impl Server {
 		// If the destination is an error, add an error to the referrer.
 		if contains_errors {
 			let error =
-				tg::error!("could not solve {reference} because the dependency contains errors");
+				tg::error!("failed to solve {reference} because the dependency contains errors");
 			current.graph.add_error(&current.edge.src, error);
 		}
 

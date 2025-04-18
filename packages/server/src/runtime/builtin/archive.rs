@@ -34,7 +34,7 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "invalid format"))?;
 
 		// Get the compression.
-		let compression = if let Some(tg::Value::String(value)) = args.get(3) {
+		let compression = if let Some(tg::Value::String(value)) = args.get(2) {
 			let compression = value
 				.parse::<tg::blob::compress::Format>()
 				.map_err(|source| tg::error!(!source, "invalid compression format"))?;
@@ -54,7 +54,9 @@ impl Runtime {
 			tg::artifact::archive::Format::Zip => zip(server, &artifact).await?,
 		};
 
-		Ok(blob.into())
+		let file = tg::File::with_contents(blob);
+
+		Ok(file.into())
 	}
 }
 
@@ -75,7 +77,7 @@ async fn tar(
 		let directory = artifact
 			.try_unwrap_directory_ref()
 			.ok()
-			.ok_or_else(|| tg::error!("can only tar a directory"))?;
+			.ok_or_else(|| tg::error!("expected a directory"))?;
 		for (name, artifact) in directory.entries(server).await? {
 			tar_inner(server, &mut builder, Path::new(&name), &artifact).await?;
 		}
@@ -247,7 +249,7 @@ where
 			builder
 				.write_entry_whole(entry.build(), &[][..])
 				.await
-				.map_err(|source| tg::error!(!source, "could not write the directory entry"))?;
+				.map_err(|source| tg::error!(!source, "failed to write the directory entry"))?;
 			for (name, artifact) in directory.entries(server).await? {
 				Box::pin(zip_inner(
 					server,
@@ -278,7 +280,7 @@ where
 			let mut file_reader = file.read(server, tg::blob::read::Arg::default()).await?;
 			tokio::io::copy(&mut file_reader, &mut entry_writer)
 				.await
-				.map_err(|source| tg::error!(!source, "could not write the file entry"))?;
+				.map_err(|source| tg::error!(!source, "failed to write the file entry"))?;
 			entry_writer.into_inner().close().await.unwrap();
 			Ok(())
 		},
@@ -295,7 +297,7 @@ where
 			builder
 				.write_entry_whole(entry.build(), target.to_string_lossy().as_bytes())
 				.await
-				.map_err(|source| tg::error!(!source, "could not write the symlink entry"))
+				.map_err(|source| tg::error!(!source, "failed to write the symlink entry"))
 		},
 	}
 }

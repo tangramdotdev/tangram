@@ -1,9 +1,8 @@
 use super::Runtime;
-use crate::Server;
 use std::{pin::Pin, time::Duration};
 use tangram_client as tg;
 use tangram_futures::read::shared_position_reader::SharedPositionReader;
-use tokio::io::{AsyncRead, AsyncReadExt as _};
+use tokio::io::{AsyncBufReadExt as _, AsyncRead};
 
 impl Runtime {
 	pub async fn decompress(&self, process: &tg::Process) -> tg::Result<tg::Value> {
@@ -14,22 +13,29 @@ impl Runtime {
 		let args = command.args(server).await?;
 
 		// Get the blob.
-		let blob: tg::Blob = args
+		let input = args
 			.first()
-			.ok_or_else(|| tg::error!("invalid number of arguments"))?
-			.clone()
-			.try_into()
-			.ok()
-			.ok_or_else(|| tg::error!("expected a blob"))?;
-
-		// Detect the format.
-		let format = detect_compression(server, &blob).await?;
+			.ok_or_else(|| tg::error!("invalid number of arguments"))?;
+		let blob = match input {
+			tg::Value::Object(tg::Object::Branch(branch)) => tg::Blob::Branch(branch.clone()),
+			tg::Value::Object(tg::Object::Leaf(leaf)) => tg::Blob::Leaf(leaf.clone()),
+			tg::Value::Object(tg::Object::File(file)) => file.contents(server).await?,
+			_ => return Err(tg::error!("expected a blob or a file")),
+		};
 
 		// Create the reader.
 		let reader = blob.read(server, tg::blob::read::Arg::default()).await?;
-		let reader = SharedPositionReader::with_reader_and_position(reader, 0)
+		let mut reader = SharedPositionReader::with_reader_and_position(reader, 0)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
+
+		// Detect the compression format.
+		let buffer = reader
+			.fill_buf()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to fill the buffer"))?;
+		let format = super::util::detect_compression_format(buffer)?
+			.ok_or_else(|| tg::error!("invalid compression format"))?;
 
 		// Spawn a task to log progress.
 		let position = reader.shared_position();
@@ -95,34 +101,14 @@ impl Runtime {
 		};
 		server.try_post_process_log(process.id(), arg).await.ok();
 
-		Ok(blob.into())
-	}
-}
+		let output = if input.is_blob() {
+			blob.into()
+		} else if input.is_file() {
+			tg::File::with_contents(blob).into()
+		} else {
+			unreachable!()
+		};
 
-async fn detect_compression(
-	server: &Server,
-	blob: &tg::Blob,
-) -> tg::Result<tg::blob::compress::Format> {
-	// Read first 6 bytes.
-	let mut magic_reader = blob
-		.read(
-			server,
-			tg::blob::read::Arg {
-				length: Some(6),
-				..Default::default()
-			},
-		)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to create magic bytes reader"))?;
-	let mut magic_bytes = [0u8; 6];
-	let bytes_read = magic_reader
-		.read(&mut magic_bytes)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to read magic bytes"))?;
-
-	let result = tg::blob::compress::Format::with_magic_number(&magic_bytes[..bytes_read]);
-	match result {
-		Some(format) => Ok(format),
-		None => Err(tg::error!(%id = blob.id(server).await?, "unrecognized compression format")),
+		Ok(output)
 	}
 }

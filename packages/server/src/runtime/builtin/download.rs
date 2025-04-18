@@ -7,6 +7,7 @@ use std::{
 	time::Duration,
 };
 use tangram_client as tg;
+use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio_util::io::StreamReader;
 use url::Url;
 
@@ -22,8 +23,6 @@ impl Runtime {
 
 		// Get the args.
 		let args = command.args(server).await?;
-
-		// Get the URL.
 		let url = args
 			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
@@ -32,6 +31,15 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected a string"))?
 			.parse::<Url>()
 			.map_err(|source| tg::error!(!source, "invalid url"))?;
+		let extract = args
+			.get(1)
+			.map(|value| {
+				value
+					.try_unwrap_bool_ref()
+					.copied()
+					.map_err(|_| tg::error!("expected a boolean"))
+			})
+			.transpose()?;
 
 		// Send the request.
 		let response = reqwest::get(url.clone())
@@ -86,32 +94,60 @@ impl Runtime {
 		};
 
 		// Create the reader.
-		let mut reader = StreamReader::new(
-			response
-				.bytes_stream()
-				.map_err(std::io::Error::other)
-				.inspect_ok({
-					let n = downloaded.clone();
-					move |bytes| {
-						n.fetch_add(
-							bytes.len().to_u64().unwrap(),
-							std::sync::atomic::Ordering::Relaxed,
-						);
-					}
-				}),
-		);
+		let stream = response
+			.bytes_stream()
+			.map_err(std::io::Error::other)
+			.inspect_ok({
+				let n = downloaded.clone();
+				move |bytes| {
+					n.fetch_add(
+						bytes.len().to_u64().unwrap(),
+						std::sync::atomic::Ordering::Relaxed,
+					);
+				}
+			});
+		let reader = StreamReader::new(stream);
+		let mut reader = BufReader::with_capacity(8192, reader);
 
-		// Download to a temp file.
+		// Fill the buffer.
+		let header = reader
+			.fill_buf()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to fill the buffer"))?;
+
+		// Detect the archive format.
+		let extract = match extract {
+			Some(true) => Some(
+				super::util::detect_archive_format(header)?
+					.ok_or_else(|| tg::error!("failed to determine the archive format"))?,
+			),
+			Some(false) => None,
+			None => super::util::detect_archive_format(header)?,
+		};
+
+		// Download or extract to the temp.
 		let temp = Temp::new(server);
-		let mut file = tokio::fs::File::create(temp.path())
-			.await
-			.map_err(|source| tg::error!(!source, "failed create the temp file"))?;
-		tokio::io::copy(&mut reader, &mut file)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
-		drop(file);
+		if let Some((format, compression)) = extract {
+			// Extract to the temp.
+			match format {
+				tg::artifact::archive::Format::Tar => {
+					self.extract_tar(&temp, reader, compression).await?;
+				},
+				tg::artifact::archive::Format::Zip => {
+					self.extract_zip(&temp, reader).await?;
+				},
+			}
+		} else {
+			// Download to the temp.
+			let mut file = tokio::fs::File::create(temp.path())
+				.await
+				.map_err(|source| tg::error!(!source, "failed create the temp file"))?;
+			tokio::io::copy(&mut reader, &mut file)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
+		}
 
-		// Check in the temp file.
+		// Check in the temp.
 		let arg = tg::artifact::checkin::Arg {
 			cache: false,
 			destructive: true,
@@ -121,12 +157,9 @@ impl Runtime {
 			lockfile: false,
 			path: temp.path().to_owned(),
 		};
-		let blob = tg::Artifact::check_in(server, arg)
+		let artifact = tg::Artifact::check_in(server, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check in the downloaded file"))?
-			.unwrap_file()
-			.contents(server)
-			.await?;
+			.map_err(|source| tg::error!(!source, "failed to check in the downloaded file"))?;
 
 		// Abort and await the log task.
 		log_task.abort();
@@ -146,6 +179,17 @@ impl Runtime {
 		};
 		server.try_post_process_log(process.id(), arg).await.ok();
 
-		Ok(blob.into())
+		let output = if extract.is_some() {
+			artifact.into()
+		} else {
+			artifact
+				.try_unwrap_file()
+				.map_err(|_| tg::error!("expected a file"))?
+				.contents(server)
+				.await?
+				.into()
+		};
+
+		Ok(output)
 	}
 }

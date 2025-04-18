@@ -94,7 +94,7 @@ pub async fn compute_checksum(
 				command
 					.id(runtime.server())
 					.await
-					.map_err(|source| tg::error!(!source, "could not find command id"))?
+					.map_err(|source| tg::error!(!source, "failed to find command id"))?
 					.into(),
 			)],
 
@@ -396,5 +396,5 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Str
 			return Ok(path.to_string_lossy().to_string());
 		}
 	}
-	Err(tg::error!(%path = exe.display(), "could not find executable"))
+	Err(tg::error!(%path = exe.display(), "failed to find the executable"))
 }

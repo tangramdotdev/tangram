@@ -81,7 +81,7 @@ impl Compiler {
 	) -> tg::Result<()> {
 		// Get the document.
 		let Some(mut document) = self.documents.get_mut(module) else {
-			return Err(tg::error!("could not find the document"));
+			return Err(tg::error!("failed to find the document"));
 		};
 
 		// Ensure the document is open.
@@ -112,7 +112,7 @@ impl Compiler {
 	pub async fn close_document(&self, module: &tg::Module) -> tg::Result<()> {
 		// Get the document.
 		let Some(mut document) = self.documents.get_mut(module) else {
-			return Err(tg::error!("could not find the document"));
+			return Err(tg::error!("failed to find the document"));
 		};
 
 		// Ensure the document is open.

@@ -112,16 +112,16 @@ impl Directory {
 		let mut entries = BTreeMap::new();
 		let mut read_dir = tokio::fs::read_dir(path)
 			.await
-			.map_err(|error| tg::error!(source = error, "could not read the directory"))?;
+			.map_err(|error| tg::error!(source = error, "failed to read the directory"))?;
 		while let Some(entry) = read_dir
 			.next_entry()
 			.await
-			.map_err(|error| tg::error!(source = error, "could not read the directory entry"))?
+			.map_err(|error| tg::error!(source = error, "failed to read the directory entry"))?
 		{
 			let name = entry
 				.file_name()
 				.into_string()
-				.map_err(|_| tg::error!("could not convert the file name to a string"))?
+				.map_err(|_| tg::error!("failed to convert the file name to a string"))?
 				.into();
 			let artifact = Box::pin(Artifact::with_path(entry.path().as_path())).await?;
 			entries.insert(name, artifact);
@@ -207,11 +207,11 @@ impl File {
 		};
 		let contents = tokio::fs::read_to_string(path)
 			.await
-			.map_err(|error| tg::error!(source = error, "could not read file to string"))?
+			.map_err(|error| tg::error!(source = error, "failed to read file to string"))?
 			.into();
 		let executable = metadata.permissions().mode() & 0o111 != 0;
 		let xattrs = xattr::list(path)
-			.map_err(|source| tg::error!(!source, "could not list xattrs"))?
+			.map_err(|source| tg::error!(!source, "failed to list xattrs"))?
 			.map(|name| {
 				let name = name
 					.to_str()
