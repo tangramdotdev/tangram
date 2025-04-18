@@ -100,7 +100,7 @@ impl Messenger {
 		let first_sequence = state.messages.first().map_or(state.sequence, |msg| msg.0);
 		let last_sequence = state.sequence;
 		Ok(StreamInfo {
-			first_sequence: Some(first_sequence),
+			first_sequence,
 			last_sequence,
 		})
 	}

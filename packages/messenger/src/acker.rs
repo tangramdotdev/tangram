@@ -6,9 +6,7 @@ pub struct Acker {
 }
 
 impl Acker {
-	pub fn new(
-		ack: impl Future<Output = Result<(), Error>> + Send + 'static,
-	) -> Self {
+	pub fn new(ack: impl Future<Output = Result<(), Error>> + Send + 'static) -> Self {
 		Self {
 			ack: Some(ack.boxed()),
 		}
@@ -24,9 +22,7 @@ impl Acker {
 
 impl Default for Acker {
 	fn default() -> Self {
-		Self {
-			ack: None,
-		}
+		Self { ack: None }
 	}
 }
 
