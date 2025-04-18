@@ -154,18 +154,18 @@ impl<T> State<T> {
 		for indicator in self.indicators.values() {
 			const LENGTH: u64 = 20;
 			const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+			let mut line = String::new();
 			let position = (now / (1000 / 10)) % 10;
 			let position = position.to_usize().unwrap();
 			let spinner = crossterm::style::Stylize::blue(SPINNER[position]);
-			let mut line = String::new();
+			write!(line, "{spinner}").unwrap();
 			write!(
-				self.tty,
-				"{:title_length$}",
+				line,
+				" {:title_length$}",
 				indicator.title,
 				title_length = title_length.unwrap(),
 			)
 			.unwrap();
-			write!(line, " {spinner}").unwrap();
 			if let (Some(current), Some(total)) = (indicator.current, indicator.total) {
 				let current = current.min(total);
 				write!(line, " [").unwrap();
