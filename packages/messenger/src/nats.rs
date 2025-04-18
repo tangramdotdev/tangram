@@ -70,6 +70,7 @@ impl Messenger {
 			name,
 			max_bytes,
 			max_messages,
+			retention: nats::jetstream::stream::RetentionPolicy::Interest,
 			..Default::default()
 		};
 		self.jetstream
@@ -95,7 +96,7 @@ impl Messenger {
 			.map_err(Error::other)?;
 		let info = stream.info().await.map_err(Error::other)?;
 		let info = StreamInfo {
-			first_sequence: Some(info.state.first_sequence),
+			first_sequence: info.state.first_sequence,
 			last_sequence: info.state.last_sequence,
 		};
 		Ok(info)
@@ -196,30 +197,34 @@ impl Messenger {
 			.map_err(Error::other)?;
 
 		// Create the stream.
-		let mut batch = consumer.batch();
-		if let Some(max_bytes) = config.max_bytes {
-			batch = batch.max_bytes(max_bytes.to_usize().unwrap());
-		}
-		if let Some(max_messages) = config.max_messages {
-			batch = batch.max_messages(max_messages.to_usize().unwrap());
-		}
-		if let Some(timeout) = config.timeout {
-			batch = batch.expires(timeout);
-		}
-		let stream = batch
-			.messages()
-			.await
-			.map_err(Error::other)?
-			.map_ok(|message| {
-				let (message, acker) = message.split();
-				Message {
-					subject: message.subject.to_string(),
-					payload: message.payload.clone(),
-					acker: acker.into(),
-				}
-			})
-			.map_err(Error::other);
-
+		let stream = stream::try_unfold((consumer, config), move |(consumer, config)| async move {
+			let mut batch = consumer.batch();
+			if let Some(max_bytes) = config.max_bytes {
+				batch = batch.max_bytes(max_bytes.to_usize().unwrap());
+			}
+			if let Some(max_messages) = config.max_messages {
+				batch = batch.max_messages(max_messages.to_usize().unwrap());
+			}
+			if let Some(timeout) = config.timeout {
+				batch = batch.expires(timeout);
+			}
+			let batch = batch
+				.messages()
+				.await
+				.map_err(|e| Error::Other(e.into()))?
+				.map_ok(|message| {
+					let (message, acker) = message.split();
+					let message = Message {
+						subject: message.subject.to_string(),
+						payload: message.payload,
+						acker: acker.into(),
+					};
+					message
+				})
+				.map_err(Error::Other);
+			Ok::<_, Error>(Some((batch, (consumer, config))))
+		})
+		.try_flatten();
 		Ok(stream)
 	}
 }

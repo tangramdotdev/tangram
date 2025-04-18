@@ -1,5 +1,5 @@
 use crate::{Server, database::Database, util::iter::Ext as _};
-use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
+use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
 use indoc::indoc;
 use num::ToPrimitive as _;
 use rusqlite as sqlite;
@@ -86,45 +86,44 @@ impl Server {
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let progress = crate::progress::Handle::new();
-		let task = tokio::spawn({
-			let progress = progress.clone();
-			let server = self.clone();
-			async move {
-				let mut info = server
-					.messenger
-					.stream_info("index".into())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
+		let task =
+			tokio::spawn({
+				let progress = progress.clone();
+				let server = self.clone();
+				async move {
+					let info =
+						server
+							.messenger
+							.stream_info("index".into())
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to get the index stream info")
+							})?;
 
-				// Get the most recent sequence number.
-				let mut first_sequence = info.first_sequence.unwrap_or(info.last_sequence);
-				let last_sequence = info.last_sequence;
-				progress.start(
-					"index".to_string(),
-					"items".to_owned(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					Some(last_sequence - first_sequence),
-				);
+					// Get the most recent sequence number.
+					progress.start(
+						"index".to_string(),
+						"items".to_owned(),
+						tg::progress::IndicatorFormat::Normal,
+						Some(0),
+						Some(info.last_sequence.saturating_sub(info.first_sequence)),
+					);
 
-				// Wait for the indexing task to catch up.
-				loop {
-					match info.first_sequence {
-						Some(sequence) if sequence <= last_sequence => {
-							progress.increment("index", sequence - first_sequence);
-							first_sequence = sequence;
-							info = server.messenger.stream_info("index".into()).await.map_err(
-								|source| tg::error!(!source, "failed to get the index stream info"),
-							)?;
-						},
-						_ => break,
+					// Wait for the indexing task to catch up.
+					let last_sequence = info.last_sequence;
+					let mut first_sequence = info.first_sequence;
+					while first_sequence < last_sequence {
+						let info = server.messenger.stream_info("index".into()).await.map_err(
+							|source| tg::error!(!source, "failed to get the index stream info"),
+						)?;
+						progress.increment("index", info.first_sequence - first_sequence);
+						first_sequence = info.first_sequence;
 					}
-				}
 
-				progress.output(());
-				Ok::<_, tg::Error>(())
-			}
-		});
+					progress.output(());
+					Ok::<_, tg::Error>(())
+				}
+			});
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = progress.stream().attach(abort_handle);
 		Ok(stream)
@@ -163,29 +162,13 @@ impl Server {
 		&self,
 		config: &crate::config::Indexer,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
-		match &self.messenger {
-			Either::Left(messenger) => self
-				.indexer_task_create_message_stream_memory(config, messenger)
-				.await
-				.map(futures::StreamExt::left_stream),
-			Either::Right(messenger) => self
-				.indexer_task_create_message_stream_nats(config, messenger)
-				.await
-				.map(futures::StreamExt::right_stream),
-		}
-	}
-
-	async fn indexer_task_create_message_stream_memory(
-		&self,
-		config: &crate::config::Indexer,
-		messenger: &tangram_messenger::memory::Messenger,
-	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
 		let batch_config = BatchConfig {
 			max_bytes: None,
 			max_messages: Some(config.message_batch_size.to_u64().unwrap()),
 			timeout: Some(config.message_batch_timeout),
 		};
-		let stream = messenger
+		let stream = self
+			.messenger
 			.stream_batch_subscribe("index".to_owned(), Some("index".to_owned()), batch_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the index stream"))?
@@ -204,61 +187,6 @@ impl Server {
 			.filter_map(|result| future::ready(result.ok()))
 			.ready_chunks(config.message_batch_size)
 			.map(Ok);
-		Ok(stream)
-	}
-
-	async fn indexer_task_create_message_stream_nats(
-		&self,
-		config: &crate::config::Indexer,
-		messenger: &tangram_messenger::nats::Messenger,
-	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
-		// Get the stream.
-		let stream = messenger
-			.jetstream
-			.get_stream("index")
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
-
-		// Get the consumer.
-		let consumer_config = async_nats::jetstream::consumer::pull::Config {
-			durable_name: Some("index".to_string()),
-			..Default::default()
-		};
-		let consumer = stream
-			.get_or_create_consumer("index", consumer_config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the index consumer"))?;
-
-		// Create the stream.
-		let stream =
-			stream::try_unfold(consumer, |consumer| async {
-				let mut batch = consumer
-					.batch()
-					.max_messages(config.message_batch_size)
-					.expires(config.message_batch_timeout)
-					.messages()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the batch"))?;
-				let mut messages = Vec::new();
-				while let Some(message) = batch.try_next().await.map_err(|source| {
-					tg::error!(!source, "failed to get a message from the batch")
-				})? {
-					let (message, acker) = message.split();
-					let result = serde_json::from_slice::<Message>(&message.payload);
-					let message = match result {
-						Ok(message) => message,
-						Err(source) => {
-							tracing::error!(?source, "failed to deserialize the message payload");
-							acker.ack().await?;
-							continue;
-						},
-					};
-					messages.push((message, acker.into()));
-				}
-				Ok(Some((messages, consumer)))
-			})
-			.try_filter(|messages| future::ready(!messages.is_empty()));
-
 		Ok(stream)
 	}
 

@@ -23,7 +23,7 @@ pub struct StreamConfig {
 
 #[derive(Clone, Debug)]
 pub struct StreamInfo {
-	pub first_sequence: Option<u64>,
+	pub first_sequence: u64,
 	pub last_sequence: u64,
 }
 
@@ -31,6 +31,7 @@ pub struct StreamPublishInfo {
 	pub sequence: u64,
 }
 
+#[derive(Default)]
 pub struct BatchConfig {
 	pub max_bytes: Option<u64>,
 	pub max_messages: Option<u64>,

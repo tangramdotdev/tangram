@@ -675,6 +675,83 @@ impl Server {
 		root: &tg::artifact::Id,
 		touched_at: i64,
 	) -> tg::Result<()> {
+		if self.messenger.is_left() {
+			self.checkin_messenger_memory(state, root, touched_at)
+				.await?;
+		} else {
+			self.checkin_messenger_nats(state, root, touched_at).await?;
+		}
+		Ok(())
+	}
+
+	async fn checkin_messenger_memory(
+		&self,
+		state: &Arc<State>,
+		root: &tg::artifact::Id,
+		touched_at: i64,
+	) -> tg::Result<()> {
+		let mut messages: Vec<Bytes> = Vec::new();
+		for node in &state.graph.nodes {
+			let object = node.object.as_ref().unwrap();
+			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+				children: object.data.children(),
+				id: object.id.clone(),
+				size: object.bytes.len().to_u64().unwrap(),
+				touched_at,
+				cache_reference: None,
+			});
+			let message = serde_json::to_vec(&message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			messages.push(message.into());
+			// Send messages for the blob.
+			if let Variant::File(File {
+				blob: Some(blob), ..
+			}) = &node.variant
+			{
+				let mut stack = vec![blob];
+				while let Some(blob) = stack.pop() {
+					let children = blob
+						.data
+						.as_ref()
+						.map(tg::blob::Data::children)
+						.unwrap_or_default();
+					let id = blob.id.clone().into();
+					let size = blob.size;
+					let message =
+						crate::index::Message::PutObject(crate::index::PutObjectMessage {
+							cache_reference: Some(root.clone()),
+							children,
+							id,
+							size,
+							touched_at,
+						});
+					let message = serde_json::to_vec(&message)
+						.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+					messages.push(message.into());
+					stack.extend(&blob.children);
+				}
+			}
+		}
+
+		while !messages.is_empty() {
+			let published = self
+				.messenger
+				.stream_batch_publish("index".to_owned(), messages.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
+			messages = messages.split_off(published.len());
+		}
+		Ok(())
+	}
+
+	async fn checkin_messenger_nats(
+		&self,
+		state: &Arc<State>,
+		root: &tg::artifact::Id,
+		touched_at: i64,
+	) -> tg::Result<()> {
 		for node in &state.graph.nodes {
 			let object = node.object.as_ref().unwrap();
 			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
