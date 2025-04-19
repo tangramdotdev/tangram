@@ -111,7 +111,7 @@ impl Messenger {
 		payload: Bytes,
 	) -> Result<impl Future<Output = Result<StreamPublishInfo, Error>>, Error> {
 		let stream = self.streams.get(&name).ok_or(Error::NotFound)?;
-		let future = stream.publish(payload)?.boxed();
+		let future = stream.publish(payload).boxed();
 		Ok(future)
 	}
 
@@ -139,7 +139,7 @@ impl Messenger {
 			.streams
 			.get(&name)
 			.ok_or(Error::NotFound)?
-			.batch_publish(payloads)?
+			.batch_publish(payloads)
 			.boxed();
 		Ok(future)
 	}
@@ -270,8 +270,7 @@ impl Stream {
 	fn batch_publish(
 		&self,
 		payloads: Vec<Bytes>,
-	) -> Result<impl Future<Output = Result<Vec<StreamPublishInfo>, Error>> + Send + 'static, Error>
-	{
+	) -> impl Future<Output = Result<Vec<StreamPublishInfo>, Error>> + Send + 'static {
 		// Create a channel to be notified when a message is published.
 		let (tx, rx) = tokio::sync::oneshot::channel();
 
@@ -299,11 +298,13 @@ impl Stream {
 			let infos = payloads
 				.into_iter()
 				.filter_map(|payload| {
-					if state.config.max_messages.map_or(false, |max_messages| {
-						state.messages.len().to_u64().unwrap() >= max_messages
-					}) && state.config.max_bytes.map_or(true, |max| {
-						state.bytes + payload.len().to_u64().unwrap() > max
-					}) {
+					if state.config.max_messages.map_or_else(
+						|| false,
+						|max_messages| state.messages.len().to_u64().unwrap() >= max_messages,
+					) && state.config.max_bytes.map_or_else(
+						|| true,
+						|max| state.bytes + payload.len().to_u64().unwrap() > max,
+					) {
 						return None;
 					}
 
@@ -322,12 +323,7 @@ impl Stream {
 			tx.send(Ok(infos)).ok();
 		});
 
-		// Create a publish ack future.
-		let future = rx
-			.map_err(|_| Error::PublishFailed)
-			.and_then(|item| future::ready(item));
-
-		Ok(future)
+		rx.map_err(|_| Error::PublishFailed).and_then(future::ready)
 	}
 
 	async fn batch_subscribe(
@@ -449,7 +445,7 @@ impl Stream {
 			// Return the result.
 			Ok::<_, Error>(Some((messages, state)))
 		})
-		.map_ok(|messages| stream::iter(messages))
+		.map_ok(stream::iter)
 		.try_flatten();
 
 		Ok(stream)
@@ -458,17 +454,15 @@ impl Stream {
 	fn publish(
 		&self,
 		payload: Bytes,
-	) -> Result<impl Future<Output = Result<StreamPublishInfo, Error>> + Send + 'static, Error> {
-		let future = self
-			.batch_publish(vec![payload])?
+	) -> impl Future<Output = Result<StreamPublishInfo, Error>> + Send + 'static {
+		self.batch_publish(vec![payload])
 			.and_then(|mut infos| async move {
 				if infos.len() != 1 {
 					return Err(Error::MaxMessages);
 				}
 				let info = infos.pop().unwrap();
 				Ok(info)
-			});
-		Ok(future)
+			})
 	}
 
 	async fn subscribe(
@@ -507,7 +501,6 @@ mod tests {
 				vec![b'3'].into(),
 				vec![b'4'].into(),
 			])
-			.unwrap()
 			.await
 			.unwrap();
 		assert_eq!(infos.len(), 4);
