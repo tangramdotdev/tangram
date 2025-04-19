@@ -29,7 +29,6 @@ impl Server {
 				Ok(info) => return Ok(info),
 				Err(messenger::Error::MaxBytes | messenger::Error::MaxMessages) => {
 					tokio::task::yield_now().await;
-					continue;
 				},
 				Err(source) => return Err(tg::error!(!source, "failed to publish message")),
 			}

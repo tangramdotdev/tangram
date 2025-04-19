@@ -214,12 +214,11 @@ impl Messenger {
 				.map_err(|e| Error::Other(e.into()))?
 				.map_ok(|message| {
 					let (message, acker) = message.split();
-					let message = Message {
+					Message {
 						subject: message.subject.to_string(),
 						payload: message.payload,
 						acker: acker.into(),
-					};
-					message
+					}
 				})
 				.map_err(Error::Other);
 			Ok::<_, Error>(Some((batch, (consumer, config))))

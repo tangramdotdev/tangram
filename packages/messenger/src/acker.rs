@@ -1,6 +1,7 @@
 use crate::Error;
 use futures::{FutureExt as _, future::BoxFuture};
 
+#[derive(Default)]
 pub struct Acker {
 	ack: Option<BoxFuture<'static, Result<(), Error>>>,
 }
@@ -17,12 +18,6 @@ impl Acker {
 			fut.await?;
 		}
 		Ok(())
-	}
-}
-
-impl Default for Acker {
-	fn default() -> Self {
-		Self { ack: None }
 	}
 }
 
