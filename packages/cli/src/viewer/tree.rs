@@ -611,23 +611,26 @@ where
 			.unwrap();
 
 		// Get the output.
-		let output = handle.get_process(process.id())
+		let output = handle
+			.get_process(process.id())
 			.await?
 			.data
 			.output
-			.map(|data| tg::Value::try_from(data))
+			.map(tg::Value::try_from)
 			.transpose()?;
 		if let Some(output) = output {
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
-				let output = Self::create_node(&handle, &node, Some("output".into()), Some(&Item::Value(output)));
-				node.borrow_mut()
-					.children
-					.push(output);
+				let output = Self::create_node(
+					&handle,
+					&node,
+					Some("output".into()),
+					Some(&Item::Value(output)),
+				);
+				node.borrow_mut().children.push(output);
 			};
 			update_sender.send(Box::new(update)).unwrap();
 		}
-
 
 		// Create the children stream.
 		let mut children = process
