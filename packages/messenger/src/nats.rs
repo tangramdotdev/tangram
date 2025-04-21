@@ -70,13 +70,18 @@ impl Messenger {
 			.max_messages
 			.map(|value| value.to_i64().unwrap())
 			.unwrap_or_default();
-		let retention = config
-			.retention
-			.map(|policy| match policy {
-				RetentionPolicy::Interest => nats::jetstream::stream::RetentionPolicy::Interest,
-				RetentionPolicy::Limits => nats::jetstream::stream::RetentionPolicy::Limits,
-			})
-			.unwrap_or(nats::jetstream::stream::RetentionPolicy::Limits);
+		let retention =
+			config
+				.retention
+				.map_or(
+					nats::jetstream::stream::RetentionPolicy::Limits,
+					|policy| match policy {
+						RetentionPolicy::Interest => {
+							nats::jetstream::stream::RetentionPolicy::Interest
+						},
+						RetentionPolicy::Limits => nats::jetstream::stream::RetentionPolicy::Limits,
+					},
+				);
 		let stream_config = nats::jetstream::stream::Config {
 			discard: async_nats::jetstream::stream::DiscardPolicy::New,
 			name,
@@ -138,7 +143,6 @@ impl Messenger {
 						.unwrap()
 						.error_code();
 					if matches!(code, nats::jetstream::ErrorCode::STREAM_STORE_FAILED) {
-						eprintln!("({name}: {error}");
 						return Error::MaxBytes;
 					}
 					Error::other(error)
@@ -153,8 +157,6 @@ impl Messenger {
 		name: String,
 		consumer: Option<String>,
 	) -> Result<impl Stream<Item = Result<Message, Error>> + 'static + Send, Error> {
-		eprintln!("nats stream_subscribe {name} {consumer:?}");
-
 		// Get the stream.
 		let stream = self
 			.jetstream

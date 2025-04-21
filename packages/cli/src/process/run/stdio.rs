@@ -194,25 +194,9 @@ impl Stdio {
 	) -> impl Future<Output = tg::Result<()>> + Send + 'static {
 		let handle = handle.clone();
 		let remote = self.remote.clone();
-		let (stdin, stdout, stderr) =
-			(self.stdin.clone(), self.stdout.clone(), self.stderr.clone());
+		let io = [self.stdout.clone(), self.stderr.clone()];
 		async move {
-			match stdin {
-				tg::process::Stdio::Pipe(pipe) => {
-					let arg = tg::pipe::close::Arg {
-						remote: remote.clone(),
-					};
-					handle.close_pipe(&pipe, arg).await.ok();
-				},
-				tg::process::Stdio::Pty(pty) => {
-					let arg = tg::pty::close::Arg {
-						remote: remote.clone(),
-						master: true,
-					};
-					handle.close_pty(&pty, arg).await.ok();
-				},
-			}
-			for io in [stdout, stderr] {
+			for io in io {
 				match io {
 					tg::process::Stdio::Pipe(pipe) => {
 						let arg = tg::pipe::close::Arg {

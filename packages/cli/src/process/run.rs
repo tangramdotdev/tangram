@@ -8,7 +8,7 @@ use std::{
 	pin::pin,
 };
 use tangram_client as tg;
-use tangram_futures::task::Task;
+use tangram_futures::task::{Stop, Task};
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -100,13 +100,13 @@ impl Cli {
 		stdio.set_raw_mode()?;
 
 		// Spawn the stdio task.
-		let stdio_task = tokio::spawn({
+		let stdio_task = Task::spawn({
 			let handle = handle.clone();
 			let stdin = stdio.stdin.clone();
 			let stdout = stdio.stdout.clone();
 			let stderr = stdio.stderr.clone();
 			let remote = stdio.remote.clone();
-			async move { stdio_task(&handle, stdin, stdout, stderr, remote).await }
+			|stop| async move { stdio_task(&handle, stop, stdin, stdout, stderr, remote).await }
 		});
 
 		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
@@ -152,14 +152,13 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed await the process"));
 
-		// Close stdio, but defer waiting for the future to resolve until after stdio has been drained.
-		let close_future = stdio.close(&handle);
-		let close_task = tokio::spawn(close_future);
+		// Close stdio.
+		stdio.close(&handle).await?;
 
 		// Stop and await the stdio task.
-		stdio_task.await.unwrap()?;
+		stdio_task.stop();
+		stdio_task.wait().await.unwrap()?;
 		drop(stdio);
-		close_task.await.ok();
 
 		// Abort the cancel task.
 		cancel_task.abort();
@@ -204,6 +203,7 @@ impl Cli {
 
 async fn stdio_task<H>(
 	handle: &H,
+	stop: Stop,
 	stdin: tg::process::Stdio,
 	stdout: tg::process::Stdio,
 	stderr: tg::process::Stdio,
@@ -214,36 +214,40 @@ where
 {
 	// Spawn stdin task.
 	let stream = stdin_stream();
-	let stdin_task = Task::spawn(|stop| {
+	let stdin_task = tokio::spawn({
 		let remote = remote.clone();
 		let handle = handle.clone();
 		async move {
-			match stdin {
+			let result = match stdin {
 				tg::process::Stdio::Pipe(id) => {
-					let stop = async move { stop.wait().await };
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
-						.take_until(stop)
 						.chain(stream::once(future::ok(tg::pipe::Event::End)))
 						.boxed();
 					let arg = tg::pipe::write::Arg { remote };
-					handle.write_pipe(&id, arg, stream).await?;
+					let handle = handle.clone();
+					async move { handle.write_pipe(&id, arg, stream).await }.boxed()
 				},
 				tg::process::Stdio::Pty(id) => {
-					let stop = async move { stop.wait().await };
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pty::Event::Chunk))
-						.take_until(stop)
 						.chain(stream::once(future::ok(tg::pty::Event::End)))
 						.boxed();
 					let arg = tg::pty::write::Arg {
 						master: true,
 						remote,
 					};
-					handle.write_pty(&id, arg, stream).await?;
+					let handle = handle.clone();
+					async move { handle.write_pty(&id, arg, stream).await }.boxed()
 				},
+			};
+
+			//
+			let stop = stop.wait();
+			match future::select(pin!(result), pin!(stop)).await {
+				future::Either::Left((result, _)) => result,
+				future::Either::Right(_) => Ok(()),
 			}
-			Ok::<_, tg::Error>(())
 		}
 	});
 
@@ -274,15 +278,13 @@ where
 	});
 
 	// Join the stdout and stderr tasks.
-	let (stdout_result, stderr_result) = future::join(stdout_task, stderr_task).await;
-
-	// Stop and await the stdin task.
-	stdin_task.stop();
-	stdin_task.wait().await.unwrap()?;
+	let (stdout_result, stderr_result, stdin_result) =
+		future::join3(stdout_task, stderr_task, stdin_task).await;
 
 	// Return errors from the stdout and stderr tasks.
 	stdout_result.unwrap()?;
 	stderr_result.unwrap()?;
+	stdin_result.unwrap()?;
 
 	Ok(())
 }
