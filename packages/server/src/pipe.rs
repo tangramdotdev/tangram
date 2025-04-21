@@ -3,8 +3,8 @@ use bytes::Bytes;
 use tangram_client as tg;
 use tangram_messenger::{self as messenger, Messenger as _};
 
+mod close;
 mod create;
-mod delete;
 mod read;
 mod write;
 
@@ -23,6 +23,7 @@ impl Server {
 				.messenger
 				.stream_publish(name.clone(), payload.clone())
 				.await
+				.inspect_err(|e| tracing::error!("failed to write pipe: {e}"))
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
 				.await;
 			match result {

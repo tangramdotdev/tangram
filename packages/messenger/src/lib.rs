@@ -19,6 +19,13 @@ pub struct Message {
 pub struct StreamConfig {
 	pub max_bytes: Option<u64>,
 	pub max_messages: Option<u64>,
+	pub retention: Option<RetentionPolicy>,
+}
+
+#[derive(Clone, Debug)]
+pub enum RetentionPolicy {
+	Limits,
+	Interest,
 }
 
 #[derive(Clone, Debug)]
@@ -27,6 +34,7 @@ pub struct StreamInfo {
 	pub last_sequence: u64,
 }
 
+#[derive(Debug)]
 pub struct StreamPublishInfo {
 	pub sequence: u64,
 }

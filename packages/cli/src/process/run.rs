@@ -327,6 +327,7 @@ where
 			handle
 				.read_pipe(id, arg)
 				.await?
+				.take_while(|chunk| future::ready(!matches!(chunk, Ok(tg::pipe::Event::End))))
 				.try_filter_map(|event| {
 					future::ok({
 						if let tg::pipe::Event::Chunk(chunk) = event {
@@ -340,12 +341,14 @@ where
 		},
 		tg::process::Stdio::Pty(id) => {
 			let arg = tg::pty::read::Arg {
+				master: true,
 				remote,
-				master: false,
 			};
 			handle
 				.read_pty(id, arg)
 				.await?
+				.inspect(|item| eprintln!("item: {item:?}"))
+				.take_while(|chunk| future::ready(!matches!(chunk, Ok(tg::pty::Event::End))))
 				.try_filter_map(|event| {
 					future::ok({
 						if let tg::pty::Event::Chunk(chunk) = event {

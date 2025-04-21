@@ -2,8 +2,8 @@ use crate::util::serde::BytesBase64;
 use bytes::Bytes;
 use serde_with::serde_as;
 
+pub mod close;
 pub mod create;
-pub mod delete;
 pub mod id;
 pub mod read;
 pub mod write;

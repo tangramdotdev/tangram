@@ -324,7 +324,7 @@ async fn input(
 		},
 		tg::process::Stdio::Pty(id) => {
 			let arg = tg::pty::read::Arg {
-				master: true,
+				master: false,
 				remote,
 			};
 			let stream = server.read_pty(id, arg).await?;

@@ -194,21 +194,38 @@ impl Stdio {
 	) -> impl Future<Output = tg::Result<()>> + Send + 'static {
 		let handle = handle.clone();
 		let remote = self.remote.clone();
-		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
+		let (stdin, stdout, stderr) =
+			(self.stdin.clone(), self.stdout.clone(), self.stderr.clone());
 		async move {
-			for io in io {
+			match stdin {
+				tg::process::Stdio::Pipe(pipe) => {
+					let arg = tg::pipe::close::Arg {
+						remote: remote.clone(),
+					};
+					handle.close_pipe(&pipe, arg).await.ok();
+				},
+				tg::process::Stdio::Pty(pty) => {
+					let arg = tg::pty::close::Arg {
+						remote: remote.clone(),
+						master: true,
+					};
+					handle.close_pty(&pty, arg).await.ok();
+				},
+			}
+			for io in [stdout, stderr] {
 				match io {
 					tg::process::Stdio::Pipe(pipe) => {
-						let arg = tg::pipe::delete::Arg {
+						let arg = tg::pipe::close::Arg {
 							remote: remote.clone(),
 						};
-						handle.delete_pipe(&pipe, arg).await.ok();
+						handle.close_pipe(&pipe, arg).await.ok();
 					},
 					tg::process::Stdio::Pty(pty) => {
-						let arg = tg::pty::delete::Arg {
+						let arg = tg::pty::close::Arg {
 							remote: remote.clone(),
+							master: false,
 						};
-						handle.delete_pty(&pty, arg).await.ok();
+						handle.close_pty(&pty, arg).await.ok();
 					},
 				}
 			}

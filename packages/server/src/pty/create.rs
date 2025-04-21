@@ -19,11 +19,12 @@ impl Server {
 		let id = tg::pty::Id::new();
 
 		// Create the streams.
-		for end in ["master", "slave"] {
+		for end in ["master_writer", "master_reader"] {
 			let name = format!("{id}_{end}");
 			let config = messenger::StreamConfig {
 				max_bytes: Some(65_536),
 				max_messages: Some(256),
+				retention: Some(messenger::RetentionPolicy::Limits),
 			};
 			self.messenger
 				.get_or_create_stream(name, config)

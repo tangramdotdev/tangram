@@ -492,6 +492,7 @@ mod tests {
 			StreamConfig {
 				max_bytes: Some(1024),
 				max_messages: Some(256),
+				retention: None,
 			},
 		);
 		let infos = stream

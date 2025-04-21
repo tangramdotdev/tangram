@@ -3,8 +3,8 @@ use bytes::Bytes;
 use tangram_client as tg;
 use tangram_messenger::{self as messenger, Messenger as _};
 
+mod close;
 mod create;
-mod delete;
 mod read;
 mod size;
 mod write;
@@ -17,9 +17,9 @@ impl Server {
 		master: bool,
 	) -> tg::Result<messenger::StreamPublishInfo> {
 		let name = if master {
-			format!("{pty}_master")
+			format!("{pty}_master_writer")
 		} else {
-			format!("{pty}_slave")
+			format!("{pty}_master_reader")
 		};
 		let payload: Bytes = serde_json::to_vec(&event)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?
@@ -29,12 +29,16 @@ impl Server {
 				.messenger
 				.stream_publish(name.clone(), payload.clone())
 				.await
+				.inspect_err(|e| eprintln!("failed to write pty: {e}"))
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
-				.await;
+				.await
+				.inspect_err(|e| eprintln!("failed to write pty: {e}"));
+			eprintln!("result: {result:?}");
 			match result {
 				Ok(info) => return Ok(info),
 				Err(messenger::Error::MaxBytes | messenger::Error::MaxMessages) => {
-					tokio::task::yield_now().await;
+					tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+					eprintln!("retrying message");
 				},
 				Err(source) => return Err(tg::error!(!source, "failed to publish message")),
 			}

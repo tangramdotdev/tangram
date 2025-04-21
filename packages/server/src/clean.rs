@@ -438,7 +438,7 @@ impl Server {
 		}
 
 		for id in &ptys {
-			for name in ["master", "slave"] {
+			for name in ["master_writer", "master_reader"] {
 				self.messenger
 					.delete_stream(format!("{id}_{name}"))
 					.await

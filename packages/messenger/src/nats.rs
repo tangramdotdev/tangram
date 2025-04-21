@@ -1,8 +1,12 @@
-use crate::{Acker, BatchConfig, Error, Message, StreamConfig, StreamInfo, StreamPublishInfo};
+use crate::{
+	Acker, BatchConfig, Error, Message, RetentionPolicy, StreamConfig, StreamInfo,
+	StreamPublishInfo,
+};
 use async_nats as nats;
 use bytes::Bytes;
 use futures::{FutureExt, TryFutureExt, prelude::*};
 use num::ToPrimitive;
+use std::error::Error as _;
 
 pub struct Messenger {
 	pub client: nats::Client,
@@ -66,11 +70,19 @@ impl Messenger {
 			.max_messages
 			.map(|value| value.to_i64().unwrap())
 			.unwrap_or_default();
+		let retention = config
+			.retention
+			.map(|policy| match policy {
+				RetentionPolicy::Interest => nats::jetstream::stream::RetentionPolicy::Interest,
+				RetentionPolicy::Limits => nats::jetstream::stream::RetentionPolicy::Limits,
+			})
+			.unwrap_or(nats::jetstream::stream::RetentionPolicy::Limits);
 		let stream_config = nats::jetstream::stream::Config {
+			discard: async_nats::jetstream::stream::DiscardPolicy::New,
 			name,
 			max_bytes,
 			max_messages,
-			retention: nats::jetstream::stream::RetentionPolicy::Interest,
+			retention,
 			..Default::default()
 		};
 		self.jetstream
@@ -109,7 +121,7 @@ impl Messenger {
 	) -> Result<impl Future<Output = Result<StreamPublishInfo, Error>>, Error> {
 		let future = self
 			.jetstream
-			.publish(name, payload)
+			.publish(name.clone(), payload)
 			.await
 			.map_err(Error::other)?;
 		let future = async move {
@@ -118,7 +130,19 @@ impl Messenger {
 				.map(|ack| StreamPublishInfo {
 					sequence: ack.sequence,
 				})
-				.map_err(Error::other)
+				.map_err(|error| {
+					let code = error
+						.source()
+						.unwrap()
+						.downcast_ref::<nats::jetstream::Error>()
+						.unwrap()
+						.error_code();
+					if matches!(code, nats::jetstream::ErrorCode::STREAM_STORE_FAILED) {
+						eprintln!("({name}: {error}");
+						return Error::MaxBytes;
+					}
+					Error::other(error)
+				})
 		}
 		.boxed();
 		Ok(future)
@@ -129,6 +153,8 @@ impl Messenger {
 		name: String,
 		consumer: Option<String>,
 	) -> Result<impl Stream<Item = Result<Message, Error>> + 'static + Send, Error> {
+		eprintln!("nats stream_subscribe {name} {consumer:?}");
+
 		// Get the stream.
 		let stream = self
 			.jetstream
