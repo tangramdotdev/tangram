@@ -16,6 +16,7 @@ impl tg::Client {
 		id: &tg::pty::Id,
 		arg: Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>> {
+		tracing::debug!(?arg, %id, "read_pty");
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
 		let uri = format!("/ptys/{id}/read?{query}");
