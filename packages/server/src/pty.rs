@@ -29,16 +29,12 @@ impl Server {
 				.messenger
 				.stream_publish(name.clone(), payload.clone())
 				.await
-				.inspect_err(|e| eprintln!("failed to write pty: {e}"))
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
 				.await
-				.inspect_err(|e| eprintln!("failed to write pty: {e}"));
-			eprintln!("result: {result:?}");
 			match result {
 				Ok(info) => return Ok(info),
 				Err(messenger::Error::MaxBytes | messenger::Error::MaxMessages) => {
 					tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-					eprintln!("retrying message");
 				},
 				Err(source) => return Err(tg::error!(!source, "failed to publish message")),
 			}

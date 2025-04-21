@@ -347,7 +347,6 @@ where
 			handle
 				.read_pty(id, arg)
 				.await?
-				.inspect(|item| eprintln!("item: {item:?}"))
 				.take_while(|chunk| future::ready(!matches!(chunk, Ok(tg::pty::Event::End))))
 				.try_filter_map(|event| {
 					future::ok({
