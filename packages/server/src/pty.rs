@@ -34,7 +34,7 @@ impl Server {
 			match result {
 				Ok(info) => return Ok(info),
 				Err(messenger::Error::MaxBytes | messenger::Error::MaxMessages) => {
-					tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+					tokio::time::sleep(std::time::Duration::from_millis(250)).await;
 				},
 				Err(source) => return Err(tg::error!(!source, "failed to publish message")),
 			}
