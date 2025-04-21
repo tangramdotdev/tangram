@@ -104,7 +104,7 @@ impl Server {
 		let mut objects = Vec::new();
 		let mut stack: Vec<tg::object::Id> = items;
 		while let Some(object) = stack.pop() {
-			// Attempt to get the object. If it is not stored, then add it to the objects and continue.
+			// Attempt to get the data or the cache reference. If the object is not stored, then add it to the objects and continue.
 			let data = match &self.store {
 				crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data_sync(&object)?,
 				crate::store::Store::Memory(memory) => memory.try_get_object_data(&object)?,
@@ -112,10 +112,23 @@ impl Server {
 					return Err(tg::error!("invalid store"));
 				},
 			};
-			let Some(data) = data else {
+			let cache_reference = if data.is_none() && object.is_leaf() {
+				match &self.store {
+					crate::store::Store::Lmdb(lmdb) => {
+						lmdb.try_get_cache_reference_sync(&object)?
+					},
+					crate::store::Store::Memory(memory) => memory.try_get_cache_reference(&object),
+					_ => {
+						return Err(tg::error!("invalid store"));
+					},
+				}
+			} else {
+				None
+			};
+			if data.is_none() && cache_reference.is_none() {
 				objects.push(object);
 				continue;
-			};
+			}
 
 			// Get the complete flag.
 			let params = sqlite::params![object.to_string()];
@@ -131,7 +144,9 @@ impl Server {
 
 			// If the object is not complete, then add its children to the stack.
 			if !complete.is_some_and(|complete| complete) {
-				stack.extend(data.children());
+				if let Some(data) = data {
+					stack.extend(data.children());
+				}
 			}
 		}
 
