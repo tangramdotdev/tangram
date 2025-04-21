@@ -30,7 +30,7 @@ impl Server {
 				.stream_publish(name.clone(), payload.clone())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
-				.await
+				.await;
 			match result {
 				Ok(info) => return Ok(info),
 				Err(messenger::Error::MaxBytes | messenger::Error::MaxMessages) => {
