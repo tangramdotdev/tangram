@@ -152,6 +152,7 @@ impl tg::Client {
 			return Err(error);
 		}
 
+		// Decompress the body if necessary.
 		let content_encoding = response
 			.parse_header::<ContentEncoding, _>(http::header::CONTENT_ENCODING)
 			.transpose()?;

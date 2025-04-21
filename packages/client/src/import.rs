@@ -2,11 +2,12 @@ use crate::{
 	self as tg,
 	util::serde::{CommaSeparatedString, is_false},
 };
+use async_compression::tokio::bufread::ZstdEncoder;
 use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use serde_with::serde_as;
 use std::pin::Pin;
 use tangram_either::Either;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use tangram_http::{Body, header::content_encoding::ContentEncoding, response::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -77,7 +78,8 @@ impl tg::Client {
 		let query = serde_urlencoded::to_string(QueryArg::from(arg)).unwrap();
 		let uri = format!("/import?{query}");
 
-		let stream = stream.then(|result| async {
+		// Create the body.
+		let body = Body::with_stream(stream.then(|result| async {
 			let frame = match result {
 				Ok(item) => {
 					let bytes = item.to_bytes().await;
@@ -92,7 +94,11 @@ impl tg::Client {
 				},
 			};
 			Ok::<_, tg::Error>(frame)
-		});
+		}));
+
+		// Compress the request body.
+		let content_encoding = ContentEncoding::Zstd;
+		let body = Body::with_reader(ZstdEncoder::new(body.into_reader()));
 
 		let request = http::request::Builder::default()
 			.method(method)
@@ -102,7 +108,8 @@ impl tg::Client {
 				http::header::CONTENT_TYPE,
 				mime::APPLICATION_OCTET_STREAM.to_string(),
 			)
-			.stream(stream)
+			.header(http::header::CONTENT_ENCODING, content_encoding.to_string())
+			.body(body)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

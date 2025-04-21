@@ -1126,7 +1126,7 @@ impl Server {
 		// Get the stop signal.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 
-		// Create the incoming stream.
+		// Create the request stream.
 		let stream = request
 			.sse()
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
@@ -1143,7 +1143,7 @@ impl Server {
 			})
 			.boxed();
 
-		// Create the outgoing stream.
+		// Create the response stream.
 		let stream = handle.export(arg, stream).await?;
 
 		// Stop the outgoing stream when the server stops.
@@ -1183,6 +1183,8 @@ impl Server {
 				return Err(tg::error!(?accept, "invalid accept header"));
 			},
 		};
+
+		// Compress the response body if accepted.
 		let (content_encoding, body) = if accept_encoding.is_some_and(|accept_encoding| {
 			accept_encoding
 				.preferences
