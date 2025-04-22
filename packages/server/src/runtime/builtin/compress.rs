@@ -1,6 +1,5 @@
-use crate::runtime::util;
-
 use super::Runtime;
+use crate::runtime::util;
 use std::{pin::Pin, time::Duration};
 use tangram_client as tg;
 use tangram_futures::read::shared_position_reader::SharedPositionReader;

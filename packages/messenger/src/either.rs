@@ -1,6 +1,6 @@
 use crate::{BatchConfig, Error, Message, Messenger, StreamConfig, StreamPublishInfo};
 use bytes::Bytes;
-use futures::{FutureExt, Stream, TryFutureExt as _};
+use futures::{FutureExt as _, Stream, TryFutureExt as _};
 use tangram_either::Either;
 
 impl<L, R> Messenger for Either<L, R>

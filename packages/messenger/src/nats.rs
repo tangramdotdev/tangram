@@ -4,7 +4,7 @@ use crate::{
 };
 use async_nats as nats;
 use bytes::Bytes;
-use futures::{FutureExt, TryFutureExt, prelude::*};
+use futures::{FutureExt as _, TryFutureExt as _, prelude::*};
 use num::ToPrimitive;
 use std::error::Error as _;
 

@@ -1,7 +1,7 @@
 use self::syscall::syscall;
 use crate::{Server, compiler::Compiler, runtime::util};
 use futures::{
-	FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt,
+	FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
 };
