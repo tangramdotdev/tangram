@@ -915,12 +915,12 @@ impl tg::Handle for Client {
 		self.create_pipe(arg)
 	}
 
-	fn delete_pipe(
+	fn close_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		arg: tg::pipe::delete::Arg,
+		arg: tg::pipe::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.delete_pipe(id, arg)
+		self.close_pipe(id, arg)
 	}
 
 	fn read_pipe(
@@ -948,12 +948,12 @@ impl tg::Handle for Client {
 		self.create_pty(arg)
 	}
 
-	fn delete_pty(
+	fn close_pty(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::delete::Arg,
+		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.delete_pty(id, arg)
+		self.close_pty(id, arg)
 	}
 
 	fn get_pty_size(

@@ -1,275 +1,35 @@
-use crate::{Acker, BoxError, Message, PublishFuture, Published, StreamInfo};
+use crate::{Acker, BatchConfig, Error, Message, StreamConfig, StreamInfo, StreamPublishInfo};
 use async_broadcast as broadcast;
-use async_channel as channel;
 use bytes::Bytes;
 use dashmap::DashMap;
-use futures::{StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered};
-use std::{
-	collections::{BTreeSet, VecDeque},
-	ops::Deref,
-	sync::{
-		Arc, Mutex,
-		atomic::{AtomicU64, Ordering},
-	},
-};
+use futures::{FutureExt, StreamExt as _, TryFutureExt, TryStreamExt, future, stream};
+use num::ToPrimitive;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{Notify, RwLock};
 
-pub struct Messenger(Arc<Inner>);
-
-#[derive(Debug, derive_more::Display, derive_more::Error)]
-pub enum Error {
-	#[display("stream not found")]
-	NotFound,
-	#[display("stream closed")]
-	StreamClosed,
-	#[display("failed to publish to subject")]
-	SendError,
-	#[display("failed to publish to stream")]
-	StreamSendError,
-	#[display("no space left in the stream")]
-	Capacity,
-	#[display("the payload was larger than the stream capacity")]
-	PayloadTooLarge,
-	#[display("the stream is full")]
-	MessageCapacity,
-}
-
-pub struct Inner {
+pub struct Messenger {
 	receiver: broadcast::InactiveReceiver<(String, Bytes)>,
 	sender: broadcast::Sender<(String, Bytes)>,
-	streams: DashMap<String, Stream>,
+	streams: DashMap<String, Arc<Stream>>,
 }
 
 struct Stream {
-	state: Arc<State>,
+	state: Arc<tokio::sync::RwLock<StreamState>>,
 }
 
-struct State {
-	// Notification channel that alerts when a new consumer is created.
-	consumer_created: Notify,
-
-	// List of consumers.
-	consumers: RwLock<Vec<channel::Sender<(u64, Message)>>>,
-
-	// Notification channel that alerts when a message is pending.
-	pending_message: Notify,
-
-	// Set of pending messages that have not yet been acknowledged.
-	pending_recvs: RwLock<BTreeSet<u64>>,
-
-	// Single producer channel that delivers messages to the broker.
-	producer: Mutex<Producer>,
-
-	// The message broker task, which pulls messages from the producer channel and delivers to each consumer.
-	message_broker_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
-}
-
-struct Producer {
-	capacity: usize,
+struct StreamState {
+	bytes: u64,
 	closed: bool,
-	messages: VecDeque<(u64, Bytes)>,
+	config: StreamConfig,
+	consumers: HashMap<String, Consumer>,
+	messages: Vec<(u64, Bytes)>,
+	notify: Arc<tokio::sync::Notify>,
 	sequence: u64,
-	used: usize,
+	subject: String,
 }
 
-impl Stream {
-	pub fn new(subject: &str, capacity: usize) -> Self {
-		let subject = subject.to_owned();
-
-		// Create the state.
-		let consumer_created = Notify::new();
-		let consumers = RwLock::new(Vec::new());
-		let pending_message = Notify::new();
-		let pending_recvs = RwLock::new(BTreeSet::new());
-		let producer = Mutex::new(Producer {
-			capacity,
-			closed: false,
-			messages: VecDeque::with_capacity(4096),
-			sequence: 0,
-			used: 0,
-		});
-		let state = Arc::new(State {
-			consumer_created,
-			consumers,
-			pending_message,
-			producer,
-			pending_recvs,
-			message_broker_task: Mutex::new(None),
-		});
-
-		// Spawn a task to drain the input buffer.
-		let message_broker_task = tokio::task::spawn({
-			let state = Arc::downgrade(&state);
-			let subject = subject.clone();
-			async move {
-				while let Some(state) = state.upgrade() {
-					// If there are no receivers, wait until one is added.
-					let is_empty = state.consumers.read().await.is_empty();
-					if is_empty {
-						// If the sender drops, this task is canceled and we can exit early.
-						state.consumer_created.notified().await;
-					}
-
-					// Wait for the next message.
-					state.pending_message.notified().await;
-
-					// Drain the channel.
-					while let Some((sequence, payload)) = {
-						let mut producer = state.producer.lock().unwrap();
-						producer.messages.pop_back()
-					} {
-						let receivers = state.consumers.read().await;
-
-						// Create a counter to track how many receivers have ack'd the message.
-						let counter = Arc::new(AtomicU64::new(receivers.len().try_into().unwrap()));
-
-						// Deliver the payload to each consumer.
-						receivers
-							.iter()
-							.map(|consumer| {
-								deliver_stream_message(
-									consumer, &counter, &payload, sequence, &state, &subject,
-								)
-							})
-							.collect::<FuturesUnordered<_>>()
-							.collect::<()>()
-							.await;
-						// Decrement the counter.
-						state.producer.lock().unwrap().used -= payload.len();
-					}
-				}
-			}
-		});
-		state
-			.message_broker_task
-			.lock()
-			.unwrap()
-			.replace(message_broker_task);
-		Self { state }
-	}
-
-	fn publish(&self, payload: Bytes) -> Result<Published, Error> {
-		// Get the producer.
-		let mut producer = self.state.producer.lock().unwrap();
-
-		// Check if the producer is closed.
-		if producer.closed {
-			return Err(Error::StreamClosed);
-		}
-
-		// Check if the payload is small enough to fit the stream.
-		if payload.len() >= producer.capacity {
-			return Err(Error::PayloadTooLarge);
-		}
-
-		// Check if there is enough capacity in the channel, bumping if possible and returning an error if not.
-		if producer.used + payload.len() > producer.capacity {
-			return Err(Error::Capacity);
-		}
-
-		// Send the message.
-		let sequence = producer.sequence;
-		producer.used += payload.len();
-		producer.sequence += 1;
-		producer.messages.push_front((sequence, payload));
-		drop(producer);
-
-		self.state.pending_message.notify_waiters();
-
-		Ok(Published { sequence })
-	}
-
-	async fn subscribe(&self) -> channel::Receiver<(u64, Message)> {
-		let mut receivers = self.state.consumers.write().await;
-		let (sender, receiver) = channel::bounded(256);
-		receivers.push(sender);
-		self.state.consumer_created.notify_waiters();
-		receiver
-	}
-
-	async fn close(&self) {
-		self.state.producer.lock().unwrap().closed = true;
-		let mut receivers = self.state.consumers.write().await;
-		while let Some(receiver) = receivers.pop() {
-			receiver.close();
-		}
-		if let Some(task) = &self.state.message_broker_task.lock().unwrap().take() {
-			task.abort();
-		}
-	}
-}
-
-impl Drop for State {
-	fn drop(&mut self) {
-		let Some(task) = self.message_broker_task.lock().unwrap().take() else {
-			return;
-		};
-		task.abort();
-	}
-}
-
-fn deliver_stream_message(
-	consumer: &channel::Sender<(u64, Message)>,
-	counter: &Arc<AtomicU64>,
-	payload: &Bytes,
-	sequence_number: u64,
-	state: &Arc<State>,
-	subject: &str,
-) -> impl Future<Output = ()> + Send {
-	let state = state.clone();
-	let consumer = consumer.clone();
-	let counter = counter.clone();
-	let subject = subject.to_string();
-	let payload = payload.clone();
-	async move {
-		let ack = {
-			let state = state.clone();
-			let counter = counter.clone();
-			async move {
-				// Decrement the counter.
-				let counter = counter.fetch_sub(1, Ordering::AcqRel);
-				if counter > 1 {
-					return Ok(());
-				}
-
-				// Mark the message as received.
-				state.pending_recvs.write().await.remove(&sequence_number);
-
-				Ok::<_, BoxError>(())
-			}
-		};
-
-		let retry = {
-			let consumer = consumer.clone();
-			let state = state.clone();
-			let counter = counter.clone();
-			let subject = subject.clone();
-			let payload = payload.clone();
-			async move {
-				if consumer.is_closed() {
-					return;
-				}
-				deliver_stream_message(
-					&consumer,
-					&counter,
-					&payload,
-					sequence_number,
-					&state,
-					&subject,
-				)
-				.await;
-			}
-		};
-
-		let acker = Acker::new(ack, retry);
-		let message = Message {
-			subject: subject.clone(),
-			payload: payload.clone(),
-			acker,
-		};
-
-		consumer.send((sequence_number, message)).await.ok();
-	}
+struct Consumer {
+	sequence: u64,
 }
 
 impl Messenger {
@@ -280,11 +40,11 @@ impl Messenger {
 		sender.set_overflow(true);
 		sender.set_await_active(false);
 		let streams = DashMap::new();
-		Self(Arc::new(Inner {
+		Self {
 			receiver,
 			sender,
 			streams,
-		}))
+		}
 	}
 
 	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
@@ -297,11 +57,7 @@ impl Messenger {
 		subject: String,
 		_group: Option<String>,
 	) -> Result<impl futures::Stream<Item = Message> + Send + 'static, Error> {
-		// This guarantees that the memory variant has the same semantics as NATs.
-		if let Ok(stream) = self.stream_subscribe(subject.clone()).await {
-			return Ok(stream.left_stream());
-		}
-		let receiver = self
+		let stream = self
 			.receiver
 			.activate_cloned()
 			.filter_map(move |(subject_, payload)| {
@@ -312,76 +68,83 @@ impl Messenger {
 						acker: Acker::default(),
 					})
 				})
-			})
-			.right_stream();
-		Ok(receiver)
+			});
+		Ok(stream)
 	}
 
-	async fn create_stream(&self, name: String, capacity: usize) -> Result<(), Error> {
+	async fn create_stream(&self, name: String, config: StreamConfig) -> Result<(), Error> {
 		self.streams
 			.entry(name.clone())
-			.or_insert_with(|| Stream::new(&name, capacity));
+			.or_insert_with(|| Arc::new(Stream::new(name, config)));
 		Ok(())
 	}
 
 	async fn delete_stream(&self, name: String) -> Result<(), Error> {
-		// Close the stream.
-		{
-			let stream = self.streams.get(&name).ok_or(Error::NotFound)?;
+		if let Some((_, stream)) = self.streams.remove(&name) {
 			stream.close().await;
 		}
-
-		// Remove the stream.
-		self.streams.remove(&name);
-
 		Ok(())
+	}
+
+	async fn stream_info(&self, name: String) -> Result<StreamInfo, Error> {
+		let stream = self.streams.get(&name).ok_or(Error::NotFound)?.clone();
+		let state = stream.state.read().await;
+		let first_sequence = state.messages.first().map_or(state.sequence, |msg| msg.0);
+		let last_sequence = state.sequence;
+		Ok(StreamInfo {
+			first_sequence,
+			last_sequence,
+		})
 	}
 
 	async fn stream_publish(
 		&self,
 		name: String,
 		payload: Bytes,
-	) -> Result<PublishFuture<Error>, Error> {
-		let result = self
-			.streams
-			.get(&name)
-			.ok_or(Error::NotFound)?
-			.publish(payload);
-		let publish_ack = PublishFuture {
-			inner: Box::pin(future::ready(result)),
-		};
-		Ok(publish_ack)
+	) -> Result<impl Future<Output = Result<StreamPublishInfo, Error>>, Error> {
+		let stream = self.streams.get(&name).ok_or(Error::NotFound)?.clone();
+		let future = async move { stream.publish(payload).await };
+		Ok(future)
 	}
 
 	async fn stream_subscribe(
 		&self,
 		name: String,
-	) -> Result<impl futures::Stream<Item = Message> + Send + 'static, Error> {
-		let receiver = self
+		consumer: Option<String>,
+	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+		let stream = self.streams.get(&name).ok_or(Error::NotFound)?.clone();
+		let stream = stream.subscribe(consumer).await?.boxed();
+		Ok(stream)
+	}
+
+	async fn stream_batch_publish(
+		&self,
+		name: String,
+		payloads: Vec<Bytes>,
+	) -> Result<impl Future<Output = Result<Vec<StreamPublishInfo>, Error>>, Error> {
+		let future = self
 			.streams
 			.get(&name)
 			.ok_or(Error::NotFound)?
-			.subscribe()
-			.await
-			.map(move |(_, msg)| msg);
-		Ok(receiver)
+			.batch_publish(payloads)
+			.boxed();
+		Ok(future)
 	}
 
-	async fn stream_info(&self, name: String) -> Result<StreamInfo, Error> {
-		let stream = self.streams.get(&name).ok_or(Error::NotFound)?;
-		let last_sequence = stream.state.producer.lock().unwrap().sequence;
-		let first_sequence = stream
-			.state
-			.pending_recvs
-			.read()
-			.await
-			.iter()
-			.min()
-			.copied();
-		Ok(StreamInfo {
-			first_sequence,
-			last_sequence,
-		})
+	async fn stream_batch_subscribe(
+		&self,
+		name: String,
+		consumer: Option<String>,
+		config: BatchConfig,
+	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + 'static + Send, Error> {
+		let stream = self
+			.streams
+			.get(&name)
+			.ok_or(Error::NotFound)?
+			.batch_subscribe(consumer, config)
+			.await?
+			.boxed();
+		Ok(stream)
 	}
 }
 
@@ -392,201 +155,343 @@ impl Default for Messenger {
 }
 
 impl crate::Messenger for Messenger {
-	type Error = Error;
-
-	fn publish(
-		&self,
-		subject: String,
-		payload: Bytes,
-	) -> impl Future<Output = Result<(), Self::Error>> {
-		self.publish(subject, payload)
+	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
+		self.publish(subject, payload).await
 	}
 
-	fn subscribe(
+	async fn subscribe(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> impl Future<Output = Result<impl futures::Stream<Item = Message> + 'static, Self::Error>>
-	{
-		self.subscribe(subject, group)
+	) -> Result<impl futures::Stream<Item = Message> + 'static, Error> {
+		self.subscribe(subject, group).await
 	}
 
-	fn create_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
-		self.create_stream(name, usize::MAX)
+	async fn get_or_create_stream(&self, name: String, config: StreamConfig) -> Result<(), Error> {
+		self.create_stream(name, config).await
 	}
 
-	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send {
+	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Error>> {
 		self.delete_stream(name)
+	}
+
+	fn stream_info(&self, name: String) -> impl Future<Output = Result<crate::StreamInfo, Error>> {
+		self.stream_info(name)
 	}
 
 	fn stream_publish(
 		&self,
 		name: String,
 		payload: Bytes,
-	) -> impl Future<Output = Result<PublishFuture<Self::Error>, Self::Error>> + Send {
+	) -> impl Future<Output = Result<impl Future<Output = Result<StreamPublishInfo, Error>>, Error>>
+	{
 		self.stream_publish(name, payload)
 	}
 
-	fn stream_subscribe(
+	async fn stream_subscribe(
 		&self,
 		name: String,
-		_consumer: Option<String>,
-	) -> impl Future<
-		Output = Result<
-			impl futures::Stream<Item = Result<Message, Self::Error>> + Send + 'static,
-			Self::Error,
-		>,
-	> + Send {
-		self.stream_subscribe(name)
-			.map_ok(|stream| stream.map(Ok::<_, Self::Error>))
+		consumer: Option<String>,
+	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+		self.stream_subscribe(name, consumer).await
 	}
 
-	fn stream_info(
+	async fn stream_batch_publish(
 		&self,
 		name: String,
-	) -> impl Future<Output = Result<crate::StreamInfo, Self::Error>> + Send {
-		self.stream_info(name)
+		payloads: Vec<Bytes>,
+	) -> Result<impl Future<Output = Result<Vec<StreamPublishInfo>, Error>>, Error> {
+		self.stream_batch_publish(name, payloads).await
+	}
+
+	async fn stream_batch_subscribe(
+		&self,
+		name: String,
+		consumer: Option<String>,
+		config: crate::BatchConfig,
+	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+		self.stream_batch_subscribe(name, consumer, config).await
 	}
 }
 
-impl Deref for Messenger {
-	type Target = Inner;
+impl Stream {
+	fn new(subject: String, config: StreamConfig) -> Self {
+		let state = StreamState {
+			bytes: 0,
+			consumers: HashMap::default(),
+			config,
+			closed: false,
+			messages: Vec::new(),
+			notify: Arc::new(Notify::new()),
+			sequence: 0,
+			subject,
+		};
+		Self {
+			state: Arc::new(RwLock::new(state)),
+		}
+	}
 
-	fn deref(&self) -> &Self::Target {
-		&self.0
+	async fn close(&self) {
+		self.state.write().await.closed = true;
+	}
+
+	fn batch_publish(
+		&self,
+		payloads: Vec<Bytes>,
+	) -> impl Future<Output = Result<Vec<StreamPublishInfo>, Error>> + Send + 'static {
+		// Create a channel to be notified when a message is published.
+		let (tx, rx) = tokio::sync::oneshot::channel();
+
+		// Spawn a task to send the message.
+		let state = self.state.clone();
+		tokio::spawn(async move {
+			// Acquire an exclusive lock on the state.
+			let mut state = state.write().await;
+
+			// Check if the stream is full of messages/bytes and return an error.
+			if let Some(max_messages) = state.config.max_messages {
+				if state.messages.len().to_u64().unwrap() >= max_messages {
+					tx.send(Err(Error::MaxMessages)).ok();
+					return;
+				}
+			}
+			if let Some(max_messages) = state.config.max_messages {
+				if state.messages.len().to_u64().unwrap() >= max_messages {
+					tx.send(Err(Error::MaxMessages)).ok();
+					return;
+				}
+			}
+
+			// Publish as many messages as possible.
+			let infos = payloads
+				.into_iter()
+				.filter_map(|payload| {
+					if state.config.max_messages.map_or_else(
+						|| false,
+						|max_messages| state.messages.len().to_u64().unwrap() >= max_messages,
+					) && state.config.max_bytes.map_or_else(
+						|| true,
+						|max| state.bytes + payload.len().to_u64().unwrap() > max,
+					) {
+						return None;
+					}
+
+					let sequence = state.sequence;
+					state.sequence += 1;
+					state.bytes += payload.len().to_u64().unwrap();
+					state.messages.push((sequence, payload));
+					Some(StreamPublishInfo { sequence })
+				})
+				.collect::<Vec<_>>();
+
+			// Notify consumers.
+			state.notify.notify_waiters();
+
+			// Send the infos.
+			tx.send(Ok(infos)).ok();
+		});
+
+		rx.map_err(|_| Error::PublishFailed).and_then(future::ready)
+	}
+
+	async fn batch_subscribe(
+		&self,
+		consumer: Option<String>,
+		config: crate::BatchConfig,
+	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+		let consumer = consumer.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+		let stream = self.state.clone();
+
+		// Acquire a lock on the stream.
+		let mut stream_ = stream.write().await;
+
+		// Create a new consumer if it does not exist.
+		if !stream_.consumers.contains_key(&consumer) {
+			let sequence = stream_
+				.messages
+				.first()
+				.map_or(stream_.sequence, |(sequence, _)| *sequence);
+			stream_
+				.consumers
+				.insert(consumer.clone(), Consumer { sequence });
+		}
+
+		// Get the notify.
+		let notify = stream_.notify.clone();
+		drop(stream_);
+
+		// Construct the state.
+		struct State {
+			config: BatchConfig,
+			consumer: String,
+			notify: Arc<Notify>,
+			stream: Arc<RwLock<StreamState>>,
+		}
+		let state = State {
+			config,
+			consumer,
+			notify,
+			stream,
+		};
+		let stream = stream::try_unfold(state, move |state| async move {
+			// Wait for a notification if the stream is empty
+			{
+				let stream = state.stream.read().await;
+				if stream.messages.is_empty() {
+					// Check if the stream is closed.
+					if stream.closed {
+						return Ok(None);
+					}
+
+					// Otherwise wait for a notification.
+					drop(stream);
+					state.notify.notified().await;
+				}
+			}
+
+			// Acquire a lock on the stream.
+			let mut stream = state.stream.write().await;
+
+			// Get the consumer.
+			let first_sequence = stream.consumers.get_mut(&state.consumer).unwrap().sequence;
+
+			// Get the undelivered messages.
+			let undelivered = stream
+				.messages
+				.iter()
+				.skip_while(|(sequence, _)| *sequence < first_sequence)
+				.take(
+					state
+						.config
+						.max_messages
+						.map_or(stream.messages.len(), |max| max.to_usize().unwrap()),
+				)
+				.cloned()
+				.collect::<Vec<_>>();
+
+			// Update the last sequence of the consumer if the messages are not empty.
+			if let Some((sequence, _)) = undelivered.last() {
+				stream.consumers.get_mut(&state.consumer).unwrap().sequence = *sequence;
+			}
+
+			// Get the first sequence of the stream.
+			let first_sequence = stream
+				.consumers
+				.values()
+				.map(|consumer| consumer.sequence)
+				.min()
+				.unwrap();
+
+			// Remove any messages that are younger than the new first sequence.
+			for (sequence, _) in &undelivered {
+				if *sequence <= first_sequence {
+					let index = stream
+						.messages
+						.iter()
+						.position(|(s, _)| s == sequence)
+						.unwrap();
+					stream.messages.remove(index);
+				}
+			}
+
+			// Collect the results.
+			let messages = undelivered
+				.into_iter()
+				.map(|(_, payload)| {
+					let acker = Acker::new(future::ok(()));
+					Ok(Message {
+						acker,
+						payload,
+						subject: stream.subject.clone(),
+					})
+				})
+				.collect::<Vec<_>>();
+
+			// Release the lock.
+			drop(stream);
+
+			// Return the result.
+			Ok::<_, Error>(Some((messages, state)))
+		})
+		.map_ok(stream::iter)
+		.try_flatten();
+
+		Ok(stream)
+	}
+
+	fn publish(
+		&self,
+		payload: Bytes,
+	) -> impl Future<Output = Result<StreamPublishInfo, Error>> + Send + 'static {
+		self.batch_publish(vec![payload])
+			.and_then(|mut infos| async move {
+				if infos.len() != 1 {
+					return Err(Error::MaxMessages);
+				}
+				let info = infos.pop().unwrap();
+				Ok(info)
+			})
+	}
+
+	async fn subscribe(
+		&self,
+		consumer: Option<String>,
+	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+		let config = BatchConfig {
+			max_bytes: None,
+			max_messages: None,
+			timeout: None,
+		};
+		self.batch_subscribe(consumer, config).await
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use super::{Error, Messenger};
-	use futures::{StreamExt as _, stream::TryStreamExt as _};
+	use super::*;
 
 	#[tokio::test]
 	async fn stream() {
-		let messenger: Messenger = Messenger::new();
-
-		// Create a stream, publish a message before anyone has subscribed.
-		messenger
-			.create_stream("stream".into(), 4096)
+		let stream = Stream::new(
+			"subject".into(),
+			StreamConfig {
+				max_bytes: Some(1024),
+				max_messages: Some(256),
+				retention: None,
+			},
+		);
+		let infos = stream
+			.batch_publish(vec![
+				vec![b'1'].into(),
+				vec![b'2'].into(),
+				vec![b'3'].into(),
+				vec![b'4'].into(),
+			])
 			.await
 			.unwrap();
-		messenger
-			.stream_publish("stream".into(), b"hello!".to_vec().into())
-			.await
-			.unwrap();
-
-		// Create some subscribers.
-		let sub1 = crate::Messenger::stream_subscribe(&messenger, "stream".into(), None)
-			.await
-			.unwrap();
-		let sub2 = crate::Messenger::stream_subscribe(&messenger, "stream".into(), None)
-			.await
-			.unwrap();
-
-		// Ensure both subscribers got the message.
-		let m = std::pin::pin!(sub1).try_next().await.unwrap().unwrap();
-		assert_eq!(m.payload.as_ref(), b"hello!");
-		m.split().1.ack().await.ok();
-
-		let m = std::pin::pin!(sub2).try_next().await.unwrap().unwrap();
-		assert_eq!(m.payload.as_ref(), b"hello!");
-		m.split().1.ack().await.ok();
-	}
-
-	#[tokio::test]
-	async fn messages_in_order() {
-		let messenger: Messenger = Messenger::new();
-
-		messenger
-			.create_stream("stream".into(), 4096)
-			.await
-			.unwrap();
-
-		// Create a subscriber
-		let stream = messenger.stream_subscribe("stream".into()).await.unwrap();
-
-		// Spawn a task to dump messages to the stream.
-		tokio::spawn(async move {
-			for i in 1..100_000u32 {
-				let bytes = i.to_be_bytes().to_vec().into();
-				messenger
-					.stream_publish("stream".into(), bytes)
-					.await
-					.unwrap();
-			}
-			messenger.delete_stream("stream".into()).await.unwrap();
-		});
-
-		// Drain the subscriber.
-		let mut last = 0;
-		let mut stream = std::pin::pin!(stream);
-		while let Some(message) = stream.next().await {
-			let (payload, acker) = message.split();
-			let i = u32::from_be_bytes(payload.as_ref().try_into().unwrap());
-			assert_eq!(last + 1, i);
-			last = i;
-			acker.ack().await.unwrap();
-		}
-	}
-
-	#[tokio::test]
-	async fn stream_at_capacity() {
-		let messenger: Messenger = Messenger::new();
-		messenger.create_stream("stream".into(), 128).await.unwrap();
-		let publish_future = messenger
-			.stream_publish("stream".into(), vec![0; 256].into())
-			.await;
-		assert!(matches!(publish_future, Err(Error::PayloadTooLarge)));
-
-		// Publish, but don't wait for the ack.
-		messenger
-			.stream_publish("stream".into(), vec![0; 50].into())
-			.await
-			.unwrap();
-
-		let publish_future = messenger
-			.stream_publish("stream".into(), vec![0; 100].into())
-			.await;
-		assert!(matches!(publish_future, Err(Error::Capacity)));
-	}
-
-	#[tokio::test]
-	async fn stream_info() {
-		let messenger: Messenger = Messenger::new();
-
-		messenger
-			.create_stream("stream".into(), 4096)
-			.await
-			.unwrap();
-
-		let subscriber = messenger.stream_subscribe("stream".into()).await.unwrap();
-
-		let info = messenger.stream_info("stream".into()).await.unwrap();
-		assert_eq!(info.first_sequence, None);
-		assert_eq!(info.last_sequence, 0);
-		messenger
-			.stream_publish("stream".into(), vec![].into())
+		assert_eq!(infos.len(), 4);
+		assert_eq!(infos[0].sequence, 0);
+		assert_eq!(infos[1].sequence, 1);
+		assert_eq!(infos[2].sequence, 2);
+		assert_eq!(infos[3].sequence, 3);
+		let messages = stream
+			.batch_subscribe(
+				None,
+				BatchConfig {
+					max_bytes: None,
+					max_messages: None,
+					timeout: None,
+				},
+			)
 			.await
 			.unwrap()
+			.take(4)
+			.try_collect::<Vec<_>>()
 			.await
 			.unwrap();
-
-		let info = messenger.stream_info("stream".into()).await.unwrap();
-		assert_eq!(info.first_sequence, Some(0));
-		assert_eq!(info.last_sequence, 1);
-
-		std::pin::pin!(subscriber)
-			.next()
-			.await
-			.unwrap()
-			.acker
-			.ack()
-			.await
-			.unwrap();
-
-		let info = messenger.stream_info("stream".into()).await.unwrap();
-		assert_eq!(info.first_sequence, None);
-		assert_eq!(info.last_sequence, 1);
+		assert_eq!(&messages[0].payload, b"1".as_slice());
+		assert_eq!(&messages[1].payload, b"2".as_slice());
+		assert_eq!(&messages[2].payload, b"3".as_slice());
+		assert_eq!(&messages[3].payload, b"4".as_slice());
 	}
 }

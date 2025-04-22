@@ -245,10 +245,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::pipe::create::Arg,
 	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> + Send;
 
-	fn delete_pipe(
+	fn close_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		arg: tg::pipe::delete::Arg,
+		arg: tg::pipe::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn read_pipe(
@@ -271,10 +271,10 @@ pub trait Handle: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::pty::create::Arg,
 	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> + Send;
 
-	fn delete_pty(
+	fn close_pty(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::delete::Arg,
+		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn get_pty_size(

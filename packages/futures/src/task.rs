@@ -198,13 +198,16 @@ impl Stop {
 		*self.0.subscribe().borrow()
 	}
 
-	pub async fn wait(&self) {
-		self.0
-			.subscribe()
-			.wait_for(|stop| *stop)
-			.map_ok(|_| ())
-			.await
-			.unwrap();
+	pub fn wait(&self) -> impl Future<Output = ()> + Send + 'static {
+		let sender = self.0.clone();
+		async move {
+			sender
+				.subscribe()
+				.wait_for(|stop| *stop)
+				.map_ok(|_| ())
+				.await
+				.unwrap();
+		}
 	}
 }
 

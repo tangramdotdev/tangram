@@ -19,10 +19,10 @@ impl Server {
 
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
+			self.write_pty_event(id, event.clone(), arg.master).await?;
 			if matches!(event, tg::pty::Event::End) {
 				break;
 			}
-			self.write_pty_event(id, event, arg.master).await?;
 		}
 
 		Ok(())
@@ -52,8 +52,8 @@ impl Server {
 		let stream = request
 			.sse()
 			.map(|event| match event {
-				Ok(e) => e.try_into(),
-				Err(source) => Err(tg::error!(!source, "sse error")),
+				Ok(event) => event.try_into(),
+				Err(source) => Err(source.into()),
 			})
 			.take_while_inclusive(|event| future::ready(!matches!(event, Ok(tg::pty::Event::End))))
 			.take_until(stop)

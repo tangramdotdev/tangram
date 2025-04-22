@@ -20,9 +20,9 @@ impl Server {
 
 		// Create the stream.
 		let stream = if arg.master {
-			format!("{id}_master")
+			format!("{id}_master_reader")
 		} else {
-			format!("{id}_slave")
+			format!("{id}_master_writer")
 		};
 		let stream = self
 			.messenger

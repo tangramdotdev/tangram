@@ -20,10 +20,10 @@ impl Server {
 
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
+			self.write_pipe_event(id, event.clone()).await?;
 			if matches!(event, tg::pipe::Event::End) {
 				break;
 			}
-			self.write_pipe_event(id, event).await?;
 		}
 
 		Ok(())

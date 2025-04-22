@@ -4,8 +4,8 @@ use serde_with::serde_as;
 
 pub use self::{id::Id, size::Size};
 
+pub mod close;
 pub mod create;
-pub mod delete;
 pub mod id;
 pub mod read;
 pub mod size;

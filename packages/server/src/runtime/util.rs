@@ -306,25 +306,37 @@ async fn input(
 			let stream = server.read_pipe(id, arg).await?;
 			let mut stream = pin!(stream);
 			loop {
-				let stop = stop.wait();
+				let stop_ = stop.wait();
 				let event = stream.try_next();
-				match future::select(event, pin!(stop)).await {
-					future::Either::Left((Ok(Some(tg::pipe::Event::Chunk(chunk))), _)) => {
-						stdin
-							.write_all(&chunk)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to write bytes"))?;
-					},
+				let chunk = match future::select(event, pin!(stop_)).await {
+					future::Either::Left((Ok(Some(tg::pipe::Event::Chunk(chunk))), _)) => chunk,
 					future::Either::Left((Err(source), _)) => {
 						return Err(source);
 					},
 					_ => break,
+				};
+				let stop_ = stop.wait();
+				let write = stdin.write_all(&chunk);
+				match future::select(pin!(write), pin!(stop_)).await {
+					future::Either::Left((Ok(()), _)) => (),
+					future::Either::Left((Err(ref source), _))
+						if source.raw_os_error() == Some(libc::EPIPE) =>
+					{
+						break;
+					},
+					future::Either::Left((Err(source), _)) => {
+						return Err(tg::error!(!source, "failed to write stdin"));
+					},
+					future::Either::Right(_) => {
+						break;
+					},
 				}
 			}
+			stdin.shutdown().await.ok();
 		},
 		tg::process::Stdio::Pty(id) => {
 			let arg = tg::pty::read::Arg {
-				master: true,
+				master: false,
 				remote,
 			};
 			let stream = server.read_pty(id, arg).await?;

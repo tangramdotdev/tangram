@@ -3,7 +3,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database, Query, params};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::{self as messenger, Messenger as _};
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
@@ -19,10 +19,15 @@ impl Server {
 		let id = tg::pty::Id::new();
 
 		// Create the streams.
-		for end in ["master", "slave"] {
+		for end in ["master_writer", "master_reader"] {
 			let name = format!("{id}_{end}");
+			let config = messenger::StreamConfig {
+				max_bytes: Some(65_536),
+				max_messages: Some(256),
+				retention: Some(messenger::RetentionPolicy::Limits),
+			};
 			self.messenger
-				.create_stream(name)
+				.get_or_create_stream(name, config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the stream"))?;
 		}

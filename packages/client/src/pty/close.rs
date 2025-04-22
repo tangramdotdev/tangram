@@ -5,13 +5,14 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+	pub master: bool,
 }
 
 impl tg::Client {
-	pub async fn delete_pipe(&self, id: &tg::pipe::Id, arg: Arg) -> tg::Result<()> {
-		let method = http::Method::DELETE;
+	pub async fn close_pty(&self, id: &tg::pty::Id, arg: Arg) -> tg::Result<()> {
+		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(&arg).unwrap();
-		let uri = format!("/pipes/{id}?{query}");
+		let uri = format!("/ptys/{id}/close?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

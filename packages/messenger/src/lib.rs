@@ -1,5 +1,6 @@
 use bytes::Bytes;
-use futures::{Stream, future::BoxFuture};
+use futures::Stream;
+use std::time::Duration;
 
 pub use self::acker::Acker;
 
@@ -8,14 +9,6 @@ pub mod either;
 pub mod memory;
 pub mod nats;
 
-pub struct PublishFuture<E> {
-	inner: BoxFuture<'static, Result<Published, E>>,
-}
-
-pub struct Published {
-	pub sequence: u64,
-}
-
 pub struct Message {
 	pub subject: String,
 	pub payload: Bytes,
@@ -23,55 +16,97 @@ pub struct Message {
 }
 
 #[derive(Clone, Debug)]
-pub struct StreamInfo {
-	/// The lowest sequence number in the stream. None if the stream is empty.
-	pub first_sequence: Option<u64>,
+pub struct StreamConfig {
+	pub max_bytes: Option<u64>,
+	pub max_messages: Option<u64>,
+	pub retention: Option<RetentionPolicy>,
+}
 
-	/// The most recently assigned sequence number.
+#[derive(Clone, Debug)]
+pub enum RetentionPolicy {
+	Limits,
+	Interest,
+}
+
+#[derive(Clone, Debug)]
+pub struct StreamInfo {
+	pub first_sequence: u64,
 	pub last_sequence: u64,
 }
 
-pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+#[derive(Debug)]
+pub struct StreamPublishInfo {
+	pub sequence: u64,
+}
+
+#[derive(Default)]
+pub struct BatchConfig {
+	pub max_bytes: Option<u64>,
+	pub max_messages: Option<u64>,
+	pub timeout: Option<Duration>,
+}
+
+#[derive(Debug, derive_more::Display, derive_more::Error)]
+pub enum Error {
+	NotFound,
+	MaxMessages,
+	MaxBytes,
+	PublishFailed,
+	Other(Box<dyn std::error::Error + Send + Sync + 'static>),
+}
 
 pub trait Messenger {
-	type Error: std::error::Error + Send + 'static;
-
 	fn publish(
 		&self,
 		subject: String,
 		payload: Bytes,
-	) -> impl Future<Output = Result<(), Self::Error>> + Send;
+	) -> impl Future<Output = Result<(), Error>> + Send;
 
 	fn subscribe(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> impl Future<Output = Result<impl Stream<Item = Message> + Send + 'static, Self::Error>> + Send;
+	) -> impl Future<Output = Result<impl Stream<Item = Message> + Send + 'static, Error>> + Send;
 
-	fn create_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send;
-
-	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Self::Error>> + Send;
-
-	fn stream_info(
+	fn get_or_create_stream(
 		&self,
 		name: String,
-	) -> impl Future<Output = Result<StreamInfo, Self::Error>> + Send;
+		config: StreamConfig,
+	) -> impl Future<Output = Result<(), Error>> + Send;
+
+	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Error>> + Send;
+
+	fn stream_info(&self, name: String) -> impl Future<Output = Result<StreamInfo, Error>> + Send;
 
 	fn stream_publish(
 		&self,
 		name: String,
 		payload: Bytes,
-	) -> impl Future<Output = Result<PublishFuture<Self::Error>, Self::Error>> + Send;
+	) -> impl Future<Output = Result<impl Future<Output = Result<StreamPublishInfo, Error>>, Error>> + Send;
 
 	fn stream_subscribe(
 		&self,
 		name: String,
 		consumer: Option<String>,
 	) -> impl Future<
-		Output = Result<
-			impl Stream<Item = Result<Message, Self::Error>> + Send + 'static,
-			Self::Error,
-		>,
+		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
+	> + Send;
+
+	fn stream_batch_publish(
+		&self,
+		name: String,
+		payloads: Vec<Bytes>,
+	) -> impl Future<
+		Output = Result<impl Future<Output = Result<Vec<StreamPublishInfo>, Error>>, Error>,
+	> + Send;
+
+	fn stream_batch_subscribe(
+		&self,
+		name: String,
+		consumer: Option<String>,
+		config: BatchConfig,
+	) -> impl Future<
+		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
 	> + Send;
 }
 
@@ -81,13 +116,8 @@ impl Message {
 	}
 }
 
-impl<E> Future for PublishFuture<E> {
-	type Output = Result<Published, E>;
-	fn poll(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<Self::Output> {
-		let future = &mut self.get_mut().inner;
-		std::pin::pin!(future).poll(cx)
+impl Error {
+	pub fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
+		Self::Other(error.into())
 	}
 }

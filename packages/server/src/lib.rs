@@ -25,6 +25,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{Body, response::builder::Ext as _};
+use tangram_messenger::Messenger as _;
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
 	net::{TcpListener, UnixListener},
@@ -323,20 +324,17 @@ impl Server {
 				Messenger::Right(tangram_messenger::nats::Messenger::new(client))
 			},
 		};
-		if let Either::Right(messenger) = messenger.as_ref() {
-			let stream_config = async_nats::jetstream::stream::Config {
-				name: "index".to_string(),
-				retention: nats::jetstream::stream::RetentionPolicy::WorkQueue,
-				..Default::default()
-			};
-			messenger
-				.jetstream
-				.get_or_create_stream(stream_config)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to ensure the index stream exists")
-				})?;
-		}
+
+		// Get or create the index stream.
+		let stream_config = tangram_messenger::StreamConfig {
+			max_bytes: None,
+			max_messages: None,
+			retention: Some(tangram_messenger::RetentionPolicy::Interest),
+		};
+		messenger
+			.get_or_create_stream("index".to_owned(), stream_config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to ensure the index stream exists"))?;
 
 		// Create the remotes.
 		let remotes = DashMap::default();
@@ -1042,8 +1040,8 @@ impl Server {
 			(http::Method::POST, ["pipes"]) => {
 				Self::handle_create_pipe_request(handle, request).boxed()
 			},
-			(http::Method::DELETE, ["pipes", pipe]) => {
-				Self::handle_delete_pipe_request(handle, request, pipe).boxed()
+			(http::Method::POST, ["pipes", pipe, "close"]) => {
+				Self::handle_close_pipe_request(handle, request, pipe).boxed()
 			},
 			(http::Method::GET, ["pipes", pipe, "read"]) => {
 				Self::handle_read_pipe_request(handle, request, pipe).boxed()
@@ -1056,8 +1054,8 @@ impl Server {
 			(http::Method::POST, ["ptys"]) => {
 				Self::handle_create_pty_request(handle, request).boxed()
 			},
-			(http::Method::DELETE, ["ptys", pty]) => {
-				Self::handle_delete_pty_request(handle, request, pty).boxed()
+			(http::Method::POST, ["ptys", pty, "close"]) => {
+				Self::handle_close_pty_request(handle, request, pty).boxed()
 			},
 			(http::Method::GET, ["ptys", pty, "size"]) => {
 				Self::handle_get_pty_size_request(handle, request, pty).boxed()
@@ -1371,12 +1369,12 @@ impl tg::Handle for Server {
 		self.create_pty(arg)
 	}
 
-	fn delete_pty(
+	fn close_pty(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::delete::Arg,
+		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.delete_pty(id, arg)
+		self.close_pty(id, arg)
 	}
 
 	fn get_pty_size(
@@ -1412,12 +1410,12 @@ impl tg::Handle for Server {
 		self.create_pipe(arg)
 	}
 
-	fn delete_pipe(
+	fn close_pipe(
 		&self,
 		id: &tg::pipe::Id,
-		arg: tg::pipe::delete::Arg,
+		arg: tg::pipe::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.delete_pipe(id, arg)
+		self.close_pipe(id, arg)
 	}
 
 	fn read_pipe(
