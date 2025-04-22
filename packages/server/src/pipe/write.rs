@@ -25,6 +25,7 @@ impl Server {
 				break;
 			}
 		}
+
 		Ok(())
 	}
 

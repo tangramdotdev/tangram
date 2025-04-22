@@ -243,8 +243,6 @@ where
 					async move { handle.write_pty(&id, arg, stream).await }.boxed()
 				},
 			};
-
-			//
 			let stop = stop.wait();
 			match future::select(pin!(result), pin!(stop)).await {
 				future::Either::Left((result, _)) => result,

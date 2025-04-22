@@ -257,75 +257,62 @@ impl Messenger {
 }
 
 impl crate::Messenger for Messenger {
-	fn publish(&self, subject: String, payload: Bytes) -> impl Future<Output = Result<(), Error>> {
-		self.publish(subject, payload)
+	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
+		self.publish(subject, payload).await
 	}
 
-	fn subscribe(
+	async fn subscribe(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> impl Future<Output = Result<impl Stream<Item = Message> + 'static, Error>> {
-		self.subscribe(subject, group)
+	) -> Result<impl futures::Stream<Item = Message> + 'static, Error> {
+		self.subscribe(subject, group).await
 	}
 
-	fn get_or_create_stream(
-		&self,
-		name: String,
-		config: StreamConfig,
-	) -> impl Future<Output = Result<(), Error>> + Send {
-		self.create_stream(name, config)
+	async fn get_or_create_stream(&self, name: String, config: StreamConfig) -> Result<(), Error> {
+		self.create_stream(name, config).await
 	}
 
-	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Error>> + Send {
+	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Error>> {
 		self.delete_stream(name)
+	}
+
+	fn stream_info(&self, name: String) -> impl Future<Output = Result<crate::StreamInfo, Error>> {
+		self.stream_info(name)
 	}
 
 	fn stream_publish(
 		&self,
 		name: String,
 		payload: Bytes,
-	) -> impl Future<Output = Result<impl Future<Output = Result<StreamPublishInfo, Error>>, Error>> + Send
+	) -> impl Future<Output = Result<impl Future<Output = Result<StreamPublishInfo, Error>>, Error>>
 	{
 		self.stream_publish(name, payload)
 	}
 
-	fn stream_subscribe(
+	async fn stream_subscribe(
 		&self,
 		name: String,
 		consumer: Option<String>,
-	) -> impl Future<
-		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
-	> + Send {
-		self.stream_subscribe(name, consumer)
+	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+		self.stream_subscribe(name, consumer).await
 	}
 
-	fn stream_info(
-		&self,
-		name: String,
-	) -> impl Future<Output = Result<crate::StreamInfo, Error>> + Send {
-		self.stream_info(name)
-	}
-
-	fn stream_batch_publish(
+	async fn stream_batch_publish(
 		&self,
 		name: String,
 		payloads: Vec<Bytes>,
-	) -> impl Future<
-		Output = Result<impl Future<Output = Result<Vec<StreamPublishInfo>, Error>>, Error>,
-	> + Send {
-		self.stream_batch_publish(name, payloads)
+	) -> Result<impl Future<Output = Result<Vec<StreamPublishInfo>, Error>>, Error> {
+		self.stream_batch_publish(name, payloads).await
 	}
 
-	fn stream_batch_subscribe(
+	async fn stream_batch_subscribe(
 		&self,
 		name: String,
 		consumer: Option<String>,
 		config: crate::BatchConfig,
-	) -> impl Future<
-		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
-	> + Send {
-		self.stream_batch_subscribe(name, consumer, config)
+	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+		self.stream_batch_subscribe(name, consumer, config).await
 	}
 }
 

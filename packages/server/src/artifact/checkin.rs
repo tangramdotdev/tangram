@@ -738,7 +738,7 @@ impl Server {
 				.messenger
 				.stream_batch_publish("index".to_owned(), messages.clone())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
+				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
 			messages = messages.split_off(published.len());

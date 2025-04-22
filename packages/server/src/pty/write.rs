@@ -52,8 +52,8 @@ impl Server {
 		let stream = request
 			.sse()
 			.map(|event| match event {
-				Ok(e) => e.try_into(),
-				Err(source) => Err(tg::error!(!source, "sse error")),
+				Ok(event) => event.try_into(),
+				Err(source) => Err(source.into()),
 			})
 			.take_while_inclusive(|event| future::ready(!matches!(event, Ok(tg::pty::Event::End))))
 			.take_until(stop)

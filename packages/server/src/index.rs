@@ -171,7 +171,7 @@ impl Server {
 			.messenger
 			.stream_batch_subscribe("index".to_owned(), Some("index".to_owned()), batch_config)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe to the index stream"))?
+			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
 			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
 			.and_then(|message| {
 				let (payload, acker) = message.split();
