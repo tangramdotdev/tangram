@@ -96,26 +96,19 @@ impl Runtime {
 		};
 
 		// Get the output.
-		let (exit, output) = match task.await.unwrap() {
+		let (error, exit, output) = match task.await.unwrap() {
 			Ok(output) => {
 				let exit = tg::process::Exit::SUCCESS;
-				(Some(exit), Some(output))
+				(None, Some(exit), Some(output))
 			},
 			Err(error) => {
 				let exit = tg::process::Exit::FAILURE;
-				util::log(
-					&self.server,
-					process,
-					tg::process::log::Stream::Stderr,
-					format!("{error}\n"),
-				)
-				.await;
-				(Some(exit), None)
+				(Some(error), Some(exit), None)
 			},
 		};
 
 		super::Output {
-			error: None,
+			error,
 			exit,
 			output,
 		}

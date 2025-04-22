@@ -139,11 +139,6 @@ impl Cli {
 		// Handle the result.
 		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
 
-		// Return an error if necessary.
-		if let Some(error) = wait.error {
-			return Err(error);
-		}
-
 		// Print the output if it is set and is not null.
 		if let Some(value) = wait.output {
 			if !value.is_null() {

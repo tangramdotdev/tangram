@@ -55,11 +55,13 @@ impl Runtime {
 
 		// If there is an error, then add it to the process's log.
 		if let Some(error) = &output.error {
+			let trace_options = tg::error::TraceOptions::default();
+			let trace = error.trace(&trace_options);
 			util::log(
 				self.server(),
 				process,
 				tg::process::log::Stream::Stderr,
-				format!("{error}\n"),
+				format!("{trace}\n"),
 			)
 			.await;
 		}
