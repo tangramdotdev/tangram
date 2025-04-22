@@ -18,7 +18,7 @@ impl tg::Client {
 		let method = http::Method::GET;
 		let path = reference.uri().path();
 		let query = reference.uri().query().unwrap_or_default();
-		let uri = format!("/references/{path}?{query}");
+		let uri = format!("/_/{path}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
