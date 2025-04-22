@@ -791,7 +791,7 @@ declare namespace tg {
 
 		/** Create a merge mutation. */
 		static merge(
-			value: { [key: string]: tg.Value}
+			value: tg.Unresolved<{ [key: string]: tg.Value}>
 		): Promise<tg.Mutation<{ [key: string]: tg.Value }>>;
 
 		static expect(value: unknown): tg.Mutation;

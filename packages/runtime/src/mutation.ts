@@ -94,9 +94,9 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		});
 	}
 
-	static merge(value: { [key: string]: tg.Value }): Promise<
-		Mutation<{ [key: string]: tg.Value }>
-	> {
+	static merge(
+		value: tg.Unresolved<{ [key: string]: tg.Value }>,
+	): Promise<Mutation<{ [key: string]: tg.Value }>> {
 		return Mutation.new({
 			kind: "merge",
 			value,
