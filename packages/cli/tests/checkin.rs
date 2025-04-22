@@ -48,7 +48,7 @@ async fn directory() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -81,7 +81,7 @@ async fn directory_with_duplicate_entries() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -110,7 +110,7 @@ async fn file() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -139,7 +139,7 @@ async fn symlink() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -199,7 +199,7 @@ async fn file_through_symlink() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -259,7 +259,7 @@ async fn artifact_symlink() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -361,7 +361,7 @@ async fn lockfile_out_of_date() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -431,7 +431,7 @@ async fn simple_path_dependency() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -570,7 +570,7 @@ async fn package_with_nested_dependencies() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -610,7 +610,7 @@ async fn package() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -679,7 +679,7 @@ async fn directory_with_nested_packages() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -759,7 +759,7 @@ async fn import_directory_from_current() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -844,7 +844,7 @@ async fn import_package_from_current() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -911,7 +911,7 @@ async fn import_directory_from_parent() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -996,7 +996,7 @@ async fn import_package_with_type_directory_from_parent() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1072,7 +1072,7 @@ async fn import_package_from_parent() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1161,7 +1161,7 @@ async fn package_with_cyclic_modules() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1265,7 +1265,7 @@ async fn cyclic_dependencies() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1311,7 +1311,7 @@ async fn directory_destructive() {
 	};
 	let destructive = true;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[ignore]
@@ -1354,7 +1354,7 @@ async fn package_destructive() {
 	};
 	let destructive = true;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1382,7 +1382,7 @@ async fn default_ignore() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1447,7 +1447,7 @@ async fn missing_in_lockfile() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1496,7 +1496,7 @@ async fn invalid_lockfile() {
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1546,7 +1546,7 @@ async fn tagged_object() {
   "#);
 	};
 	let destructive = false;
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1623,7 +1623,7 @@ async fn tagged_package() {
 	};
 	let destructive = false;
 	let path = "";
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1750,7 +1750,7 @@ async fn tagged_package_with_cyclic_dependency() {
   "#);
 	};
 	let destructive = false;
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -1998,7 +1998,7 @@ async fn tag_dependency_cycles() {
   "#); // Keep existing snapshot
 	};
 	let destructive = false;
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -2169,7 +2169,7 @@ async fn diamond_dependency() {
   "#);
 	};
 	let destructive = false;
-	test_artifact_checkin(directory, path, destructive, tags, assertions).await;
+	test_checkin(directory, path, destructive, tags, assertions).await;
 }
 
 #[tokio::test]
@@ -2231,7 +2231,7 @@ async fn tagged_package_reproducible_checkin() {
 		let tags = Vec::<(String, temp::Artifact)>::new();
 
 		// Confirm the two outputs are the same.
-		let (object_output1, _metadata_output1, _lockfile1) = test_artifact_checkin_inner(
+		let (object_output1, _metadata_output1, _lockfile1) = test_checkin_inner(
 			artifact.clone(),
 			path,
 			destructive,
@@ -2240,8 +2240,7 @@ async fn tagged_package_reproducible_checkin() {
 		)
 		.await;
 		let (object_output2, _metadata_output2, _lockfile2) =
-			test_artifact_checkin_inner(artifact.clone(), path, destructive, tags, &local_server2)
-				.await;
+			test_checkin_inner(artifact.clone(), path, destructive, tags, &local_server2).await;
 		assert_eq!(object_output1, object_output2);
 	})
 	.await;
@@ -2297,7 +2296,7 @@ async fn tag_dependencies_after_clean() {
 		let destructive = false;
 		let tags = Vec::<(String, temp::Artifact)>::new();
 		let (output1, _, _) =
-			test_artifact_checkin_inner(referrer.clone(), path, destructive, tags, &server2).await;
+			test_checkin_inner(referrer.clone(), path, destructive, tags, &server2).await;
 
 		// // Clean up server 2.
 		// server2.stop_gracefully().await;
@@ -2319,8 +2318,7 @@ async fn tag_dependencies_after_clean() {
 		let path = "";
 		let destructive = false;
 		let tags = Vec::<(String, temp::Artifact)>::new();
-		let (output2, _, _) =
-			test_artifact_checkin_inner(referrer, path, destructive, tags, &server2).await;
+		let (output2, _, _) = test_checkin_inner(referrer, path, destructive, tags, &server2).await;
 
 		// Confirm the outputs are the same.
 		assert_eq!(output1, output2);
@@ -2328,7 +2326,7 @@ async fn tag_dependencies_after_clean() {
 	.await;
 }
 
-async fn test_artifact_checkin<F, Fut>(
+async fn test_checkin<F, Fut>(
 	artifact: impl Into<temp::Artifact> + Send + 'static,
 	path: &str,
 	destructive: bool,
@@ -2341,13 +2339,13 @@ async fn test_artifact_checkin<F, Fut>(
 	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
 		let (object, metadata, lockfile) =
-			test_artifact_checkin_inner(artifact, path, destructive, tags, &server).await;
+			test_checkin_inner(artifact, path, destructive, tags, &server).await;
 		assertions(object, metadata, lockfile).await;
 	})
 	.await;
 }
 
-async fn test_artifact_checkin_inner(
+async fn test_checkin_inner(
 	artifact: impl Into<temp::Artifact> + Send + 'static,
 	path: impl AsRef<Path>,
 	destructive: bool,
@@ -2387,6 +2385,7 @@ async fn test_artifact_checkin_inner(
 		command.arg("--destructive");
 	}
 	let output = command.output().await.unwrap();
+	assert_success!(output);
 
 	// Index
 	{

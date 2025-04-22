@@ -30,7 +30,7 @@ async fn directory() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -51,7 +51,7 @@ async fn file() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -76,7 +76,7 @@ async fn executable_file() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -107,7 +107,7 @@ async fn file_with_dependency() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -140,7 +140,7 @@ async fn symlink() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a directory with a symlink.
@@ -179,7 +179,7 @@ async fn symlink_shared_target() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a very deep directory.
@@ -200,7 +200,7 @@ async fn deeply_nested_directory() {
 	};
 	let dependencies = false;
 	let assertions = |_artifact: temp::Artifact| async move {};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a directory with a file with a dependency.
@@ -254,7 +254,7 @@ async fn directory_with_file_with_dependency() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a directory with a symlink with a dependency.
@@ -297,7 +297,7 @@ async fn directory_with_symlink_with_dependency() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a symlink that is a member of a graph.
@@ -332,7 +332,7 @@ async fn graph_directory() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a file that is a member of a graph.
@@ -361,7 +361,7 @@ async fn graph_file() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a symlink that is a member of a graph.
@@ -389,7 +389,7 @@ async fn graph_symlink() {
   }
   "#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 /// Test checking out a directory with an artifact symlink that points to itself.
@@ -432,7 +432,7 @@ async fn directory_with_symlink_cycle() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
 #[tokio::test]
@@ -497,10 +497,10 @@ async fn shared_dependency_on_symlink() {
 		}
 		"#);
 	};
-	test_artifact_checkout(directory, dependencies, assertions).await;
+	test_checkout(directory, dependencies, assertions).await;
 }
 
-async fn test_artifact_checkout<F, Fut>(
+async fn test_checkout<F, Fut>(
 	artifact: impl Into<temp::Artifact> + Send + 'static,
 	dependencies: bool,
 	assertions: F,

@@ -57,7 +57,7 @@ impl tg::Client {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
 	> {
 		let method = http::Method::POST;
-		let uri = "/artifacts/checkin";
+		let uri = "/checkin";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
