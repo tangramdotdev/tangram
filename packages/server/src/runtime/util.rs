@@ -110,16 +110,13 @@ pub async fn compute_checksum(
 				tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
 					if indicator.name == "bytes" {
 						let message = format!("{indicator}\n");
-						let arg = tg::process::log::post::Arg {
-							bytes: message.into(),
-							remote: Some(remote.to_owned()),
-							stream: tg::process::log::Stream::Stderr,
-						};
-						runtime
-							.server()
-							.try_post_process_log(process.id(), arg)
-							.await
-							.ok();
+						log(
+							runtime.server(),
+							process,
+							tg::process::log::Stream::Stderr,
+							message,
+						)
+						.await;
 					}
 				},
 				tg::progress::Event::Output(()) => {
@@ -409,4 +406,41 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Str
 		}
 	}
 	Err(tg::error!(%path = exe.display(), "could not find executable"))
+}
+
+pub async fn log(
+	server: &Server,
+	process: &tg::Process,
+	stream: tg::process::log::Stream,
+	message: String,
+) {
+	let is_pty = match stream {
+		tg::process::log::Stream::Stderr => {
+			matches!(
+				process.load(server).await.unwrap().stderr,
+				Some(tg::process::Stdio::Pty(_))
+			)
+		},
+		tg::process::log::Stream::Stdout => {
+			matches!(
+				process.load(server).await.unwrap().stdout,
+				Some(tg::process::Stdio::Pty(_))
+			)
+		},
+	};
+	let message = if is_pty {
+		message.replace('\n', "\r\n")
+	} else {
+		message
+	};
+	let arg = tg::process::log::post::Arg {
+		bytes: message.into(),
+		remote: process.remote().cloned(),
+		stream,
+	};
+	server
+		.try_post_process_log(process.id(), arg)
+		.await
+		.inspect_err(|error| tracing::error!(?error, "failed to post process log"))
+		.ok();
 }

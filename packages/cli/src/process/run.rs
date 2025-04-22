@@ -109,33 +109,6 @@ impl Cli {
 			|stop| async move { stdio_task(&handle, stop, stdin, stdout, stderr, remote).await }
 		});
 
-		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
-		let cancel_task = tokio::spawn({
-			let handle = handle.clone();
-			let process = process.clone();
-			let remote = remote.clone();
-			async move {
-				tokio::signal::ctrl_c().await.unwrap();
-				tokio::spawn(async move {
-					let arg = tg::process::finish::Arg {
-						error: Some(tg::error!("the process was explicitly canceled")),
-						exit: None,
-						output: None,
-						remote,
-					};
-					process
-						.finish(&handle, arg)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(?error, "failed to cancel the process");
-						})
-						.ok();
-				});
-				tokio::signal::ctrl_c().await.unwrap();
-				std::process::abort();
-			}
-		});
-
 		// Spawn a task to handle signals.
 		let signal_task = tokio::spawn({
 			let handle = handle.clone();
@@ -159,9 +132,6 @@ impl Cli {
 		stdio_task.stop();
 		stdio_task.wait().await.unwrap()?;
 		drop(stdio);
-
-		// Abort the cancel task.
-		cancel_task.abort();
 
 		// Abort the signal task.
 		signal_task.abort();

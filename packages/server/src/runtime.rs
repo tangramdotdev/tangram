@@ -55,15 +55,13 @@ impl Runtime {
 
 		// If there is an error, then add it to the process's log.
 		if let Some(error) = &output.error {
-			let arg = tg::process::log::post::Arg {
-				bytes: error.to_string().into(),
-				remote: process.remote().cloned(),
-				stream: tg::process::log::Stream::Stderr,
-			};
-			self.server()
-				.try_post_process_log(process.id(), arg)
-				.await
-				.ok();
+			util::log(
+				self.server(),
+				process,
+				tg::process::log::Stream::Stderr,
+				format!("{error}\n"),
+			)
+			.await;
 		}
 
 		output

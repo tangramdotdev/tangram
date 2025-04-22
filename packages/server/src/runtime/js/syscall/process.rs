@@ -1,3 +1,5 @@
+use crate::runtime::util;
+
 use super::State;
 use futures::TryStreamExt as _;
 use std::{pin::pin, rc::Rc, sync::Arc};
@@ -51,12 +53,13 @@ pub async fn spawn(
 							| tg::progress::Event::Update(indicator) => {
 								if indicator.name == "bytes" {
 									let message = format!("{indicator}\n");
-									let arg = tg::process::log::post::Arg {
-										bytes: message.into(),
-										remote: Some(remote.to_owned()),
-										stream: tg::process::log::Stream::Stderr,
-									};
-									server.try_post_process_log(parent.id(), arg).await.ok();
+									util::log(
+										&server,
+										&parent,
+										tg::process::log::Stream::Stderr,
+										message,
+									)
+									.await;
 								}
 							},
 							tg::progress::Event::Output(()) => {

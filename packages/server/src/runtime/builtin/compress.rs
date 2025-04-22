@@ -1,3 +1,5 @@
+use crate::runtime::util;
+
 use super::Runtime;
 use std::{pin::Pin, time::Duration};
 use tangram_client as tg;
@@ -54,15 +56,7 @@ impl Runtime {
 						total: Some(size),
 					};
 					let message = format!("{indicator}\n");
-					let arg = tg::process::log::post::Arg {
-						bytes: message.into(),
-						remote: process.remote().cloned(),
-						stream: tg::process::log::Stream::Stderr,
-					};
-					let result = server.try_post_process_log(process.id(), arg).await;
-					if let Err(error) = result {
-						tracing::error!(?error, "failed to post process log");
-					}
+					util::log(&server, &process, tg::process::log::Stream::Stderr, message).await;
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				}
 			}
@@ -93,12 +87,14 @@ impl Runtime {
 
 		// Log that the compression finished.
 		let message = "finished compressing\n";
-		let arg = tg::process::log::post::Arg {
-			bytes: message.into(),
-			remote: process.remote().cloned(),
-			stream: tg::process::log::Stream::Stderr,
-		};
-		server.try_post_process_log(process.id(), arg).await.ok();
+		util::log(
+			server,
+			process,
+			tg::process::log::Stream::Stderr,
+			message.to_owned(),
+		)
+		.await;
+
 		Ok(blob.into())
 	}
 }
