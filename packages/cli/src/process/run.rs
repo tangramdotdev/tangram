@@ -223,6 +223,7 @@ where
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
 						.chain(stream::once(future::ok(tg::pipe::Event::End)))
+						.take_until(stop.wait())
 						.boxed();
 					let arg = tg::pipe::write::Arg { remote };
 					let handle = handle.clone();
@@ -232,6 +233,7 @@ where
 					let stream = stream
 						.map(|bytes| bytes.map(tg::pty::Event::Chunk))
 						.chain(stream::once(future::ok(tg::pty::Event::End)))
+						.take_until(stop.wait())
 						.boxed();
 					let arg = tg::pty::write::Arg {
 						master: true,

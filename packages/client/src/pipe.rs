@@ -11,7 +11,7 @@ pub mod write;
 pub use self::id::Id;
 
 #[serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 pub enum Event {
 	Chunk(#[serde_as(as = "BytesBase64")] Bytes),

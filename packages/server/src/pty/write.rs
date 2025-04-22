@@ -19,10 +19,10 @@ impl Server {
 
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
+			self.write_pty_event(id, event.clone(), arg.master).await?;
 			if matches!(event, tg::pty::Event::End) {
 				break;
 			}
-			self.write_pty_event(id, event, arg.master).await?;
 		}
 
 		Ok(())
