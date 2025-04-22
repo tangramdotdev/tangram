@@ -237,7 +237,7 @@ impl FromV8 for tg::command::Mount {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
-	) -> tangram_client::Result<Self> {
+	) -> tg::Result<Self> {
 		let value = value.to_object(scope).unwrap();
 
 		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();

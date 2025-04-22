@@ -10,7 +10,7 @@ pub struct State {
 	pub dequeued_at: Option<time::OffsetDateTime>,
 	pub enqueued_at: Option<time::OffsetDateTime>,
 	pub error: Option<tg::Error>,
-	pub exit: Option<tg::process::Exit>,
+	pub exit: Option<u8>,
 	pub finished_at: Option<time::OffsetDateTime>,
 	pub log: Option<tg::Blob>,
 	pub mounts: Vec<tg::process::Mount>,

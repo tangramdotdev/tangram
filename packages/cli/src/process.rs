@@ -10,6 +10,7 @@ pub mod metadata;
 pub mod output;
 pub mod put;
 pub mod run;
+pub mod signal;
 pub mod spawn;
 pub mod status;
 pub mod wait;
@@ -33,6 +34,8 @@ pub enum Command {
 	Output(self::output::Args),
 	Put(self::put::Args),
 	Run(self::run::Args),
+	#[command(alias = "kill")]
+	Signal(self::signal::Args),
 	Spawn(self::spawn::Args),
 	Status(self::status::Args),
 	Wait(self::wait::Args),
@@ -67,6 +70,9 @@ impl Cli {
 			},
 			Command::Run(args) => {
 				self.command_process_run(args).await?;
+			},
+			Command::Signal(args) => {
+				self.command_process_signal(args).await?;
 			},
 			Command::Spawn(args) => {
 				self.command_process_spawn(args).await?;

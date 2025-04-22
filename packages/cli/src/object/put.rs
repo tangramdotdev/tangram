@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, prelude::*};
 use tokio::io::AsyncReadExt as _;
 
 /// Put an object.
@@ -9,28 +9,33 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub bytes: Option<String>,
 
+	#[arg(index = 1)]
+	pub id: Option<tg::object::Id>,
+
 	#[arg(short, long)]
-	pub kind: tg::object::Kind,
+	pub kind: Option<tg::object::Kind>,
 }
 
 impl Cli {
 	pub async fn command_object_put(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let kind = args.kind.into();
 		let bytes = if let Some(bytes) = args.bytes {
-			bytes.into_bytes()
+			bytes.into_bytes().into()
 		} else {
 			let mut bytes = Vec::new();
 			tokio::io::stdin()
 				.read_to_end(&mut bytes)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
-			bytes
+			bytes.into()
 		};
-		let id = tg::Id::new_blake3(kind, &bytes).try_into().unwrap();
-		let arg = tg::object::put::Arg {
-			bytes: bytes.into(),
+		let id = if let Some(id) = args.id {
+			id
+		} else {
+			let kind = args.kind.ok_or_else(|| tg::error!("kind must be set"))?;
+			tg::object::Id::new(kind, &bytes)
 		};
+		let arg = tg::object::put::Arg { bytes };
 		handle.put_object(&id, arg).await?;
 		println!("{id}");
 		Ok(())

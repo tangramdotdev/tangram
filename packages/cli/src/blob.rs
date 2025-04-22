@@ -1,53 +1,25 @@
 use crate::Cli;
-use tangram_client as tg;
+use tangram_client::{self as tg, prelude::*};
 
-pub mod cat;
-pub mod checksum;
-pub mod compress;
-pub mod create;
-pub mod decompress;
-pub mod download;
-
-/// Manage blobs.
+/// Create a blob.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[clap(subcommand)]
-	pub command: Command,
-}
-
-#[derive(Clone, Debug, clap::Subcommand)]
-pub enum Command {
-	Cat(self::cat::Args),
-	Checksum(self::checksum::Args),
-	Compress(self::compress::Args),
-	Create(self::create::Args),
-	Decompress(self::decompress::Args),
-	Download(self::download::Args),
+	#[arg(index = 1)]
+	pub bytes: Option<String>,
 }
 
 impl Cli {
 	pub async fn command_blob(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Cat(args) => {
-				self.command_blob_cat(args).await?;
-			},
-			Command::Checksum(args) => {
-				self.command_blob_checksum(args).await?;
-			},
-			Command::Compress(args) => {
-				self.command_blob_compress(args).await?;
-			},
-			Command::Create(args) => {
-				self.command_blob_create(args).await?;
-			},
-			Command::Decompress(args) => {
-				self.command_blob_decompress(args).await?;
-			},
-			Command::Download(args) => {
-				self.command_blob_download(args).await?;
-			},
-		}
+		let handle = self.handle().await?;
+		let tg::blob::create::Output { blob, .. } = if let Some(bytes) = args.bytes {
+			let reader = std::io::Cursor::new(bytes);
+			handle.create_blob(reader).await?
+		} else {
+			let reader = tokio::io::stdin();
+			handle.create_blob(reader).await?
+		};
+		println!("{blob}");
 		Ok(())
 	}
 }

@@ -3,7 +3,7 @@
 	"private": true,
 	"scripts": {
 		"check": "tsc && biome check src",
-		"format": "biome check --write src"
+		"format": "biome check --write tangram.d.ts src"
 	},
 	"type": "module",
 	"dependencies": {

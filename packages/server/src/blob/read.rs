@@ -145,7 +145,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_read_blob_request<H>(
+	pub(crate) async fn handle_read_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		id: &str,

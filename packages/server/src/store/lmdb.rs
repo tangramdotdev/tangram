@@ -78,10 +78,7 @@ impl Lmdb {
 		})
 	}
 
-	pub async fn try_get(
-		&self,
-		id: &tangram_client::object::Id,
-	) -> Result<Option<Bytes>, tangram_client::Error> {
+	pub async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, tg::Error> {
 		let bytes = tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
@@ -107,10 +104,7 @@ impl Lmdb {
 		Ok(bytes)
 	}
 
-	pub fn try_get_sync(
-		&self,
-		id: &tangram_client::object::Id,
-	) -> Result<Option<Bytes>, tangram_client::Error> {
+	pub fn try_get_sync(&self, id: &tg::object::Id) -> Result<Option<Bytes>, tg::Error> {
 		let transaction = self
 			.env
 			.read_txn()
@@ -146,8 +140,8 @@ impl Lmdb {
 
 	pub async fn try_get_cache_reference(
 		&self,
-		id: &tangram_client::object::Id,
-	) -> Result<Option<CacheReference>, tangram_client::Error> {
+		id: &tg::object::Id,
+	) -> Result<Option<CacheReference>, tg::Error> {
 		let reference = tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
@@ -176,8 +170,8 @@ impl Lmdb {
 
 	pub fn try_get_cache_reference_sync(
 		&self,
-		id: &tangram_client::object::Id,
-	) -> Result<Option<CacheReference>, tangram_client::Error> {
+		id: &tg::object::Id,
+	) -> Result<Option<CacheReference>, tg::Error> {
 		let transaction = self
 			.env
 			.read_txn()

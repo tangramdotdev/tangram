@@ -1,24 +1,10 @@
 use crate as tg;
 use futures::{TryFutureExt as _, future};
 use http_body_util::BodyExt as _;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use tangram_http::request::builder::Ext as _;
 use tokio::io::{AsyncBufRead, AsyncWrite};
 
 impl tg::Client {
-	pub async fn format(&self, text: String) -> tg::Result<String> {
-		let method = http::Method::POST;
-		let uri = "/format";
-		let request = http::request::Builder::default().method(method).uri(uri);
-		let request = request.bytes(text).unwrap();
-		let response = self.send(request).await?;
-		if !response.status().is_success() {
-			let error = response.json().await?;
-			return Err(error);
-		}
-		let output = response.text().await?;
-		Ok(output)
-	}
-
 	pub async fn lsp(
 		&self,
 		mut input: impl AsyncBufRead + Send + Unpin + 'static,

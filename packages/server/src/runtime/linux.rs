@@ -49,10 +49,16 @@ impl Runtime {
 			command
 				.children()
 				.into_iter()
-				.filter_map(|id| Some(tg::Artifact::with_id(id.try_into().ok()?)))
+				.filter_map(|id| id.try_into().ok())
 				.map(|artifact| async move {
-					let arg = tg::artifact::checkout::Arg::default();
-					artifact.check_out(&self.server, arg).await?;
+					let arg = tg::checkout::Arg {
+						artifact,
+						dependencies: false,
+						force: false,
+						lockfile: false,
+						path: None,
+					};
+					tg::checkout(&self.server, arg).await?;
 					Ok::<_, tg::Error>(())
 				})
 				.collect::<FuturesUnordered<_>>()
@@ -486,7 +492,7 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to determine in the path exists"))?;
 		let output = if exists {
-			let arg = tg::artifact::checkin::Arg {
+			let arg = tg::checkin::Arg {
 				cache: true,
 				destructive: true,
 				deterministic: true,
@@ -495,7 +501,7 @@ impl Runtime {
 				locked: true,
 				lockfile: false,
 			};
-			let artifact = tg::Artifact::check_in(&self.server, arg)
+			let artifact = tg::checkin(&self.server, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
 			Some(tg::Value::from(artifact))

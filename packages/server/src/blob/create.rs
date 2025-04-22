@@ -356,7 +356,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_create_blob_request<H>(
+	pub(crate) async fn handle_blob_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>>

@@ -5,8 +5,6 @@ export type Artifact = tg.Directory | tg.File | tg.Symlink;
 export namespace Artifact {
 	export type Id = string;
 
-	export type ArchiveFormat = "tar" | "tgar" | "zip";
-
 	export let withId = (id: Artifact.Id): Artifact => {
 		let prefix = id.substring(0, 3);
 		if (prefix === "dir") {
@@ -35,62 +33,5 @@ export namespace Artifact {
 
 	export let assert = (value: unknown): asserts value is Artifact => {
 		tg.assert(is(value));
-	};
-
-	export let archive = async (
-		artifact: Artifact,
-		format: ArchiveFormat,
-		compression?: tg.Blob.CompressionFormat,
-	): Promise<tg.Blob> => {
-		const args: Array<tg.Value> = [artifact, format];
-		if (compression !== undefined) {
-			if (format === "zip") {
-				throw new Error("compression is not supported for zip archives");
-			}
-			args.push(compression);
-		}
-		let value = await tg.build({
-			args,
-			env: undefined,
-			executable: "archive",
-			host: "builtin",
-		});
-		tg.assert(tg.Blob.is(value));
-		return value;
-	};
-
-	export let extract = async (blob: tg.Blob): Promise<Artifact> => {
-		let value = await tg.build({
-			args: [blob],
-			env: undefined,
-			executable: "extract",
-			host: "builtin",
-		});
-		tg.assert(Artifact.is(value));
-		return value;
-	};
-
-	export let bundle = async (artifact: Artifact): Promise<Artifact> => {
-		let value = await tg.build({
-			args: [artifact],
-			env: undefined,
-			executable: "bundle",
-			host: "builtin",
-		});
-		tg.assert(Artifact.is(value));
-		return value;
-	};
-
-	export let checksum = async (
-		artifact: Artifact,
-		algorithm: tg.Checksum.Algorithm,
-	): Promise<tg.Checksum> => {
-		let value = await tg.build({
-			args: [artifact, algorithm],
-			env: undefined,
-			executable: "checksum",
-			host: "builtin",
-		});
-		return value as tg.Checksum;
 	};
 }

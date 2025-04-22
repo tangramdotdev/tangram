@@ -86,7 +86,7 @@ pub async fn compute_checksum(
 	let args = vec![value.clone(), algorithm.to_string().into()];
 	let command = tg::Command::builder(host, executable).args(args).build();
 
-	// If the process is remote, push the command.
+	// If the process is remote, then push the command.
 	let remote = process.remote();
 	if let Some(remote) = remote {
 		let arg = tg::push::Arg {
@@ -94,11 +94,11 @@ pub async fn compute_checksum(
 				command
 					.id(runtime.server())
 					.await
-					.map_err(|source| tg::error!(!source, "could not find command id"))?
+					.map_err(|source| tg::error!(!source, "failed to find command id"))?
 					.into(),
 			)],
 
-			remote: remote.to_owned(),
+			remote: Some(remote.to_owned()),
 			..Default::default()
 		};
 		let stream = runtime.server().push(arg).await?;
@@ -405,7 +405,7 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Str
 			return Ok(path.to_string_lossy().to_string());
 		}
 	}
-	Err(tg::error!(%path = exe.display(), "could not find executable"))
+	Err(tg::error!(%path = exe.display(), "failed to find the executable"))
 }
 
 pub async fn log(

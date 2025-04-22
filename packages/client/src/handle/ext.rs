@@ -448,7 +448,7 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
-	fn get_reference(
+	fn get(
 		&self,
 		reference: &tg::Reference,
 	) -> impl Future<
@@ -461,7 +461,7 @@ pub trait Ext: tg::Handle {
 			+ 'static,
 		>,
 	> + Send {
-		self.try_get_reference(reference).map(|result| {
+		self.try_get(reference).map(|result| {
 			result.map(|stream| {
 				stream.map(|event_result| {
 					event_result.and_then(|event| match event {

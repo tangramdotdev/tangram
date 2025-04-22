@@ -39,7 +39,7 @@ pub async fn spawn(
 					// Push the command.
 					let arg = tg::push::Arg {
 						items: vec![Either::Right(command.clone().into())],
-						remote: remote.to_owned(),
+						remote: Some(remote.to_owned()),
 						..Default::default()
 					};
 					let stream = server.push(arg).await?;

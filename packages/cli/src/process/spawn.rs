@@ -1,7 +1,7 @@
 use crate::Cli;
 use itertools::Itertools as _;
 use std::path::{Path, PathBuf};
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
 
 /// Spawn a process.
@@ -137,7 +137,7 @@ impl Cli {
 					}
 				}
 				if !exists {
-					self.command_package_init(crate::package::init::Args {
+					self.command_init(crate::init::Args {
 						path: Some(path.clone()),
 					})
 					.await?;
@@ -326,7 +326,7 @@ impl Cli {
 			let id = command.id(&handle).await?;
 			let arg = tg::push::Arg {
 				items: vec![Either::Right(id.into())],
-				remote,
+				remote: Some(remote),
 				..Default::default()
 			};
 			let stream = handle.push(arg).await?;

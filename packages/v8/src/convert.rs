@@ -8,6 +8,7 @@ use time::format_description::well_known::Rfc3339;
 mod artifact;
 mod blob;
 mod branch;
+mod builtin;
 mod checksum;
 mod command;
 mod de;

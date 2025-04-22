@@ -40,18 +40,3 @@ impl FromV8 for tg::Blob {
 		Ok(blob)
 	}
 }
-
-impl ToV8 for tg::blob::compress::Format {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.to_string().to_v8(scope)
-	}
-}
-
-impl FromV8 for tg::blob::compress::Format {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		String::from_v8(scope, value)?.parse()
-	}
-}

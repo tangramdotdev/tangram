@@ -2,10 +2,6 @@ use crate as tg;
 use std::path::Path;
 use tangram_either::Either;
 
-pub mod check;
-pub mod document;
-pub mod format;
-
 /// The possible file names for the root module in a package.
 pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts"];
 

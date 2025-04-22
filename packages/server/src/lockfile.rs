@@ -90,7 +90,7 @@ impl Server {
 				memory.try_get_object_data(&id.clone().into())?
 			},
 			_ => {
-				return Err(tg::error!("unimplemented"));
+				return Err(tg::error!("invalid store"));
 			},
 		}
 		.ok_or_else(|| tg::error!("expected the object to exist"))?
@@ -275,7 +275,7 @@ impl Server {
 				memory.try_get_object_data(&id.clone().into())?
 			},
 			_ => {
-				return Err(tg::error!("unimplemented"));
+				return Err(tg::error!("invalid store"));
 			},
 		}
 		.ok_or_else(|| tg::error!("expected the graph to exist"))?

@@ -22,10 +22,7 @@ impl<T> ToV8 for Serde<T>
 where
 	T: serde::Serialize,
 {
-	fn to_v8<'a>(
-		&self,
-		scope: &mut v8::HandleScope<'a>,
-	) -> tangram_client::Result<v8::Local<'a, v8::Value>> {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let serializer = Serializer::new(scope);
 		let value = self
 			.0
@@ -42,7 +39,7 @@ where
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
-	) -> tangram_client::Result<Self> {
+	) -> tg::Result<Self> {
 		let deserializer = Deserializer::new(scope, value);
 		let value = Self(
 			T::deserialize(deserializer)

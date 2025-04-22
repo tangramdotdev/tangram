@@ -156,7 +156,7 @@ impl Server {
 		struct Row {
 			id: tg::process::Id,
 			error: Option<db::value::Json<tg::Error>>,
-			exit: Option<db::value::Json<tg::process::Exit>>,
+			exit: Option<u8>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -192,7 +192,7 @@ impl Server {
 		}
 
 		// If the process failed and the retry flag is set, then return.
-		let failed = error.is_some() || exit.is_some_and(|e| e.0.failed());
+		let failed = error.is_some() || exit.is_some_and(|exit| exit != 0);
 		if failed && arg.retry {
 			return Ok(None);
 		}

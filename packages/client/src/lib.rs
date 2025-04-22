@@ -23,6 +23,9 @@ pub use self::{
 	artifact::Handle as Artifact,
 	blob::Handle as Blob,
 	branch::Handle as Branch,
+	builtin::{ArchiveFormat, CompressionFormat, DownloadMode, DownloadOptions},
+	checkin::checkin,
+	checkout::checkout,
 	checksum::Checksum,
 	command::Handle as Command,
 	diagnostic::Diagnostic,
@@ -54,16 +57,23 @@ pub use self::{
 pub mod artifact;
 pub mod blob;
 pub mod branch;
+pub mod builtin;
 pub mod bytes;
+pub mod check;
+pub mod checkin;
+pub mod checkout;
 pub mod checksum;
 pub mod clean;
 pub mod command;
 pub mod compiler;
 pub mod diagnostic;
 pub mod directory;
+pub mod document;
 pub mod error;
 pub mod export;
 pub mod file;
+pub mod format;
+pub mod get;
 pub mod graph;
 pub mod handle;
 pub mod health;
@@ -94,6 +104,13 @@ pub mod template;
 pub mod user;
 pub mod util;
 pub mod value;
+
+pub mod prelude {
+	pub use super::handle::{
+		Ext as _, Handle as _, Object as _, Pipe as _, Process as _, Pty as _, Remote as _,
+		Tag as _, User as _,
+	};
+}
 
 #[derive(Clone, Debug)]
 pub struct Client(Arc<Inner>);
@@ -175,7 +192,7 @@ impl Client {
 			.map_err(|error| {
 				error!(
 					source = error,
-					"could not parse a URL from the TANGRAM_URL environment variable"
+					"failed to parse a URL from the TANGRAM_URL environment variable"
 				)
 			})?;
 		Ok(Self::new(url, None))
@@ -615,31 +632,115 @@ impl Client {
 }
 
 impl tg::Handle for Client {
-	fn check_in_artifact(
-		&self,
-		arg: tg::artifact::checkin::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-			+ Send
-			+ 'static,
-		>,
-	> {
-		self.check_in_artifact(arg)
+	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
+		self.check(arg)
 	}
 
-	fn check_out_artifact(
+	fn checkin(
 		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::checkout::Arg,
+		arg: tg::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-			+ Send
-			+ 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
 		>,
 	> {
-		self.check_out_artifact(id, arg)
+		self.checkin(arg)
+	}
+
+	fn checkout(
+		&self,
+		arg: tg::checkout::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
+		>,
+	> {
+		self.checkout(arg)
+	}
+
+	fn clean(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
+		self.clean()
+	}
+
+	fn document(
+		&self,
+		arg: tg::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		self.document(arg)
+	}
+
+	fn export(
+		&self,
+		arg: tg::export::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
+	> {
+		self.export(arg, stream)
+	}
+
+	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
+		self.format(arg)
+	}
+
+	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
+		self.health()
+	}
+
+	fn import(
+		&self,
+		arg: tg::import::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
+	> {
+		self.import(arg, stream)
+	}
+
+	fn index(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
+		self.index()
+	}
+
+	fn lsp(
+		&self,
+		input: impl AsyncBufRead + Send + Unpin + 'static,
+		output: impl AsyncWrite + Send + Unpin + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.lsp(input, output)
+	}
+
+	fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull(arg)
+	}
+
+	fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push(arg)
 	}
 
 	fn create_blob(
@@ -661,56 +762,21 @@ impl tg::Handle for Client {
 		self.try_read_blob_stream(id, arg)
 	}
 
-	fn import(
+	fn try_get(
 		&self,
-		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
-	> {
-		self.import(arg, stream)
-	}
-
-	fn export(
-		&self,
-		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
-	> {
-		self.export(arg, stream)
-	}
-
-	fn push(
-		&self,
-		arg: tg::push::Arg,
+		reference: &tg::Reference,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>>
+			+ Send
+			+ 'static,
 		>,
-	> {
-		self.push(arg)
+	> + Send {
+		self.try_get(reference)
 	}
+}
 
-	fn pull(
-		&self,
-		arg: tg::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.pull(arg)
-	}
-
-	fn lsp(
-		&self,
-		input: impl AsyncBufRead + Send + Unpin + 'static,
-		output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.lsp(input, output)
-	}
-
+impl tg::handle::Object for Client {
 	fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
@@ -740,28 +806,9 @@ impl tg::Handle for Client {
 	) -> impl Future<Output = tg::Result<()>> {
 		self.touch_object(id, arg)
 	}
+}
 
-	fn check_package(
-		&self,
-		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
-		self.check_package(arg)
-	}
-
-	fn document_package(
-		&self,
-		arg: tg::package::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> {
-		self.document_package(arg)
-	}
-
-	fn format_package(
-		&self,
-		arg: tg::package::format::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.format_package(arg)
-	}
-
+impl tg::handle::Process for Client {
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -829,9 +876,9 @@ impl tg::Handle for Client {
 
 	fn signal_process(
 		&self,
-		id: &crate::process::Id,
-		arg: crate::process::signal::post::Arg,
-	) -> impl Future<Output = crate::Result<()>> + Send {
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.post_process_signal(id, arg)
 	}
 
@@ -854,7 +901,7 @@ impl tg::Handle for Client {
 		id: &tg::process::Id,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::process::status::Event>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 		>,
 	> {
 		self.try_get_process_status_stream(id)
@@ -866,7 +913,9 @@ impl tg::Handle for Client {
 		arg: tg::process::children::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::process::children::get::Event>> + Send + 'static>,
+			Option<
+				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
+			>,
 		>,
 	> {
 		self.try_get_process_children_stream(id, arg)
@@ -878,7 +927,7 @@ impl tg::Handle for Client {
 		arg: tg::process::log::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = Result<tg::process::log::get::Event>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
 		>,
 	> {
 		self.try_get_process_log_stream(id, arg)
@@ -907,7 +956,9 @@ impl tg::Handle for Client {
 	) -> impl Future<Output = tg::Result<()>> {
 		self.touch_process(id, arg)
 	}
+}
 
+impl tg::handle::Pipe for Client {
 	fn create_pipe(
 		&self,
 		arg: tg::pipe::create::Arg,
@@ -940,7 +991,9 @@ impl tg::Handle for Client {
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.write_pipe(id, arg, stream)
 	}
+}
 
+impl tg::handle::Pty for Client {
 	fn create_pty(
 		&self,
 		arg: tg::pty::create::Arg,
@@ -981,20 +1034,9 @@ impl tg::Handle for Client {
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.write_pty(id, arg, stream)
 	}
+}
 
-	fn try_get_reference(
-		&self,
-		reference: &tg::Reference,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::reference::get::Output>>>>
-			+ Send
-			+ 'static,
-		>,
-	> + Send {
-		self.try_get_reference(reference)
-	}
-
+impl tg::handle::Remote for Client {
 	fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,
@@ -1020,31 +1062,9 @@ impl tg::Handle for Client {
 	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
 		self.delete_remote(name)
 	}
+}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
-		self.health()
-	}
-
-	fn index(
-		&self,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send {
-		self.index()
-	}
-
-	fn clean(
-		&self,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send {
-		self.clean()
-	}
-
+impl tg::handle::Tag for Client {
 	fn list_tags(
 		&self,
 		arg: tg::tag::list::Arg,
@@ -1070,7 +1090,9 @@ impl tg::Handle for Client {
 	fn delete_tag(&self, tag: &tg::Tag) -> impl Future<Output = tg::Result<()>> {
 		self.delete_tag(tag)
 	}
+}
 
+impl tg::handle::User for Client {
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		self.get_user(token)
 	}

@@ -860,8 +860,15 @@ impl Compiler {
 				let artifact = tg::artifact::Id::try_from(object.clone())
 					.map_err(|_| tg::error!("the module must be an artifact"))?;
 				if self.server.vfs.lock().unwrap().is_none() {
+					let arg = tg::checkout::Arg {
+						artifact,
+						dependencies: false,
+						force: false,
+						lockfile: false,
+						path: None,
+					};
 					self.server
-						.check_out_artifact(&artifact, tg::artifact::checkout::Arg::default())
+						.checkout(arg)
 						.await?
 						.map_ok(|_| ())
 						.try_collect::<()>()
@@ -903,14 +910,6 @@ impl Compiler {
 }
 
 impl crate::Server {
-	pub async fn format(&self, text: String) -> tg::Result<String> {
-		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
-		let text = compiler.format(text).await?;
-		compiler.stop();
-		compiler.wait().await;
-		Ok(text)
-	}
-
 	pub async fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,

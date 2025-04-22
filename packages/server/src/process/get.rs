@@ -48,7 +48,7 @@ impl Server {
 			#[serde_as(as = "Option<Rfc3339>")]
 			enqueued_at: Option<time::OffsetDateTime>,
 			error: Option<db::value::Json<tg::Error>>,
-			exit: Option<db::value::Json<tg::process::Exit>>,
+			exit: Option<u8>,
 			#[serde_as(as = "Option<Rfc3339>")]
 			finished_at: Option<time::OffsetDateTime>,
 			host: String,
@@ -109,7 +109,7 @@ impl Server {
 				dequeued_at: row.dequeued_at,
 				enqueued_at: row.enqueued_at,
 				error: row.error.map(|error| error.0),
-				exit: row.exit.map(|exit| exit.0),
+				exit: row.exit,
 				finished_at: row.finished_at,
 				host: row.host,
 				id: row.id,

@@ -164,7 +164,7 @@ impl Server {
 			arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.error.as_ref().map(db::value::Json),
-			arg.data.exit.as_ref().map(db::value::Json),
+			arg.data.exit,
 			arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.host,
 			arg.data.log,
@@ -336,10 +336,7 @@ impl Server {
 						.error
 						.as_ref()
 						.map(|error| serde_json::to_string(error).unwrap()),
-					&arg.data
-						.exit
-						.as_ref()
-						.map(|exit| serde_json::to_string(exit).unwrap()),
+					&arg.data.exit.map(|exit| exit.to_i64().unwrap()),
 					&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 					&arg.data.host,
 					&arg.data

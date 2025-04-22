@@ -14,13 +14,15 @@ impl Runtime {
 		let args = command.args(server).await?;
 
 		// Get the blob.
-		let blob: tg::Blob = args
+		let input = args
 			.first()
-			.ok_or_else(|| tg::error!("invalid number of arguments"))?
-			.clone()
-			.try_into()
-			.ok()
-			.ok_or_else(|| tg::error!("expected a blob"))?;
+			.ok_or_else(|| tg::error!("invalid number of arguments"))?;
+		let blob = match input {
+			tg::Value::Object(tg::Object::Branch(branch)) => tg::Blob::Branch(branch.clone()),
+			tg::Value::Object(tg::Object::Leaf(leaf)) => tg::Blob::Leaf(leaf.clone()),
+			tg::Value::Object(tg::Object::File(file)) => file.contents(server).await?,
+			_ => return Err(tg::error!("expected a blob or a file")),
+		};
 
 		// Get the format.
 		let format = args
@@ -29,7 +31,7 @@ impl Runtime {
 			.try_unwrap_string_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected a string"))?
-			.parse::<tg::blob::compress::Format>()
+			.parse::<tg::CompressionFormat>()
 			.map_err(|source| tg::error!(!source, "invalid format"))?;
 
 		// Create the reader.
@@ -67,16 +69,16 @@ impl Runtime {
 
 		// Compress the blob.
 		let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match format {
-			tg::blob::compress::Format::Bz2 => {
+			tg::CompressionFormat::Bz2 => {
 				Box::pin(async_compression::tokio::bufread::BzEncoder::new(reader))
 			},
-			tg::blob::compress::Format::Gz => {
+			tg::CompressionFormat::Gz => {
 				Box::pin(async_compression::tokio::bufread::GzipEncoder::new(reader))
 			},
-			tg::blob::compress::Format::Xz => {
+			tg::CompressionFormat::Xz => {
 				Box::pin(async_compression::tokio::bufread::XzEncoder::new(reader))
 			},
-			tg::blob::compress::Format::Zstd => {
+			tg::CompressionFormat::Zstd => {
 				Box::pin(async_compression::tokio::bufread::ZstdEncoder::new(reader))
 			},
 		};
@@ -94,6 +96,14 @@ impl Runtime {
 		)
 		.await;
 
-		Ok(blob.into())
+		let output = if input.is_blob() {
+			blob.into()
+		} else if input.is_file() {
+			tg::File::with_contents(blob).into()
+		} else {
+			unreachable!()
+		};
+
+		Ok(output)
 	}
 }

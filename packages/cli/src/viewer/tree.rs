@@ -492,8 +492,8 @@ where
 					}
 
 					let state = process.load(handle).await?;
-					let failed = state.error.is_some()
-						|| state.exit.as_ref().is_some_and(tg::process::Exit::failed);
+					let failed =
+						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
 					if failed {
 						Indicator::Failed
 					} else {

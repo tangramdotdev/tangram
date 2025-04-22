@@ -14,7 +14,7 @@ pub struct Output {
 	pub error: Option<tg::Error>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub exit: Option<tg::process::Exit>,
+	pub exit: Option<u8>,
 
 	#[serde(
 		default,
@@ -29,16 +29,9 @@ pub struct Output {
 #[derive(Clone, Debug)]
 pub struct Wait {
 	pub error: Option<tg::Error>,
-	pub exit: Option<tg::process::Exit>,
+	pub exit: Option<u8>,
 	pub output: Option<tg::Value>,
 	pub status: tg::process::Status,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(untagged)]
-pub enum Exit {
-	Code { code: u8 },
-	Signal { signal: u8 },
 }
 
 impl Wait {
@@ -47,12 +40,13 @@ impl Wait {
 			return Err(error);
 		}
 		match self.exit {
-			Some(tg::process::Exit::Code { code }) => {
+			Some(code) if code < 128 => {
 				if code != 0 {
 					return Err(tg::error!("the process exited with code {code}"));
 				}
 			},
-			Some(tg::process::Exit::Signal { signal }) => {
+			Some(code) if code >= 128 => {
+				let signal = code - 128;
 				return Err(tg::error!("the process exited with signal {signal}"));
 			},
 			_ => (),
@@ -61,21 +55,6 @@ impl Wait {
 			.output
 			.ok_or_else(|| tg::error!("expected the output to be set"))?;
 		Ok(output)
-	}
-}
-
-impl Exit {
-	pub const SUCCESS: Exit = Self::Code { code: 0 };
-
-	pub const FAILURE: Exit = Self::Code { code: 1 };
-
-	#[must_use]
-	pub fn failed(&self) -> bool {
-		match self {
-			Self::Code { code } if *code != 0 => true,
-			Self::Signal { .. } => true,
-			Self::Code { .. } => false,
-		}
 	}
 }
 
@@ -137,21 +116,6 @@ impl tg::Client {
 			})
 		});
 		Ok(Some(future))
-	}
-}
-
-impl Default for Exit {
-	fn default() -> Self {
-		Self::Code { code: 0 }
-	}
-}
-
-impl std::process::Termination for Exit {
-	fn report(self) -> std::process::ExitCode {
-		match self {
-			Exit::Code { code } => code.into(),
-			Exit::Signal { signal } => (signal + 128).into(),
-		}
 	}
 }
 

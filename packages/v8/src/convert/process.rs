@@ -188,7 +188,7 @@ impl FromV8 for tg::process::Mount {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
-	) -> tangram_client::Result<Self> {
+	) -> tg::Result<Self> {
 		let value = value.to_object(scope).unwrap();
 
 		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
@@ -483,23 +483,5 @@ impl FromV8 for tg::process::Wait {
 			output,
 			status,
 		})
-	}
-}
-
-impl ToV8 for tg::process::Exit {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let value = Serde::new(self);
-		let value = value.to_v8(scope)?;
-		Ok(value)
-	}
-}
-
-impl FromV8 for tg::process::Exit {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let value = Serde::from_v8(scope, value)?.into_inner();
-		Ok(value)
 	}
 }

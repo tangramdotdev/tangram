@@ -29,10 +29,10 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "invalid algorithm"))?;
 
 		// Compute the checksum.
-		let checksum = if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
-			self.server.checksum_artifact(&artifact, algorithm).await?
-		} else if let Ok(blob) = tg::Blob::try_from(object.clone()) {
+		let checksum = if let Ok(blob) = tg::Blob::try_from(object.clone()) {
 			self.server.checksum_blob(&blob, algorithm).await?
+		} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
+			self.server.checksum_artifact(&artifact, algorithm).await?
 		} else {
 			return Err(tg::error!("invalid object"));
 		};

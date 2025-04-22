@@ -36,11 +36,17 @@ use url::Url;
 
 mod artifact;
 mod blob;
+mod cache;
+mod check;
+mod checkin;
+mod checkout;
 mod checksum;
 mod clean;
 mod compiler;
 mod database;
+mod document;
 mod export;
+mod format;
 mod health;
 mod import;
 mod index;
@@ -48,7 +54,6 @@ mod lockfile;
 mod messenger;
 mod module;
 mod object;
-mod package;
 mod pipe;
 mod process;
 mod progress;
@@ -196,7 +201,7 @@ impl Server {
 		tokio::fs::remove_file(&socket_path).await.ok();
 
 		// Create the artifact cache task map.
-		let artifact_cache_task_map = TaskMap::default();
+		let cache_task_map = TaskMap::default();
 
 		// Create the HTTP configuration.
 		let http = config.http.as_ref().map(|config| {
@@ -368,7 +373,7 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
-			cache_task_map: artifact_cache_task_map,
+			cache_task_map,
 			compilers,
 			config,
 			database,
@@ -979,37 +984,42 @@ impl Server {
 		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
-			// Artifacts.
-			(http::Method::POST, ["artifacts", "checkin"]) => {
-				Self::handle_check_in_artifact_request(handle, request).boxed()
+			(http::Method::POST, ["check"]) => Self::handle_check_request(handle, request).boxed(),
+			(http::Method::POST, ["checkin"]) => {
+				Self::handle_checkin_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["artifacts", artifact, "checkout"]) => {
-				Self::handle_check_out_artifact_request(handle, request, artifact).boxed()
+			(http::Method::POST, ["checkout"]) => {
+				Self::handle_checkout_request(handle, request).boxed()
 			},
-
-			// Blobs.
-			(http::Method::POST, ["blobs"]) => {
-				Self::handle_create_blob_request(handle, request).boxed()
+			(http::Method::POST, ["clean"]) => {
+				Self::handle_server_clean_request(handle, request).boxed()
 			},
-			(http::Method::GET, ["blobs", blob, "read"]) => {
-				Self::handle_read_blob_request(handle, request, blob).boxed()
+			(http::Method::POST, ["document"]) => {
+				Self::handle_document_request(handle, request).boxed()
 			},
-
-			// Indexing.
-			(http::Method::POST, ["index"]) => Self::handle_index_request(handle, request).boxed(),
-
-			// Items.
 			(http::Method::POST, ["export"]) => {
 				Self::handle_export_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["format"]) => {
+				Self::handle_format_request(handle, request).boxed()
+			},
+			(http::Method::GET, ["health"]) => {
+				Self::handle_server_health_request(handle, request).boxed()
 			},
 			(http::Method::POST, ["import"]) => {
 				Self::handle_import_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["push"]) => Self::handle_push_request(handle, request).boxed(),
-			(http::Method::POST, ["pull"]) => Self::handle_pull_request(handle, request).boxed(),
-
-			// Compiler.
+			(http::Method::POST, ["index"]) => Self::handle_index_request(handle, request).boxed(),
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
+			(http::Method::POST, ["pull"]) => Self::handle_pull_request(handle, request).boxed(),
+			(http::Method::POST, ["push"]) => Self::handle_push_request(handle, request).boxed(),
+			(http::Method::POST, ["blobs"]) => Self::handle_blob_request(handle, request).boxed(),
+			(http::Method::GET, ["blobs", blob, "read"]) => {
+				Self::handle_read_request(handle, request, blob).boxed()
+			},
+			(http::Method::GET, ["_", path @ ..]) => {
+				Self::handle_get_request(handle, request, path).boxed()
+			},
 
 			// Objects.
 			(http::Method::GET, ["objects", object, "metadata"]) => {
@@ -1023,48 +1033,6 @@ impl Server {
 			},
 			(http::Method::POST, ["objects", object, "touch"]) => {
 				Self::handle_touch_object_request(handle, request, object).boxed()
-			},
-
-			// Packages.
-			(http::Method::POST, ["packages", "check"]) => {
-				Self::handle_check_package_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["packages", "document"]) => {
-				Self::handle_document_package_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["packages", "format"]) => {
-				Self::handle_format_package_request(handle, request).boxed()
-			},
-
-			// Pipes.
-			(http::Method::POST, ["pipes"]) => {
-				Self::handle_create_pipe_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["pipes", pipe, "close"]) => {
-				Self::handle_close_pipe_request(handle, request, pipe).boxed()
-			},
-			(http::Method::GET, ["pipes", pipe, "read"]) => {
-				Self::handle_read_pipe_request(handle, request, pipe).boxed()
-			},
-			(http::Method::POST, ["pipes", pipe, "write"]) => {
-				Self::handle_write_pipe_request(handle, request, pipe).boxed()
-			},
-
-			// Ptys.
-			(http::Method::POST, ["ptys"]) => {
-				Self::handle_create_pty_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["ptys", pty, "close"]) => {
-				Self::handle_close_pty_request(handle, request, pty).boxed()
-			},
-			(http::Method::GET, ["ptys", pty, "size"]) => {
-				Self::handle_get_pty_size_request(handle, request, pty).boxed()
-			},
-			(http::Method::GET, ["ptys", pty, "read"]) => {
-				Self::handle_read_pty_request(handle, request, pty).boxed()
-			},
-			(http::Method::POST, ["ptys", pty, "write"]) => {
-				Self::handle_write_pty_request(handle, request, pty).boxed()
 			},
 
 			// Processes.
@@ -1117,9 +1085,35 @@ impl Server {
 				Self::handle_post_process_wait_request(handle, request, process).boxed()
 			},
 
-			// References.
-			(http::Method::GET, ["references", path @ ..]) => {
-				Self::handle_get_reference_request(handle, request, path).boxed()
+			// Pipes.
+			(http::Method::POST, ["pipes"]) => {
+				Self::handle_create_pipe_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["pipes", pipe, "close"]) => {
+				Self::handle_close_pipe_request(handle, request, pipe).boxed()
+			},
+			(http::Method::GET, ["pipes", pipe, "read"]) => {
+				Self::handle_read_pipe_request(handle, request, pipe).boxed()
+			},
+			(http::Method::POST, ["pipes", pipe, "write"]) => {
+				Self::handle_write_pipe_request(handle, request, pipe).boxed()
+			},
+
+			// Ptys.
+			(http::Method::POST, ["ptys"]) => {
+				Self::handle_create_pty_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["ptys", pty, "close"]) => {
+				Self::handle_close_pty_request(handle, request, pty).boxed()
+			},
+			(http::Method::GET, ["ptys", pty, "size"]) => {
+				Self::handle_get_pty_size_request(handle, request, pty).boxed()
+			},
+			(http::Method::GET, ["ptys", pty, "read"]) => {
+				Self::handle_read_pty_request(handle, request, pty).boxed()
+			},
+			(http::Method::POST, ["ptys", pty, "write"]) => {
+				Self::handle_write_pty_request(handle, request, pty).boxed()
 			},
 
 			// Remotes.
@@ -1134,14 +1128,6 @@ impl Server {
 			},
 			(http::Method::DELETE, ["remotes", name]) => {
 				Self::handle_delete_remote_request(handle, request, name).boxed()
-			},
-
-			// Server.
-			(http::Method::POST, ["clean"]) => {
-				Self::handle_server_clean_request(handle, request).boxed()
-			},
-			(http::Method::GET, ["health"]) => {
-				Self::handle_server_health_request(handle, request).boxed()
 			},
 
 			// Tags.
@@ -1195,31 +1181,115 @@ impl Server {
 }
 
 impl tg::Handle for Server {
-	fn check_in_artifact(
-		&self,
-		arg: tg::artifact::checkin::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-			+ Send
-			+ 'static,
-		>,
-	> {
-		self.check_in_artifact(arg)
+	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
+		self.check(arg)
 	}
 
-	fn check_out_artifact(
+	fn checkin(
 		&self,
-		id: &tg::artifact::Id,
-		arg: tg::artifact::checkout::Arg,
+		arg: tg::checkin::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-			+ Send
-			+ 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
 		>,
 	> {
-		self.check_out_artifact(id, arg)
+		self.checkin(arg)
+	}
+
+	fn checkout(
+		&self,
+		arg: tg::checkout::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
+		>,
+	> {
+		self.checkout(arg)
+	}
+
+	fn clean(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
+		self.clean()
+	}
+
+	fn document(
+		&self,
+		arg: tg::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		self.document(arg)
+	}
+
+	fn export(
+		&self,
+		arg: tg::export::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
+	> {
+		self.export(arg, stream)
+	}
+
+	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
+		self.format(arg)
+	}
+
+	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
+		self.health()
+	}
+
+	fn import(
+		&self,
+		arg: tg::import::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
+	> {
+		self.import(arg, stream)
+	}
+
+	fn index(
+		&self,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
+		self.index()
+	}
+
+	fn lsp(
+		&self,
+		input: impl AsyncBufRead + Send + Unpin + 'static,
+		output: impl AsyncWrite + Send + Unpin + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.lsp(input, output)
+	}
+
+	fn pull(
+		&self,
+		arg: tg::pull::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.pull(arg)
+	}
+
+	fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.push(arg)
 	}
 
 	fn create_blob(
@@ -1241,76 +1311,21 @@ impl tg::Handle for Server {
 		self.try_read_blob_stream(id, arg)
 	}
 
-	fn try_spawn_process(
+	fn try_get(
 		&self,
-		arg: tg::process::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
-		self.try_spawn_process(arg)
-	}
-
-	fn try_wait_process_future(
-		&self,
-		id: &tg::process::Id,
+		reference: &tg::Reference,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
-				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
-			>,
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>>
+			+ Send
+			+ 'static,
 		>,
-	> {
-		self.try_wait_process_future(id)
+	> + Send {
+		self.try_get(reference)
 	}
+}
 
-	fn import(
-		&self,
-		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
-	> {
-		self.import(arg, stream)
-	}
-
-	fn export(
-		&self,
-		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
-	> {
-		self.export(arg, stream)
-	}
-
-	fn push(
-		&self,
-		arg: tg::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.push(arg)
-	}
-
-	fn pull(
-		&self,
-		arg: tg::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.pull(arg)
-	}
-
-	fn lsp(
-		&self,
-		input: impl AsyncBufRead + Send + Unpin + 'static,
-		output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.lsp(input, output)
-	}
-
+impl tg::handle::Object for Server {
 	fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
@@ -1340,100 +1355,27 @@ impl tg::Handle for Server {
 	) -> impl Future<Output = tg::Result<()>> {
 		self.touch_object(id, arg)
 	}
+}
 
-	fn check_package(
+impl tg::handle::Process for Server {
+	fn try_spawn_process(
 		&self,
-		arg: tg::package::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::package::check::Output>> {
-		self.check_package(arg)
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+		self.try_spawn_process(arg)
 	}
 
-	fn document_package(
+	fn try_wait_process_future(
 		&self,
-		arg: tg::package::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> {
-		self.document_package(arg)
-	}
-
-	fn format_package(
-		&self,
-		arg: tg::package::format::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.format_package(arg)
-	}
-
-	fn create_pty(
-		&self,
-		arg: tg::pty::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
-		self.create_pty(arg)
-	}
-
-	fn close_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::close::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.close_pty(id, arg)
-	}
-
-	fn get_pty_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::read::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> + Send {
-		self.get_pty_size(id, arg)
-	}
-
-	fn read_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::read::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
-	{
-		self.read_pty(id, arg)
-	}
-
-	fn write_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.write_pty(id, arg, stream)
-	}
-
-	fn create_pipe(
-		&self,
-		arg: tg::pipe::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
-		self.create_pipe(arg)
-	}
-
-	fn close_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::close::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.close_pipe(id, arg)
-	}
-
-	fn read_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::read::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
-	{
-		self.read_pipe(id, arg)
-	}
-
-	fn write_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.write_pipe(id, arg, stream)
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_wait_process_future(id)
 	}
 
 	fn try_get_process_metadata(
@@ -1471,6 +1413,14 @@ impl tg::Handle for Server {
 		arg: tg::process::start::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::start::Output>> {
 		self.try_start_process(id, arg)
+	}
+
+	fn heartbeat_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
+		self.heartbeat_process(id, arg)
 	}
 
 	fn signal_process(
@@ -1555,28 +1505,87 @@ impl tg::Handle for Server {
 	) -> impl Future<Output = tg::Result<()>> {
 		self.touch_process(id, arg)
 	}
+}
 
-	fn heartbeat_process(
+impl tg::handle::Pipe for Server {
+	fn create_pipe(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
-		self.heartbeat_process(id, arg)
+		arg: tg::pipe::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
+		self.create_pipe(arg)
 	}
 
-	fn try_get_reference(
+	fn close_pipe(
 		&self,
-		reference: &tg::Reference,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::reference::get::Output>>>>
-			+ Send
-			+ 'static,
-		>,
-	> + Send {
-		self.try_get_reference(reference)
+		id: &tg::pipe::Id,
+		arg: tg::pipe::close::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.close_pipe(id, arg)
 	}
 
+	fn read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
+	{
+		self.read_pipe(id, arg)
+	}
+
+	fn write_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.write_pipe(id, arg, stream)
+	}
+}
+
+impl tg::handle::Pty for Server {
+	fn create_pty(
+		&self,
+		arg: tg::pty::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
+		self.create_pty(arg)
+	}
+
+	fn close_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::close::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.close_pty(id, arg)
+	}
+
+	fn get_pty_size(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> {
+		self.get_pty_size(id, arg)
+	}
+
+	fn read_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
+	{
+		self.read_pty(id, arg)
+	}
+
+	fn write_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::write::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.write_pty(id, arg, stream)
+	}
+}
+
+impl tg::handle::Remote for Server {
 	fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,
@@ -1600,33 +1609,11 @@ impl tg::Handle for Server {
 	}
 
 	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
-		self.remove_remote(name)
+		self.delete_remote(name)
 	}
+}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
-		self.health()
-	}
-
-	fn index(
-		&self,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send {
-		self.index()
-	}
-
-	fn clean(
-		&self,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send {
-		self.clean()
-	}
-
+impl tg::handle::Tag for Server {
 	fn list_tags(
 		&self,
 		arg: tg::tag::list::Arg,
@@ -1652,8 +1639,10 @@ impl tg::Handle for Server {
 	fn delete_tag(&self, tag: &tg::Tag) -> impl Future<Output = tg::Result<()>> {
 		self.delete_tag(tag)
 	}
+}
 
-	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::user::User>>> {
+impl tg::handle::User for Server {
+	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		self.get_user(token)
 	}
 }

@@ -39,7 +39,7 @@ impl Runtime {
 	pub async fn run_inner(
 		&self,
 		process: &tg::Process,
-	) -> tg::Result<(Option<tg::process::Exit>, Option<tg::Value>)> {
+	) -> tg::Result<(Option<u8>, Option<tg::Value>)> {
 		let state = process.load(&self.server).await?;
 		let command = process.command(&self.server).await?;
 		let command = command.data(&self.server).await?;
@@ -51,10 +51,15 @@ impl Runtime {
 				.children()
 				.into_iter()
 				.filter_map(|id| id.try_into().ok())
-				.map(|id| async move {
-					let artifact = tg::Artifact::with_id(id);
-					let arg = tg::artifact::checkout::Arg::default();
-					artifact.check_out(&self.server, arg).await?;
+				.map(|artifact| async move {
+					let arg = tg::checkout::Arg {
+						artifact,
+						dependencies: false,
+						force: false,
+						lockfile: false,
+						path: None,
+					};
+					tg::checkout(&self.server, arg).await?;
 					Ok::<_, tg::Error>(())
 				})
 				.collect::<FuturesUnordered<_>>()
@@ -270,8 +275,8 @@ impl Runtime {
 			|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"),
 		)?;
 		let exit = match exit {
-			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
-			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
+			sandbox::ExitStatus::Code(code) => code,
+			sandbox::ExitStatus::Signal(signal) => 128 + signal,
 		};
 
 		// Stop and await the proxy task.
@@ -294,7 +299,7 @@ impl Runtime {
 				tg::error!(!source, "failed to determine if the output path exists")
 			})?;
 		let value = if exists {
-			let arg = tg::artifact::checkin::Arg {
+			let arg = tg::checkin::Arg {
 				cache: true,
 				destructive: true,
 				deterministic: true,
@@ -303,7 +308,7 @@ impl Runtime {
 				locked: true,
 				lockfile: false,
 			};
-			let artifact = tg::Artifact::check_in(&self.server, arg)
+			let artifact = tg::checkin(&self.server, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
 			Some(tg::Value::from(artifact))

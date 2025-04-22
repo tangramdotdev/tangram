@@ -5,7 +5,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
 
 impl Server {
-	pub async fn remove_remote(&self, name: &str) -> tg::Result<()> {
+	pub async fn delete_remote(&self, name: &str) -> tg::Result<()> {
 		let connection = self
 			.database
 			.write_connection()

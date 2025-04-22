@@ -83,31 +83,54 @@ impl Proxy {
 }
 
 impl tg::Handle for Proxy {
-	async fn check_in_artifact(
+	async fn health(&self) -> tg::Result<tg::Health> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn index(
 		&self,
-		mut arg: tg::artifact::checkin::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+
+	async fn clean(
+		&self,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+
+	async fn check(&self, _arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn document(&self, _arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn format(&self, _arg: tg::format::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn checkin(
+		&self,
+		mut arg: tg::checkin::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkin::Output>>>
-		+ Send
-		+ 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
 	> {
 		// Replace the path with the host path.
 		arg.path = self.host_path_for_guest_path(arg.path.clone());
 
 		// Perform the checkin.
-		let stream = self.server.check_in_artifact(arg).await?;
+		let stream = self.server.checkin(arg).await?;
 
 		Ok(stream)
 	}
 
-	async fn check_out_artifact(
+	async fn checkout(
 		&self,
-		id: &tg::artifact::Id,
-		mut arg: tg::artifact::checkout::Arg,
+		mut arg: tg::checkout::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::artifact::checkout::Output>>>
-		+ Send
-		+ 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
 	> {
 		// Replace the path with the host path.
 		if let Some(path) = &mut arg.path {
@@ -115,7 +138,7 @@ impl tg::Handle for Proxy {
 		}
 
 		// Check out the artifact.
-		let stream = self.server.check_out_artifact(id, arg).await?;
+		let stream = self.server.checkout(arg).await?;
 
 		// Replace the path with the guest path.
 		let proxy = self.clone();
@@ -131,48 +154,6 @@ impl tg::Handle for Proxy {
 		});
 
 		Ok(stream)
-	}
-
-	fn create_blob(
-		&self,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
-		self.server.create_blob(reader)
-	}
-
-	fn try_read_blob_stream(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::read::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
-		>,
-	> {
-		self.server.try_read_blob_stream(id, arg)
-	}
-
-	async fn try_spawn_process(
-		&self,
-		mut arg: tg::process::spawn::Arg,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		arg.parent = Some(self.process.id().clone());
-		arg.remote = self.remote.clone();
-		arg.retry = *self.process.retry(self).await?;
-		self.server.try_spawn_process(arg).await
-	}
-
-	fn try_wait_process_future(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
-			>,
-		>,
-	> {
-		self.server.try_wait_process_future(id)
 	}
 
 	async fn import(
@@ -213,6 +194,36 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	fn create_blob(
+		&self,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
+		self.server.create_blob(reader)
+	}
+
+	fn try_read_blob_stream(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
+		>,
+	> {
+		self.server.try_read_blob_stream(id, arg)
+	}
+
+	async fn try_get(
+		&self,
+		_reference: &tg::Reference,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
+	> {
+		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+}
+
+impl tg::handle::Object for Proxy {
 	fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
@@ -242,25 +253,9 @@ impl tg::Handle for Proxy {
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.put_object(id, arg)
 	}
+}
 
-	async fn check_package(
-		&self,
-		_arg: tg::package::check::Arg,
-	) -> tg::Result<tg::package::check::Output> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn document_package(
-		&self,
-		_arg: tg::package::document::Arg,
-	) -> tg::Result<serde_json::Value> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn format_package(&self, _arg: tg::package::format::Arg) -> tg::Result<()> {
-		Err(tg::error!("forbidden"))
-	}
-
+impl tg::handle::Process for Proxy {
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
@@ -281,6 +276,29 @@ impl tg::Handle for Proxy {
 		_arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
+	}
+
+	async fn try_spawn_process(
+		&self,
+		mut arg: tg::process::spawn::Arg,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		arg.parent = Some(self.process.id().clone());
+		arg.remote = self.remote.clone();
+		arg.retry = *self.process.retry(self).await?;
+		self.server.try_spawn_process(arg).await
+	}
+
+	fn try_wait_process_future(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.server.try_wait_process_future(id)
 	}
 
 	async fn try_dequeue_process(
@@ -390,7 +408,9 @@ impl tg::Handle for Proxy {
 	) -> tg::Result<tg::process::heartbeat::Output> {
 		Err(tg::error!("forbidden"))
 	}
+}
 
+impl tg::handle::Pipe for Proxy {
 	async fn create_pipe(
 		&self,
 		_arg: tg::pipe::create::Arg,
@@ -419,7 +439,9 @@ impl tg::Handle for Proxy {
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.write_pipe(id, arg, stream)
 	}
+}
 
+impl tg::handle::Pty for Proxy {
 	async fn create_pty(&self, _arg: tg::pty::create::Arg) -> tg::Result<tg::pty::create::Output> {
 		Err(tg::error!("forbidden"))
 	}
@@ -453,18 +475,9 @@ impl tg::Handle for Proxy {
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.write_pty(id, arg, stream)
 	}
+}
 
-	async fn try_get_reference(
-		&self,
-		_reference: &tg::Reference,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::reference::get::Output>>>>
-		+ Send
-		+ 'static,
-	> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
+impl tg::handle::Remote for Proxy {
 	async fn list_remotes(
 		&self,
 		_arg: tg::remote::list::Arg,
@@ -483,23 +496,9 @@ impl tg::Handle for Proxy {
 	async fn delete_remote(&self, _name: &str) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
+}
 
-	async fn health(&self) -> tg::Result<tg::Health> {
-		Err(tg::error!("forbidden"))
-	}
-
-	async fn index(
-		&self,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
-	async fn clean(
-		&self,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
-	}
-
+impl tg::handle::Tag for Proxy {
 	async fn list_tags(&self, _arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
 		Err(tg::error!("forbidden"))
 	}
@@ -518,7 +517,9 @@ impl tg::Handle for Proxy {
 	async fn delete_tag(&self, _tag: &tg::Tag) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
+}
 
+impl tg::handle::User for Proxy {
 	async fn get_user(&self, _token: &str) -> tg::Result<Option<tg::User>> {
 		Err(tg::error!("forbidden"))
 	}

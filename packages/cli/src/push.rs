@@ -1,6 +1,6 @@
 use crate::Cli;
 use futures::future;
-use tangram_client::{self as tg, Handle};
+use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
 
 /// Push processes and objects.
@@ -65,7 +65,7 @@ impl Cli {
 			logs: args.logs,
 			outputs: true,
 			recursive: args.recursive,
-			remote: remote.clone(),
+			remote: Some(remote.clone()),
 			commands: args.commands,
 		};
 		let stream = handle.push(arg).await?;

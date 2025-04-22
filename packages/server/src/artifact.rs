@@ -6,15 +6,11 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
 
-pub(crate) mod cache;
-pub(crate) mod checkin;
-pub(crate) mod checkout;
-
 impl Server {
 	pub(crate) async fn pull_incompete(
 		&self,
 		artifact: &tg::artifact::Id,
-		progress: &crate::progress::Handle<tg::artifact::checkout::Output>,
+		progress: &crate::progress::Handle<tg::checkout::Output>,
 	) -> tg::Result<()> {
 		// Get the incomplete objects.
 		let index = self
@@ -41,7 +37,7 @@ impl Server {
 					let stream = server
 						.pull(tg::pull::Arg {
 							items,
-							remote: "default".to_owned(),
+							remote: Some("default".to_owned()),
 							..tg::pull::Arg::default()
 						})
 						.await?;

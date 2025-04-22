@@ -34,22 +34,18 @@ impl Cli {
 		} else {
 			object
 		};
-		if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
-			let artifact = artifact.id(&handle).await?;
-			let args = crate::artifact::checksum::Args {
-				algorithm: args.algorithm,
-				artifact,
-				build: args.build,
-			};
-			self.command_artifact_checksum(args).await?;
-		} else if let Ok(blob) = tg::Blob::try_from(object.clone()) {
-			let blob = blob.id(&handle).await?;
-			let args = crate::blob::checksum::Args {
-				algorithm: args.algorithm,
-				blob,
-				build: args.build,
-			};
-			self.command_blob_checksum(args).await?;
+		if let Ok(blob) = tg::Blob::try_from(object.clone()) {
+			let algorithm = args.algorithm;
+			let command = tg::builtin::checksum_command(&Either::Left(blob), algorithm);
+			let command = command.id(&handle).await?;
+			let reference = tg::Reference::with_object(&command.into());
+			self.build_process(args.build, reference, vec![]).await?;
+		} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
+			let algorithm = args.algorithm;
+			let command = tg::builtin::checksum_command(&Either::Right(artifact), algorithm);
+			let command = command.id(&handle).await?;
+			let reference = tg::Reference::with_object(&command.into());
+			self.build_process(args.build, reference, vec![]).await?;
 		} else {
 			return Err(tg::error!("expected an artifact or a blob"));
 		}

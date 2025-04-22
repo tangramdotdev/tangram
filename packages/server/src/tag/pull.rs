@@ -26,7 +26,7 @@ impl Server {
 				Some(async move {
 					let arg = tg::pull::Arg {
 						items: vec![Either::Right(directory.into())],
-						remote,
+						remote: Some(remote),
 						..Default::default()
 					};
 					let stream = server.pull(arg).await?;

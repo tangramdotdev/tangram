@@ -95,7 +95,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				dequeued_at text,
 				enqueued_at text,
 				error text,
-				exit text,
+				exit integer,
 				finished_at text,
 				heartbeat_at text,
 				host text not null,

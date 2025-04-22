@@ -30,28 +30,27 @@ impl Runtime {
 			.try_unwrap_string_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected a string"))?
-			.parse::<tg::artifact::archive::Format>()
+			.parse::<tg::ArchiveFormat>()
 			.map_err(|source| tg::error!(!source, "invalid format"))?;
 
 		// Get the compression.
-		let compression = if let Some(tg::Value::String(value)) = args.get(3) {
+		let compression = if let Some(tg::Value::String(value)) = args.get(2) {
 			let compression = value
-				.parse::<tg::blob::compress::Format>()
+				.parse::<tg::CompressionFormat>()
 				.map_err(|source| tg::error!(!source, "invalid compression format"))?;
 			Some(compression)
 		} else {
 			None
 		};
 
-		if compression.is_some() && matches!(format, tangram_client::artifact::archive::Format::Zip)
-		{
+		if compression.is_some() && matches!(format, tg::ArchiveFormat::Zip) {
 			return Err(tg::error!("compression is not supported for zip archives"));
 		}
 
-		// Create the archive task.
+		// Archive.
 		let blob = match format {
-			tg::artifact::archive::Format::Tar => tar(server, &artifact, compression).await?,
-			tg::artifact::archive::Format::Zip => zip(server, &artifact).await?,
+			tg::ArchiveFormat::Tar => tar(server, &artifact, compression).await?,
+			tg::ArchiveFormat::Zip => zip(server, &artifact).await?,
 		};
 
 		Ok(blob.into())
@@ -61,7 +60,7 @@ impl Runtime {
 async fn tar(
 	server: &Server,
 	artifact: &tg::Artifact,
-	compression: Option<tg::blob::compress::Format>,
+	compression: Option<tg::CompressionFormat>,
 ) -> tg::Result<tg::Blob> {
 	// Create a duplex stream.
 	let (reader, writer) = tokio::io::duplex(8192);
@@ -75,7 +74,7 @@ async fn tar(
 		let directory = artifact
 			.try_unwrap_directory_ref()
 			.ok()
-			.ok_or_else(|| tg::error!("can only tar a directory"))?;
+			.ok_or_else(|| tg::error!("expected a directory"))?;
 		for (name, artifact) in directory.entries(server).await? {
 			tar_inner(server, &mut builder, Path::new(&name), &artifact).await?;
 		}
@@ -91,16 +90,16 @@ async fn tar(
 
 	// If compression is requested, use the appropriate encoder.
 	let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression {
-		Some(tg::blob::compress::Format::Bz2) => Box::pin(
+		Some(tg::CompressionFormat::Bz2) => Box::pin(
 			async_compression::tokio::bufread::BzEncoder::new(tokio::io::BufReader::new(reader)),
 		),
-		Some(tg::blob::compress::Format::Gz) => Box::pin(
+		Some(tg::CompressionFormat::Gz) => Box::pin(
 			async_compression::tokio::bufread::GzipEncoder::new(tokio::io::BufReader::new(reader)),
 		),
-		Some(tg::blob::compress::Format::Xz) => Box::pin(
+		Some(tg::CompressionFormat::Xz) => Box::pin(
 			async_compression::tokio::bufread::XzEncoder::new(tokio::io::BufReader::new(reader)),
 		),
-		Some(tg::blob::compress::Format::Zstd) => Box::pin(
+		Some(tg::CompressionFormat::Zstd) => Box::pin(
 			async_compression::tokio::bufread::ZstdEncoder::new(tokio::io::BufReader::new(reader)),
 		),
 		None => Box::pin(reader),
@@ -247,7 +246,7 @@ where
 			builder
 				.write_entry_whole(entry.build(), &[][..])
 				.await
-				.map_err(|source| tg::error!(!source, "could not write the directory entry"))?;
+				.map_err(|source| tg::error!(!source, "failed to write the directory entry"))?;
 			for (name, artifact) in directory.entries(server).await? {
 				Box::pin(zip_inner(
 					server,
@@ -278,7 +277,7 @@ where
 			let mut file_reader = file.read(server, tg::blob::read::Arg::default()).await?;
 			tokio::io::copy(&mut file_reader, &mut entry_writer)
 				.await
-				.map_err(|source| tg::error!(!source, "could not write the file entry"))?;
+				.map_err(|source| tg::error!(!source, "failed to write the file entry"))?;
 			entry_writer.into_inner().close().await.unwrap();
 			Ok(())
 		},
@@ -295,7 +294,7 @@ where
 			builder
 				.write_entry_whole(entry.build(), target.to_string_lossy().as_bytes())
 				.await
-				.map_err(|source| tg::error!(!source, "could not write the symlink entry"))
+				.map_err(|source| tg::error!(!source, "failed to write the symlink entry"))
 		},
 	}
 }

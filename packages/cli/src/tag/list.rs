@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, prelude::*};
 
 /// List tags.
 #[derive(Clone, Debug, clap::Args)]

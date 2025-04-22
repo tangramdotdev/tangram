@@ -10,30 +10,46 @@ use tokio::io::AsyncWriteExt as _;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
-mod artifact;
+mod archive;
 mod blob;
+mod bundle;
 mod cat;
+mod check;
+mod checkin;
+mod checkout;
 mod checksum;
 mod children;
 mod clean;
+mod compress;
+mod decompress;
+mod document;
+mod download;
 mod export;
+mod extract;
+mod format;
 mod get;
 mod health;
 mod import;
 mod index;
+mod init;
 mod lsp;
 mod metadata;
+mod new;
 mod object;
-mod package;
+mod outdated;
 mod process;
 mod progress;
 mod pull;
 mod push;
+mod put;
+mod read;
 mod remote;
 mod server;
 mod tag;
 mod tangram;
 mod tree;
+mod update;
+mod util;
 mod view;
 mod viewer;
 
@@ -45,7 +61,7 @@ pub mod test;
 pub struct Cli {
 	args: Args,
 	config: Option<Config>,
-	exit: Option<tg::process::Exit>,
+	exit: Option<u8>,
 	handle: Option<Either<Client, Server>>,
 	mode: Mode,
 }
@@ -106,24 +122,24 @@ enum Mode {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 enum Command {
-	Archive(self::artifact::archive::Args),
-
-	Artifact(self::artifact::Args),
+	Archive(self::archive::Args),
 
 	Blob(self::blob::Args),
 
 	#[command(alias = "b")]
 	Build(self::process::build::Args),
 
+	Cancel(self::process::cancel::Args),
+
 	Cat(self::cat::Args),
 
-	Check(self::package::check::Args),
+	Check(self::check::Args),
 
 	#[command(alias = "ci")]
-	Checkin(self::artifact::checkin::Args),
+	Checkin(self::checkin::Args),
 
 	#[command(alias = "co")]
-	Checkout(self::artifact::checkout::Args),
+	Checkout(self::checkout::Args),
 
 	Checksum(self::checksum::Args),
 
@@ -131,20 +147,20 @@ enum Command {
 
 	Clean(self::clean::Args),
 
-	Compress(self::blob::compress::Args),
+	Compress(self::compress::Args),
 
-	Decompress(self::blob::decompress::Args),
+	Decompress(self::decompress::Args),
 
 	#[command(alias = "doc")]
-	Document(self::package::document::Args),
+	Document(self::document::Args),
 
-	Download(self::blob::download::Args),
+	Download(self::download::Args),
 
 	Export(self::export::Args),
 
-	Extract(self::artifact::extract::Args),
+	Extract(self::extract::Args),
 
-	Format(self::package::format::Args),
+	Format(self::format::Args),
 
 	Get(self::get::Args),
 
@@ -154,7 +170,7 @@ enum Command {
 
 	Index(self::index::Args),
 
-	Init(self::package::init::Args),
+	Init(self::init::Args),
 
 	#[command(alias = "ls")]
 	List(self::tag::list::Args),
@@ -165,13 +181,13 @@ enum Command {
 
 	Metadata(self::metadata::Args),
 
-	New(self::package::new::Args),
+	New(self::new::Args),
 
 	Object(self::object::Args),
 
-	Outdated(self::package::outdated::Args),
+	Outdated(self::outdated::Args),
 
-	Package(self::package::Args),
+	Output(self::process::output::Args),
 
 	Process(self::process::Args),
 
@@ -179,7 +195,7 @@ enum Command {
 
 	Push(self::push::Args),
 
-	Put(self::object::put::Args),
+	Put(self::put::Args),
 
 	Remote(self::remote::Args),
 
@@ -190,7 +206,12 @@ enum Command {
 
 	Server(self::server::Args),
 
+	#[command(alias = "kill")]
+	Signal(self::process::signal::Args),
+
 	Spawn(self::process::spawn::Args),
+
+	Status(self::process::status::Args),
 
 	Tag(self::tag::Args),
 
@@ -200,14 +221,16 @@ enum Command {
 	#[command(hide = true)]
 	Tree(self::tree::Args),
 
-	Update(self::package::update::Args),
+	Update(self::update::Args),
 
 	View(self::view::Args),
+
+	Wait(self::process::wait::Args),
 }
 
 impl Cli {
 	#[must_use]
-	pub fn main() -> tg::process::Exit {
+	pub fn main() -> std::process::ExitCode {
 		// Parse the args.
 		let args = Args::parse();
 
@@ -217,7 +240,7 @@ impl Cli {
 			Err(error) => {
 				eprintln!("{} failed to read the config", "error".red().bold());
 				Cli::print_error(&error, None);
-				return tg::process::Exit::FAILURE;
+				return std::process::ExitCode::FAILURE;
 			},
 		};
 
@@ -312,11 +335,11 @@ impl Cli {
 
 		// Handle the result.
 		let exit = match result {
-			Ok(()) => cli.exit.unwrap_or_default(),
+			Ok(()) => cli.exit.unwrap_or_default().into(),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
 				Cli::print_error(&error, cli.config.as_ref());
-				tg::process::Exit::FAILURE
+				std::process::ExitCode::FAILURE
 			},
 		};
 
@@ -1004,51 +1027,54 @@ impl Cli {
 	// Run the command.
 	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
-			Command::Archive(args) => self.command_artifact_archive(args).boxed(),
-			Command::Artifact(args) => self.command_artifact(args).boxed(),
+			Command::Archive(args) => self.command_archive(args).boxed(),
 			Command::Blob(args) => self.command_blob(args).boxed(),
 			Command::Build(args) => self.command_process_build(args).boxed(),
+			Command::Cancel(args) => self.command_process_cancel(args).boxed(),
 			Command::Cat(args) => self.command_cat(args).boxed(),
-			Command::Check(args) => self.command_package_check(args).boxed(),
-			Command::Checkin(args) => self.command_artifact_checkin(args).boxed(),
-			Command::Checkout(args) => self.command_artifact_checkout(args).boxed(),
+			Command::Check(args) => self.command_check(args).boxed(),
+			Command::Checkin(args) => self.command_checkin(args).boxed(),
+			Command::Checkout(args) => self.command_checkout(args).boxed(),
 			Command::Checksum(args) => self.command_checksum(args).boxed(),
 			Command::Children(args) => self.command_children(args).boxed(),
 			Command::Clean(args) => self.command_clean(args).boxed(),
-			Command::Compress(args) => self.command_blob_compress(args).boxed(),
-			Command::Decompress(args) => self.command_blob_decompress(args).boxed(),
-			Command::Document(args) => self.command_package_document(args).boxed(),
-			Command::Download(args) => self.command_blob_download(args).boxed(),
+			Command::Compress(args) => self.command_compress(args).boxed(),
+			Command::Decompress(args) => self.command_decompress(args).boxed(),
+			Command::Document(args) => self.command_document(args).boxed(),
+			Command::Download(args) => self.command_download(args).boxed(),
 			Command::Export(args) => self.command_export(args).boxed(),
-			Command::Extract(args) => self.command_artifact_extract(args).boxed(),
-			Command::Format(args) => self.command_package_format(args).boxed(),
+			Command::Extract(args) => self.command_extract(args).boxed(),
+			Command::Format(args) => self.command_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Health(args) => self.command_health(args).boxed(),
 			Command::Import(args) => self.command_import(args).boxed(),
 			Command::Index(args) => self.command_index(args).boxed(),
-			Command::Init(args) => self.command_package_init(args).boxed(),
+			Command::Init(args) => self.command_init(args).boxed(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_process_log(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),
 			Command::Metadata(args) => self.command_metadata(args).boxed(),
-			Command::New(args) => self.command_package_new(args).boxed(),
+			Command::New(args) => self.command_new(args).boxed(),
 			Command::Object(args) => self.command_object(args).boxed(),
-			Command::Outdated(args) => self.command_package_outdated(args).boxed(),
-			Command::Package(args) => self.command_package(args).boxed(),
+			Command::Outdated(args) => self.command_outdated(args).boxed(),
+			Command::Output(args) => self.command_process_output(args).boxed(),
 			Command::Process(args) => self.command_process(args).boxed(),
 			Command::Pull(args) => self.command_pull(args).boxed(),
 			Command::Push(args) => self.command_push(args).boxed(),
-			Command::Put(args) => self.command_object_put(args).boxed(),
+			Command::Put(args) => self.command_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_process_run(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
+			Command::Signal(args) => self.command_process_signal(args).boxed(),
 			Command::Spawn(args) => self.command_process_spawn(args).boxed(),
+			Command::Status(args) => self.command_process_status(args).boxed(),
 			Command::Tag(args) => self.command_tag(args).boxed(),
 			Command::Tangram(args) => self.command_tangram(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
-			Command::Update(args) => self.command_package_update(args).boxed(),
+			Command::Update(args) => self.command_update(args).boxed(),
 			Command::View(args) => self.command_view(args).boxed(),
+			Command::Wait(args) => self.command_process_wait(args).boxed(),
 		}
 		.await
 	}
@@ -1212,7 +1238,7 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 		}
 		let reference = tg::Reference::with_item_and_options(&item, options.as_ref());
-		let stream = handle.get_reference(&reference).await?;
+		let stream = handle.get(&reference).await?;
 		let output = self.render_progress_stream(stream).await?;
 		Ok(output)
 	}

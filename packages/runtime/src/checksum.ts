@@ -27,9 +27,19 @@ export namespace Checksum {
 		if (typeof input === "string" || input instanceof Uint8Array) {
 			return syscall("checksum", input, algorithm);
 		} else if (tg.Blob.is(input)) {
-			return await tg.Blob.checksum(input, algorithm);
+			let value = await tg.build({
+				args: [input, algorithm],
+				executable: "checksum",
+				host: "builtin",
+			});
+			return value as tg.Checksum;
 		} else if (tg.Artifact.is(input)) {
-			return await tg.Artifact.checksum(input, algorithm);
+			let value = await tg.build({
+				args: [input, algorithm],
+				executable: "checksum",
+				host: "builtin",
+			});
+			return value as tg.Checksum;
 		} else {
 			return tg.unreachable();
 		}

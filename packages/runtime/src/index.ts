@@ -4,6 +4,16 @@ import { assert, unimplemented, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
 import { Branch, branch } from "./branch.ts";
 import { BuildBuilder } from "./build.ts";
+import {
+	type ArchiveFormat,
+	type CompressionFormat,
+	archive,
+	bundle,
+	compress,
+	decompress,
+	download,
+	extract,
+} from "./builtin.ts";
 import { Checksum, checksum } from "./checksum.ts";
 import { Command, CommandBuilder, command } from "./command.ts";
 import { Directory, directory } from "./directory.ts";
@@ -38,15 +48,26 @@ import type {
 } from "./util.ts";
 import { Value } from "./value.ts";
 
-let archive = Artifact.archive;
 let build = Process.build;
-let bundle = Artifact.bundle;
-let compress = Blob.compress;
-let decompress = Blob.decompress;
-let download = Blob.download;
-let extract = Artifact.extract;
 let run = Process.run;
 let $ = run;
+
+export type {
+	ArchiveFormat,
+	CompressionFormat,
+	MaybeMutation,
+	MaybeMutationMap,
+	MaybeNestedArray,
+	MaybePromise,
+	Module,
+	MutationMap,
+	Reference,
+	Referent,
+	Resolved,
+	Tag,
+	Unresolved,
+	ValueOrMaybeMutationMap,
+};
 
 export {
 	Args,
@@ -97,18 +118,6 @@ export {
 	start,
 	symlink,
 	template,
-	type MaybeMutation,
-	type MaybeMutationMap,
-	type MaybeNestedArray,
-	type MaybePromise,
-	type Module,
-	type MutationMap,
-	type Reference,
-	type Referent,
-	type Resolved,
-	type Tag,
-	type Unresolved,
-	type ValueOrMaybeMutationMap,
 	unimplemented,
 	unreachable,
 };

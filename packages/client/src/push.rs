@@ -19,7 +19,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub recursive: bool,
 
-	pub remote: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
 }
 
 impl tg::Client {

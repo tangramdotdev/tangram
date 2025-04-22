@@ -16,8 +16,6 @@ export namespace Blob {
 
 	export type Id = string;
 
-	export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
-
 	export let new_ = async (...args: tg.Args<Blob.Arg>): Promise<Blob> => {
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let children = (
@@ -65,58 +63,5 @@ export namespace Blob {
 
 	export let assert = (value: unknown): asserts value is Blob => {
 		tg.assert(is(value));
-	};
-
-	export let compress = async (
-		blob: Blob,
-		format: CompressionFormat,
-	): Promise<Blob> => {
-		let value = await tg.build({
-			args: [blob, format],
-			env: undefined,
-			executable: "compress",
-			host: "builtin",
-		});
-		tg.assert(tg.Blob.is(value));
-		return value;
-	};
-
-	export let decompress = async (blob: Blob): Promise<Blob> => {
-		let value = await tg.build({
-			args: [blob],
-			env: undefined,
-			executable: "decompress",
-			host: "builtin",
-		});
-		tg.assert(tg.Blob.is(value));
-		return value;
-	};
-
-	export let download = async (
-		url: string,
-		checksum: tg.Checksum,
-	): Promise<Blob> => {
-		let value = await tg.build({
-			args: [url],
-			checksum,
-			env: undefined,
-			executable: "download",
-			host: "builtin",
-		});
-		tg.assert(tg.Blob.is(value));
-		return value;
-	};
-
-	export let checksum = async (
-		blob: Blob,
-		algorithm: tg.Checksum.Algorithm,
-	): Promise<tg.Checksum> => {
-		let value = await tg.build({
-			args: [blob, algorithm],
-			env: undefined,
-			executable: "checksum",
-			host: "builtin",
-		});
-		return value as tg.Checksum;
 	};
 }

@@ -2,7 +2,7 @@ use crate::Cli;
 use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, TryStreamExt as _};
 use std::{io::IsTerminal as _, path::PathBuf};
-use tangram_client::{self as tg, Handle as _};
+use tangram_client::{self as tg, prelude::*};
 use tangram_futures::task::Task;
 
 /// Spawn and await a sandboxed process.
@@ -218,16 +218,16 @@ impl Cli {
 			};
 
 			// Check out the artifact.
-			let arg = tg::artifact::checkout::Arg {
+			let artifact = artifact.id(&handle).await?;
+			let arg = tg::checkout::Arg {
+				artifact,
 				dependencies: path.is_some(),
 				force: false,
 				lockfile: false,
 				path,
 			};
-			let stream = handle
-				.check_out_artifact(&artifact.id(&handle).await?, arg)
-				.await?;
-			let tg::artifact::checkout::Output { path, .. } = self
+			let stream = handle.checkout(arg).await?;
+			let tg::checkout::Output { path, .. } = self
 				.render_progress_stream(stream)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;

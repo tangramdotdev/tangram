@@ -2,7 +2,6 @@
 
 interface ImportAttributes {
 	path?: string;
-	remote?: string;
 	subpath?: string;
 }
 
@@ -26,6 +25,43 @@ declare function tg(
 ): Promise<tg.Template>;
 
 declare namespace tg {
+	export type ArchiveFormat = "tar" | "tgar" | "zip";
+
+	export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
+
+	export type DownloadOptions = {
+		mode?: "raw" | "decompress" | "extract";
+	};
+
+	/** Archive an artifact. **/
+	export let archive: (
+		artifact: tg.Artifact,
+		format: tg.ArchiveFormat,
+		compression?: tg.CompressionFormat,
+	) => Promise<tg.Blob>;
+
+	/** Bundle an artifact. **/
+	export let bundle: (artifact: tg.Artifact) => Promise<tg.Artifact>;
+
+	/** Compress a blob. **/
+	export let compress: (
+		blob: tg.Blob,
+		format: tg.CompressionFormat,
+	) => Promise<tg.Blob>;
+
+	/** Decompress a blob. **/
+	export let decompress: (blob: tg.Blob) => Promise<tg.Blob>;
+
+	/** Download an artifact. **/
+	export let download: (
+		url: string,
+		checksum: tg.Checksum,
+		options?: DownloadOptions,
+	) => Promise<tg.Blob | tg.Artifact>;
+
+	/** Extract an artifact from an archive. **/
+	export let extract: (blob: tg.Blob) => Promise<tg.Artifact>;
+
 	/** The union of all types that can be used as the input or output of Tangram commands. */
 	export type Value =
 		| undefined
@@ -93,18 +129,6 @@ declare namespace tg {
 	/** Create a blob. */
 	export let blob: (...args: tg.Args<tg.Blob.Arg>) => Promise<tg.Blob>;
 
-	/** Compress a blob. **/
-	export let compress: (
-		blob: tg.Blob,
-		format: tg.Blob.CompressionFormat,
-	) => Promise<tg.Blob>;
-
-	/** Decompress a blob. **/
-	export let decompress: (blob: tg.Blob) => Promise<tg.Blob>;
-
-	/** Download the contents of a URL. */
-	export let download: (url: string, checksum: tg.Checksum) => Promise<tg.Blob>;
-
 	/** A blob. */
 	export type Blob = tg.Leaf | tg.Branch;
 
@@ -112,8 +136,6 @@ declare namespace tg {
 		export type Id = tg.Leaf.Id | tg.Branch.Id;
 
 		export type Arg = undefined | string | Uint8Array | tg.Blob;
-
-		export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 
 		/** Check if a value is a `Blob`. */
 		export let is: (value: unknown) => value is tg.Artifact;
@@ -123,27 +145,6 @@ declare namespace tg {
 
 		/** Assert that a value is a `Blob`. */
 		export let assert: (value: unknown) => asserts value is tg.Artifact;
-
-		/** Compress a blob. **/
-		export let compress: (
-			blob: tg.Blob,
-			format: tg.Blob.CompressionFormat,
-		) => Promise<tg.Blob>;
-
-		/** Decompress a blob. **/
-		export let decompress: (blob: tg.Blob) => Promise<tg.Blob>;
-
-		/** Download a blob. **/
-		export let download: (
-			url: string,
-			checksum: tg.Checksum,
-		) => Promise<tg.Blob>;
-
-		/** Checksum a blob. **/
-		export let checksum: (
-			blob: tg.Blob,
-			algorithm: tg.Checksum.Algorithm,
-		) => Promise<tg.Checksum>;
 	}
 
 	/** Create a leaf. */
@@ -191,7 +192,7 @@ declare namespace tg {
 
 		/** Create a branch. */
 		static new(...args: tg.Args<tg.Branch.Arg>): Promise<tg.Branch>;
-		
+
 		/** Combine a set of branch args into a single branch arg object. */
 		static arg(...args: tg.Args<tg.Branch.Arg>): Promise<tg.Branch.ArgObject>;
 
@@ -231,24 +232,9 @@ declare namespace tg {
 	/** An artifact. */
 	export type Artifact = tg.Directory | tg.File | tg.Symlink;
 
-	/** Archive an artifact. **/
-	export let archive: (
-		artifact: tg.Artifact,
-		format: tg.Artifact.ArchiveFormat,
-		compression?: tg.Blob.CompressionFormat,
-	) => Promise<tg.Blob>;
-
-	/** Extract an artifact from an archive. **/
-	export let extract: (blob: tg.Blob) => Promise<tg.Artifact>;
-
-	/** Bundle an artifact. **/
-	export let bundle: (artifact: tg.Artifact) => Promise<tg.Artifact>;
-
 	export namespace Artifact {
 		/** An artifact ID. */
 		export type Id = tg.Directory.Id | tg.File.Id | tg.Symlink.Id;
-
-		export type ArchiveFormat = "tar" | "tgar" | "zip";
 
 		/** Get an artifact with an ID. */
 		export let withId: (id: tg.Artifact.Id) => tg.Artifact;
@@ -261,25 +247,6 @@ declare namespace tg {
 
 		/** Assert that a value is an `Artifact`. */
 		export let assert: (value: unknown) => asserts value is tg.Artifact;
-
-		/** Archive an artifact. **/
-		export let archive: (
-			artifact: tg.Artifact,
-			format: tg.Artifact.ArchiveFormat,
-			compression?: tg.Blob.CompressionFormat,
-		) => Promise<tg.Blob>;
-
-		/** Extract an artifact from an archive. **/
-		export let extract: (blob: tg.Blob) => Promise<tg.Artifact>;
-
-		/** Bundle an artifact. **/
-		export let bundle: (artifact: tg.Artifact) => Promise<tg.Artifact>;
-
-		/** Checksum an artifact. **/
-		export let checksum: (
-			artifact: tg.Artifact,
-			algorithm: tg.Checksum.Algorithm,
-		) => Promise<tg.Checksum>;
 	}
 
 	/** Create a directory. */
@@ -350,7 +317,7 @@ declare namespace tg {
 
 		/** Create a file. */
 		static new(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
-		
+
 		/** Combine a set of file args into a single file arg object. */
 		static arg(...args: tg.Args<tg.File.Arg>): Promise<tg.File.ArgObject>;
 
@@ -421,9 +388,11 @@ declare namespace tg {
 
 		/** Create a symlink. */
 		static new(arg: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink>;
-		
+
 		/** Resolve a symlink arg into a symlink arg object. */
-		static arg(arg: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink.ArgObject>;
+		static arg(
+			arg: tg.Unresolved<tg.Symlink.Arg>,
+		): Promise<tg.Symlink.ArgObject>;
 
 		/** Expect that a value is a `tg.Symlink`. */
 		static expect(value: unknown): tg.Symlink;
@@ -471,7 +440,7 @@ declare namespace tg {
 
 		/** Create a graph. */
 		static new(...args: tg.Args<tg.Graph.Arg>): Promise<tg.Graph>;
-		
+
 		/** Combine a set of graph args into a single graph arg object. */
 		static arg(...args: tg.Args<tg.Graph.Arg>): Promise<tg.Graph.ArgObject>;
 
@@ -568,7 +537,7 @@ declare namespace tg {
 	>(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
-	): CommandBuilder;
+	): CommandBuilder<A, R>;
 
 	/** A command. */
 	export interface Command<
@@ -596,7 +565,7 @@ declare namespace tg {
 
 		/** Combine a set of command args into a single command arg object. */
 		static arg(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command.ArgObject>;
-	
+
 		/** Expect that a value is a `tg.Command`. */
 		static expect(value: unknown): tg.Command;
 
@@ -791,7 +760,7 @@ declare namespace tg {
 
 		/** Create a merge mutation. */
 		static merge(
-			value: tg.Unresolved<{ [key: string]: tg.Value}>
+			value: tg.Unresolved<{ [key: string]: tg.Value }>,
 		): Promise<tg.Mutation<{ [key: string]: tg.Value }>>;
 
 		static expect(value: unknown): tg.Mutation;
@@ -829,7 +798,7 @@ declare namespace tg {
 			| {
 					kind: "merge";
 					value: T extends { [key: string]: tg.Value } ? T : never;
-			};
+			  };
 
 		export type Inner =
 			| { kind: "unset" }
@@ -855,8 +824,8 @@ declare namespace tg {
 			  }
 			| {
 					kind: "merge";
-					value: { [key: string]: tg.Value }
-			};
+					value: { [key: string]: tg.Value };
+			  };
 
 		export type Kind =
 			| "set"
@@ -1049,7 +1018,7 @@ declare namespace tg {
 		static buildArg(
 			...args: tg.Args<tg.Process.BuildArg>
 		): Promise<tg.Process.BuildArgObject>;
-		
+
 		/** Combine a set of run args into a single build arg object. */
 		static runArg(
 			...args: tg.Args<tg.Process.RunArg>
@@ -1198,7 +1167,7 @@ declare namespace tg {
 			) => Promise<tg.Process.Mount>;
 		}
 	}
-		
+
 	export class BuildBuilder {
 		constructor(...args: tg.Args<tg.Process.BuildArgObject>);
 		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
@@ -1207,10 +1176,17 @@ declare namespace tg {
 		): this;
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
-		executable(executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>): this;
+		executable(
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
+		): this;
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
-		mount(mounts: tg.Unresolved<tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>>): this;
+		mount(
+			mounts: tg.Unresolved<
+				tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
+			>,
+		): this;
 		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
+		// biome-ignore lint/suspicious/noThenProperty: thenable
 		then<TResult1 = tg.Value, TResult2 = never>(
 			onfulfilled?:
 				| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
@@ -1222,18 +1198,28 @@ declare namespace tg {
 				| null,
 		): PromiseLike<TResult1 | TResult2>;
 	}
-	
-	export class CommandBuilder {
+
+	export class CommandBuilder<
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	> {
 		constructor(...args: tg.Args<tg.Command.ArgObject>);
 		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
-		executable(executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>): this;
+		executable(
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
+		): this;
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
-		mount(mounts: tg.Unresolved<tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>>): this;
-		then<TResult1 = tg.Value, TResult2 = never>(
+		mount(
+			mounts: tg.Unresolved<
+				tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
+			>,
+		): this;
+		// biome-ignore lint/suspicious/noThenProperty: thenable
+		then<TResult1 = tg.Command<A, R>, TResult2 = never>(
 			onfulfilled?:
-				| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
+				| ((value: tg.Command<A, R>) => TResult1 | PromiseLike<TResult1>)
 				| undefined
 				| null,
 			onrejected?:
@@ -1242,7 +1228,7 @@ declare namespace tg {
 				| null,
 		): PromiseLike<TResult1 | TResult2>;
 	}
-	
+
 	export class RunBuilder {
 		constructor(...args: tg.Args<tg.Process.RunArgObject>);
 		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
@@ -1251,10 +1237,19 @@ declare namespace tg {
 		): this;
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
-		executable(executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>): this;
+		executable(
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
+		): this;
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
-		mount(mounts: tg.Unresolved<tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>>>): this;
+		mount(
+			mounts: tg.Unresolved<
+				tg.MaybeMutation<
+					Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
+				>
+			>,
+		): this;
 		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
+		// biome-ignore lint/suspicious/noThenProperty: thenable
 		then<TResult1 = tg.Value, TResult2 = never>(
 			onfulfilled?:
 				| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
@@ -1266,7 +1261,7 @@ declare namespace tg {
 				| null,
 		): PromiseLike<TResult1 | TResult2>;
 	}
-	
+
 	export type Reference = string;
 
 	export type Referent<T> = {

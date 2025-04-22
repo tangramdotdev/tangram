@@ -5,15 +5,8 @@ use std::{
 };
 
 pub use self::{
-	data::Data,
-	id::Id,
-	metadata::Metadata,
-	mount::Mount,
-	signal::Signal,
-	state::State,
-	status::Status,
-	stdio::Stdio,
-	wait::{Exit, Wait},
+	data::Data, id::Id, metadata::Metadata, mount::Mount, signal::Signal, state::State,
+	status::Status, stdio::Stdio, wait::Wait,
 };
 
 pub mod build;

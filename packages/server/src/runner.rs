@@ -132,7 +132,7 @@ impl Server {
 				let objects = output.children();
 				let arg = tg::push::Arg {
 					items: objects.into_iter().map(Either::Right).collect(),
-					remote: remote.to_owned(),
+					remote: Some(remote.to_owned()),
 					..Default::default()
 				};
 				let stream = self.push(arg).await?;

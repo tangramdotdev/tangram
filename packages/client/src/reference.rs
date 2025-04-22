@@ -10,8 +10,6 @@ use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
 use tangram_uri as uri;
 
-pub mod get;
-
 #[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub struct Reference {
 	uri: uri::Reference,
@@ -143,7 +141,7 @@ impl Reference {
 		H: tg::Handle,
 	{
 		let stream = handle
-			.get_reference(self)
+			.get(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get stream"))?;
 		let stream = pin!(stream);

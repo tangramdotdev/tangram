@@ -143,21 +143,19 @@ async fn test_path<F, Fut>(
 				|source| tg::error!(!source, %path = temp.path().display(), "failed to write the artifact"),
 			)
 			.unwrap();
-		tg::Artifact::check_in(
-			&server,
-			tg::artifact::checkin::Arg {
-				cache: false,
-				destructive: false,
-				deterministic: false,
-				ignore: true,
-				locked: false,
-				lockfile: true,
-				path: temp.path().to_owned(),
-			},
-		)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))
-		.unwrap();
+		let arg = tg::checkin::Arg {
+			cache: false,
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			lockfile: true,
+			path: temp.path().to_owned(),
+		};
+		tg::checkin(&server, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))
+			.unwrap();
 		let referrer = tg::Module {
 			kind,
 			referent: tg::Referent {
@@ -196,21 +194,19 @@ async fn test_object<F, Fut>(
 				|source| tg::error!(!source, %path = temp.path().display(), "failed to write the artifact"),
 			)
 			.unwrap();
-		let artifact = tg::Artifact::check_in(
-			&server,
-			tg::artifact::checkin::Arg {
-				cache: false,
-				destructive: false,
-				deterministic: false,
-				ignore: true,
-				locked: false,
-				lockfile: true,
-				path: temp.path().to_owned(),
-			},
-		)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to check in the artifact"))
-		.unwrap();
+		let arg = tg::checkin::Arg {
+			cache: false,
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			locked: false,
+			lockfile: true,
+			path: temp.path().to_owned(),
+		};
+		let artifact = tg::checkin(&server, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))
+			.unwrap();
 		let item = artifact
 			.clone()
 			.unwrap_directory()

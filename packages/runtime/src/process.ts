@@ -105,15 +105,8 @@ export class Process {
 		if (wait.error) {
 			throw wait.error;
 		}
-		if (
-			wait.exit !== undefined &&
-			"code" in wait.exit &&
-			wait.exit.code !== 0
-		) {
-			throw new Error(`the process exited with code ${wait.exit.code}`);
-		}
-		if (wait.exit !== undefined && "signal" in wait.exit) {
-			throw new Error(`the process exited with signal ${wait.exit.signal}`);
+		if (wait.exit !== undefined && wait.exit !== 0) {
+			throw new Error(`the process exited with code ${wait.exit}`);
 		}
 		return wait.output;
 	}
@@ -286,15 +279,8 @@ export class Process {
 		if (wait.error) {
 			throw wait.error;
 		}
-		if (
-			wait.exit !== undefined &&
-			"code" in wait.exit &&
-			wait.exit.code !== 0
-		) {
-			throw new Error(`the process exited with code ${wait.exit.code}`);
-		}
-		if (wait.exit !== undefined && "signal" in wait.exit) {
-			throw new Error(`the process exited with signal ${wait.exit.signal}`);
+		if (wait.exit !== undefined && wait.exit !== 0) {
+			throw new Error(`the process exited with code ${wait.exit}`);
 		}
 		return wait.output;
 	}
@@ -436,8 +422,6 @@ export namespace Process {
 		state: State | undefined;
 	};
 
-	export type Exit = { code: number } | { signal: number };
-
 	export type Id = string;
 
 	export type Mount = {
@@ -562,7 +546,7 @@ export namespace Process {
 		checksum: tg.Checksum | undefined;
 		command: tg.Command;
 		error: tg.Error | undefined;
-		exit: tg.Process.Exit | undefined;
+		exit: number | undefined;
 		mounts: Array<tg.Process.Mount>;
 		network: boolean;
 		output: tg.Value | undefined;
@@ -582,7 +566,7 @@ export namespace Process {
 
 	export type WaitOutput = {
 		error: tg.Error | undefined;
-		exit: tg.Process.Exit | undefined;
+		exit: number | undefined;
 		output: tg.Value | undefined;
 		status: tg.Process.Status;
 	};

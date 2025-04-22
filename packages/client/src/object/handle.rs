@@ -161,6 +161,16 @@ impl Object {
 			Self::Command(object) => object.data(handle).await.map(Data::Command),
 		}
 	}
+
+	#[must_use]
+	pub fn is_blob(&self) -> bool {
+		matches!(self, Self::Leaf(_) | Self::Branch(_))
+	}
+
+	#[must_use]
+	pub fn is_artifact(&self) -> bool {
+		matches!(self, Self::Directory(_) | Self::File(_) | Self::Symlink(_))
+	}
 }
 
 impl std::fmt::Display for Object {

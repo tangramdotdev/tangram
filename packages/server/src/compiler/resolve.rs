@@ -245,7 +245,7 @@ impl Compiler {
 				if let Some(import_path) = import_path {
 					let Some(module_parent) = module_path.parent() else {
 						return Err(
-							tg::error!(%path = module_path.display(), "could not get parent of module_path"),
+							tg::error!(%path = module_path.display(), "failed to get parent of module_path"),
 						);
 					};
 					let item = module_parent.join(import_path);
@@ -270,10 +270,10 @@ impl Compiler {
 
 	async fn resolve_module_with_object_referrer(
 		&self,
-		object: &tangram_client::object::Id,
+		object: &tg::object::Id,
 		subpath: Option<&Path>,
-		import: &tangram_client::Import,
-	) -> Result<tangram_client::Referent<tangram_client::module::Item>, tangram_client::Error> {
+		import: &tg::Import,
+	) -> Result<tg::Referent<tg::module::Item>, tg::Error> {
 		let referrer = if let Some(subpath) = subpath {
 			let tg::object::Id::Directory(directory) = object else {
 				return Err(tg::error!("object with subpath must be a directory"));

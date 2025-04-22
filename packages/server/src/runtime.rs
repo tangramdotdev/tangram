@@ -26,7 +26,7 @@ pub enum Runtime {
 #[derive(Debug)]
 pub struct Output {
 	pub error: Option<tg::Error>,
-	pub exit: Option<tg::process::Exit>,
+	pub exit: Option<u8>,
 	#[allow(clippy::struct_field_names)]
 	pub output: Option<tg::Value>,
 }
@@ -217,7 +217,7 @@ impl Runtime {
 		let ((), (), wait) = futures::try_join!(children_task, log_task, wait_task)?;
 
 		// If the process did not succeed, then return its output.
-		if wait.error.is_some() || wait.exit.as_ref().is_some_and(tg::process::Exit::failed) {
+		if wait.error.is_some() || wait.exit.as_ref().is_some_and(|code| *code != 0) {
 			let value = wait.output.map(tg::Value::try_from).transpose()?;
 			let output = Output {
 				error: None,

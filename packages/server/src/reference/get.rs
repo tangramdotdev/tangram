@@ -5,19 +5,17 @@ use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _};
 
 impl Server {
-	pub async fn try_get_reference(
+	pub async fn try_get(
 		&self,
 		reference: &tg::Reference,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::reference::get::Output>>>>
-		+ Send
-		+ 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
 		let reference = reference.clone();
 		match &reference.item() {
 			tg::reference::Item::Process(process) => {
 				let item = Either::Left(process.clone());
-				let output = tg::reference::get::Output {
+				let output = tg::get::Output {
 					referent: tg::Referent {
 						item,
 						path: None,
@@ -34,7 +32,7 @@ impl Server {
 				let subpath = reference
 					.options()
 					.and_then(|options| options.subpath.clone());
-				let output = tg::reference::get::Output {
+				let output = tg::get::Output {
 					referent: tg::Referent {
 						item,
 						path: None,
@@ -47,7 +45,7 @@ impl Server {
 				Ok::<_, tg::Error>(stream.boxed())
 			},
 			tg::reference::Item::Path(path) => {
-				let arg = tg::artifact::checkin::Arg {
+				let arg = tg::checkin::Arg {
 					cache: false,
 					destructive: false,
 					deterministic: false,
@@ -56,39 +54,34 @@ impl Server {
 					lockfile: true,
 					path: path.clone(),
 				};
-				let stream = self
-					.check_in_artifact(arg)
-					.await?
-					.map_ok(move |event| match event {
-						tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
-						tg::progress::Event::Diagnostic(diagnostic) => {
-							tg::progress::Event::Diagnostic(diagnostic)
-						},
-						tg::progress::Event::Start(indicator) => {
-							tg::progress::Event::Start(indicator)
-						},
-						tg::progress::Event::Update(indicator) => {
-							tg::progress::Event::Update(indicator)
-						},
-						tg::progress::Event::Finish(indicator) => {
-							tg::progress::Event::Finish(indicator)
-						},
-						tg::progress::Event::Output(output) => {
-							let item = Either::Right(output.artifact.into());
-							let subpath = reference
-								.options()
-								.and_then(|options| options.subpath.clone());
-							let output = Some(tg::reference::get::Output {
-								referent: tg::Referent {
-									item,
-									path: None,
-									subpath,
-									tag: None,
-								},
-							});
-							tg::progress::Event::Output(output)
-						},
-					});
+				let stream = self.checkin(arg).await?.map_ok(move |event| match event {
+					tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
+					tg::progress::Event::Diagnostic(diagnostic) => {
+						tg::progress::Event::Diagnostic(diagnostic)
+					},
+					tg::progress::Event::Start(indicator) => tg::progress::Event::Start(indicator),
+					tg::progress::Event::Update(indicator) => {
+						tg::progress::Event::Update(indicator)
+					},
+					tg::progress::Event::Finish(indicator) => {
+						tg::progress::Event::Finish(indicator)
+					},
+					tg::progress::Event::Output(output) => {
+						let item = Either::Right(output.artifact.into());
+						let subpath = reference
+							.options()
+							.and_then(|options| options.subpath.clone());
+						let output = Some(tg::get::Output {
+							referent: tg::Referent {
+								item,
+								path: None,
+								subpath,
+								tag: None,
+							},
+						});
+						tg::progress::Event::Output(output)
+					},
+				});
 				Ok::<_, tg::Error>(stream.boxed())
 			},
 			tg::reference::Item::Tag(tag) => {
@@ -99,7 +92,7 @@ impl Server {
 				let subpath = reference
 					.options()
 					.and_then(|options| options.subpath.clone());
-				let output = tg::reference::get::Output {
+				let output = tg::get::Output {
 					referent: tg::Referent {
 						item,
 						path: None,
@@ -114,7 +107,7 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_get_reference_request<H>(
+	pub(crate) async fn handle_get_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		path: &[&str],
@@ -131,7 +124,7 @@ impl Server {
 		let query = request.query_params().transpose()?;
 		let reference = tg::Reference::with_item_and_options(&path, query.as_ref());
 
-		let stream = handle.try_get_reference(&reference).await?;
+		let stream = handle.try_get(&reference).await?;
 
 		let (content_type, body) = match accept
 			.as_ref()

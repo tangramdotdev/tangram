@@ -369,9 +369,9 @@ impl Server {
 			move || {
 				for artifact in &cache_entries {
 					let path = server.cache_path().join(artifact.to_string());
-					std::fs::remove_file(&path).map_err(|source| {
-						tg::error!(!source, ?path, "failed to remove the cache entry")
-					})?;
+					crate::util::fs::remove_sync(&path).map_err(
+						|source| tg::error!(!source, %path = path.display(), "failed to remove the file"),
+					)?;
 				}
 				Ok::<_, tg::Error>(())
 			}
