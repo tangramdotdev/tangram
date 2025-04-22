@@ -1,8 +1,7 @@
 use self::syscall::syscall;
-use crate::{Server, compiler::Compiler};
-use bytes::Bytes;
+use crate::{Server, compiler::Compiler, runtime::util};
 use futures::{
-	FutureExt as _, StreamExt as _, TryFutureExt as _,
+	FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 	future::{self, LocalBoxFuture},
 	stream::FuturesUnordered,
 };
@@ -97,19 +96,26 @@ impl Runtime {
 		};
 
 		// Get the output.
-		let (error, exit, output) = match task.await.unwrap() {
+		let (exit, output) = match task.await.unwrap() {
 			Ok(output) => {
 				let exit = tg::process::Exit::SUCCESS;
-				(None, Some(exit), Some(output))
+				(Some(exit), Some(output))
 			},
 			Err(error) => {
 				let exit = tg::process::Exit::FAILURE;
-				(Some(error), Some(exit), None)
+				util::log(
+					&self.server,
+					process,
+					tg::process::log::Stream::Stderr,
+					format!("{error}\n"),
+				)
+				.await;
+				(Some(exit), None)
 			},
 		};
 
 		super::Output {
-			error,
+			error: None,
 			exit,
 			output,
 		}
@@ -148,34 +154,26 @@ impl Runtime {
 			let server = self.server.clone();
 			let process = process.clone();
 			async move {
-				let state = process.load(&server).await?;
-
 				while let Some(message) = log_receiver.recv().await {
-					let syscall::log::Message { mut contents, .. } = message;
-					match message.level {
+					let syscall::log::Message { contents, level } = message;
+					match level {
 						syscall::log::Level::Log => {
-							if matches!(&state.stdout, Some(tg::process::Stdio::Pty(_))) {
-								contents = contents.replace('\n', "\r\n");
-							}
-							let bytes = Bytes::from(contents);
-							let arg = tg::process::log::post::Arg {
-								bytes: bytes.clone(),
-								remote: process.remote().map(ToOwned::to_owned),
-								stream: tg::process::log::Stream::Stdout,
-							};
-							server.try_post_process_log(process.id(), arg).await.ok();
+							util::log(
+								&server,
+								&process,
+								tg::process::log::Stream::Stdout,
+								contents,
+							)
+							.await;
 						},
 						syscall::log::Level::Error => {
-							if matches!(&state.stderr, Some(tg::process::Stdio::Pty(_))) {
-								contents = contents.replace('\n', "\r\n");
-							}
-							let bytes = Bytes::from(contents);
-							let arg = tg::process::log::post::Arg {
-								bytes: bytes.clone(),
-								remote: process.remote().map(ToOwned::to_owned),
-								stream: tg::process::log::Stream::Stderr,
-							};
-							server.try_post_process_log(process.id(), arg).await.ok();
+							util::log(
+								&server,
+								&process,
+								tg::process::log::Stream::Stderr,
+								contents,
+							)
+							.await;
 						},
 					}
 				}
@@ -187,6 +185,36 @@ impl Runtime {
 			log_task_abort_handle.abort();
 		}
 
+		// Create the signal task.
+		let (rejection, _) = tokio::sync::watch::channel(None);
+		let signal_task = tokio::spawn({
+			let rejection = rejection.clone();
+			let server = self.server.clone();
+			let process = process.clone();
+			async move {
+				let arg = tg::process::signal::get::Arg {
+					remote: process.remote().cloned(),
+				};
+				let Ok(Some(stream)) = server
+					.try_get_process_signal_stream(process.id(), arg)
+					.await
+					.inspect_err(|error| tracing::error!(?error, "failed to get signal stream"))
+				else {
+					return;
+				};
+				let mut stream = pin!(stream);
+				if let Ok(Some(tg::process::signal::get::Event::Signal(signal))) =
+					stream.try_next().await
+				{
+					rejection
+						.send_replace(Some(tg::error!("process terminated with signal {signal}")));
+				}
+			}
+		});
+		scopeguard::defer! {
+			signal_task.abort();
+		}
+
 		// Create the state.
 		let state = Rc::new(State {
 			process: process.clone(),
@@ -196,7 +224,7 @@ impl Runtime {
 			log_sender: RefCell::new(Some(log_sender)),
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
-			rejection: tokio::sync::watch::channel(None).0,
+			rejection,
 			root,
 			server: self.server.clone(),
 		});
@@ -393,10 +421,7 @@ impl Runtime {
 			.map(Result::unwrap);
 		let result = match future::select(pin!(future), pin!(rejection)).await {
 			future::Either::Left((result, _)) => result,
-			future::Either::Right((error, _)) => Err(tg::error!(
-				source = error,
-				"an unhandled promise rejection occurred"
-			)),
+			future::Either::Right((error, _)) => Err(error),
 		};
 
 		// Stop and await the log task.

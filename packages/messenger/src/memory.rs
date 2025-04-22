@@ -2,7 +2,9 @@ use crate::{Acker, BatchConfig, Error, Message, StreamConfig, StreamInfo, Stream
 use async_broadcast as broadcast;
 use bytes::Bytes;
 use dashmap::DashMap;
-use futures::{FutureExt, StreamExt as _, TryFutureExt, TryStreamExt, future, stream};
+use futures::{
+	FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
+};
 use num::ToPrimitive;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{Notify, RwLock};

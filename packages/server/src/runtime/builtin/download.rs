@@ -1,5 +1,5 @@
 use super::Runtime;
-use crate::temp::Temp;
+use crate::{runtime::util, temp::Temp};
 use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use std::{
@@ -42,12 +42,7 @@ impl Runtime {
 
 		// Log that the download started.
 		let message = format!("downloading from \"{url}\"\n");
-		let arg = tg::process::log::post::Arg {
-			bytes: message.into(),
-			remote: process.remote().cloned(),
-			stream: tg::process::log::Stream::Stderr,
-		};
-		server.try_post_process_log(process.id(), arg).await.ok();
+		util::log(server, process, tg::process::log::Stream::Stderr, message).await;
 
 		// Create the log task.
 		let downloaded = Arc::new(AtomicU64::new(0));
@@ -67,15 +62,7 @@ impl Runtime {
 						total: content_length,
 					};
 					let message = format!("{indicator}\n");
-					let arg = tg::process::log::post::Arg {
-						bytes: message.into(),
-						remote: process.remote().cloned(),
-						stream: tg::process::log::Stream::Stderr,
-					};
-					let result = server.try_post_process_log(process.id(), arg).await;
-					if let Err(error) = result {
-						tracing::error!(?error, "failed to post process log");
-					}
+					util::log(&server, &process, tg::process::log::Stream::Stderr, message).await;
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				}
 			}
@@ -139,12 +126,7 @@ impl Runtime {
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");
-		let arg = tg::process::log::post::Arg {
-			bytes: message.into(),
-			remote: process.remote().cloned(),
-			stream: tg::process::log::Stream::Stderr,
-		};
-		server.try_post_process_log(process.id(), arg).await.ok();
+		util::log(server, process, tg::process::log::Stream::Stderr, message).await;
 
 		Ok(blob.into())
 	}
