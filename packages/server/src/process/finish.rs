@@ -272,20 +272,24 @@ impl Server {
 				from processes
 				where
 					processes.command = {p}1 and
-					status = 'finished' and
-					error is null
+					exit = 0
 				limit 1
 			"
 		);
 		let params = db::params![command_id.to_string()];
 		let Some(output) = connection
-			.query_optional_value_into::<db::value::Json<tg::value::Data>>(statement.into(), params)
+			.query_optional_value_into::<Option<db::value::Json<tg::value::Data>>>(
+				statement.into(),
+				params,
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|value| value.0)
+			.map(|value| value.map(|value| value.0))
 		else {
 			return Err(tg::error!(%command_id, "failed to find a matching checksum process"));
 		};
+
+		let output = output.ok_or_else(|| tg::error!("the checksum process has no output"))?;
 
 		// Parse the checksum.
 		let checksum = output
