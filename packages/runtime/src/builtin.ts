@@ -74,7 +74,7 @@ export let download = async (
 	options?: DownloadOptions,
 ): Promise<tg.Blob | tg.Artifact> => {
 	let value = await tg.build({
-		args: [url, options],
+		args: [url, options ?? { mode: "raw" }],
 		checksum,
 		executable: "download",
 		host: "builtin",
