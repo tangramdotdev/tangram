@@ -316,13 +316,16 @@ where
 				});
 
 				// Clear.
-				if let Some(lines) = lines {
-					ct::queue!(
-						tty,
-						ct::cursor::MoveToPreviousLine(lines),
-						ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-					)
-					.unwrap();
+				match lines {
+					Some(lines) if lines > 0 => {
+						ct::queue!(
+							tty,
+							ct::cursor::MoveToPreviousLine(lines),
+							ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+						)
+						.unwrap();
+					},
+					_ => (),
 				}
 
 				// Print the tree.
@@ -350,13 +353,16 @@ where
 		self.update();
 
 		// Clear.
-		if let (Some(tty), Some(lines)) = (tty.as_mut(), lines) {
-			ct::queue!(
-				tty,
-				ct::cursor::MoveToPreviousLine(lines),
-				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-			)
-			.unwrap();
+		match (tty.as_mut(), lines) {
+			(Some(tty), Some(lines)) if lines > 0 => {
+				ct::queue!(
+					tty,
+					ct::cursor::MoveToPreviousLine(lines),
+					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+				)
+				.unwrap();
+			},
+			_ => (),
 		}
 
 		Ok(())

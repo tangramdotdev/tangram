@@ -121,6 +121,7 @@ impl Server {
 					}
 
 					progress.output(());
+
 					Ok::<_, tg::Error>(())
 				}
 			});
