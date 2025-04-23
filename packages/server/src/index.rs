@@ -174,16 +174,14 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
 			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
-			.and_then(|message| {
+			.and_then(|message| async {
 				let (payload, acker) = message.split();
-				future::ready({
-					serde_json::from_slice::<Message>(&payload)
-						.map_err(|error| {
-							tracing::error!(?error, "failed to deserialize the message");
-							tg::error!(!error, "failed to deserialize the message")
-						})
-						.map(|msg| (msg, acker))
-				})
+				let message = serde_json::from_slice::<Message>(&payload)
+					.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
+				Ok::<_, tg::Error>((message, acker))
+			})
+			.inspect_err(|error| {
+				tracing::error!(?error);
 			})
 			.filter_map(|result| future::ready(result.ok()))
 			.ready_chunks(config.message_batch_size)
