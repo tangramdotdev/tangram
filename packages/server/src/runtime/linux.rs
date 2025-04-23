@@ -38,7 +38,7 @@ impl Runtime {
 	async fn run_inner(
 		&self,
 		process: &tg::Process,
-	) -> tg::Result<(Option<tg::process::Exit>, Option<tg::Value>)> {
+	) -> tg::Result<(Option<u8>, Option<tg::Value>)> {
 		let state = process.load(&self.server).await?;
 		let command = process.command(&self.server).await?;
 		let command = command.data(&self.server).await?;
@@ -469,8 +469,8 @@ impl Runtime {
 			|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"),
 		)?;
 		let exit = match exit {
-			sandbox::ExitStatus::Code(code) => tg::process::Exit::Code { code },
-			sandbox::ExitStatus::Signal(signal) => tg::process::Exit::Signal { signal },
+			sandbox::ExitStatus::Code(code) => code,
+			sandbox::ExitStatus::Signal(signal) => 128 + signal,
 		};
 
 		// Stop and await the proxy task.

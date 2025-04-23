@@ -101,6 +101,7 @@ impl Server {
 		let mut stack: Vec<tg::object::Id> = items;
 		while let Some(object) = stack.pop() {
 			// Attempt to get the data or the cache reference. If the object is not stored, then add it to the objects and continue.
+			#[allow(clippy::match_wildcard_for_single_variants)]
 			let data = match &self.store {
 				crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data_sync(&object)?,
 				crate::store::Store::Memory(memory) => memory.try_get_object_data(&object)?,
@@ -109,6 +110,7 @@ impl Server {
 				},
 			};
 			let cache_reference = if data.is_none() && object.is_leaf() {
+				#[allow(clippy::match_wildcard_for_single_variants)]
 				match &self.store {
 					crate::store::Store::Lmdb(lmdb) => {
 						lmdb.try_get_cache_reference_sync(&object)?
