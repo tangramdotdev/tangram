@@ -270,7 +270,10 @@ impl Server {
 			"
 				select output
 				from processes
-				where processes.command = {p}1
+				where
+					processes.command = {p}1 and
+					status = 'finished' and
+					error is null
 				limit 1
 			"
 		);
