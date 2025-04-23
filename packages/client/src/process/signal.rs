@@ -4,7 +4,7 @@ pub mod get;
 pub mod post;
 
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
-#[repr(i32)]
+#[repr(u8)]
 pub enum Signal {
 	SIGABRT = 6,
 	SIGALRM = 14,
