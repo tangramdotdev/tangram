@@ -38,8 +38,13 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected a string"))?
 			.parse()
 			.map_err(|source| tg::error!(!source, "invalid url"))?;
-		let options: Option<tg::DownloadOptions> =
-			args.get(1).cloned().map(TryInto::try_into).transpose()?;
+		let options: Option<tg::DownloadOptions> = args
+			.get(1)
+			.filter(|value| !value.is_null())
+			.cloned()
+			.map(TryInto::try_into)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "invalid options"))?;
 
 		// Send the request.
 		let response = reqwest::get(url.clone())
