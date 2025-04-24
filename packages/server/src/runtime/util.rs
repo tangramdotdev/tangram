@@ -1,8 +1,9 @@
 use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
+use crossterm::style::Stylize as _;
 use futures::{Stream, TryStreamExt as _, future, stream};
-use std::{collections::BTreeMap, path::Path, pin::pin};
+use std::{collections::BTreeMap, fmt::Write as _, path::Path, pin::pin};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::task::Stop;
@@ -443,4 +444,46 @@ pub async fn log(
 		.await
 		.inspect_err(|error| tracing::error!(?error, "failed to post process log"))
 		.ok();
+}
+
+pub fn fmt_error(isatty: bool, error: &tg::Error, options: &tg::error::TraceOptions) -> String {
+	let trace = error.trace(options);
+	if !isatty {
+		return format!("{trace}\n");
+	}
+	let mut errors = vec![trace.error];
+	while let Some(next) = errors.last().unwrap().source.as_ref() {
+		errors.push(next);
+	}
+	if !trace.options.reverse {
+		errors.reverse();
+	}
+	let mut error_string = String::new();
+	for error in errors {
+		let message = error.message.as_deref().unwrap_or("an error occurred");
+		writeln!(&mut error_string, "{} {message}", "->".red()).unwrap();
+		if let Some(location) = &error.location {
+			if !location.source.is_internal() || trace.options.internal {
+				let mut string = String::new();
+				write!(string, "{location}").unwrap();
+				writeln!(&mut error_string, "   {}", string.yellow()).unwrap();
+			}
+		}
+		for (name, value) in &error.values {
+			let name = name.as_str().blue();
+			let value = value.as_str().green();
+			writeln!(&mut error_string, "   {name} = {value}").unwrap();
+		}
+		let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
+		if !trace.options.reverse {
+			stack.reverse();
+		}
+		for location in stack {
+			if !location.source.is_internal() || trace.options.internal {
+				let location = location.to_string().yellow();
+				writeln!(&mut error_string, "   {location}").unwrap();
+			}
+		}
+	}
+	error_string
 }

@@ -40,6 +40,7 @@ biome_js_parser = { workspace = true }
 biome_js_syntax = { workspace = true }
 byte-unit = { workspace = true }
 bytes = { workspace = true }
+crossterm = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
