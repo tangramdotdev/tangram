@@ -38,7 +38,7 @@ impl Cli {
 			return Ok(stdio);
 		}
 
-		// Open stdin.
+		// Create a PTY for stdin if it is a terminal.
 		let (termios, stdin) = if std::io::stdin().is_terminal() {
 			let fd = std::io::stdin().as_raw_fd();
 			let (termios, size) = get_termios_and_size(fd)
@@ -54,62 +54,23 @@ impl Cli {
 			});
 			(Some((fd, termios)), stdin)
 		} else {
+			tracing::warn!("stdin is not a tty, a pty will not be created");
 			let stdin = create(&handle, remote.clone(), None).await?;
 			(None, stdin)
 		};
 
 		// Open stdout.
-		let (termios, stdout) = match (termios, std::io::stdout().is_terminal()) {
-			(Some(termios), true) => {
-				let stdout = stdin.clone();
-				(Some(termios), stdout)
-			},
-			(None, true) => {
-				let fd = std::io::stdout().as_raw_fd();
-				let (termios, size) = get_termios_and_size(fd)
-					.map_err(|source| tg::error!(!source, "failed to get tty size"))?;
-				let stdout = create(&handle, remote.clone(), Some(size)).await?;
-				tokio::spawn({
-					let pipe = stdout.clone();
-					let handle = handle.clone();
-					let remote = remote.clone();
-					async move {
-						handle_sigwinch(&handle, fd, &pipe, remote).await.ok();
-					}
-				});
-				(Some((fd, termios)), stdout)
-			},
-			(termios, false) => {
-				let stdout = create(&handle, remote.clone(), None).await?;
-				(termios, stdout)
-			},
+		let stdout = if termios.is_some() && std::io::stdout().is_terminal() {
+			stdin.clone()
+		} else {
+			create(&handle, remote.clone(), None).await?
 		};
 
 		// Open stderr.
-		let (termios, stderr) = match (termios, std::io::stdout().is_terminal()) {
-			(Some(termios), true) => {
-				let stderr = stdout.clone();
-				(Some(termios), stderr)
-			},
-			(None, true) => {
-				let fd = std::io::stderr().as_raw_fd();
-				let (termios, size) = get_termios_and_size(fd)
-					.map_err(|source| tg::error!(!source, "failed to get tty size"))?;
-				let stderr = create(&handle, remote.clone(), Some(size)).await?;
-				tokio::spawn({
-					let pipe = stderr.clone();
-					let handle = handle.clone();
-					let remote = remote.clone();
-					async move {
-						handle_sigwinch(&handle, fd, &pipe, remote).await.ok();
-					}
-				});
-				(Some((fd, termios)), stderr)
-			},
-			(termios, false) => {
-				let stderr = create(&handle, remote.clone(), None).await?;
-				(termios, stderr)
-			},
+		let stderr = if termios.is_some() && std::io::stderr().is_terminal() {
+			stdin.clone()
+		} else {
+			create(&handle, remote.clone(), None).await?
 		};
 
 		Ok(Stdio {
