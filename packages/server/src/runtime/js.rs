@@ -8,7 +8,7 @@ use futures::{
 use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, pin::pin, rc::Rc, task::Poll};
-use tangram_client::{self as tg, handle::Process};
+use tangram_client::{self as tg, prelude::*};
 use tangram_v8::{FromV8 as _, ToV8};
 
 mod error;
@@ -171,7 +171,8 @@ impl Runtime {
 		}
 
 		// Create the signal task.
-		let (sig_send, mut sig_recv) = tokio::sync::mpsc::channel::<tg::process::Signal>(1);
+		let (signal_sender, mut signal_receiver) =
+			tokio::sync::mpsc::channel::<tg::process::Signal>(1);
 		let signal_task = tokio::spawn({
 			let server = self.server.clone();
 			let process = process.clone();
@@ -190,7 +191,7 @@ impl Runtime {
 				while let Ok(Some(tg::process::signal::get::Event::Signal(signal))) =
 					stream.try_next().await
 				{
-					sig_send.send(signal).await.ok();
+					signal_sender.send(signal).await.ok();
 				}
 			}
 		});
@@ -418,7 +419,7 @@ impl Runtime {
 			.wait_for(Option::is_some)
 			.map_ok(|option| option.as_ref().unwrap().clone())
 			.map(Result::unwrap);
-		let signal = sig_recv.recv();
+		let signal = signal_receiver.recv();
 		let rejection = pin!(rejection);
 		let signal = pin!(signal);
 		let error_or_signal = future::select(rejection, signal);
