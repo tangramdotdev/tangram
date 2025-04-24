@@ -42,7 +42,6 @@ mod progress;
 mod pull;
 mod push;
 mod put;
-mod read;
 mod remote;
 mod server;
 mod tag;

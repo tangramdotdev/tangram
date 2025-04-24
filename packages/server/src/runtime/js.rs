@@ -8,7 +8,7 @@ use futures::{
 use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, pin::pin, rc::Rc, task::Poll};
-use tangram_client as tg;
+use tangram_client::{self as tg, prelude::*};
 use tangram_v8::{FromV8 as _, ToV8};
 
 mod error;
@@ -96,15 +96,13 @@ impl Runtime {
 		};
 
 		// Get the output.
-		let (error, exit, output) = match task.await.unwrap() {
-			Ok(output) => (None, Some(0), Some(output)),
-			Err(error) => (Some(error), Some(1), None),
-		};
-
-		super::Output {
-			error,
-			exit,
-			output,
+		match task.await.unwrap() {
+			Ok(output) => output,
+			Err(error) => super::Output {
+				error: Some(error),
+				exit: None,
+				output: None,
+			},
 		}
 	}
 
@@ -113,7 +111,7 @@ impl Runtime {
 		process: &tg::Process,
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
-	) -> tg::Result<tg::Value> {
+	) -> tg::Result<super::Output> {
 		// Get the root module.
 		let command = process.command(&self.server).await?;
 		let root = command
@@ -173,9 +171,9 @@ impl Runtime {
 		}
 
 		// Create the signal task.
-		let (rejection, _) = tokio::sync::watch::channel(None);
+		let (signal_sender, mut signal_receiver) =
+			tokio::sync::mpsc::channel::<tg::process::Signal>(1);
 		let signal_task = tokio::spawn({
-			let rejection = rejection.clone();
 			let server = self.server.clone();
 			let process = process.clone();
 			async move {
@@ -190,11 +188,10 @@ impl Runtime {
 					return;
 				};
 				let mut stream = pin!(stream);
-				if let Ok(Some(tg::process::signal::get::Event::Signal(signal))) =
+				while let Ok(Some(tg::process::signal::get::Event::Signal(signal))) =
 					stream.try_next().await
 				{
-					rejection
-						.send_replace(Some(tg::error!("process terminated with signal {signal}")));
+					signal_sender.send(signal).await.ok();
 				}
 			}
 		});
@@ -202,7 +199,23 @@ impl Runtime {
 			signal_task.abort();
 		}
 
+		// Start the stdin task.
+		let stdin_task = tokio::spawn({
+			let server = self.server.clone();
+			let process = process.clone();
+			async move {
+				stdin_task(server, process)
+					.await
+					.inspect_err(|error| tracing::error!(?error, "stdin failed"))
+					.ok();
+			}
+		});
+		scopeguard::defer! {
+			stdin_task.abort();
+		}
+
 		// Create the state.
+		let (rejection, _) = tokio::sync::watch::channel(None);
 		let state = Rc::new(State {
 			process: process.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
@@ -355,7 +368,7 @@ impl Runtime {
 						unsafe { isolate.enter() };
 
 						// Get the result.
-						let result = {
+						let result: tg::Result<tg::Value> = {
 							// Create a scope for the context.
 							let scope = &mut v8::HandleScope::new(isolate.as_mut());
 							let context = v8::Local::new(scope, context.clone());
@@ -406,23 +419,31 @@ impl Runtime {
 			.wait_for(Option::is_some)
 			.map_ok(|option| option.as_ref().unwrap().clone())
 			.map(Result::unwrap);
-		let result = match future::select(pin!(future), pin!(rejection)).await {
-			future::Either::Left((result, _)) => result,
-			future::Either::Right((error, _)) => Err(error),
+		let signal = signal_receiver.recv();
+		let rejection = pin!(rejection);
+		let signal = pin!(signal);
+		let error_or_signal = future::select(rejection, signal);
+
+		let output = match future::select(pin!(future), pin!(error_or_signal)).await {
+			future::Either::Left((Ok(output), _)) => super::Output {
+				error: None,
+				exit: Some(0),
+				output: Some(output),
+			},
+			future::Either::Left((Err(error), _))
+			| future::Either::Right((future::Either::Left((error, _)), _)) => super::Output {
+				error: Some(error),
+				exit: Some(1),
+				output: None,
+			},
+			future::Either::Right((future::Either::Right((signal, _)), _)) => super::Output {
+				error: Some(tg::error!(?signal, "process terminated with signal")),
+				exit: Some(signal.map_or(1, |signal| 128u8 + signal as u8)),
+				output: None,
+			},
 		};
 
-		// Stop and await the log task.
-		state.log_sender.borrow_mut().take().unwrap();
-		log_task
-			.await
-			.map_err(|source| tg::error!(!source, "failed to join the log task"))?
-			.map_err(|source| tg::error!(!source, "the log task failed"))?;
-
-		// Stop and await the compiler.
-		state.compiler.stop();
-		state.compiler.wait().await;
-
-		result
+		Ok(output)
 	}
 }
 
@@ -833,4 +854,102 @@ fn parse_import_inner<'s>(
 	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes)?;
 
 	Ok(import)
+}
+
+async fn stdin_task(server: Server, process: tg::Process) -> tg::Result<()> {
+	let state = process.load(&server).await?;
+	let Some(tg::process::Stdio::Pty(id)) = state.stdin.clone() else {
+		return Ok(());
+	};
+	let arg = tg::pty::read::Arg {
+		master: false,
+		remote: process.remote().cloned(),
+	};
+	let process_ = process.clone();
+	let server_ = server.clone();
+	let stream = server
+		.read_pty(&id, arg)
+		.await?
+		.and_then(move |event| {
+			let process = process_.clone();
+			let server = server_.clone();
+			async move {
+				let chunk = match event {
+					tg::pty::Event::Chunk(chunk) => chunk,
+					event => return Ok::<_, tg::Error>(event),
+				};
+				let mut new_chunk = Vec::with_capacity(chunk.len());
+				for ascii in chunk {
+					match ascii {
+						0x00 => new_chunk.extend_from_slice(b"^@"),
+						0x01 => new_chunk.extend_from_slice(b"^A"),
+						0x02 => new_chunk.extend_from_slice(b"^B"),
+						0x03 => {
+							new_chunk.extend_from_slice(b"^C");
+							let arg = tg::process::signal::post::Arg {
+								signal: tg::process::Signal::SIGINT,
+								remote: process.remote().cloned(),
+							};
+							server
+								.signal_process(process.id(), arg)
+								.await
+								.inspect_err(|error| {
+									tracing::error!(?error, "failed to signal process");
+								})
+								.ok();
+						},
+						0x04 => new_chunk.extend_from_slice(b"^D"),
+						0x05 => new_chunk.extend_from_slice(b"^E"),
+						0x06 => new_chunk.extend_from_slice(b"^F"),
+						0x07 => new_chunk.extend_from_slice(b"^G"),
+						0x08 => new_chunk.extend_from_slice(b"^H"),
+						0x09 => new_chunk.extend_from_slice(b"^I"),
+						0x0a => new_chunk.extend_from_slice(b"^J"),
+						0x0b => new_chunk.extend_from_slice(b"^K"),
+						0x0c => new_chunk.extend_from_slice(b"^L"),
+						0x0d => new_chunk.extend_from_slice(b"\r\n"),
+						0x0e => new_chunk.extend_from_slice(b"^N"),
+						0x0f => new_chunk.extend_from_slice(b"^O"),
+						0x10 => new_chunk.extend_from_slice(b"^P"),
+						0x11 => new_chunk.extend_from_slice(b"^Q"),
+						0x12 => new_chunk.extend_from_slice(b"^R"),
+						0x13 => new_chunk.extend_from_slice(b"^S"),
+						0x14 => new_chunk.extend_from_slice(b"^T"),
+						0x15 => new_chunk.extend_from_slice(b"^U"),
+						0x16 => new_chunk.extend_from_slice(b"^V"),
+						0x17 => new_chunk.extend_from_slice(b"^W"),
+						0x18 => new_chunk.extend_from_slice(b"^X"),
+						0x19 => new_chunk.extend_from_slice(b"^Y"),
+						0x1a => new_chunk.extend_from_slice(b"^Z"),
+						0x1b => new_chunk.extend_from_slice(b"^["),
+						0x1c => {
+							new_chunk.extend_from_slice(b"^\\");
+							let arg = tg::process::signal::post::Arg {
+								signal: tg::process::Signal::SIGQUIT,
+								remote: process.remote().cloned(),
+							};
+							server
+								.signal_process(process.id(), arg)
+								.await
+								.inspect_err(|error| {
+									tracing::error!(?error, "failed to signal process");
+								})
+								.ok();
+						},
+						0x1d => new_chunk.extend_from_slice(b"^^"),
+						0x1e => new_chunk.extend_from_slice(b"^_"),
+						0x1f => new_chunk.extend_from_slice(b"^?"),
+						ascii => new_chunk.push(ascii),
+					}
+				}
+				Ok(tg::pty::Event::Chunk(new_chunk.into()))
+			}
+		})
+		.boxed();
+	let arg = tg::pty::write::Arg {
+		master: false,
+		remote: process.remote().cloned(),
+	};
+	server.write_pty(&id, arg, stream).await?;
+	Ok(())
 }
