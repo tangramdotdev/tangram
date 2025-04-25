@@ -71,7 +71,7 @@ impl Server {
 						remote: None,
 					};
 					server
-						.try_finish_process(process, arg)
+						.finish_process(process, arg)
 						.await
 						.inspect_err(|error| {
 							tracing::error!(?error, "failed to cancel the process");

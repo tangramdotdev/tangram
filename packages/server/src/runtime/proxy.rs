@@ -308,7 +308,7 @@ impl tg::handle::Process for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_start_process(
+	async fn start_process(
 		&self,
 		_id: &tg::process::Id,
 		_arg: tg::process::start::Arg,
@@ -377,7 +377,7 @@ impl tg::handle::Process for Proxy {
 		self.server.try_get_process_log_stream(id, arg)
 	}
 
-	async fn try_post_process_log(
+	async fn post_process_log(
 		&self,
 		_id: &tg::process::Id,
 		_arg: tg::process::log::post::Arg,
@@ -385,7 +385,7 @@ impl tg::handle::Process for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn try_finish_process(
+	async fn finish_process(
 		&self,
 		_id: &tg::process::Id,
 		_arg: tg::process::finish::Arg,

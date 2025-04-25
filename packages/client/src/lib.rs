@@ -858,12 +858,12 @@ impl tg::handle::Process for Client {
 		self.try_dequeue_process(arg)
 	}
 
-	fn try_start_process(
+	fn start_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.try_start_process(id, arg)
+		self.start_process(id, arg)
 	}
 
 	fn heartbeat_process(
@@ -933,20 +933,20 @@ impl tg::handle::Process for Client {
 		self.try_get_process_log_stream(id, arg)
 	}
 
-	fn try_post_process_log(
+	fn post_process_log(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.try_post_process_log(id, arg)
+		self.post_process_log(id, arg)
 	}
 
-	fn try_finish_process(
+	fn finish_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.try_finish_process(id, arg)
+		self.finish_process(id, arg)
 	}
 
 	fn touch_process(

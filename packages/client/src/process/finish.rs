@@ -24,13 +24,13 @@ impl tg::Process {
 		H: tg::Handle,
 	{
 		let id = self.id();
-		handle.try_finish_process(id, arg).await?;
+		handle.finish_process(id, arg).await?;
 		Ok(())
 	}
 }
 
 impl tg::Client {
-	pub async fn try_finish_process(
+	pub async fn finish_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,

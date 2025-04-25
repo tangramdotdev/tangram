@@ -33,7 +33,7 @@ impl Cli {
 			output: None,
 			remote,
 		};
-		handle.try_finish_process(&args.process, arg).await?;
+		handle.finish_process(&args.process, arg).await?;
 
 		Ok(())
 	}

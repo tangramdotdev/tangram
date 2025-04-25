@@ -21,13 +21,13 @@ impl tg::Process {
 		H: tg::Handle,
 	{
 		let id = self.id();
-		handle.try_post_process_log(id, arg).await?;
+		handle.post_process_log(id, arg).await?;
 		Ok(())
 	}
 }
 
 impl tg::Client {
-	pub async fn try_post_process_log(
+	pub async fn post_process_log(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,

@@ -8,7 +8,7 @@ use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn try_start_process(
+	pub async fn start_process(
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::start::Arg,
@@ -17,7 +17,7 @@ impl Server {
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::process::start::Arg { remote: None };
-			remote.try_start_process(id, arg).await?;
+			remote.start_process(id, arg).await?;
 			return Ok(());
 		}
 
@@ -94,7 +94,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.try_start_process(&id, arg).await?;
+		handle.start_process(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

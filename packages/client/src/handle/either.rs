@@ -445,14 +445,14 @@ where
 		}
 	}
 
-	fn try_finish_process(
+	fn finish_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.try_finish_process(id, arg).left_future(),
-			Either::Right(s) => s.try_finish_process(id, arg).right_future(),
+			Either::Left(s) => s.finish_process(id, arg).left_future(),
+			Either::Right(s) => s.finish_process(id, arg).right_future(),
 		}
 	}
 
@@ -467,14 +467,14 @@ where
 		}
 	}
 
-	fn try_post_process_log(
+	fn post_process_log(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.try_post_process_log(id, arg).left_future(),
-			Either::Right(s) => s.try_post_process_log(id, arg).right_future(),
+			Either::Left(s) => s.post_process_log(id, arg).left_future(),
+			Either::Right(s) => s.post_process_log(id, arg).right_future(),
 		}
 	}
 
@@ -499,14 +499,14 @@ where
 		}
 	}
 
-	fn try_start_process(
+	fn start_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		match self {
-			Either::Left(s) => s.try_start_process(id, arg).left_future(),
-			Either::Right(s) => s.try_start_process(id, arg).right_future(),
+			Either::Left(s) => s.start_process(id, arg).left_future(),
+			Either::Right(s) => s.start_process(id, arg).right_future(),
 		}
 	}
 

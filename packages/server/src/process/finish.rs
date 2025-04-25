@@ -9,7 +9,7 @@ use tangram_messenger::Messenger as _;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {
-	pub async fn try_finish_process(
+	pub async fn finish_process(
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::finish::Arg,
@@ -21,7 +21,7 @@ impl Server {
 				remote: None,
 				..arg.clone()
 			};
-			client.try_finish_process(id, arg).await?;
+			client.finish_process(id, arg).await?;
 			return Ok(());
 		}
 
@@ -64,7 +64,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
 		if n == 0 {
-			return Err(tg::error!("failed to find the process"));
+			return Err(tg::error!(%id, "failed to find the process"));
 		}
 
 		// Get the process.
@@ -111,7 +111,7 @@ impl Server {
 					output: None,
 					remote: None,
 				};
-				self.try_finish_process(&child, arg).await?;
+				self.finish_process(&child, arg).await.ok();
 				Ok::<_, tg::Error>(())
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -270,7 +270,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.try_finish_process(&id, arg).await?;
+		handle.finish_process(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

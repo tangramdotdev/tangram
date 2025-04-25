@@ -302,7 +302,7 @@ async fn output(
 			stream,
 			remote: process.remote().cloned(),
 		};
-		server.try_post_process_log(process.id(), arg).await?;
+		server.post_process_log(process.id(), arg).await?;
 	}
 	Ok(())
 }
@@ -359,7 +359,7 @@ pub async fn log(
 		stream,
 	};
 	server
-		.try_post_process_log(process.id(), arg)
+		.post_process_log(process.id(), arg)
 		.await
 		.inspect_err(|error| tracing::error!(?error, "failed to post process log"))
 		.ok();

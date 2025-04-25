@@ -6,7 +6,7 @@ use tangram_messenger::Messenger as _;
 use tokio::io::AsyncWriteExt as _;
 
 impl Server {
-	pub async fn try_post_process_log(
+	pub async fn post_process_log(
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::log::post::Arg,
@@ -18,7 +18,7 @@ impl Server {
 				remote: None,
 				..arg
 			};
-			remote.try_post_process_log(id, arg).await?;
+			remote.post_process_log(id, arg).await?;
 			return Ok(());
 		}
 
@@ -40,7 +40,7 @@ impl Server {
 		}
 
 		// Write to the log file.
-		self.try_post_process_log_to_file(id, arg.bytes.clone())
+		self.post_process_log_to_file(id, arg.bytes.clone())
 			.await?;
 
 		// Write to stdout or stderr if necessary.
@@ -86,7 +86,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn try_post_process_log_to_file(
+	async fn post_process_log_to_file(
 		&self,
 		id: &tg::process::Id,
 		bytes: Bytes,
@@ -116,7 +116,7 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.try_post_process_log(&id, arg).await?;
+		handle.post_process_log(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

@@ -3,6 +3,7 @@ use bytes::Bytes;
 use futures::{FutureExt as _, future};
 use indoc::formatdoc;
 use itertools::Itertools as _;
+use std::pin::pin;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
@@ -101,19 +102,19 @@ impl Server {
 		let local_id = self.spawn_local_process(&arg).await?;
 
 		// Create a future that will await the local process.
-		let id = local_id.clone();
-		let local = self.wait_process(&id).boxed();
+		let local = async { self.wait_process(&local_id).await };
 
 		// Create a future that will attempt to get a cached remote process.
-		let remote = self.try_get_cached_process_remote(&arg).boxed();
+		let remote = async { self.try_get_cached_process_remote(&arg).await };
 
 		// If the local process finishes before the remote responds, then use the local process. If a remote process is found sooner, then spawn a task to cancel the local process and use the remote process.
-		let id = match future::select(local, remote).await {
-			future::Either::Left((_, _)) => local_id,
+		let id = match future::select(pin!(local), pin!(remote)).await {
+			future::Either::Left((_, _)) => local_id.clone(),
 			future::Either::Right((remote, _)) => {
 				if let Ok(Some(remote_id)) = remote {
 					tokio::spawn({
 						let server = self.clone();
+						let local_id = local_id.clone();
 						async move {
 							let arg = tg::process::finish::Arg {
 								checksum: None,
@@ -125,12 +126,12 @@ impl Server {
 								output: None,
 								remote: None,
 							};
-							server.try_finish_process(&local_id, arg).boxed().await.ok();
+							server.finish_process(&local_id, arg).boxed().await.ok();
 						}
 					});
 					remote_id
 				} else {
-					local_id
+					local_id.clone()
 				}
 			},
 		};
@@ -555,12 +556,18 @@ impl Server {
 				.map(|guard| ProcessPermit(Either::Right(guard)))
 				.await;
 
-			// Attempt to spawn the process.
-			server
-				.spawn_process_task(&process, permit)
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to spawn the process"))
-				.ok();
+			// Attempt to start the process.
+			let arg = tg::process::start::Arg {
+				remote: process.remote().cloned(),
+			};
+			let result = server.start_process(process.id(), arg.clone()).await;
+			if let Err(error) = result {
+				tracing::trace!(?error, "failed to start the process");
+				return;
+			}
+
+			// Spawn the process task.
+			server.spawn_process_task(&process, permit);
 		});
 
 		Ok(id)

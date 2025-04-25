@@ -215,7 +215,7 @@ pub trait Process {
 		arg: tg::process::dequeue::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> + Send;
 
-	fn try_finish_process(
+	fn finish_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
@@ -227,7 +227,7 @@ pub trait Process {
 		arg: tg::process::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send;
 
-	fn try_post_process_log(
+	fn post_process_log(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
@@ -244,7 +244,7 @@ pub trait Process {
 		arg: tg::process::spawn::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> + Send;
 
-	fn try_start_process(
+	fn start_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,

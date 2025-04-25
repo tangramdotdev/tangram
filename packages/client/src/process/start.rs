@@ -8,7 +8,7 @@ pub struct Arg {
 }
 
 impl tg::Client {
-	pub async fn try_start_process(
+	pub async fn start_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,

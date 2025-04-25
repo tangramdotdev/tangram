@@ -48,57 +48,46 @@ impl Server {
 				},
 			};
 
-			// Spawn the process task.
-			self.spawn_process_task(&process, permit)
-				.await
-				.inspect_err(|error| {
-					tracing::error!(?error, "the spawn process task failed");
-				})
-				.ok();
-		}
-	}
-
-	pub(crate) fn spawn_process_task(
-		&self,
-		process: &tg::Process,
-		permit: ProcessPermit,
-	) -> impl Future<Output = tg::Result<()>> + Send + 'static {
-		let server = self.clone();
-		let process = process.clone();
-		async move {
 			// Attempt to start the process.
 			let arg = tg::process::start::Arg {
 				remote: process.remote().cloned(),
 			};
-			server.try_start_process(process.id(), arg.clone()).await?;
+			let result = self.start_process(process.id(), arg.clone()).await;
+			if let Err(error) = result {
+				tracing::trace!(?error, "failed to start the process");
+				continue;
+			}
 
 			// Spawn the process task.
-			server.processes.spawn(
-				process.id().clone(),
-				Task::spawn(|_| {
-					let server = server.clone();
-					let process = process.clone();
-					async move { server.process_task(&process, permit).await }
-						.inspect_err(|error| {
-							tracing::error!(?error, "the process task failed");
-						})
-						.map(|_| ())
-				}),
-			);
+			self.spawn_process_task(&process, permit);
+		}
+	}
 
-			// Spawn the heartbeat task.
-			tokio::spawn({
-				let server = server.clone();
+	pub(crate) fn spawn_process_task(&self, process: &tg::Process, permit: ProcessPermit) {
+		// Spawn the process task.
+		self.processes.spawn(
+			process.id().clone(),
+			Task::spawn(|_| {
+				let server = self.clone();
 				let process = process.clone();
-				async move { server.heartbeat_task(&process).await }
+				async move { server.process_task(&process, permit).await }
 					.inspect_err(|error| {
-						tracing::error!(?error, "the heartbeat task failed");
+						tracing::error!(?error, "the process task failed");
 					})
 					.map(|_| ())
-			});
+			}),
+		);
 
-			Ok(())
-		}
+		// Spawn the heartbeat task.
+		tokio::spawn({
+			let server = self.clone();
+			let process = process.clone();
+			async move { server.heartbeat_task(&process).await }
+				.inspect_err(|error| {
+					tracing::error!(?error, "the heartbeat task failed");
+				})
+				.map(|_| ())
+		});
 	}
 
 	async fn process_task(&self, process: &tg::Process, permit: ProcessPermit) -> tg::Result<()> {
@@ -144,7 +133,7 @@ impl Server {
 									remote: process.remote().cloned(),
 									stream: tg::process::log::Stream::Stderr,
 								};
-								self.try_post_process_log(process.id(), arg).await.ok();
+								self.post_process_log(process.id(), arg).await.ok();
 							}
 						},
 						tg::progress::Event::Output(()) => {
@@ -164,7 +153,7 @@ impl Server {
 			output,
 			remote: process.remote().cloned(),
 		};
-		self.try_finish_process(process.id(), arg).await?;
+		self.finish_process(process.id(), arg).await?;
 
 		Ok::<_, tg::Error>(())
 	}
