@@ -7,7 +7,7 @@ export let checksum = (
 	return Checksum.new(input, algorithm);
 };
 
-export type Checksum = `${tg.Checksum.Algorithm}{':'|'-'}{string}`;
+export type Checksum = `${tg.Checksum.Algorithm}${":" | "-"}${string}`;
 
 export declare namespace Checksum {
 	let new_: (

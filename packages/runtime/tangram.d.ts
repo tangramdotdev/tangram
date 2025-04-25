@@ -904,7 +904,7 @@ declare namespace tg {
 	) => Promise<tg.Checksum>;
 
 	/** A checksum. */
-	export type Checksum = `${tg.Checksum.Algorithm}{':'|'-'}{string}`;
+	export type Checksum = `${tg.Checksum.Algorithm}${":" | "-"}${string}`;
 
 	export namespace Checksum {
 		export type Algorithm = "blake3" | "sha256" | "sha512";
