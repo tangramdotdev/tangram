@@ -1,4 +1,4 @@
-use crate::{Server, blob::create::Blob};
+use crate::{Server, blob::create::Blob, lockfile::ParsedLockfile};
 use bytes::Bytes;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
@@ -8,8 +8,13 @@ use indoc::indoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{
-	collections::BTreeMap, ops::Not as _, os::unix::fs::PermissionsExt as _,
-	panic::AssertUnwindSafe, path::PathBuf, sync::Arc, time::Instant,
+	collections::{BTreeMap, HashSet},
+	ops::Not as _,
+	os::unix::fs::PermissionsExt as _,
+	panic::AssertUnwindSafe,
+	path::{Path, PathBuf},
+	sync::Arc,
+	time::Instant,
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -27,9 +32,17 @@ mod unify;
 
 struct State {
 	graph: Graph,
+	graph_objects: Vec<GraphObject>,
+	lockfile: Option<ParsedLockfile>,
+	locked: bool,
 	ignorer: Option<tangram_ignore::Ignorer>,
 	#[allow(dead_code)]
 	progress: crate::progress::Handle<tg::checkin::Output>,
+}
+
+struct GraphObject {
+	id: tg::graph::Id,
+	data: Bytes,
 }
 
 #[derive(Clone, Debug)]
@@ -66,7 +79,16 @@ struct Directory {
 struct File {
 	blob: Option<Blob>,
 	executable: bool,
-	dependencies: BTreeMap<tg::Reference, tg::Referent<tg::object::Id>>,
+	dependencies: HashSet<FileDependency, fnv::FnvBuildHasher>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum FileDependency {
+	Import(tg::Import),
+	Referent {
+		reference: tg::Reference,
+		referent: tg::Referent<tg::object::Id>,
+	},
 }
 
 #[derive(Clone, Debug)]
@@ -182,6 +204,14 @@ impl Server {
 			None
 		};
 
+		// Search for the root.
+		let root = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
+			.unwrap_or(&arg.path)
+			.to_owned();
+
+		// Parse a lockfile if it exists.
+		let lockfile = self.try_parse_lockfile(&root.join(tg::package::LOCKFILE_FILE_NAME))?;
+
 		// Create the state.
 		let graph = Graph {
 			nodes: Vec::new(),
@@ -189,6 +219,9 @@ impl Server {
 		};
 		let mut state = State {
 			graph,
+			graph_objects: Vec::new(),
+			lockfile,
+			locked: arg.locked,
 			ignorer,
 			progress: progress.clone(),
 		};
@@ -197,9 +230,8 @@ impl Server {
 		let start = Instant::now();
 		let mut state = tokio::task::spawn_blocking({
 			let server = self.clone();
-			let arg = arg.clone();
 			move || {
-				server.checkin_visit(&mut state, arg.path.clone())?;
+				server.checkin_visit(&mut state, root)?;
 				Ok::<_, tg::Error>(state)
 			}
 		})
@@ -326,7 +358,7 @@ impl Server {
 		let index = if metadata.is_dir() {
 			self.checkin_visit_directory(state, path, metadata)?
 		} else if metadata.is_file() {
-			Self::checkin_visit_file(state, path, metadata)?
+			self.checkin_visit_file(state, path, metadata)?
 		} else if metadata.is_symlink() {
 			Self::checkin_visit_symlink(state, path, metadata)?
 		} else {
@@ -395,46 +427,35 @@ impl Server {
 	}
 
 	fn checkin_visit_file(
+		&self,
 		state: &mut State,
 		path: PathBuf,
 		metadata: std::fs::Metadata,
 	) -> tg::Result<usize> {
-		let dependencies = if let Ok(Some(contents)) = xattr::get(&path, tg::file::XATTR_LOCK_NAME)
-		{
-			let lockfile = serde_json::from_slice::<tg::Lockfile>(&contents)
-				.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))?;
-			if lockfile.nodes.len() != 1 {
-				return Err(tg::error!(%path = path.display(), "expected single node in lockfile"));
-			}
-			let Some(tg::lockfile::Node::File(file_node)) = lockfile.nodes.first() else {
-				return Err(tg::error!(%path = path.display(), "expected a file node"));
-			};
-			file_node
-				.dependencies
-				.iter()
-				.try_fold(BTreeMap::new(), |mut acc, (key, value)| match &value.item {
-					Either::Left(_) => Err(tg::error!("found a graph node")),
-					Either::Right(object) => {
-						let value = tg::Referent {
-							item: object.clone(),
-							path: value.path.clone(),
-							subpath: value.subpath.clone(),
-							tag: value.tag.clone(),
-						};
-						acc.insert(key.clone(), value);
-						Ok(acc)
-					},
-				})?
-		} else {
-			BTreeMap::default()
-		};
+		// Get the list of all dependencies.
+		let dependencies = Self::get_file_dependencies(state, &path)?;
+
+		// Get the list of edges.
+		let edges = dependencies
+			.iter()
+			.try_fold(Vec::new(), |mut acc, dependency| {
+				let FileDependency::Import(import) = dependency else {
+					return Ok(acc);
+				};
+				let Some(path) = import.reference.path().map(Path::to_owned) else {
+					return Ok(acc);
+				};
+				let node = self.checkin_visit(state, path)?;
+				acc.push(Edge { node: Some(node) });
+				Ok::<_, tg::Error>(acc)
+			})?;
 		let variant = Variant::File(File {
 			blob: None,
 			dependencies,
 			executable: metadata.permissions().mode() & 0o111 != 0,
 		});
 		let node = Node {
-			edges: Vec::new(),
+			edges,
 			metadata: Some(metadata),
 			object: None,
 			path: Some(Arc::new(path)),
@@ -443,6 +464,132 @@ impl Server {
 		let index = state.graph.nodes.len();
 		state.graph.nodes.push(node);
 		Ok(index)
+	}
+
+	fn get_file_dependencies(
+		state: &mut State,
+		path: &PathBuf,
+	) -> tg::Result<HashSet<FileDependency, fnv::FnvBuildHasher>> {
+		// Check if this file has dependencies set in the xattr.
+		if let Ok(Some(contents)) = xattr::get(&path, tg::file::XATTR_LOCK_NAME) {
+			let lockfile = serde_json::from_slice::<tg::Lockfile>(&contents)
+				.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))?;
+			if lockfile.nodes.len() != 1 {
+				return Err(tg::error!(%path = path.display(), "expected single node in lockfile"));
+			}
+			let Some(tg::lockfile::Node::File(file_node)) = lockfile.nodes.first() else {
+				return Err(tg::error!(%path = path.display(), "expected a file node"));
+			};
+			return file_node.dependencies.iter().try_fold(
+				HashSet::default(),
+				|mut acc, (reference, referent)| match &referent.item {
+					Either::Left(_) => Err(tg::error!("found a graph node")),
+					Either::Right(object) => {
+						let referent = tg::Referent {
+							item: object.clone(),
+							path: referent.path.clone(),
+							subpath: referent.subpath.clone(),
+							tag: referent.tag.clone(),
+						};
+						let dependency = FileDependency::Referent {
+							reference: reference.clone(),
+							referent,
+						};
+						acc.insert(dependency);
+						Ok(acc)
+					},
+				},
+			);
+		}
+
+		// If this is not a module, it has no dependencies.
+		if !tg::package::is_module_path(path) {
+			return Ok(HashSet::default());
+		}
+
+		// Parse imports.
+		let contents = std::fs::read(path).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to read module file"),
+		)?;
+		let text = String::from_utf8(contents)
+			.map_err(|source| tg::error!(!source, %path = path.display(), "invalid utf8"))?;
+		let analysis = crate::Compiler::analyze_module(text)?;
+		for error in analysis.errors {
+			// Dump diagnostics.
+			let diagnostic = tg::Diagnostic {
+				location: None,
+				message: error.to_string(),
+				severity: tg::diagnostic::Severity::Error,
+			};
+			state.progress.diagnostic(diagnostic);
+		}
+
+		// Get the locked dependencies.
+		let locked_dependencies = state
+			.lockfile
+			.as_ref()
+			.and_then(|lockfile| lockfile.get_file_dependencies(path).ok())
+			.unwrap_or_default();
+
+		// Make sure that the lockfile dependencies matches the import set.
+		if locked_dependencies.len() != analysis.imports.len()
+			|| !locked_dependencies.iter().all(|(reference, _)| {
+				analysis
+					.imports
+					.iter()
+					.any(|import| &import.reference == reference)
+			}) {
+			return Err(tg::error!(
+				"the lockfile needs to be updated but --locked was passed"
+			));
+		}
+
+		let dependencies =
+			analysis
+				.imports
+				.into_iter()
+				.try_fold(HashSet::default(), |mut acc, import| {
+					// Use the locked dependency if the reference matches.
+					if let Some((reference, referent)) =
+						locked_dependencies
+							.iter()
+							.find_map(|(reference, referent)| {
+								if &import.reference != reference {
+									return None;
+								}
+								let item = referent.item.as_ref()?.as_ref().right()?.clone();
+								let referent = tg::Referent {
+									item,
+									path: referent.path.clone(),
+									subpath: referent.subpath.clone(),
+									tag: referent.tag.clone(),
+								};
+								Some((reference.clone(), referent))
+							}) {
+						acc.insert(FileDependency::Referent {
+							reference,
+							referent,
+						});
+						return Ok(acc);
+					}
+
+					// Return an error if this dependency can't be resolved.
+					if state.locked
+						&& import.reference.path().is_none()
+						&& import.reference.item().try_unwrap_tag_ref().is_ok()
+					{
+						return Err(
+							tg::error!(%import = import.reference, "unresolved import when --locked"),
+						);
+					}
+
+					// Add the import.
+					acc.insert(FileDependency::Import(import));
+
+					Ok(acc)
+				})?;
+
+		Ok(dependencies)
 	}
 
 	fn checkin_visit_symlink(
@@ -504,16 +651,132 @@ impl Server {
 	}
 
 	fn checkin_create_objects(state: &mut State, index: usize) -> tg::Result<()> {
-		// Create object for the children.
-		let indexes = state.graph.nodes[index]
-			.edges
-			.iter()
-			.map(|edge| edge.node.unwrap())
-			.collect_vec();
-		for index in indexes.iter().copied() {
-			Self::checkin_create_objects(state, index)?;
-		}
+		// Separate into sccs.
+		let sccs = petgraph::algo::tarjan_scc(&state.graph);
+		for mut scc in sccs {
+			// Special case: no cycles.
+			if scc.len() == 1 {
+				Self::create_normal_object(state, scc[0])?;
+				continue;
+			}
+			scc.reverse();
 
+			let graph_indices = scc
+				.iter()
+				.copied()
+				.enumerate()
+				.map(|(local, global)| (global, local))
+				.collect::<BTreeMap<_, _>>();
+
+			// Create the graph object.
+			let mut graph = tg::graph::Data {
+				nodes: Vec::with_capacity(scc.len()),
+			};
+			for index in &scc {
+				Self::add_graph_node(state, &graph_indices, &mut graph, *index);
+			}
+
+			// Create the graph obejct.
+			let data = graph.serialize().unwrap();
+			let id = tg::graph::Id::new(&data);
+			let object = GraphObject { id, data };
+
+			// Create the objects.
+			for (local, global) in scc.iter().copied().enumerate() {
+				let (kind, data) = match &state.graph.nodes[global].variant {
+					Variant::Directory(_) => {
+						let kind = tg::object::Kind::Directory;
+						let data = tg::directory::data::Directory::Graph {
+							graph: object.id.clone(),
+							node: local,
+						};
+						let data = tg::object::Data::from(data);
+						(kind, data)
+					},
+					Variant::File(_) => {
+						let kind = tg::object::Kind::File;
+						let data = tg::file::data::File::Graph {
+							graph: object.id.clone(),
+							node: local,
+						};
+						let data = tg::object::Data::from(data);
+						(kind, data)
+					},
+					Variant::Symlink(_) => {
+						let kind = tg::object::Kind::Symlink;
+						let data = tg::symlink::data::Symlink::Graph {
+							graph: object.id.clone(),
+							node: local,
+						};
+						let data = tg::object::Data::from(data);
+						(kind, data)
+					},
+				};
+
+				// Create the object.
+				let bytes = data
+					.serialize()
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+				let id = tg::object::Id::new(kind, &bytes);
+				let object = Object { bytes, data, id };
+				state.graph.nodes[index].object = Some(object);
+			}
+
+			// Store the graph.
+			state.graph_objects.push(object);
+		}
+		Ok(())
+	}
+
+	fn add_graph_node(
+		state: &mut State,
+		graph_indices: &BTreeMap<usize, usize>,
+		graph: &mut tg::graph::Data,
+		index: usize,
+	) {
+		let node = match &state.graph.nodes[index].variant {
+			Variant::Directory(directory) => {
+				let entries = directory
+					.entries
+					.iter()
+					.map(|(name, index)| {
+						let name = name.clone();
+						if let Some(id) = state.graph.nodes[*index]
+							.object
+							.as_ref()
+							.map(|object| object.id.clone())
+						{
+							(name, Either::Right(id.try_into().unwrap()))
+						} else {
+							let index = *graph_indices.get(index).unwrap();
+							(name, Either::Left(index))
+						}
+					})
+					.collect();
+				let data = tg::graph::data::Directory { entries };
+				tg::graph::data::Node::Directory(data)
+			},
+			Variant::File(file) => {
+				let contents = file.blob.as_ref().unwrap().id.clone();
+				let executable = file.executable;
+				let data = tg::graph::data::File {
+					contents,
+					dependencies: todo!(),
+					executable,
+				};
+				tg::graph::data::Node::File(data)
+			},
+			Variant::Symlink(symlink) => {
+				let target = symlink.target.clone();
+				let data = tg::graph::data::Symlink::Target { target };
+				tg::graph::data::Node::Symlink(data)
+			},
+		};
+		let index = graph.nodes.len();
+		graph.nodes.push(node);
+	}
+
+	fn create_normal_object(state: &mut State, index: usize) -> tg::Result<()> {
 		// Create an object for the node.
 		let (kind, data) = match &state.graph.nodes[index].variant {
 			Variant::Directory(directory) => {
@@ -541,11 +804,10 @@ impl Server {
 			Variant::File(file) => {
 				let kind = tg::object::Kind::File;
 				let contents = file.blob.as_ref().unwrap().id.clone();
-				let dependencies = file.dependencies.clone();
 				let executable = file.executable;
 				let data = tg::file::Data::Normal {
 					contents,
-					dependencies,
+					dependencies: todo!(),
 					executable,
 				};
 				let data = tg::object::Data::from(data);
@@ -567,7 +829,6 @@ impl Server {
 		let id = tg::object::Id::new(kind, &bytes);
 		let object = Object { bytes, data, id };
 		state.graph.nodes[index].object = Some(object);
-
 		Ok(())
 	}
 
@@ -1014,5 +1275,43 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+impl petgraph::visit::GraphBase for Graph {
+	type EdgeId = (usize, usize);
+	type NodeId = usize;
+}
+
+impl petgraph::visit::NodeIndexable for &Graph {
+	fn from_index(&self, i: usize) -> Self::NodeId {
+		i
+	}
+
+	fn node_bound(&self) -> usize {
+		self.nodes.len()
+	}
+
+	fn to_index(&self, a: Self::NodeId) -> usize {
+		a
+	}
+}
+
+impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
+	type Neighbors = std::vec::IntoIter<usize>;
+	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
+		self.nodes[a]
+			.edges
+			.iter()
+			.filter_map(|edge| edge.node)
+			.collect::<Vec<_>>()
+			.into_iter()
+	}
+}
+
+impl petgraph::visit::IntoNodeIdentifiers for &Graph {
+	type NodeIdentifiers = std::ops::Range<usize>;
+	fn node_identifiers(self) -> Self::NodeIdentifiers {
+		0..self.nodes.len()
 	}
 }

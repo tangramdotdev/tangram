@@ -156,6 +156,16 @@ impl Reference {
 	}
 }
 
+impl Reference {
+	pub fn path(&self) -> Option<&Path> {
+		self.item
+			.try_unwrap_path_ref()
+			.ok()
+			.or(self.options().and_then(|opt| opt.path.as_ref()))
+			.map(PathBuf::as_ref)
+	}
+}
+
 impl std::fmt::Display for Reference {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}", self.uri)

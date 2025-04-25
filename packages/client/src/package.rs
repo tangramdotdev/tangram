@@ -76,13 +76,14 @@ where
 	Ok(name)
 }
 
-pub async fn try_get_root_module_file_name_for_package_path(
+pub fn try_get_root_module_file_name_for_package_path(
 	path: &Path,
 ) -> tg::Result<Option<&'static str>> {
 	let mut name = None;
 	for name_ in tg::package::ROOT_MODULE_FILE_NAMES {
-		let exists = tokio::fs::try_exists(path.join(name_))
-			.await
+		let exists = path
+			.join(name_)
+			.try_exists()
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 		if exists {
 			if name.is_some() {
@@ -94,16 +95,11 @@ pub async fn try_get_root_module_file_name_for_package_path(
 	Ok(name)
 }
 
-pub async fn try_get_nearest_package_path_for_path(path: &Path) -> tg::Result<Option<&Path>> {
+pub fn try_get_nearest_package_path_for_path(path: &Path) -> tg::Result<Option<&Path>> {
 	for path in path.ancestors() {
-		let metadata = tokio::fs::metadata(path)
-			.await
+		let metadata = std::fs::metadata(path)
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-		if metadata.is_dir()
-			&& try_get_root_module_file_name_for_package_path(path)
-				.await?
-				.is_some()
-		{
+		if metadata.is_dir() && try_get_root_module_file_name_for_package_path(path)?.is_some() {
 			return Ok(Some(path));
 		}
 	}

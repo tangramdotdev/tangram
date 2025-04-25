@@ -8,7 +8,7 @@ use tangram_client as tg;
 use tangram_either::Either;
 
 /// Represents a lockfile that's been parsed, containing all of its objects and paths to artifacts that it references.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct ParsedLockfile {
 	nodes: Vec<tg::lockfile::Node>,
@@ -805,11 +805,10 @@ impl ParsedLockfile {
 }
 
 impl Server {
-	pub async fn try_parse_lockfile(&self, path: &Path) -> tg::Result<Option<ParsedLockfile>> {
+	pub fn try_parse_lockfile(&self, path: &Path) -> tg::Result<Option<ParsedLockfile>> {
 		// First try and read the lockfile from the file's xattrs.
 		let contents_and_root = 'a: {
 			// Read the lockfile's xattrs.
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			let Ok(Some(contents)) = xattr::get(path, tg::file::XATTR_LOCK_NAME) else {
 				break 'a None;
 			};
@@ -830,10 +829,15 @@ impl Server {
 			}
 
 			// Read the lockfile from disk.
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			let contents = tokio::fs::read(path).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to read lockfile"),
-			)?;
+			let contents = match std::fs::read(path) {
+				Ok(contents) => contents,
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => break 'a None,
+				Err(source) => {
+					return Err(
+						tg::error!(!source, %path = path.display(), "failed to read lockfile"),
+					);
+				},
+			};
 
 			Some((contents, path.parent().unwrap()))
 		};
@@ -887,8 +891,7 @@ impl Server {
 		let mut artifacts_path = None;
 		for path in path.ancestors().skip(1) {
 			let path = path.join(".tangram/artifacts");
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-			if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
+			if matches!(path.try_exists(), Ok(true)) {
 				artifacts_path.replace(path);
 				break;
 			}
@@ -899,15 +902,13 @@ impl Server {
 		let mut artifacts = BTreeMap::new();
 		for id in artifact_ids {
 			// Check if the file exists.
-			let _permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 			let path = artifacts_path.join(id.to_string());
-			if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
+			if matches!(path.try_exists(), Ok(true)) {
 				artifacts.insert(id, path);
 			}
 		}
-
 		// Get the paths for the lockfile nodes.
-		let paths = get_paths(&artifacts_path, root, &lockfile).await?;
+		let paths = get_paths(&artifacts_path, root, &lockfile)?;
 
 		// Create the parsed lockfile.
 		let lockfile = ParsedLockfile {
@@ -921,12 +922,12 @@ impl Server {
 }
 
 // Given a lockfile, get the paths of all the nodes.
-async fn get_paths(
+fn get_paths(
 	artifacts_path: &Path,
 	root_path: &Path,
 	lockfile: &tg::Lockfile,
 ) -> tg::Result<Vec<Option<PathBuf>>> {
-	async fn get_paths_inner(
+	fn get_paths_inner(
 		artifacts_path: &Path,
 		lockfile: &tg::Lockfile,
 		node_path: &Path,
@@ -939,7 +940,7 @@ async fn get_paths(
 		}
 
 		// Check if the file system object exists. If it doesn't, leave the node empty.
-		if !matches!(tokio::fs::try_exists(node_path).await, Ok(true)) {
+		if !matches!(node_path.try_exists(), Ok(true)) {
 			return Ok(());
 		}
 
@@ -954,14 +955,7 @@ async fn get_paths(
 						continue;
 					};
 					let node_path = node_path.join(name);
-					Box::pin(get_paths_inner(
-						artifacts_path,
-						lockfile,
-						&node_path,
-						*index,
-						visited,
-					))
-					.await?;
+					get_paths_inner(artifacts_path, lockfile, &node_path, *index, visited);
 				}
 			},
 			tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) => {
@@ -981,22 +975,14 @@ async fn get_paths(
 							break 'a;
 						};
 						let path = node_path.parent().unwrap().join(path);
-						if !matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
+						if !matches!(path.try_exists(), Ok(true)) {
 							break 'a;
 						}
-						let Ok(node_path) = crate::util::fs::canonicalize_parent(&path).await
-						else {
+						let Ok(node_path) = crate::util::fs::canonicalize_parent_sync(&path) else {
 							break 'a;
 						};
-						if Box::pin(get_paths_inner(
-							artifacts_path,
-							lockfile,
-							&node_path,
-							*index,
-							visited,
-						))
-						.await
-						.is_ok()
+						if get_paths_inner(artifacts_path, lockfile, &node_path, *index, visited)
+							.is_ok()
 						{
 							continue 'outer;
 						}
@@ -1007,14 +993,7 @@ async fn get_paths(
 						continue 'outer;
 					};
 					let node_path = artifacts_path.join(id.to_string());
-					Box::pin(get_paths_inner(
-						artifacts_path,
-						lockfile,
-						&node_path,
-						*index,
-						visited,
-					))
-					.await?;
+					get_paths_inner(artifacts_path, lockfile, &node_path, *index, visited)?;
 				}
 			},
 			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
@@ -1026,14 +1005,7 @@ async fn get_paths(
 					.id()
 					.ok_or_else(|| tg::error!("expected an object ID"))?;
 				let node_path = artifacts_path.join(object.to_string());
-				Box::pin(get_paths_inner(
-					artifacts_path,
-					lockfile,
-					&node_path,
-					*index,
-					visited,
-				))
-				.await?;
+				get_paths_inner(artifacts_path, lockfile, &node_path, *index, visited)?;
 			},
 			tg::lockfile::Node::Symlink(_) => (),
 		}
@@ -1047,13 +1019,6 @@ async fn get_paths(
 
 	let mut visited = vec![None; lockfile.nodes.len()];
 	let node = 0;
-	Box::pin(get_paths_inner(
-		artifacts_path,
-		lockfile,
-		root_path,
-		node,
-		&mut visited,
-	))
-	.await?;
+	get_paths_inner(artifacts_path, lockfile, root_path, node, &mut visited)?;
 	Ok(visited)
 }

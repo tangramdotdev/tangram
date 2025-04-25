@@ -246,7 +246,7 @@ impl Server {
 		}
 
 		// Try to parse the lockfile.
-		let Ok(Some(lockfile)) = self.try_parse_lockfile(&lockfile_path).await else {
+		let Ok(Some(lockfile)) = self.try_parse_lockfile(&lockfile_path) else {
 			return Ok(None);
 		};
 		let lockfile = Arc::new(lockfile);
