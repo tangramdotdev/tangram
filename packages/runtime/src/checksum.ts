@@ -55,4 +55,21 @@ export namespace Checksum {
 			throw new Error("invalid checksum");
 		}
 	};
+
+	export let is = (value: unknown): value is Checksum => {
+		if (typeof value !== "string") {
+			return false;
+		}
+		const pattern = /^(blake3|sha256|sha512)([-:])[a-zA-Z0-9]+/;
+		return pattern.test(value);
+	};
+
+	export let expect = (value: unknown): Checksum => {
+		tg.assert(is(value));
+		return value;
+	};
+
+	export let assert = (value: unknown): asserts value is Checksum => {
+		tg.assert(is(value));
+	};
 }
