@@ -219,12 +219,12 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
 		let exit = row
-			.get::<_, Option<String>>(7)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| serde_json::from_str(&s))
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+			.get::<_, Option<u8>>(7)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let expected_checksum = row
+			.get::<_, Option<u8>>(7)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let finished_at = row
 			.get::<_, Option<String>>(8)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.map(|s| s.parse())

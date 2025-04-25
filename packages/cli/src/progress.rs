@@ -167,21 +167,23 @@ impl<T> State<T> {
 			)
 			.unwrap();
 			if let (Some(current), Some(total)) = (indicator.current, indicator.total) {
-				let current = current.min(total);
-				write!(line, " [").unwrap();
-				let last = current * LENGTH / total;
-				for _ in 0..last {
-					write!(line, "=").unwrap();
+				if total > 0 {
+					let current = current.min(total);
+					write!(line, " [").unwrap();
+					let last = current * LENGTH / total;
+					for _ in 0..last {
+						write!(line, "=").unwrap();
+					}
+					if current < total {
+						write!(line, ">").unwrap();
+					} else {
+						write!(line, "=").unwrap();
+					}
+					for _ in last..LENGTH {
+						write!(line, " ").unwrap();
+					}
+					write!(line, "]").unwrap();
 				}
-				if current < total {
-					write!(line, ">").unwrap();
-				} else {
-					write!(line, "=").unwrap();
-				}
-				for _ in last..LENGTH {
-					write!(line, " ").unwrap();
-				}
-				write!(line, "]").unwrap();
 			}
 			if let Some(current) = indicator.current {
 				match indicator.format {

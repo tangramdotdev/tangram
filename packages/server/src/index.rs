@@ -1232,6 +1232,8 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				commands_weight integer,
 				complete integer not null default 0,
 				incomplete_children integer,
+				incomplete_children_commands integer,
+				incomplete_children_outputs integer,
 				incomplete_commands integer,
 				incomplete_outputs integer,
 				outputs_complete integer not null default 0,
@@ -1286,36 +1288,8 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where processes.id = updates.id;
 			end;
 
-			create trigger processes_insert_commands_complete_trigger
-			after insert on processes
-			when new.commands_complete = 0 and new.incomplete_commands = 0 and new.incomplete_children = 0
-			begin
-				update processes
-				set
-					commands_complete = updates.commands_complete,
-					commands_count = updates.commands_count,
-					commands_depth = updates.commands_depth,
-					commands_weight = updates.commands_weight
-				from (
-					select
-						processes.id,
-						min(coalesce(min(command_objects.complete), 1), coalesce(min(child_processes.commands_complete), 1)) as commands_complete,
-						coalesce(sum(command_objects.count), 0) + coalesce(sum(child_processes.commands_count), 0) as commands_count,
-						max(coalesce(max(command_objects.depth), 0), coalesce(max(child_processes.commands_depth), 0)) as commands_depth,
-						coalesce(sum(command_objects.weight), 0) + coalesce(sum(child_processes.commands_weight), 0) as commands_weight
-					from processes
-					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 'command'
-					left join objects command_objects on command_objects.id = process_objects_commands.object
-					left join process_children process_children_commands on process_children_commands.process = processes.id
-					left join processes child_processes on child_processes.id = process_children_commands.child
-					where processes.id = new.id
-					group by processes.id
-				) as updates
-				where processes.id = updates.id;
-			end;
-
 			create trigger processes_update_commands_complete_trigger
-			after update of commands_complete, incomplete_commands, incomplete_children on processes
+			after update of complete, incomplete_commands on processes
 			when new.commands_complete = 0 and new.incomplete_commands = 0 and new.incomplete_children = 0
 			begin
 				update processes
@@ -1336,34 +1310,6 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					left join objects command_objects on command_objects.id = process_objects_commands.object
 					left join process_children process_children_commands on process_children_commands.process = processes.id
 					left join processes child_processes on child_processes.id = process_children_commands.child
-					where processes.id = new.id
-					group by processes.id
-				) as updates
-				where processes.id = updates.id;
-			end;
-
-			create trigger processes_insert_outputs_complete_trigger
-			after insert on processes
-			when new.outputs_complete = 0 and new.incomplete_outputs = 0 and new.incomplete_children = 0
-			begin
-				update processes
-				set
-					outputs_complete = updates.outputs_complete,
-					outputs_count = updates.outputs_count,
-					outputs_depth = updates.outputs_depth,
-					outputs_weight = updates.outputs_weight
-				from (
-					select
-						processes.id,
-						min(coalesce(min(output_objects.complete), 1), coalesce(min(child_processes.outputs_complete), 1)) as outputs_complete,
-						coalesce(sum(output_objects.count), 0) + coalesce(sum(child_processes.outputs_count), 0) as outputs_count,
-						max(coalesce(max(output_objects.depth), 0), coalesce(max(child_processes.outputs_depth), 0)) as outputs_depth,
-						coalesce(sum(output_objects.weight), 0) + coalesce(sum(child_processes.outputs_weight), 0) as outputs_weight
-					from processes
-					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 'output'
-					left join objects output_objects on output_objects.id = process_objects_outputs.object
-					left join process_children process_children_outputs on process_children_outputs.process = processes.id
-					left join processes child_processes on child_processes.id = process_children_outputs.child
 					where processes.id = new.id
 					group by processes.id
 				) as updates
@@ -1371,7 +1317,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			end;
 
 			create trigger processes_update_outputs_complete_trigger
-			after update of outputs_complete, incomplete_outputs, incomplete_children on processes
+			after update of complete, incomplete_outputs on processes
 			when new.outputs_complete = 0 and new.incomplete_outputs = 0 and new.incomplete_children = 0
 			begin
 				update processes
@@ -1499,6 +1445,62 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					(select count(*) from tags where item = new.id)
 				)
 				where id = new.id;
+			end;
+
+			create trigger processes_insert_incomplete_children_commands_trigger
+			after insert on processes
+			when (new.incomplete_children_commands is null)
+			begin
+				update processes
+				set incomplete_children_commands = (
+					select count(*)
+					from process_children
+					left join processes child_processes on child_processes.id = process_children.child
+					where process_children.process = new.id 
+					and (child_processes.complete is null or child_processes.commands_complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger processes_update_incomplete_children_commands_trigger
+			after update of commands_complete on processes
+			when (new.commands_complete = 1)
+			begin
+				update processes
+				set incomplete_children_commands = incomplete_children_commands - 1
+				where id in (
+					select process
+					from process_children
+					where process_children.child = new.id
+				);
+			end;
+
+			create trigger processes_insert_incomplete_children_outputs_trigger
+			after insert on processes
+			when (new.incomplete_children_outputs is null)
+			begin
+				update processes
+				set incomplete_children_outputs = (
+					select count(*)
+					from process_children
+					left join processes child_processes on child_processes.id = process_children.child
+					where process_children.process = new.id 
+					and (child_processes.complete is null or child_processes.outputs_complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger processes_update_incomplete_children_outputs_trigger
+			after update of outputs_complete on processes
+			when (new.outputs_complete = 1)
+			begin
+				update processes
+				set incomplete_children_outputs = incomplete_children_outputs - 1
+				where id in (
+					select process
+					from process_children
+					where process_children.child = new.id
+				);
 			end;
 
 			create trigger processes_delete_trigger

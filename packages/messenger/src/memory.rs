@@ -105,7 +105,7 @@ impl Messenger {
 		payload: Bytes,
 	) -> Result<impl Future<Output = Result<StreamPublishInfo, Error>>, Error> {
 		let stream = self.streams.get(&name).ok_or(Error::NotFound)?.clone();
-		let future = async move { stream.publish(payload).await };
+		let future = stream.publish(payload).boxed();
 		Ok(future)
 	}
 
