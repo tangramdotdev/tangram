@@ -909,6 +909,15 @@ declare namespace tg {
 	export namespace Checksum {
 		export type Algorithm = "blake3" | "sha256" | "sha512";
 
+		/** Check if a value is a `tg.Checksum`. */
+		export let is: (value: unknown) => value is tg.Checksum;
+
+		/** Expect that a value is a `tg.Checksum`. */
+		export let expect: (value: unknown) => tg.Checksum;
+
+		/** Assert that a value is a `tg.Checksum`. */
+		export let assert: (value: unknown) => asserts value is tg.Checksum;
+
 		export let new_: (
 			input: string | Uint8Array | tg.Blob | tg.Artifact,
 			algorithm: tg.Checksum.Algorithm,
