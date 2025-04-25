@@ -12,13 +12,13 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::start::Arg,
-	) -> tg::Result<tg::process::start::Output> {
+	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			let arg = tg::process::start::Arg { remote: None };
-			let output = remote.try_start_process(id, arg).await?;
-			return Ok(output);
+			remote.try_start_process(id, arg).await?;
+			return Ok(());
 		}
 
 		// Verify the process is local.
@@ -61,23 +61,27 @@ impl Server {
 		// Drop the database connection.
 		drop(connection);
 
-		// If the process was started, then publish the status message.
-		if started {
-			tokio::spawn({
-				let server = self.clone();
-				let id = id.clone();
-				async move {
-					server
-						.messenger
-						.publish(format!("processes.{id}.status"), Bytes::new())
-						.await
-						.inspect_err(|error| tracing::error!(%error, "failed to publish"))
-						.ok();
-				}
-			});
+		if !started {
+			return Err(tg::error!(
+				"the process does not exist or cannot be started"
+			));
 		}
 
-		Ok(tg::process::start::Output { started })
+		// Publish the status message.
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			async move {
+				server
+					.messenger
+					.publish(format!("processes.{id}.status"), Bytes::new())
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.ok();
+			}
+		});
+
+		Ok(())
 	}
 
 	pub(crate) async fn handle_start_process_request<H>(
@@ -90,8 +94,8 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		let output = handle.try_start_process(&id, arg).await?;
-		let response = http::Response::builder().json(output).unwrap();
+		handle.try_start_process(&id, arg).await?;
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

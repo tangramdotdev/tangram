@@ -70,13 +70,7 @@ impl Server {
 			let arg = tg::process::start::Arg {
 				remote: process.remote().cloned(),
 			};
-			let started = server
-				.try_start_process(process.id(), arg.clone())
-				.await?
-				.started;
-			if !started {
-				return Ok(());
-			}
+			server.try_start_process(process.id(), arg.clone()).await?;
 
 			// Spawn the process task.
 			server.processes.spawn(

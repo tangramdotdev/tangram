@@ -7,17 +7,12 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub started: bool,
-}
-
 impl tg::Client {
 	pub async fn try_start_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,
-	) -> tg::Result<Output> {
+	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/processes/{id}/start");
 		let request = http::request::Builder::default()
@@ -30,7 +25,6 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.json().await?;
-		Ok(output)
+		Ok(())
 	}
 }

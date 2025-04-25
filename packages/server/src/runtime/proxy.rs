@@ -312,7 +312,7 @@ impl tg::handle::Process for Proxy {
 		&self,
 		_id: &tg::process::Id,
 		_arg: tg::process::start::Arg,
-	) -> tg::Result<tg::process::start::Output> {
+	) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 

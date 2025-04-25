@@ -248,7 +248,7 @@ pub trait Process {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::start::Output>> + Send;
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn touch_process(
 		&self,

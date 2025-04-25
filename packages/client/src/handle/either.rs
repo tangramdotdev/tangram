@@ -503,7 +503,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::start::Output>> + Send {
+	) -> impl Future<Output = tg::Result<()>> + Send {
 		match self {
 			Either::Left(s) => s.try_start_process(id, arg).left_future(),
 			Either::Right(s) => s.try_start_process(id, arg).right_future(),
