@@ -7,7 +7,7 @@ export let checksum = (
 	return Checksum.new(input, algorithm);
 };
 
-export type Checksum = string;
+export type Checksum = `${tg.Checksum.Algorithm}{':'|'-'}{string}`;
 
 export declare namespace Checksum {
 	let new_: (
@@ -18,7 +18,7 @@ export declare namespace Checksum {
 }
 
 export namespace Checksum {
-	export type Algorithm = "none" | "unsafe" | "blake3" | "sha256" | "sha512";
+	export type Algorithm = "blake3" | "sha256" | "sha512";
 
 	export let new_ = async (
 		input: string | Uint8Array | tg.Blob | tg.Artifact,
@@ -47,11 +47,7 @@ export namespace Checksum {
 	Checksum.new = new_;
 
 	export let algorithm = (checksum: Checksum): Algorithm => {
-		if (checksum === "none") {
-			return "none";
-		} else if (checksum === "unsafe") {
-			return "unsafe";
-		} else if (checksum.includes(":")) {
+		if (checksum.includes(":")) {
 			return checksum.split(":")[0]! as Algorithm;
 		} else if (checksum.includes("-")) {
 			return checksum.split("-")[0]! as Algorithm;
