@@ -157,10 +157,7 @@ impl Cli {
 		}
 
 		// Set the exit.
-		let exit = wait
-			.exit
-			.ok_or_else(|| tg::error!("expected the exit to be set"))?;
-		self.exit.replace(exit);
+		self.exit.replace(wait.exit);
 
 		Ok(())
 	}

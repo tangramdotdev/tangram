@@ -9,8 +9,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub exit: Option<u8>,
+	pub exit: u8,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub output: Option<tg::value::Data>,

@@ -31,9 +31,13 @@ impl Server {
 				return Err(tg::error!("expected the process to be finished"));
 			}
 			let output = server.get_process(&id).await?;
+			let exit = output
+				.data
+				.exit
+				.ok_or_else(|| tg::error!("expected the exit to be set"))?;
 			let output = tg::process::wait::Output {
 				error: output.data.error,
-				exit: output.data.exit,
+				exit,
 				output: output.data.output,
 				status: output.data.status,
 			};

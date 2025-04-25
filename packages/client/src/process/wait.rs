@@ -13,8 +13,7 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub exit: Option<u8>,
+	pub exit: u8,
 
 	#[serde(
 		default,
@@ -29,7 +28,7 @@ pub struct Output {
 #[derive(Clone, Debug)]
 pub struct Wait {
 	pub error: Option<tg::Error>,
-	pub exit: Option<u8>,
+	pub exit: u8,
 	pub output: Option<tg::Value>,
 	pub status: tg::process::Status,
 }
@@ -40,16 +39,14 @@ impl Wait {
 			return Err(error);
 		}
 		match self.exit {
-			Some(code) if code < 128 => {
-				if code != 0 {
-					return Err(tg::error!("the process exited with code {code}"));
-				}
+			0 => (),
+			1..128 => {
+				return Err(tg::error!("the process exited with code {}", self.exit));
 			},
-			Some(code) if code >= 128 => {
-				let signal = code - 128;
+			128.. => {
+				let signal = self.exit - 128;
 				return Err(tg::error!("the process exited with signal {signal}"));
 			},
-			_ => (),
 		}
 		let output = self
 			.output

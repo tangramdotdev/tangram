@@ -507,7 +507,7 @@ impl Runtime {
 		let output = super::Output {
 			checksum: None,
 			error: None,
-			exit: Some(exit),
+			exit,
 			output,
 		};
 

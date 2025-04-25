@@ -224,7 +224,7 @@ impl Runtime {
 		let output = crate::runtime::Output {
 			checksum: Some(checksum),
 			error: None,
-			exit: Some(0),
+			exit: 0,
 			output: Some(output),
 		};
 

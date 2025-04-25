@@ -26,7 +26,7 @@ pub enum Runtime {
 pub struct Output {
 	pub checksum: Option<tg::Checksum>,
 	pub error: Option<tg::Error>,
-	pub exit: Option<u8>,
+	pub exit: u8,
 	#[allow(clippy::struct_field_names)]
 	pub output: Option<tg::Value>,
 }
@@ -49,7 +49,7 @@ impl Runtime {
 			Err(error) => Output {
 				checksum: None,
 				error: Some(error),
-				exit: None,
+				exit: 1,
 				output: None,
 			},
 		};

@@ -29,7 +29,7 @@ impl Cli {
 				code = tg::error::Code::Cancelation,
 				"the process was explicitly canceled"
 			)),
-			exit: None,
+			exit: 1,
 			output: None,
 			remote,
 		};

@@ -107,7 +107,7 @@ impl Runtime {
 		let output = crate::runtime::Output {
 			checksum: None,
 			error: None,
-			exit: Some(0),
+			exit: 0,
 			output: Some(output),
 		};
 

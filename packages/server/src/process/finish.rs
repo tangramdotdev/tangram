@@ -39,7 +39,7 @@ impl Server {
 		let tg::process::finish::Arg {
 			mut error,
 			output,
-			exit,
+			mut exit,
 			..
 		} = arg;
 
@@ -106,7 +106,7 @@ impl Server {
 						code = tg::error::Code::Cancelation,
 						"the parent was finished"
 					)),
-					exit: None,
+					exit: 1,
 					output: None,
 					remote: None,
 				};
@@ -120,14 +120,17 @@ impl Server {
 
 		// Verify the checksum if one was provided.
 		if let Some(expected) = &data.expected_checksum {
-			let actual = arg
-				.checksum
-				.as_ref()
-				.ok_or_else(|| tg::error!("the actual checksum was not set"))?;
-			if expected != actual {
-				error = Some(tg::error!(
-					"checksum does not match, expected {expected}, actual {actual}"
-				));
+			if exit == 0 {
+				let actual = arg
+					.checksum
+					.as_ref()
+					.ok_or_else(|| tg::error!("the actual checksum was not set"))?;
+				if expected != actual {
+					error = Some(tg::error!(
+						"checksum does not match, expected {expected}, actual {actual}"
+					));
+					exit = 1;
+				}
 			}
 		}
 
@@ -162,7 +165,7 @@ impl Server {
 			error.map(db::value::Json),
 			finished_at.format(&Rfc3339).unwrap(),
 			output.clone().map(db::value::Json),
-			exit.map(db::value::Json),
+			exit,
 			tg::process::Status::Finished,
 			touched_at.format(&Rfc3339).unwrap(),
 			id,

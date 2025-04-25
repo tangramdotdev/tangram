@@ -66,7 +66,7 @@ impl Server {
 					let arg = tg::process::finish::Arg {
 						checksum: None,
 						error,
-						exit: None,
+						exit: 1,
 						output: None,
 						remote: None,
 					};

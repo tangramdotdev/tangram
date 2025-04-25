@@ -121,7 +121,7 @@ impl Server {
 									code = tg::error::Code::Cancelation,
 									"the process was canceled"
 								)),
-								exit: None,
+								exit: 1,
 								output: None,
 								remote: None,
 							};

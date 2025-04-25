@@ -425,19 +425,19 @@ impl Runtime {
 
 		let output = match future::select(pin!(future), pin!(error_or_signal)).await {
 			future::Either::Left((Ok(output), _)) => super::Output {
-				exit: Some(0),
+				exit: 0,
 				output: Some(output),
 				..Default::default()
 			},
 			future::Either::Left((Err(error), _))
 			| future::Either::Right((future::Either::Left((error, _)), _)) => super::Output {
 				error: Some(error),
-				exit: Some(1),
+				exit: 1,
 				..Default::default()
 			},
 			future::Either::Right((future::Either::Right((signal, _)), _)) => super::Output {
 				error: Some(tg::error!(?signal, "process terminated with signal")),
-				exit: Some(signal.map_or(1, |signal| 128u8 + signal as u8)),
+				exit: signal.map_or(1, |signal| 128u8 + signal as u8),
 				..Default::default()
 			},
 		};

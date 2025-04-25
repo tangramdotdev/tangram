@@ -105,8 +105,11 @@ export class Process {
 		if (wait.error) {
 			throw wait.error;
 		}
-		if (wait.exit !== undefined && wait.exit !== 0) {
+		if (wait.exit >= 1 && wait.exit < 128) {
 			throw new Error(`the process exited with code ${wait.exit}`);
+		}
+		if (wait.exit >= 128) {
+			throw new Error(`the process exited with signal ${wait.exit}`);
 		}
 		return wait.output;
 	}
@@ -279,8 +282,11 @@ export class Process {
 		if (wait.error) {
 			throw wait.error;
 		}
-		if (wait.exit !== undefined && wait.exit !== 0) {
+		if (wait.exit >= 1 && wait.exit < 128) {
 			throw new Error(`the process exited with code ${wait.exit}`);
+		}
+		if (wait.exit >= 128) {
+			throw new Error(`the process exited with signal ${wait.exit}`);
 		}
 		return wait.output;
 	}
@@ -560,7 +566,7 @@ export namespace Process {
 
 	export type WaitOutput = {
 		error: tg.Error | undefined;
-		exit: number | undefined;
+		exit: number;
 		output: tg.Value | undefined;
 		status: tg.Process.Status;
 	};
