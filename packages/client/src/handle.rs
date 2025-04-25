@@ -219,7 +219,7 @@ pub trait Process {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::finish::Output>> + Send;
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn heartbeat_process(
 		&self,

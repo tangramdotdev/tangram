@@ -1494,7 +1494,7 @@ impl tg::handle::Process for Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::finish::Output>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.try_finish_process(id, arg)
 	}
 

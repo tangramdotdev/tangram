@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{TryStreamExt as _, future, stream::FuturesUnordered};
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -13,7 +13,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::finish::Arg,
-	) -> tg::Result<tg::process::finish::Output> {
+	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let client = self.get_remote_client(remote.clone()).await?;
@@ -21,8 +21,8 @@ impl Server {
 				remote: None,
 				..arg.clone()
 			};
-			let output = client.try_finish_process(id, arg).await?;
-			return Ok(output);
+			client.try_finish_process(id, arg).await?;
+			return Ok(());
 		}
 
 		// If the process is not the current process then abort it.
@@ -64,7 +64,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
 		if n == 0 {
-			return Ok(tg::process::finish::Output { finished: false });
+			return Err(tg::error!("failed to find the process"));
 		}
 
 		// Get the process.
@@ -100,21 +100,21 @@ impl Server {
 			.clone()
 			.into_iter()
 			.map(|child| async move {
+				let error = tg::error!(
+					code = tg::error::Code::Cancelation,
+					"the parent was finished"
+				);
 				let arg = tg::process::finish::Arg {
 					checksum: None,
-					error: Some(tg::error!(
-						code = tg::error::Code::Cancelation,
-						"the parent was finished"
-					)),
+					error: Some(error),
 					exit: 1,
 					output: None,
 					remote: None,
 				};
-				let output = self.try_finish_process(&child, arg).await?;
-				Ok::<_, tg::Error>((child, output.finished))
+				self.try_finish_process(&child, arg).await?;
+				Ok::<_, tg::Error>(())
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_filter_map(|(child, finished)| future::ready(Ok(finished.then_some(child))))
 			.try_collect::<Vec<_>>()
 			.await?;
 
@@ -257,9 +257,7 @@ impl Server {
 			}
 		});
 
-		let output = tg::process::finish::Output { finished: true };
-
-		Ok(output)
+		Ok(())
 	}
 
 	pub(crate) async fn handle_finish_process_request<H>(
@@ -272,8 +270,8 @@ impl Server {
 	{
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		let output = handle.try_finish_process(&id, arg).await?;
-		let response = http::Response::builder().json(output).unwrap();
+		handle.try_finish_process(&id, arg).await?;
+		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
 }

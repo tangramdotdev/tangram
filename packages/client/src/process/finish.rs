@@ -18,19 +18,14 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub finished: bool,
-}
-
 impl tg::Process {
-	pub async fn finish<H>(&self, handle: &H, arg: tg::process::finish::Arg) -> tg::Result<bool>
+	pub async fn finish<H>(&self, handle: &H, arg: tg::process::finish::Arg) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
 		let id = self.id();
-		let output = handle.try_finish_process(id, arg).await?;
-		Ok(output.finished)
+		handle.try_finish_process(id, arg).await?;
+		Ok(())
 	}
 }
 
@@ -39,7 +34,7 @@ impl tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<Output> {
+	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/processes/{id}/finish");
 		let request = http::request::Builder::default()
@@ -52,7 +47,6 @@ impl tg::Client {
 			let error = response.json().await?;
 			return Err(error);
 		}
-		let output = response.json().await?;
-		Ok(output)
+		Ok(())
 	}
 }
