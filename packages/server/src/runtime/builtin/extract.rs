@@ -14,7 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead};
 use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
 impl Runtime {
-	pub async fn extract(&self, process: &tg::Process) -> tg::Result<tg::Value> {
+	pub async fn extract(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
 		let server = &self.server;
 		let command = process.command(server).await?;
 
@@ -125,7 +125,16 @@ impl Runtime {
 		)
 		.await;
 
-		Ok(artifact.into())
+		let output = artifact.into();
+
+		let output = crate::runtime::Output {
+			checksum: None,
+			error: None,
+			exit: Some(0),
+			output: Some(output),
+		};
+
+		Ok(output)
 	}
 
 	pub(super) async fn extract_tar(

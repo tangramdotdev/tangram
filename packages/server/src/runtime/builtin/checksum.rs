@@ -2,7 +2,7 @@ use super::Runtime;
 use tangram_client as tg;
 
 impl Runtime {
-	pub async fn checksum(&self, process: &tg::Process) -> tg::Result<tg::Value> {
+	pub async fn checksum(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
 		let server = &self.server;
 		let command = process.command(server).await?;
 
@@ -37,6 +37,15 @@ impl Runtime {
 			return Err(tg::error!("invalid object"));
 		};
 
-		Ok(checksum.to_string().into())
+		let output = checksum.to_string().into();
+
+		let output = crate::runtime::Output {
+			checksum: None,
+			error: None,
+			exit: Some(0),
+			output: Some(output),
+		};
+
+		Ok(output)
 	}
 }

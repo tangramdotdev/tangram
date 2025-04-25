@@ -59,11 +59,6 @@ impl Runtime {
 		}
 		.await?;
 
-		let output = super::Output {
-			output: Some(output),
-			..Default::default()
-		};
-
 		Ok(output)
 	}
 }

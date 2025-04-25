@@ -7,7 +7,7 @@ use tokio::io::AsyncRead;
 use tokio_util::compat::{FuturesAsyncWriteCompatExt as _, TokioAsyncWriteCompatExt as _};
 
 impl Runtime {
-	pub async fn archive(&self, process: &tg::Process) -> tg::Result<tg::Value> {
+	pub async fn archive(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
 		let server = &self.server;
 		let command = process.command(server).await?;
 
@@ -52,8 +52,16 @@ impl Runtime {
 			tg::ArchiveFormat::Tar => tar(server, &artifact, compression).await?,
 			tg::ArchiveFormat::Zip => zip(server, &artifact).await?,
 		};
+		let output = blob.into();
 
-		Ok(blob.into())
+		let output = crate::runtime::Output {
+			checksum: None,
+			error: None,
+			exit: Some(0),
+			output: Some(output),
+		};
+
+		Ok(output)
 	}
 }
 

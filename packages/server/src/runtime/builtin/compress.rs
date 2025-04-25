@@ -6,7 +6,7 @@ use tangram_futures::read::shared_position_reader::SharedPositionReader;
 use tokio::io::AsyncRead;
 
 impl Runtime {
-	pub async fn compress(&self, process: &tg::Process) -> tg::Result<tg::Value> {
+	pub async fn compress(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
 		let server = &self.server;
 		let command = process.command(server).await?;
 
@@ -102,6 +102,13 @@ impl Runtime {
 			tg::File::with_contents(blob).into()
 		} else {
 			unreachable!()
+		};
+
+		let output = crate::runtime::Output {
+			checksum: None,
+			error: None,
+			exit: Some(0),
+			output: Some(output),
 		};
 
 		Ok(output)

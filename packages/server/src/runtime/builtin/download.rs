@@ -4,11 +4,11 @@ use futures::TryStreamExt as _;
 use num::ToPrimitive as _;
 use std::{
 	pin::Pin,
-	sync::{Arc, atomic::AtomicU64},
+	sync::{Arc, Mutex, atomic::AtomicU64},
 	time::Duration,
 };
 use tangram_client as tg;
-use tokio::io::{AsyncBufReadExt as _, AsyncRead, BufReader};
+use tokio::io::{AsyncBufReadExt as _, AsyncRead};
 use tokio_util::io::StreamReader;
 use url::Url;
 
@@ -19,14 +19,14 @@ enum Mode {
 }
 
 impl Runtime {
-	pub async fn download(&self, process: &tg::Process) -> tg::Result<tg::Value> {
+	pub async fn download(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
 		let server = &self.server;
 		let command = process.command(server).await?;
 
-		// Ensure the process has a checksum.
-		if process.load(server).await?.expected_checksum.is_none() {
+		// Get the expected checksum.
+		let Some(expected_checksum) = process.load(server).await?.expected_checksum.clone() else {
 			return Err(tg::error!("a download must have a checksum"));
-		}
+		};
 
 		// Get the args.
 		let args = command.args(server).await?;
@@ -85,21 +85,29 @@ impl Runtime {
 			log_task_abort_handle.abort();
 		};
 
+		// Create the checksum writer.
+		let checksum = tg::checksum::Writer::new(expected_checksum.algorithm());
+		let checksum = Arc::new(Mutex::new(checksum));
+
 		// Create the reader.
 		let stream = response
 			.bytes_stream()
 			.map_err(std::io::Error::other)
 			.inspect_ok({
+				let checksum = checksum.clone();
 				let n = downloaded.clone();
 				move |bytes| {
+					// Update the checksum.
+					checksum.lock().unwrap().update(bytes);
+
+					// Update the progress.
 					n.fetch_add(
 						bytes.len().to_u64().unwrap(),
 						std::sync::atomic::Ordering::Relaxed,
 					);
 				}
 			});
-		let reader = StreamReader::new(stream);
-		let mut reader = BufReader::with_capacity(8192, reader);
+		let mut reader = StreamReader::new(stream);
 
 		// Fill the buffer.
 		let header = reader
@@ -133,6 +141,7 @@ impl Runtime {
 				tokio::io::copy(&mut reader, &mut file)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
+				drop(reader);
 			},
 			Mode::Decompress(format) => {
 				let mut reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match format {
@@ -155,6 +164,7 @@ impl Runtime {
 				tokio::io::copy(&mut reader, &mut file)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
+				drop(reader);
 			},
 			Mode::Extract(format, compression) => match format {
 				tg::ArchiveFormat::Tar => {
@@ -165,6 +175,13 @@ impl Runtime {
 				},
 			},
 		}
+
+		// Get the checksum.
+		let checksum = Arc::try_unwrap(checksum)
+			.unwrap()
+			.into_inner()
+			.unwrap()
+			.finalize();
 
 		// Check in the temp.
 		let arg = tg::checkin::Arg {
@@ -202,6 +219,13 @@ impl Runtime {
 				.into(),
 
 			_ => artifact.into(),
+		};
+
+		let output = crate::runtime::Output {
+			checksum: Some(checksum),
+			error: None,
+			exit: Some(0),
+			output: Some(output),
 		};
 
 		Ok(output)

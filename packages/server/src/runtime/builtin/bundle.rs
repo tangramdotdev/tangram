@@ -7,7 +7,7 @@ use tangram_client as tg;
 static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 
 impl Runtime {
-	pub async fn bundle(&self, process: &tg::Process) -> tg::Result<tg::Value> {
+	pub async fn bundle(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
 		let server = &self.server;
 		let command = process.command(server).await?;
 
@@ -28,7 +28,14 @@ impl Runtime {
 
 		// If there are no dependencies, then return the artifact.
 		if dependencies.is_empty() {
-			return Ok(artifact.into());
+			let output = artifact.into();
+			let output = crate::runtime::Output {
+				checksum: None,
+				error: None,
+				exit: Some(0),
+				output: Some(output),
+			};
+			return Ok(output);
 		}
 
 		// Create the artifacts directory by removing all dependencies.
@@ -74,8 +81,16 @@ impl Runtime {
 			)
 			.await?
 			.build();
+		let output = output.into();
 
-		Ok(output.into())
+		let output = crate::runtime::Output {
+			checksum: None,
+			error: None,
+			exit: Some(0),
+			output: Some(output),
+		};
+
+		Ok(output)
 	}
 
 	/// Remove all dependencies from an artifact and its children recursively.
