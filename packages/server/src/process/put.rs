@@ -132,39 +132,41 @@ impl Server {
 					?22
 				)
 				on conflict (id) do update set
-					cacheable = ?2,
-					checksum = ?3,
+					actual_checksum = ?2,
+					cacheable = ?3,
 					command = ?4,
 					created_at = ?5,
 					dequeued_at = ?6,
 					enqueued_at = ?7,
 					error = ?8,
 					exit = ?9,
-					finished_at = ?10,
-					host = ?11,
-					log = ?12,
-					mounts = ?13,
-					network = ?14,
-					output = ?15,
-					retry = ?16,
-					started_at = ?17,
-					status = ?18,
-					stderr = ?19,
-					stdin = ?20,
-					stdout = ?21,
-					touched_at = ?22
+					expected_checksum = ?10,
+					finished_at = ?11,
+					host = ?12,
+					log = ?13,
+					mounts = ?14,
+					network = ?15,
+					output = ?16,
+					retry = ?17,
+					started_at = ?18,
+					status = ?19,
+					stderr = ?20,
+					stdin = ?21,
+					stdout = ?22,
+					touched_at = ?23
 			"
 		);
 		let params = db::params![
 			id,
+			arg.data.actual_checksum,
 			arg.data.cacheable,
-			arg.data.checksum,
 			arg.data.command,
 			arg.data.created_at.format(&Rfc3339).unwrap(),
 			arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.error.as_ref().map(db::value::Json),
 			arg.data.exit,
+			arg.data.expected_checksum,
 			arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 			arg.data.host,
 			arg.data.log,
@@ -297,28 +299,28 @@ impl Server {
 					$22
 				)
 				on conflict (id) do update set
-					cacheable = $2,
-					checksum = $3,
+					actual_checksum = $2,
+					cacheable = $3,
 					command = $4,
 					created_at = $5,
 					dequeued_at = $6,
 					enqueued_at = $7,
 					error = $8,
 					exit = $9,
-					finished_at = $10,
-					host = $11,
-					log = $12,
-					mounts = $13,
-					network = $14,
-					output = $15,
-					retry = $16,
-					started_at = $17,
-					status = $18,
-					stderr = $19,
-					stdin = $20,
-					stdout = $21,
-					touched_at = $22;
-
+					expected_checksum = $10,
+					finished_at = $11,
+					host = $12,
+					log = $13,
+					mounts = $14,
+					network = $15,
+					output = $16,
+					retry = $17,
+					started_at = $18,
+					status = $19,
+					stderr = $20,
+					stdin = $21,
+					stdout = $22,
+					touched_at = $23;
 			"
 		);
 		transaction
@@ -326,8 +328,8 @@ impl Server {
 				statement,
 				&[
 					&id.to_string(),
+					&arg.data.actual_checksum.as_ref().map(ToString::to_string),
 					&i64::from(arg.data.cacheable),
-					&arg.data.checksum.as_ref().map(ToString::to_string),
 					&arg.data.command.to_string(),
 					&arg.data.created_at.format(&Rfc3339).unwrap(),
 					&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
@@ -337,6 +339,7 @@ impl Server {
 						.as_ref()
 						.map(|error| serde_json::to_string(error).unwrap()),
 					&arg.data.exit.map(|exit| exit.to_i64().unwrap()),
+					&arg.data.expected_checksum.as_ref().map(ToString::to_string),
 					&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
 					&arg.data.host,
 					&arg.data

@@ -24,21 +24,15 @@ impl Runtime {
 	}
 
 	pub async fn run(&self, process: &tg::Process) -> super::Output {
-		let (error, exit, output) = match self.run_inner(process).await {
-			Ok((exit, output)) => (None, exit, output),
-			Err(error) => (Some(error), None, None),
-		};
-		super::Output {
-			error,
-			exit,
-			output,
-		}
+		self.run_inner(process)
+			.await
+			.unwrap_or_else(|error| super::Output {
+				error: Some(error),
+				..Default::default()
+			})
 	}
 
-	async fn run_inner(
-		&self,
-		process: &tg::Process,
-	) -> tg::Result<(Option<u8>, Option<tg::Value>)> {
+	async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let state = process.load(&self.server).await?;
 		let command = process.command(&self.server).await?;
 		let command = command.data(&self.server).await?;
@@ -464,7 +458,7 @@ impl Runtime {
 			}
 		});
 
-		// Wait for the child process to complete.
+		// Wait for the process to complete.
 		let exit = child.wait().await.map_err(
 			|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"),
 		)?;
@@ -488,9 +482,9 @@ impl Runtime {
 
 		// Create the output.
 		let output = output_path.join("output");
-		let exists = tokio::fs::try_exists(&output)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to determine in the path exists"))?;
+		let exists = tokio::fs::try_exists(&output).await.map_err(|source| {
+			tg::error!(!source, "failed to determine if the output path exists")
+		})?;
 		let output = if exists {
 			let arg = tg::checkin::Arg {
 				cache: true,
@@ -509,6 +503,14 @@ impl Runtime {
 			None
 		};
 
-		Ok((Some(exit), output))
+		// Create the output.
+		let output = super::Output {
+			checksum: None,
+			error: None,
+			exit: Some(exit),
+			output,
+		};
+
+		Ok(output)
 	}
 }

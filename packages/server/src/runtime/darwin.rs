@@ -25,21 +25,15 @@ impl Runtime {
 	}
 
 	pub async fn run(&self, process: &tg::Process) -> super::Output {
-		let (error, exit, value) = match self.run_inner(process).await {
-			Ok((exit, value)) => (None, exit, value),
-			Err(error) => (Some(error), None, None),
-		};
-		super::Output {
-			error,
-			exit,
-			output: value,
-		}
+		self.run_inner(process)
+			.await
+			.unwrap_or_else(|error| super::Output {
+				error: Some(error),
+				..Default::default()
+			})
 	}
 
-	pub async fn run_inner(
-		&self,
-		process: &tg::Process,
-	) -> tg::Result<(Option<u8>, Option<tg::Value>)> {
+	pub async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let state = process.load(&self.server).await?;
 		let command = process.command(&self.server).await?;
 		let command = command.data(&self.server).await?;
@@ -298,7 +292,7 @@ impl Runtime {
 			.map_err(|source| {
 				tg::error!(!source, "failed to determine if the output path exists")
 			})?;
-		let value = if exists {
+		let output = if exists {
 			let arg = tg::checkin::Arg {
 				cache: true,
 				destructive: true,
@@ -316,6 +310,14 @@ impl Runtime {
 			None
 		};
 
-		Ok((Some(exit), value))
+		// Create the output.
+		let output = super::Output {
+			checksum: None,
+			error: None,
+			exit: Some(exit),
+			output,
+		};
+
+		Ok(output)
 	}
 }

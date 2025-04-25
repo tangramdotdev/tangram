@@ -10,11 +10,11 @@ use time::format_description::well_known::Rfc3339;
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub actual_checksum: Option<tg::Checksum>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub cacheable: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub checksum: Option<tg::Checksum>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub children: Option<Vec<tg::process::Id>>,
@@ -37,6 +37,9 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub exit: Option<u8>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub expected_checksum: Option<tg::Checksum>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Rfc3339>")]

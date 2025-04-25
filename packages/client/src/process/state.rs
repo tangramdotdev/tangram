@@ -2,8 +2,8 @@ use crate as tg;
 
 #[derive(Clone, Debug)]
 pub struct State {
+	pub actual_checksum: Option<tg::Checksum>,
 	pub cacheable: bool,
-	pub checksum: Option<tg::Checksum>,
 	pub children: Option<Vec<tg::Process>>,
 	pub command: tg::Command,
 	pub created_at: time::OffsetDateTime,
@@ -11,6 +11,7 @@ pub struct State {
 	pub enqueued_at: Option<time::OffsetDateTime>,
 	pub error: Option<tg::Error>,
 	pub exit: Option<u8>,
+	pub expected_checksum: Option<tg::Checksum>,
 	pub finished_at: Option<time::OffsetDateTime>,
 	pub log: Option<tg::Blob>,
 	pub mounts: Vec<tg::process::Mount>,
@@ -28,8 +29,8 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 	type Error = tg::Error;
 
 	fn try_from(value: tg::process::Data) -> Result<Self, Self::Error> {
+		let actual_checksum = value.actual_checksum;
 		let cacheable = value.cacheable;
-		let checksum = value.checksum;
 		let children = value.children.map(|children| {
 			children
 				.into_iter()
@@ -42,6 +43,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let enqueued_at = value.enqueued_at;
 		let error = value.error;
 		let exit = value.exit;
+		let expected_checksum = value.expected_checksum;
 		let finished_at = value.finished_at;
 		let log = value.log.map(tg::Blob::with_id);
 		let mounts = value.mounts.into_iter().map(Into::into).collect();
@@ -54,8 +56,8 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let stdin = value.stdin;
 		let stdout = value.stdout;
 		Ok(State {
+			actual_checksum,
 			cacheable,
-			checksum,
 			children,
 			command,
 			created_at,
@@ -63,6 +65,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			enqueued_at,
 			error,
 			exit,
+			expected_checksum,
 			finished_at,
 			log,
 			mounts,

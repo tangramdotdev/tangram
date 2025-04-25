@@ -1,11 +1,9 @@
-use super::Runtime;
 use crate::Server;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
 use futures::{Stream, TryStreamExt as _, future, stream};
 use std::{collections::BTreeMap, fmt::Write as _, path::Path, pin::pin};
 use tangram_client as tg;
-use tangram_either::Either;
 use tangram_futures::task::Stop;
 use tangram_sandbox as sandbox;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
@@ -63,85 +61,6 @@ pub fn render_env(
 		})
 		.collect::<tg::Result<_>>()?;
 	Ok(output)
-}
-
-pub async fn compute_checksum(
-	runtime: &Runtime,
-	process: &tg::Process,
-	value: &tg::Value,
-	checksum: &tg::Checksum,
-) -> tg::Result<tg::Checksum> {
-	let algorithm = checksum.algorithm();
-	let algorithm = if algorithm == tg::checksum::Algorithm::None {
-		tg::checksum::Algorithm::Sha256
-	} else {
-		algorithm
-	};
-
-	if algorithm == tg::checksum::Algorithm::Any {
-		return Ok(checksum.clone());
-	}
-
-	let host = "builtin";
-	let executable = tg::command::Executable::Path("checksum".into());
-	let args = vec![value.clone(), algorithm.to_string().into()];
-	let command = tg::Command::builder(host, executable).args(args).build();
-
-	// If the process is remote, then push the command.
-	let remote = process.remote();
-	if let Some(remote) = remote {
-		let arg = tg::push::Arg {
-			items: vec![Either::Right(
-				command
-					.id(runtime.server())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to find command id"))?
-					.into(),
-			)],
-
-			remote: Some(remote.to_owned()),
-			..Default::default()
-		};
-		let stream = runtime.server().push(arg).await?;
-
-		// Consume the stream and log progress.
-		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
-			match event {
-				tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
-					if indicator.name == "bytes" {
-						let message = format!("{indicator}\n");
-						log(
-							runtime.server(),
-							process,
-							tg::process::log::Stream::Stderr,
-							message,
-						)
-						.await;
-					}
-				},
-				tg::progress::Event::Output(()) => {
-					break;
-				},
-				_ => {},
-			}
-		}
-	}
-
-	let arg = tg::process::spawn::Arg {
-		command: Some(command.id(runtime.server()).await?),
-		parent: Some(process.id().clone()),
-		remote: remote.cloned(),
-		..Default::default()
-	};
-	let process = tg::Process::spawn(runtime.server(), arg).await?;
-	let output = process.output(runtime.server()).await?;
-	let output = output
-		.try_unwrap_string()
-		.map_err(|source| tg::error!(!source, "expected a string"))?;
-	let checksum = output.parse()?;
-
-	Ok(checksum)
 }
 
 pub async fn stdio_task(

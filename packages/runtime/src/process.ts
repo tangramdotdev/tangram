@@ -364,11 +364,6 @@ export class Process {
 		return this.#id;
 	}
 
-	async checksum(): Promise<tg.Checksum | undefined> {
-		await this.load();
-		return this.#state!.checksum;
-	}
-
 	async command(): Promise<tg.Command> {
 		await this.load();
 		return this.#state!.command;
@@ -543,7 +538,6 @@ export namespace Process {
 	};
 
 	export type State = {
-		checksum: tg.Checksum | undefined;
 		command: tg.Command;
 		error: tg.Error | undefined;
 		exit: number | undefined;

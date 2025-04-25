@@ -64,6 +64,7 @@ impl Server {
 						"the process's heartbeat expired"
 					));
 					let arg = tg::process::finish::Arg {
+						checksum: None,
 						error,
 						exit: None,
 						output: None,

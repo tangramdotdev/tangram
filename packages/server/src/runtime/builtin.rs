@@ -24,18 +24,15 @@ impl Runtime {
 	}
 
 	pub async fn run(&self, process: &tg::Process) -> super::Output {
-		let (error, exit, output) = match self.run_inner(process).await {
-			Ok(output) => (None, None, Some(output)),
-			Err(error) => (Some(error), None, None),
-		};
-		super::Output {
-			error,
-			exit,
-			output,
-		}
+		self.run_inner(process)
+			.await
+			.unwrap_or_else(|error| super::Output {
+				error: Some(error),
+				..Default::default()
+			})
 	}
 
-	async fn run_inner(&self, process: &tg::Process) -> tg::Result<tg::Value> {
+	async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let server = &self.server;
 
 		// Get the executable.
@@ -48,7 +45,7 @@ impl Runtime {
 			.to_str()
 			.unwrap();
 
-		let value = match name {
+		let output = match name {
 			"archive" => self.archive(process).boxed(),
 			"bundle" => self.bundle(process).boxed(),
 			"checksum" => self.checksum(process).boxed(),
@@ -62,6 +59,11 @@ impl Runtime {
 		}
 		.await?;
 
-		Ok(value)
+		let output = super::Output {
+			output: Some(output),
+			..Default::default()
+		};
+
+		Ok(output)
 	}
 }

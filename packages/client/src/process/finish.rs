@@ -4,6 +4,9 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checksum: Option<tg::Checksum>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

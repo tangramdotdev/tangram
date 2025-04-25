@@ -5,25 +5,33 @@ use tangram_futures::write::Ext as _;
 use tokio::io::AsyncWriteExt as _;
 
 impl Server {
+	pub(crate) async fn checksum_blob(
+		&self,
+		blob: &tg::Blob,
+		algorithm: tg::checksum::Algorithm,
+	) -> tg::Result<tg::Checksum> {
+		let mut writer = tg::checksum::Writer::new(algorithm);
+		let mut reader = blob.read(self, tg::blob::read::Arg::default()).await?;
+		tokio::io::copy(&mut reader, &mut writer)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;
+		let checksum = writer.finalize();
+		Ok(checksum)
+	}
+
 	pub(crate) async fn checksum_artifact(
 		&self,
 		artifact: &tg::Artifact,
 		algorithm: tg::checksum::Algorithm,
 	) -> tg::Result<tg::Checksum> {
-		match algorithm {
-			tg::checksum::Algorithm::None => Ok(tg::Checksum::None),
-			tg::checksum::Algorithm::Any => Ok(tg::Checksum::Any),
-			algorithm => {
-				let mut writer = tg::checksum::Writer::new(algorithm);
-				writer
-					.write_uvarint(0)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to write the archive version"))?;
-				self.checksum_artifact_inner(&mut writer, artifact).await?;
-				let checksum = writer.finalize();
-				Ok(checksum)
-			},
-		}
+		let mut writer = tg::checksum::Writer::new(algorithm);
+		writer
+			.write_uvarint(0)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the archive version"))?;
+		self.checksum_artifact_inner(&mut writer, artifact).await?;
+		let checksum = writer.finalize();
+		Ok(checksum)
 	}
 
 	async fn checksum_artifact_inner(
@@ -102,25 +110,5 @@ impl Server {
 			},
 		}
 		Ok(())
-	}
-
-	pub(crate) async fn checksum_blob(
-		&self,
-		blob: &tg::Blob,
-		algorithm: tg::checksum::Algorithm,
-	) -> tg::Result<tg::Checksum> {
-		match algorithm {
-			tg::checksum::Algorithm::None => Ok(tg::Checksum::None),
-			tg::checksum::Algorithm::Any => Ok(tg::Checksum::Any),
-			algorithm => {
-				let mut writer = tg::checksum::Writer::new(algorithm);
-				let mut reader = blob.read(self, tg::blob::read::Arg::default()).await?;
-				tokio::io::copy(&mut reader, &mut writer)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;
-				let checksum = writer.finalize();
-				Ok(checksum)
-			},
-		}
 	}
 }

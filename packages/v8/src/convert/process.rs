@@ -108,8 +108,9 @@ impl ToV8 for tg::process::State {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
-		let key = v8::String::new_external_onebyte_static(scope, "checksum".as_bytes()).unwrap();
-		let value = self.checksum.to_v8(scope)?;
+		let key =
+			v8::String::new_external_onebyte_static(scope, "actual_checksum".as_bytes()).unwrap();
+		let value = self.actual_checksum.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "command".as_bytes()).unwrap();
@@ -134,6 +135,11 @@ impl ToV8 for tg::process::State {
 
 		let key = v8::String::new_external_onebyte_static(scope, "exit".as_bytes()).unwrap();
 		let value = self.exit.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key =
+			v8::String::new_external_onebyte_static(scope, "expected_checksum".as_bytes()).unwrap();
+		let value = self.expected_checksum.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "finished_at".as_bytes()).unwrap();
@@ -242,17 +248,18 @@ impl FromV8 for tg::process::State {
 	) -> tg::Result<Self> {
 		let value = value.to_object(scope).unwrap();
 
+		let actual_checksum =
+			v8::String::new_external_onebyte_static(scope, "actual_checksum".as_bytes()).unwrap();
+		let actual_checksum = value.get(scope, actual_checksum.into()).unwrap();
+		let actual_checksum = <_>::from_v8(scope, actual_checksum).map_err(|source| {
+			tg::error!(!source, "failed to deserialize the actual_checksum field")
+		})?;
+
 		let cacheable =
 			v8::String::new_external_onebyte_static(scope, "cacheable".as_bytes()).unwrap();
 		let cacheable = value.get(scope, cacheable.into()).unwrap();
 		let cacheable = <_>::from_v8(scope, cacheable)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the cacheable field"))?;
-
-		let checksum =
-			v8::String::new_external_onebyte_static(scope, "checksum".as_bytes()).unwrap();
-		let checksum = value.get(scope, checksum.into()).unwrap();
-		let checksum = <_>::from_v8(scope, checksum)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the checksum field"))?;
 
 		let children =
 			v8::String::new_external_onebyte_static(scope, "children".as_bytes()).unwrap();
@@ -292,6 +299,13 @@ impl FromV8 for tg::process::State {
 		let exit = value.get(scope, exit.into()).unwrap();
 		let exit = <_>::from_v8(scope, exit)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the exit field"))?;
+
+		let expected_checksum =
+			v8::String::new_external_onebyte_static(scope, "expected_checksum".as_bytes()).unwrap();
+		let expected_checksum = value.get(scope, expected_checksum.into()).unwrap();
+		let expected_checksum = <_>::from_v8(scope, expected_checksum).map_err(|source| {
+			tg::error!(!source, "failed to deserialize the expected_checksum field")
+		})?;
 
 		let finished_at =
 			v8::String::new_external_onebyte_static(scope, "finished_at".as_bytes()).unwrap();
@@ -351,8 +365,8 @@ impl FromV8 for tg::process::State {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the stdout"))?;
 
 		Ok(Self {
+			actual_checksum,
 			cacheable,
-			checksum,
 			children,
 			command,
 			created_at,
@@ -360,6 +374,7 @@ impl FromV8 for tg::process::State {
 			enqueued_at,
 			error,
 			exit,
+			expected_checksum,
 			finished_at,
 			log,
 			mounts,

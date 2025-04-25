@@ -38,8 +38,8 @@ impl Server {
 		#[serde_as]
 		#[derive(serde::Deserialize)]
 		struct Row {
+			actual_checksum: Option<tg::Checksum>,
 			cacheable: bool,
-			checksum: Option<tg::Checksum>,
 			command: tg::command::Id,
 			#[serde_as(as = "Rfc3339")]
 			created_at: time::OffsetDateTime,
@@ -49,6 +49,7 @@ impl Server {
 			enqueued_at: Option<time::OffsetDateTime>,
 			error: Option<db::value::Json<tg::Error>>,
 			exit: Option<u8>,
+			expected_checksum: Option<tg::Checksum>,
 			#[serde_as(as = "Option<Rfc3339>")]
 			finished_at: Option<time::OffsetDateTime>,
 			host: String,
@@ -69,14 +70,15 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				select
+					actual_checksum,
 					cacheable,
-					checksum,
 					command,
 					created_at,
 					dequeued_at,
 					enqueued_at,
 					error,
 					exit,
+					expected_checksum,
 					finished_at,
 					host,
 					id,
@@ -101,8 +103,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let output = row.map(|row| {
 			let data = tg::process::Data {
+				actual_checksum: row.actual_checksum,
 				cacheable: row.cacheable,
-				checksum: row.checksum,
 				children: None,
 				command: row.command,
 				created_at: row.created_at,
@@ -110,6 +112,7 @@ impl Server {
 				enqueued_at: row.enqueued_at,
 				error: row.error.map(|error| error.0),
 				exit: row.exit,
+				expected_checksum: row.expected_checksum,
 				finished_at: row.finished_at,
 				host: row.host,
 				id: row.id,
@@ -141,14 +144,15 @@ impl Server {
 		let statement = indoc!(
 			"
 				select
+					actual_checksum,
 					cacheable,
-					checksum,
 					command,
 					created_at,
 					dequeued_at,
 					enqueued_at,
 					error,
 					exit,
+					expected_checksum,
 					finished_at,
 					host,
 					log,
@@ -178,15 +182,15 @@ impl Server {
 		};
 
 		// Deserialize the row.
-		let cacheable = row
-			.get::<_, u64>(0)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			!= 0;
-		let checksum = row
-			.get::<_, Option<String>>(1)
+		let actual_checksum = row
+			.get::<_, Option<String>>(0)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.map(|s| s.parse())
 			.transpose()?;
+		let cacheable = row
+			.get::<_, u64>(1)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?
+			!= 0;
 		let command = row
 			.get::<_, String>(2)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
@@ -220,63 +224,68 @@ impl Server {
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
-		let finished_at = row
+		let expected_checksum = row
 			.get::<_, Option<String>>(8)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| s.parse())
+			.transpose()?;
+		let finished_at = row
+			.get::<_, Option<String>>(9)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse"))?;
 		let host = row
-			.get::<_, String>(9)
+			.get::<_, String>(10)
 			.map_err(|source| tg::error!(!source, "expected a string"))?;
 		let log = row
-			.get::<_, Option<String>>(10)
+			.get::<_, Option<String>>(11)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.map(|s| s.parse())
 			.transpose()?;
 		let output = row
-			.get::<_, Option<String>>(11)
+			.get::<_, Option<String>>(12)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
 		let retry = row
-			.get::<_, u64>(12)
+			.get::<_, u64>(13)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
 			!= 0;
 		let mounts = row
-			.get::<_, Option<String>>(13)
+			.get::<_, Option<String>>(14)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?
 			.unwrap_or_default();
 		let network = row
-			.get::<_, u64>(14)
+			.get::<_, u64>(15)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
 			!= 0;
 		let started_at = row
-			.get::<_, Option<String>>(15)
+			.get::<_, Option<String>>(16)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse"))?;
 		let status = row
-			.get::<_, String>(16)
+			.get::<_, String>(17)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.parse()?;
 		let stderr = row
-			.get::<_, Option<String>>(17)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| s.parse())
-			.transpose()?;
-		let stdin = row
 			.get::<_, Option<String>>(18)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.map(|s| s.parse())
 			.transpose()?;
-		let stdout = row
+		let stdin = row
 			.get::<_, Option<String>>(19)
+			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.map(|s| s.parse())
+			.transpose()?;
+		let stdout = row
+			.get::<_, Option<String>>(20)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.map(|s| s.parse())
 			.transpose()?;
@@ -309,8 +318,8 @@ impl Server {
 		}
 
 		let data = tg::process::Data {
+			actual_checksum,
 			cacheable,
-			checksum,
 			children: Some(children),
 			command,
 			created_at,
@@ -318,6 +327,7 @@ impl Server {
 			enqueued_at,
 			error,
 			exit,
+			expected_checksum,
 			finished_at,
 			host,
 			id: id.clone(),

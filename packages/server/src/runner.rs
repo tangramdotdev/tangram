@@ -164,6 +164,7 @@ impl Server {
 
 		// Finish the process.
 		let arg = tg::process::finish::Arg {
+			checksum: wait.checksum,
 			error: wait.error,
 			exit: wait.exit,
 			output,

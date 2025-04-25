@@ -24,6 +24,7 @@ impl Cli {
 
 		// Cancel the process.
 		let arg = tg::process::finish::Arg {
+			checksum: None,
 			error: Some(tg::error!(
 				code = tg::error::Code::Cancelation,
 				"the process was explicitly canceled"

@@ -159,7 +159,7 @@ impl Client {
 		});
 		let service = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.map_err(|source| tg::error!(!source, "the request timed out"))
+			.map_err(tg::Error::from)
 			.layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60)))
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),

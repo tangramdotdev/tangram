@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{FutureExt as _, TryStreamExt as _, future, stream::FuturesUnordered};
+use futures::{TryStreamExt as _, future, stream::FuturesUnordered};
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -101,6 +101,7 @@ impl Server {
 			.into_iter()
 			.map(|child| async move {
 				let arg = tg::process::finish::Arg {
+					checksum: None,
 					error: Some(tg::error!(
 						code = tg::error::Code::Cancelation,
 						"the parent was finished"
@@ -118,10 +119,15 @@ impl Server {
 			.await?;
 
 		// Verify the checksum if one was provided.
-		if let (Some(output), Some(expected)) = (output.clone(), data.checksum.as_ref()) {
-			let value: tg::Value = output.try_into()?;
-			if let Err(checksum_error) = self.verify_checksum(&value, expected).boxed().await {
-				error = Some(checksum_error);
+		if let Some(expected) = &data.expected_checksum {
+			let actual = arg
+				.checksum
+				.as_ref()
+				.ok_or_else(|| tg::error!("the actual checksum was not set"))?;
+			if expected != actual {
+				error = Some(tg::error!(
+					"checksum does not match, expected {expected}, actual {actual}"
+				));
 			}
 		}
 
@@ -132,7 +138,50 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		let now = time::OffsetDateTime::now_utc();
+		// Update the process.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update processes
+				set
+					actual_checksum = {p}1,
+					error = {p}2,
+					finished_at = {p}3,
+					heartbeat_at = null,
+					output = {p}4,
+					exit = {p}5,
+					status = {p}6,
+					touched_at = {p}7
+				where id = {p}8;
+			"
+		);
+		let touched_at = time::OffsetDateTime::now_utc();
+		let finished_at = time::OffsetDateTime::now_utc();
+		let params = db::params![
+			arg.checksum,
+			error.map(db::value::Json),
+			finished_at.format(&Rfc3339).unwrap(),
+			output.clone().map(db::value::Json),
+			exit.map(db::value::Json),
+			tg::process::Status::Finished,
+			touched_at.format(&Rfc3339).unwrap(),
+			id,
+		];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Drop the connection.
+		drop(connection);
+
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
 		// Get the command from the database.
 		let statement = format!(
 			"
@@ -163,37 +212,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Update the process.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update processes
-				set
-					error = {p}1,
-					finished_at = {p}2,
-					heartbeat_at = null,
-					output = {p}3,
-					exit = {p}4,
-					status = {p}5,
-					touched_at = {p}7
-				where id = {p}6;
-			"
-		);
-		let finished_at = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
-		let params = db::params![
-			error.map(db::value::Json),
-			finished_at,
-			output.clone().map(db::value::Json),
-			exit.map(db::value::Json),
-			tg::process::Status::Finished,
-			id,
-			now.format(&Rfc3339).unwrap(),
-		];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
 		// Drop the connection.
 		drop(connection);
 
@@ -210,7 +228,7 @@ impl Server {
 		let objects = outputs.chain(command).collect();
 		let message = crate::index::Message::PutProcess(crate::index::PutProcessMessage {
 			id: id.clone(),
-			touched_at: now.unix_timestamp(),
+			touched_at: touched_at.unix_timestamp(),
 			children: Some(children),
 			objects,
 		});
@@ -227,7 +245,6 @@ impl Server {
 			let server = self.clone();
 			let id = id.clone();
 			async move {
-				// Publish the last status update.
 				server
 					.messenger
 					.publish(format!("processes.{id}.status"), Bytes::new())
@@ -238,77 +255,8 @@ impl Server {
 		});
 
 		let output = tg::process::finish::Output { finished: true };
+
 		Ok(output)
-	}
-
-	async fn verify_checksum(&self, value: &tg::Value, expected: &tg::Checksum) -> tg::Result<()> {
-		if matches!(expected, tg::Checksum::Any) {
-			return Ok(());
-		}
-
-		// Get the checksum.
-		let host = "builtin";
-		let algorithm = if expected.algorithm() == tg::checksum::Algorithm::None {
-			tg::checksum::Algorithm::Sha256
-		} else {
-			expected.algorithm()
-		};
-		let executable = tg::command::Executable::Path("checksum".into());
-		let args = vec![value.clone(), algorithm.to_string().into()];
-		let command = tg::Command::builder(host, executable).args(args).build();
-		let command_id = command
-			.id(self)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get command id"))?;
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select output
-				from processes
-				where
-					processes.command = {p}1 and
-					exit = 0
-				limit 1
-			"
-		);
-		let params = db::params![command_id.to_string()];
-		let Some(output) = connection
-			.query_optional_value_into::<Option<db::value::Json<tg::value::Data>>>(
-				statement.into(),
-				params,
-			)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|value| value.map(|value| value.0))
-		else {
-			return Err(tg::error!(%command_id, "failed to find a matching checksum process"));
-		};
-
-		let output = output.ok_or_else(|| tg::error!("the checksum process has no output"))?;
-
-		// Parse the checksum.
-		let checksum = output
-			.try_unwrap_string()
-			.map_err(|_| tg::error!("expected a string"))?;
-		let checksum = checksum
-			.parse::<tg::Checksum>()
-			.map_err(|_| tg::error!(%checksum, "failed to parse checksum string"))?;
-
-		// Compare the checksums.
-		if matches!(expected, tg::Checksum::None) {
-			return Err(tg::error!("no checksum provided, actual {checksum}"));
-		} else if &checksum != expected {
-			return Err(tg::error!(
-				"checksums do not match, expected {expected}, actual {checksum}"
-			));
-		}
-
-		Ok(())
 	}
 
 	pub(crate) async fn handle_finish_process_request<H>(

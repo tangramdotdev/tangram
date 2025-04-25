@@ -4,23 +4,25 @@ use sha2::Digest;
 #[derive(
 	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
-pub enum Checksum {
-	None,
-	Any,
-	Blake3(Box<[u8]>),
-	Sha256(Box<[u8]>),
-	Sha512(Box<[u8]>),
+pub struct Checksum {
+	algorithm: Algorithm,
+	body: Body,
 }
 
 #[derive(
 	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
 pub enum Algorithm {
-	None,
-	Any,
 	Blake3,
 	Sha256,
 	Sha512,
+}
+
+#[derive(Clone, Debug)]
+pub enum Body {
+	None,
+	Any,
+	Bytes(Box<[u8]>),
 }
 
 pub enum Encoding {
@@ -30,8 +32,6 @@ pub enum Encoding {
 
 #[derive(Debug)]
 pub enum Writer {
-	None,
-	Any,
 	Blake3(Box<blake3::Hasher>),
 	Sha256(Box<sha2::Sha256>),
 	Sha512(Box<sha2::Sha512>),
@@ -40,27 +40,13 @@ pub enum Writer {
 impl Checksum {
 	#[must_use]
 	pub fn algorithm(&self) -> Algorithm {
-		match self {
-			Checksum::None => Algorithm::None,
-			Checksum::Any => Algorithm::Any,
-			Checksum::Blake3(_) => Algorithm::Blake3,
-			Checksum::Sha256(_) => Algorithm::Sha256,
-			Checksum::Sha512(_) => Algorithm::Sha512,
-		}
+		self.algorithm
 	}
 }
 
 impl std::fmt::Display for Checksum {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Checksum::None => write!(f, "none")?,
-			Checksum::Any => write!(f, "any")?,
-			Checksum::Blake3(body) | Checksum::Sha256(body) | Checksum::Sha512(body) => {
-				let algorithm = self.algorithm();
-				let body = data_encoding::HEXLOWER.encode(body);
-				write!(f, "{algorithm}:{body}")?;
-			},
-		}
+		write!(f, "{}:{}", self.algorithm, self.body)?;
 		Ok(())
 	}
 }
@@ -83,66 +69,66 @@ impl std::str::FromStr for Checksum {
 			.parse()
 			.map_err(|source| tg::error!(!source, "invalid algorithm"))?;
 
-		Ok(match (algorithm, components.next()) {
-			(Algorithm::None, None) => Checksum::None,
-			(Algorithm::Any, None) => Checksum::Any,
-			(Algorithm::Blake3, Some(body)) if body.len() == 44 => {
-				let body = data_encoding::BASE64
+		// Parse the body.
+		let body = match (algorithm, components.next()) {
+			(_, Some("none")) => Body::None,
+			(_, Some("any")) => Body::Any,
+			(Algorithm::Blake3, Some(body)) if body.len() == 44 => Body::Bytes(
+				data_encoding::BASE64
 					.decode(body.as_bytes())
 					.map_err(|source| tg::error!(!source, "invalid body"))?
-					.into();
-				Checksum::Blake3(body)
-			},
-			(Algorithm::Blake3, Some(body)) if body.len() == 64 => {
-				let body = data_encoding::HEXLOWER
+					.into(),
+			),
+			(Algorithm::Blake3, Some(body)) if body.len() == 64 => Body::Bytes(
+				data_encoding::HEXLOWER
 					.decode(body.as_bytes())
 					.map_err(|source| tg::error!(!source, "invalid body"))?
-					.into();
-				Checksum::Blake3(body)
-			},
-			(Algorithm::Sha256, Some(body)) if body.len() == 44 => {
-				let body = data_encoding::BASE64
+					.into(),
+			),
+			(Algorithm::Sha256, Some(body)) if body.len() == 44 => Body::Bytes(
+				data_encoding::BASE64
 					.decode(body.as_bytes())
 					.map_err(|source| tg::error!(!source, "invalid body"))?
-					.into();
-				Checksum::Sha256(body)
-			},
-			(Algorithm::Sha256, Some(body)) if body.len() == 64 => {
-				let body = data_encoding::HEXLOWER
+					.into(),
+			),
+			(Algorithm::Sha256, Some(body)) if body.len() == 64 => Body::Bytes(
+				data_encoding::HEXLOWER
 					.decode(body.as_bytes())
 					.map_err(|source| tg::error!(!source, "invalid body"))?
-					.into();
-				Checksum::Sha256(body)
-			},
-			(Algorithm::Sha512, Some(body)) if body.len() == 88 => {
-				let body = data_encoding::BASE64
+					.into(),
+			),
+			(Algorithm::Sha512, Some(body)) if body.len() == 88 => Body::Bytes(
+				data_encoding::BASE64
 					.decode(body.as_bytes())
 					.map_err(|source| tg::error!(!source, "invalid body"))?
-					.into();
-				Checksum::Sha512(body)
-			},
-			(Algorithm::Sha512, Some(body)) if body.len() == 128 => {
-				let body = data_encoding::HEXLOWER
+					.into(),
+			),
+			(Algorithm::Sha512, Some(body)) if body.len() == 128 => Body::Bytes(
+				data_encoding::HEXLOWER
 					.decode(body.as_bytes())
 					.map_err(|source| tg::error!(!source, "invalid body"))?
-					.into();
-				Checksum::Sha512(body)
+					.into(),
+			),
+			_ => {
+				return Err(tg::error!(%value, "invalid checksum"));
 			},
-			_ => return Err(tg::error!(%value, "invalid checksum")),
-		})
+		};
+
+		// Create the checksum.
+		let checksum = Self { algorithm, body };
+
+		Ok(checksum)
 	}
 }
 
 impl std::fmt::Display for Algorithm {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let system = match self {
-			Algorithm::None => "none",
-			Algorithm::Any => "any",
-			Algorithm::Blake3 => "blake3",
-			Algorithm::Sha256 => "sha256",
-			Algorithm::Sha512 => "sha512",
+		let algorithm = match self {
+			Self::Blake3 => "blake3",
+			Self::Sha256 => "sha256",
+			Self::Sha512 => "sha512",
 		};
-		write!(f, "{system}")?;
+		write!(f, "{algorithm}")?;
 		Ok(())
 	}
 }
@@ -151,33 +137,57 @@ impl std::str::FromStr for Algorithm {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		let system = match s {
-			"none" => Algorithm::None,
-			"any" => Algorithm::Any,
-			"sha256" => Algorithm::Sha256,
-			"sha512" => Algorithm::Sha512,
-			"blake3" => Algorithm::Blake3,
+		let algorithm = match s {
+			"sha256" => Self::Sha256,
+			"sha512" => Self::Sha512,
+			"blake3" => Self::Blake3,
 			algorithm => return Err(tg::error!(%algorithm, "invalid algorithm")),
 		};
-		Ok(system)
+		Ok(algorithm)
 	}
 }
 
+impl std::fmt::Display for Body {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::None => {
+				write!(f, "none")?;
+			},
+			Self::Any => {
+				write!(f, "any")?;
+			},
+			Self::Bytes(bytes) => {
+				write!(f, "{}", data_encoding::HEXLOWER.encode(bytes))?;
+			},
+		}
+		Ok(())
+	}
+}
+
+impl PartialEq for Body {
+	fn eq(&self, other: &Self) -> bool {
+		match (self, other) {
+			(Self::None, _) | (_, Self::None) => false,
+			(Self::Any, _) | (_, Self::Any) => true,
+			(Self::Bytes(a), Self::Bytes(b)) => a == b,
+		}
+	}
+}
+
+impl Eq for Body {}
+
 impl Writer {
 	#[must_use]
-	pub fn new(algorithm: Algorithm) -> Writer {
+	pub fn new(algorithm: Algorithm) -> Self {
 		match algorithm {
-			Algorithm::None => Writer::None,
-			Algorithm::Any => Writer::Any,
-			Algorithm::Blake3 => Writer::Blake3(Box::new(blake3::Hasher::new())),
-			Algorithm::Sha256 => Writer::Sha256(Box::new(sha2::Sha256::new())),
-			Algorithm::Sha512 => Writer::Sha512(Box::new(sha2::Sha512::new())),
+			Algorithm::Blake3 => Self::Blake3(Box::new(blake3::Hasher::new())),
+			Algorithm::Sha256 => Self::Sha256(Box::new(sha2::Sha256::new())),
+			Algorithm::Sha512 => Self::Sha512(Box::new(sha2::Sha512::new())),
 		}
 	}
 
 	pub fn update(&mut self, data: impl AsRef<[u8]>) {
 		match self {
-			Writer::None | Writer::Any => (),
 			Writer::Blake3(blake3) => {
 				blake3.update(data.as_ref());
 			},
@@ -192,22 +202,27 @@ impl Writer {
 
 	#[must_use]
 	pub fn finalize(self) -> Checksum {
-		match self {
-			Writer::None => Checksum::None,
-			Writer::Any => Checksum::Any,
+		let (algorithm, body) = match self {
 			Writer::Blake3(hasher) => {
-				let value = hasher.finalize();
-				Checksum::Blake3(value.as_bytes().as_slice().into())
+				let algorithm = Algorithm::Blake3;
+				let bytes = hasher.finalize().as_bytes().as_slice().into();
+				let body = Body::Bytes(bytes);
+				(algorithm, body)
 			},
 			Writer::Sha256(sha256) => {
-				let value = sha2::Digest::finalize(*sha256);
-				Checksum::Sha256(value.as_slice().into())
+				let algorithm = Algorithm::Sha256;
+				let bytes = sha2::Digest::finalize(*sha256).as_slice().into();
+				let body = Body::Bytes(bytes);
+				(algorithm, body)
 			},
 			Writer::Sha512(sha512) => {
-				let value = sha2::Digest::finalize(*sha512);
-				Checksum::Sha512(value.as_slice().into())
+				let algorithm = Algorithm::Sha512;
+				let bytes = sha2::Digest::finalize(*sha512).as_slice().into();
+				let body = Body::Bytes(bytes);
+				(algorithm, body)
 			},
-		}
+		};
+		Checksum { algorithm, body }
 	}
 }
 
@@ -254,37 +269,38 @@ mod tests {
 	#[test]
 	fn blake3() {
 		let data = "Hello, world!";
-		let expected_checksum = Checksum::Blake3(
-			[
-				237, 229, 192, 177, 15, 46, 196, 151, 156, 105, 181, 47, 97, 228, 47, 245, 180, 19,
-				81, 156, 224, 155, 224, 241, 77, 9, 141, 207, 229, 246, 249, 141,
-			]
-			.into(),
-		);
+		let expected_checksum = Checksum {
+			algorithm: Algorithm::Blake3,
+			body: Body::Bytes(
+				[
+					237, 229, 192, 177, 15, 46, 196, 151, 156, 105, 181, 47, 97, 228, 47, 245, 180,
+					19, 81, 156, 224, 155, 224, 241, 77, 9, 141, 207, 229, 246, 249, 141,
+				]
+				.into(),
+			),
+		};
 		let expected_string =
 			"blake3:ede5c0b10f2ec4979c69b52f61e42ff5b413519ce09be0f14d098dcfe5f6f98d";
 		let mut writer = Writer::new(Algorithm::Blake3);
-		writer.update(data);
+		writer.update(data.as_bytes());
 		let checksum = writer.finalize();
 		assert_eq!(checksum, expected_checksum);
 		assert_eq!(&checksum.to_string(), expected_string);
-		assert_eq!(
-			checksum,
-			expected_string
-				.parse()
-				.expect("failed to parse blake3 string")
-		);
+		assert_eq!(checksum, expected_string.parse().unwrap());
 	}
 
 	#[test]
 	fn blake3_sri() {
-		let expected_checksum = Checksum::Blake3(
-			[
-				237, 229, 192, 177, 15, 46, 196, 151, 156, 105, 181, 47, 97, 228, 47, 245, 180, 19,
-				81, 156, 224, 155, 224, 241, 77, 9, 141, 207, 229, 246, 249, 141,
-			]
-			.into(),
-		);
+		let expected_checksum = Checksum {
+			algorithm: Algorithm::Blake3,
+			body: Body::Bytes(
+				[
+					237, 229, 192, 177, 15, 46, 196, 151, 156, 105, 181, 47, 97, 228, 47, 245, 180,
+					19, 81, 156, 224, 155, 224, 241, 77, 9, 141, 207, 229, 246, 249, 141,
+				]
+				.into(),
+			),
+		};
 		let sri = "blake3-7eXAsQ8uxJecabUvYeQv9bQTUZzgm+DxTQmNz+X2+Y0=";
 		let checksum: Checksum = sri.parse().expect("failed to parse blake3 SRI");
 		assert_eq!(checksum, expected_checksum);
@@ -293,37 +309,38 @@ mod tests {
 	#[test]
 	fn sha256() {
 		let data = "Hello, world!";
-		let expected_checksum = Checksum::Sha256(
-			[
-				49, 95, 91, 219, 118, 208, 120, 196, 59, 138, 192, 6, 78, 74, 1, 100, 97, 43, 31,
-				206, 119, 200, 105, 52, 91, 252, 148, 199, 88, 148, 237, 211,
-			]
-			.into(),
-		);
+		let expected_checksum = Checksum {
+			algorithm: Algorithm::Sha256,
+			body: Body::Bytes(
+				[
+					49, 95, 91, 219, 118, 208, 120, 196, 59, 138, 192, 6, 78, 74, 1, 100, 97, 43,
+					31, 206, 119, 200, 105, 52, 91, 252, 148, 199, 88, 148, 237, 211,
+				]
+				.into(),
+			),
+		};
 		let expected_string =
 			"sha256:315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3";
 		let mut writer = Writer::new(Algorithm::Sha256);
-		writer.update(data);
+		writer.update(data.as_bytes());
 		let checksum = writer.finalize();
 		assert_eq!(checksum, expected_checksum);
 		assert_eq!(&checksum.to_string(), expected_string);
-		assert_eq!(
-			checksum,
-			expected_string
-				.parse()
-				.expect("failed to parse sha256 string")
-		);
+		assert_eq!(checksum, expected_string.parse().unwrap());
 	}
 
 	#[test]
 	fn sha256_sri() {
-		let expected_checksum = Checksum::Sha256(
-			[
-				49, 95, 91, 219, 118, 208, 120, 196, 59, 138, 192, 6, 78, 74, 1, 100, 97, 43, 31,
-				206, 119, 200, 105, 52, 91, 252, 148, 199, 88, 148, 237, 211,
-			]
-			.into(),
-		);
+		let expected_checksum = Checksum {
+			algorithm: Algorithm::Sha256,
+			body: Body::Bytes(
+				[
+					49, 95, 91, 219, 118, 208, 120, 196, 59, 138, 192, 6, 78, 74, 1, 100, 97, 43,
+					31, 206, 119, 200, 105, 52, 91, 252, 148, 199, 88, 148, 237, 211,
+				]
+				.into(),
+			),
+		};
 		let sri = "sha256-MV9b23bQeMQ7isAGTkoBZGErH853yGk0W/yUx1iU7dM=";
 		let checksum: Checksum = sri.parse().expect("failed to parse sha256 SRI");
 		assert_eq!(checksum, expected_checksum);
@@ -332,42 +349,43 @@ mod tests {
 	#[test]
 	fn sha512() {
 		let data = "Hello, world!";
-		let expected_checksum = Checksum::Sha512(
-			[
-				193, 82, 124, 216, 147, 193, 36, 119, 61, 129, 25, 17, 151, 12, 143, 230, 232, 87,
-				214, 223, 93, 201, 34, 107, 216, 161, 96, 97, 76, 12, 217, 99, 164, 221, 234, 43,
-				148, 187, 125, 54, 2, 30, 249, 216, 101, 213, 206, 162, 148, 168, 45, 212, 154, 11,
-				178, 105, 245, 31, 110, 122, 87, 247, 148, 33,
-			]
-			.into(),
-		);
+		let expected_checksum = Checksum {
+			algorithm: Algorithm::Sha512,
+			body: Body::Bytes(
+				[
+					193, 82, 124, 216, 147, 193, 36, 119, 61, 129, 25, 17, 151, 12, 143, 230, 232,
+					87, 214, 223, 93, 201, 34, 107, 216, 161, 96, 97, 76, 12, 217, 99, 164, 221,
+					234, 43, 148, 187, 125, 54, 2, 30, 249, 216, 101, 213, 206, 162, 148, 168, 45,
+					212, 154, 11, 178, 105, 245, 31, 110, 122, 87, 247, 148, 33,
+				]
+				.into(),
+			),
+		};
 		let expected_string = "sha512:c1527cd893c124773d811911970c8fe6e857d6df5dc9226bd8a160614c0cd963a4ddea2b94bb7d36021ef9d865d5cea294a82dd49a0bb269f51f6e7a57f79421";
 		let mut writer = Writer::new(Algorithm::Sha512);
-		writer.update(data);
+		writer.update(data.as_bytes());
 		let checksum = writer.finalize();
 		assert_eq!(checksum, expected_checksum);
 		assert_eq!(&checksum.to_string(), expected_string);
-		assert_eq!(
-			checksum,
-			expected_string
-				.parse()
-				.expect("failed to parse sha512 string")
-		);
+		assert_eq!(checksum, expected_string.parse().unwrap());
 	}
 
 	#[test]
 	fn sha512_sri() {
-		let expected_checksum = Checksum::Sha512(
-			[
-				193, 82, 124, 216, 147, 193, 36, 119, 61, 129, 25, 17, 151, 12, 143, 230, 232, 87,
-				214, 223, 93, 201, 34, 107, 216, 161, 96, 97, 76, 12, 217, 99, 164, 221, 234, 43,
-				148, 187, 125, 54, 2, 30, 249, 216, 101, 213, 206, 162, 148, 168, 45, 212, 154, 11,
-				178, 105, 245, 31, 110, 122, 87, 247, 148, 33,
-			]
-			.into(),
-		);
+		let expected_checksum = Checksum {
+			algorithm: Algorithm::Sha512,
+			body: Body::Bytes(
+				[
+					193, 82, 124, 216, 147, 193, 36, 119, 61, 129, 25, 17, 151, 12, 143, 230, 232,
+					87, 214, 223, 93, 201, 34, 107, 216, 161, 96, 97, 76, 12, 217, 99, 164, 221,
+					234, 43, 148, 187, 125, 54, 2, 30, 249, 216, 101, 213, 206, 162, 148, 168, 45,
+					212, 154, 11, 178, 105, 245, 31, 110, 122, 87, 247, 148, 33,
+				]
+				.into(),
+			),
+		};
 		let sri = "sha512-wVJ82JPBJHc9gRkRlwyP5uhX1t9dySJr2KFgYUwM2WOk3eorlLt9NgIe+dhl1c6ilKgt1JoLsmn1H256V/eUIQ==";
-		let checksum: Checksum = sri.parse().expect("failed to parse sha512 SRI");
+		let checksum: Checksum = sri.parse().unwrap();
 		assert_eq!(checksum, expected_checksum);
 	}
 }

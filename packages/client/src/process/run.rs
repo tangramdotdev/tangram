@@ -95,9 +95,7 @@ impl tg::Process {
 		}
 		let command = builder.build();
 		let command_id = command.id(handle).await?;
-		let checksum = arg
-			.checksum
-			.or(state.as_ref().and_then(|state| state.checksum.clone()));
+		let checksum = arg.checksum;
 		let network = arg
 			.network
 			.or(state.as_ref().map(|state| state.network))

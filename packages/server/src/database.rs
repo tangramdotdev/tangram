@@ -88,14 +88,15 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 	let sql = indoc!(
 		r#"
 			create table processes (
+				actual_checksum text,
 				cacheable integer not null,
-				checksum text,
 				command text not null,
 				created_at text not null,
 				dequeued_at text,
 				enqueued_at text,
 				error text,
 				exit integer,
+				expected_checksum text,
 				finished_at text,
 				heartbeat_at text,
 				host text not null,

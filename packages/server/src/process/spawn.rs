@@ -41,12 +41,9 @@ impl Server {
 		if !cacheable {
 			let id = self.spawn_local_process(&arg).await?;
 			if let Some(parent) = arg.parent.as_ref() {
-				let added = self.try_add_process_child(parent, &id).await.map_err(
+				self.try_add_process_child(parent, &id).await.map_err(
 					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 				)?;
-				if !added {
-					return Err(tg::error!(%parent, %id, "failed to add child to parent"));
-				}
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
@@ -57,6 +54,25 @@ impl Server {
 
 		// Return a matching local process if one exists.
 		if let Some(id) = self.try_get_cached_process_local(&arg).await? {
+			if let Some(parent) = arg.parent.as_ref() {
+				self.try_add_process_child(parent, &id).await.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
+			}
+			let output = tg::process::spawn::Output {
+				process: id,
+				remote: None,
+			};
+			return Ok(Some(output));
+		}
+
+		// Reuse a local process if possible.
+		if let Some(id) = self.try_reuse_process_local(&arg).await? {
+			if let Some(parent) = arg.parent.as_ref() {
+				self.try_add_process_child(parent, &id).await.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
+			}
 			let output = tg::process::spawn::Output {
 				process: id,
 				remote: None,
@@ -70,12 +86,9 @@ impl Server {
 				return Ok(None);
 			};
 			if let Some(parent) = arg.parent.as_ref() {
-				let added = self.try_add_process_child(parent, &id).await.map_err(
+				self.try_add_process_child(parent, &id).await.map_err(
 					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 				)?;
-				if !added {
-					return Err(tg::error!(%parent, %id, "failed to add child to parent"));
-				}
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
@@ -103,6 +116,7 @@ impl Server {
 						let server = self.clone();
 						async move {
 							let arg = tg::process::finish::Arg {
+								checksum: None,
 								error: Some(tg::error!(
 									code = tg::error::Code::Cancelation,
 									"the process was canceled"
@@ -123,12 +137,9 @@ impl Server {
 
 		// Add the process to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			let added = self.try_add_process_child(parent, &id).await.map_err(
+			self.try_add_process_child(parent, &id).await.map_err(
 				|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 			)?;
-			if !added {
-				return Err(tg::error!(%parent, %id, "failed to add child to parent"));
-			}
 		}
 
 		// Create the output.
@@ -166,7 +177,7 @@ impl Server {
 				where
 					cacheable = 1 and
 					command = {p}1 and
-					coalesce(checksum = {p}2, checksum is null)
+					coalesce(expected_checksum = {p}2, expected_checksum is null)
 				order by created_at desc
 				limit 1;
 			"
@@ -197,16 +208,6 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Attempt to add the process as a child of the parent.
-		if let Some(parent) = arg.parent.as_ref() {
-			let added = self.try_add_process_child(parent, &id).await.map_err(
-				|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-			)?;
-			if !added {
-				return Err(tg::error!(%parent, %id, "failed to add child to parent"));
-			}
-		}
-
 		// Touch the process.
 		tokio::spawn({
 			let server = self.clone();
@@ -220,10 +221,200 @@ impl Server {
 		Ok(Some(id))
 	}
 
+	async fn try_reuse_process_local(
+		&self,
+		arg: &tg::process::spawn::Arg,
+	) -> tg::Result<Option<tg::process::Id>> {
+		// If the checksum is not set, then return.
+		let Some(expected_checksum) = arg.checksum.clone() else {
+			return Ok(None);
+		};
+
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Attempt to get a matching process.
+		#[derive(serde::Deserialize)]
+		struct Row {
+			id: tg::process::Id,
+			actual_checksum: tg::Checksum,
+			output: Option<db::value::Json<tg::value::Data>>,
+		}
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id, actual_checksum, output
+				from processes
+				where
+					actual_checksum is not null and
+					cacheable = 1 and
+					command = {p}1
+				order by created_at desc
+				limit 1;
+			"
+		);
+		let params = db::params![arg.command];
+		let Some(Row {
+			id: existing_id,
+			actual_checksum,
+			output,
+		}) = connection
+			.query_optional_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
+
+		// Drop the connection.
+		drop(connection);
+
+		// Set the exit, output, and error.
+		let (exit, error) = if expected_checksum == actual_checksum {
+			(Some(0), None)
+		} else {
+			let expected = &expected_checksum;
+			let actual = &actual_checksum;
+			let error = tg::error!("checksum does not match, expected {expected}, actual {actual}");
+			(Some(1), Some(error))
+		};
+
+		// Touch the command.
+		if let Some(command) = &arg.command {
+			let arg = tg::object::touch::Arg { remote: None };
+			self.touch_object(&command.clone().into(), arg).await?;
+		}
+
+		// Create an ID.
+		let id = tg::process::Id::new();
+
+		// Get the host.
+		let command = tg::Command::with_id(arg.command.clone().unwrap());
+		let host = &*command.host(self).await?;
+
+		// Copy the log file.
+		let src = self.logs_path().join(existing_id.to_string());
+		let dst = self.logs_path().join(id.to_string());
+		tokio::fs::copy(src, dst).await.ok();
+
+		// Get a database connection.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Insert the process children.
+		let statement = formatdoc!(
+			"
+				insert into process_children (process, position, child)
+				select process, position, child from process_children where process = {p}1;
+			"
+		);
+		let params = db::params![id];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Insert the process.
+		let statement = formatdoc!(
+			"
+				insert into processes (
+					id,
+					actual_checksum,
+					cacheable,
+					command,
+					created_at,
+					error,
+					exit,
+					expected_checksum,
+					finished_at,
+					host,
+					mounts,
+					network,
+					output,
+					retry,
+					status,
+					touched_at
+				)
+				values (
+					{p}1,
+					{p}2,
+					{p}3,
+					{p}4,
+					{p}5,
+					{p}6,
+					{p}7,
+					{p}8,
+					{p}9,
+					{p}10,
+					{p}11,
+					{p}12,
+					{p}13,
+					{p}14,
+					{p}15,
+					{p}16
+				)
+				on conflict (id) do update set
+					actual_checksum = {p}2,
+					cacheable = {p}3,
+					command = {p}4,
+					created_at = {p}5,
+					error = {p}6,
+					exit = {p}7,
+					expected_checksum = {p}8,
+					finished_at = {p}9,
+					host = {p}10,
+					mounts = {p}11,
+					network = {p}12,
+					output = {p}13,
+					retry = {p}14,
+					status = {p}15,
+					touched_at = {p}16;
+			"
+		);
+		let now = time::OffsetDateTime::now_utc();
+		let params = db::params![
+			id,
+			actual_checksum,
+			true,
+			arg.command,
+			now.format(&Rfc3339).unwrap(),
+			error.map(db::value::Json),
+			exit,
+			arg.checksum,
+			now.format(&Rfc3339).unwrap(),
+			host,
+			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
+			arg.network,
+			output,
+			arg.retry,
+			tg::process::Status::Finished,
+			now.format(&Rfc3339).unwrap(),
+		];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		Ok(Some(id))
+	}
+
 	async fn spawn_local_process(
 		&self,
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<tg::process::Id> {
+		// Touch the command.
+		if let Some(command) = &arg.command {
+			let arg = tg::object::touch::Arg { remote: None };
+			self.touch_object(&command.clone().into(), arg).await?;
+		}
+
 		// Create an ID.
 		let id = tg::process::Id::new();
 
@@ -258,10 +449,10 @@ impl Server {
 				insert into processes (
 					id,
 					cacheable,
-					checksum,
 					command,
 					created_at,
 					enqueued_at,
+					expected_checksum,
 					host,
 					mounts,
 					network,
@@ -291,10 +482,10 @@ impl Server {
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
-					checksum = {p}3,
-					command = {p}4,
-					created_at = {p}5,
-					enqueued_at = {p}6,
+					command = {p}3,
+					created_at = {p}4,
+					enqueued_at = {p}5,
+					expected_checksum = {p}6,
 					host = {p}7,
 					mounts = {p}8,
 					network = {p}9,
@@ -310,10 +501,10 @@ impl Server {
 		let params = db::params![
 			id,
 			cacheable,
-			arg.checksum,
 			arg.command,
 			now.format(&Rfc3339).unwrap(),
 			now.format(&Rfc3339).unwrap(),
+			arg.checksum,
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
@@ -328,13 +519,9 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		drop(connection);
 
-		// Touch the command.
-		if let Some(command) = &arg.command {
-			let arg = tg::object::touch::Arg { remote: None };
-			self.touch_object(&command.clone().into(), arg).await?;
-		}
+		// Drop the connection.
+		drop(connection);
 
 		// Publish the message.
 		tokio::spawn({
@@ -429,12 +616,12 @@ impl Server {
 		&self,
 		parent: &tg::process::Id,
 		child: &tg::process::Id,
-	) -> tg::Result<bool> {
+	) -> tg::Result<()> {
 		// Verify the process is local and started.
 		if self.try_get_current_process_status_local(parent).await?
 			!= Some(tg::process::Status::Started)
 		{
-			return Ok(false);
+			return Err(tg::error!("failed to find the process"));
 		}
 
 		// Get a database connection.
@@ -478,7 +665,7 @@ impl Server {
 			}
 		});
 
-		Ok(true)
+		Ok(())
 	}
 
 	pub(crate) async fn handle_spawn_process_request<H>(
