@@ -152,7 +152,6 @@ impl<T> State<T> {
 			.unwrap()
 			.as_millis();
 		for indicator in self.indicators.values() {
-			const LENGTH: u64 = 20;
 			const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 			let mut line = String::new();
 			let position = (now / (1000 / 10)) % 10;
@@ -166,11 +165,11 @@ impl<T> State<T> {
 				title_length = title_length.unwrap(),
 			)
 			.unwrap();
+			const LENGTH: u64 = 20;
 			if let (Some(current), Some(total)) = (indicator.current, indicator.total) {
-				let current = current.min(total);
 				write!(line, " [").unwrap();
-				let last = current * LENGTH / total;
-				for _ in 0..last {
+				let n = if total > 0 { current / total } else { 1 } * LENGTH;
+				for _ in 0..n {
 					write!(line, "=").unwrap();
 				}
 				if current < total {
@@ -178,7 +177,7 @@ impl<T> State<T> {
 				} else {
 					write!(line, "=").unwrap();
 				}
-				for _ in last..LENGTH {
+				for _ in n..LENGTH {
 					write!(line, " ").unwrap();
 				}
 				write!(line, "]").unwrap();

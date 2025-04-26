@@ -445,29 +445,7 @@ impl Server {
 		messages: Vec<PutProcessMessage>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
-		let statement = indoc!(
-			"
-				insert into processes (id, touched_at)
-				values (?1, ?2)
-				on conflict (id) do update set touched_at = ?2;
-			"
-		);
-		let mut process_statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		let statement = indoc!(
-			"
-				insert into process_children (process, position, child)
-				values (?1, ?2, ?3)
-				on conflict (process, child) do nothing;
-			"
-		);
-		let mut child_statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		let statement = indoc!(
+		let object_statement = indoc!(
 			"
 				insert into process_objects (process, object, kind)
 				values (?1, ?2, ?3)
@@ -475,7 +453,29 @@ impl Server {
 			"
 		);
 		let mut object_statement = transaction
-			.prepare_cached(statement)
+			.prepare_cached(object_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		let child_statement = indoc!(
+			"
+				insert into process_children (process, position, child)
+				values (?1, ?2, ?3)
+				on conflict (process, child) do nothing;
+			"
+		);
+		let mut child_statement = transaction
+			.prepare_cached(child_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		let process_statement = indoc!(
+			"
+				insert into processes (id, touched_at)
+				values (?1, ?2)
+				on conflict (id) do update set touched_at = ?2;
+			"
+		);
+		let mut process_statement = transaction
+			.prepare_cached(process_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		for message in messages {
@@ -484,11 +484,14 @@ impl Server {
 				.format(&Rfc3339)
 				.unwrap();
 
-			// Insert the process.
-			let params = sqlite::params![message.id.to_string(), touched_at];
-			process_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			// Insert the objects.
+			for (object, kind) in message.objects {
+				let params =
+					sqlite::params![message.id.to_string(), object.to_string(), kind.to_string()];
+				object_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
 
 			// Insert the children.
 			if let Some(children) = message.children {
@@ -501,14 +504,11 @@ impl Server {
 				}
 			}
 
-			// Insert the objects.
-			for (object, kind) in message.objects {
-				let params =
-					sqlite::params![message.id.to_string(), object.to_string(), kind.to_string()];
-				object_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
+			// Insert the process.
+			let params = sqlite::params![message.id.to_string(), touched_at];
+			process_statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		Ok(())
@@ -781,45 +781,6 @@ impl Server {
 				.format(&Rfc3339)
 				.unwrap();
 
-			// Insert the process.
-			let process_statement = indoc!(
-				"
-					insert into processes (id, touched_at)
-					values ($1, $2)
-					on conflict (id) do update set
-						touched_at = $2;
-				"
-			);
-			transaction
-				.inner()
-				.execute(process_statement, &[&message.id.to_string(), &touched_at])
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-			// Insert the children.
-			if let Some(children) = &message.children {
-				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
-				let statement = indoc!(
-					"
-						insert into process_children (process, position, child)
-						select $1, unnest($2::int8[]), unnest($3::text[])
-						on conflict (process, child) do nothing;
-					"
-				);
-				transaction
-					.inner()
-					.execute(
-						statement,
-						&[
-							&message.id.to_string(),
-							&positions.as_slice(),
-							&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
-						],
-					)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
-
 			// Insert the objects.
 			let objects: Vec<&tg::object::Id> = message.objects.iter().map(|(id, _)| id).collect();
 			let kinds: Vec<&ProcessObjectKind> =
@@ -845,6 +806,45 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
+
+			// Insert the children.
+			if let Some(children) = &message.children {
+				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
+				let statement = indoc!(
+					"
+						insert into process_children (process, position, child)
+						select $1, unnest($2::int8[]), unnest($3::text[])
+						on conflict (process, child) do nothing;
+					"
+				);
+				transaction
+					.inner()
+					.execute(
+						statement,
+						&[
+							&message.id.to_string(),
+							&positions.as_slice(),
+							&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
+						],
+					)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// Insert the process.
+			let process_statement = indoc!(
+				"
+					insert into processes (id, touched_at)
+					values ($1, $2)
+					on conflict (id) do update set
+						touched_at = $2;
+				"
+			);
+			transaction
+				.inner()
+				.execute(process_statement, &[&message.id.to_string(), &touched_at])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		Ok(())
@@ -1231,6 +1231,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				commands_depth integer,
 				commands_weight integer,
 				complete integer not null default 0,
+				incomplete_children integer,
+				incomplete_children_commands integer,
+				incomplete_children_outputs integer,
+				incomplete_commands integer,
+				incomplete_outputs integer,
 				outputs_complete integer not null default 0,
 				outputs_count integer,
 				outputs_depth integer,
@@ -1238,6 +1243,194 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				reference_count integer,
 				touched_at text
 			);
+
+			create trigger processes_insert_complete_trigger
+			after insert on processes
+			when new.complete = 0 and new.incomplete_children = 0
+			begin
+				update processes
+				set
+					complete = updates.complete,
+					count = updates.count
+				from (
+					select
+						processes.id,
+						coalesce(min(child_processes.complete), 1) as complete,
+						1 + coalesce(sum(child_processes.count), 0) as count
+					from processes
+					left join process_children on process_children.process = processes.id
+					left join processes as child_processes on child_processes.id = process_children.child
+					where processes.id = new.id
+					group by processes.id
+				) as updates
+				where processes.id = updates.id;
+			end;
+
+			create trigger processes_update_complete_trigger
+			after update of complete, incomplete_children on processes
+			when new.complete = 0 and new.incomplete_children = 0
+			begin
+				update processes
+				set
+					complete = updates.complete,
+					count = updates.count
+				from (
+					select
+						processes.id,
+						coalesce(min(child_processes.complete), 1) as complete,
+						1 + coalesce(sum(child_processes.count), 0) as count
+					from processes
+					left join process_children on process_children.process = processes.id
+					left join processes as child_processes on child_processes.id = process_children.child
+					where processes.id = new.id
+					group by processes.id
+				) as updates
+				where processes.id = updates.id;
+			end;
+
+			create trigger processes_update_commands_complete_trigger
+			after update of complete, incomplete_commands on processes
+			when new.commands_complete = 0 and new.incomplete_commands = 0 and new.incomplete_children = 0
+			begin
+				update processes
+				set
+					commands_complete = updates.commands_complete,
+					commands_count = updates.commands_count,
+					commands_depth = updates.commands_depth,
+					commands_weight = updates.commands_weight
+				from (
+					select
+						processes.id,
+						min(coalesce(min(command_objects.complete), 1), coalesce(min(child_processes.commands_complete), 1)) as commands_complete,
+						coalesce(sum(command_objects.count), 0) + coalesce(sum(child_processes.commands_count), 0) as commands_count,
+						max(coalesce(max(command_objects.depth), 0), coalesce(max(child_processes.commands_depth), 0)) as commands_depth,
+						coalesce(sum(command_objects.weight), 0) + coalesce(sum(child_processes.commands_weight), 0) as commands_weight
+					from processes
+					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 'command'
+					left join objects command_objects on command_objects.id = process_objects_commands.object
+					left join process_children process_children_commands on process_children_commands.process = processes.id
+					left join processes child_processes on child_processes.id = process_children_commands.child
+					where processes.id = new.id
+					group by processes.id
+				) as updates
+				where processes.id = updates.id;
+			end;
+
+			create trigger processes_update_outputs_complete_trigger
+			after update of complete, incomplete_outputs on processes
+			when new.outputs_complete = 0 and new.incomplete_outputs = 0 and new.incomplete_children = 0
+			begin
+				update processes
+				set
+					outputs_complete = updates.outputs_complete,
+					outputs_count = updates.outputs_count,
+					outputs_depth = updates.outputs_depth,
+					outputs_weight = updates.outputs_weight
+				from (
+					select
+						processes.id,
+						min(coalesce(min(output_objects.complete), 1), coalesce(min(child_processes.outputs_complete), 1)) as outputs_complete,
+						coalesce(sum(output_objects.count), 0) + coalesce(sum(child_processes.outputs_count), 0) as outputs_count,
+						max(coalesce(max(output_objects.depth), 0), coalesce(max(child_processes.outputs_depth), 0)) as outputs_depth,
+						coalesce(sum(output_objects.weight), 0) + coalesce(sum(child_processes.outputs_weight), 0) as outputs_weight
+					from processes
+					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 'output'
+					left join objects output_objects on output_objects.id = process_objects_outputs.object
+					left join process_children process_children_outputs on process_children_outputs.process = processes.id
+					left join processes child_processes on child_processes.id = process_children_outputs.child
+					where processes.id = new.id
+					group by processes.id
+				) as updates
+				where processes.id = updates.id;
+			end;
+
+			create trigger processes_insert_incomplete_children_trigger
+			after insert on processes
+			when new.incomplete_children is null
+			begin
+				update processes
+				set incomplete_children = (
+					select count(*)
+					from process_children
+					left join processes child_processes on child_processes.id = process_children.child
+					where process_children.process = new.id 
+					and (child_processes.complete is null or child_processes.complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger processes_update_incomplete_children_trigger
+			after update of complete on processes
+			when old.complete = 0 and new.complete = 1
+			begin
+				update processes
+				set incomplete_children = incomplete_children - 1
+				where id in (
+					select process
+					from process_children
+					where process_children.child = new.id
+				);
+			end;
+
+			create trigger processes_insert_incomplete_commands_trigger
+			after insert on processes
+			when new.incomplete_commands is null
+			begin
+				update processes
+				set incomplete_commands = (
+					select count(*)
+					from process_objects
+					left join objects on objects.id = process_objects.object
+					where process_objects.process = new.id 
+					and process_objects.kind = 'command'
+					and (objects.complete is null or objects.complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger processes_update_incomplete_commands_trigger
+			after update of complete on objects
+			for each row
+			when old.complete = 0 and new.complete = 1
+			begin
+				update processes
+				set incomplete_commands = incomplete_commands - 1
+				where id in (
+					select process
+					from process_objects
+					where process_objects.object = new.id and process_objects.kind = 'command'
+				);
+			end;
+
+			create trigger processes_insert_incomplete_outputs_trigger
+			after insert on processes
+			when new.incomplete_outputs is null
+			begin
+				update processes
+				set incomplete_outputs = (
+					select count(*)
+					from process_objects
+					left join objects on objects.id = process_objects.object
+					where process_objects.process = new.id 
+					and process_objects.kind = 'output'
+					and (objects.complete is null or objects.complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger processes_update_incomplete_outputs_trigger
+			after update of complete on objects
+			for each row
+			when old.complete = 0 and new.complete = 1
+			begin
+				update processes
+				set incomplete_outputs = incomplete_outputs - 1
+				where id in (
+					select process
+					from process_objects
+					where process_objects.object = new.id and process_objects.kind = 'output'
+				);
+			end;
 
 			create index processes_reference_count_zero_index on processes (touched_at) where reference_count = 0;
 
@@ -1252,6 +1445,62 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					(select count(*) from tags where item = new.id)
 				)
 				where id = new.id;
+			end;
+
+			create trigger processes_insert_incomplete_children_commands_trigger
+			after insert on processes
+			when (new.incomplete_children_commands is null)
+			begin
+				update processes
+				set incomplete_children_commands = (
+					select count(*)
+					from process_children
+					left join processes child_processes on child_processes.id = process_children.child
+					where process_children.process = new.id 
+					and (child_processes.complete is null or child_processes.commands_complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger processes_update_incomplete_children_commands_trigger
+			after update of commands_complete on processes
+			when (new.commands_complete = 1)
+			begin
+				update processes
+				set incomplete_children_commands = incomplete_children_commands - 1
+				where id in (
+					select process
+					from process_children
+					where process_children.child = new.id
+				);
+			end;
+
+			create trigger processes_insert_incomplete_children_outputs_trigger
+			after insert on processes
+			when (new.incomplete_children_outputs is null)
+			begin
+				update processes
+				set incomplete_children_outputs = (
+					select count(*)
+					from process_children
+					left join processes child_processes on child_processes.id = process_children.child
+					where process_children.process = new.id 
+					and (child_processes.complete is null or child_processes.outputs_complete = 0)
+				)
+				where id = new.id;
+			end;
+
+			create trigger processes_update_incomplete_children_outputs_trigger
+			after update of outputs_complete on processes
+			when (new.outputs_complete = 1)
+			begin
+				update processes
+				set incomplete_children_outputs = incomplete_children_outputs - 1
+				where id in (
+					select process
+					from process_children
+					where process_children.child = new.id
+				);
 			end;
 
 			create trigger processes_delete_trigger

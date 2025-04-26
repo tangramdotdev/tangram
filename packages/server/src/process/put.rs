@@ -85,14 +85,15 @@ impl Server {
 			"
 				insert into processes (
 					id,
+					actual_checksum,
 					cacheable,
-					checksum,
 					command,
 					created_at,
 					dequeued_at,
 					enqueued_at,
 					error,
 					exit,
+					expected_checksum,
 					finished_at,
 					host,
 					log,
@@ -129,7 +130,8 @@ impl Server {
 					?19,
 					?20,
 					?21,
-					?22
+					?22, 
+					?23
 				)
 				on conflict (id) do update set
 					actual_checksum = ?2,
@@ -252,14 +254,15 @@ impl Server {
 			"
 				insert into processes (
 					id,
+					actual_checksum,
 					cacheable,
-					checksum,
 					command,
 					created_at,
 					dequeued_at,
 					enqueued_at,
 					error,
 					exit,
+					expected_checksum,
 					finished_at,
 					host,
 					log,
@@ -296,7 +299,8 @@ impl Server {
 					$19,
 					$20,
 					$21,
-					$22
+					$22, 
+					$23
 				)
 				on conflict (id) do update set
 					actual_checksum = $2,
