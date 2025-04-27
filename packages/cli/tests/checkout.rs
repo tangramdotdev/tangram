@@ -383,11 +383,11 @@ async fn graph_symlink() {
 	let dependencies = false;
 	let assertions = |artifact: temp::Artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "symlink",
-    "target": "/bin/sh"
-  }
-  "#);
+		{
+		  "kind": "symlink",
+		  "target": "/bin/sh"
+		}
+		"#);
 	};
 	test_checkout(directory, dependencies, assertions).await;
 }

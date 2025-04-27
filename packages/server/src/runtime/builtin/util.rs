@@ -19,11 +19,11 @@ pub fn detect_archive_format(
 
 	// Otherwise, check for ustar.
 	let position = 257;
-	let length = 6;
+	let length = 5;
 	if bytes
 		.get(position..position + length)
 		.ok_or_else(|| tg::error!("buffer is too small"))?
-		== b"ustar\0"
+		== b"ustar"
 	{
 		return Ok(Some((tg::ArchiveFormat::Tar, None)));
 	}

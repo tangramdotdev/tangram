@@ -23,8 +23,7 @@ async fn directory() {
 		      "entries": {
 		        "hello.txt": {
 		          "kind": "file",
-		          "contents": "Hello, World!",
-		          "executable": false
+		          "contents": "Hello, World!"
 		        }
 		      }
 		    }
@@ -41,17 +40,16 @@ async fn file() {
 	let artifact = tg::file!("Hello, World!");
 	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g": {
-        "kind": "file",
-        "contents": "Hello, World!",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g": {
+		      "kind": "file",
+		      "contents": "Hello, World!"
+		    }
+		  }
+		}
+		"#);
 	})
 	.await;
 }
@@ -62,17 +60,17 @@ async fn executable_file() {
 	let artifact = tg::file!("Hello, World!", executable = true);
 	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "fil_01yf0xwv92p30wwyp5vpt925tyw4nwkyzt4b3fv4g3hc8wr4nsk8j0": {
-        "kind": "file",
-        "contents": "Hello, World!",
-        "executable": true
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "fil_01yf0xwv92p30wwyp5vpt925tyw4nwkyzt4b3fv4g3hc8wr4nsk8j0": {
+		      "kind": "file",
+		      "contents": "Hello, World!",
+		      "executable": true
+		    }
+		  }
+		}
+		"#);
 	})
 	.await;
 }
@@ -94,13 +92,11 @@ async fn directory_with_two_identical_files() {
 		      "entries": {
 		        "hello.txt": {
 		          "kind": "file",
-		          "contents": "Hello, World!",
-		          "executable": false
+		          "contents": "Hello, World!"
 		        },
 		        "world.txt": {
 		          "kind": "file",
-		          "contents": "Hello, World!",
-		          "executable": false
+		          "contents": "Hello, World!"
 		        }
 		      }
 		    }
@@ -123,22 +119,20 @@ async fn file_with_dependency() {
 	);
 	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
-        "kind": "file",
-        "contents": "bar",
-        "executable": false
-      },
-      "fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0": {
-        "kind": "file",
-        "contents": "foo",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+		      "kind": "file",
+		      "contents": "bar"
+		    },
+		    "fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0": {
+		      "kind": "file",
+		      "contents": "foo"
+		    }
+		  }
+		}
+		"#);
 	})
 	.await;
 }
@@ -149,16 +143,16 @@ async fn symlink() {
 	let artifact = tg::symlink!("/bin/sh");
 	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "sym_01xpnr55xrsjcwcc9ppryzqry6r2m15k17kzjxjakyfs4g5fvksqqg": {
-        "kind": "symlink",
-        "target": "/bin/sh"
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "sym_01xpnr55xrsjcwcc9ppryzqry6r2m15k17kzjxjakyfs4g5fvksqqg": {
+		      "kind": "symlink",
+		      "target": "/bin/sh"
+		    }
+		  }
+		}
+		"#);
 	})
 	.await;
 }
@@ -185,8 +179,7 @@ async fn directory_with_symlink() {
 		          "entries": {
 		            "hello.txt": {
 		              "kind": "file",
-		              "contents": "Hello, World!",
-		              "executable": false
+		              "contents": "Hello, World!"
 		            },
 		            "link": {
 		              "kind": "symlink",
@@ -233,15 +226,13 @@ async fn directory_with_file_with_dependency() {
 		      "entries": {
 		        "foo": {
 		          "kind": "file",
-		          "contents": "foo",
-		          "executable": false
+		          "contents": "foo"
 		        }
 		      }
 		    },
 		    "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
 		      "kind": "file",
-		      "contents": "bar",
-		      "executable": false
+		      "contents": "bar"
 		    }
 		  }
 		}
@@ -258,26 +249,25 @@ async fn directory_with_symlink_with_dependency() {
 	};
 	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "dir_01tazznbadf4db8hadnz5h145x288ne3dsg3zkttcp6xnj82vy6wm0": {
-        "kind": "directory",
-        "entries": {
-          "foo": {
-            "kind": "symlink",
-            "target": "../fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
-          }
-        }
-      },
-      "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
-        "kind": "file",
-        "contents": "bar",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "dir_01tazznbadf4db8hadnz5h145x288ne3dsg3zkttcp6xnj82vy6wm0": {
+		      "kind": "directory",
+		      "entries": {
+		        "foo": {
+		          "kind": "symlink",
+		          "target": "../fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
+		        }
+		      }
+		    },
+		    "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+		      "kind": "file",
+		      "contents": "bar"
+		    }
+		  }
+		}
+		"#);
 	})
 	.await;
 }
@@ -307,8 +297,7 @@ async fn graph_directory() {
 		      "entries": {
 		        "hello.txt": {
 		          "kind": "file",
-		          "contents": "Hello, World!",
-		          "executable": false
+		          "contents": "Hello, World!"
 		        }
 		      }
 		    }
@@ -332,17 +321,16 @@ async fn graph_file() {
 	let artifact = tg::File::with_graph_and_node(graph, 0);
 	test_cache(artifact, |_, artifact| async move {
 		assert_json_snapshot!(artifact, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      "fil_011d4n8a29e5pb8x8nmzkq16aawpn2ygeygv37t4ns2gpykgpd5kkg": {
-        "kind": "file",
-        "contents": "Hello, World!",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    "fil_011d4n8a29e5pb8x8nmzkq16aawpn2ygeygv37t4ns2gpykgpd5kkg": {
+		      "kind": "file",
+		      "contents": "Hello, World!"
+		    }
+		  }
+		}
+		"#);
 	})
 	.await;
 }

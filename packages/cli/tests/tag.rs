@@ -181,13 +181,13 @@ async fn multiple() {
 			.unwrap();
 		assert_success!(output);
 		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r"
-  test/hello
-  test/world
-  test/1.0.0
-  test/1.1.0
-  test/1.2.0
-  test/10.0.0
-  ");
+		test/hello
+		test/world
+		test/1.0.0
+		test/1.1.0
+		test/1.2.0
+		test/10.0.0
+		");
 
 		// Get
 		let pattern = "test";

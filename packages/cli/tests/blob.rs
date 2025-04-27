@@ -18,7 +18,6 @@ async fn create_from_file() {
 		let mut child = server
 			.tg()
 			.arg("blob")
-			.arg("create")
 			.stdin(std::process::Stdio::piped())
 			.stdout(std::process::Stdio::piped())
 			.spawn()

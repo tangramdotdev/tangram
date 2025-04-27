@@ -1,6 +1,6 @@
 use crate::Config;
 use futures::FutureExt as _;
-use std::{panic::AssertUnwindSafe, sync::Arc};
+use std::{panic::AssertUnwindSafe, sync::Arc, time::Duration};
 use tangram_client as tg;
 use tangram_temp::Temp;
 use url::Url;
@@ -122,12 +122,36 @@ impl Server {
 		command.arg("--config");
 		command.arg(&config_path);
 		command.arg("--path");
-		command.arg(data_path);
+		command.arg(&data_path);
 		command.arg("serve");
 
 		// Spawn the process.
 		let process = command.spawn().unwrap();
 		let process = tokio::sync::Mutex::new(Some(process));
+
+		// Wait for the server to start.
+		let mut started = false;
+		for _ in 0..100 {
+			let output = tokio::process::Command::new(tg)
+				.arg("--config")
+				.arg(&config_path)
+				.arg("--path")
+				.arg(&data_path)
+				.arg("--mode")
+				.arg("client")
+				.arg("health")
+				.output()
+				.await
+				.unwrap();
+			if output.status.success() {
+				started = true;
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(10)).await;
+		}
+		if !started {
+			return Err(tg::error!("failed to start the server"));
+		}
 
 		// Create the server.
 		let server = Self {

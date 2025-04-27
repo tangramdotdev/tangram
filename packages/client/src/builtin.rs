@@ -96,7 +96,7 @@ where
 pub fn bundle_command(artifact: &tg::Artifact) -> tg::Command {
 	let host = "builtin";
 	let executable = tg::command::Executable::Path("bundle".into());
-	let args = vec!["bundle".into(), artifact.clone().into()];
+	let args = vec![artifact.clone().into()];
 	tg::Command::builder(host, executable).args(args).build()
 }
 

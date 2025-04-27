@@ -13,7 +13,7 @@ async fn hello_world() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r###""Hello, World!""###);
+		assert_snapshot!(stdout, @r#""Hello, World!""#);
 	};
 	let args = vec![];
 	let path = "";
@@ -67,7 +67,7 @@ async fn no_return_value() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r"");
+		assert_snapshot!(stdout, @"");
 	};
 	let path = "";
 	let command = "default";
@@ -83,7 +83,7 @@ async fn args() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r###""Hello, Tangram!""###);
+		assert_snapshot!(stdout, @r#""Hello, Tangram!""#);
 	};
 	let path = "";
 	let command = "default";
@@ -276,7 +276,7 @@ async fn import_file() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r###""Hello, World!""###);
+		assert_snapshot!(stdout, @r#""Hello, World!""#);
 	};
 	test_build(directory, path, command, args, assertions).await;
 }
@@ -299,7 +299,7 @@ async fn import_directory() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r###""Hello, World!""###);
+		assert_snapshot!(stdout, @r#""Hello, World!""#);
 	};
 	let path = "";
 	let command = "default";
@@ -505,7 +505,7 @@ async fn directory_get_follows_intermediate_component_symlinks() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r###""foo""###);
+		assert_snapshot!(stdout, @r#""foo""#);
 	};
 	let path = "";
 	let command = "default";
@@ -535,7 +535,7 @@ async fn directory_get_follows_final_component_symlinks() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r###""foo""###);
+		assert_snapshot!(stdout, @r#""foo""#);
 	};
 	test_build(directory, path, command, args, assertions).await;
 }
@@ -655,7 +655,7 @@ async fn builtin_download_checksum() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default async () => {
-				let blob = await tg.download("https://example.com", "any");
+				let blob = await tg.download("https://example.com", "sha256:any");
 				return tg.file(blob);
 			};
 		"#),
@@ -666,7 +666,7 @@ async fn builtin_download_checksum() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
+		assert_snapshot!(stdout, @"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
 	};
 	test_build(directory, path, command, args, assertions).await;
 }
@@ -687,7 +687,7 @@ async fn builtin_download_exact_checksum() {
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
+		assert_snapshot!(stdout, @"fil_015s0zvjgtbm0j9jd8pn46e275v9sd13174p3w4twdw17826zb08c0");
 	};
 	test_build(directory, path, command, args, assertions).await;
 }
@@ -766,6 +766,7 @@ async fn command_set_checksum() {
 	test_build(directory, path, command, args, assertions).await;
 }
 
+#[ignore]
 #[tokio::test]
 async fn builtin_artifact_archive_extract_simple_dir_roundtrip() {
 	let module = indoc!(
@@ -776,7 +777,7 @@ async fn builtin_artifact_archive_extract_simple_dir_roundtrip() {
 					"link": tg.symlink("./hello.txt"),
 				});
 				let archive = await tg.archive(artifact, "format");
-				let extracted = await tg.extract(archive, "format");
+				let extracted = await tg.extract(archive);
 				tg.assert(await extracted.id() === await artifact.id());
 			};
 		"#

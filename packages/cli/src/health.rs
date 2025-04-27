@@ -11,7 +11,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		let health = handle.health().await?;
 		let health = serde_json::to_string_pretty(&health)
-			.map_err(|source| tg::error!(!source, "failed to serialize"))?;
+			.map_err(|source| tg::error!(!source, "failed to serialize the health"))?;
 		println!("{health}");
 		Ok(())
 	}

@@ -128,6 +128,8 @@ enum Command {
 	#[command(alias = "b")]
 	Build(self::process::build::Args),
 
+	Bundle(self::bundle::Args),
+
 	Cancel(self::process::cancel::Args),
 
 	Cat(self::cat::Args),
@@ -1029,6 +1031,7 @@ impl Cli {
 			Command::Archive(args) => self.command_archive(args).boxed(),
 			Command::Blob(args) => self.command_blob(args).boxed(),
 			Command::Build(args) => self.command_process_build(args).boxed(),
+			Command::Bundle(args) => self.command_bundle(args).boxed(),
 			Command::Cancel(args) => self.command_process_cancel(args).boxed(),
 			Command::Cat(args) => self.command_cat(args).boxed(),
 			Command::Check(args) => self.command_check(args).boxed(),

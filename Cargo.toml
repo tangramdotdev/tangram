@@ -57,9 +57,9 @@ async-nats = "0.40"
 async_zip = { version = "0.0.17", features = ["full"] }
 aws-credential-types = "1"
 aws-sigv4 = "1"
-biome_js_formatter = "0.5"
-biome_js_parser = "0.5"
-biome_js_syntax = "0.5"
+biome_js_formatter = { git = "https://github.com/biomejs/biome" }
+biome_js_parser = { git = "https://github.com/biomejs/biome" }
+biome_js_syntax = { git = "https://github.com/biomejs/biome" }
 blake3 = "1"
 byte-unit = { version = "5", features = ["byte"] }
 byteorder = "1"
@@ -192,9 +192,6 @@ zstd = "0.13"
 
 [patch.crates-io]
 async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip" }
-biome_js_formatter = { git = "https://github.com/biomejs/biome" }
-biome_js_parser = { git = "https://github.com/biomejs/biome" }
-biome_js_syntax = { git = "https://github.com/biomejs/biome" }
 
 [profile.dev.package.blake3]
 opt-level = 3

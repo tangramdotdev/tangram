@@ -13,12 +13,12 @@ fn test_export_default_target() {
 		.unwrap()
 		.transpiled_text;
 	assert_snapshot!(output, @r#"
- export default tg.command({
- 	module: import.meta.module,
- 	name: "default",
- 	function: ()=>{}
- });
- "#);
+	export default tg.command({
+		module: import.meta.module,
+		name: "default",
+		function: ()=>{}
+	});
+	"#);
 }
 
 #[test]
@@ -32,12 +32,12 @@ fn test_export_named_target() {
 		.unwrap()
 		.transpiled_text;
 	assert_snapshot!(output, @r#"
- export let named = tg.command({
- 	module: import.meta.module,
- 	name: "named",
- 	function: ()=>{}
- });
- "#);
+	export let named = tg.command({
+		module: import.meta.module,
+		name: "named",
+		function: ()=>{}
+	});
+	"#);
 }
 
 #[test]
@@ -51,10 +51,10 @@ fn test_named_target() {
 		.unwrap()
 		.transpiled_text;
 	assert_snapshot!(output, @r#"
- tg.command({
- 	module: import.meta.module,
- 	name: "named",
- 	function: ()=>{}
- });
- "#);
+	tg.command({
+		module: import.meta.module,
+		name: "named",
+		function: ()=>{}
+	});
+	"#);
 }

@@ -40,52 +40,46 @@ async fn format() {
 		// Snapshot the package.
 		let package = temp::Artifact::with_path(temp.path()).await.unwrap();
 		assert_json_snapshot!(package, @r#"
-  {
-    "kind": "directory",
-    "entries": {
-      ".tangramignore": {
-        "kind": "file",
-        "contents": "foo",
-        "executable": false
-      },
-      "bar": {
-        "kind": "directory",
-        "entries": {
-          "tangram.ts": {
-            "kind": "file",
-            "contents": "export default \"formatted\";\n",
-            "executable": false
-          }
-        }
-      },
-      "bar.tg.ts": {
-        "kind": "file",
-        "contents": "export default \"formatted\";\n",
-        "executable": false
-      },
-      "foo": {
-        "kind": "directory",
-        "entries": {
-          "tangram.ts": {
-            "kind": "file",
-            "contents": "export default   \"not formatted\"",
-            "executable": false
-          }
-        }
-      },
-      "foo.ts": {
-        "kind": "file",
-        "contents": "export default   \"not formatted\"",
-        "executable": false
-      },
-      "tangram.ts": {
-        "kind": "file",
-        "contents": "export default \"formatted\";\n",
-        "executable": false
-      }
-    }
-  }
-  "#);
+		{
+		  "kind": "directory",
+		  "entries": {
+		    ".tangramignore": {
+		      "kind": "file",
+		      "contents": "foo"
+		    },
+		    "bar": {
+		      "kind": "directory",
+		      "entries": {
+		        "tangram.ts": {
+		          "kind": "file",
+		          "contents": "export default \"formatted\";\n"
+		        }
+		      }
+		    },
+		    "bar.tg.ts": {
+		      "kind": "file",
+		      "contents": "export default \"formatted\";\n"
+		    },
+		    "foo": {
+		      "kind": "directory",
+		      "entries": {
+		        "tangram.ts": {
+		          "kind": "file",
+		          "contents": "export default   \"not formatted\""
+		        }
+		      }
+		    },
+		    "foo.ts": {
+		      "kind": "file",
+		      "contents": "export default   \"not formatted\""
+		    },
+		    "tangram.ts": {
+		      "kind": "file",
+		      "contents": "export default \"formatted\";\n"
+		    }
+		  }
+		}
+		"#);
 	})
 	.await;
 }
