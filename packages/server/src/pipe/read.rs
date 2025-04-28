@@ -3,7 +3,7 @@ use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use tangram_client as tg;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::{self as messenger, prelude::*};
 
 impl Server {
 	pub async fn read_pipe(
@@ -22,9 +22,20 @@ impl Server {
 		let stream = id.to_string();
 		let stream = self
 			.messenger
-			.stream_subscribe(stream, None)
+			.get_stream(stream)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
+		let name = crate::messenger::random_consumer_name();
+		let config = messenger::ConsumerConfig::default();
+		let consumer = stream
+			.create_consumer(name, config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the consumer"))?;
+		let stream = consumer
+			.subscribe()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
+			.boxed()
 			.map_err(|source| tg::error!(!source, "failed to get a message"))
 			.and_then(|message| async move {
 				message

@@ -283,12 +283,12 @@ impl super::Error for Error {
 impl super::Database for Database {
 	type Error = Error;
 
-	type T = pool::Guard<Connection>;
+	type Connection = pool::Guard<Connection>;
 
 	async fn connection_with_options(
 		&self,
 		options: super::ConnectionOptions,
-	) -> Result<Self::T, Self::Error> {
+	) -> Result<Self::Connection, Self::Error> {
 		let connection = match options.kind {
 			crate::ConnectionKind::Read => self.read_pool.get(options.priority).await,
 			crate::ConnectionKind::Write => self.write_pool.get(options.priority).await,

@@ -145,12 +145,12 @@ impl<'a> Transaction<'a> {
 impl super::Database for Database {
 	type Error = Error;
 
-	type T = pool::Guard<Connection>;
+	type Connection = pool::Guard<Connection>;
 
 	async fn connection_with_options(
 		&self,
 		options: super::ConnectionOptions,
-	) -> Result<Self::T, Self::Error> {
+	) -> Result<Self::Connection, Self::Error> {
 		let mut connection = self.pool.get(options.priority).await;
 		if connection.client.is_closed() {
 			connection.reconnect().await?;

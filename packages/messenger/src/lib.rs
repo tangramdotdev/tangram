@@ -1,5 +1,4 @@
 use bytes::Bytes;
-use futures::Stream;
 use std::time::Duration;
 
 pub use self::acker::Acker;
@@ -9,23 +8,37 @@ pub mod either;
 pub mod memory;
 pub mod nats;
 
+pub mod prelude {
+	pub use super::{Consumer as _, Messenger as _, Stream as _};
+}
+
 pub struct Message {
 	pub subject: String,
 	pub payload: Bytes,
 	pub acker: Acker,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct StreamConfig {
+	pub discard: DiscardPolicy,
 	pub max_bytes: Option<u64>,
 	pub max_messages: Option<u64>,
-	pub retention: Option<RetentionPolicy>,
+	pub retention: RetentionPolicy,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+pub enum DiscardPolicy {
+	#[default]
+	Old,
+	New,
+}
+
+#[derive(Clone, Debug, Default)]
 pub enum RetentionPolicy {
+	#[default]
 	Limits,
 	Interest,
+	WorkQueue,
 }
 
 #[derive(Clone, Debug)]
@@ -34,8 +47,20 @@ pub struct StreamInfo {
 	pub last_sequence: u64,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ConsumerConfig {
+	pub deliver: DeliverPolicy,
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum DeliverPolicy {
+	#[default]
+	All,
+	New,
+}
+
 #[derive(Debug)]
-pub struct StreamPublishInfo {
+pub struct ConsumerInfo {
 	pub sequence: u64,
 }
 
@@ -56,6 +81,8 @@ pub enum Error {
 }
 
 pub trait Messenger {
+	type Stream: Stream;
+
 	fn publish(
 		&self,
 		subject: String,
@@ -66,47 +93,82 @@ pub trait Messenger {
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> impl Future<Output = Result<impl Stream<Item = Message> + Send + 'static, Error>> + Send;
+	) -> impl Future<Output = Result<impl futures::Stream<Item = Message> + Send + 'static, Error>> + Send;
+
+	fn get_stream(&self, name: String) -> impl Future<Output = Result<Self::Stream, Error>> + Send;
+
+	fn create_stream(
+		&self,
+		name: String,
+		config: StreamConfig,
+	) -> impl Future<Output = Result<Self::Stream, Error>> + Send;
 
 	fn get_or_create_stream(
 		&self,
 		name: String,
 		config: StreamConfig,
-	) -> impl Future<Output = Result<(), Error>> + Send;
+	) -> impl Future<Output = Result<Self::Stream, Error>> + Send;
 
 	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Error>> + Send;
-
-	fn stream_info(&self, name: String) -> impl Future<Output = Result<StreamInfo, Error>> + Send;
 
 	fn stream_publish(
 		&self,
 		name: String,
 		payload: Bytes,
-	) -> impl Future<Output = Result<impl Future<Output = Result<StreamPublishInfo, Error>>, Error>> + Send;
-
-	fn stream_subscribe(
-		&self,
-		name: String,
-		consumer: Option<String>,
-	) -> impl Future<
-		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
-	> + Send;
+	) -> impl Future<Output = Result<impl Future<Output = Result<u64, Error>>, Error>> + Send;
 
 	fn stream_batch_publish(
 		&self,
 		name: String,
 		payloads: Vec<Bytes>,
-	) -> impl Future<
-		Output = Result<impl Future<Output = Result<Vec<StreamPublishInfo>, Error>>, Error>,
-	> + Send;
+	) -> impl Future<Output = Result<impl Future<Output = Result<Vec<u64>, Error>> + Send, Error>> + Send;
+}
 
-	fn stream_batch_subscribe(
+pub trait Stream {
+	type Consumer: Consumer;
+
+	fn info(&self) -> impl Future<Output = Result<StreamInfo, Error>> + Send;
+
+	fn get_consumer(
 		&self,
 		name: String,
-		consumer: Option<String>,
+	) -> impl Future<Output = Result<Self::Consumer, Error>> + Send;
+
+	fn create_consumer(
+		&self,
+		name: String,
+		config: ConsumerConfig,
+	) -> impl Future<Output = Result<Self::Consumer, Error>> + Send;
+
+	fn get_or_create_consumer(
+		&self,
+		name: String,
+		config: ConsumerConfig,
+	) -> impl Future<Output = Result<Self::Consumer, Error>> + Send;
+
+	fn delete_consumer(&self, name: String) -> impl Future<Output = Result<(), Error>> + Send;
+}
+
+pub trait Consumer {
+	fn info(&self) -> impl Future<Output = Result<ConsumerInfo, Error>> + Send;
+
+	fn subscribe(
+		&self,
+	) -> impl Future<
+		Output = Result<
+			impl futures::Stream<Item = Result<Message, Error>> + Send + 'static,
+			Error,
+		>,
+	> + Send;
+
+	fn batch_subscribe(
+		&self,
 		config: BatchConfig,
 	) -> impl Future<
-		Output = Result<impl Stream<Item = Result<Message, Error>> + Send + 'static, Error>,
+		Output = Result<
+			impl futures::Stream<Item = Result<Message, Error>> + Send + 'static,
+			Error,
+		>,
 	> + Send;
 }
 

@@ -3,7 +3,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 
 impl Server {
 	pub async fn put_tag(&self, tag: &tg::Tag, mut arg: tg::tag::put::Arg) -> tg::Result<()> {

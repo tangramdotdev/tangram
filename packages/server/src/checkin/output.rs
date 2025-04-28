@@ -14,7 +14,7 @@ use std::{
 	sync::{Arc, RwLock},
 };
 use tangram_client as tg;
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 use tokio::task::JoinSet;
 
 #[derive(Debug)]

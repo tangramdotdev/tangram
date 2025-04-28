@@ -2,7 +2,7 @@ use crate::Server;
 use bytes::Bytes;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 use tokio::io::AsyncWriteExt as _;
 
 impl Server {

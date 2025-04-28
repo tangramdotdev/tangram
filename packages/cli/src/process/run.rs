@@ -255,24 +255,23 @@ fn stdin_stream() -> impl Stream<Item = tg::Result<Bytes>> + Send + 'static {
 	// Create a send/receive pair for sending stdin chunks. The channel is bounded to 1 to avoid buffering stdin messages.
 	let (send, recv) = tokio::sync::mpsc::channel(1);
 
-	// Spawn the stdin thread and detach it. This is necessary because the read from stdin cannot be interrupted or canceled.
+	// Spawn the stdin thread.
 	std::thread::spawn(move || {
 		let mut stdin = std::io::stdin();
 		loop {
 			let mut buf = vec![0u8; 4096];
 			let result = match stdin.read(&mut buf) {
 				Ok(0) => break,
-				Ok(n) => {
-					let chunk = Bytes::copy_from_slice(&buf[0..n]);
-					Ok(chunk)
-				},
+				Ok(n) => Ok(Bytes::copy_from_slice(&buf[0..n])),
 				Err(source) => Err(tg::error!(!source, "failed to read stdin")),
 			};
-			if send.blocking_send(result).is_err() {
+			let result = send.blocking_send(result);
+			if result.is_err() {
 				break;
 			}
 		}
 	});
+
 	ReceiverStream::new(recv)
 }
 

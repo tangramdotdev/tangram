@@ -5,7 +5,7 @@ use num::ToPrimitive;
 use std::{collections::BTreeMap, pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 use tokio::io::{AsyncRead, AsyncWriteExt as _};
 
 const MAX_BRANCH_CHILDREN: usize = 1_024;

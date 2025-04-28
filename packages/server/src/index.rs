@@ -13,7 +13,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
-use tangram_messenger::{Acker, BatchConfig, Messenger};
+use tangram_messenger::{self as messenger, Acker, prelude::*};
 use time::format_description::well_known::Rfc3339;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -86,45 +86,51 @@ impl Server {
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let progress = crate::progress::Handle::new();
-		let task =
-			tokio::spawn({
-				let progress = progress.clone();
-				let server = self.clone();
-				async move {
-					let info =
-						server
-							.messenger
-							.stream_info("index".into())
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to get the index stream info")
-							})?;
+		let task = tokio::spawn({
+			let progress = progress.clone();
+			let server = self.clone();
+			async move {
+				// Get the stream.
+				let stream = server
+					.messenger
+					.get_stream("index".to_owned())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 
-					// Get the most recent sequence number.
-					progress.start(
-						"index".to_string(),
-						"items".to_owned(),
-						tg::progress::IndicatorFormat::Normal,
-						Some(0),
-						Some(info.last_sequence.saturating_sub(info.first_sequence)),
-					);
+				// Get the info.
+				let info = stream
+					.info()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
 
-					// Wait for the indexing task to catch up.
-					let last_sequence = info.last_sequence;
-					let mut first_sequence = info.first_sequence;
-					while first_sequence < last_sequence {
-						let info = server.messenger.stream_info("index".into()).await.map_err(
-							|source| tg::error!(!source, "failed to get the index stream info"),
-						)?;
-						progress.increment("index", info.first_sequence - first_sequence);
-						first_sequence = info.first_sequence;
-					}
+				// Start the progress indicator.
+				let total = info.last_sequence.saturating_sub(info.first_sequence);
+				progress.start(
+					"index".to_string(),
+					"items".to_owned(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					Some(total),
+				);
 
-					progress.output(());
-
-					Ok::<_, tg::Error>(())
+				// Wait for the indexing task to catch up.
+				let mut first_sequence = info.first_sequence;
+				let last_sequence = info.last_sequence;
+				while first_sequence < last_sequence {
+					let info = stream.info().await.map_err(|source| {
+						tg::error!(!source, "failed to get the index stream info")
+					})?;
+					progress.increment("index", info.first_sequence - first_sequence);
+					first_sequence = info.first_sequence;
+					tokio::time::sleep(Duration::from_millis(10)).await;
 				}
-			});
+
+				progress.finish_all();
+				progress.output(());
+
+				Ok::<_, tg::Error>(())
+			}
+		});
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = progress.stream().attach(abort_handle);
 		Ok(stream)
@@ -163,16 +169,25 @@ impl Server {
 		&self,
 		config: &crate::config::Indexer,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
-		let batch_config = BatchConfig {
+		let stream = self
+			.messenger
+			.get_stream("index".to_owned())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
+		let consumer = stream
+			.get_consumer("index".to_owned())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the index consumer"))?;
+		let batch_config = messenger::BatchConfig {
 			max_bytes: None,
 			max_messages: Some(config.message_batch_size.to_u64().unwrap()),
 			timeout: Some(config.message_batch_timeout),
 		};
-		let stream = self
-			.messenger
-			.stream_batch_subscribe("index".to_owned(), Some("index".to_owned()), batch_config)
+		let stream = consumer
+			.batch_subscribe(batch_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
+			.boxed()
 			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
 			.and_then(|message| async {
 				let (payload, acker) = message.split();

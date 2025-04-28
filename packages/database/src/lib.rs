@@ -23,13 +23,15 @@ pub trait Error: std::error::Error + Send + Sync + 'static {
 pub trait Database {
 	type Error: Error;
 
-	type T;
+	type Connection;
 
-	fn connection(&self) -> impl Future<Output = Result<Self::T, Self::Error>> + Send {
+	fn connection(&self) -> impl Future<Output = Result<Self::Connection, Self::Error>> + Send {
 		self.connection_with_options(ConnectionOptions::default())
 	}
 
-	fn write_connection(&self) -> impl Future<Output = Result<Self::T, Self::Error>> + Send {
+	fn write_connection(
+		&self,
+	) -> impl Future<Output = Result<Self::Connection, Self::Error>> + Send {
 		let options = ConnectionOptions {
 			kind: ConnectionKind::Write,
 			..Default::default()
@@ -40,7 +42,7 @@ pub trait Database {
 	fn connection_with_options(
 		&self,
 		options: ConnectionOptions,
-	) -> impl Future<Output = Result<Self::T, Self::Error>> + Send;
+	) -> impl Future<Output = Result<Self::Connection, Self::Error>> + Send;
 }
 
 #[derive(Clone, Debug, Default)]

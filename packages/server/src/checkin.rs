@@ -15,7 +15,7 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 use tokio_util::task::AbortOnDropHandle;
 
 pub(crate) mod ignore;
@@ -701,7 +701,6 @@ impl Server {
 			let message = serde_json::to_vec(&message)
 				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
 			messages.push(message.into());
-			// Send messages for the blob.
 			if let Variant::File(File {
 				blob: Some(blob), ..
 			}) = &node.variant
@@ -730,7 +729,6 @@ impl Server {
 				}
 			}
 		}
-
 		while !messages.is_empty() {
 			let published = self
 				.messenger
@@ -766,8 +764,6 @@ impl Server {
 				.stream_publish("index".to_owned(), message.into())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-
-			// Send messages for the blob.
 			if let Variant::File(File {
 				blob: Some(blob), ..
 			}) = &node.variant

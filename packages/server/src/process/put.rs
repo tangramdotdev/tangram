@@ -7,7 +7,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 use time::format_description::well_known::Rfc3339;
 
 impl Server {

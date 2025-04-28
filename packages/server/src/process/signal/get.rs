@@ -3,7 +3,7 @@ use futures::{Stream, StreamExt as _};
 use tangram_client as tg;
 use tangram_futures::task::Stop;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 
 impl Server {
 	pub(crate) async fn try_get_process_signal_stream(

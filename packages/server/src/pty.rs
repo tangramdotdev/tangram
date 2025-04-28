@@ -1,7 +1,7 @@
 use crate::Server;
 use bytes::Bytes;
 use tangram_client as tg;
-use tangram_messenger::{self as messenger, Messenger as _};
+use tangram_messenger::{self as messenger, prelude::*};
 
 mod close;
 mod create;
@@ -15,7 +15,7 @@ impl Server {
 		pty: &tg::pty::Id,
 		event: tg::pty::Event,
 		master: bool,
-	) -> tg::Result<messenger::StreamPublishInfo> {
+	) -> tg::Result<u64> {
 		let name = if master {
 			format!("{pty}_master_writer")
 		} else {

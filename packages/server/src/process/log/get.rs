@@ -7,7 +7,7 @@ use std::time::Duration;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::task::AbortOnDropHandle;

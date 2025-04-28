@@ -17,7 +17,7 @@ use tangram_database::{self as db, Database as _, Query as _};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, header::content_encoding::ContentEncoding, request::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::task::AbortOnDropHandle;

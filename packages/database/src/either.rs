@@ -34,12 +34,12 @@ where
 {
 	type Error = Error<L::Error, R::Error>;
 
-	type T = Either<L::T, R::T>;
+	type Connection = Either<L::Connection, R::Connection>;
 
 	fn connection_with_options(
 		&self,
 		options: ConnectionOptions,
-	) -> impl Future<Output = Result<Self::T, Self::Error>> {
+	) -> impl Future<Output = Result<Self::Connection, Self::Error>> {
 		match self {
 			Either::Left(left) => left
 				.connection_with_options(options)

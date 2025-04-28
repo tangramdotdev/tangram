@@ -25,7 +25,7 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::task::{Stop, Task, TaskMap};
 use tangram_http::{Body, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 use tokio::{
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt as _},
 	net::{TcpListener, UnixListener},
@@ -330,14 +330,22 @@ impl Server {
 			},
 		};
 
-		// Get or create the index stream.
+		// Get or create the index stream and consumer.
 		let stream_config = tangram_messenger::StreamConfig {
+			discard: tangram_messenger::DiscardPolicy::New,
 			max_bytes: None,
 			max_messages: None,
-			retention: Some(tangram_messenger::RetentionPolicy::Interest),
+			retention: tangram_messenger::RetentionPolicy::WorkQueue,
 		};
-		messenger
+		let stream = messenger
 			.get_or_create_stream("index".to_owned(), stream_config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to ensure the index stream exists"))?;
+		let consumer_config = tangram_messenger::ConsumerConfig {
+			deliver: tangram_messenger::DeliverPolicy::All,
+		};
+		stream
+			.get_or_create_consumer("index".to_owned(), consumer_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to ensure the index stream exists"))?;
 

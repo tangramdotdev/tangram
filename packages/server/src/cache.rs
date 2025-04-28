@@ -9,7 +9,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 use tokio_util::io::InspectReader;
 
 #[cfg(test)]

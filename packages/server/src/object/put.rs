@@ -3,7 +3,7 @@ use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::Messenger as _;
+use tangram_messenger::prelude::*;
 
 impl Server {
 	pub async fn put_object(
