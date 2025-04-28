@@ -8,7 +8,7 @@ use indoc::indoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{
-	collections::{BTreeMap, HashSet},
+	collections::BTreeMap,
 	ops::Not as _,
 	os::unix::fs::PermissionsExt as _,
 	panic::AssertUnwindSafe,
@@ -49,15 +49,17 @@ struct GraphObject {
 pub struct Graph {
 	nodes: Vec<Node>,
 	paths: radix_trie::Trie<PathBuf, usize>,
+	roots: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
 struct Node {
-	edges: Vec<Edge>,
 	#[allow(dead_code)]
 	metadata: Option<std::fs::Metadata>,
 	object: Option<Object>,
 	path: Option<Arc<PathBuf>>,
+	root: Option<usize>,
+	tag: Option<tg::Tag>,
 	variant: Variant,
 }
 
@@ -79,12 +81,15 @@ struct Directory {
 struct File {
 	blob: Option<Blob>,
 	executable: bool,
-	dependencies: HashSet<FileDependency, fnv::FnvBuildHasher>,
+	dependencies: Vec<FileDependency>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FileDependency {
-	Import(tg::Import),
+	Import {
+		import: tg::Import,
+		node: Option<usize>,
+	},
 	Referent {
 		reference: tg::Reference,
 		referent: tg::Referent<tg::object::Id>,
@@ -216,6 +221,7 @@ impl Server {
 		let graph = Graph {
 			nodes: Vec::new(),
 			paths: radix_trie::Trie::default(),
+			roots: Vec::new(),
 		};
 		let mut state = State {
 			graph,
@@ -242,6 +248,11 @@ impl Server {
 		// Remove the ignorer.
 		state.ignorer.take();
 
+		// Find roots.
+		let start = Instant::now();
+		Self::checkin_find_roots(&mut state);
+		tracing::trace!(elapsed = ?start.elapsed(), "find roots");
+
 		// Create blobs.
 		let start = Instant::now();
 		self.checkin_create_blobs(&mut state).await?;
@@ -257,22 +268,19 @@ impl Server {
 
 		// Get the root node's ID.
 		let root = state.graph.nodes[0].object.as_ref().unwrap().id.clone();
-		let root =
-			tg::artifact::Id::try_from(root).map_err(|_| tg::error!("expected an artifact"))?;
 
 		// Write the objects to the database and the store.
 		let state = Arc::new(state);
 		let cache_future = tokio::spawn({
 			let server = self.clone();
 			let arg = arg.clone();
-			let root = root.clone();
 			let state = state.clone();
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_cache_task(state, &arg, &root, touched_at)
-					.map_err(|source| tg::error!(!source, "failed to copy the blobs"))
-					.await?;
+					.checkin_cache_task(state, &arg, touched_at)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to copy blobs"))?;
 				tracing::trace!(elapsed = ?start.elapsed(), "copy blobs");
 				Ok::<_, tg::Error>(())
 			}
@@ -285,7 +293,7 @@ impl Server {
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_messenger_task(&state, &root, touched_at)
+					.checkin_messenger_task(&state, touched_at)
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to write the objects to the messenger")
@@ -299,11 +307,10 @@ impl Server {
 			let server = self.clone();
 			let arg = arg.clone();
 			let state = state.clone();
-			let root = root.clone();
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_store_task(&arg, &state, &root, touched_at)
+					.checkin_store_task(&arg, &state, touched_at)
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to write the objects to the store")
@@ -345,51 +352,60 @@ impl Server {
 		if let Some(index) = state.graph.paths.get(&path) {
 			return Ok(*index);
 		}
-		state
-			.graph
-			.paths
-			.insert(path.clone(), state.graph.nodes.len());
 
 		// Get the metadata.
 		let metadata = std::fs::symlink_metadata(&path)
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 
-		// Visit the path.
-		let index = if metadata.is_dir() {
-			self.checkin_visit_directory(state, path, metadata)?
+		// Create the variant.
+		let variant = if metadata.is_dir() {
+			Variant::Directory(Directory {
+				entries: Vec::new(),
+			})
 		} else if metadata.is_file() {
-			self.checkin_visit_file(state, path, metadata)?
+			Variant::File(File {
+				blob: None,
+				dependencies: Vec::new(),
+				executable: metadata.permissions().mode() & 0o111 != 0,
+			})
 		} else if metadata.is_symlink() {
-			Self::checkin_visit_symlink(state, path, metadata)?
+			let target = std::fs::read_link(&path)
+				.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
+			Variant::Symlink(Symlink { target })
 		} else {
 			return Err(tg::error!(?metadata, "invalid file type"));
 		};
 
-		Ok(index)
-	}
-
-	fn checkin_visit_directory(
-		&self,
-		state: &mut State,
-		path: PathBuf,
-		metadata: std::fs::Metadata,
-	) -> tg::Result<usize> {
-		// Insert the node.
+		// Get the node index.
 		let index = state.graph.nodes.len();
-		let variant = Variant::Directory(Directory {
-			entries: Vec::new(),
-		});
+
+		// Update the path.
+		state.graph.paths.insert(path.clone(), index);
+
+		// Create the node.
 		let node = Node {
-			edges: Vec::new(),
+			variant,
 			metadata: Some(metadata),
 			object: None,
-			path: None,
-			variant,
+			path: Some(Arc::new(path)),
+			root: None,
+			tag: None,
 		};
 		state.graph.nodes.push(node);
 
+		// Visit the edges.
+		match &state.graph.nodes[index].variant {
+			Variant::Directory(_) => self.checkin_visit_directory_edges(state, index)?,
+			Variant::File(_) => self.checkin_visit_file_edges(state, index)?,
+			Variant::Symlink(_) => Self::checkin_visit_symlink_edges(state, index)?,
+		}
+
+		Ok(index)
+	}
+
+	fn checkin_visit_directory_edges(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		// Read the entries.
-		let read_dir = std::fs::read_dir(&path)
+		let read_dir = std::fs::read_dir(&state.graph.nodes[index].path())
 			.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
 		let mut names = Vec::new();
 		for result in read_dir {
@@ -403,75 +419,54 @@ impl Server {
 			names.push(name);
 		}
 
-		// Visit the entries.
-		let mut edges = Vec::with_capacity(names.len());
+		// Visit the children.
 		for name in names {
-			let entry_index = self.checkin_visit(state, path.join(&name))?;
+			let path = state.graph.nodes[index].path().join(&name);
+			let index = self.checkin_visit(state, path)?;
 			state.graph.nodes[index]
 				.variant
 				.unwrap_directory_mut()
 				.entries
-				.push((name, entry_index));
-			edges.push(Edge {
-				node: Some(entry_index),
-			});
+				.push((name, index));
 		}
 
-		// Set the edges.
-		state.graph.nodes[index].edges = edges;
-
-		// Set the path.
-		state.graph.nodes[index].path = Some(Arc::new(path));
-
-		Ok(index)
+		Ok(())
 	}
 
-	fn checkin_visit_file(
-		&self,
-		state: &mut State,
-		path: PathBuf,
-		metadata: std::fs::Metadata,
-	) -> tg::Result<usize> {
+	fn checkin_visit_file_edges(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		// Get the list of all dependencies.
-		let dependencies = Self::get_file_dependencies(state, &path)?;
+		let path = state.graph.nodes[index].path().to_owned();
+		let mut dependencies =
+			self.get_file_dependencies(state, &path)?;
 
-		// Get the list of edges.
-		let edges = dependencies
-			.iter()
-			.try_fold(Vec::new(), |mut acc, dependency| {
-				let FileDependency::Import(import) = dependency else {
-					return Ok(acc);
-				};
-				let Some(path) = import.reference.path().map(Path::to_owned) else {
-					return Ok(acc);
-				};
-				let node = self.checkin_visit(state, path)?;
-				acc.push(Edge { node: Some(node) });
-				Ok::<_, tg::Error>(acc)
-			})?;
-		let variant = Variant::File(File {
-			blob: None,
-			dependencies,
-			executable: metadata.permissions().mode() & 0o111 != 0,
-		});
-		let node = Node {
-			edges,
-			metadata: Some(metadata),
-			object: None,
-			path: Some(Arc::new(path)),
-			variant,
-		};
-		let index = state.graph.nodes.len();
-		state.graph.nodes.push(node);
-		Ok(index)
+		// Visit path dependencies.
+		for dependency in &mut dependencies {
+			match dependency {
+				FileDependency::Import { import, node } if import.reference.path().is_some() => {
+					let index =
+						self.checkin_visit(state, import.reference.path().unwrap().to_owned())?;
+					*node = Some(index);
+				},
+				_ => (),
+			}
+		}
+
+		// Update the graph.
+		state.graph.nodes[index]
+			.variant
+			.unwrap_file_mut()
+			.dependencies = dependencies;
+
+		Ok(())
 	}
 
 	fn get_file_dependencies(
+		&self,
 		state: &mut State,
-		path: &PathBuf,
-	) -> tg::Result<HashSet<FileDependency, fnv::FnvBuildHasher>> {
+		path: &Path,
+	) -> tg::Result<Vec<FileDependency>> {
 		// Check if this file has dependencies set in the xattr.
-		if let Ok(Some(contents)) = xattr::get(&path, tg::file::XATTR_LOCK_NAME) {
+		if let Ok(Some(contents)) = xattr::get(path, tg::file::XATTR_LOCK_NAME) {
 			let lockfile = serde_json::from_slice::<tg::Lockfile>(&contents)
 				.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))?;
 			if lockfile.nodes.len() != 1 {
@@ -481,7 +476,7 @@ impl Server {
 				return Err(tg::error!(%path = path.display(), "expected a file node"));
 			};
 			return file_node.dependencies.iter().try_fold(
-				HashSet::default(),
+				Vec::new(),
 				|mut acc, (reference, referent)| match &referent.item {
 					Either::Left(_) => Err(tg::error!("found a graph node")),
 					Either::Right(object) => {
@@ -495,7 +490,7 @@ impl Server {
 							reference: reference.clone(),
 							referent,
 						};
-						acc.insert(dependency);
+						acc.push(dependency);
 						Ok(acc)
 					},
 				},
@@ -504,7 +499,7 @@ impl Server {
 
 		// If this is not a module, it has no dependencies.
 		if !tg::package::is_module_path(path) {
-			return Ok(HashSet::default());
+			return Ok(Vec::new());
 		}
 
 		// Parse imports.
@@ -548,7 +543,7 @@ impl Server {
 			analysis
 				.imports
 				.into_iter()
-				.try_fold(HashSet::default(), |mut acc, import| {
+				.try_fold(Vec::new(), |mut acc, import| {
 					// Use the locked dependency if the reference matches.
 					if let Some((reference, referent)) =
 						locked_dependencies
@@ -566,7 +561,7 @@ impl Server {
 								};
 								Some((reference.clone(), referent))
 							}) {
-						acc.insert(FileDependency::Referent {
+						acc.push(FileDependency::Referent {
 							reference,
 							referent,
 						});
@@ -584,7 +579,7 @@ impl Server {
 					}
 
 					// Add the import.
-					acc.insert(FileDependency::Import(import));
+					acc.push(FileDependency::Import { import, node: None });
 
 					Ok(acc)
 				})?;
@@ -592,24 +587,65 @@ impl Server {
 		Ok(dependencies)
 	}
 
-	fn checkin_visit_symlink(
-		state: &mut State,
-		path: PathBuf,
-		metadata: std::fs::Metadata,
-	) -> tg::Result<usize> {
-		let target = std::fs::read_link(&path)
-			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
-		let variant = Variant::Symlink(Symlink { target });
-		let node = Node {
-			edges: Vec::new(),
-			metadata: Some(metadata),
-			object: None,
-			path: Some(Arc::new(path)),
-			variant,
-		};
-		let index = state.graph.nodes.len();
-		state.graph.nodes.push(node);
-		Ok(index)
+	fn checkin_visit_symlink_edges(
+		_state: &mut State,
+		_index: usize,
+	) -> tg::Result<()> {
+		Ok(())
+	}
+
+	fn checkin_find_roots(state: &mut State) {
+		let mut visited = vec![false; state.graph.nodes.len()];
+		let mut stack = vec![(0, None::<usize>)];
+		'outer: while let Some((index, hint)) = stack.pop() {
+			// Skip nodes that have already been visited.
+			if visited[index] {
+				continue;
+			}
+			visited[index] = true;
+
+			// Walk up the path hierarchy.
+			let path = state.graph.nodes[index].path();
+
+			// Check if the hint matches.
+			if let Some(hint) = hint {
+				let hint_path = state.graph.nodes[hint]
+					.path();
+				if path.strip_prefix(hint_path).is_ok() {
+					state.graph.nodes[index].root = Some(hint);
+
+					// Recurse on children using the same hint.
+					let children = state.graph.nodes[index].edges()
+						.into_iter()
+						.map(|child| (child, Some(hint)));
+					stack.extend(children);
+					continue 'outer;
+				}
+			}
+
+			// Search the ancestors of this node to find its root.
+			let mut root = None;
+			for ancestor in path.ancestors().skip(1) {
+				let Some(node) = state.graph.paths.get(ancestor) else {
+					break;
+				};
+				root.replace(*node);
+			}
+			state.graph.nodes[index].root = root;
+
+			// Add to the list of roots if necessary.
+			if root.is_none() {
+				state.graph.roots.push(index);
+			}
+
+			// Recurse, using the root if it was discovered or this node if it is a directory.
+			let hint = Some(root.unwrap_or(index));
+			let children = state.graph.nodes[index].edges()
+				.into_iter()
+				.map(|child| (child, hint));
+
+			stack.extend(children);
+		}
 	}
 
 	async fn checkin_create_blobs(&self, state: &mut State) -> tg::Result<()> {
@@ -673,7 +709,7 @@ impl Server {
 				nodes: Vec::with_capacity(scc.len()),
 			};
 			for index in &scc {
-				Self::add_graph_node(state, &graph_indices, &mut graph, *index);
+				Self::add_graph_node(state, &graph_indices, &mut graph, *index)?;
 			}
 
 			// Create the graph obejct.
@@ -733,7 +769,7 @@ impl Server {
 		graph_indices: &BTreeMap<usize, usize>,
 		graph: &mut tg::graph::Data,
 		index: usize,
-	) {
+	) -> tg::Result<()> {
 		let node = match &state.graph.nodes[index].variant {
 			Variant::Directory(directory) => {
 				let entries = directory
@@ -758,10 +794,56 @@ impl Server {
 			},
 			Variant::File(file) => {
 				let contents = file.blob.as_ref().unwrap().id.clone();
+				let dependencies = file.dependencies
+					.iter()
+					.map(|dependency| {
+						match dependency {
+							FileDependency::Import { import, node } => {
+								let index = node.clone().ok_or_else(|| tg::error!(%import = import.reference, "unresolved import"))?;
+								let item = if let Some(id) = state.graph.nodes[index]
+									.object
+									.as_ref()
+									.map(|object| object.id.clone())
+								{
+									Either::Right(id)
+								} else {
+									let index = *graph_indices.get(&index).unwrap();
+									Either::Left(index)
+								};
+								let path = state
+									.graph
+									.nodes[index]
+									.path
+									.as_ref()
+									.and_then(|this_path| {
+										let root_path = state.graph.nodes.first()?.path.as_deref()?;
+										crate::util::path::diff(root_path, this_path).ok()
+									});
+								let tag = state.graph.nodes[index].tag.clone();
+								let referent = tg::Referent {
+									item,
+									path,
+									subpath: None,  // TODO
+									tag,
+								};
+								Ok::<_, tg::Error>((import.reference.clone(), referent))
+							},
+							FileDependency::Referent { reference, referent } => {
+								let referent = tg::Referent {
+									item: Either::Right(referent.item.clone()),
+									path: referent.path.clone(),
+									subpath: referent.subpath.clone(),
+									tag: referent.tag.clone()
+								};
+								Ok((reference.clone(), referent))
+							},
+						}
+					})
+					.try_collect()?;
 				let executable = file.executable;
 				let data = tg::graph::data::File {
 					contents,
-					dependencies: todo!(),
+					dependencies,
 					executable,
 				};
 				tg::graph::data::Node::File(data)
@@ -772,8 +854,8 @@ impl Server {
 				tg::graph::data::Node::Symlink(data)
 			},
 		};
-		let index = graph.nodes.len();
 		graph.nodes.push(node);
+		Ok(())
 	}
 
 	fn create_normal_object(state: &mut State, index: usize) -> tg::Result<()> {
@@ -804,10 +886,48 @@ impl Server {
 			Variant::File(file) => {
 				let kind = tg::object::Kind::File;
 				let contents = file.blob.as_ref().unwrap().id.clone();
+				let dependencies = file.dependencies
+					.iter()
+					.map(|dependency| {
+						match dependency {
+							FileDependency::Import { import, node } => {
+								let index = node.clone().ok_or_else(|| tg::error!(%import = import.reference, "unresolved import"))?;
+								let item = state
+									.graph
+									.nodes[index]
+									.object
+									.as_ref()
+									.unwrap()
+									.id
+									.clone();
+								let path = state
+								.graph
+								.nodes[index]
+								.path
+								.as_ref()
+								.and_then(|this_path| {
+									let root_path = state.graph.nodes.first()?.path.as_deref()?;
+									crate::util::path::diff(root_path, this_path).ok()
+								});
+								let tag = state.graph.nodes[index].tag.clone();
+								let referent = tg::Referent {
+									item,
+									path,
+									subpath: None,  // TODO
+									tag,
+								};
+								Ok::<_, tg::Error>((import.reference.clone(), referent))
+							},
+							FileDependency::Referent { reference, referent } => {
+								Ok((reference.clone(), referent.clone()))
+							}
+						}
+					})
+					.try_collect()?;
 				let executable = file.executable;
 				let data = tg::file::Data::Normal {
 					contents,
-					dependencies: todo!(),
+					dependencies,
 					executable,
 				};
 				let data = tg::object::Data::from(data);
@@ -836,6 +956,17 @@ impl Server {
 		&self,
 		state: Arc<State>,
 		arg: &tg::checkin::Arg,
+	) -> tg::Result<()> {
+		if arg.destructive {
+
+		}
+		todo!()
+	}
+
+	async fn checkin_cache_task_destructive(
+		&self,
+		state: Arc<State>,
+		arg: &tg::checkin::Arg,
 		root: &tg::artifact::Id,
 		touched_at: i64,
 	) -> tg::Result<()> {
@@ -846,19 +977,22 @@ impl Server {
 				while let Some(path) = stack.pop() {
 					let index = *state.graph.paths.get(&path).unwrap();
 					let metadata = state.graph.nodes[index].metadata.as_ref().unwrap();
-					if metadata.is_dir() {
-						let children = state.graph.nodes[index].edges.iter().filter_map(|edge| {
+					let children = state
+							.graph
+							.nodes[index]
+							.edges()
+							.into_iter()
+							.filter_map(|edge| {
 							state
 								.graph
 								.nodes
-								.get(edge.node?)
+								.get(edge)
 								.unwrap()
 								.path
 								.as_deref()
 								.cloned()
 						});
 						stack.extend(children);
-					}
 					if !metadata.is_symlink() {
 						let mode = metadata.permissions().mode();
 						let executable = mode & 0o111 != 0;
@@ -931,14 +1065,13 @@ impl Server {
 	async fn checkin_messenger_task(
 		&self,
 		state: &Arc<State>,
-		root: &tg::artifact::Id,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		if self.messenger.is_left() {
-			self.checkin_messenger_memory(state, root, touched_at)
+			self.checkin_messenger_memory(state, touched_at)
 				.await?;
 		} else {
-			self.checkin_messenger_nats(state, root, touched_at).await?;
+			self.checkin_messenger_nats(state, touched_at).await?;
 		}
 		Ok(())
 	}
@@ -946,7 +1079,6 @@ impl Server {
 	async fn checkin_messenger_memory(
 		&self,
 		state: &Arc<State>,
-		root: &tg::artifact::Id,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		let mut messages: Vec<Bytes> = Vec::new();
@@ -1006,9 +1138,9 @@ impl Server {
 	async fn checkin_messenger_nats(
 		&self,
 		state: &Arc<State>,
-		root: &tg::artifact::Id,
 		touched_at: i64,
 	) -> tg::Result<()> {
+
 		for node in &state.graph.nodes {
 			let object = node.object.as_ref().unwrap();
 			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
@@ -1278,6 +1410,29 @@ impl Server {
 	}
 }
 
+impl Node {
+	fn path(&self) -> &Path {
+		self.path.as_deref().unwrap()
+	}
+
+	fn edges(&self) -> Vec<usize> {
+		match &self.variant {
+			Variant::Directory(directory) => {
+				directory.entries.iter().map(|(_, node)| *node).collect()
+			},
+			Variant::File(file) => file
+				.dependencies
+				.iter()
+				.filter_map(|dependency| match dependency {
+					FileDependency::Import { node, .. } => *node,
+					FileDependency::Referent { .. } => None,
+				})
+				.collect(),
+			Variant::Symlink(_) => Vec::new(),
+		}
+	}
+}
+
 impl petgraph::visit::GraphBase for Graph {
 	type EdgeId = (usize, usize);
 	type NodeId = usize;
@@ -1300,12 +1455,7 @@ impl petgraph::visit::NodeIndexable for &Graph {
 impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 	type Neighbors = std::vec::IntoIter<usize>;
 	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
-		self.nodes[a]
-			.edges
-			.iter()
-			.filter_map(|edge| edge.node)
-			.collect::<Vec<_>>()
-			.into_iter()
+		self.nodes[a].edges().into_iter()
 	}
 }
 
