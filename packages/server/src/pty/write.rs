@@ -1,7 +1,12 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _};
+use futures::{
+	Stream, StreamExt as _, future,
+	stream::{FuturesUnordered, TryStreamExt as _},
+};
+use indoc::formatdoc;
 use std::pin::pin;
-use tangram_client as tg;
+use tangram_client::{self as tg, handle::Process};
+use tangram_database::{self as db, Database, Query};
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 
@@ -19,11 +24,88 @@ impl Server {
 
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
+			// Hack: look for sigint/sigquit and cancel any JS processses that are listening.
+			if let tg::pty::Event::Chunk(chunk) = &event {
+				self.js_signal_hack(id, chunk)
+					.await
+					.inspect_err(|error| tracing::error!(?error, "failed to signal processes"))
+					.ok();
+			}
 			self.write_pty_event(id, event.clone(), arg.master).await?;
 			if matches!(event, tg::pty::Event::End) {
 				break;
 			}
 		}
+
+		Ok(())
+	}
+
+	async fn js_signal_hack(&self, pty: &tg::pty::Id, chunk: &[u8]) -> tg::Result<()> {
+		// Scan the input for a signal.
+		let signal = chunk
+			.iter()
+			.copied()
+			.filter_map(|byte| {
+				if byte == 0x03 {
+					Some(tg::process::Signal::SIGINT)
+				} else if byte == 0x1c {
+					Some(tg::process::Signal::SIGQUIT)
+				} else {
+					None
+				}
+			})
+			.next();
+		let Some(signal) = signal else {
+			return Ok(());
+		};
+
+		// Get all the JS processes that are connected to this PTY.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to acquire a connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id from processes
+				where
+					host = 'js' and
+					status = 'started' and
+					stdin = {p}1;
+			"
+		);
+		let params = db::params![pty.to_string()];
+		let processes = connection
+			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
+		drop(connection);
+
+		// Signal all of the processes concurrently.
+		processes
+			.into_iter()
+			.map(|process| {
+				let server = self.clone();
+				async move {
+					server
+						.signal_process(
+							&process,
+							tg::process::signal::post::Arg {
+								signal,
+								remote: None,
+							},
+						)
+						.await
+						.inspect_err(
+							|error| tracing::error!(%process, ?error, "failed to signal process"),
+						)
+						.ok();
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<()>()
+			.await;
 
 		Ok(())
 	}
