@@ -8,7 +8,7 @@ use futures::{
 use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, pin::pin, rc::Rc, task::Poll};
-use tangram_client::{self as tg, prelude::*};
+use tangram_client as tg;
 use tangram_v8::{FromV8 as _, ToV8};
 
 mod error;
