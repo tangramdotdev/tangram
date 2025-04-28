@@ -703,7 +703,7 @@ impl Server {
 					$1::text[],
 					$2::text[],
 					$3::int8[],
-					$4::text[],
+					$4::int8[],
 					$5::text[],
 					$6::int8[]
 				);
