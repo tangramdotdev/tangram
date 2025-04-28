@@ -3,11 +3,8 @@ use crate::{
 	util::serde::{is_false, is_true, return_true},
 };
 use itertools::Itertools as _;
-use serde_with::serde_as;
 use std::{collections::BTreeSet, path::PathBuf};
-use time::format_description::well_known::Rfc3339;
 
-#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -21,16 +18,13 @@ pub struct Data {
 
 	pub command: tg::command::Id,
 
-	#[serde_as(as = "Rfc3339")]
-	pub created_at: time::OffsetDateTime,
+	pub created_at: i64,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Rfc3339>")]
-	pub dequeued_at: Option<time::OffsetDateTime>,
+	pub dequeued_at: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Rfc3339>")]
-	pub enqueued_at: Option<time::OffsetDateTime>,
+	pub enqueued_at: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Error>,
@@ -42,8 +36,7 @@ pub struct Data {
 	pub expected_checksum: Option<tg::Checksum>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Rfc3339>")]
-	pub finished_at: Option<time::OffsetDateTime>,
+	pub finished_at: Option<i64>,
 
 	pub host: String,
 
@@ -69,8 +62,7 @@ pub struct Data {
 	pub retry: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Rfc3339>")]
-	pub started_at: Option<time::OffsetDateTime>,
+	pub started_at: Option<i64>,
 
 	pub status: tg::process::Status,
 

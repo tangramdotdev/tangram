@@ -3,7 +3,6 @@ use num::ToPrimitive as _;
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
-use time::format_description::well_known::Rfc3339;
 
 mod artifact;
 mod blob;
@@ -789,23 +788,5 @@ impl FromV8 for Bytes {
 			Bytes::new()
 		};
 		Ok(bytes)
-	}
-}
-
-impl ToV8 for time::OffsetDateTime {
-	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		self.format(&Rfc3339)
-			.map_err(|err| tg::error!(!err, "failed to format timestamp"))?
-			.to_v8(scope)
-	}
-}
-
-impl FromV8 for time::OffsetDateTime {
-	fn from_v8<'a>(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
-	) -> tg::Result<Self> {
-		let string = String::from_v8(scope, value)?;
-		Self::parse(&string, &Rfc3339).map_err(|err| tg::error!(!err, "invalid RFC3339 timestamp"))
 	}
 }

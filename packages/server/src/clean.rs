@@ -8,7 +8,6 @@ use tangram_database::{self as db, prelude::*};
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::prelude::*;
-use time::format_description::well_known::Rfc3339;
 use tokio_util::task::AbortOnDropHandle;
 
 struct InnerOutput {
@@ -249,11 +248,7 @@ impl Server {
 		ttl: std::time::Duration,
 		batch_size: usize,
 	) -> tg::Result<InnerOutput> {
-		let max_touched_at =
-			time::OffsetDateTime::from_unix_timestamp(now - ttl.as_secs().to_i64().unwrap())
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
+		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
 
 		// Get an index connection.
 		let connection = self
@@ -387,11 +382,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Delete pipes and ptys.
-		let max_created_at =
-			time::OffsetDateTime::from_unix_timestamp(now.saturating_sub(24 * 60 * 60))
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
+		let max_created_at = now.saturating_sub(24 * 60 * 60);
 		let p = connection.p();
 		let statement = formatdoc!(
 			"

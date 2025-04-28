@@ -3,7 +3,6 @@ use futures::{StreamExt as _, stream::FuturesUnordered};
 use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) {
@@ -41,9 +40,8 @@ impl Server {
 				limit {p}2;
 			"
 		);
-		let max_heartbeat_at = (time::OffsetDateTime::now_utc() - config.timeout)
-			.format(&Rfc3339)
-			.unwrap();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let max_heartbeat_at = now - config.timeout.as_secs().to_i64().unwrap();
 		let params = db::params![max_heartbeat_at, config.batch_size];
 		let processes = connection
 			.query_all_value_into::<tg::process::Id>(statement.into(), params)

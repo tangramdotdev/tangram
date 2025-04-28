@@ -8,7 +8,6 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
-use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn put_process(
@@ -16,17 +15,15 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
-		let now = time::OffsetDateTime::now_utc();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Insert the process into the database.
 		match &self.database {
 			Either::Left(database) => {
-				Self::put_process_sqlite(id, &arg, database, &now.format(&Rfc3339).unwrap())
-					.await?;
+				Self::put_process_sqlite(id, &arg, database, now).await?;
 			},
 			Either::Right(database) => {
-				Self::put_process_postgres(id, &arg, database, &now.format(&Rfc3339).unwrap())
-					.await?;
+				Self::put_process_postgres(id, &arg, database, now).await?;
 			},
 		}
 
@@ -46,7 +43,7 @@ impl Server {
 		let objects = std::iter::empty().chain(output).chain(command).collect();
 		let message = crate::index::Message::PutProcess(crate::index::PutProcessMessage {
 			id: id.clone(),
-			touched_at: now.unix_timestamp(),
+			touched_at: now,
 			children: arg.data.children.clone(),
 			objects,
 		});
@@ -65,7 +62,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: &tg::process::put::Arg,
 		database: &db::sqlite::Database,
-		touched_at: &str,
+		touched_at: i64,
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = database
@@ -163,20 +160,20 @@ impl Server {
 			arg.data.actual_checksum,
 			arg.data.cacheable,
 			arg.data.command,
-			arg.data.created_at.format(&Rfc3339).unwrap(),
-			arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
-			arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
+			arg.data.created_at,
+			arg.data.dequeued_at,
+			arg.data.enqueued_at,
 			arg.data.error.as_ref().map(db::value::Json),
 			arg.data.exit,
 			arg.data.expected_checksum,
-			arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
+			arg.data.finished_at,
 			arg.data.host,
 			arg.data.log,
 			(!arg.data.mounts.is_empty()).then_some(db::value::Json(arg.data.mounts.clone())),
 			arg.data.network,
 			arg.data.output.as_ref().map(db::value::Json),
 			arg.data.retry,
-			arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
+			arg.data.started_at,
 			arg.data.status,
 			arg.data.stderr,
 			arg.data.stdin,
@@ -234,7 +231,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: &tg::process::put::Arg,
 		database: &db::postgres::Database,
-		touched_at: &str,
+		touched_at: i64,
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = database
@@ -335,16 +332,16 @@ impl Server {
 					&arg.data.actual_checksum.as_ref().map(ToString::to_string),
 					&i64::from(arg.data.cacheable),
 					&arg.data.command.to_string(),
-					&arg.data.created_at.format(&Rfc3339).unwrap(),
-					&arg.data.dequeued_at.map(|t| t.format(&Rfc3339).unwrap()),
-					&arg.data.enqueued_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&arg.data.created_at,
+					&arg.data.dequeued_at,
+					&arg.data.enqueued_at,
 					&arg.data
 						.error
 						.as_ref()
 						.map(|error| serde_json::to_string(error).unwrap()),
 					&arg.data.exit.map(|exit| exit.to_i64().unwrap()),
 					&arg.data.expected_checksum.as_ref().map(ToString::to_string),
-					&arg.data.finished_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&arg.data.finished_at,
 					&arg.data.host,
 					&arg.data
 						.log
@@ -358,7 +355,7 @@ impl Server {
 						.as_ref()
 						.map(|error| serde_json::to_string(error).unwrap()),
 					&i64::from(arg.data.retry),
-					&arg.data.started_at.map(|t| t.format(&Rfc3339).unwrap()),
+					&arg.data.started_at,
 					&arg.data.status.to_string(),
 					&arg.data.stderr.as_ref().map(ToString::to_string),
 					&arg.data.stdin.as_ref().map(ToString::to_string),

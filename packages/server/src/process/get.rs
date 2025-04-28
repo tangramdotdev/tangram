@@ -3,11 +3,9 @@ use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream}
 use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
 use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
-use serde_with::serde_as;
 use tangram_client::{self as tg, handle::Ext as _};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
-use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn try_get_process(
@@ -35,23 +33,18 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the process.
-		#[serde_as]
 		#[derive(serde::Deserialize)]
 		struct Row {
 			actual_checksum: Option<tg::Checksum>,
 			cacheable: bool,
 			command: tg::command::Id,
-			#[serde_as(as = "Rfc3339")]
-			created_at: time::OffsetDateTime,
-			#[serde_as(as = "Option<Rfc3339>")]
-			dequeued_at: Option<time::OffsetDateTime>,
-			#[serde_as(as = "Option<Rfc3339>")]
-			enqueued_at: Option<time::OffsetDateTime>,
+			created_at: i64,
+			dequeued_at: Option<i64>,
+			enqueued_at: Option<i64>,
 			error: Option<db::value::Json<tg::Error>>,
 			exit: Option<u8>,
 			expected_checksum: Option<tg::Checksum>,
-			#[serde_as(as = "Option<Rfc3339>")]
-			finished_at: Option<time::OffsetDateTime>,
+			finished_at: Option<i64>,
 			host: String,
 			id: tg::process::Id,
 			log: Option<tg::blob::Id>,
@@ -59,8 +52,7 @@ impl Server {
 			retry: bool,
 			mounts: Option<db::value::Json<Vec<tg::process::data::Mount>>>,
 			network: bool,
-			#[serde_as(as = "Option<Rfc3339>")]
-			started_at: Option<time::OffsetDateTime>,
+			started_at: Option<i64>,
 			status: tg::process::Status,
 			stderr: Option<tg::process::Stdio>,
 			stdin: Option<tg::process::Stdio>,
@@ -196,22 +188,14 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "expected a string"))?
 			.parse()?;
 		let created_at = row
-			.get::<_, String>(3)
-			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+			.get::<_, i64>(3)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let dequeued_at = row
-			.get::<_, Option<String>>(4)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+			.get::<_, Option<i64>>(4)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let enqueued_at = row
-			.get::<_, Option<String>>(5)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+			.get::<_, Option<i64>>(5)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let error = row
 			.get::<_, Option<String>>(6)
 			.map_err(|source| tg::error!(!source, "expected a string"))?
@@ -227,11 +211,8 @@ impl Server {
 			.map(|s| s.parse())
 			.transpose()?;
 		let finished_at = row
-			.get::<_, Option<String>>(9)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+			.get::<_, Option<i64>>(9)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let host = row
 			.get::<_, String>(10)
 			.map_err(|source| tg::error!(!source, "expected a string"))?;
@@ -262,11 +243,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
 			!= 0;
 		let started_at = row
-			.get::<_, Option<String>>(16)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| time::OffsetDateTime::parse(&s, &Rfc3339))
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse"))?;
+			.get::<_, Option<i64>>(16)
+			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let status = row
 			.get::<_, String>(17)
 			.map_err(|source| tg::error!(!source, "expected a string"))?

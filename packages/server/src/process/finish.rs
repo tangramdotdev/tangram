@@ -6,7 +6,6 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
-use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn finish_process(
@@ -158,16 +157,15 @@ impl Server {
 				where id = {p}8;
 			"
 		);
-		let touched_at = time::OffsetDateTime::now_utc();
-		let finished_at = time::OffsetDateTime::now_utc();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![
 			arg.checksum,
 			error.map(db::value::Json),
-			finished_at.format(&Rfc3339).unwrap(),
+			now,
 			output.clone().map(db::value::Json),
 			exit,
 			tg::process::Status::Finished,
-			touched_at.format(&Rfc3339).unwrap(),
+			now,
 			id,
 		];
 		connection
@@ -231,7 +229,7 @@ impl Server {
 		let objects = outputs.chain(command).collect();
 		let message = crate::index::Message::PutProcess(crate::index::PutProcessMessage {
 			id: id.clone(),
-			touched_at: touched_at.unix_timestamp(),
+			touched_at: now,
 			children: Some(children),
 			objects,
 		});

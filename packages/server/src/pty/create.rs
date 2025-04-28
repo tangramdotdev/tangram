@@ -4,7 +4,6 @@ use tangram_client as tg;
 use tangram_database::{self as db, Database, Query, params};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::{self as messenger, prelude::*};
-use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn create_pty(
@@ -45,7 +44,7 @@ impl Server {
 				values ({p}1, {p}2, {p}3);
 			"
 		);
-		let now = time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = params![id.to_string(), now, db::value::Json(arg.size)];
 		connection
 			.execute(statement.into(), params)

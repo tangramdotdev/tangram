@@ -3,7 +3,6 @@ use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
-use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn touch_process(
@@ -24,7 +23,7 @@ impl Server {
 			return Err(tg::error!("failed to find the process"));
 		}
 
-		let touched_at = time::OffsetDateTime::now_utc();
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Get a database connection.
 		let connection = self
@@ -42,7 +41,7 @@ impl Server {
 				where id = {p}2;
 			"
 		);
-		let params = db::params![touched_at.format(&Rfc3339).unwrap(), id];
+		let params = db::params![touched_at, id];
 		connection
 			.execute(statement.into(), params)
 			.await
@@ -54,7 +53,7 @@ impl Server {
 		// Send a touch process message.
 		let message = crate::index::Message::TouchProcess(crate::index::TouchProcessMessage {
 			id: id.clone(),
-			touched_at: touched_at.unix_timestamp(),
+			touched_at,
 		});
 		let message = serde_json::to_vec(&message)
 			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;

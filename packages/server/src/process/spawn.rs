@@ -9,7 +9,6 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
-use time::format_description::well_known::Rfc3339;
 
 impl Server {
 	pub async fn try_spawn_process(
@@ -379,24 +378,24 @@ impl Server {
 					touched_at = {p}16;
 			"
 		);
-		let now = time::OffsetDateTime::now_utc();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![
 			id,
 			actual_checksum,
 			true,
 			arg.command,
-			now.format(&Rfc3339).unwrap(),
+			now,
 			error.map(db::value::Json),
 			exit,
 			arg.checksum,
-			now.format(&Rfc3339).unwrap(),
+			now,
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			output,
 			arg.retry,
 			tg::process::Status::Finished,
-			now.format(&Rfc3339).unwrap(),
+			now,
 		];
 		connection
 			.execute(statement.into(), params)
@@ -498,13 +497,13 @@ impl Server {
 					touched_at = {p}15;
 			"
 		);
-		let now = time::OffsetDateTime::now_utc();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![
 			id,
 			cacheable,
 			arg.command,
-			now.format(&Rfc3339).unwrap(),
-			now.format(&Rfc3339).unwrap(),
+			now,
+			now,
 			arg.checksum,
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
@@ -514,7 +513,7 @@ impl Server {
 			arg.stderr,
 			arg.stdin,
 			arg.stdout,
-			now.format(&Rfc3339).unwrap(),
+			now,
 		];
 		connection
 			.execute(statement.into(), params)

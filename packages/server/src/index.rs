@@ -14,7 +14,6 @@ use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::{self as messenger, Acker, prelude::*};
-use time::format_description::well_known::Rfc3339;
 use tokio_util::task::AbortOnDropHandle;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -357,11 +356,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
-			let touched_at = time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
-			let params = sqlite::params![message.id.to_string(), touched_at];
+			let params = sqlite::params![message.id.to_string(), message.touched_at];
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -404,10 +399,7 @@ impl Server {
 			let cache_reference = message.cache_reference.as_ref().map(ToString::to_string);
 			let children = message.children;
 			let size = message.size;
-			let touched_at = time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
+			let touched_at = message.touched_at;
 
 			// Insert the children.
 			for child in children {
@@ -443,11 +435,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
-			let touched_at = time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
-			let params = sqlite::params![touched_at, message.id.to_string()];
+			let params = sqlite::params![message.touched_at, message.id.to_string()];
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -494,11 +482,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		for message in messages {
-			let touched_at = time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
-
 			// Insert the objects.
 			for (object, kind) in message.objects {
 				let params =
@@ -520,7 +503,7 @@ impl Server {
 			}
 
 			// Insert the process.
-			let params = sqlite::params![message.id.to_string(), touched_at];
+			let params = sqlite::params![message.id.to_string(), message.touched_at];
 			process_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -544,11 +527,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
-			let touched_at = time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
-			let params = sqlite::params![touched_at, message.id.to_string()];
+			let params = sqlite::params![message.touched_at, message.id.to_string()];
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -667,11 +646,7 @@ impl Server {
 					values ($1, $2);
 				"
 			);
-			let touched_at = time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
-			let params = db::params![message.id.to_string(), touched_at];
+			let params = db::params![message.id.to_string(), message.touched_at];
 			transaction
 				.execute(statement.into(), params)
 				.await
@@ -704,12 +679,7 @@ impl Server {
 			.collect::<Vec<_>>();
 		let touched_ats = unique_messages
 			.values()
-			.map(|message| {
-				time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-					.unwrap()
-					.format(&Rfc3339)
-					.unwrap()
-			})
+			.map(|message| message.touched_at)
 			.collect::<Vec<_>>();
 		let children = unique_messages
 			.values()
@@ -764,10 +734,6 @@ impl Server {
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		for message in messages {
-			let touched_at = time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
 			let statement = indoc!(
 				"
 					update objects
@@ -775,7 +741,7 @@ impl Server {
 					where id = $2;
 				"
 			);
-			let params = db::params![touched_at, message.id.to_string()];
+			let params = db::params![message.touched_at, message.id.to_string()];
 			transaction
 				.execute(statement.into(), params)
 				.await
@@ -791,11 +757,6 @@ impl Server {
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		for message in messages {
-			let touched_at = time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
-
 			// Insert the objects.
 			let objects: Vec<&tg::object::Id> = message.objects.iter().map(|(id, _)| id).collect();
 			let kinds: Vec<&ProcessObjectKind> =
@@ -857,7 +818,10 @@ impl Server {
 			);
 			transaction
 				.inner()
-				.execute(process_statement, &[&message.id.to_string(), &touched_at])
+				.execute(
+					process_statement,
+					&[&message.id.to_string(), &message.touched_at],
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
@@ -871,10 +835,6 @@ impl Server {
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		for message in messages {
-			let touched_at = time::OffsetDateTime::from_unix_timestamp(message.touched_at)
-				.unwrap()
-				.format(&Rfc3339)
-				.unwrap();
 			let statement = indoc!(
 				"
 					update processes
@@ -882,7 +842,7 @@ impl Server {
 					where id = $2;
 				"
 			);
-			let params = db::params![touched_at, message.id.to_string()];
+			let params = db::params![message.touched_at, message.id.to_string()];
 			transaction
 				.execute(statement.into(), params)
 				.await
@@ -1060,7 +1020,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create table cache_entries (
 				id text primary key,
 				reference_count integer,
-				touched_at text
+				touched_at integer
 			);
 
 			create index cache_entries_reference_count_zero_index on cache_entries (touched_at) where reference_count = 0;
@@ -1087,7 +1047,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				incomplete_children integer,
 				reference_count integer,
 				size integer not null,
-				touched_at text,
+				touched_at integer,
 				weight integer
 			);
 
@@ -1256,7 +1216,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				outputs_depth integer,
 				outputs_weight integer,
 				reference_count integer,
-				touched_at text
+				touched_at integer
 			);
 
 			create trigger processes_insert_complete_trigger
