@@ -102,7 +102,7 @@ export class Directory {
 						} else if (
 							typeof value === "string" ||
 							value instanceof Uint8Array ||
-							tg.Blob.is(value)
+							value instanceof tg.Blob
 						) {
 							let newEntry = await tg.file(value);
 							entries[name] = newEntry;

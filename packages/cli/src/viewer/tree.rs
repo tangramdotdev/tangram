@@ -410,21 +410,22 @@ where
 		Ok(())
 	}
 
-	async fn expand_branch(
+	async fn expand_blob(
 		handle: &H,
-		branch: tg::Branch,
+		blob: tg::Blob,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		// Get the branch children and unload the object immediately.
-		let children = branch
-			.children_(handle)
-			.await?
-			.into_iter()
-			.map(tg::Value::Object)
-			.collect();
-		branch.unload();
-
-		// Convert to a value and send the update.
+		let children = match blob.load(handle).await?.as_ref() {
+			tg::blob::Object::Leaf(_) => {
+				return Ok(());
+			},
+			tg::blob::Object::Branch(branch) => branch
+				.children
+				.iter()
+				.map(|child| child.blob.clone().into())
+				.collect(),
+		};
+		blob.unload();
 		let handle = handle.clone();
 		let value = tg::Value::Array(children);
 		let update = move |node: Rc<RefCell<Node>>| {
@@ -454,7 +455,6 @@ where
 		}
 
 		// Create the status stream.
-
 		let mut status = process.status(handle).await?;
 		while let Some(status) = status.try_next().await? {
 			let indicator = match status {
@@ -972,14 +972,6 @@ where
 		Ok(())
 	}
 
-	async fn expand_leaf(
-		_handle: &H,
-		_leaf: tg::Leaf,
-		_update_sender: NodeUpdateSender,
-	) -> tg::Result<()> {
-		Ok(())
-	}
-
 	async fn expand_map(
 		handle: &H,
 		map: tg::value::Map,
@@ -1083,11 +1075,8 @@ where
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		match object {
-			tg::Object::Leaf(leaf) => {
-				Self::expand_leaf(handle, leaf, update_sender).await?;
-			},
-			tg::Object::Branch(branch) => {
-				Self::expand_branch(handle, branch, update_sender).await?;
+			tg::Object::Blob(blob) => {
+				Self::expand_blob(handle, blob, update_sender).await?;
 			},
 			tg::Object::Directory(directory) => {
 				Self::expand_directory(handle, directory, update_sender).await?;
@@ -1332,14 +1321,7 @@ where
 
 	fn object_id(object: &tg::Object) -> String {
 		match object {
-			tg::Object::Leaf(leaf) => leaf
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::Branch(branch) => branch
+			tg::Object::Blob(blob) => blob
 				.state()
 				.read()
 				.unwrap()

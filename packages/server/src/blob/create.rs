@@ -191,17 +191,17 @@ impl Server {
 	}
 
 	async fn create_blob_inner_empty_leaf(&self) -> tg::Result<Blob> {
-		let bytes = Bytes::default();
-		let id = tg::leaf::Id::new(&bytes);
+		let bytes = vec![0];
+		let id = tg::blob::Id::new(&bytes);
 		Ok(Blob {
 			bytes: None,
 			count: 1,
 			depth: 1,
-			weight: 0,
+			weight: 1,
 			children: Vec::new(),
 			data: None,
-			size: 0,
-			id: id.into(),
+			size: 1,
+			id,
 			length: 0,
 			position: 0,
 		})
@@ -215,11 +215,13 @@ impl Server {
 			..
 		} = chunk;
 		let length = length.to_u64().unwrap();
-		let size = length;
-		let id = tg::leaf::Id::new(data);
+		let size = 1 + length;
+		let mut data_ = vec![0];
+		data_.extend_from_slice(data);
+		let id = tg::blob::Id::new(&data_);
 		let count = 1;
 		let depth = 1;
-		let weight = length;
+		let weight = size;
 		let output = Blob {
 			bytes: None,
 			children: Vec::new(),
@@ -227,7 +229,7 @@ impl Server {
 			data: None,
 			size,
 			depth,
-			id: id.into(),
+			id,
 			position: *position,
 			length,
 			weight,
@@ -238,17 +240,17 @@ impl Server {
 	async fn create_blob_inner_branch(&self, children: Vec<Blob>) -> tg::Result<Blob> {
 		let children_ = children
 			.iter()
-			.map(|child| tg::branch::data::Child {
+			.map(|child| tg::blob::data::Child {
 				blob: child.id.clone(),
 				length: child.length,
 			})
 			.collect();
-		let data = tg::branch::Data {
+		let data = tg::blob::Data::Branch(tg::blob::data::Branch {
 			children: children_,
-		};
+		});
 		let bytes = data.serialize()?;
 		let size = bytes.len().to_u64().unwrap();
-		let id = tg::branch::Id::new(&bytes);
+		let id = tg::blob::Id::new(&bytes);
 		let (count, depth, weight) =
 			children
 				.iter()
@@ -265,10 +267,10 @@ impl Server {
 			bytes: Some(bytes),
 			children,
 			count,
-			data: Some(data.into()),
+			data: Some(data),
 			size,
 			depth,
-			id: id.into(),
+			id,
 			position,
 			length,
 			weight,

@@ -1,4 +1,4 @@
-import * as im from "immutable";
+import im from "immutable";
 import * as tg from "./index.ts";
 import type { MaybePromise } from "./util.ts";
 
@@ -58,8 +58,7 @@ export let resolve = async <T extends Unresolved<tg.Value>>(
 			typeof value === "boolean" ||
 			typeof value === "number" ||
 			typeof value === "string" ||
-			value instanceof tg.Leaf ||
-			value instanceof tg.Branch ||
+			value instanceof tg.Blob ||
 			value instanceof tg.Directory ||
 			value instanceof tg.File ||
 			value instanceof tg.Symlink ||

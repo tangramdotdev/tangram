@@ -17,8 +17,6 @@ export namespace Module {
 		| "object"
 		| "artifact"
 		| "blob"
-		| "leaf"
-		| "branch"
 		| "directory"
 		| "file"
 		| "symlink"

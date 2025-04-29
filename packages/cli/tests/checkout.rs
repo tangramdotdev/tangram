@@ -102,7 +102,7 @@ async fn file_with_dependency() {
 		  "kind": "file",
 		  "contents": "foo",
 		  "xattrs": {
-		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":\"fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80\"}},\"id\":\"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"}]}"
+		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}},\"id\":\"fil_011fd0zvc0853ztfq0sm0p8gxf3w874a6zwfmsf14bgm8way2yj8eg\"}]}"
 		  }
 		}
 		"#);
@@ -234,7 +234,7 @@ async fn directory_with_file_with_dependency() {
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+		            "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg": {
 		              "kind": "file",
 		              "contents": "bar"
 		            }
@@ -248,7 +248,7 @@ async fn directory_with_file_with_dependency() {
 		    },
 		    "tangram.lock": {
 		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      },\n      \"id\": \"dir_019at517ytj7gfg92358f53w7c2ht4gewvtg45fegwr6teffnnvxa0\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": \"fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80\"\n        }\n      },\n      \"id\": \"fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0\"\n    }\n  ]\n}"
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      },\n      \"id\": \"dir_01kepgqkqmm2f3am76vhcf612mmjppedkjpqdmrve5zqk5enhx1tyg\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": \"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"\n        }\n      },\n      \"id\": \"fil_011fd0zvc0853ztfq0sm0p8gxf3w874a6zwfmsf14bgm8way2yj8eg\"\n    }\n  ]\n}"
 		    }
 		  }
 		}
@@ -281,7 +281,7 @@ async fn directory_with_symlink_with_dependency() {
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+		            "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg": {
 		              "kind": "file",
 		              "contents": "bar"
 		            }
@@ -291,7 +291,7 @@ async fn directory_with_symlink_with_dependency() {
 		    },
 		    "foo": {
 		      "kind": "symlink",
-		      "target": ".tangram/artifacts/fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
+		      "target": ".tangram/artifacts/fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
 		    }
 		  }
 		}
@@ -464,7 +464,7 @@ async fn shared_dependency_on_symlink() {
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg": {
+		            "dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0": {
 		              "kind": "directory",
 		              "entries": {
 		                "file.txt": {
@@ -491,7 +491,7 @@ async fn shared_dependency_on_symlink() {
 		    },
 		    "tangram.lock": {
 		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"bar.txt\": 1,\n        \"foo.txt\": 2\n      },\n      \"id\": \"dir_01t4mg404e196gzdgbr212nt0f6c3t18h5nb1t24682xrh9wtev5rg\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg\"\n        }\n      },\n      \"id\": \"fil_019bx1epya1wzdnb94n3aj2enhhm5cf1j891gv0m6te01j7bfbdn9g\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01014gqjpa2f7pd7kwzrnxqak9f933agwkfxmky2nk44kad98jenbg\"\n        }\n      },\n      \"id\": \"fil_01pd3m89913g0wkfdre0xhmj2mrth7tdfjtyr813d2v2dxvg9e2q9g\"\n    }\n  ]\n}"
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"bar.txt\": 1,\n        \"foo.txt\": 2\n      },\n      \"id\": \"dir_01drd94kvb06f10fhde9nwc5yk1tbntzy8w24cz05xvggajwjpbkd0\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0\"\n        }\n      },\n      \"id\": \"fil_01rf44g89vt96t1jfj52dz7z8b5hmzmyfpf7eqbpybe0jm3fra3wgg\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0\"\n        }\n      },\n      \"id\": \"fil_013gyz1tgqe9skq4j5m21px83f4839agyyk9q5x5x6ssp6gm59g7vg\"\n    }\n  ]\n}"
 		    }
 		  }
 		}

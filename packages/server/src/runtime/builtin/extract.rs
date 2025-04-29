@@ -26,8 +26,7 @@ impl Runtime {
 			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?;
 		let blob = match input {
-			tg::Value::Object(tg::Object::Branch(branch)) => tg::Blob::Branch(branch.clone()),
-			tg::Value::Object(tg::Object::Leaf(leaf)) => tg::Blob::Leaf(leaf.clone()),
+			tg::Value::Object(tg::Object::Blob(blob)) => blob.clone(),
 			tg::Value::Object(tg::Object::File(file)) => file.contents(server).await?,
 			_ => return Err(tg::error!("expected a blob or a file")),
 		};

@@ -22,7 +22,6 @@ use url::Url;
 pub use self::{
 	artifact::Handle as Artifact,
 	blob::Handle as Blob,
-	branch::Handle as Branch,
 	builtin::{ArchiveFormat, CompressionFormat, DownloadMode, DownloadOptions},
 	checkin::checkin,
 	checkout::checkout,
@@ -36,7 +35,6 @@ pub use self::{
 	handle::Handle,
 	health::Health,
 	id::Id,
-	leaf::Handle as Leaf,
 	location::Location,
 	lockfile::Lockfile,
 	module::{Import, Module},
@@ -56,7 +54,6 @@ pub use self::{
 
 pub mod artifact;
 pub mod blob;
-pub mod branch;
 pub mod builtin;
 pub mod bytes;
 pub mod check;
@@ -80,7 +77,6 @@ pub mod health;
 pub mod id;
 pub mod import;
 pub mod index;
-pub mod leaf;
 pub mod location;
 pub mod lockfile;
 pub mod module;

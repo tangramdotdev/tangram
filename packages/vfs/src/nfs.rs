@@ -345,7 +345,7 @@ where
 		&self,
 		_cred: rpc::Auth,
 		_verf: rpc::Auth,
-	) -> std::result::Result<Option<rpc::Auth>, rpc::AuthStat> {
+	) -> Result<Option<rpc::Auth>, rpc::AuthStat> {
 		Ok(None)
 	}
 

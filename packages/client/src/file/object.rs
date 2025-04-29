@@ -39,7 +39,7 @@ impl File {
 impl TryFrom<Data> for File {
 	type Error = tg::Error;
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		match data {
 			Data::Graph { graph, node } => {
 				let graph = tg::Graph::with_id(graph);

@@ -35,22 +35,9 @@ impl Cli {
 		let pretty = args.pretty.unwrap_or(stdout.is_tty());
 		match args.format.unwrap_or_default() {
 			Format::Bytes => {
-				if matches!(args.object, tg::object::Id::Leaf(_)) {
-					stdout
-						.write_all(&bytes)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to write the output"))?;
-					stdout
-						.flush()
-						.await
-						.map_err(|source| tg::error!(!source, "failed to flush the output"))?;
-				} else {
-					let output =
-						serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the object")
-						})?;
-					Self::output_json(&output, args.pretty).await?;
-				}
+				let output = serde_json::from_slice::<serde_json::Value>(&bytes)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+				Self::output_json(&output, args.pretty).await?;
 			},
 			Format::Tgvn => {
 				let recursive = args.recursive;

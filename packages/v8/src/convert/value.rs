@@ -29,13 +29,9 @@ impl FromV8 for tg::Value {
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tangram.get(scope, leaf.into()).unwrap();
-		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
-
-		let branch = v8::String::new_external_onebyte_static(scope, "Branch".as_bytes()).unwrap();
-		let branch = tangram.get(scope, branch.into()).unwrap();
-		let branch = v8::Local::<v8::Function>::try_from(branch).unwrap();
+		let blob = v8::String::new_external_onebyte_static(scope, "Blob".as_bytes()).unwrap();
+		let blob = tangram.get(scope, blob.into()).unwrap();
+		let blob = v8::Local::<v8::Function>::try_from(blob).unwrap();
 
 		let directory =
 			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
@@ -78,8 +74,7 @@ impl FromV8 for tg::Value {
 			Ok(Self::String(<_>::from_v8(scope, value)?))
 		} else if value.is_array() {
 			Ok(Self::Array(<_>::from_v8(scope, value)?))
-		} else if value.instance_of(scope, leaf.into()).unwrap()
-			|| value.instance_of(scope, branch.into()).unwrap()
+		} else if value.instance_of(scope, blob.into()).unwrap()
 			|| value.instance_of(scope, directory.into()).unwrap()
 			|| value.instance_of(scope, file.into()).unwrap()
 			|| value.instance_of(scope, symlink.into()).unwrap()

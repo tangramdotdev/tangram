@@ -54,7 +54,7 @@ export class File {
 				} else if (
 					typeof arg === "string" ||
 					arg instanceof Uint8Array ||
-					tg.Blob.is(arg)
+					arg instanceof tg.Blob
 				) {
 					return { contents: arg };
 				} else if (arg instanceof File) {

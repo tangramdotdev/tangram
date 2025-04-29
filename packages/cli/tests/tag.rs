@@ -100,7 +100,7 @@ async fn single() {
 			.await
 			.unwrap();
 		assert_success!(output);
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01gtq62nh8tjjx5h9v0vn7k5gdr07p3es3wypse70hymnzn3dgrw8g");
+		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01hpc712m3d1dr1z2j83ysa6cy317e38t2kf7wg9kac2e1kgy0bx8g");
 	})
 	.await;
 }
@@ -200,7 +200,7 @@ async fn multiple() {
 			.await
 			.unwrap();
 		assert_success!(output);
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
+		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60");
 
 		// Get
 		let pattern = "test/^1";
@@ -213,7 +213,7 @@ async fn multiple() {
 			.await
 			.unwrap();
 		assert_success!(output);
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
+		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60");
 
 		// Get
 		let pattern = "test/^10";
@@ -226,7 +226,7 @@ async fn multiple() {
 			.await
 			.unwrap();
 		assert_success!(output);
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
+		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60");
 	})
 	.await;
 }

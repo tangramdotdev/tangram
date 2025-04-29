@@ -383,8 +383,7 @@ impl Item {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the id"))?;
 		let id = match id.kind() {
 			tg::id::Kind::Process => Either::Left(id.try_into().unwrap()),
-			tg::id::Kind::Leaf
-			| tg::id::Kind::Branch
+			tg::id::Kind::Blob
 			| tg::id::Kind::Directory
 			| tg::id::Kind::File
 			| tg::id::Kind::Symlink

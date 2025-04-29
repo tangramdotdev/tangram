@@ -33,8 +33,8 @@ impl Server {
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
 		if bytes.is_none() {
-			if let Ok(id) = id.try_unwrap_leaf_ref() {
-				bytes = self.try_read_leaf_from_cache(id).await?;
+			if let Ok(id) = id.try_unwrap_blob_ref() {
+				bytes = self.try_read_blob_from_cache(id).await?;
 			}
 		}
 
@@ -63,8 +63,8 @@ impl Server {
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
 		if bytes.is_none() {
-			if let Ok(id) = id.try_unwrap_leaf_ref() {
-				bytes = self.try_read_leaf_from_cache_sync(id, file)?;
+			if let Ok(id) = id.try_unwrap_blob_ref() {
+				bytes = self.try_read_blob_from_cache_sync(id, file)?;
 			}
 		}
 
@@ -114,7 +114,7 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn try_read_leaf_from_cache(&self, id: &tg::leaf::Id) -> tg::Result<Option<Bytes>> {
+	async fn try_read_blob_from_cache(&self, id: &tg::blob::Id) -> tg::Result<Option<Bytes>> {
 		let cache_reference = self
 			.store
 			.try_get_cache_reference(&id.clone().into())
@@ -145,17 +145,17 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to seek in the file"))?;
 
 		// Read.
-		let mut buffer = vec![0; cache_reference.length.to_usize().unwrap()];
-		file.read_exact(&mut buffer)
+		let mut buffer = vec![0; 1 + cache_reference.length.to_usize().unwrap()];
+		file.read_exact(&mut buffer[1..])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the leaf from the file"))?;
 
 		Ok(Some(buffer.into()))
 	}
 
-	fn try_read_leaf_from_cache_sync(
+	fn try_read_blob_from_cache_sync(
 		&self,
-		id: &tg::leaf::Id,
+		id: &tg::blob::Id,
 		file: &mut Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
 	) -> tg::Result<Option<Bytes>> {
 		// Get the cache reference.
@@ -202,8 +202,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to seek the cache file"))?;
 
 		// Read.
-		let mut buffer = vec![0u8; cache_reference.length.to_usize().unwrap()];
-		file.read_exact(&mut buffer)
+		let mut buffer = vec![0u8; 1 + cache_reference.length.to_usize().unwrap()];
+		file.read_exact(&mut buffer[1..])
 			.map_err(|source| tg::error!(!source, "failed to read from the cache file"))?;
 
 		Ok(Some(buffer.into()))

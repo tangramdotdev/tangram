@@ -33,7 +33,7 @@ async fn download_checksum_none() {
 			.unwrap();
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @"lef_01n8ycmc4q78cr0q5rfpqwxnggwe978p3hm2hwecv52g6wtbqmxwbg");
+		assert_snapshot!(stdout, @"blb_01fvba7brv0fdzcx0khtms8fm61wbeaf1a75f3td9c2mj6hrp9qr30");
 	})
 	.await;
 }

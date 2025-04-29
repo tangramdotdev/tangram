@@ -5,8 +5,7 @@ use tangram_client as tg;
 impl ToV8 for tg::Object {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		match self {
-			tg::Object::Leaf(leaf) => leaf.to_v8(scope),
-			tg::Object::Branch(branch) => branch.to_v8(scope),
+			tg::Object::Blob(blob) => blob.to_v8(scope),
 			tg::Object::Directory(directory) => directory.to_v8(scope),
 			tg::Object::File(file) => file.to_v8(scope),
 			tg::Object::Symlink(symlink) => symlink.to_v8(scope),
@@ -27,13 +26,9 @@ impl FromV8 for tg::Object {
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let leaf = v8::String::new_external_onebyte_static(scope, "Leaf".as_bytes()).unwrap();
-		let leaf = tangram.get(scope, leaf.into()).unwrap();
-		let leaf = v8::Local::<v8::Function>::try_from(leaf).unwrap();
-
-		let branch = v8::String::new_external_onebyte_static(scope, "Branch".as_bytes()).unwrap();
-		let branch = tangram.get(scope, branch.into()).unwrap();
-		let branch = v8::Local::<v8::Function>::try_from(branch).unwrap();
+		let blob = v8::String::new_external_onebyte_static(scope, "Blob".as_bytes()).unwrap();
+		let blob = tangram.get(scope, blob.into()).unwrap();
+		let blob = v8::Local::<v8::Function>::try_from(blob).unwrap();
 
 		let directory =
 			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
@@ -56,10 +51,8 @@ impl FromV8 for tg::Object {
 		let command = tangram.get(scope, command.into()).unwrap();
 		let command = v8::Local::<v8::Function>::try_from(command).unwrap();
 
-		if value.instance_of(scope, leaf.into()).unwrap() {
-			Ok(Self::Leaf(<_>::from_v8(scope, value)?))
-		} else if value.instance_of(scope, branch.into()).unwrap() {
-			Ok(Self::Branch(<_>::from_v8(scope, value)?))
+		if value.instance_of(scope, blob.into()).unwrap() {
+			Ok(Self::Blob(<_>::from_v8(scope, value)?))
 		} else if value.instance_of(scope, directory.into()).unwrap() {
 			Ok(Self::Directory(<_>::from_v8(scope, value)?))
 		} else if value.instance_of(scope, file.into()).unwrap() {
@@ -94,8 +87,7 @@ impl FromV8 for tg::object::Id {
 impl ToV8 for tg::object::Object {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let (kind, value) = match self {
-			Self::Leaf(blob) => ("leaf", blob.to_v8(scope)?),
-			Self::Branch(blob) => ("branch", blob.to_v8(scope)?),
+			Self::Blob(blob) => ("blob", blob.to_v8(scope)?),
 			Self::Directory(directory) => ("directory", directory.to_v8(scope)?),
 			Self::File(file) => ("file", file.to_v8(scope)?),
 			Self::Symlink(symlink) => ("symlink", symlink.to_v8(scope)?),
@@ -124,8 +116,7 @@ impl FromV8 for tg::object::Object {
 		let key = v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
 		let value = value.get(scope, key.into()).unwrap();
 		let value = match kind.as_str() {
-			"leaf" => Self::Leaf(<_>::from_v8(scope, value)?),
-			"branch" => Self::Branch(<_>::from_v8(scope, value)?),
+			"blob" => Self::Blob(<_>::from_v8(scope, value)?),
 			"directory" => Self::Directory(<_>::from_v8(scope, value)?),
 			"file" => Self::File(<_>::from_v8(scope, value)?),
 			"symlink" => Self::Symlink(<_>::from_v8(scope, value)?),

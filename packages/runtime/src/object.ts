@@ -1,8 +1,7 @@
 import * as tg from "./index.ts";
 
 export type Object =
-	| tg.Leaf
-	| tg.Branch
+	| tg.Blob
 	| tg.Directory
 	| tg.File
 	| tg.Symlink
@@ -11,8 +10,7 @@ export type Object =
 
 export namespace Object {
 	export type Id =
-		| tg.Leaf.Id
-		| tg.Branch.Id
+		| tg.Blob.Id
 		| tg.Directory.Id
 		| tg.File.Id
 		| tg.Symlink.Id
@@ -20,8 +18,7 @@ export namespace Object {
 		| tg.Command.Id;
 
 	export type Kind =
-		| "leaf"
-		| "branch"
+		| "blob"
 		| "directory"
 		| "file"
 		| "symlink"
@@ -29,8 +26,7 @@ export namespace Object {
 		| "command";
 
 	export type Object =
-		| { kind: "leaf"; value: tg.Leaf.Object }
-		| { kind: "branch"; value: tg.Branch.Object }
+		| { kind: "blob"; value: tg.Blob.Object }
 		| { kind: "directory"; value: tg.Directory.Object }
 		| { kind: "file"; value: tg.File.Object }
 		| { kind: "symlink"; value: tg.Symlink.Object }
@@ -44,10 +40,8 @@ export namespace Object {
 
 	export let withId = (id: tg.Object.Id): tg.Object => {
 		let prefix = id.substring(0, 3);
-		if (prefix === "lef") {
-			return tg.Leaf.withId(id);
-		} else if (prefix === "bch") {
-			return tg.Branch.withId(id);
+		if (prefix === "blb") {
+			return tg.Blob.withId(id);
 		} else if (prefix === "dir") {
 			return tg.Directory.withId(id);
 		} else if (prefix === "fil") {
@@ -65,8 +59,7 @@ export namespace Object {
 
 	export let is = (value: unknown): value is Object => {
 		return (
-			value instanceof tg.Leaf ||
-			value instanceof tg.Branch ||
+			value instanceof tg.Blob ||
 			value instanceof tg.Directory ||
 			value instanceof tg.File ||
 			value instanceof tg.Symlink ||

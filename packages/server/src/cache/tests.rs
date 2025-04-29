@@ -18,7 +18,7 @@ async fn directory() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_01gn2yn2wk00wh3w1tcse628ghxj734a2c6qjd8e7g4553qzq2vs1g": {
+		    "dir_01pwxwwvy02jgj944jbsf3a9e8ck2yaz3nfs3bxgk221tm5tkdhq40": {
 		      "kind": "directory",
 		      "entries": {
 		        "hello.txt": {
@@ -43,7 +43,7 @@ async fn file() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g": {
+		    "fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60": {
 		      "kind": "file",
 		      "contents": "Hello, World!"
 		    }
@@ -63,7 +63,7 @@ async fn executable_file() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "fil_01yf0xwv92p30wwyp5vpt925tyw4nwkyzt4b3fv4g3hc8wr4nsk8j0": {
+		    "fil_01qdmew2fxgyx15vq2zh2726pvhbfpa6jzvhrr7sn1pv0dpt9ms0vg": {
 		      "kind": "file",
 		      "contents": "Hello, World!",
 		      "executable": true
@@ -87,7 +87,7 @@ async fn directory_with_two_identical_files() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_0184z14k1w0vne39fsb6ytk6d8yk5wannz3r9g94hyh0hn5tx5x1gg": {
+		    "dir_018zb48hy214fgq3gnnbjcpdcer4ft89b366n5hp3d2ea2zm3awjsg": {
 		      "kind": "directory",
 		      "entries": {
 		        "hello.txt": {
@@ -122,13 +122,13 @@ async fn file_with_dependency() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
-		      "kind": "file",
-		      "contents": "bar"
-		    },
-		    "fil_01tsgfzwa97w008amycfw2zbywvj56hac3164dgqp9qj1we854rkg0": {
+		    "fil_011fd0zvc0853ztfq0sm0p8gxf3w874a6zwfmsf14bgm8way2yj8eg": {
 		      "kind": "file",
 		      "contents": "foo"
+		    },
+		    "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg": {
+		      "kind": "file",
+		      "contents": "bar"
 		    }
 		  }
 		}
@@ -171,7 +171,7 @@ async fn directory_with_symlink() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_01zbk5rvcgyfg20ktzxkfbxsa848dc2ayyvtz0ca32x35nyfw7vc80": {
+		    "dir_01e6pdddg9rf16ja4sx9g5vg544cccvkvd4xafsqbdq79cm4tf5340": {
 		      "kind": "directory",
 		      "entries": {
 		        "directory": {
@@ -221,7 +221,7 @@ async fn directory_with_file_with_dependency() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_019at517ytj7gfg92358f53w7c2ht4gewvtg45fegwr6teffnnvxa0": {
+		    "dir_01kepgqkqmm2f3am76vhcf612mmjppedkjpqdmrve5zqk5enhx1tyg": {
 		      "kind": "directory",
 		      "entries": {
 		        "foo": {
@@ -230,7 +230,7 @@ async fn directory_with_file_with_dependency() {
 		        }
 		      }
 		    },
-		    "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+		    "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg": {
 		      "kind": "file",
 		      "contents": "bar"
 		    }
@@ -252,16 +252,16 @@ async fn directory_with_symlink_with_dependency() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_01tazznbadf4db8hadnz5h145x288ne3dsg3zkttcp6xnj82vy6wm0": {
+		    "dir_013da6hc37p6py2gq37em7npkhhxrr145ec6aw9qenx6d62nftbwsg": {
 		      "kind": "directory",
 		      "entries": {
 		        "foo": {
 		          "kind": "symlink",
-		          "target": "../fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80"
+		          "target": "../fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
 		        }
 		      }
 		    },
-		    "fil_01kj2srg33pbcnc7hwbg11xs6z8mdkd9bck9e1nrte4py3qjh5wb80": {
+		    "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg": {
 		      "kind": "file",
 		      "contents": "bar"
 		    }
@@ -292,7 +292,7 @@ async fn graph_directory() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_01s6gw40j6yme9cc6qq7sgdfck53e1ww64mx0cw9r401t3tg60yw60": {
+		    "dir_01xq6jv8d4ye1qkxf3kmc0jzm2szavhfypem762rms22sqmqaeab2g": {
 		      "kind": "directory",
 		      "entries": {
 		        "hello.txt": {
@@ -324,7 +324,7 @@ async fn graph_file() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "fil_011d4n8a29e5pb8x8nmzkq16aawpn2ygeygv37t4ns2gpykgpd5kkg": {
+		    "fil_01yw9bpm8d571j3jg3pqx9xsa087s8w3tpf0ewr7jcq53gvpe2hmjg": {
 		      "kind": "file",
 		      "contents": "Hello, World!"
 		    }

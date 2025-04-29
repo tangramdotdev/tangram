@@ -19,7 +19,7 @@ export let archive = async (
 		executable: "archive",
 		host: "builtin",
 	});
-	tg.assert(tg.Blob.is(value));
+	tg.assert(value instanceof tg.Blob);
 	return value;
 };
 
@@ -54,7 +54,7 @@ export let compress = async (
 		executable: "compress",
 		host: "builtin",
 	});
-	tg.assert(tg.Blob.is(value));
+	tg.assert(value instanceof tg.Blob);
 	return value;
 };
 
@@ -64,7 +64,7 @@ export let decompress = async (blob: tg.Blob): Promise<tg.Blob> => {
 		executable: "decompress",
 		host: "builtin",
 	});
-	tg.assert(tg.Blob.is(value));
+	tg.assert(value instanceof tg.Blob);
 	return value;
 };
 
@@ -79,7 +79,7 @@ export let download = async (
 		executable: "download",
 		host: "builtin",
 	});
-	tg.assert(tg.Blob.is(value) || tg.Artifact.is(value));
+	tg.assert(value instanceof tg.Blob || tg.Artifact.is(value));
 	return value;
 };
 

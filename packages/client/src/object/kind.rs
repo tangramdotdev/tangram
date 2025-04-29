@@ -2,8 +2,7 @@ use crate as tg;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Kind {
-	Leaf,
-	Branch,
+	Blob,
 	Directory,
 	File,
 	Symlink,
@@ -28,8 +27,7 @@ impl std::str::FromStr for Kind {
 impl From<Kind> for tg::id::Kind {
 	fn from(value: Kind) -> Self {
 		match value {
-			Kind::Leaf => Self::Leaf,
-			Kind::Branch => Self::Branch,
+			Kind::Blob => Self::Blob,
 			Kind::Directory => Self::Directory,
 			Kind::File => Self::File,
 			Kind::Symlink => Self::Symlink,
@@ -44,8 +42,7 @@ impl TryFrom<tg::id::Kind> for Kind {
 
 	fn try_from(value: tg::id::Kind) -> tg::Result<Self, Self::Error> {
 		match value {
-			tg::id::Kind::Leaf => Ok(Self::Leaf),
-			tg::id::Kind::Branch => Ok(Self::Branch),
+			tg::id::Kind::Blob => Ok(Self::Blob),
 			tg::id::Kind::Directory => Ok(Self::Directory),
 			tg::id::Kind::File => Ok(Self::File),
 			tg::id::Kind::Symlink => Ok(Self::Symlink),

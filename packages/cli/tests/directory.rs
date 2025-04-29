@@ -37,7 +37,7 @@ async fn get_symlink() {
 		assert_success!(output);
 
 		// Assert the output.
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
+		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60");
 	})
 	.await;
 }
@@ -75,7 +75,7 @@ async fn get_file_through_symlink() {
 			.unwrap();
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @"fil_01tvcqmbbf8dkkejz6y69ywvgfsh9gyn1xjweyb9zgv0sf4752446g");
+		assert_snapshot!(stdout, @"fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60");
 	})
 	.await;
 }

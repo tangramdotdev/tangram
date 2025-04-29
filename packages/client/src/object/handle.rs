@@ -14,8 +14,7 @@ use futures::{TryStreamExt as _, stream::FuturesUnordered};
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Object {
-	Leaf(tg::Leaf),
-	Branch(tg::Branch),
+	Blob(tg::Blob),
 	Directory(tg::Directory),
 	File(tg::File),
 	Symlink(tg::Symlink),
@@ -27,8 +26,7 @@ impl Object {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
 		match id {
-			Id::Leaf(id) => Self::Leaf(tg::Leaf::with_id(id)),
-			Id::Branch(id) => Self::Branch(tg::Branch::with_id(id)),
+			Id::Blob(id) => Self::Blob(tg::Blob::with_id(id)),
 			Id::Directory(id) => Self::Directory(tg::Directory::with_id(id)),
 			Id::File(id) => Self::File(tg::File::with_id(id)),
 			Id::Symlink(id) => Self::Symlink(tg::Symlink::with_id(id)),
@@ -40,8 +38,7 @@ impl Object {
 	#[must_use]
 	pub fn with_object(object: Object_) -> Self {
 		match object {
-			Object_::Leaf(object) => Self::Leaf(tg::Leaf::with_object(object)),
-			Object_::Branch(object) => Self::Branch(tg::Branch::with_object(object)),
+			Object_::Blob(object) => Self::Blob(tg::Blob::with_object(object)),
 			Object_::Directory(object) => Self::Directory(tg::Directory::with_object(object)),
 			Object_::File(object) => Self::File(tg::File::with_object(object)),
 			Object_::Symlink(object) => Self::Symlink(tg::Symlink::with_object(object)),
@@ -54,8 +51,7 @@ impl Object {
 		H: crate::Handle,
 	{
 		match self {
-			Self::Leaf(object) => object.id(handle).await.map(Id::Leaf),
-			Self::Branch(object) => object.id(handle).await.map(Id::Branch),
+			Self::Blob(object) => object.id(handle).await.map(Id::Blob),
 			Self::Directory(object) => object.id(handle).await.map(Id::Directory),
 			Self::File(object) => object.id(handle).await.map(Id::File),
 			Self::Symlink(object) => object.id(handle).await.map(Id::Symlink),
@@ -69,8 +65,7 @@ impl Object {
 		H: crate::Handle,
 	{
 		match self {
-			Self::Leaf(object) => object.object(handle).await.map(Object_::Leaf),
-			Self::Branch(object) => object.object(handle).await.map(Object_::Branch),
+			Self::Blob(object) => object.object(handle).await.map(Object_::Blob),
 			Self::Directory(object) => object.object(handle).await.map(Object_::Directory),
 			Self::File(object) => object.object(handle).await.map(Object_::File),
 			Self::Symlink(object) => object.object(handle).await.map(Object_::Symlink),
@@ -84,8 +79,7 @@ impl Object {
 		H: tg::Handle,
 	{
 		match self {
-			Self::Leaf(leaf) => leaf.load(handle).await.map(Into::into),
-			Self::Branch(branch) => branch.load(handle).await.map(Into::into),
+			Self::Blob(blob) => blob.load(handle).await.map(Into::into),
 			Self::Directory(directory) => directory.load(handle).await.map(Into::into),
 			Self::File(file) => file.load(handle).await.map(Into::into),
 			Self::Symlink(symlink) => symlink.load(handle).await.map(Into::into),
@@ -114,8 +108,7 @@ impl Object {
 
 	pub fn unload(&self) {
 		match self {
-			Self::Leaf(leaf) => leaf.unload(),
-			Self::Branch(branch) => branch.unload(),
+			Self::Blob(blob) => blob.unload(),
 			Self::Directory(directory) => directory.unload(),
 			Self::File(file) => file.unload(),
 			Self::Symlink(symlink) => symlink.unload(),
@@ -129,8 +122,7 @@ impl Object {
 		H: tg::Handle,
 	{
 		match self {
-			Self::Leaf(directory) => directory.store(handle).await.map(Into::into),
-			Self::Branch(branch) => branch.store(handle).await.map(Into::into),
+			Self::Blob(blob) => blob.store(handle).await.map(Into::into),
 			Self::Directory(directory) => directory.store(handle).await.map(Into::into),
 			Self::File(file) => file.store(handle).await.map(Into::into),
 			Self::Symlink(symlink) => symlink.store(handle).await.map(Into::into),
@@ -152,19 +144,13 @@ impl Object {
 		H: crate::Handle,
 	{
 		match self {
-			Self::Leaf(object) => object.data(handle).await.map(Data::Leaf),
-			Self::Branch(object) => object.data(handle).await.map(Data::Branch),
+			Self::Blob(object) => object.data(handle).await.map(Data::Blob),
 			Self::Directory(object) => object.data(handle).await.map(Data::Directory),
 			Self::File(object) => object.data(handle).await.map(Data::File),
 			Self::Symlink(object) => object.data(handle).await.map(Data::Symlink),
 			Self::Graph(object) => object.data(handle).await.map(Data::Graph),
 			Self::Command(object) => object.data(handle).await.map(Data::Command),
 		}
-	}
-
-	#[must_use]
-	pub fn is_blob(&self) -> bool {
-		matches!(self, Self::Leaf(_) | Self::Branch(_))
 	}
 
 	#[must_use]

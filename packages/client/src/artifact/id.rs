@@ -83,7 +83,7 @@ impl std::fmt::Display for Id {
 impl std::str::FromStr for Id {
 	type Err = tg::Error;
 
-	fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
 	}
 }

@@ -95,8 +95,7 @@ declare namespace tg {
 	}
 
 	export type Object =
-		| tg.Leaf
-		| tg.Branch
+		| tg.Blob
 		| tg.Directory
 		| tg.File
 		| tg.Symlink
@@ -105,8 +104,7 @@ declare namespace tg {
 
 	export namespace Object {
 		export type Id =
-			| tg.Leaf.Id
-			| tg.Branch.Id
+			| tg.Blob.Id
 			| tg.Directory.Id
 			| tg.File.Id
 			| tg.Symlink.Id
@@ -124,109 +122,6 @@ declare namespace tg {
 
 		/** Assert that a value is an `Object`. */
 		export let assert: (value: unknown) => asserts value is tg.Object;
-	}
-
-	/** Create a blob. */
-	export let blob: (...args: tg.Args<tg.Blob.Arg>) => Promise<tg.Blob>;
-
-	/** A blob. */
-	export type Blob = tg.Leaf | tg.Branch;
-
-	export namespace Blob {
-		export type Id = tg.Leaf.Id | tg.Branch.Id;
-
-		export type Arg = undefined | string | Uint8Array | tg.Blob;
-
-		/** Check if a value is a `Blob`. */
-		export let is: (value: unknown) => value is tg.Artifact;
-
-		/** Expect that a value is a `Blob`. */
-		export let expect: (value: unknown) => tg.Artifact;
-
-		/** Assert that a value is a `Blob`. */
-		export let assert: (value: unknown) => asserts value is tg.Artifact;
-	}
-
-	/** Create a leaf. */
-	export let leaf: (...args: tg.Args<tg.Leaf.Arg>) => Promise<tg.Leaf>;
-
-	export class Leaf {
-		/** Get a leaf with an ID. */
-		static withId(id: tg.Leaf.Id): tg.Leaf;
-
-		/** Create a leaf. */
-		static new(...args: tg.Args<tg.Leaf.Arg>): Promise<tg.Leaf>;
-
-		/** Expect that a value is a `tg.Leaf`. */
-		static expect(value: unknown): tg.Leaf;
-
-		/** Assert that a value is a `tg.Leaf`. */
-		static assert(value: unknown): asserts value is tg.Leaf;
-
-		/** Get this leaf's ID. */
-		id(): Promise<tg.Leaf.Id>;
-
-		/** Get this leaf's length. */
-		length(): Promise<number>;
-
-		/** Get this leaf as a `Uint8Array`. */
-		bytes(): Promise<Uint8Array>;
-
-		/** Get this leaf as a string. */
-		text(): Promise<string>;
-	}
-
-	export namespace Leaf {
-		export type Id = string;
-
-		export type Arg = undefined | string | Uint8Array | tg.Leaf;
-	}
-
-	/** Create a branch. */
-	export let branch: (...args: tg.Args<tg.Branch.Arg>) => Promise<tg.Branch>;
-
-	/** A branch. */
-	export class Branch {
-		/** Get a branch with an ID. */
-		static withId(id: tg.Branch.Id): tg.Branch;
-
-		/** Create a branch. */
-		static new(...args: tg.Args<tg.Branch.Arg>): Promise<tg.Branch>;
-
-		/** Combine a set of branch args into a single branch arg object. */
-		static arg(...args: tg.Args<tg.Branch.Arg>): Promise<tg.Branch.ArgObject>;
-
-		/** Expect that a value is a `tg.Branch`. */
-		static expect(value: unknown): tg.Branch;
-
-		/** Assert that a value is a `tg.Branch`. */
-		static assert(value: unknown): asserts value is tg.Branch;
-
-		/** Get this branch's ID. */
-		id(): Promise<tg.Branch.Id>;
-
-		children(): Promise<Array<tg.Branch.Child>>;
-
-		/** Get this branch's length. */
-		length(): Promise<number>;
-
-		/** Get this branch as a `Uint8Array`. */
-		bytes(): Promise<Uint8Array>;
-
-		/** Get this branch as a string. */
-		text(): Promise<string>;
-	}
-
-	export namespace Branch {
-		export type Id = string;
-
-		export type Arg = undefined | tg.Branch | ArgObject;
-
-		type ArgObject = {
-			children?: Array<Child> | undefined;
-		};
-
-		export type Child = { blob: Blob; size: number };
 	}
 
 	/** An artifact. */
@@ -247,6 +142,50 @@ declare namespace tg {
 
 		/** Assert that a value is an `Artifact`. */
 		export let assert: (value: unknown) => asserts value is tg.Artifact;
+	}
+
+	/** Create a blob. */
+	export let blob: (...args: tg.Args<tg.Blob.Arg>) => Promise<tg.Blob>;
+
+	export class Blob {
+		/** Get a blob with an ID. */
+		static withId(id: tg.Blob.Id): tg.Blob;
+
+		/** Create a blob. */
+		static new(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob>;
+
+		/** Expect that a value is a `tg.Blob`. */
+		static expect(value: unknown): tg.Blob;
+
+		/** Assert that a value is a `tg.Blob`. */
+		static assert(value: unknown): asserts value is tg.Blob;
+
+		/** Get this blob's ID. */
+		id(): Promise<tg.Blob.Id>;
+
+		/** Get this blob's length. */
+		length(): Promise<number>;
+
+		/** Get this blob's children */
+		children(): Promise<Array<tg.Blob.Child>>;
+
+		/** Get this blob as a `Uint8Array`. */
+		bytes(): Promise<Uint8Array>;
+
+		/** Get this blob as a string. */
+		text(): Promise<string>;
+	}
+
+	export namespace Blob {
+		export type Id = string;
+
+		export type Arg = undefined | string | Uint8Array | tg.Blob | ArgObject;
+
+		type ArgObject = {
+			children?: Array<Child> | undefined;
+		};
+
+		export type Child = { blob: Blob; size: number };
 	}
 
 	/** Create a directory. */
@@ -318,9 +257,6 @@ declare namespace tg {
 		/** Create a file. */
 		static new(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
 
-		/** Combine a set of file args into a single file arg object. */
-		static arg(...args: tg.Args<tg.File.Arg>): Promise<tg.File.ArgObject>;
-
 		/** Expect that a value is a `tg.File`. */
 		static expect(value: unknown): tg.File;
 
@@ -389,11 +325,6 @@ declare namespace tg {
 		/** Create a symlink. */
 		static new(arg: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink>;
 
-		/** Resolve a symlink arg into a symlink arg object. */
-		static arg(
-			arg: tg.Unresolved<tg.Symlink.Arg>,
-		): Promise<tg.Symlink.ArgObject>;
-
 		/** Expect that a value is a `tg.Symlink`. */
 		static expect(value: unknown): tg.Symlink;
 
@@ -440,9 +371,6 @@ declare namespace tg {
 
 		/** Create a graph. */
 		static new(...args: tg.Args<tg.Graph.Arg>): Promise<tg.Graph>;
-
-		/** Combine a set of graph args into a single graph arg object. */
-		static arg(...args: tg.Args<tg.Graph.Arg>): Promise<tg.Graph.ArgObject>;
 
 		/** Expect that a value is a `tg.Graph`. */
 		static expect(value: unknown): tg.Graph;
@@ -562,9 +490,6 @@ declare namespace tg {
 			A extends Array<tg.Value> = Array<tg.Value>,
 			R extends tg.Value = tg.Value,
 		>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
-
-		/** Combine a set of command args into a single command arg object. */
-		static arg(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command.ArgObject>;
 
 		/** Expect that a value is a `tg.Command`. */
 		static expect(value: unknown): tg.Command;
@@ -988,8 +913,6 @@ declare namespace tg {
 			| "object"
 			| "artifact"
 			| "blob"
-			| "leaf"
-			| "branch"
 			| "directory"
 			| "file"
 			| "symlink"

@@ -21,8 +21,7 @@ use bytes::Bytes;
 #[serde(into = "crate::Id", try_from = "crate::Id")]
 #[try_unwrap(ref)]
 pub enum Id {
-	Leaf(tg::leaf::Id),
-	Branch(tg::branch::Id),
+	Blob(tg::blob::Id),
 	Directory(tg::directory::Id),
 	File(tg::file::Id),
 	Symlink(tg::symlink::Id),
@@ -33,8 +32,7 @@ pub enum Id {
 impl Id {
 	pub fn new(kind: Kind, bytes: &Bytes) -> Self {
 		match kind {
-			Kind::Leaf => tg::leaf::Id::new(bytes).into(),
-			Kind::Branch => tg::branch::Id::new(bytes).into(),
+			Kind::Blob => tg::blob::Id::new(bytes).into(),
 			Kind::Directory => tg::directory::Id::new(bytes).into(),
 			Kind::File => tg::file::Id::new(bytes).into(),
 			Kind::Symlink => tg::symlink::Id::new(bytes).into(),
@@ -46,8 +44,7 @@ impl Id {
 	#[must_use]
 	pub fn kind(&self) -> Kind {
 		match self {
-			Self::Leaf(_) => Kind::Leaf,
-			Self::Branch(_) => Kind::Branch,
+			Self::Blob(_) => Kind::Blob,
 			Self::Directory(_) => Kind::Directory,
 			Self::File(_) => Kind::File,
 			Self::Symlink(_) => Kind::Symlink,
@@ -68,8 +65,7 @@ impl Id {
 	#[must_use]
 	fn as_id(&self) -> &tg::Id {
 		match self {
-			Self::Leaf(id) => &id.0,
-			Self::Branch(id) => &id.0,
+			Self::Blob(id) => &id.0,
 			Self::Directory(id) => &id.0,
 			Self::File(id) => &id.0,
 			Self::Symlink(id) => &id.0,
@@ -82,8 +78,7 @@ impl Id {
 impl From<self::Id> for crate::Id {
 	fn from(value: self::Id) -> Self {
 		match value {
-			self::Id::Leaf(id) => id.into(),
-			self::Id::Branch(id) => id.into(),
+			self::Id::Blob(id) => id.into(),
 			self::Id::Directory(id) => id.into(),
 			self::Id::File(id) => id.into(),
 			self::Id::Symlink(id) => id.into(),
@@ -98,8 +93,7 @@ impl TryFrom<crate::Id> for self::Id {
 
 	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		match value.kind() {
-			crate::id::Kind::Leaf => Ok(Self::Leaf(value.try_into()?)),
-			crate::id::Kind::Branch => Ok(Self::Branch(value.try_into()?)),
+			crate::id::Kind::Blob => Ok(Self::Blob(value.try_into()?)),
 			crate::id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
 			crate::id::Kind::File => Ok(Self::File(value.try_into()?)),
 			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),

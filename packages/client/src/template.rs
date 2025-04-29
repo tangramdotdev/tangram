@@ -182,7 +182,7 @@ impl Data {
 impl TryFrom<Data> for Template {
 	type Error = tg::Error;
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		let components = data
 			.components
 			.into_iter()

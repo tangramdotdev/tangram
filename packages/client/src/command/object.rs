@@ -93,7 +93,7 @@ impl Module {
 impl TryFrom<Data> for Command {
 	type Error = tg::Error;
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		let args = data.args.into_iter().map(TryInto::try_into).try_collect()?;
 		let cwd = data.cwd;
 		let env = data

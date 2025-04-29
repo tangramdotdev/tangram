@@ -415,7 +415,7 @@ impl Data {
 impl TryFrom<Data> for Mutation {
 	type Error = tg::Error;
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		Ok(match data {
 			Data::Unset => Self::Unset,
 			Data::Set { value } => Self::Set {

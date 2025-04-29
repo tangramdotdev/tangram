@@ -6,6 +6,7 @@ use std::{
 	io::Cursor,
 	panic::AssertUnwindSafe,
 	pin::{Pin, pin},
+	sync::Arc,
 	task::Poll,
 };
 use sync_wrapper::SyncWrapper;
@@ -119,7 +120,7 @@ impl Server {
 				let n_ = reader
 					.read(&mut buffer[n..])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to read blob file"))?;
+					.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
 				n += n_;
 				if n_ == 0 {
 					break;
@@ -564,29 +565,35 @@ async fn poll_read_inner(
 	let mut current_blob = blob.clone();
 	let mut current_blob_position = 0;
 	'a: loop {
-		match current_blob {
-			tg::Blob::Leaf(leaf) => {
-				let (id, object) = {
-					let state = leaf.state().read().unwrap();
-					(
-						state.id.clone(),
-						state.object.as_ref().map(|object| object.as_ref().clone()),
-					)
-				};
-				let bytes = if let Some(object) = object {
-					object.bytes.clone()
-				} else {
-					server.get_object(&id.unwrap().into()).await?.bytes.clone()
-				};
-				if position < current_blob_position + bytes.len().to_u64().unwrap() {
-					let mut cursor = Cursor::new(bytes.clone());
+		let (id, object) = {
+			let state = current_blob.state().read().unwrap();
+			let id = state.id.clone();
+			let object = state.object.clone();
+			(id, object)
+		};
+		let object = if let Some(object) = object {
+			object
+		} else {
+			let bytes = server.get_object(&id.unwrap().into()).await?.bytes;
+			let data = tg::blob::Data::deserialize(bytes)?;
+			let object = tg::blob::Object::try_from(data)?;
+			let object = Arc::new(object);
+			if object.is_branch() {
+				current_blob.state().write().unwrap().object = Some(object.clone());
+			}
+			object
+		};
+		match object.as_ref() {
+			tg::blob::Object::Leaf(leaf) => {
+				if position < current_blob_position + leaf.bytes.len().to_u64().unwrap() {
+					let mut cursor = Cursor::new(leaf.bytes.clone());
 					cursor.set_position(position - current_blob_position);
 					break Ok(Some(cursor));
 				}
 				return Ok(None);
 			},
-			tg::Blob::Branch(branch) => {
-				for child in branch.children(server).await?.iter() {
+			tg::blob::Object::Branch(branch) => {
+				for child in &branch.children {
 					if position < current_blob_position + child.length {
 						current_blob = child.blob.clone();
 						continue 'a;

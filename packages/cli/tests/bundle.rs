@@ -34,7 +34,7 @@ async fn file_no_dependencies() {
 	let assertions = |object: String| async move {
 		assert_snapshot!(object, @r#"
 		tg.file({
-		  "contents": tg.leaf("hello!"),
+		  "contents": tg.blob("hello!"),
 		})
 		"#);
 	};
@@ -52,7 +52,7 @@ async fn directory_no_dependencies() {
 		assert_snapshot!(output, @r#"
 		tg.directory({
 		  "file": tg.file({
-		    "contents": tg.leaf("hello"),
+		    "contents": tg.blob("hello"),
 		  }),
 		  "link": tg.symlink({
 		    "target": "link",
@@ -97,7 +97,7 @@ async fn directory_containing_file_with_file_dependency() {
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "fil_01gkrw51xnwqmtdqg7eww1yzcgvwjber106q9j96z94zdgkr49073g": {
+		            "fil_01veqdpfrvtngmf1vqfq1r602m0hwvey6a3xhg42xpknpybvfk3020": {
 		              "kind": "file",
 		              "contents": "dependency"
 		            }
@@ -155,7 +155,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "dir_01neb60wpaemmf2p87vzyvbs1r4c06a664fek83685stzycqp4t9z0": {
+		            "dir_0148e3kzpv2jhhp2s6ky2vz49ev0656aertbwg6epjbnsffznjtg80": {
 		              "kind": "directory",
 		              "entries": {
 		                "dep": {
@@ -232,7 +232,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "dir_010tcemg45skky72hzj6brbq9pqdm6anjc3y1n1367faavg0wvb5cg": {
+		            "dir_01gmvdykmz5pqgjaq2fwrpx4pmdxtw2vm7f1jaxy0dcbbfmcy18740": {
 		              "kind": "directory",
 		              "entries": {
 		                "dep": {
@@ -241,11 +241,11 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 		                },
 		                "link": {
 		                  "kind": "symlink",
-		                  "target": "../../../.tangram/artifacts/dir_015hd3d0r0njfxz43hby36168cdz80tbc7wgpnp105bmray9wv7wng/a"
+		                  "target": "../../../.tangram/artifacts/dir_01myaw4t7h2nw6mmr7jgm0acznf0bg070h4amd79x6n7n7m3xp7eh0/a"
 		                }
 		              }
 		            },
-		            "dir_015hd3d0r0njfxz43hby36168cdz80tbc7wgpnp105bmray9wv7wng": {
+		            "dir_01myaw4t7h2nw6mmr7jgm0acznf0bg070h4amd79x6n7n7m3xp7eh0": {
 		              "kind": "directory",
 		              "entries": {
 		                "a": {

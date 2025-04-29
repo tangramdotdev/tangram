@@ -2,7 +2,6 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert, unimplemented, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
-import { Branch, branch } from "./branch.ts";
 import { BuildBuilder } from "./build.ts";
 import {
 	type ArchiveFormat,
@@ -21,7 +20,6 @@ import * as encoding from "./encoding.ts";
 import { Error_ } from "./error.ts";
 import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";
-import { Leaf, leaf } from "./leaf.ts";
 import { error, log } from "./log.ts";
 import type { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
@@ -73,7 +71,6 @@ export {
 	Args,
 	Artifact,
 	Blob,
-	Branch,
 	BuildBuilder,
 	Checksum,
 	Command,
@@ -82,7 +79,6 @@ export {
 	Error_ as Error,
 	File,
 	Graph,
-	Leaf,
 	Mutation,
 	Object_ as Object,
 	Process,
@@ -94,7 +90,6 @@ export {
 	archive,
 	assert,
 	blob,
-	branch,
 	build,
 	bundle,
 	checksum,
@@ -107,7 +102,6 @@ export {
 	extract,
 	file,
 	graph,
-	leaf,
 	log,
 	error,
 	mutation,

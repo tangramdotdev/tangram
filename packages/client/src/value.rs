@@ -161,14 +161,6 @@ impl Value {
 		matches!(self, Self::Object(object) if object.is_artifact())
 	}
 
-	pub fn is_leaf(&self) -> bool {
-		matches!(self, Self::Object(object) if object.is_leaf())
-	}
-
-	pub fn is_branch(&self) -> bool {
-		matches!(self, Self::Object(object) if object.is_branch())
-	}
-
 	pub fn is_directory(&self) -> bool {
 		matches!(self, Self::Object(object) if object.is_directory())
 	}
@@ -236,7 +228,7 @@ impl std::str::FromStr for tg::Value {
 impl TryFrom<Data> for Value {
 	type Error = tg::Error;
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		Ok(match data {
 			Data::Null => Self::Null,
 			Data::Bool(bool) => Self::Bool(bool),
@@ -452,15 +444,20 @@ where
 	}
 }
 
-impl From<tg::Leaf> for Value {
-	fn from(value: tg::Leaf) -> Self {
+impl From<tg::Blob> for Value {
+	fn from(value: tg::Blob) -> Self {
 		tg::Object::from(value).into()
 	}
 }
 
-impl From<tg::Branch> for Value {
-	fn from(value: tg::Branch) -> Self {
-		tg::Object::from(value).into()
+impl TryFrom<Value> for tg::Blob {
+	type Error = tg::Error;
+
+	fn try_from(value: Value) -> Result<Self, Self::Error> {
+		tg::Object::try_from(value)
+			.map_err(|_| tg::error!("invalid value"))?
+			.try_into()
+			.map_err(|_| tg::error!("invalid value"))
 	}
 }
 
@@ -469,9 +466,32 @@ impl From<tg::Directory> for Value {
 		tg::Object::from(value).into()
 	}
 }
+
+impl TryFrom<Value> for tg::Directory {
+	type Error = tg::Error;
+
+	fn try_from(value: Value) -> Result<Self, Self::Error> {
+		tg::Object::try_from(value)
+			.map_err(|_| tg::error!("invalid value"))?
+			.try_into()
+			.map_err(|_| tg::error!("invalid value"))
+	}
+}
+
 impl From<tg::File> for Value {
 	fn from(value: tg::File) -> Self {
 		tg::Object::from(value).into()
+	}
+}
+
+impl TryFrom<Value> for tg::File {
+	type Error = tg::Error;
+
+	fn try_from(value: Value) -> Result<Self, Self::Error> {
+		tg::Object::try_from(value)
+			.map_err(|_| tg::error!("invalid value"))?
+			.try_into()
+			.map_err(|_| tg::error!("invalid value"))
 	}
 }
 
@@ -481,15 +501,48 @@ impl From<tg::Symlink> for Value {
 	}
 }
 
+impl TryFrom<Value> for tg::Symlink {
+	type Error = tg::Error;
+
+	fn try_from(value: Value) -> Result<Self, Self::Error> {
+		tg::Object::try_from(value)
+			.map_err(|_| tg::error!("invalid value"))?
+			.try_into()
+			.map_err(|_| tg::error!("invalid value"))
+	}
+}
+
 impl From<tg::Graph> for Value {
 	fn from(value: tg::Graph) -> Self {
 		tg::Object::from(value).into()
 	}
 }
 
+impl TryFrom<Value> for tg::Graph {
+	type Error = tg::Error;
+
+	fn try_from(value: Value) -> Result<Self, Self::Error> {
+		tg::Object::try_from(value)
+			.map_err(|_| tg::error!("invalid value"))?
+			.try_into()
+			.map_err(|_| tg::error!("invalid value"))
+	}
+}
+
 impl From<tg::Command> for Value {
 	fn from(value: tg::Command) -> Self {
 		tg::Object::from(value).into()
+	}
+}
+
+impl TryFrom<Value> for tg::Command {
+	type Error = tg::Error;
+
+	fn try_from(value: Value) -> Result<Self, Self::Error> {
+		tg::Object::try_from(value)
+			.map_err(|_| tg::error!("invalid value"))?
+			.try_into()
+			.map_err(|_| tg::error!("invalid value"))
 	}
 }
 

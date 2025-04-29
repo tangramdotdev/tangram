@@ -130,8 +130,7 @@ fn id(input: &mut Input) -> ModalResult<tg::id::Id> {
 
 fn id_kind(input: &mut Input) -> ModalResult<tg::id::Kind> {
 	alt((
-		alt(("lef", "leaf")).value(tg::id::Kind::Leaf),
-		alt(("bch", "branch")).value(tg::id::Kind::Branch),
+		alt(("blb", "blob")).value(tg::id::Kind::Blob),
 		alt(("dir", "directory")).value(tg::id::Kind::Directory),
 		alt(("fil", "file")).value(tg::id::Kind::File),
 		alt(("sym", "symlink")).value(tg::id::Kind::Symlink),

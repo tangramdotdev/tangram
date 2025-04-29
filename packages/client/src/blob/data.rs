@@ -1,36 +1,86 @@
-use super::Kind;
 use crate as tg;
+use byteorder::WriteBytesExt as _;
 use bytes::Bytes;
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, io::Write};
 
-#[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
-#[try_unwrap(ref)]
+#[derive(Clone, Debug, derive_more::IsVariant)]
 pub enum Blob {
-	Leaf(tg::leaf::Data),
-	Branch(tg::branch::Data),
+	Leaf(Leaf),
+	Branch(Branch),
+}
+
+#[derive(Clone, Debug)]
+pub struct Leaf {
+	pub bytes: Bytes,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Branch {
+	pub children: Vec<Child>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Child {
+	pub blob: tg::blob::Id,
+	pub length: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Kind {
+	Leaf,
+	Branch,
 }
 
 impl Blob {
-	#[must_use]
-	pub fn kind(&self) -> Kind {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		let mut bytes = Vec::new();
 		match self {
-			Self::Leaf(_) => Kind::Leaf,
-			Self::Branch(_) => Kind::Branch,
+			Self::Leaf(leaf) => {
+				bytes.write_u8(0).unwrap();
+				bytes.write_all(&leaf.bytes).unwrap();
+			},
+			Self::Branch(branch) => {
+				bytes.write_u8(1).unwrap();
+				serde_json::to_writer(&mut bytes, branch)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			},
 		}
+		Ok(bytes.into())
 	}
 
-	pub fn serialize(&self) -> tg::Result<Bytes> {
-		match self {
-			Self::Leaf(leaf) => leaf.serialize(),
-			Self::Branch(branch) => branch.serialize(),
-		}
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+		let bytes = bytes.into();
+		let kind = bytes
+			.as_ref()
+			.first()
+			.ok_or_else(|| tg::error!("missing kind"))?;
+		let kind = match kind {
+			0 => Kind::Leaf,
+			1 => Kind::Branch,
+			_ => return Err(tg::error!("invalid kind")),
+		};
+		let blob = match kind {
+			Kind::Leaf => Self::Leaf(Leaf {
+				bytes: bytes.into_owned().slice(1..),
+			}),
+			Kind::Branch => {
+				let branch = serde_json::from_reader(&bytes.as_ref()[1..])
+					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				Self::Branch(branch)
+			},
+		};
+		Ok(blob)
 	}
 
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		match self {
-			Self::Leaf(leaf) => leaf.children(),
-			Self::Branch(branch) => branch.children(),
+			Self::Branch(branch) => branch
+				.children
+				.iter()
+				.map(|child| child.blob.clone().into())
+				.collect(),
+			Self::Leaf(_) => [].into(),
 		}
 	}
 }

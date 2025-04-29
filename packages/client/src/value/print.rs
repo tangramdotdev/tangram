@@ -168,8 +168,7 @@ where
 
 	pub fn object(&mut self, value: &tg::Object) -> Result {
 		match value {
-			tg::Object::Leaf(v) => self.leaf(v),
-			tg::Object::Branch(v) => self.branch(v),
+			tg::Object::Blob(v) => self.blob(v),
 			tg::Object::Directory(v) => self.directory(v),
 			tg::Object::File(v) => self.file(v),
 			tg::Object::Symlink(v) => self.symlink(v),
@@ -187,57 +186,36 @@ where
 	}
 
 	pub fn blob(&mut self, value: &tg::Blob) -> Result {
-		match value {
-			tg::Blob::Leaf(leaf) => self.leaf(leaf),
-			tg::Blob::Branch(branch) => self.branch(branch),
-		}
-	}
-
-	pub fn leaf(&mut self, value: &tg::Leaf) -> Result {
 		let state = value.state().read().unwrap();
 		match (state.id(), state.object(), self.options.recursive) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
 			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				self.leaf_object(object)?;
+				self.blob_object(object)?;
 			},
 			(None, None, _) => unreachable!(),
 		}
 		Ok(())
 	}
 
-	fn leaf_object(&mut self, object: &tg::leaf::Object) -> Result {
-		write!(self.writer, "tg.leaf(")?;
-		if let Ok(string) = String::from_utf8(object.bytes.to_vec()) {
-			self.string(&string)?;
-		}
-		write!(self.writer, ")")?;
-		Ok(())
-	}
-
-	pub fn branch(&mut self, value: &tg::Branch) -> Result {
-		let state = value.state().read().unwrap();
-		match (state.id(), state.object(), self.options.recursive) {
-			(Some(id), None, _) | (Some(id), Some(_), false) => {
-				write!(self.writer, "{id}")?;
+	fn blob_object(&mut self, object: &tg::blob::Object) -> Result {
+		write!(self.writer, "tg.blob(")?;
+		match object {
+			tg::blob::Object::Leaf(object) => {
+				if let Ok(string) = String::from_utf8(object.bytes.to_vec()) {
+					self.string(&string)?;
+				}
 			},
-			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				self.branch_object(object)?;
+			tg::blob::Object::Branch(object) => {
+				self.start_map()?;
+				for child in &object.children {
+					self.map_entry("length", |s| s.number(child.length.to_f64().unwrap()))?;
+					self.map_entry("blob", |s| s.blob(&child.blob))?;
+				}
+				self.finish_map()?;
 			},
-			(None, None, _) => unreachable!(),
 		}
-		Ok(())
-	}
-
-	fn branch_object(&mut self, object: &tg::branch::Object) -> Result {
-		write!(self.writer, "tg.branch(")?;
-		self.start_map()?;
-		for child in &object.children {
-			self.map_entry("length", |s| s.number(child.length.to_f64().unwrap()))?;
-			self.map_entry("blob", |s| s.blob(&child.blob))?;
-		}
-		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())
 	}

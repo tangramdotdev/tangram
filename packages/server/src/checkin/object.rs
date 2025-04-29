@@ -160,9 +160,8 @@ impl Server {
 				&& matches!(
 					graph.nodes[scc[0]].unify.object,
 					Either::Right(
-						tg::object::Id::Branch(_)
+						tg::object::Id::Blob(_)
 							| tg::object::Id::Graph(_)
-							| tg::object::Id::Leaf(_)
 							| tg::object::Id::Command(_)
 					)
 				) {

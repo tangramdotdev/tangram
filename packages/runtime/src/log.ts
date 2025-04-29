@@ -65,10 +65,8 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 		output = value.message;
 	} else if (value instanceof Promise) {
 		output = "(promise)";
-	} else if (value instanceof tg.Leaf) {
-		output = stringifyState("leaf", value.state, visited);
-	} else if (value instanceof tg.Branch) {
-		output = stringifyState("branch", value.state, visited);
+	} else if (value instanceof tg.Blob) {
+		output = stringifyState("blob", value.state, visited);
 	} else if (value instanceof tg.Directory) {
 		output = stringifyState("directory", value.state, visited);
 	} else if (value instanceof tg.File) {

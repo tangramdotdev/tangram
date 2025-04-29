@@ -109,7 +109,7 @@ impl Server {
 					return Err(tg::error!("invalid store"));
 				},
 			};
-			let cache_reference = if data.is_none() && object.is_leaf() {
+			let cache_reference = if data.is_none() && object.is_blob() {
 				#[allow(clippy::match_wildcard_for_single_variants)]
 				match &self.store {
 					crate::store::Store::Lmdb(lmdb) => {

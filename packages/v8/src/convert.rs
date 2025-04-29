@@ -6,7 +6,6 @@ use tangram_either::Either;
 
 mod artifact;
 mod blob;
-mod branch;
 mod builtin;
 mod checksum;
 mod command;
@@ -15,7 +14,6 @@ mod directory;
 mod error;
 mod file;
 mod graph;
-mod leaf;
 mod module;
 mod mutation;
 mod object;

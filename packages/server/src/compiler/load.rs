@@ -87,8 +87,6 @@ impl Compiler {
 				kind:
 					tg::module::Kind::Object
 					| tg::module::Kind::Blob
-					| tg::module::Kind::Leaf
-					| tg::module::Kind::Branch
 					| tg::module::Kind::Artifact
 					| tg::module::Kind::Directory
 					| tg::module::Kind::File
@@ -101,8 +99,6 @@ impl Compiler {
 				let class = match module.kind {
 					tg::module::Kind::Object => "Object",
 					tg::module::Kind::Blob => "Blob",
-					tg::module::Kind::Leaf => "Leaf",
-					tg::module::Kind::Branch => "Branch",
 					tg::module::Kind::Artifact => "Artifact",
 					tg::module::Kind::Directory => "Directory",
 					tg::module::Kind::File => "File",

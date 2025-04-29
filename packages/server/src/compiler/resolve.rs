@@ -116,8 +116,7 @@ impl Compiler {
 						object.clone()
 					};
 					match &object {
-						tg::object::Id::Leaf(_) => tg::module::Kind::Leaf,
-						tg::object::Id::Branch(_) => tg::module::Kind::Branch,
+						tg::object::Id::Blob(_) => tg::module::Kind::Blob,
 						tg::object::Id::Directory(_) => tg::module::Kind::Directory,
 						tg::object::Id::File(_) => tg::module::Kind::File,
 						tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,

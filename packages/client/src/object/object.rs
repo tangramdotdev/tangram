@@ -5,8 +5,7 @@ use std::sync::Arc;
 #[derive(Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]
 pub enum Object {
-	Leaf(Arc<tg::leaf::Object>),
-	Branch(Arc<tg::branch::Object>),
+	Blob(Arc<tg::blob::Object>),
 	Directory(Arc<tg::directory::Object>),
 	File(Arc<tg::file::Object>),
 	Symlink(Arc<tg::symlink::Object>),
@@ -18,8 +17,7 @@ impl Object {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Leaf(leaf) => leaf.children(),
-			Self::Branch(branch) => branch.children(),
+			Self::Blob(blob) => blob.children(),
 			Self::Directory(directory) => directory.children(),
 			Self::File(file) => file.children(),
 			Self::Symlink(symlink) => symlink.children(),
@@ -32,10 +30,9 @@ impl Object {
 impl TryFrom<Data> for Object {
 	type Error = tg::Error;
 
-	fn try_from(data: Data) -> std::result::Result<Self, Self::Error> {
+	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		Ok(match data {
-			Data::Leaf(data) => Self::Leaf(Arc::new(tg::leaf::Object::try_from(data)?)),
-			Data::Branch(data) => Self::Branch(Arc::new(tg::branch::Object::try_from(data)?)),
+			Data::Blob(data) => Self::Blob(Arc::new(tg::blob::Object::try_from(data)?)),
 			Data::Directory(data) => {
 				Self::Directory(Arc::new(tg::directory::Object::try_from(data)?))
 			},

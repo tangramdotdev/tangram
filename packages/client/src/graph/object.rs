@@ -177,7 +177,7 @@ impl Node {
 impl TryFrom<Data> for Graph {
 	type Error = tg::Error;
 
-	fn try_from(value: Data) -> std::result::Result<Self, Self::Error> {
+	fn try_from(value: Data) -> Result<Self, Self::Error> {
 		let nodes = value
 			.nodes
 			.into_iter()
@@ -190,7 +190,7 @@ impl TryFrom<Data> for Graph {
 impl TryFrom<tg::graph::data::Node> for Node {
 	type Error = tg::Error;
 
-	fn try_from(value: tg::graph::data::Node) -> std::result::Result<Self, Self::Error> {
+	fn try_from(value: tg::graph::data::Node) -> Result<Self, Self::Error> {
 		match value {
 			tg::graph::data::Node::Directory(tg::graph::data::Directory { entries }) => {
 				let entries = entries
