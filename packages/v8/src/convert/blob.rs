@@ -101,23 +101,18 @@ impl FromV8 for tg::blob::Object {
 		let children =
 			v8::String::new_external_onebyte_static(scope, "children".as_bytes()).unwrap();
 
-		let bytes = value.get(scope, bytes.into());
-		let children = value.get(scope, children.into());
-
-		if let Some(bytes_value) = bytes {
-			if !bytes_value.is_null_or_undefined() {
-				let bytes = <_>::from_v8(scope, bytes_value)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the bytes"))?;
-				return Ok(Self::Leaf(tg::blob::object::Leaf { bytes }));
-			}
+		let bytes = value.get(scope, bytes.into()).unwrap();
+		if !bytes.is_null_or_undefined() {
+			let bytes = <_>::from_v8(scope, bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the bytes"))?;
+			return Ok(Self::Leaf(tg::blob::object::Leaf { bytes }));
 		}
 
-		if let Some(children_value) = children {
-			if !children_value.is_null_or_undefined() {
-				let children = <_>::from_v8(scope, children_value)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the children"))?;
-				return Ok(Self::Branch(tg::blob::object::Branch { children }));
-			}
+		let children = value.get(scope, children.into()).unwrap();
+		if !children.is_null_or_undefined() {
+			let children = <_>::from_v8(scope, children)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the children"))?;
+			return Ok(Self::Branch(tg::blob::object::Branch { children }));
 		}
 
 		Err(tg::error!("invalid object"))
