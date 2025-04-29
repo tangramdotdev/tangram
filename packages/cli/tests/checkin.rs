@@ -85,7 +85,7 @@ async fn directory_with_duplicate_entries() {
 }
 
 #[tokio::test]
-async fn file() {
+async fn single_file() {
 	let directory = temp::directory! {
 		"directory" => temp::directory! {
 			"README.md" => "Hello, World!",

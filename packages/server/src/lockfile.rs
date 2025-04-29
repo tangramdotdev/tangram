@@ -62,7 +62,7 @@ impl Server {
 			.collect::<tg::Result<_>>()?;
 
 		// Strip nodes.
-		let nodes = self.strip_lockfile_nodes(&nodes, root)?;
+		let nodes = Self::strip_lockfile_nodes(&nodes, root)?;
 
 		// Create the lockfile.
 		let lockfile = tg::Lockfile { nodes };
@@ -955,7 +955,7 @@ fn get_paths(
 						continue;
 					};
 					let node_path = node_path.join(name);
-					get_paths_inner(artifacts_path, lockfile, &node_path, *index, visited);
+					get_paths_inner(artifacts_path, lockfile, &node_path, *index, visited)?;
 				}
 			},
 			tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) => {
