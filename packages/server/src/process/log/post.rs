@@ -40,8 +40,7 @@ impl Server {
 		}
 
 		// Write to the log file.
-		self.post_process_log_to_file(id, arg.bytes.clone())
-			.await?;
+		self.post_process_log_to_file(id, arg.bytes.clone()).await?;
 
 		// Write to stdout or stderr if necessary.
 		if let (Some(stdout), tg::process::log::Stream::Stdout) = (data.stdout, arg.stream) {
@@ -86,11 +85,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn post_process_log_to_file(
-		&self,
-		id: &tg::process::Id,
-		bytes: Bytes,
-	) -> tg::Result<()> {
+	async fn post_process_log_to_file(&self, id: &tg::process::Id, bytes: Bytes) -> tg::Result<()> {
 		let path = self.logs_path().join(format!("{id}"));
 		let mut file = tokio::fs::File::options()
 			.create(true)
