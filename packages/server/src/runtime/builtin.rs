@@ -28,6 +28,7 @@ impl Runtime {
 			.await
 			.unwrap_or_else(|error| super::Output {
 				error: Some(error),
+				exit: 1,
 				..Default::default()
 			})
 	}
