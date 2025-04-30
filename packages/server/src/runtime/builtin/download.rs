@@ -141,22 +141,21 @@ impl Runtime {
 				tokio::io::copy(&mut reader, &mut file)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
-				drop(reader);
 			},
 			Mode::Decompress(format) => {
-				let mut reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match format {
-					tg::CompressionFormat::Bz2 => {
-						Box::pin(async_compression::tokio::bufread::BzDecoder::new(reader))
-					},
-					tg::CompressionFormat::Gz => {
-						Box::pin(async_compression::tokio::bufread::GzipDecoder::new(reader))
-					},
-					tg::CompressionFormat::Xz => {
-						Box::pin(async_compression::tokio::bufread::XzDecoder::new(reader))
-					},
-					tg::CompressionFormat::Zstd => {
-						Box::pin(async_compression::tokio::bufread::ZstdDecoder::new(reader))
-					},
+				let mut reader: Pin<Box<dyn AsyncRead + Send>> = match format {
+					tg::CompressionFormat::Bz2 => Box::pin(
+						async_compression::tokio::bufread::BzDecoder::new(&mut reader),
+					),
+					tg::CompressionFormat::Gz => Box::pin(
+						async_compression::tokio::bufread::GzipDecoder::new(&mut reader),
+					),
+					tg::CompressionFormat::Xz => Box::pin(
+						async_compression::tokio::bufread::XzDecoder::new(&mut reader),
+					),
+					tg::CompressionFormat::Zstd => Box::pin(
+						async_compression::tokio::bufread::ZstdDecoder::new(&mut reader),
+					),
 				};
 				let mut file = tokio::fs::File::create(temp.path())
 					.await
@@ -164,17 +163,22 @@ impl Runtime {
 				tokio::io::copy(&mut reader, &mut file)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
-				drop(reader);
 			},
 			Mode::Extract(format, compression) => match format {
 				tg::ArchiveFormat::Tar => {
-					self.extract_tar(&temp, reader, compression).await?;
+					self.extract_tar(&temp, &mut reader, compression).await?;
 				},
 				tg::ArchiveFormat::Zip => {
-					self.extract_zip(&temp, reader).await?;
+					self.extract_zip(&temp, &mut reader).await?;
 				},
 			},
 		}
+
+		// Drain and drop the reader.
+		tokio::io::copy(&mut reader, &mut tokio::io::sink())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to drain the reader"))?;
+		drop(reader);
 
 		// Get the checksum.
 		let checksum = Arc::try_unwrap(checksum)

@@ -78,10 +78,10 @@ impl Runtime {
 		// Extract to the temp.
 		match format {
 			tg::ArchiveFormat::Tar => {
-				self.extract_tar(&temp, reader, compression).await?;
+				self.extract_tar(&temp, &mut reader, compression).await?;
 			},
 			tg::ArchiveFormat::Zip => {
-				self.extract_zip(&temp, reader).await?;
+				self.extract_zip(&temp, &mut reader).await?;
 			},
 		}
 
@@ -139,10 +139,10 @@ impl Runtime {
 	pub(super) async fn extract_tar(
 		&self,
 		temp: &Temp,
-		reader: impl tokio::io::AsyncBufRead + Send + 'static,
+		reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
 		compression: Option<tg::CompressionFormat>,
 	) -> tg::Result<()> {
-		let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression {
+		let reader: Pin<Box<dyn AsyncRead + Send>> = match compression {
 			Some(tg::CompressionFormat::Bz2) => {
 				Box::pin(async_compression::tokio::bufread::BzDecoder::new(reader))
 			},
@@ -169,7 +169,7 @@ impl Runtime {
 	pub(super) async fn extract_zip(
 		&self,
 		temp: &Temp,
-		reader: impl tokio::io::AsyncBufRead + Send + Unpin + 'static,
+		reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
 	) -> tg::Result<()> {
 		// Create the reader.
 		let mut reader = Some(ZipFileReader::with_tokio(reader));
