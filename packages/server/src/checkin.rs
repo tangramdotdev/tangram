@@ -687,7 +687,7 @@ impl Server {
 			let path = state.graph.nodes[index].path();
 
 			// Check if the hint matches.
-			if let Some(hint) = hint {
+			if let (Some(hint), false) = (hint, state.graph.nodes[index].is_package()) {
 				let hint_path = state.graph.nodes[hint].path();
 				if path.strip_prefix(hint_path).is_ok() {
 					// Mark this node's root.
@@ -704,13 +704,15 @@ impl Server {
 				}
 			}
 
-			// Search the ancestors of this node to find its root.
+			// Search the ancestors of this node to find its root, unless it is a package.
 			let mut root = None;
-			for ancestor in path.ancestors().skip(1) {
-				let Some(node) = state.graph.paths.get(ancestor) else {
-					break;
-				};
-				root.replace(*node);
+			if !state.graph.nodes[index].is_package() {
+				for ancestor in path.ancestors().skip(1) {
+					let Some(node) = state.graph.paths.get(ancestor) else {
+						break;
+					};
+					root.replace(*node);
+				}
 			}
 
 			// Add to the list of roots if necessary.
@@ -754,8 +756,8 @@ impl Server {
 					let FileDependency::Import {
 						import,
 						node: Some(node),
-						path,
 						subpath: None,
+						..
 					} = dependency
 					else {
 						return None;
@@ -773,6 +775,15 @@ impl Server {
 					// Get the package and subpath of the import.
 					let (package, subpath) = state.graph.nodes[*node].root.map_or_else(
 						|| {
+							// If the import kind is _not_ a module, make sure to ignore the result.
+							if !matches!(import.kind, None | Some(
+								tg::module::Kind::Dts |
+								tg::module::Kind::Js |
+								tg::module::Kind::Ts
+							)) {
+								return (*node, None);
+							}
+
 							// If this is a root directory and contains a tangram.ts, use it.
 							let subpath = state.graph.nodes[*node]
 								.variant
@@ -798,13 +809,24 @@ impl Server {
 						},
 					);
 
+					// Use the relative path of the package
+					let path = state
+						.graph
+						.nodes[package]
+						.path
+						.as_deref()
+						.and_then(|module_path| {
+							crate::util::path::diff(&state.arg.path, module_path)
+								.ok()
+						});
+
 					// Recreate the new dependency.
 					Some((
 						dep_index,
 						FileDependency::Import {
 							import: import.clone(),
 							node: Some(package),
-							path: path.clone(),
+							path,
 							subpath,
 						},
 					))
@@ -1242,7 +1264,7 @@ impl Server {
 					std::fs::copy(src, &dst)
 						.map_err(|source| tg::error!(!source, "failed to copy file"))?;
 				} else if metadata.is_symlink() {
-					let target = &state.graph.nodes[root].variant.unwrap_symlink_ref().target;
+					let target = &node.variant.unwrap_symlink_ref().target;
 					std::os::unix::fs::symlink(target, &dst)
 						.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 				} else {
@@ -1598,6 +1620,17 @@ impl Server {
 }
 
 impl Node {
+	fn is_package(&self) -> bool {
+		self.variant
+			.try_unwrap_directory_ref()
+			.map_or(false, |directory| {
+				directory
+					.entries
+					.iter()
+					.any(|(name, _)| tg::package::ROOT_MODULE_FILE_NAMES.contains(&name.as_str()))
+			})
+	}
+
 	fn path(&self) -> &Path {
 		self.path.as_deref().unwrap()
 	}
