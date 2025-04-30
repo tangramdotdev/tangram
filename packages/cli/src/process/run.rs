@@ -61,7 +61,7 @@ impl Cli {
 		let stdio = self
 			.create_stdio(remote.clone(), &args.options)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to open pipes"))?;
+			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
 
 		// If the detach flag is set, then spawn without stdio and return.
 		if args.options.detach {
