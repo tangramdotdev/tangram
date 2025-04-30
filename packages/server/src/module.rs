@@ -4,7 +4,7 @@ use tangram_client as tg;
 use tangram_either::Either;
 
 impl Server {
-	pub(crate) async fn module_for_path(&self, path: &Path) -> tg::Result<tg::Module> {
+	pub(crate) async fn module_for_path(&self, path: &Path) -> tg::Result<tg::module::Data> {
 		// Find the lockfile.
 		let (lockfile_path, lockfile) = 'a: {
 			for ancestor in path.ancestors().skip(1) {
@@ -52,10 +52,10 @@ impl Server {
 		let subpath = path.strip_prefix(&package).unwrap().to_owned();
 
 		// Create the module.
-		Ok(tg::Module {
+		Ok(tg::module::Data {
 			kind,
 			referent: tg::Referent {
-				item: tg::module::Item::Path(package.clone()),
+				item: tg::module::data::Item::Path(package.clone()),
 				path: None,
 				subpath: Some(subpath),
 				tag: None,

@@ -1,7 +1,7 @@
 use super::{FromV8, ToV8, serde::Serde};
 use tangram_client as tg;
 
-impl ToV8 for tg::Module {
+impl ToV8 for tg::module::Data {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let value = Serde::new(self);
 		let value = value.to_v8(scope)?;
@@ -9,7 +9,7 @@ impl ToV8 for tg::Module {
 	}
 }
 
-impl FromV8 for tg::Module {
+impl FromV8 for tg::module::Data {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,

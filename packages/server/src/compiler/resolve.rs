@@ -10,18 +10,18 @@ impl Compiler {
 	/// Resolve an import from a module.
 	pub async fn resolve_module(
 		&self,
-		referrer: &tg::Module,
-		import: &tg::Import,
-	) -> tg::Result<tg::Module> {
+		referrer: &tg::module::Data,
+		import: &tg::module::Import,
+	) -> tg::Result<tg::module::Data> {
 		let kind = import.kind;
 
 		// Get the referent.
 		let referent = match referrer {
 			// Handle a path referrer.
-			tg::Module {
+			tg::module::Data {
 				referent:
 					tg::Referent {
-						item: tg::module::Item::Path(path),
+						item: tg::module::data::Item::Path(path),
 						subpath,
 						..
 					},
@@ -32,10 +32,10 @@ impl Compiler {
 			},
 
 			// Handle an object referrer.
-			tg::Module {
+			tg::module::Data {
 				referent:
 					tg::Referent {
-						item: tg::module::Item::Object(object),
+						item: tg::module::data::Item::Object(object),
 						subpath,
 						..
 					},
@@ -58,7 +58,7 @@ impl Compiler {
 			} else {
 				None
 			}
-		} else if let tg::module::Item::Path(path) = &referent.item {
+		} else if let tg::module::data::Item::Path(path) = &referent.item {
 			let extension = path.extension();
 			if extension.is_some_and(|extension| extension == "js") {
 				Some(tg::module::Kind::Js)
@@ -76,7 +76,7 @@ impl Compiler {
 			kind
 		} else {
 			match &referent.item {
-				tg::module::Item::Path(path) => {
+				tg::module::data::Item::Path(path) => {
 					let path = if let Some(subpath) = &referent.subpath {
 						path.join(subpath)
 					} else {
@@ -96,7 +96,7 @@ impl Compiler {
 					}
 				},
 
-				tg::module::Item::Object(object) => {
+				tg::module::data::Item::Object(object) => {
 					let object = if let Some(subpath) = &referent.subpath {
 						let object = tg::Object::with_id(object.clone());
 						let directory = object
@@ -128,7 +128,7 @@ impl Compiler {
 		};
 
 		// Create the module.
-		let module = tg::Module { kind, referent };
+		let module = tg::module::Data { kind, referent };
 
 		Ok(module)
 	}
@@ -137,8 +137,8 @@ impl Compiler {
 		&self,
 		referrer: &Path,
 		subpath: Option<&Path>,
-		import: &tg::Import,
-	) -> tg::Result<tg::Referent<tg::module::Item>> {
+		import: &tg::module::Import,
+	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
 		// Get the referrer within some lockfile.
 		let subpath = subpath.unwrap_or("".as_ref());
 		let module_path = referrer.join(subpath);
@@ -207,14 +207,14 @@ impl Compiler {
 					.await
 				{
 					Ok(tg::Referent {
-						item: tg::module::Item::Path(package_path),
+						item: tg::module::data::Item::Path(package_path),
 						subpath: subpath.clone(),
 						path: path.clone(),
 						tag: tag.clone(),
 					})
 				} else if let Some(id) = lockfile.nodes[*index].id() {
 					Ok(tg::Referent {
-						item: tg::module::Item::Object(id.into()),
+						item: tg::module::data::Item::Object(id.into()),
 						subpath: subpath.clone(),
 						path: path.clone(),
 						tag: tag.clone(),
@@ -233,7 +233,7 @@ impl Compiler {
 				subpath,
 				tag,
 			}) => Ok(tg::Referent {
-				item: tg::module::Item::Object(object.clone()),
+				item: tg::module::data::Item::Object(object.clone()),
 				path: path.clone(),
 				subpath: subpath.clone(),
 				tag: tag.clone(),
@@ -249,7 +249,7 @@ impl Compiler {
 					};
 					let item = module_parent.join(import_path);
 					return Ok(tg::Referent {
-						item: tg::module::Item::Path(item),
+						item: tg::module::data::Item::Path(item),
 						path: None,
 						subpath: import
 							.reference
@@ -271,8 +271,8 @@ impl Compiler {
 		&self,
 		object: &tg::object::Id,
 		subpath: Option<&Path>,
-		import: &tg::Import,
-	) -> Result<tg::Referent<tg::module::Item>, tg::Error> {
+		import: &tg::module::Import,
+	) -> Result<tg::Referent<tg::module::data::Item>, tg::Error> {
 		let referrer = if let Some(subpath) = subpath {
 			let tg::object::Id::Directory(directory) = object else {
 				return Err(tg::error!("object with subpath must be a directory"));
@@ -289,7 +289,7 @@ impl Compiler {
 			.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
 		let referent = file.get_dependency(&self.server, &import.reference).await?;
 		let object = referent.item.id(&self.server).await?.clone();
-		let item = tg::module::Item::Object(object);
+		let item = tg::module::data::Item::Object(object);
 		let path = referent.path;
 		let subpath = referent.subpath;
 		let tag = referent.tag;

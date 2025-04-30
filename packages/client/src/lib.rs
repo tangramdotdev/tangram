@@ -37,7 +37,6 @@ pub use self::{
 	id::Id,
 	location::Location,
 	lockfile::Lockfile,
-	module::{Import, Module},
 	mutation::Mutation,
 	object::Handle as Object,
 	position::Position,

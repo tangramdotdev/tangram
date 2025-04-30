@@ -3,7 +3,7 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub module: tg::Module,
+	pub module: tg::module::Data,
 }
 
 impl tg::Client {

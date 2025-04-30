@@ -22,8 +22,8 @@ impl Cli {
 		let kind = infer_module_kind(&path).unwrap_or(tg::module::Kind::Artifact);
 
 		// Create a module.
-		let module = tg::Module {
-			referent: tg::Referent::with_item(tg::module::Item::Path(path)),
+		let module = tg::module::Data {
+			referent: tg::Referent::with_item(tg::module::data::Item::Path(path)),
 			kind,
 		};
 

@@ -6,13 +6,13 @@ pub const LIBRARY: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 
 impl Compiler {
 	/// Load a module.
-	pub async fn load_module(&self, module: &tg::Module) -> tg::Result<String> {
+	pub async fn load_module(&self, module: &tg::module::Data) -> tg::Result<String> {
 		match module {
 			// Handle a declaration.
-			tg::Module {
+			tg::module::Data {
 				kind: tg::module::Kind::Dts,
 				referent: tg::Referent {
-					item: tg::module::Item::Path(path),
+					item: tg::module::data::Item::Path(path),
 					..
 				},
 			} => {
@@ -24,11 +24,11 @@ impl Compiler {
 			},
 
 			// Handle a JS or TS module from a path.
-			tg::Module {
+			tg::module::Data {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
 				referent:
 					tg::Referent {
-						item: tg::module::Item::Path(path),
+						item: tg::module::data::Item::Path(path),
 						subpath,
 						..
 					},
@@ -55,11 +55,11 @@ impl Compiler {
 			},
 
 			// Handle a JS or TS module from an object.
-			tg::Module {
+			tg::module::Data {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
 				referent:
 					tg::Referent {
-						item: tg::module::Item::Object(object),
+						item: tg::module::data::Item::Object(object),
 						subpath,
 						..
 					},
@@ -83,7 +83,7 @@ impl Compiler {
 			},
 
 			// Handle object modules.
-			tg::Module {
+			tg::module::Data {
 				kind:
 					tg::module::Kind::Object
 					| tg::module::Kind::Blob
@@ -108,10 +108,10 @@ impl Compiler {
 					_ => unreachable!(),
 				};
 				match item {
-					tg::module::Item::Path(_) => Ok(format!(
+					tg::module::data::Item::Path(_) => Ok(format!(
 						r"export default undefined as unknown as tg.{class};"
 					)),
-					tg::module::Item::Object(object) => {
+					tg::module::data::Item::Object(object) => {
 						let object = tg::Object::with_id(object.clone());
 						let object = if let Some(subpath) = subpath {
 							let tg::Object::Directory(directory) = object else {
