@@ -158,44 +158,45 @@ async fn file_through_symlink() {
 	let path = "a";
 	let assertions = |object: String, metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-		tg.directory({
-		  "tangram.ts": tg.file({
-		    "contents": tg.blob("import \"../b/c/d"),
-		    "dependencies": {
-		      "../b/c/d": {
-		        "item": tg.file({
-		          "contents": tg.blob("hello, world!"),
-		        }),
-		      },
-		    },
-		  }),
-		})
-		"#);
+  tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.blob("import \"../b/c/d"),
+      "dependencies": {
+        "../b/c/d": {
+          "item": tg.file({
+            "contents": tg.blob("hello, world!"),
+          }),
+          "path": "../b/e/d",
+        },
+      },
+    }),
+  })
+  "#);
 		assert_snapshot!(metadata, @r#"
-		{
-		  "count": 5,
-		  "depth": 4,
-		  "weight": 362
-		}
-		"#);
+  {
+    "count": 5,
+    "depth": 4,
+    "weight": 380
+  }
+  "#);
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-		{
-		  "nodes": [
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 1
-		      },
-		      "id": "dir_0197w0ssyd8mm004avr9zv9p88n6255vfn2299hngz2875jvfzezcg"
-		    },
-		    {
-		      "kind": "file",
-		      "id": "fil_01bq1z31cqje98dfcfj7vh758mj2d88vkqvxqgb4v7044dpwrztbwg"
-		    }
-		  ]
-		}
-		"#);
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_010005phrqxhzc2tjaqre4jab3nfjets3n0xq427pv8ks8q45p3n2g"
+      },
+      {
+        "kind": "file",
+        "id": "fil_01bekxaqs9w8vsycr287w5g53d6ts390x5ghrjrp7ce0e3xh563f8g"
+      }
+    ]
+  }
+  "#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -218,44 +219,45 @@ async fn artifact_symlink() {
 	let path = "a";
 	let assertions = |object: String, metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-		tg.directory({
-		  "tangram.ts": tg.file({
-		    "contents": tg.blob("import \"../b/c"),
-		    "dependencies": {
-		      "../b/c": {
-		        "item": tg.symlink({
-		          "target": "e",
-		        }),
-		      },
-		    },
-		  }),
-		})
-		"#);
+  tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.blob("import \"../b/c"),
+      "dependencies": {
+        "../b/c": {
+          "item": tg.symlink({
+            "target": "e",
+          }),
+          "path": "../b/c",
+        },
+      },
+    }),
+  })
+  "#);
 		assert_snapshot!(metadata, @r#"
-		{
-		  "count": 4,
-		  "depth": 3,
-		  "weight": 285
-		}
-		"#);
+  {
+    "count": 4,
+    "depth": 3,
+    "weight": 301
+  }
+  "#);
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-		{
-		  "nodes": [
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 1
-		      },
-		      "id": "dir_011a08s8wznfwhhytpsrjzzsvsjjrhe88rgey51x20bhwdazmrnvcg"
-		    },
-		    {
-		      "kind": "file",
-		      "id": "fil_01ngmk7ypy3f53qk22sbanwacx9jp38q89q9fpgytpx3mxhbw6eyag"
-		    }
-		  ]
-		}
-		"#);
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01hg130caj00ny9p7j7bsqg2evf8qkzykg3g250vmwcwxvwjnqvj20"
+      },
+      {
+        "kind": "file",
+        "id": "fil_0174w6skgjpk15cfhgymzzc6qawde3m3c0ken1424sp7xgdbs3mhtg"
+      }
+    ]
+  }
+  "#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -378,56 +380,58 @@ async fn simple_path_dependency() {
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-		{
-		  "nodes": [
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 1
-		      },
-		      "id": "dir_01qgbqaxsymejxmbpz7k37kvd68c7t1j2qkk3k79mbwj3epy9sjvhg"
-		    },
-		    {
-		      "kind": "file",
-		      "dependencies": {
-		        "../bar": {
-		          "item": 2,
-		          "subpath": "tangram.ts"
-		        }
-		      },
-		      "id": "fil_01tmbdc5dgtbs0srawj90msja6j7qwtdyngnce6ebcxgfcs732f0wg"
-		    },
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 3
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
-		    },
-		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
-		    }
-		  ]
-		}
-		"#);
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01r3x6dfwxa5b6m8d42xj1h805671qq0nsxy60r5yakv0b4xq763h0"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "../bar": {
+            "item": 2,
+            "path": "../bar",
+            "subpath": "tangram.ts"
+          }
+        },
+        "id": "fil_01e9ew2j9q6jnjdh3wnv4saj91ahc8p4j2tr57z6e93dfptt5mkjs0"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 3
+        },
+        "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+      },
+      {
+        "kind": "file",
+        "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+      }
+    ]
+  }
+  "#);
 		assert_snapshot!(object, @r#"
-		tg.directory({
-		  "tangram.ts": tg.file({
-		    "contents": tg.blob("import * as bar from \"../bar\";"),
-		    "dependencies": {
-		      "../bar": {
-		        "item": tg.directory({
-		          "tangram.ts": tg.file({
-		            "contents": tg.blob(""),
-		          }),
-		        }),
-		        "subpath": "tangram.ts",
-		      },
-		    },
-		  }),
-		})
-		"#);
+  tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.blob("import * as bar from \"../bar\";"),
+      "dependencies": {
+        "../bar": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.blob(""),
+            }),
+          }),
+          "path": "../bar",
+          "subpath": "tangram.ts",
+        },
+      },
+    }),
+  })
+  "#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -456,117 +460,124 @@ async fn package_with_nested_dependencies() {
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-		{
-		  "nodes": [
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "bar": 1,
-		        "baz": 3,
-		        "tangram.ts": 5
-		      },
-		      "id": "dir_01kz3kxx0vx8ctg82c116rzyvme0zpaxdpgx10f96seeyspm9agym0"
-		    },
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 2
-		      },
-		      "id": "dir_01mm87nayqg9dxv3szvmpkxqddsjjn745ge7wm6zgheehvj2sb9g60"
-		    },
-		    {
-		      "kind": "file",
-		      "dependencies": {
-		        "../baz": {
-		          "item": 3,
-		          "subpath": "tangram.ts"
-		        }
-		      },
-		      "id": "fil_01h03gq3b5xaxp0sp61ggnjt1xm49k7kj9mpzv8tq531eg6k80cweg"
-		    },
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 4
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
-		    },
-		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
-		    },
-		    {
-		      "kind": "file",
-		      "dependencies": {
-		        "./bar": {
-		          "item": 1,
-		          "subpath": "tangram.ts"
-		        },
-		        "./baz": {
-		          "item": 3,
-		          "subpath": "tangram.ts"
-		        }
-		      },
-		      "id": "fil_01t6ar0n883y7h8caxqhr7rchkz35gcwptjxhhb91sg91gtpftk1xg"
-		    }
-		  ]
-		}
-		"#);
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "bar": 1,
+          "baz": 3,
+          "tangram.ts": 5
+        },
+        "id": "dir_0135k9hrn6ex25j5v6g0hab63w7ywjrrr867jncm62rdqqhb2sgc4g"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 2
+        },
+        "id": "dir_01g5nfn3z3pv889xzradap3k9hcjak1pe41e8rpjh0d6hwe6zweje0"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "../baz": {
+            "item": 3,
+            "path": "baz",
+            "subpath": "tangram.ts"
+          }
+        },
+        "id": "fil_011zas3hzxy8zhgjd6em89084nwsav6996fafptayb7mwc0hspnqhg"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 4
+        },
+        "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+      },
+      {
+        "kind": "file",
+        "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "./bar": {
+            "item": 1,
+            "path": "bar",
+            "subpath": "tangram.ts"
+          },
+          "./baz": {
+            "item": 3,
+            "path": "baz",
+            "subpath": "tangram.ts"
+          }
+        },
+        "id": "fil_01sw07a9xgp8tds89629r8dw8aqw6z6skgc65jd45hj21q2n1ae9s0"
+      }
+    ]
+  }
+  "#);
 		assert_snapshot!(object, @r#"
-		tg.directory({
-		  "bar": tg.directory({
-		    "tangram.ts": tg.file({
-		      "contents": tg.blob("\n\t\t\t\t\timport * as baz from \"../baz\";\n\t\t\t\t"),
-		      "dependencies": {
-		        "../baz": {
-		          "item": tg.directory({
-		            "tangram.ts": tg.file({
-		              "contents": tg.blob(""),
-		            }),
-		          }),
-		          "subpath": "tangram.ts",
-		        },
-		      },
-		    }),
-		  }),
-		  "baz": tg.directory({
-		    "tangram.ts": tg.file({
-		      "contents": tg.blob(""),
-		    }),
-		  }),
-		  "tangram.ts": tg.file({
-		    "contents": tg.blob("\n\t\t\t\timport * as bar from \"./bar\";\n\t\t\t\timport * as baz from \"./baz\";\n\t\t\t"),
-		    "dependencies": {
-		      "./bar": {
-		        "item": tg.directory({
-		          "tangram.ts": tg.file({
-		            "contents": tg.blob("\n\t\t\t\t\timport * as baz from \"../baz\";\n\t\t\t\t"),
-		            "dependencies": {
-		              "../baz": {
-		                "item": tg.directory({
-		                  "tangram.ts": tg.file({
-		                    "contents": tg.blob(""),
-		                  }),
-		                }),
-		                "subpath": "tangram.ts",
-		              },
-		            },
-		          }),
-		        }),
-		        "subpath": "tangram.ts",
-		      },
-		      "./baz": {
-		        "item": tg.directory({
-		          "tangram.ts": tg.file({
-		            "contents": tg.blob(""),
-		          }),
-		        }),
-		        "subpath": "tangram.ts",
-		      },
-		    },
-		  }),
-		})
-		"#);
+  tg.directory({
+    "bar": tg.directory({
+      "tangram.ts": tg.file({
+        "contents": tg.blob("\n\t\t\t\t\timport * as baz from \"../baz\";\n\t\t\t\t"),
+        "dependencies": {
+          "../baz": {
+            "item": tg.directory({
+              "tangram.ts": tg.file({
+                "contents": tg.blob(""),
+              }),
+            }),
+            "path": "baz",
+            "subpath": "tangram.ts",
+          },
+        },
+      }),
+    }),
+    "baz": tg.directory({
+      "tangram.ts": tg.file({
+        "contents": tg.blob(""),
+      }),
+    }),
+    "tangram.ts": tg.file({
+      "contents": tg.blob("\n\t\t\t\timport * as bar from \"./bar\";\n\t\t\t\timport * as baz from \"./baz\";\n\t\t\t"),
+      "dependencies": {
+        "./bar": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.blob("\n\t\t\t\t\timport * as baz from \"../baz\";\n\t\t\t\t"),
+              "dependencies": {
+                "../baz": {
+                  "item": tg.directory({
+                    "tangram.ts": tg.file({
+                      "contents": tg.blob(""),
+                    }),
+                  }),
+                  "path": "baz",
+                  "subpath": "tangram.ts",
+                },
+              },
+            }),
+          }),
+          "path": "bar",
+          "subpath": "tangram.ts",
+        },
+        "./baz": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.blob(""),
+            }),
+          }),
+          "path": "baz",
+          "subpath": "tangram.ts",
+        },
+      },
+    }),
+  })
+  "#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -776,71 +787,73 @@ async fn import_package_from_current() {
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-		{
-		  "nodes": [
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "a": 1
-		      },
-		      "id": "dir_01qzxsvn86t9dwahfmxy52yk8bs167g4nzc8pcbqsmrbjxgbm8hcng"
-		    },
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "mod.tg.ts": 2,
-		        "tangram.ts": 3
-		      },
-		      "id": "dir_01avgmn0evgzxfw2hwe7tg40k2gt3e5g7nh28cgegmzrr84jyvdrk0"
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01aq2gskg75gmmbjtjfbr7meynk5h439y6se0rvtqyjpa12we0abe0",
-		      "dependencies": {
-		        ".": {
-		          "item": 1,
-		          "subpath": "tangram.ts"
-		        }
-		      },
-		      "id": "fil_015qh12pqh0x1f4tms0arq03qkw1nd9qgaskyws0ge77w82wjnyw90"
-		    },
-		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
-		    }
-		  ]
-		}
-		"#);
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "a": 1
+        },
+        "id": "dir_01tefnm7k9mybxjpv7xcdtrpjnzzvg3vd175ajpvfyrhakvhfme2r0"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "mod.tg.ts": 2,
+          "tangram.ts": 3
+        },
+        "id": "dir_01t7yv16xc2xtxz4gbv7428b9tyeayb8b3fypjdcxa6c3kghm69e5g"
+      },
+      {
+        "kind": "file",
+        "contents": "blb_01aq2gskg75gmmbjtjfbr7meynk5h439y6se0rvtqyjpa12we0abe0",
+        "dependencies": {
+          ".": {
+            "item": 1,
+            "path": "a",
+            "subpath": "tangram.ts"
+          }
+        },
+        "id": "fil_01dqx0ka1z6s4aenvggnx9zjx2mrsd2d4b55cjvnsvy1gzrk03rqs0"
+      },
+      {
+        "kind": "file",
+        "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+      }
+    ]
+  }
+  "#);
 		assert_snapshot!(object, @r#"
-		tg.directory({
-		  "a": tg.directory({
-		    "graph": tg.graph({
-		      "nodes": [
-		        {
-		          "kind": "directory",
-		          "entries": {
-		            "mod.tg.ts": 1,
-		            "tangram.ts": tg.file({
-		              "contents": tg.blob(""),
-		            }),
-		          },
-		        },
-		        {
-		          "kind": "file",
-		          "contents": tg.blob("import * as a from \".\";"),
-		          "dependencies": {
-		            ".": {
-		              "item": 0,
-		              "subpath": "tangram.ts",
-		            },
-		          },
-		        },
-		      ],
-		    }),
-		    "node": 0,
-		  }),
-		})
-		"#);
+  tg.directory({
+    "a": tg.directory({
+      "graph": tg.graph({
+        "nodes": [
+          {
+            "kind": "directory",
+            "entries": {
+              "mod.tg.ts": 1,
+              "tangram.ts": tg.file({
+                "contents": tg.blob(""),
+              }),
+            },
+          },
+          {
+            "kind": "file",
+            "contents": tg.blob("import * as a from \".\";"),
+            "dependencies": {
+              ".": {
+                "item": 0,
+                "path": "a",
+                "subpath": "tangram.ts",
+              },
+            },
+          },
+        ],
+      }),
+      "node": 0,
+    }),
+  })
+  "#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -928,71 +941,62 @@ async fn import_package_with_type_directory_from_parent() {
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-		{
-		  "nodes": [
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "a": 1,
-		        "tangram.ts": 3
-		      },
-		      "id": "dir_01bj526178y9vkbtb3v503kydk8nbv8ggektrwvmdzk727qt20q1f0"
-		    },
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 2
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
-		    },
-		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01mrk87qyd19txs3kh9xpy2rfw6fykawqy1hjg4ktfk9mg2j9w892g",
-		      "dependencies": {
-		        "./a": {
-		          "item": 0,
-		          "subpath": "a"
-		        }
-		      },
-		      "id": "fil_01dfnzdj9heg75yqmhhsac6yjtbc9zx77f85m3kf2znvek2vqgkyqg"
-		    }
-		  ]
-		}
-		"#);
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "a": 1,
+          "tangram.ts": 3
+        },
+        "id": "dir_01g8f5rctnxnf8gm7pc3q39b2n6vwne47epkbjty3y2t9xz28eqz90"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 2
+        },
+        "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+      },
+      {
+        "kind": "file",
+        "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "./a": {
+            "item": 1,
+            "path": "a"
+          }
+        },
+        "id": "fil_0133mc4rk6r1jy7xr6tedwmwp7vtjwmth546b0jhh27a0c9s9tbapg"
+      }
+    ]
+  }
+  "#);
 		assert_snapshot!(object, @r#"
-		tg.directory({
-		  "graph": tg.graph({
-		    "nodes": [
-		      {
-		        "kind": "directory",
-		        "entries": {
-		          "a": tg.directory({
-		            "tangram.ts": tg.file({
-		              "contents": tg.blob(""),
-		            }),
-		          }),
-		          "tangram.ts": 1,
-		        },
-		      },
-		      {
-		        "kind": "file",
-		        "contents": tg.blob("import a from \"./a\" with { type: \"directory\" }"),
-		        "dependencies": {
-		          "./a": {
-		            "item": 0,
-		            "subpath": "a",
-		          },
-		        },
-		      },
-		    ],
-		  }),
-		  "node": 0,
-		})
-		"#);
+  tg.directory({
+    "a": tg.directory({
+      "tangram.ts": tg.file({
+        "contents": tg.blob(""),
+      }),
+    }),
+    "tangram.ts": tg.file({
+      "contents": tg.blob("import a from \"./a\" with { type: \"directory\" }"),
+      "dependencies": {
+        "./a": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.blob(""),
+            }),
+          }),
+          "path": "a",
+        },
+      },
+    }),
+  })
+  "#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -1013,62 +1017,64 @@ async fn import_package_from_parent() {
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-		{
-		  "nodes": [
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "a": 1,
-		        "tangram.ts": 3
-		      },
-		      "id": "dir_012acxke3za771m8fqt927fcqe4swfk914mvnr5rjagax68f7e6rag"
-		    },
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 2
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
-		    },
-		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
-		    },
-		    {
-		      "kind": "file",
-		      "dependencies": {
-		        "./a": {
-		          "item": 1,
-		          "subpath": "tangram.ts"
-		        }
-		      },
-		      "id": "fil_017cm2mdr6ehceqcr0h7afb0y10yzbkmjh9pat1nrk2w9j80r8a64g"
-		    }
-		  ]
-		}
-		"#);
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "a": 1,
+          "tangram.ts": 3
+        },
+        "id": "dir_01z7vpew7gpj9tnzde3faw6yny1zdnx5fmbjaqdvjdp423dmydygy0"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 2
+        },
+        "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+      },
+      {
+        "kind": "file",
+        "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+      },
+      {
+        "kind": "file",
+        "dependencies": {
+          "./a": {
+            "item": 1,
+            "path": "a",
+            "subpath": "tangram.ts"
+          }
+        },
+        "id": "fil_01rp5cf460yqdwy91rkm31pz25awp6wn30j41mwpqfqdgmwvtbpnx0"
+      }
+    ]
+  }
+  "#);
 		assert_snapshot!(object, @r#"
-		tg.directory({
-		  "a": tg.directory({
-		    "tangram.ts": tg.file({
-		      "contents": tg.blob(""),
-		    }),
-		  }),
-		  "tangram.ts": tg.file({
-		    "contents": tg.blob("import a from \"./a"),
-		    "dependencies": {
-		      "./a": {
-		        "item": tg.directory({
-		          "tangram.ts": tg.file({
-		            "contents": tg.blob(""),
-		          }),
-		        }),
-		        "subpath": "tangram.ts",
-		      },
-		    },
-		  }),
-		})
-		"#);
+  tg.directory({
+    "a": tg.directory({
+      "tangram.ts": tg.file({
+        "contents": tg.blob(""),
+      }),
+    }),
+    "tangram.ts": tg.file({
+      "contents": tg.blob("import a from \"./a"),
+      "dependencies": {
+        "./a": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.blob(""),
+            }),
+          }),
+          "path": "a",
+          "subpath": "tangram.ts",
+        },
+      },
+    }),
+  })
+  "#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -1180,88 +1186,90 @@ async fn cyclic_dependencies() {
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-		{
-		  "nodes": [
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 1
-		      },
-		      "id": "dir_01cpa8tkxn4pg1n9wx5ey5mkss1gbkd6xn4amrdkmb6vx5x5ee8j0g"
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_013jt3hdkvnhdr5apgc6chh92gzgrta5c7tvzj9ve83fyx15k0r820",
-		      "dependencies": {
-		        "../bar": {
-		          "item": 2,
-		          "subpath": "tangram.ts"
-		        }
-		      },
-		      "id": "fil_01s9dwzpkna94zn99xhx6z2pfv9fmy0z0k8d859hr5bapmj9nhmfeg"
-		    },
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 3
-		      },
-		      "id": "dir_01hphc57438as9n79m4t4gddhb37mz8c9a9tff8t13qmrrhmxjymbg"
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01amvkrw427fngj2zwq9cvy6s78zkg1dkqa84ypfdkp8n7hb7zyyd0",
-		      "dependencies": {
-		        "../foo": {
-		          "item": 0,
-		          "subpath": "tangram.ts"
-		        }
-		      },
-		      "id": "fil_012e8ed9yp5pyrv5pvea6jjdj00ng8ysw764vh4b8jdn622nnc0ekg"
-		    }
-		  ]
-		}
-		"#);
+  {
+    "nodes": [
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 1
+        },
+        "id": "dir_01aeyem407yerjtkvxb76h3cm3jnn1asn7bh0z7a5h90twggkf8vc0"
+      },
+      {
+        "kind": "file",
+        "contents": "blb_013jt3hdkvnhdr5apgc6chh92gzgrta5c7tvzj9ve83fyx15k0r820",
+        "dependencies": {
+          "../bar": {
+            "item": 2,
+            "path": "../bar",
+            "subpath": "tangram.ts"
+          }
+        },
+        "id": "fil_01d6dav4c760dt9rgsbw2t11x07dktnbvhkgymgjzm5g5yfz57qapg"
+      },
+      {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": 3
+        },
+        "id": "dir_01pbbtvgc7ngyvxtp78fed44qt3znbzf6pgedaa17t2wvek2rwwvr0"
+      },
+      {
+        "kind": "file",
+        "contents": "blb_01amvkrw427fngj2zwq9cvy6s78zkg1dkqa84ypfdkp8n7hb7zyyd0",
+        "dependencies": {
+          "../foo": {
+            "item": 0,
+            "subpath": "tangram.ts"
+          }
+        },
+        "id": "fil_01x6ajp8q92dq8nzrmmcxms3q7pjv3d12z12wg1shp1myv1gvw0m10"
+      }
+    ]
+  }
+  "#);
 		assert_snapshot!(object, @r#"
-		tg.directory({
-		  "graph": tg.graph({
-		    "nodes": [
-		      {
-		        "kind": "directory",
-		        "entries": {
-		          "tangram.ts": 1,
-		        },
-		      },
-		      {
-		        "kind": "file",
-		        "contents": tg.blob("import * as bar from \"../bar\""),
-		        "dependencies": {
-		          "../bar": {
-		            "item": 2,
-		            "subpath": "tangram.ts",
-		          },
-		        },
-		      },
-		      {
-		        "kind": "directory",
-		        "entries": {
-		          "tangram.ts": 3,
-		        },
-		      },
-		      {
-		        "kind": "file",
-		        "contents": tg.blob("import * as foo from \"../foo\""),
-		        "dependencies": {
-		          "../foo": {
-		            "item": 0,
-		            "subpath": "tangram.ts",
-		          },
-		        },
-		      },
-		    ],
-		  }),
-		  "node": 0,
-		})
-		"#);
+  tg.directory({
+    "graph": tg.graph({
+      "nodes": [
+        {
+          "kind": "directory",
+          "entries": {
+            "tangram.ts": 1,
+          },
+        },
+        {
+          "kind": "file",
+          "contents": tg.blob("import * as bar from \"../bar\""),
+          "dependencies": {
+            "../bar": {
+              "item": 2,
+              "path": "../bar",
+              "subpath": "tangram.ts",
+            },
+          },
+        },
+        {
+          "kind": "directory",
+          "entries": {
+            "tangram.ts": 3,
+          },
+        },
+        {
+          "kind": "file",
+          "contents": tg.blob("import * as foo from \"../foo\""),
+          "dependencies": {
+            "../foo": {
+              "item": 0,
+              "subpath": "tangram.ts",
+            },
+          },
+        },
+      ],
+    }),
+    "node": 0,
+  })
+  "#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
