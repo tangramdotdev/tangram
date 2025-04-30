@@ -24,7 +24,6 @@ impl Server {
 
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			// Hack: look for sigint/sigquit and cancel any JS processses that are listening.
 			if let tg::pty::Event::Chunk(chunk) = &event {
 				self.js_signal_hack(id, chunk)
 					.await
@@ -42,19 +41,15 @@ impl Server {
 
 	async fn js_signal_hack(&self, pty: &tg::pty::Id, chunk: &[u8]) -> tg::Result<()> {
 		// Scan the input for a signal.
-		let signal = chunk
-			.iter()
-			.copied()
-			.filter_map(|byte| {
-				if byte == 0x03 {
-					Some(tg::process::Signal::SIGINT)
-				} else if byte == 0x1c {
-					Some(tg::process::Signal::SIGQUIT)
-				} else {
-					None
-				}
-			})
-			.next();
+		let signal = chunk.iter().copied().find_map(|byte| {
+			if byte == 0x03 {
+				Some(tg::process::Signal::SIGINT)
+			} else if byte == 0x1c {
+				Some(tg::process::Signal::SIGQUIT)
+			} else {
+				None
+			}
+		});
 		let Some(signal) = signal else {
 			return Ok(());
 		};
