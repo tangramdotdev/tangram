@@ -144,16 +144,22 @@ impl Command {
 			.try_collect()
 			.await?;
 		let executable = match &object.executable {
-			tg::command::Executable::Artifact(artifact) => {
-				let artifact = artifact.id(handle).await?;
+			tg::command::Executable::Artifact(executable) => {
+				let artifact = tg::command::data::Artifact {
+					artifact: executable.artifact.id(handle).await?,
+					subpath: executable.subpath.clone(),
+				};
 				tg::command::data::Executable::Artifact(artifact)
 			},
-			tg::command::Executable::Module(module) => {
-				let module = Box::pin(module.data(handle)).await?;
+			tg::command::Executable::Module(executable) => {
+				let module = Box::pin(executable.data(handle)).await?;
 				tg::command::data::Executable::Module(module)
 			},
-			tg::command::Executable::Path(path) => {
-				tg::command::data::Executable::Path(path.clone())
+			tg::command::Executable::Path(executable) => {
+				let path = tg::command::data::Path {
+					path: executable.path.clone(),
+				};
+				tg::command::data::Executable::Path(path)
 			},
 		};
 		let host = object.host.clone();

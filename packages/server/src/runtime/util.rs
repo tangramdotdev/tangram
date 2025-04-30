@@ -2,7 +2,12 @@ use crate::Server;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
 use futures::{Stream, TryStreamExt as _, future, stream};
-use std::{collections::BTreeMap, fmt::Write as _, path::Path, pin::pin};
+use std::{
+	collections::BTreeMap,
+	fmt::Write as _,
+	path::{Path, PathBuf},
+	pin::pin,
+};
 use tangram_client as tg;
 use tangram_futures::task::Stop;
 use tangram_sandbox as sandbox;
@@ -307,12 +312,12 @@ async fn output(
 	Ok(())
 }
 
-pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<String> {
+pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<PathBuf> {
 	if exe.is_absolute() || exe.components().count() > 1 {
-		return Ok(exe.to_string_lossy().to_string());
+		return Ok(exe.to_owned());
 	}
 	let Some(pathenv) = env.get("PATH") else {
-		return Ok(exe.to_string_lossy().to_string());
+		return Ok(exe.to_owned());
 	};
 	let name = exe.components().next();
 	let Some(std::path::Component::Normal(name)) = name else {
@@ -322,7 +327,7 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Str
 	for path in pathenv.split(sep) {
 		let path = Path::new(path).join(name);
 		if tokio::fs::try_exists(&path).await.ok() == Some(true) {
-			return Ok(path.to_string_lossy().to_string());
+			return Ok(path);
 		}
 	}
 	Err(tg::error!(%path = exe.display(), "failed to find the executable"))

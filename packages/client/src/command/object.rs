@@ -18,15 +18,26 @@ pub struct Command {
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]
 pub enum Executable {
-	Artifact(tg::Artifact),
+	Artifact(Artifact),
 	Module(Module),
-	Path(PathBuf),
+	Path(Path),
+}
+
+#[derive(Clone, Debug)]
+pub struct Artifact {
+	pub artifact: tg::Artifact,
+	pub subpath: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Module {
 	pub kind: tg::module::Kind,
 	pub referent: tg::Referent<tg::Object>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Path {
+	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -57,10 +68,17 @@ impl Executable {
 	#[must_use]
 	pub fn object(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Artifact(artifact) => [artifact.clone().into()].into(),
-			Self::Module(module) => module.objects(),
+			Self::Artifact(executable) => executable.objects(),
+			Self::Module(executable) => executable.objects(),
 			Self::Path(_) => vec![],
 		}
+	}
+}
+
+impl Artifact {
+	#[must_use]
+	pub fn objects(&self) -> Vec<tg::object::Handle> {
+		[self.artifact.clone().into()].into()
 	}
 }
 
@@ -124,12 +142,20 @@ impl TryFrom<Data> for Command {
 impl From<tg::command::data::Executable> for Executable {
 	fn from(data: tg::command::data::Executable) -> Self {
 		match data {
-			tg::command::data::Executable::Artifact(id) => {
-				Self::Artifact(tg::Artifact::with_id(id))
+			tg::command::data::Executable::Artifact(executable) => {
+				Self::Artifact(executable.into())
 			},
-			tg::command::data::Executable::Module(module) => Self::Module(module.into()),
-			tg::command::data::Executable::Path(path) => Self::Path(path),
+			tg::command::data::Executable::Module(executable) => Self::Module(executable.into()),
+			tg::command::data::Executable::Path(executable) => Self::Path(executable.into()),
 		}
+	}
+}
+
+impl From<tg::command::data::Artifact> for Artifact {
+	fn from(data: tg::command::data::Artifact) -> Self {
+		let artifact = tg::Artifact::with_id(data.artifact);
+		let subpath = data.subpath;
+		Self { artifact, subpath }
 	}
 }
 
@@ -150,9 +176,19 @@ impl From<tg::command::data::Module> for Module {
 	}
 }
 
+impl From<tg::command::data::Path> for Path {
+	fn from(data: tg::command::data::Path) -> Self {
+		let path = data.path;
+		Self { path }
+	}
+}
+
 impl From<tg::File> for Executable {
 	fn from(value: tg::File) -> Self {
-		Self::Artifact(value.into())
+		Self::Artifact(Artifact {
+			artifact: value.into(),
+			subpath: None,
+		})
 	}
 }
 

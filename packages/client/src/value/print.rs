@@ -513,9 +513,13 @@ where
 			self.map_entry("env", |s| s.map(&object.env))?;
 		}
 		self.map_entry("executable", |s| match &object.executable {
-			tg::command::Executable::Artifact(artifact) => s.artifact(artifact),
-			tg::command::Executable::Module(module) => s.command_module(module),
-			tg::command::Executable::Path(path) => s.string(path.to_string_lossy().as_ref()),
+			tg::command::Executable::Artifact(executable) => {
+				s.command_executable_artifact(executable)
+			},
+			tg::command::Executable::Module(executable) => s.command_module(executable),
+			tg::command::Executable::Path(executable) => {
+				s.string(executable.path.to_string_lossy().as_ref())
+			},
 		})?;
 		self.map_entry("host", |s| s.string(&object.host))?;
 		if let Some(mounts) = &object.mounts {
@@ -538,15 +542,22 @@ where
 		Ok(())
 	}
 
+	pub fn command_executable_artifact(&mut self, value: &tg::command::Artifact) -> Result {
+		self.start_map()?;
+		self.map_entry("artifact", |s| s.artifact(&value.artifact))?;
+		if let Some(subpath) = &value.subpath {
+			self.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
+		}
+		self.finish_map()?;
+		Ok(())
+	}
+
 	pub fn command_module(&mut self, value: &tg::command::Module) -> Result {
 		self.start_map()?;
 		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
 		self.map_entry("referent", |s| {
 			s.start_map()?;
-			s.map_entry("item", |s| {
-				s.object(&value.referent.item)?;
-				Ok(())
-			})?;
+			s.map_entry("item", |s| s.object(&value.referent.item))?;
 			if let Some(path) = &value.referent.path {
 				s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 			}

@@ -579,9 +579,47 @@ declare namespace tg {
 			user: string | undefined;
 		};
 
-		export type ExecutableArg = string | tg.Artifact | tg.Module;
+		export type Executable =
+			| tg.Command.Executable.Artifact
+			| tg.Command.Executable.Module
+			| tg.Command.Executable.Path;
 
-		export type Executable = string | tg.Artifact | tg.Module;
+		export type ExecutableArg =
+			| tg.Artifact
+			| string
+			| tg.Command.Executable.ArtifactArg
+			| tg.Command.Executable.ModuleArg
+			| tg.Command.Executable.PathArg;
+
+		export namespace Executable {
+			export type Artifact = {
+				artifact: tg.Artifact;
+				subpath: string | undefined;
+			};
+
+			export type ArtifactArg = {
+				artifact: tg.Artifact;
+				subpath?: string | undefined;
+			};
+
+			export type Module = {
+				kind: tg.Module.Kind;
+				referent: tg.Referent<tg.Object>;
+			};
+
+			export type ModuleArg = {
+				kind: tg.Module.Kind;
+				referent: tg.Referent<tg.Object>;
+			};
+
+			export type Path = {
+				path: string;
+			};
+
+			export type PathArg = {
+				path: string;
+			};
+		}
 
 		/** A mount. */
 		export type Mount = {

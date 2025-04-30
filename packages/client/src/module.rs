@@ -1,9 +1,16 @@
 use crate as tg;
+use std::path::PathBuf;
 
 pub use self::{data::Module as Data, import::Import};
 
 pub mod data;
 pub mod import;
+
+#[derive(Clone, Debug)]
+pub struct Module {
+	pub kind: Kind,
+	pub referent: tg::Referent<Item>,
+}
 
 #[derive(
 	Clone,
@@ -29,6 +36,21 @@ pub enum Kind {
 	Symlink,
 	Graph,
 	Command,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Item {
+	Path(PathBuf),
+	Object(tg::Object),
 }
 
 impl std::fmt::Display for Kind {
