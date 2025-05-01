@@ -67,6 +67,19 @@ impl Tag {
 	pub fn as_str(&self) -> &str {
 		self.string.as_str()
 	}
+
+	pub fn name(&self) -> &str {
+		if let Some(Component::Version(_)) = self.components().last() {
+			let index = self
+				.string
+				.match_indices('/')
+				.last()
+				.map(|(index, _)| index)
+				.unwrap_or(self.string.len());
+			return &self.string[0..index];
+		}
+		self.as_str()
+	}
 }
 
 impl AsRef<str> for Tag {

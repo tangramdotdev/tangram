@@ -1,8 +1,9 @@
 use crate::Server;
 use futures::{FutureExt as _, StreamExt as _, future};
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator};
 use tangram_client as tg;
+use tangram_database::{self as db, Database as _, Query as _};
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
 
@@ -149,5 +150,48 @@ impl Server {
 		}
 
 		Ok(objects)
+	}
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+pub(crate) struct CompleteMetadata {
+	pub complete: bool,
+	pub count: Option<u64>,
+	pub depth: Option<u64>,
+	pub weight: Option<u64>,
+}
+
+impl Server {
+	pub(crate) async fn try_get_object_complete_metadata_local(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<CompleteMetadata>> {
+		// Get an index connection.
+		let connection = self
+			.index
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the object metadata.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select complete, count, depth, weight
+				from objects
+				where id = {p}1;
+			",
+		);
+		let params = db::params![id];
+		let output = connection
+			.query_optional_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
 	}
 }

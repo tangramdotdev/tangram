@@ -157,11 +157,20 @@ impl Reference {
 }
 
 impl Reference {
+	pub fn name(&self) -> Option<&str> {
+		self.options()
+			.and_then(|options| options.name.as_ref().map(String::as_str))
+			.or(self
+				.item()
+				.try_unwrap_tag_ref()
+				.ok()
+				.map(tg::tag::Pattern::name))
+	}
+
 	pub fn path(&self) -> Option<&Path> {
-		self.item
-			.try_unwrap_path_ref()
-			.ok()
-			.or(self.options().and_then(|opt| opt.path.as_ref()))
+		self.options()
+			.and_then(|opt| opt.path.as_ref())
+			.or(self.item().try_unwrap_path_ref().ok())
 			.map(PathBuf::as_ref)
 	}
 }

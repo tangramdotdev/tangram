@@ -93,6 +93,19 @@ impl Pattern {
 		}
 		true
 	}
+
+	pub fn name(&self) -> &str {
+		if let Some(Component::Version(_) | Component::Wildcard) = self.components().last() {
+			let index = self
+				.string
+				.match_indices('/')
+				.last()
+				.map(|(index, _)| index)
+				.unwrap_or(self.string.len());
+			return &self.string[0..index];
+		}
+		self.as_str()
+	}
 }
 
 impl AsRef<str> for Pattern {

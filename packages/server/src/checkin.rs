@@ -1,4 +1,4 @@
-use crate::{Server, blob::create::Blob, lockfile::ParsedLockfile, temp::Temp};
+use crate::{Server, lockfile::ParsedLockfile, temp::Temp};
 use bytes::Bytes;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, stream::FuturesUnordered,
@@ -23,11 +23,12 @@ use tangram_messenger::prelude::*;
 use tokio_util::task::AbortOnDropHandle;
 
 pub(crate) mod ignore;
-mod input;
+// mod input;
 mod lockfile;
-mod object;
-mod output;
-mod unify;
+// mod object;
+// mod output;
+// mod unify;
+mod unify2;
 
 struct State {
 	arg: tg::checkin::Arg,
@@ -48,9 +49,9 @@ struct GraphObject {
 
 #[derive(Clone, Debug)]
 pub struct Graph {
-	nodes: Vec<Node>,
+	nodes: im::Vector<Node>,
 	paths: radix_trie::Trie<PathBuf, usize>,
-	roots: BTreeMap<usize, Vec<usize>>,
+	roots: im::OrdMap<usize, Vec<usize>>,
 }
 
 #[derive(Clone, Debug)]
@@ -71,6 +72,7 @@ enum Variant {
 	Directory(Directory),
 	File(File),
 	Symlink(Symlink),
+	Object,
 }
 
 #[derive(Clone, Debug)]
@@ -85,6 +87,12 @@ struct File {
 	dependencies: Vec<FileDependency>,
 }
 
+#[derive(Clone, Debug)]
+enum Blob {
+	Create(crate::blob::create::Blob),
+	Id(tg::blob::Id),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FileDependency {
 	Import {
@@ -95,7 +103,7 @@ enum FileDependency {
 	},
 	Referent {
 		reference: tg::Reference,
-		referent: tg::Referent<tg::object::Id>,
+		referent: tg::Referent<Option<Either<tg::object::Id, usize>>>,
 	},
 }
 
@@ -215,9 +223,9 @@ impl Server {
 
 		// Create the state.
 		let graph = Graph {
-			nodes: Vec::new(),
+			nodes: im::Vector::new(),
 			paths: radix_trie::Trie::default(),
-			roots: BTreeMap::new(),
+			roots: im::OrdMap::new(),
 		};
 		let mut state = State {
 			arg: arg.clone(),
@@ -254,6 +262,13 @@ impl Server {
 		let start = Instant::now();
 		Self::checkin_find_subpaths(&mut state);
 		tracing::trace!(elapsed = ?start.elapsed(), "find subpaths");
+
+		// Unify.
+		if !(state.arg.deterministic || state.arg.locked) {
+			let start = Instant::now();
+			self.unify_file_dependencies(&mut state).await?;
+			tracing::trace!(elapsed = ?start.elapsed(), "unify file dependencies");
+		}
 
 		// Create blobs.
 		let start = Instant::now();
@@ -432,13 +447,14 @@ impl Server {
 			root: None,
 			tag: None,
 		};
-		state.graph.nodes.push(node);
+		state.graph.nodes.push_back(node);
 
 		// Visit the edges.
 		match &state.graph.nodes[index].variant {
 			Variant::Directory(_) => self.checkin_visit_directory_edges(state, index)?,
 			Variant::File(_) => self.checkin_visit_file_edges(state, index)?,
 			Variant::Symlink(_) => Self::checkin_visit_symlink_edges(state, index)?,
+			_ => return Err(tg::error!("unreachable")),
 		}
 
 		Ok(Some(index))
@@ -533,7 +549,7 @@ impl Server {
 					Either::Left(_) => Err(tg::error!("found a graph node")),
 					Either::Right(object) => {
 						let referent = tg::Referent {
-							item: object.clone(),
+							item: Some(Either::Left(object.clone())),
 							path: referent.path.clone(),
 							subpath: referent.subpath.clone(),
 							tag: referent.tag.clone(),
@@ -607,7 +623,7 @@ impl Server {
 								}
 								let item = referent.item.as_ref()?.as_ref().right()?.clone();
 								let referent = tg::Referent {
-									item,
+									item: Some(Either::Left(item)),
 									path: referent.path.clone(),
 									subpath: referent.subpath.clone(),
 									tag: referent.tag.clone(),
@@ -627,29 +643,29 @@ impl Server {
 						&& import.reference.item().try_unwrap_tag_ref().is_ok()
 					{
 						return Err(
-							tg::error!(%import = import.reference, "unresolved import when --locked"),
+							tg::error!(%import = &import.reference, "unresolved import when --locked"),
 						);
 					}
 
-					// Compute the path of this import, relative to the root.
-					let path = import.reference.path().and_then(|reference| {
-						let reference = path.parent().unwrap().join(reference);
-						let canonicalized =
-							crate::util::fs::canonicalize_parent_sync(reference).ok()?;
+					// Pull tags.
+					if let Ok(pattern) = import.reference.item().try_unwrap_tag_ref() {
+						tokio::spawn({
+							let server = self.clone();
+							let pattern = pattern.clone();
+							let remote = import
+								.reference
+								.options()
+								.and_then(|options| options.remote.clone());
+							async move {
+								server
+									.pull_tag(pattern.clone(), remote.clone())
+									.await
+									.ok();
+							}
+						});
+					}
 
-						// Diff from the root.
-						let diff = crate::util::path::diff(&state.arg.path, &canonicalized).ok()?;
-
-						// Ignore paths that match their imports.
-						if Some(diff.as_ref()) == import.reference.path() {
-							return None;
-						}
-
-						// Ignore empty paths.
-						(!diff.as_os_str().is_empty()).then_some(diff)
-					});
-
-					//
+					// Get the subpath of this import if it exists. Since this may change later, it's kept separate to preserve the original import reference/options.
 					let subpath = import
 						.reference
 						.options()
@@ -659,7 +675,7 @@ impl Server {
 					acc.push(FileDependency::Import {
 						import,
 						node: None,
-						path,
+						path: None,
 						subpath,
 					});
 
@@ -776,11 +792,13 @@ impl Server {
 					let (package, subpath) = state.graph.nodes[*node].root.map_or_else(
 						|| {
 							// If the import kind is _not_ a module, make sure to ignore the result.
-							if !matches!(import.kind, None | Some(
-								tg::module::Kind::Dts |
-								tg::module::Kind::Js |
-								tg::module::Kind::Ts
-							)) {
+							if !matches!(
+								import.kind,
+								None | Some(
+									tg::module::Kind::Dts
+										| tg::module::Kind::Js | tg::module::Kind::Ts
+								)
+							) {
 								return (*node, None);
 							}
 
@@ -810,14 +828,13 @@ impl Server {
 					);
 
 					// Use the relative path of the package
-					let path = state
-						.graph
-						.nodes[package]
+					let path = state.graph.nodes[package]
 						.path
 						.as_deref()
 						.and_then(|module_path| {
-							crate::util::path::diff(&state.arg.path, module_path)
-								.ok()
+							let path =
+								crate::util::path::diff(&state.arg.path, module_path).ok()?;
+							(!path.as_os_str().is_empty()).then_some(path)
 						});
 
 					// Recreate the new dependency.
@@ -850,10 +867,10 @@ impl Server {
 			.iter()
 			.enumerate()
 			.filter_map(|(index, node)| {
-				node.variant.try_unwrap_file_ref().ok().map(|_| {
-					tokio::spawn({
+				node.variant.try_unwrap_file_ref().ok().and_then(|_| {
+					let path = node.path.as_ref()?.clone();
+					let future = tokio::spawn({
 						let server = self.clone();
-						let path = node.path.as_ref().unwrap().clone();
 						async move {
 							let _permit = server.file_descriptor_semaphore.acquire().await;
 							let mut file = tokio::fs::File::open(path.as_ref()).await.map_err(
@@ -865,7 +882,8 @@ impl Server {
 							Ok::<_, tg::Error>((index, blob))
 						}
 					})
-					.map(|result| result.unwrap())
+					.map(|result| result.unwrap());
+					Some(future)
 				})
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -876,7 +894,7 @@ impl Server {
 				.variant
 				.unwrap_file_mut()
 				.blob
-				.replace(blob);
+				.replace(Blob::Create(blob));
 		}
 		Ok(())
 	}
@@ -946,6 +964,7 @@ impl Server {
 						let data = tg::object::Data::from(data);
 						(kind, data)
 					},
+					_ => continue,
 				};
 
 				// Create the object.
@@ -992,7 +1011,10 @@ impl Server {
 				tg::graph::data::Node::Directory(data)
 			},
 			Variant::File(file) => {
-				let contents = file.blob.as_ref().unwrap().id.clone();
+				let contents = match file.blob.as_ref().unwrap() {
+					Blob::Create(blob) => blob.id.clone(),
+					Blob::Id(id) => id.clone(),
+				};
 				let dependencies = file
 					.dependencies
 					.iter()
@@ -1031,13 +1053,27 @@ impl Server {
 							reference,
 							referent,
 						} => {
+							let item = match referent.item.as_ref().unwrap() {
+								Either::Left(id) => Either::Right(id.clone()),
+								Either::Right(index) => graph_indices
+									.get(index)
+									.copied()
+									.map(Either::Left)
+									.or_else(|| {
+										state.graph.nodes[*index]
+											.object
+											.as_ref()
+											.map(|object| Either::Right(object.id.clone()))
+									})
+									.unwrap(),
+							};
 							let referent = tg::Referent {
-								item: Either::Right(referent.item.clone()),
+								item,
 								path: referent.path.clone(),
 								subpath: referent.subpath.clone(),
 								tag: referent.tag.clone(),
 							};
-							Ok((reference.clone(), referent))
+							Ok::<_, tg::Error>((reference.clone(), referent))
 						},
 					})
 					.try_collect()?;
@@ -1054,6 +1090,7 @@ impl Server {
 				let data = tg::graph::data::Symlink::Target { target };
 				tg::graph::data::Node::Symlink(data)
 			},
+			Variant::Object => return Ok(()),
 		};
 		graph.nodes.push(node);
 		Ok(())
@@ -1086,7 +1123,10 @@ impl Server {
 			},
 			Variant::File(file) => {
 				let kind = tg::object::Kind::File;
-				let contents = file.blob.as_ref().unwrap().id.clone();
+				let contents = match file.blob.as_ref().unwrap() {
+					Blob::Create(blob) => blob.id.clone(),
+					Blob::Id(id) => id.clone(),
+				};
 				let dependencies = file
 					.dependencies
 					.iter()
@@ -1115,7 +1155,28 @@ impl Server {
 						FileDependency::Referent {
 							reference,
 							referent,
-						} => Ok((reference.clone(), referent.clone())),
+						} => {
+							let item = match referent
+								.item
+								.as_ref()
+								.ok_or_else(|| tg::error!("unresolved reference"))?
+							{
+								Either::Left(id) => id.clone(),
+								Either::Right(index) => state.graph.nodes[*index]
+									.object
+									.as_ref()
+									.unwrap()
+									.id
+									.clone(),
+							};
+							let referent = tg::Referent {
+								item,
+								path: referent.path.clone(),
+								subpath: referent.subpath.clone(),
+								tag: referent.tag.clone(),
+							};
+							Ok::<_, tg::Error>((reference.clone(), referent))
+						},
 					})
 					.try_collect()?;
 				let executable = file.executable;
@@ -1134,6 +1195,7 @@ impl Server {
 				let data = tg::object::Data::from(data);
 				(kind, data)
 			},
+			Variant::Object => return Ok(()),
 		};
 
 		// Create the object.
@@ -1332,6 +1394,7 @@ impl Server {
 			for node in nodes {
 				let node = &state.graph.nodes[node];
 				let object = node.object.as_ref().unwrap();
+				eprintln!("put object message {}", object.id);
 				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
 					children: object.data.children(),
 					id: object.id.clone(),
@@ -1344,7 +1407,8 @@ impl Server {
 				messages.push(message.into());
 				// Send messages for the blob.
 				if let Variant::File(File {
-					blob: Some(blob), ..
+					blob: Some(Blob::Create(blob)),
+					..
 				}) = &node.variant
 				{
 					let mut stack = vec![blob];
@@ -1417,7 +1481,8 @@ impl Server {
 
 				// Send messages for the blob.
 				if let Variant::File(File {
-					blob: Some(blob), ..
+					blob: Some(Blob::Create(blob)),
+					..
 				}) = &node.variant
 				{
 					let mut stack = vec![blob];
@@ -1484,7 +1549,8 @@ impl Server {
 
 				// If the file has a blob, add it too.
 				if let Variant::File(File {
-					blob: Some(blob), ..
+					blob: Some(Blob::Create(blob)),
+					..
 				}) = &node.variant
 				{
 					let mut stack = vec![blob];
@@ -1621,13 +1687,19 @@ impl Server {
 
 impl Node {
 	fn is_package(&self) -> bool {
+		self.root_module_name().is_some()
+	}
+
+	fn root_module_name(&self) -> Option<String> {
 		self.variant
 			.try_unwrap_directory_ref()
-			.map_or(false, |directory| {
-				directory
-					.entries
-					.iter()
-					.any(|(name, _)| tg::package::ROOT_MODULE_FILE_NAMES.contains(&name.as_str()))
+			.ok()
+			.and_then(|directory| {
+				directory.entries.iter().find_map(|(name, _)| {
+					tg::package::ROOT_MODULE_FILE_NAMES
+						.contains(&name.as_str())
+						.then_some(name.to_owned())
+				})
 			})
 	}
 
@@ -1648,7 +1720,7 @@ impl Node {
 					FileDependency::Referent { .. } => None,
 				})
 				.collect(),
-			Variant::Symlink(_) => Vec::new(),
+			Variant::Symlink(_) | Variant::Object => Vec::new(), // TODO
 		}
 	}
 }

@@ -1,4 +1,3 @@
-use super::{input, unify};
 use crate::{Server, blob::create::Blob};
 use indoc::formatdoc;
 use num::ToPrimitive;
@@ -11,51 +10,6 @@ use std::{
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
-
-#[derive(Debug)]
-pub struct Graph {
-	pub graphs: BTreeMap<tg::graph::Id, (tg::graph::Data, Metadata)>,
-	pub indices: BTreeMap<unify::Id, usize>,
-	pub nodes: Vec<Node>,
-	pub paths: BTreeMap<PathBuf, usize>,
-	pub objects: BTreeMap<tg::object::Id, usize>,
-}
-
-#[derive(Debug)]
-pub struct Node {
-	pub blob: Option<Arc<Blob>>,
-	pub data: Option<tg::artifact::Data>,
-	pub id: Option<tg::object::Id>,
-	pub edges: Vec<Edge>,
-	pub metadata: Option<Metadata>,
-	pub unify: unify::Node,
-}
-
-#[derive(Debug)]
-pub struct Edge {
-	pub index: usize,
-	pub path: Option<PathBuf>,
-	pub reference: tg::Reference,
-	pub subpath: Option<PathBuf>,
-	pub tag: Option<tg::Tag>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize)]
-pub struct Metadata {
-	pub complete: bool,
-	pub count: Option<u64>,
-	pub depth: Option<u64>,
-	pub weight: Option<u64>,
-}
-
-#[derive(Clone, Debug)]
-struct RemappedEdge {
-	pub id: Either<usize, tg::object::Id>,
-	pub _path: Option<PathBuf>,
-	pub reference: tg::Reference,
-	pub subpath: Option<PathBuf>,
-	pub _tag: Option<tg::Tag>,
-}
 
 impl Server {
 	pub(super) async fn create_object_graph(
@@ -821,37 +775,6 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn try_get_object_complete_metadata_local(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<Metadata>> {
-		// Get an index connection.
-		let connection = self
-			.index
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Get the object metadata.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select complete, count, depth, weight
-				from objects
-				where id = {p}1;
-			",
-		);
-		let params = db::params![id];
-		let output = connection
-			.query_optional_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		Ok(output)
-	}
 }
 
 impl petgraph::visit::GraphBase for Graph {

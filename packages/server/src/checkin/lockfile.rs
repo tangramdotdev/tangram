@@ -153,8 +153,12 @@ impl Server {
 					referent,
 				} => {
 					let reference = reference.clone();
+					let item = match referent.item.as_ref().ok_or_else(|| tg::error!("unresolved reference"))? {
+						Either::Left(id) => Either::Right(id.clone()),
+						Either::Right(node) => Self::create_lockfile_node(state, *node, nodes, visited)?,
+					};
 					let referent = tg::Referent {
-						item: Either::Right(referent.item.clone()),
+						item,
 						path: referent.path.clone(),
 						subpath: referent.subpath.clone(),
 						tag: referent.tag.clone(),
