@@ -112,6 +112,9 @@ impl FromV8 for tg::command::Object {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
 		let args = v8::String::new_external_onebyte_static(scope, "args".as_bytes()).unwrap();
@@ -171,9 +174,9 @@ impl FromV8 for tg::command::Object {
 impl ToV8 for tg::command::Executable {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		match self {
-			tg::command::Executable::Artifact(artifact) => artifact.to_v8(scope),
-			tg::command::Executable::Module(module) => module.to_v8(scope),
-			tg::command::Executable::Path(path) => path.to_v8(scope),
+			tg::command::Executable::Artifact(executable) => executable.to_v8(scope),
+			tg::command::Executable::Module(executable) => executable.to_v8(scope),
+			tg::command::Executable::Path(executable) => executable.to_v8(scope),
 		}
 	}
 }
@@ -183,74 +186,129 @@ impl FromV8 for tg::command::Executable {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		if let Ok(artifact) = <_>::from_v8(scope, value) {
-			Ok(Self::Artifact(artifact))
-		} else if let Ok(module) = <_>::from_v8(scope, value) {
-			Ok(Self::Module(module))
-		} else if let Ok(path) = <_>::from_v8(scope, value) {
-			Ok(Self::Path(path))
+		if let Ok(executable) = <_>::from_v8(scope, value) {
+			Ok(Self::Artifact(executable))
+		} else if let Ok(executable) = <_>::from_v8(scope, value) {
+			Ok(Self::Module(executable))
+		} else if let Ok(executable) = <_>::from_v8(scope, value) {
+			Ok(Self::Path(executable))
 		} else {
-			Err(tg::error!("expected an artifact or a module or a path"))
+			Err(tg::error!(
+				"expected an artifact or a module or a path executable"
+			))
 		}
 	}
 }
 
-impl ToV8 for tg::command::Module {
+impl ToV8 for tg::command::ArtifactExecutable {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
-		let key = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-		let value = self.kind.to_v8(scope)?;
+		let key = v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
+		let value = self.artifact.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "referent".as_bytes()).unwrap();
-		let value = self.referent.to_v8(scope)?;
+		let key = v8::String::new_external_onebyte_static(scope, "subpath".as_bytes()).unwrap();
+		let value = self.subpath.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
 	}
 }
 
-impl FromV8 for tg::command::Module {
+impl FromV8 for tg::command::ArtifactExecutable {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
-		let kind = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
-		let kind = value.get(scope, kind.into()).unwrap();
-		let kind = <_>::from_v8(scope, kind)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the kind"))?;
+		let artifact =
+			v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
+		let artifact = value.get(scope, artifact.into()).unwrap();
+		let artifact = <_>::from_v8(scope, artifact)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the artifact"))?;
 
-		let referent =
-			v8::String::new_external_onebyte_static(scope, "referent".as_bytes()).unwrap();
-		let referent = value.get(scope, referent.into()).unwrap();
-		let referent = <_>::from_v8(scope, referent)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the referent"))?;
+		let subpath = v8::String::new_external_onebyte_static(scope, "subpath".as_bytes()).unwrap();
+		let subpath = value.get(scope, subpath.into()).unwrap();
+		let subpath = <_>::from_v8(scope, subpath)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the subpath"))?;
 
-		Ok(Self { kind, referent })
+		Ok(Self { artifact, subpath })
 	}
 }
 
-impl FromV8 for tg::command::Mount {
+impl ToV8 for tg::command::ModuleExecutable {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let object = v8::Object::new(scope);
+
+		let key = v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
+		let value = self.module.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
+		let value = self.target.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		Ok(object.into())
+	}
+}
+
+impl FromV8 for tg::command::ModuleExecutable {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
-		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
-		let source = value.get(scope, source.into()).unwrap();
-		let source = <_>::from_v8(scope, source)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the source field"))?;
+		let module = v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
+		let module = value.get(scope, module.into()).unwrap();
+		let module = <_>::from_v8(scope, module)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the module"))?;
 
 		let target = v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
 		let target = value.get(scope, target.into()).unwrap();
 		let target = <_>::from_v8(scope, target)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the target field"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the target"))?;
 
-		Ok(tg::command::Mount { source, target })
+		Ok(Self { module, target })
+	}
+}
+
+impl ToV8 for tg::command::PathExecutable {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let object = v8::Object::new(scope);
+
+		let key = v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
+		let value = self.path.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		Ok(object.into())
+	}
+}
+
+impl FromV8 for tg::command::PathExecutable {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
+		let value = value.to_object(scope).unwrap();
+
+		let path = v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
+		let path = value.get(scope, path.into()).unwrap();
+		let path = <_>::from_v8(scope, path)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
+
+		Ok(Self { path })
 	}
 }
 
@@ -267,5 +325,29 @@ impl ToV8 for tg::command::Mount {
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
+	}
+}
+
+impl FromV8 for tg::command::Mount {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
+		let value = value.to_object(scope).unwrap();
+
+		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
+		let source = value.get(scope, source.into()).unwrap();
+		let source = <_>::from_v8(scope, source)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the source field"))?;
+
+		let target = v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
+		let target = value.get(scope, target.into()).unwrap();
+		let target = <_>::from_v8(scope, target)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the target field"))?;
+
+		Ok(tg::command::Mount { source, target })
 	}
 }

@@ -1,11 +1,12 @@
 use crate as tg;
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// A module.
-#[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
+pub use self::{data::Module as Data, import::Import};
+
+pub mod data;
+pub mod import;
+
+#[derive(Clone, Debug)]
 pub struct Module {
 	pub kind: Kind,
 	pub referent: tg::Referent<Item>,
@@ -40,97 +41,66 @@ pub enum Kind {
 #[derive(
 	Clone,
 	Debug,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
 	derive_more::From,
 	derive_more::IsVariant,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
 )]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Item {
 	Path(PathBuf),
-	Object(tg::object::Id),
+	Object(tg::Object),
 }
 
-/// An import in a module.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct Import {
-	pub kind: Option<tg::module::Kind>,
-	pub reference: tg::Reference,
-}
+impl Module {
+	#[must_use]
+	pub fn objects(&self) -> Vec<tg::object::Handle> {
+		match &self.referent.item {
+			Item::Path(_) => vec![],
+			Item::Object(object) => vec![object.clone()],
+		}
+	}
 
-impl Import {
-	pub fn with_specifier_and_attributes(
-		specifier: &str,
-		mut attributes: Option<BTreeMap<String, String>>,
-	) -> tg::Result<Self> {
-		// Parse the specifier as a reference.
-		let reference = specifier.parse::<tg::Reference>()?;
-
-		// Parse the kind.
-		let kind = attributes
-			.as_mut()
-			.and_then(|attributes| attributes.remove("type").or(attributes.remove("kind")))
-			.map(|kind| kind.parse())
-			.transpose()?;
-
-		// Parse the remaining attributes as the query component of a reference and update the reference.
-		let reference = if let Some(attributes) = attributes {
-			if attributes.is_empty() {
-				reference
-			} else {
-				let attributes = serde_json::Value::Object(
-					attributes
-						.into_iter()
-						.map(|(key, value)| (key, serde_json::Value::String(value)))
-						.collect(),
-				);
-				let attributes = serde_json::from_value::<tg::reference::Options>(attributes)
-					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
-				let name = reference
-					.options()
-					.and_then(|query| query.name.clone())
-					.or(attributes.name);
-				let overrides = reference
-					.options()
-					.and_then(|query| query.overrides.clone())
-					.or(attributes.overrides);
-				let path = reference
-					.options()
-					.and_then(|query| query.path.clone())
-					.or(attributes.path);
-				let remote = reference
-					.options()
-					.and_then(|query| query.remote.clone())
-					.or(attributes.remote);
-				let subpath = reference
-					.options()
-					.and_then(|query| query.subpath.clone())
-					.or(attributes.subpath);
-				let query = tg::reference::Options {
-					name,
-					overrides,
-					path,
-					remote,
-					subpath,
-				};
-				let query = serde_urlencoded::to_string(query)
-					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
-				let uri = reference.uri().to_builder().query(query).build().unwrap();
-				tg::Reference::with_uri(uri)?
-			}
-		} else {
-			reference
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::module::Data>
+	where
+		H: tg::Handle,
+	{
+		let kind = self.kind;
+		let item = match self.referent.item.clone() {
+			Item::Path(path) => tg::module::data::Item::Path(path),
+			Item::Object(object) => tg::module::data::Item::Object(object.id(handle).await?),
 		};
+		let path = self.referent.path.clone();
+		let subpath = self.referent.subpath.clone();
+		let tag = self.referent.tag.clone();
+		let referent = tg::Referent {
+			item,
+			path,
+			subpath,
+			tag,
+		};
+		let module = tg::module::Data { kind, referent };
+		Ok(module)
+	}
+}
 
-		Ok(Import { kind, reference })
+impl From<tg::module::Data> for Module {
+	fn from(value: tg::module::Data) -> Self {
+		Self {
+			kind: value.kind,
+			referent: tg::Referent {
+				item: match value.referent.item {
+					tg::module::data::Item::Path(path) => tg::module::Item::Path(path),
+					tg::module::data::Item::Object(object) => {
+						tg::module::Item::Object(tg::Object::with_id(object))
+					},
+				},
+				path: value.referent.path,
+				subpath: value.referent.subpath,
+				tag: value.referent.tag,
+			},
+		}
 	}
 }
 
@@ -169,63 +139,6 @@ impl std::str::FromStr for Kind {
 			"graph" => Ok(Self::Graph),
 			"command" => Ok(Self::Command),
 			_ => Err(tg::error!(%kind = s, "invalid kind")),
-		}
-	}
-}
-
-impl std::fmt::Display for Module {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.kind)?;
-		if let Some(tag) = &self.referent.tag {
-			write!(f, ":{tag}")?;
-		} else if let Some(path) = &self.referent.path {
-			write!(f, ":{}", path.display())?;
-		} else {
-			match &self.referent.item {
-				Item::Path(path) => {
-					write!(f, ":{}", path.display())?;
-				},
-				Item::Object(object) => {
-					write!(f, ":{object}")?;
-				},
-			}
-		}
-		if let Some(subpath) = &self.referent.subpath {
-			write!(f, ":{}", subpath.display())?;
-		}
-		Ok(())
-	}
-}
-
-impl std::fmt::Display for Item {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Path(path) => {
-				if path
-					.components()
-					.next()
-					.is_some_and(|component| matches!(component, std::path::Component::Normal(_)))
-				{
-					write!(f, "./")?;
-				}
-				write!(f, "{}", path.display())?;
-			},
-			Self::Object(object) => {
-				write!(f, "{object}")?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::str::FromStr for Item {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if s.starts_with('.') || s.starts_with('/') {
-			Ok(Self::Path(s.strip_prefix("./").unwrap_or(s).into()))
-		} else {
-			Ok(Self::Object(s.parse()?))
 		}
 	}
 }

@@ -78,7 +78,7 @@ impl Cli {
 
 		// Create the module.
 		let referent = tg::Referent {
-			item: tg::module::Item::Object(referent.item.id(&handle).await?),
+			item: tg::module::data::Item::Object(referent.item.id(&handle).await?),
 			path: referent.path,
 			subpath: Some(
 				referent
@@ -87,7 +87,7 @@ impl Cli {
 			),
 			tag: referent.tag,
 		};
-		let package = tg::Module { referent, kind };
+		let package = tg::module::Data { referent, kind };
 
 		// Check the module.
 		let arg = tg::check::Arg { package, remote };

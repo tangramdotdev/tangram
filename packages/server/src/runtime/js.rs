@@ -32,7 +32,7 @@ struct State {
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
-	root: tg::Module,
+	root: tg::module::Data,
 	server: Server,
 }
 
@@ -44,7 +44,7 @@ struct FutureOutput {
 #[allow(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 struct Module {
-	module: tg::Module,
+	module: tg::module::Data,
 	source_map: Option<SourceMap>,
 	v8: Option<v8::Global<v8::Module>>,
 }
@@ -113,7 +113,7 @@ impl Runtime {
 	) -> tg::Result<super::Output> {
 		// Get the root module.
 		let command = process.command(&self.server).await?;
-		let root = command
+		let executable = command
 			.executable(&self.server)
 			.await?
 			.try_unwrap_module_ref()
@@ -121,15 +121,6 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected the executable to be a module"))?
 			.data(&self.server)
 			.await?;
-		let root = tg::Module {
-			kind: root.kind,
-			referent: tg::Referent {
-				item: tg::module::Item::Object(root.referent.item),
-				path: root.referent.path,
-				subpath: root.referent.subpath,
-				tag: root.referent.tag,
-			},
-		};
 
 		// Start the log task.
 		let (log_sender, mut log_receiver) =
@@ -209,7 +200,7 @@ impl Runtime {
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
 			rejection,
-			root,
+			root: executable.module,
 			server: self.server.clone(),
 		});
 		scopeguard::defer! {
@@ -580,9 +571,9 @@ fn resolve_module_callback<'s>(
 /// Resolve a module synchronously.
 fn resolve_module_sync(
 	scope: &mut v8::HandleScope,
-	referrer: &tg::Module,
-	import: &tg::Import,
-) -> Option<tg::Module> {
+	referrer: &tg::module::Data,
+	import: &tg::module::Import,
+) -> Option<tg::module::Data> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
@@ -611,7 +602,7 @@ fn resolve_module_sync(
 }
 
 // Load a module synchronously.
-fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::Module) -> Option<String> {
+fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> Option<String> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
@@ -641,7 +632,7 @@ fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::Module) -> Option<
 /// Compile a module.
 fn compile_module<'s>(
 	scope: &mut v8::HandleScope<'s>,
-	module: &tg::Module,
+	module: &tg::module::Data,
 	text: String,
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.
@@ -747,7 +738,7 @@ extern "C" fn host_initialize_import_meta_object_callback(
 
 	// Set import.meta.module.
 	let key = v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
-	let value = module.to_v8(scope).unwrap();
+	let value = tg::Module::from(module).to_v8(scope).unwrap();
 	meta.set(scope, key.into(), value).unwrap();
 }
 
@@ -779,7 +770,7 @@ fn parse_import<'s>(
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
 	kind: ImportKind,
-) -> Option<tg::Import> {
+) -> Option<tg::module::Import> {
 	match parse_import_inner(scope, specifier, attributes, kind) {
 		Ok(import) => Some(import),
 		Err(error) => {
@@ -795,7 +786,7 @@ fn parse_import_inner<'s>(
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
 	kind: ImportKind,
-) -> tg::Result<tg::Import> {
+) -> tg::Result<tg::module::Import> {
 	// Get the specifier.
 	let specifier = specifier.to_rust_string_lossy(scope);
 
@@ -835,7 +826,7 @@ fn parse_import_inner<'s>(
 	};
 
 	// Parse the import.
-	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes)?;
+	let import = tg::module::Import::with_specifier_and_attributes(&specifier, attributes)?;
 
 	Ok(import)
 }

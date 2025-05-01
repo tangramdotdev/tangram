@@ -109,7 +109,7 @@ export class Process {
 			throw new Error(`the process exited with code ${wait.exit}`);
 		}
 		if (wait.exit >= 128) {
-			throw new Error(`the process exited with signal ${wait.exit}`);
+			throw new Error(`the process exited with signal ${wait.exit - 128}`);
 		}
 		return wait.output;
 	}
@@ -135,25 +135,25 @@ export class Process {
 					};
 				} else if (arg instanceof tg.Command) {
 					let object = await arg.object();
-					let ret: tg.Process.BuildArgObject = {
+					let output: tg.Process.BuildArgObject = {
 						args: object.args,
 						env: object.env,
 						executable: object.executable,
 						host: object.host,
 					};
 					if (object.cwd !== undefined) {
-						ret.cwd = object.cwd;
+						output.cwd = object.cwd;
 					}
 					if (object.mounts !== undefined) {
-						ret.mounts = object.mounts;
+						output.mounts = object.mounts;
 					}
 					if (object.stdin !== undefined) {
-						ret.stdin = object.stdin;
+						output.stdin = object.stdin;
 					}
 					if (object.user !== undefined) {
-						ret.user = object.user;
+						output.user = object.user;
 					}
-					return ret;
+					return output;
 				} else {
 					return arg;
 				}
@@ -286,7 +286,7 @@ export class Process {
 			throw new Error(`the process exited with code ${wait.exit}`);
 		}
 		if (wait.exit >= 128) {
-			throw new Error(`the process exited with signal ${wait.exit}`);
+			throw new Error(`the process exited with signal ${wait.exit - 128}`);
 		}
 		return wait.output;
 	}
@@ -312,25 +312,25 @@ export class Process {
 					};
 				} else if (arg instanceof tg.Command) {
 					let object = await arg.object();
-					let ret: tg.Process.RunArgObject = {
+					let output: tg.Process.RunArgObject = {
 						args: object.args,
 						env: object.env,
 						executable: object.executable,
 						host: object.host,
 					};
 					if (object.cwd !== undefined) {
-						ret.cwd = object.cwd;
+						output.cwd = object.cwd;
 					}
 					if (object.mounts !== undefined) {
-						ret.mounts = object.mounts;
+						output.mounts = object.mounts;
 					}
 					if (object.stdin !== undefined) {
-						ret.stdin = object.stdin;
+						output.stdin = object.stdin;
 					}
 					if (object.user !== undefined) {
-						ret.user = object.user;
+						output.user = object.user;
 					}
-					return ret;
+					return output;
 				} else {
 					return arg;
 				}

@@ -7,7 +7,7 @@ type FunctionArg<
 > = {
 	function: (...args: A) => tg.Unresolved<R>;
 	module: tg.Module;
-	name: string;
+	target: string;
 };
 
 export function command<
@@ -32,15 +32,10 @@ export function command(...args: any): any {
 		"function" in args[0]
 	) {
 		let arg = args[0];
-		let args_ = [arg.name];
+		let args_: Array<tg.Value> = [];
 		let executable = {
-			kind: arg.module.kind,
-			referent: {
-				item: tg.Object.withId(arg.module.referent.item),
-				path: arg.module.referent.path,
-				subpath: arg.module.referent.subpath,
-				tag: arg.module.referent.tag,
-			},
+			module: arg.module,
+			target: arg.target,
 		};
 		let cwd = undefined;
 		let mounts: Array<tg.Command.Mount> = [];
@@ -127,7 +122,26 @@ export class Command<
 		let args_ = arg.args ?? [];
 		let cwd = arg.cwd;
 		let env = arg.env ?? {};
-		let executable = arg.executable;
+		let executable: tg.Command.Executable | undefined;
+		if (tg.Artifact.is(arg.executable)) {
+			executable = { artifact: arg.executable, subpath: undefined };
+		} else if (typeof arg.executable === "string") {
+			executable = { path: arg.executable };
+		} else if (arg.executable !== undefined && "artifact" in arg.executable) {
+			executable = {
+				artifact: arg.executable.artifact,
+				subpath: arg.executable.subpath,
+			};
+		} else if (arg.executable !== undefined && "module" in arg.executable) {
+			executable = {
+				module: arg.executable.module,
+				target: arg.executable.target,
+			};
+		} else if (arg.executable !== undefined && "path" in arg.executable) {
+			executable = {
+				path: arg.executable.path,
+			};
+		}
 		let host =
 			arg.host ?? ((await tg.Process.current.env("TANGRAM_HOST")) as string);
 		let mounts: Array<tg.Command.Mount> | undefined = undefined;
@@ -142,11 +156,11 @@ export class Command<
 				}),
 			);
 		}
-		if (!host) {
-			throw new Error("cannot create a command without a host");
+		if (executable === undefined) {
+			throw new Error("cannot create a command without an executable");
 		}
-		if (!executable) {
-			throw new Error("cannot create an command without an executable");
+		if (host === undefined) {
+			throw new Error("cannot create a command without a host");
 		}
 		let stdin = arg.stdin !== undefined ? await tg.blob(arg.stdin) : undefined;
 		let user = arg.user;
@@ -363,19 +377,47 @@ export namespace Command {
 		user?: string | undefined;
 	};
 
-	export type Executable = string | tg.Artifact | tg.Command.Executable.Module;
-
-	export namespace Executable {
-		export type Module = {
-			kind: tg.Module.Kind;
-			referent: tg.Referent<tg.Object>;
-		};
-	}
+	export type Executable =
+		| tg.Command.Executable.Artifact
+		| tg.Command.Executable.Module
+		| tg.Command.Executable.Path;
 
 	export type ExecutableArg =
-		| string
 		| tg.Artifact
-		| tg.Command.Executable.Module;
+		| string
+		| tg.Command.Executable.ArtifactArg
+		| tg.Command.Executable.ModuleArg
+		| tg.Command.Executable.PathArg;
+
+	export namespace Executable {
+		export type Artifact = {
+			artifact: tg.Artifact;
+			subpath: string | undefined;
+		};
+
+		export type ArtifactArg = {
+			artifact: tg.Artifact;
+			subpath?: string | undefined;
+		};
+
+		export type Module = {
+			module: tg.Module;
+			target: string | undefined;
+		};
+
+		export type ModuleArg = {
+			module: tg.Module;
+			target?: string | undefined;
+		};
+
+		export type Path = {
+			path: string;
+		};
+
+		export type PathArg = {
+			path: string;
+		};
+	}
 
 	export type Id = string;
 

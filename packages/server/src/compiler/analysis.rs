@@ -10,7 +10,7 @@ use tangram_client as tg;
 #[derive(Clone, Debug)]
 pub struct Analysis {
 	pub errors: Vec<Error>,
-	pub imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
+	pub imports: HashSet<tg::module::Import, fnv::FnvBuildHasher>,
 }
 
 #[derive(Clone, Debug)]
@@ -69,7 +69,7 @@ impl std::fmt::Display for Error {
 #[derive(Default)]
 struct Visitor {
 	errors: Vec<Error>,
-	imports: HashSet<tg::Import, fnv::FnvBuildHasher>,
+	imports: HashSet<tg::module::Import, fnv::FnvBuildHasher>,
 	source_map: Rc<swc::common::SourceMap>,
 }
 
@@ -194,7 +194,7 @@ impl Visitor {
 		};
 
 		// Parse the import.
-		let import = match tg::Import::with_specifier_and_attributes(specifier, attributes) {
+		let import = match tg::module::Import::with_specifier_and_attributes(specifier, attributes) {
 			Ok(import) => import,
 			Err(error) => {
 				let loc = self.source_map.lookup_char_pos(span.lo());
@@ -241,7 +241,7 @@ mod tests {
 			"./nested_include.txt",
 		]
 		.into_iter()
-		.map(|specifier| tg::Import::with_specifier_and_attributes(specifier, None).unwrap())
+		.map(|specifier| tg::module::Import::with_specifier_and_attributes(specifier, None).unwrap())
 		.collect();
 		assert_eq!(found, expected);
 	}

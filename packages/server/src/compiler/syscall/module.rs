@@ -5,7 +5,7 @@ use tangram_client as tg;
 pub fn load(
 	_scope: &mut v8::HandleScope,
 	compiler: Compiler,
-	args: (tg::Module,),
+	args: (tg::module::Data,),
 ) -> tg::Result<String> {
 	let (module,) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
@@ -20,10 +20,10 @@ pub fn load(
 pub fn resolve(
 	_scope: &mut v8::HandleScope,
 	compiler: Compiler,
-	args: (tg::Module, String, Option<BTreeMap<String, String>>),
-) -> tg::Result<tg::Module> {
+	args: (tg::module::Data, String, Option<BTreeMap<String, String>>),
+) -> tg::Result<tg::module::Data> {
 	let (referrer, specifier, attributes) = args;
-	let import = tg::Import::with_specifier_and_attributes(&specifier, attributes)
+	let import = tg::module::Import::with_specifier_and_attributes(&specifier, attributes)
 		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		let module = compiler
@@ -44,7 +44,7 @@ pub fn resolve(
 pub fn version(
 	_scope: &mut v8::HandleScope,
 	compiler: Compiler,
-	args: (tg::Module,),
+	args: (tg::module::Data,),
 ) -> tg::Result<String> {
 	let (module,) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
@@ -59,7 +59,7 @@ pub fn version(
 pub fn has_invalidated_resolutions(
 	_scope: &mut v8::HandleScope,
 	compiler: Compiler,
-	args: (tg::Module,),
+	args: (tg::module::Data,),
 ) -> tg::Result<bool> {
 	let (module,) = args;
 	let Some(document) = compiler.documents.get(&module) else {

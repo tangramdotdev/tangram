@@ -526,7 +526,7 @@ impl Server {
 
 	async fn get_edge_from_import(
 		&self,
-		import: tg::Import,
+		import: tg::module::Import,
 		referrer: usize,
 		path: &Path,
 		arg: &tg::checkin::Arg,
@@ -729,7 +729,7 @@ impl Server {
 impl Server {
 	async fn pull_tags_from_imports(
 		&self,
-		imports: impl IntoIterator<Item = tg::Import>,
+		imports: impl IntoIterator<Item = tg::module::Import>,
 	) -> tg::Result<()> {
 		imports
 			.into_iter()

@@ -30,7 +30,7 @@ where
 			object.set(scope, key.into(), value);
 		}
 
-		Ok(value)
+		Ok(object.into())
 	}
 }
 
@@ -42,7 +42,11 @@ where
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
+
 		let item = v8::String::new_external_onebyte_static(scope, "item".as_bytes()).unwrap();
 		let item = value.get(scope, item.into()).unwrap();
 		let item = <_>::from_v8(scope, item)
@@ -75,11 +79,13 @@ where
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
 
-		Ok(Self {
+		let referent = Self {
 			item,
 			path,
 			subpath,
 			tag,
-		})
+		};
+
+		Ok(referent)
 	}
 }

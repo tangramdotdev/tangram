@@ -14,12 +14,12 @@ async fn path_dependency_path() {
 	};
 	let path = "";
 	let subpath = "tangram.ts";
-	let import = tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap();
+	let import = tg::module::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap();
 	let assertions = |_, path, module| async move {
-		let right = tg::Module {
+		let right = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
-				item: tg::module::Item::Path(path),
+				item: tg::module::data::Item::Path(path),
 				path: None,
 				subpath: Some("foo.tg.ts".into()),
 				tag: None,
@@ -39,12 +39,12 @@ async fn path_dependency_object() {
 	};
 	let path = "";
 	let subpath = "tangram.ts";
-	let import = tg::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap();
+	let import = tg::module::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap();
 	let assertions = |server, artifact: tg::Artifact, module| async move {
-		let right = tg::Module {
+		let right = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
-				item: tg::module::Item::Object(artifact.id(&server).await.unwrap().into()),
+				item: tg::module::data::Item::Object(artifact.id(&server).await.unwrap().into()),
 				path: None,
 				subpath: Some("foo.tg.ts".into()),
 				tag: None,
@@ -68,13 +68,13 @@ async fn package_path_dependency_path() {
 	};
 	let path = "foo";
 	let subpath = "tangram.ts";
-	let import = tg::Import::with_specifier_and_attributes("../bar", None).unwrap();
+	let import = tg::module::Import::with_specifier_and_attributes("../bar", None).unwrap();
 	let assertions = |_, path: PathBuf, module| async move {
 		let path = tokio::fs::canonicalize(path.join("bar")).await.unwrap();
-		let right = tg::Module {
+		let right = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
-				item: tg::module::Item::Path(path),
+				item: tg::module::data::Item::Path(path),
 				path: None,
 				subpath: Some("tangram.ts".into()),
 				tag: None,
@@ -98,7 +98,7 @@ async fn package_path_dependency_object() {
 	};
 	let path = "foo";
 	let subpath = "tangram.ts";
-	let import = tg::Import::with_specifier_and_attributes("../bar", None).unwrap();
+	let import = tg::module::Import::with_specifier_and_attributes("../bar", None).unwrap();
 	let assertions = |server, artifact: tg::Artifact, module| async move {
 		let artifact = artifact
 			.unwrap_directory()
@@ -106,10 +106,10 @@ async fn package_path_dependency_object() {
 			.await
 			.unwrap();
 		let object = artifact.id(&server).await.unwrap().into();
-		let right = tg::Module {
+		let right = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
-				item: tg::module::Item::Object(object),
+				item: tg::module::data::Item::Object(object),
 				path: None,
 				subpath: Some("tangram.ts".into()),
 				tag: None,
@@ -125,10 +125,10 @@ async fn test_path<F, Fut>(
 	artifact: impl Into<temp::Artifact> + Send,
 	path: &str,
 	subpath: &str,
-	import: tg::Import,
+	import: tg::module::Import,
 	assertions: F,
 ) where
-	F: FnOnce(Server, PathBuf, tg::Module) -> Fut + Send + 'static,
+	F: FnOnce(Server, PathBuf, tg::module::Data) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send + 'static,
 {
 	test(async move |context| {
@@ -156,10 +156,10 @@ async fn test_path<F, Fut>(
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))
 			.unwrap();
-		let referrer = tg::Module {
+		let referrer = tg::module::Data {
 			kind,
 			referent: tg::Referent {
-				item: tg::module::Item::Path(temp.path().join(path)),
+				item: tg::module::data::Item::Path(temp.path().join(path)),
 				path: Some(path.into()),
 				subpath: Some(PathBuf::from(subpath)),
 				tag: None,
@@ -176,10 +176,10 @@ async fn test_object<F, Fut>(
 	artifact: impl Into<temp::Artifact> + Send,
 	path: &str,
 	subpath: &str,
-	import: tg::Import,
+	import: tg::module::Import,
 	assertions: F,
 ) where
-	F: FnOnce(Server, tg::Artifact, tg::Module) -> Fut + Send + 'static,
+	F: FnOnce(Server, tg::Artifact, tg::module::Data) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send + 'static,
 {
 	test(async move |context| {
@@ -217,10 +217,10 @@ async fn test_object<F, Fut>(
 			.await
 			.unwrap()
 			.into();
-		let referrer = tg::Module {
+		let referrer = tg::module::Data {
 			kind,
 			referent: tg::Referent {
-				item: tg::module::Item::Object(item),
+				item: tg::module::data::Item::Object(item),
 				path: Some(path.into()),
 				subpath: Some(PathBuf::from(subpath)),
 				tag: None,

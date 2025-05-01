@@ -54,7 +54,7 @@ pub struct Location {
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Source {
 	Internal(PathBuf),
-	Module(tg::Module),
+	Module(tg::module::Data),
 }
 
 pub struct Trace<'a> {

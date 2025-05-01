@@ -43,8 +43,9 @@ impl Runtime {
 			.try_unwrap_path_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected the executable to be a path"))?
+			.path
 			.to_str()
-			.unwrap();
+			.ok_or_else(|| tg::error!("invalid executable"))?;
 
 		let output = match name {
 			"archive" => self.archive(process).boxed(),

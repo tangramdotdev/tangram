@@ -18,15 +18,26 @@ pub struct Command {
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]
 pub enum Executable {
-	Artifact(tg::Artifact),
-	Module(Module),
-	Path(PathBuf),
+	Artifact(ArtifactExecutable),
+	Module(ModuleExecutable),
+	Path(PathExecutable),
 }
 
 #[derive(Clone, Debug)]
-pub struct Module {
-	pub kind: tg::module::Kind,
-	pub referent: tg::Referent<tg::Object>,
+pub struct ArtifactExecutable {
+	pub artifact: tg::Artifact,
+	pub subpath: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ModuleExecutable {
+	pub module: tg::Module,
+	pub target: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PathExecutable {
+	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -57,35 +68,33 @@ impl Executable {
 	#[must_use]
 	pub fn object(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Artifact(artifact) => [artifact.clone().into()].into(),
-			Self::Module(module) => module.objects(),
+			Self::Artifact(executable) => executable.objects(),
+			Self::Module(executable) => executable.objects(),
 			Self::Path(_) => vec![],
 		}
 	}
 }
 
-impl Module {
+impl ArtifactExecutable {
 	#[must_use]
 	pub fn objects(&self) -> Vec<tg::object::Handle> {
-		vec![self.referent.item.clone()]
+		[self.artifact.clone().into()].into()
+	}
+}
+
+impl ModuleExecutable {
+	#[must_use]
+	pub fn objects(&self) -> Vec<tg::object::Handle> {
+		self.module.objects()
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::command::data::Module>
+	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::command::data::ModuleExecutable>
 	where
 		H: tg::Handle,
 	{
-		let kind = self.kind;
-		let item = self.referent.item.id(handle).await?;
-		let path = self.referent.path.clone();
-		let subpath = self.referent.subpath.clone();
-		let tag = self.referent.tag.clone();
-		let referent = tg::Referent {
-			item,
-			path,
-			subpath,
-			tag,
-		};
-		let data = tg::command::data::Module { kind, referent };
+		let module = self.module.data(handle).await?;
+		let target = self.target.clone();
+		let data = tg::command::data::ModuleExecutable { module, target };
 		Ok(data)
 	}
 }
@@ -124,50 +133,45 @@ impl TryFrom<Data> for Command {
 impl From<tg::command::data::Executable> for Executable {
 	fn from(data: tg::command::data::Executable) -> Self {
 		match data {
-			tg::command::data::Executable::Artifact(id) => {
-				Self::Artifact(tg::Artifact::with_id(id))
+			tg::command::data::Executable::Artifact(executable) => {
+				Self::Artifact(executable.into())
 			},
-			tg::command::data::Executable::Module(module) => Self::Module(module.into()),
-			tg::command::data::Executable::Path(path) => Self::Path(path),
+			tg::command::data::Executable::Module(executable) => Self::Module(executable.into()),
+			tg::command::data::Executable::Path(executable) => Self::Path(executable.into()),
 		}
 	}
 }
 
-impl From<tg::command::data::Module> for Module {
-	fn from(data: tg::command::data::Module) -> Self {
-		let kind = data.kind;
-		let item = tg::Object::with_id(data.referent.item);
-		let path = data.referent.path;
-		let subpath = data.referent.subpath;
-		let tag = data.referent.tag;
-		let referent = tg::Referent {
-			item,
-			path,
-			subpath,
-			tag,
-		};
-		Self { kind, referent }
+impl From<tg::command::data::ArtifactExecutable> for ArtifactExecutable {
+	fn from(data: tg::command::data::ArtifactExecutable) -> Self {
+		let artifact = tg::Artifact::with_id(data.artifact);
+		let subpath = data.subpath;
+		Self { artifact, subpath }
+	}
+}
+
+impl From<tg::command::data::ModuleExecutable> for ModuleExecutable {
+	fn from(data: tg::command::data::ModuleExecutable) -> Self {
+		Self {
+			module: data.module.into(),
+			target: data.target,
+		}
+	}
+}
+
+impl From<tg::command::data::PathExecutable> for PathExecutable {
+	fn from(data: tg::command::data::PathExecutable) -> Self {
+		let path = data.path;
+		Self { path }
 	}
 }
 
 impl From<tg::File> for Executable {
 	fn from(value: tg::File) -> Self {
-		Self::Artifact(value.into())
-	}
-}
-
-impl std::fmt::Display for Module {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.kind)?;
-		if let Some(tag) = &self.referent.tag {
-			write!(f, ":{tag}")?;
-		} else {
-			write!(f, ":{}", self.referent.item)?;
-		}
-		if let Some(subpath) = &self.referent.subpath {
-			write!(f, ":{}", subpath.display())?;
-		}
-		Ok(())
+		Self::Artifact(ArtifactExecutable {
+			artifact: value.into(),
+			subpath: None,
+		})
 	}
 }
 

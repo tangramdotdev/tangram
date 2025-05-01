@@ -52,7 +52,7 @@ pub struct Inner {
 	diagnostics: tokio::sync::RwLock<BTreeMap<lsp::Uri, Vec<tg::Diagnostic>>>,
 
 	/// The documents.
-	documents: DashMap<tg::Module, Document, fnv::FnvBuildHasher>,
+	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
 
 	/// The library temp.
 	library_temp: Temp,
@@ -732,7 +732,7 @@ impl Compiler {
 		task.wait().await.unwrap();
 	}
 
-	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::Module> {
+	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::module::Data> {
 		// Verify the scheme and get the path.
 		if uri.scheme().unwrap().as_str() != "file" {
 			return Err(tg::error!("invalid scheme"));
@@ -742,14 +742,14 @@ impl Compiler {
 		// Handle a path in the library temp.
 		if let Ok(path) = path.strip_prefix(self.library_temp.path()) {
 			let kind = tg::module::Kind::Dts;
-			let item = tg::module::Item::Path(path.to_owned());
+			let item = tg::module::data::Item::Path(path.to_owned());
 			let referent = tg::Referent {
 				item,
 				path: None,
 				subpath: None,
 				tag: None,
 			};
-			let module = tg::Module { kind, referent };
+			let module = tg::module::Data { kind, referent };
 			return Ok(module);
 		}
 
@@ -784,7 +784,7 @@ impl Compiler {
 				.parse()
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
-			let item = tg::module::Item::Object(object);
+			let item = tg::module::data::Item::Object(object);
 			let subpath = path.components().skip(1).collect::<PathBuf>();
 			let subpath = if subpath.as_os_str().is_empty() {
 				None
@@ -797,7 +797,7 @@ impl Compiler {
 				subpath,
 				tag: None,
 			};
-			let module = tg::Module { kind, referent };
+			let module = tg::module::Data { kind, referent };
 			return Ok(module);
 		}
 
@@ -807,12 +807,12 @@ impl Compiler {
 		Ok(module)
 	}
 
-	async fn lsp_uri_for_module(&self, module: &tg::Module) -> tg::Result<lsp::Uri> {
+	async fn lsp_uri_for_module(&self, module: &tg::module::Data) -> tg::Result<lsp::Uri> {
 		match module {
-			tg::Module {
+			tg::module::Data {
 				kind: tg::module::Kind::Dts,
 				referent: tg::Referent {
-					item: tg::module::Item::Path(path),
+					item: tg::module::data::Item::Path(path),
 					..
 				},
 				..
@@ -848,10 +848,10 @@ impl Compiler {
 				Ok(format!("file://{path}").parse().unwrap())
 			},
 
-			tg::Module {
+			tg::module::Data {
 				referent:
 					tg::Referent {
-						item: tg::module::Item::Object(object),
+						item: tg::module::data::Item::Object(object),
 						subpath,
 						..
 					},
@@ -887,10 +887,10 @@ impl Compiler {
 				Ok(uri)
 			},
 
-			tg::Module {
+			tg::module::Data {
 				referent:
 					tg::Referent {
-						item: tg::module::Item::Path(path),
+						item: tg::module::data::Item::Path(path),
 						subpath,
 						..
 					},

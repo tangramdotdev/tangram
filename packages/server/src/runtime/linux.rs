@@ -322,13 +322,19 @@ impl Runtime {
 
 		// Render the executable.
 		let executable = match command.executable {
-			tg::command::data::Executable::Artifact(artifact) => {
-				render_value(&artifacts_path, &tg::object::Id::from(artifact).into())
+			tg::command::data::Executable::Artifact(executable) => {
+				let mut path = artifacts_path.join(executable.artifact.to_string());
+				if let Some(subpath) = executable.subpath {
+					path.join(subpath);
+				}
+				path
 			},
 			tg::command::data::Executable::Module(_) => {
 				return Err(tg::error!("invalid executable"));
 			},
-			tg::command::data::Executable::Path(path) => which(&path, &env).await?,
+			tg::command::data::Executable::Path(executable) => {
+				which(&executable.path, &env).await?
+			},
 		};
 
 		// Set `$OUTPUT`.

@@ -3,7 +3,7 @@ import * as tg from "./index.ts";
 export let start = async (process: tg.Process): Promise<tg.Value> => {
 	// Load the process and the command.
 	await process.load();
-	const command = await process.command();
+	const command = process.state!.command;
 	await command.load();
 
 	// Set the current process.
@@ -14,13 +14,11 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 	let namespace = await eval(`import("!")`);
 
 	// Get the target.
-	const args = await command.args();
-	if (args.length < 1) {
-		throw new Error("the command must have at least one argument");
-	}
-	let target = args.at(0);
-	if (typeof target !== "string") {
-		throw new Error("the command's first argument must be a string");
+	let executable = await command.executable();
+	tg.assert("module" in executable);
+	let target = executable.target;
+	if (target === undefined) {
+		throw new Error("the executable must have a target");
 	}
 
 	// Get the command.
@@ -35,7 +33,8 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 	}
 
 	// Call the function and resolve its output.
-	let output = await tg.resolve(function_!(...args.slice(1)));
+	let args = await command.args();
+	let output = await tg.resolve(function_!(...args));
 
 	return output;
 };

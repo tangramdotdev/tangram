@@ -63,7 +63,9 @@ pub fn archive_command(
 	compression: Option<tg::CompressionFormat>,
 ) -> tg::Command {
 	let host = "builtin";
-	let executable = tg::command::Executable::Path("archive".into());
+	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
+		path: "archive".into(),
+	});
 	let args = vec![
 		artifact.clone().into(),
 		format.to_string().into(),
@@ -95,7 +97,9 @@ where
 #[must_use]
 pub fn bundle_command(artifact: &tg::Artifact) -> tg::Command {
 	let host = "builtin";
-	let executable = tg::command::Executable::Path("bundle".into());
+	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
+		path: "bundle".into(),
+	});
 	let args = vec![artifact.clone().into()];
 	tg::Command::builder(host, executable).args(args).build()
 }
@@ -132,7 +136,9 @@ pub fn checksum_command(
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Command {
 	let host = "builtin";
-	let executable = tg::command::Executable::Path("checksum".into());
+	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
+		path: "checksum".into(),
+	});
 	let args = vec![input.clone().into(), algorithm.to_string().into()];
 	tg::Command::builder(host, executable).args(args).build()
 }
@@ -163,7 +169,9 @@ where
 pub fn compress_command(input: &tg::Blob, format: tg::CompressionFormat) -> tg::Command {
 	let host = "builtin";
 	let args = vec![input.clone().into(), format.to_string().into()];
-	let executable = tg::command::Executable::Path("compress".into());
+	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
+		path: "compress".into(),
+	});
 	tg::Command::builder(host, executable).args(args).build()
 }
 
@@ -189,7 +197,9 @@ where
 pub fn decompress_command(input: &tg::Blob) -> tg::Command {
 	let host = "builtin";
 	let args = vec![input.clone().into()];
-	let executable = tg::command::Executable::Path("decompress".into());
+	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
+		path: "decompress".into(),
+	});
 	tg::Command::builder(host, executable).args(args).build()
 }
 
@@ -230,7 +240,9 @@ pub fn download_command(url: &Url, options: Option<DownloadOptions>) -> tg::Comm
 	if let Some(options) = options {
 		args.push(options.into());
 	}
-	let executable = tg::command::Executable::Path("download".into());
+	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
+		path: "download".into(),
+	});
 	tg::Command::builder(host, executable).args(args).build()
 }
 
@@ -256,7 +268,9 @@ where
 pub fn extract_command(input: &tg::Blob) -> tg::Command {
 	let host = "builtin";
 	let args = vec![input.clone().into()];
-	let executable = tg::command::Executable::Path("extract".into());
+	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
+		path: "extract".into(),
+	});
 	tg::Command::builder(host, executable).args(args).build()
 }
 

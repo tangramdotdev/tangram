@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-	pub module: tg::Module,
+	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
@@ -48,7 +48,7 @@ impl Compiler {
 
 	pub async fn hover(
 		&self,
-		module: &tg::Module,
+		module: &tg::module::Data,
 		position: tg::Position,
 	) -> tg::Result<Option<String>> {
 		// Create the request.

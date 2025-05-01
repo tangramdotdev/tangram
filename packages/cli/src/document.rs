@@ -36,10 +36,10 @@ impl Cli {
 
 		// Get the module.
 		let module = if args.runtime {
-			tg::Module {
+			tg::module::Data {
 				kind: tg::module::Kind::Dts,
 				referent: tg::Referent {
-					item: tg::module::Item::Path("tangram.d.ts".into()),
+					item: tg::module::data::Item::Path("tangram.d.ts".into()),
 					path: None,
 					subpath: None,
 					tag: None,
@@ -89,7 +89,7 @@ impl Cli {
 					tg::Artifact::Symlink(_) => tg::module::Kind::Symlink,
 				}
 			};
-			let item = tg::module::Item::Object(referent.item.id(&handle).await?);
+			let item = tg::module::data::Item::Object(referent.item.id(&handle).await?);
 			let path = referent.path;
 			let subpath = Some(referent.subpath.map_or_else(
 				|| root_module_file_name.into(),
@@ -102,7 +102,7 @@ impl Cli {
 				subpath,
 				tag,
 			};
-			tg::Module { referent, kind }
+			tg::module::Data { referent, kind }
 		};
 
 		// Document the module.
