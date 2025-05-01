@@ -811,10 +811,11 @@ impl Compiler {
 		match module {
 			tg::module::Data {
 				kind: tg::module::Kind::Dts,
-				referent: tg::Referent {
-					item: tg::module::data::Item::Path(path),
-					..
-				},
+				referent:
+					tg::Referent {
+						item: tg::module::data::Item::Path(path),
+						..
+					},
 				..
 			} => {
 				let path = path.strip_prefix("./").unwrap_or(path);

@@ -5,7 +5,7 @@ use tangram_v8::Serde;
 
 pub fn base64_decode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (value,) = args;
@@ -17,7 +17,7 @@ pub fn base64_decode(
 
 pub fn base64_encode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (Bytes,),
 ) -> tg::Result<String> {
 	let (value,) = args;
@@ -27,7 +27,7 @@ pub fn base64_encode(
 
 pub fn hex_decode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (string,) = args;
@@ -39,7 +39,7 @@ pub fn hex_decode(
 
 pub fn hex_encode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (Bytes,),
 ) -> tg::Result<String> {
 	let (bytes,) = args;
@@ -49,7 +49,7 @@ pub fn hex_encode(
 
 pub fn json_decode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (String,),
 ) -> tg::Result<Serde<serde_json::Value>> {
 	let (json,) = args;
@@ -61,7 +61,7 @@ pub fn json_decode(
 
 pub fn json_encode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (Serde<serde_json::Value>,),
 ) -> tg::Result<String> {
 	let (value,) = args;
@@ -72,7 +72,7 @@ pub fn json_encode(
 
 pub fn toml_decode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (String,),
 ) -> tg::Result<Serde<toml::Value>> {
 	let (toml,) = args;
@@ -84,7 +84,7 @@ pub fn toml_decode(
 
 pub fn toml_encode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (Serde<toml::Value>,),
 ) -> tg::Result<String> {
 	let (value,) = args;
@@ -95,7 +95,7 @@ pub fn toml_encode(
 
 pub fn utf8_decode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (Bytes,),
 ) -> tg::Result<String> {
 	let (bytes,) = args;
@@ -106,7 +106,7 @@ pub fn utf8_decode(
 
 pub fn utf8_encode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (string,) = args;
@@ -116,7 +116,7 @@ pub fn utf8_encode(
 
 pub fn yaml_decode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (String,),
 ) -> tg::Result<Serde<serde_yaml::Value>> {
 	let (yaml,) = args;
@@ -128,7 +128,7 @@ pub fn yaml_decode(
 
 pub fn yaml_encode(
 	_scope: &mut v8::HandleScope,
-	_compiler: Compiler,
+	_compiler: &Compiler,
 	args: (Serde<serde_yaml::Value>,),
 ) -> tg::Result<String> {
 	let (value,) = args;

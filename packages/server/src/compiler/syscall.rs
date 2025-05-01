@@ -66,7 +66,7 @@ fn sync<'s, A, T, F>(
 where
 	A: FromV8,
 	T: ToV8,
-	F: FnOnce(&mut v8::HandleScope<'s>, Compiler, A) -> tg::Result<T>,
+	F: FnOnce(&mut v8::HandleScope<'s>, &Compiler, A) -> tg::Result<T>,
 {
 	// Get the context.
 	let context = scope.get_current_context();
@@ -83,7 +83,7 @@ where
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Call the function.
-	let value = f(scope, state, args)?;
+	let value = f(scope, &state, args)?;
 
 	// Move the value to v8.
 	let value = value

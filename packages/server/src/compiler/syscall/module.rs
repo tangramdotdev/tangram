@@ -4,7 +4,7 @@ use tangram_client as tg;
 
 pub fn load(
 	_scope: &mut v8::HandleScope,
-	compiler: Compiler,
+	compiler: &Compiler,
 	args: (tg::module::Data,),
 ) -> tg::Result<String> {
 	let (module,) = args;
@@ -19,7 +19,7 @@ pub fn load(
 
 pub fn resolve(
 	_scope: &mut v8::HandleScope,
-	compiler: Compiler,
+	compiler: &Compiler,
 	args: (tg::module::Data, String, Option<BTreeMap<String, String>>),
 ) -> tg::Result<tg::module::Data> {
 	let (referrer, specifier, attributes) = args;
@@ -43,7 +43,7 @@ pub fn resolve(
 
 pub fn version(
 	_scope: &mut v8::HandleScope,
-	compiler: Compiler,
+	compiler: &Compiler,
 	args: (tg::module::Data,),
 ) -> tg::Result<String> {
 	let (module,) = args;
@@ -58,7 +58,7 @@ pub fn version(
 
 pub fn has_invalidated_resolutions(
 	_scope: &mut v8::HandleScope,
-	compiler: Compiler,
+	compiler: &Compiler,
 	args: (tg::module::Data,),
 ) -> tg::Result<bool> {
 	let (module,) = args;

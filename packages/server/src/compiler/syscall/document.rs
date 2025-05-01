@@ -3,7 +3,7 @@ use tangram_client as tg;
 
 pub fn list(
 	_scope: &mut v8::HandleScope,
-	compiler: Compiler,
+	compiler: &Compiler,
 	_args: (),
 ) -> tg::Result<Vec<tg::module::Data>> {
 	compiler
