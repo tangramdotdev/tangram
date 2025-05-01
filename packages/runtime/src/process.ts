@@ -109,7 +109,7 @@ export class Process {
 			throw new Error(`the process exited with code ${wait.exit}`);
 		}
 		if (wait.exit >= 128) {
-			throw new Error(`the process exited with signal ${wait.exit}`);
+			throw new Error(`the process exited with signal ${wait.exit - 128}`);
 		}
 		return wait.output;
 	}
@@ -286,7 +286,7 @@ export class Process {
 			throw new Error(`the process exited with code ${wait.exit}`);
 		}
 		if (wait.exit >= 128) {
-			throw new Error(`the process exited with signal ${wait.exit}`);
+			throw new Error(`the process exited with signal ${wait.exit - 128}`);
 		}
 		return wait.output;
 	}

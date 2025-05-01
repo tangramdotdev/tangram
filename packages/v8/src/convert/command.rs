@@ -183,12 +183,12 @@ impl FromV8 for tg::command::Executable {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		if let Ok(artifact) = <_>::from_v8(scope, value) {
-			Ok(Self::Artifact(artifact))
-		} else if let Ok(module) = <_>::from_v8(scope, value) {
-			Ok(Self::Module(module))
-		} else if let Ok(path) = <_>::from_v8(scope, value) {
-			Ok(Self::Path(path))
+		if let Ok(executable) = <_>::from_v8(scope, value) {
+			Ok(Self::Artifact(executable))
+		} else if let Ok(executable) = <_>::from_v8(scope, value) {
+			Ok(Self::Module(executable))
+		} else if let Ok(executable) = <_>::from_v8(scope, value) {
+			Ok(Self::Path(executable))
 		} else {
 			Err(tg::error!(
 				"expected an artifact or a module or a path executable"
