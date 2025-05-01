@@ -96,11 +96,7 @@ async fn host_command_hello_world() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default tg.command(async () => {
-				try {
-					return await tg.run("echo 'Hello, World!' > $OUTPUT");
-				} catch (error) {
-					return `${JSON.stringify(error)}`;
-				}
+				return await tg.run("echo 'Hello, World!' > $OUTPUT");
 			});
 		"#),
 	};

@@ -4,14 +4,14 @@ export let log = (...args: Array<unknown>) => {
 	let string = args
 		.map((arg) => (typeof arg === "string" ? arg : stringify(arg)))
 		.join(" ");
-	syscall("log", `${string}\n`, "log");
+	syscall("log", "stdout", `${string}\n`);
 };
 
 export let error = (...args: Array<unknown>) => {
 	let string = args
 		.map((arg) => (typeof arg === "string" ? arg : stringify(arg)))
 		.join(" ");
-	syscall("log", `${string}\n`, "error");
+	syscall("log", "stderr", `${string}\n`);
 };
 
 let stringify = (value: unknown): string => {

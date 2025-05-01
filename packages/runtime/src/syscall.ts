@@ -44,7 +44,11 @@ declare global {
 
 	function syscall(syscall: "encoding_yaml_encode", value: unknown): string;
 
-	function syscall(syscall: "log", contents: string, level: string): void;
+	function syscall(
+		syscall: "log",
+		stream: "stdout" | "stderr",
+		string: string,
+	): void;
 
 	function syscall(syscall: "module_load", module: tg.Module): Promise<any>;
 

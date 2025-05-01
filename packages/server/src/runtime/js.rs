@@ -130,25 +130,15 @@ impl Runtime {
 			let process = process.clone();
 			async move {
 				while let Some(message) = log_receiver.recv().await {
-					let syscall::log::Message { contents, level } = message;
-					match level {
-						syscall::log::Level::Log => {
-							util::log(
-								&server,
-								&process,
-								tg::process::log::Stream::Stdout,
-								contents,
-							)
-							.await;
+					let syscall::log::Message { stream, string } = message;
+					match stream {
+						syscall::log::Stream::Stdout => {
+							util::log(&server, &process, tg::process::log::Stream::Stdout, string)
+								.await;
 						},
-						syscall::log::Level::Error => {
-							util::log(
-								&server,
-								&process,
-								tg::process::log::Stream::Stderr,
-								contents,
-							)
-							.await;
+						syscall::log::Stream::Stderr => {
+							util::log(&server, &process, tg::process::log::Stream::Stderr, string)
+								.await;
 						},
 					}
 				}
