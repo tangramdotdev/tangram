@@ -174,6 +174,14 @@ impl Cli {
 			}
 			builder
 		} else {
+			// Get the target.
+			let target = reference
+				.uri()
+				.fragment()
+				.map_or("default", |fragment| fragment)
+				.to_owned();
+
+			// Create the executable.
 			let executable = match object {
 				tg::Object::Directory(directory) => {
 					let mut name = None;
@@ -197,7 +205,7 @@ impl Cli {
 					} else {
 						unreachable!();
 					};
-					let item = directory.clone().into();
+					let item = tg::module::Item::Object(directory.clone().into());
 					let subpath = Some(name.parse().unwrap());
 					let referent = tg::Referent {
 						item,
@@ -205,7 +213,9 @@ impl Cli {
 						subpath,
 						tag: referent.tag,
 					};
-					let module = tg::command::Module { kind, referent };
+					let module = tg::Module { kind, referent };
+					let target = Some(target);
+					let module = tg::command::ModuleExecutable { module, target };
 					tg::command::Executable::Module(module)
 				},
 
@@ -229,8 +239,12 @@ impl Cli {
 					} else {
 						return Err(tg::error!("cannot determine the file's kind"));
 					};
-					let referent = tg::Referent::with_item(file.into());
-					tg::command::Executable::Module(tg::command::Module { kind, referent })
+					let item = tg::module::Item::Object(file.into());
+					let referent = tg::Referent::with_item(item);
+					let module = tg::Module { kind, referent };
+					let target = Some(target);
+					let module = tg::command::ModuleExecutable { module, target };
+					tg::command::Executable::Module(module)
 				},
 
 				_ => {
@@ -238,17 +252,11 @@ impl Cli {
 				},
 			};
 
-			// Get the target.
-			let target = reference
-				.uri()
-				.fragment()
-				.map_or("default", |fragment| fragment);
-
 			// Choose the host.
 			let host = "js";
 
 			// Create the command.
-			tg::Command::builder(host, executable).arg(target.into())
+			tg::Command::builder(host, executable)
 		};
 
 		// Get the args.

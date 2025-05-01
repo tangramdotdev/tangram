@@ -7,7 +7,7 @@ type FunctionArg<
 > = {
 	function: (...args: A) => tg.Unresolved<R>;
 	module: tg.Module;
-	name: string;
+	target: string;
 };
 
 export function command<
@@ -32,15 +32,10 @@ export function command(...args: any): any {
 		"function" in args[0]
 	) {
 		let arg = args[0];
-		let args_ = [arg.name];
+		let args_: Array<tg.Value> = [];
 		let executable = {
-			kind: arg.module.kind,
-			referent: {
-				item: tg.Object.withId(arg.module.referent.item),
-				path: arg.module.referent.path,
-				subpath: arg.module.referent.subpath,
-				tag: arg.module.referent.tag,
-			},
+			module: arg.module,
+			target: arg.target,
 		};
 		let cwd = undefined;
 		let mounts: Array<tg.Command.Mount> = [];
@@ -137,10 +132,10 @@ export class Command<
 				artifact: arg.executable.artifact,
 				subpath: arg.executable.subpath,
 			};
-		} else if (arg.executable !== undefined && "kind" in arg.executable) {
+		} else if (arg.executable !== undefined && "module" in arg.executable) {
 			executable = {
-				kind: arg.executable.kind,
-				referent: arg.executable.referent,
+				module: arg.executable.module,
+				target: arg.executable.target,
 			};
 		} else if (arg.executable !== undefined && "path" in arg.executable) {
 			executable = {
@@ -406,13 +401,13 @@ export namespace Command {
 		};
 
 		export type Module = {
-			kind: tg.Module.Kind;
-			referent: tg.Referent<tg.Object>;
+			module: tg.Module;
+			target: string | undefined;
 		};
 
 		export type ModuleArg = {
-			kind: tg.Module.Kind;
-			referent: tg.Referent<tg.Object>;
+			module: tg.Module;
+			target?: string | undefined;
 		};
 
 		export type Path = {

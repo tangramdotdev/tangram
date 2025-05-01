@@ -215,11 +215,11 @@ impl CommandVisitor {
 		// Get the location of the call.
 		let loc = self.source_map.lookup_char_pos(n.span.lo);
 
-		// Get the name and function from the call.
-		let (name, f) = match n.args.len() {
+		// Get the target and function from the call.
+		let (target, f) = match n.args.len() {
 			// Handle one argument.
 			1 => {
-				let Some(name) = export_name else {
+				let Some(target) = export_name else {
 					self.errors.push(Error::new(
 						"commands that are not exported must have a name",
 						&loc,
@@ -235,12 +235,12 @@ impl CommandVisitor {
 					n.visit_mut_children_with(self);
 					return;
 				};
-				(name, f)
+				(target, f)
 			},
 
 			// Handle two arguments.
 			2 => {
-				let Some(ast::Lit::Str(name)) = n.args[0].expr.as_lit() else {
+				let Some(ast::Lit::Str(target)) = n.args[0].expr.as_lit() else {
 					self.errors.push(Error::new(
 						"the first argument to tg.command must be a string",
 						&loc,
@@ -248,7 +248,7 @@ impl CommandVisitor {
 					n.visit_mut_children_with(self);
 					return;
 				};
-				let name = name.value.to_string();
+				let target = target.value.to_string();
 				let Some(f) = n.args[1].expr.as_arrow() else {
 					self.errors.push(Error::new(
 						"the second argument to tg.command must be an arrow function",
@@ -257,7 +257,7 @@ impl CommandVisitor {
 					n.visit_mut_children_with(self);
 					return;
 				};
-				(name, f)
+				(target, f)
 			},
 
 			// Any other number of arguments is invalid.
@@ -294,22 +294,23 @@ impl CommandVisitor {
 				value: Box::new(import_meta_module.into()),
 			})));
 
-		// Create the name property.
-		let key = ast::IdentName::new("name".into(), n.span);
+		// Create the target property.
+		let key = ast::IdentName::new("target".into(), n.span);
 		let value: ast::Expr = ast::Lit::Str(ast::Str {
-			value: name.into(),
+			value: target.into(),
 			span: n.span,
 			raw: None,
 		})
 		.into();
-		let name_prop = ast::PropOrSpread::Prop(Box::new(ast::Prop::KeyValue(ast::KeyValueProp {
-			key: key.into(),
-			value: Box::new(value),
-		})));
+		let target_prop =
+			ast::PropOrSpread::Prop(Box::new(ast::Prop::KeyValue(ast::KeyValueProp {
+				key: key.into(),
+				value: Box::new(value),
+			})));
 
 		// Create the object.
 		let object = ast::ObjectLit {
-			props: vec![module_prop, name_prop, function_prop],
+			props: vec![module_prop, target_prop, function_prop],
 			span: swc::common::DUMMY_SP,
 		};
 

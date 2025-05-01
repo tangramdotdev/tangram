@@ -728,14 +728,15 @@ where
 		match &*executable {
 			tg::command::Executable::Artifact(_) => (),
 			tg::command::Executable::Module(executable) => {
-				if let Some(path) = &executable.referent.path {
+				if let Some(path) = &executable.module.referent.path {
 					let path = executable
+						.module
 						.referent
 						.subpath
 						.as_ref()
 						.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
 					write!(title, "{}", path.display()).unwrap();
-				} else if let Some(tag) = &executable.referent.tag {
+				} else if let Some(tag) = &executable.module.referent.tag {
 					write!(title, "{tag}").unwrap();
 				}
 			},
@@ -1169,22 +1170,27 @@ where
 				let mut map = BTreeMap::new();
 				map.insert(
 					"kind".to_owned(),
-					tg::Value::String(executable.kind.to_string()),
+					tg::Value::String(executable.module.kind.to_string()),
 				);
 				let mut referent = BTreeMap::new();
 				referent.insert(
 					"item".to_owned(),
-					tg::Value::Object(executable.referent.item.clone()),
+					match executable.module.referent.item.clone() {
+						tg::module::Item::Path(path) => {
+							tg::Value::String(path.to_string_lossy().into_owned())
+						},
+						tg::module::Item::Object(object) => tg::Value::Object(object),
+					},
 				);
-				if let Some(path) = &executable.referent.path {
+				if let Some(path) = &executable.module.referent.path {
 					let path = path.to_string_lossy().to_string();
 					referent.insert("path".to_owned(), tg::Value::String(path));
 				}
-				if let Some(subpath) = &executable.referent.subpath {
+				if let Some(subpath) = &executable.module.referent.subpath {
 					let subpath = subpath.to_string_lossy().to_string();
 					referent.insert("subpath".to_owned(), tg::Value::String(subpath));
 				}
-				if let Some(tag) = &executable.referent.tag {
+				if let Some(tag) = &executable.module.referent.tag {
 					referent.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
 				}
 				map.insert("referent".to_owned(), tg::Value::Map(referent));

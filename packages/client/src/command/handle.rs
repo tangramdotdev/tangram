@@ -145,7 +145,7 @@ impl Command {
 			.await?;
 		let executable = match &object.executable {
 			tg::command::Executable::Artifact(executable) => {
-				let artifact = tg::command::data::Artifact {
+				let artifact = tg::command::data::ArtifactExecutable {
 					artifact: executable.artifact.id(handle).await?,
 					subpath: executable.subpath.clone(),
 				};
@@ -156,7 +156,7 @@ impl Command {
 				tg::command::data::Executable::Module(module)
 			},
 			tg::command::Executable::Path(executable) => {
-				let path = tg::command::data::Path {
+				let path = tg::command::data::PathExecutable {
 					path: executable.path.clone(),
 				};
 				tg::command::data::Executable::Path(path)

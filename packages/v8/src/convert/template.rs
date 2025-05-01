@@ -48,10 +48,12 @@ impl FromV8 for tg::Template {
 		let components =
 			v8::String::new_external_onebyte_static(scope, "components".as_bytes()).unwrap();
 		let components = value.get(scope, components.into()).unwrap();
-		let components: Vec<tg::template::Component> = <_>::from_v8(scope, components)
+		let components = <Vec<_>>::from_v8(scope, components)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the components"))?;
 
-		Ok(Self::with_components(components))
+		let template = Self::with_components(components);
+
+		Ok(template)
 	}
 }
 

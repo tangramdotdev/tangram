@@ -113,7 +113,7 @@ impl Runtime {
 	) -> tg::Result<super::Output> {
 		// Get the root module.
 		let command = process.command(&self.server).await?;
-		let root = command
+		let executable = command
 			.executable(&self.server)
 			.await?
 			.try_unwrap_module_ref()
@@ -121,15 +121,6 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected the executable to be a module"))?
 			.data(&self.server)
 			.await?;
-		let root = tg::module::Data {
-			kind: root.kind,
-			referent: tg::Referent {
-				item: tg::module::data::Item::Object(root.referent.item),
-				path: root.referent.path,
-				subpath: root.referent.subpath,
-				tag: root.referent.tag,
-			},
-		};
 
 		// Start the log task.
 		let (log_sender, mut log_receiver) =
@@ -209,7 +200,7 @@ impl Runtime {
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
 			rejection,
-			root,
+			root: executable.module,
 			server: self.server.clone(),
 		});
 		scopeguard::defer! {

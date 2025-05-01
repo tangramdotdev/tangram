@@ -33,13 +33,13 @@ pub struct Command {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Executable {
-	Artifact(Artifact),
-	Module(Module),
-	Path(Path),
+	Artifact(ArtifactExecutable),
+	Module(ModuleExecutable),
+	Path(PathExecutable),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Artifact {
+pub struct ArtifactExecutable {
 	pub artifact: tg::artifact::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -47,13 +47,15 @@ pub struct Artifact {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Module {
-	pub kind: tg::module::Kind,
-	pub referent: tg::Referent<tg::object::Id>,
+pub struct ModuleExecutable {
+	pub module: tg::module::Data,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub target: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Path {
+pub struct PathExecutable {
 	pub path: PathBuf,
 }
 
@@ -106,17 +108,21 @@ impl Executable {
 	}
 }
 
-impl Artifact {
+impl ArtifactExecutable {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
 		[self.artifact.clone().into()].into()
 	}
 }
 
-impl Module {
+impl ModuleExecutable {
 	#[must_use]
 	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		[self.referent.item.clone()].into()
+		if let tg::module::data::Item::Object(object) = &self.module.referent.item {
+			[object.clone()].into()
+		} else {
+			[].into()
+		}
 	}
 }
 

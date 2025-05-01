@@ -120,6 +120,7 @@ impl ToV8 for tg::Mutation {
 		let instance = mutation
 			.new_instance(scope, &[object.into()])
 			.ok_or_else(|| tg::error!("the constructor failed"))?;
+
 		Ok(instance.into())
 	}
 }
@@ -153,8 +154,8 @@ impl FromV8 for tg::Mutation {
 		let kind = inner.get(scope, kind.into()).unwrap();
 		let kind = String::from_v8(scope, kind)?;
 
-		match kind.as_str() {
-			"unset" => Ok(tg::Mutation::Unset),
+		let mutation = match kind.as_str() {
+			"unset" => tg::Mutation::Unset,
 			"set" => {
 				let value_ =
 					v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
@@ -162,7 +163,7 @@ impl FromV8 for tg::Mutation {
 				let value_ = <_>::from_v8(scope, value_)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the value_"))?;
 				let value_ = Box::new(value_);
-				Ok(tg::Mutation::Set { value: value_ })
+				tg::Mutation::Set { value: value_ }
 			},
 			"set_if_unset" => {
 				let value_ =
@@ -171,7 +172,7 @@ impl FromV8 for tg::Mutation {
 				let value_ = <_>::from_v8(scope, value_)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the value_"))?;
 				let value_ = Box::new(value_);
-				Ok(tg::Mutation::SetIfUnset { value: value_ })
+				tg::Mutation::SetIfUnset { value: value_ }
 			},
 			"prepend" => {
 				let values =
@@ -179,7 +180,7 @@ impl FromV8 for tg::Mutation {
 				let values = inner.get(scope, values.into()).unwrap();
 				let values = <_>::from_v8(scope, values)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the values"))?;
-				Ok(tg::Mutation::Prepend { values })
+				tg::Mutation::Prepend { values }
 			},
 			"append" => {
 				let values =
@@ -187,7 +188,7 @@ impl FromV8 for tg::Mutation {
 				let values = inner.get(scope, values.into()).unwrap();
 				let values = <_>::from_v8(scope, values)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the values"))?;
-				Ok(tg::Mutation::Append { values })
+				tg::Mutation::Append { values }
 			},
 			"prefix" => {
 				let template =
@@ -200,10 +201,10 @@ impl FromV8 for tg::Mutation {
 				let separator = inner.get(scope, separator.into()).unwrap();
 				let separator = <_>::from_v8(scope, separator)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the separator"))?;
-				Ok(tg::Mutation::Prefix {
+				tg::Mutation::Prefix {
 					template,
 					separator,
-				})
+				}
 			},
 			"suffix" => {
 				let template =
@@ -216,10 +217,10 @@ impl FromV8 for tg::Mutation {
 				let separator = inner.get(scope, separator.into()).unwrap();
 				let separator = <_>::from_v8(scope, separator)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the separator"))?;
-				Ok(tg::Mutation::Suffix {
+				tg::Mutation::Suffix {
 					template,
 					separator,
-				})
+				}
 			},
 			"merge" => {
 				let value_ =
@@ -227,9 +228,13 @@ impl FromV8 for tg::Mutation {
 				let value_ = inner.get(scope, value_.into()).unwrap();
 				let value_ = <_>::from_v8(scope, value_)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the value_"))?;
-				Ok(tg::Mutation::Merge { value: value_ })
+				tg::Mutation::Merge { value: value_ }
 			},
-			kind => Err(tg::error!(%kind, "invalid mutation kind")),
-		}
+			kind => {
+				return Err(tg::error!(%kind, "invalid mutation kind"));
+			},
+		};
+
+		Ok(mutation)
 	}
 }

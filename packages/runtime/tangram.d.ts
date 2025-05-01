@@ -940,7 +940,7 @@ declare namespace tg {
 
 	export type Module = {
 		kind: tg.Module.Kind;
-		referent: tg.Referent<tg.Object.Id>;
+		referent: tg.Referent<tg.Object>;
 	};
 
 	export namespace Module {
