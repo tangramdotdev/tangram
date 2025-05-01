@@ -37,18 +37,27 @@ fn main() {
 	.unwrap();
 
 	// Copy the typescript libraries.
-	let paths = glob::glob("../../node_modules/typescript/lib/lib.es*.d.ts").unwrap();
+	let node_modules_path = match std::env::var("NODE_PATH") {
+		Ok(path) => PathBuf::from(path),
+		Err(_) => PathBuf::from("../../node_modules"),
+	};
+	let paths = glob::glob(
+		&node_modules_path
+			.join("typescript/lib/lib.es*.d.ts")
+			.to_string_lossy(),
+	)
+	.unwrap();
 	for path in paths {
 		let path = path.unwrap();
 		std::fs::copy(&path, lib_path.join(path.file_name().unwrap())).unwrap();
 	}
 	std::fs::copy(
-		"../../node_modules/typescript/lib/lib.decorators.d.ts",
+		node_modules_path.join("typescript/lib/lib.decorators.d.ts"),
 		lib_path.join("lib.decorators.d.ts"),
 	)
 	.unwrap();
 	std::fs::copy(
-		"../../node_modules/typescript/lib/lib.decorators.legacy.d.ts",
+		node_modules_path.join("typescript/lib/lib.decorators.legacy.d.ts"),
 		lib_path.join("lib.decorators.legacy.d.ts"),
 	)
 	.unwrap();
