@@ -738,7 +738,7 @@ extern "C" fn host_initialize_import_meta_object_callback(
 
 	// Set import.meta.module.
 	let key = v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
-	let value = module.to_v8(scope).unwrap();
+	let value = tg::Module::from(module).to_v8(scope).unwrap();
 	meta.set(scope, key.into(), value).unwrap();
 }
 
