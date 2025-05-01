@@ -148,6 +148,9 @@ impl FromV8 for tg::Mutation {
 
 		let inner = v8::String::new_external_onebyte_static(scope, "inner".as_bytes()).unwrap();
 		let inner = value.get(scope, inner.into()).unwrap();
+		if !inner.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let inner = inner.to_object(scope).unwrap();
 
 		let kind = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();

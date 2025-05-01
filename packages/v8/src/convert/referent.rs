@@ -42,6 +42,9 @@ where
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
 		let item = v8::String::new_external_onebyte_static(scope, "item".as_bytes()).unwrap();

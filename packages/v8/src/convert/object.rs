@@ -109,6 +109,9 @@ impl FromV8 for tg::object::Object {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 		let key = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
 		let kind = value.get(scope, key.into()).unwrap();
@@ -159,6 +162,9 @@ where
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
 		let id = v8::String::new_external_onebyte_static(scope, "id".as_bytes()).unwrap();

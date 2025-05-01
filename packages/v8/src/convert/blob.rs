@@ -95,6 +95,9 @@ impl FromV8 for tg::blob::Object {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
 		let bytes = v8::String::new_external_onebyte_static(scope, "bytes".as_bytes()).unwrap();
@@ -140,6 +143,9 @@ impl FromV8 for tg::blob::Child {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
 		let blob = v8::String::new_external_onebyte_static(scope, "blob".as_bytes()).unwrap();

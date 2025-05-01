@@ -195,6 +195,9 @@ impl FromV8 for tg::process::Mount {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
 		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
@@ -246,6 +249,9 @@ impl FromV8 for tg::process::State {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
 		let actual_checksum =
@@ -470,6 +476,9 @@ impl FromV8 for tg::process::Wait {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
 		let value = value.to_object(scope).unwrap();
 
 		let error = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
