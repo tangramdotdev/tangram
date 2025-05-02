@@ -60,7 +60,7 @@ export namespace Checksum {
 		if (typeof value !== "string") {
 			return false;
 		}
-		const pattern = /^(blake3|sha256|sha512)([-:])[a-zA-Z0-9]+/;
+		const pattern = /^(blake3|sha256|sha512)([-:])[a-zA-Z0-9+/]+=*$/;
 		return pattern.test(value);
 	};
 
