@@ -154,7 +154,6 @@ impl Server {
 					continue;
 				},
 			};
-			eprintln!("indexing {} requests", messages.len());
 			// Insert objects from the messages.
 			let result = self.indexer_task_handle_messages(config, messages).await;
 			if let Err(error) = result {

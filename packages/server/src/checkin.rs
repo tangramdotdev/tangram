@@ -1,7 +1,7 @@
 use crate::{Server, lockfile::ParsedLockfile, temp::Temp};
 use bytes::Bytes;
 use futures::{
-	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, stream::FuturesUnordered,
+	stream::FuturesUnordered, FutureExt as _, Stream, StreamExt as _, TryFutureExt, TryStreamExt as _
 };
 use indoc::indoc;
 use itertools::Itertools as _;
@@ -269,16 +269,19 @@ impl Server {
 			self.unify_file_dependencies(&mut state).await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "unify file dependencies");
 		}
+		eprintln!("finished unifying dependencies");
 
 		// Create blobs.
 		let start = Instant::now();
 		self.checkin_create_blobs(&mut state).await?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create blobs");
+		eprintln!("created blobs");
 
 		// Create objects.
 		let start = Instant::now();
 		Self::checkin_create_objects(&mut state)?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
+		eprintln!("created objects");
 
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -307,6 +310,7 @@ impl Server {
 				tracing::trace!(elapsed = ?start.elapsed(), "copy blobs");
 				Ok::<_, tg::Error>(())
 			}
+			.inspect_err(|error| tracing::error!(?error, "cache task failed"))
 		})
 		.map(|result| result.unwrap());
 		let messenger_future = tokio::spawn({
@@ -323,6 +327,7 @@ impl Server {
 				tracing::trace!(elapsed = ?start.elapsed(), "write objects to messenger");
 				Ok::<_, tg::Error>(())
 			}
+			.inspect_err(|error| tracing::error!(?error, "messenger task failed"))
 		})
 		.map(|result| result.unwrap());
 		let store_future = tokio::spawn({
@@ -339,6 +344,7 @@ impl Server {
 				tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 				Ok::<_, tg::Error>(())
 			}
+			.inspect_err(|error| tracing::error!(?error, "store task failed"))
 		})
 		.map(|result| result.unwrap());
 		let lockfile_future = tokio::spawn({
@@ -353,8 +359,11 @@ impl Server {
 				tracing::trace!(elapsed = ?start.elapsed(), "writing lockfile");
 				Ok::<_, tg::Error>(())
 			}
+			.inspect_err(|error| tracing::error!(?error, "lockfile task failed"))
 		})
-		.map(|result| result.unwrap());
+		.map(|result| {
+			result.unwrap()
+		});
 		futures::try_join!(
 			cache_future,
 			messenger_future,
@@ -366,6 +375,7 @@ impl Server {
 
 		// Create the output.
 		let output = tg::checkin::Output { artifact: root };
+		eprintln!("returning output: {}", output.artifact);
 
 		Ok(output)
 	}
@@ -1330,7 +1340,7 @@ impl Server {
 					std::os::unix::fs::symlink(target, &dst)
 						.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 				} else {
-					unreachable!()
+					unreachable!("well, fuck")
 				}
 
 				// Update permissions.
@@ -1394,7 +1404,6 @@ impl Server {
 			for node in nodes {
 				let node = &state.graph.nodes[node];
 				let object = node.object.as_ref().unwrap();
-				eprintln!("put object message {}", object.id);
 				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
 					children: object.data.children(),
 					id: object.id.clone(),
@@ -1526,6 +1535,30 @@ impl Server {
 		// Add the graph objects.
 		for graph in &state.graph_objects {
 			objects.push((graph.id.clone().into(), Some(graph.bytes.clone()), None));
+			// Add all the graph children, too.
+			for (node, data) in graph.data.nodes.iter().enumerate() {
+				let (id, bytes) = match data.kind() {
+					tg::artifact::Kind::Directory => {
+						let data = tg::directory::data::Directory::Graph { graph: graph.id.clone(), node, };
+						let bytes = data.serialize()?;
+						let id = tg::directory::Id::new(&bytes);
+						(id.into(), bytes)
+					},
+					tg::artifact::Kind::File => {
+						let data = tg::file::data::File::Graph { graph: graph.id.clone(), node, };
+						let bytes = data.serialize()?;
+						let id = tg::file::Id::new(&bytes);
+						(id.into(), bytes)
+					},
+					tg::artifact::Kind::Symlink => {
+						let data = tg::symlink::data::Symlink::Graph { graph: graph.id.clone(), node, };
+						let bytes = data.serialize()?;
+						let id = tg::symlink::Id::new(&bytes);
+						(id.into(), bytes)
+					},
+				};
+				objects.push((id, Some(bytes), None));
+			}
 		}
 
 		// Add the nodes.
@@ -1573,6 +1606,9 @@ impl Server {
 					}
 				}
 			}
+		}
+		for (object, _, _) in &objects {
+			eprintln!("storing {object}")
 		}
 		let arg = crate::store::PutBatchArg {
 			objects,
