@@ -451,37 +451,24 @@ declare namespace tg {
 	}
 
 	/** Create a command. */
-	export function command<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	>(function_: (...args: A) => tg.Unresolved<R>): tg.Command<A, R>;
-	export function command<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
-	export function command<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	>(
+	export function command<A extends Array<tg.Value>, R extends tg.Value>(
+		function_: (...args: A) => tg.Unresolved<R>,
+	): tg.CommandBuilder<A, R>;
+	export function command<A extends Array<tg.Value>, R extends tg.Value>(
+		function_: (...args: A) => tg.Unresolved<R>,
+		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+	): tg.CommandBuilder<[], R>;
+	export function command(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
-	): CommandBuilder<A, R>;
-
-	/** A command. */
-	export interface Command<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	> {
-		/** Build this command. */
-		// biome-ignore lint/style/useShorthandFunctionType: interface is necessary .
-		(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): Promise<R>;
-	}
+	): tg.CommandBuilder;
+	export function command(...args: tg.Args<tg.Command.Arg>): tg.CommandBuilder;
 
 	/** A command. */
 	export class Command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
-	> extends globalThis.Function {
+	> {
 		/** Get a command with an ID. */
 		static withId(id: tg.Command.Id): tg.Command;
 
@@ -525,10 +512,12 @@ declare namespace tg {
 		user(): Promise<string | undefined>;
 
 		/** Build this command and return the process's output. */
-		build(...args: A): Promise<R>;
+		build(
+			...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+		): tg.BuildBuilder<[], R>;
 
 		/** Run this command and return the process's output. */
-		run(...args: A): Promise<R>;
+		run(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R>;
 	}
 
 	export namespace Command {
@@ -559,7 +548,7 @@ declare namespace tg {
 			host?: string | undefined;
 
 			/** The command's mounts. */
-			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
+			mounts?: Array<tg.Template | tg.Command.Mount> | undefined;
 
 			/** The command's user. */
 			user?: string | undefined;
@@ -603,13 +592,13 @@ declare namespace tg {
 			};
 
 			export type Module = {
-				kind: tg.Module.Kind;
-				referent: tg.Referent<tg.Object>;
+				module: tg.Module;
+				target: string;
 			};
 
 			export type ModuleArg = {
-				kind: tg.Module.Kind;
-				referent: tg.Referent<tg.Object>;
+				module: tg.Module;
+				target: string;
 			};
 
 			export type Path = {
@@ -843,7 +832,7 @@ declare namespace tg {
 	}
 
 	type Args<T extends tg.Value = tg.Value> = Array<
-		tg.Unresolved<tg.MaybeNestedArray<tg.ValueOrMaybeMutationMap<T>>>
+		tg.Unresolved<tg.ValueOrMaybeMutationMap<T>>
 	>;
 
 	export namespace Args {
@@ -958,19 +947,31 @@ declare namespace tg {
 			| "command";
 	}
 
-	export function build(
-		...args: tg.Args<tg.Process.BuildArg>
-	): Promise<tg.Value>;
+	export function build<A extends Array<tg.Value>, R extends tg.Value>(
+		function_: (...args: A) => tg.Unresolved<R>,
+	): tg.BuildBuilder<A, R>;
+	export function build<A extends Array<tg.Value>, R extends tg.Value>(
+		function_: (...args: A) => tg.Unresolved<R>,
+		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+	): tg.BuildBuilder<[], R>;
 	export function build(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
-	): BuildBuilder;
+	): tg.BuildBuilder;
+	export function build(...args: tg.Args<tg.Process.BuildArg>): tg.BuildBuilder;
 
-	export function run(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value>;
+	export function run<A extends Array<tg.Value>, R extends tg.Value>(
+		function_: (...args: A) => tg.Unresolved<R>,
+	): tg.RunBuilder<A, R>;
+	export function run<A extends Array<tg.Value>, R extends tg.Value>(
+		function_: (...args: A) => tg.Unresolved<R>,
+		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+	): tg.RunBuilder<[], R>;
 	export function run(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
-	): RunBuilder;
+	): tg.RunBuilder;
+	export function run(...args: tg.Args<tg.Process.RunArg>): tg.RunBuilder;
 
 	export let $: typeof run;
 
@@ -1063,7 +1064,7 @@ declare namespace tg {
 			host?: string | undefined;
 
 			/** The command's mounts. */
-			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
+			mounts?: Array<tg.Template | tg.Command.Mount> | undefined;
 
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
@@ -1138,28 +1139,49 @@ declare namespace tg {
 		}
 	}
 
-	export class BuildBuilder {
+	export interface BuildBuilder<
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	> {
+		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
+		(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.BuildBuilder<[], R>;
+	}
+
+	export class BuildBuilder<
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	> extends Function {
 		constructor(...args: tg.Args<tg.Process.BuildArgObject>);
+
 		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
+
 		checksum(
 			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
 		): this;
+
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+
 		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
+
 		executable(
 			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
 		): this;
+
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+
 		mount(
-			mounts: tg.Unresolved<
-				tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
-			>,
+			...mounts: Array<
+				tg.Unresolved<tg.MaybeMutation<tg.Template | tg.Command.Mount>>
+			>
 		): this;
+
 		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
-		// biome-ignore lint/suspicious/noThenProperty: thenable
-		then<TResult1 = tg.Value, TResult2 = never>(
+
+		// biome-ignore lint/suspicious/noThenProperty: This is necessary to make this thenable.
+		then<TResult1 = R, TResult2 = never>(
+			this: tg.BuildBuilder<[], R>,
 			onfulfilled?:
-				| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
+				| ((value: R) => TResult1 | PromiseLike<TResult1>)
 				| undefined
 				| null,
 			onrejected?:
@@ -1169,24 +1191,49 @@ declare namespace tg {
 		): PromiseLike<TResult1 | TResult2>;
 	}
 
-	export class CommandBuilder<
+	export interface CommandBuilder<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> {
+		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
+		(
+			...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+		): tg.CommandBuilder<[], R>;
+	}
+
+	export class CommandBuilder<
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	> extends Function {
 		constructor(...args: tg.Args<tg.Command.ArgObject>);
+
 		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
+
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+
 		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
+
 		executable(
 			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
 		): this;
+
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+
 		mount(
-			mounts: tg.Unresolved<
-				tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
-			>,
+			...mounts: Array<
+				tg.Unresolved<tg.MaybeMutation<tg.Template | tg.Command.Mount>>
+			>
 		): this;
-		// biome-ignore lint/suspicious/noThenProperty: thenable
+
+		/** Build this command and return the process's output. */
+		build(
+			...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+		): tg.BuildBuilder<[], R>;
+
+		/** Run this command and return the process's output. */
+		run(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R>;
+
+		// biome-ignore lint/suspicious/noThenProperty: This is necessary to make this thenable.
 		then<TResult1 = tg.Command<A, R>, TResult2 = never>(
 			onfulfilled?:
 				| ((value: tg.Command<A, R>) => TResult1 | PromiseLike<TResult1>)
@@ -1199,30 +1246,53 @@ declare namespace tg {
 		): PromiseLike<TResult1 | TResult2>;
 	}
 
-	export class RunBuilder {
+	export interface RunBuilder<
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	> {
+		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
+		(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R>;
+	}
+
+	export class RunBuilder<
+		A extends Array<tg.Value> = Array<tg.Value>,
+		R extends tg.Value = tg.Value,
+	> extends Function {
 		constructor(...args: tg.Args<tg.Process.RunArgObject>);
+
 		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
+
 		checksum(
 			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
 		): this;
+
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+
 		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
+
 		executable(
 			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
 		): this;
+
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+
 		mount(
-			mounts: tg.Unresolved<
-				tg.MaybeMutation<
-					Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
+			...mounts: Array<
+				tg.Unresolved<
+					tg.MaybeMutation<
+						string | tg.Template | tg.Command.Mount | tg.Process.Mount
+					>
 				>
-			>,
+			>
 		): this;
+
 		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
-		// biome-ignore lint/suspicious/noThenProperty: thenable
-		then<TResult1 = tg.Value, TResult2 = never>(
+
+		// biome-ignore lint/suspicious/noThenProperty: This is necessary to make this thenable.
+		then<TResult1 = R, TResult2 = never>(
+			this: tg.RunBuilder<[], R>,
 			onfulfilled?:
-				| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
+				| ((value: R) => TResult1 | PromiseLike<TResult1>)
 				| undefined
 				| null,
 			onrejected?:

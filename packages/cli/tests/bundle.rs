@@ -10,10 +10,10 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 async fn file_no_dependencies_js() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(async () => {
+			export default async () => {
 				let file = await tg.file("hello");
 				return tg.bundle(file);
-			});
+			};
 		"#),
 	};
 	let assertions = |artifact: temp::Artifact| async move {
@@ -68,7 +68,7 @@ async fn directory_no_dependencies() {
 async fn directory_containing_file_with_file_dependency() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(async () => {
+			export default async () => {
 				let dependency = tg.file("dependency");
 				let file = await tg.file({
 					contents: "f", 
@@ -83,7 +83,7 @@ async fn directory_containing_file_with_file_dependency() {
 					"file": file
 				});
 				return tg.bundle(dir);
-			});
+			};
 		"#),
 	};
 	let assertions = |artifact: temp::Artifact| async move {
@@ -122,7 +122,7 @@ async fn directory_containing_file_with_file_dependency() {
 async fn directory_containing_file_with_directory_dependency_target_symlink() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(async () => {
+			export default async () => {
 				let dependency = tg.directory({
 					"dep": tg.file("dependency"),
 					"link": tg.symlink("dep"),
@@ -141,7 +141,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
 					"link": tg.symlink("file"),
 				});
 				return tg.bundle(dir);
-			});
+			};
 		"#),
 	};
 	let assertions = |artifact: temp::Artifact| async move {
@@ -193,7 +193,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
 async fn directory_containing_file_with_directory_dependency_artifact_path_symlink() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(async () => {
+			export default async () => {
 				let inner_dir = tg.directory({
 					"a": tg.file("a"),
 				}); 
@@ -218,7 +218,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 					"link": tg.symlink("file")
 				});
 				return tg.bundle(dir);
-			});
+			};
 		"#),
 	};
 	let assertions = |artifact: temp::Artifact| async move {

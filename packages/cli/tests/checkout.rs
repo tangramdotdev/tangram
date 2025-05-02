@@ -9,11 +9,11 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 async fn directory() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-		export default tg.command(() => {
+		export default () => {
 			return tg.directory({
 				"hello.txt": "Hello, World!",
 			})
-		})
+		}
 	"#),
 	};
 	let dependencies = false;
@@ -37,9 +37,9 @@ async fn directory() {
 async fn file() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				return tg.file("Hello, World!") 
-			})
+			}
 		"#),
 	};
 	let dependencies = false;
@@ -58,12 +58,12 @@ async fn file() {
 async fn executable_file() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				return tg.file({
 					contents: "Hello, World!",
 					executable: true,
 				})
-			})
+			}
 		"#),
 	};
 	let dependencies = false;
@@ -83,7 +83,7 @@ async fn executable_file() {
 async fn file_with_dependency() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				return tg.file({
 					contents: "foo",
 					dependencies: {
@@ -92,7 +92,7 @@ async fn file_with_dependency() {
 						} 
 					}
 				})
-			})
+			}
 		"#),
 	};
 	let dependencies = false;
@@ -114,12 +114,12 @@ async fn file_with_dependency() {
 async fn symlink() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				return tg.directory({
 					"hello.txt": "Hello, World!",
 					"link": tg.symlink("hello.txt")
 				})
-			})
+			}
 		"#),
 	};
 	let dependencies = false;
@@ -148,13 +148,13 @@ async fn symlink() {
 async fn symlink_shared_target() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				return tg.directory({
 					"hello.txt": "Hello, World!",
 					"link1": tg.symlink("hello.txt"),
 					"link2": tg.symlink("hello.txt")
 				})
-			})
+			}
 		"#),
 	};
 	let dependencies = false;
@@ -188,14 +188,14 @@ async fn symlink_shared_target() {
 async fn deeply_nested_directory() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				let artifact = tg.file("hello");
 				for (let i = 0; i < 10; i++) {
 					let entries = { "a": artifact };
 					artifact = tg.directory(entries);
 				}
 				return artifact;
-			})
+			}
 		"#),
 	};
 	let dependencies = false;
@@ -208,7 +208,7 @@ async fn deeply_nested_directory() {
 async fn directory_with_file_with_dependency() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				return tg.directory({
 					"foo": tg.file({
 						contents: "foo", 
@@ -219,7 +219,7 @@ async fn directory_with_file_with_dependency() {
 						}
 					}) 
 				})
-			})
+			}
 		"#),
 	};
 	let dependencies = true;
@@ -262,11 +262,11 @@ async fn directory_with_file_with_dependency() {
 async fn directory_with_symlink_with_dependency() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				return tg.directory({
 					"foo": tg.symlink({artifact: tg.file("bar")})
 				})
-			})
+			}
 		"#),
 	};
 	let dependencies = true;
@@ -305,7 +305,7 @@ async fn directory_with_symlink_with_dependency() {
 async fn graph_directory() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				let graph = tg.graph({
 					nodes: [
 						{
@@ -315,7 +315,7 @@ async fn graph_directory() {
 					],
 				});
 				return tg.directory({ graph: graph, node: 0 });
-			})
+			}
 		"#),
 	};
 	let dependencies = false;
@@ -340,7 +340,7 @@ async fn graph_directory() {
 async fn graph_file() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				let graph = tg.graph({
 					nodes: [{
 						kind: "file", 
@@ -349,7 +349,7 @@ async fn graph_file() {
 					}],
 				});
 				return tg.file({ graph, node: 0 });  
-			});
+			};
 		"#),
 	};
 	let dependencies = false;
@@ -369,7 +369,7 @@ async fn graph_file() {
 async fn graph_symlink() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				let graph = tg.graph({
 					nodes: [{
 						kind: "symlink", 
@@ -377,7 +377,7 @@ async fn graph_symlink() {
 					}],
 				});
 				return tg.symlink({ graph: graph, node: 0 });  
-			})
+			}
 		"#),
 	};
 	let dependencies = false;
@@ -397,7 +397,7 @@ async fn graph_symlink() {
 async fn directory_with_symlink_cycle() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				let graph =  tg.graph({
 					nodes: [{
 							kind: "directory", 
@@ -411,7 +411,7 @@ async fn directory_with_symlink_cycle() {
 					],
 				});
 				return tg.directory({ graph: graph, node: 0 });
-			})
+			}
 		"#)
 	};
 	let dependencies = true;
@@ -439,7 +439,7 @@ async fn directory_with_symlink_cycle() {
 async fn shared_dependency_on_symlink() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(async () => {
+			export default async () => {
 				let depDir = await tg.directory({
 					"file.txt": "contents",
 					"link": tg.symlink("file.txt"),
@@ -449,7 +449,7 @@ async fn shared_dependency_on_symlink() {
 					"foo.txt": tg.file("foo", { dependencies: { depDirId: { item: depDir }}}),
 					"bar.txt": tg.file("bar", { dependencies: { depDirId: { item: depDir }}})
 				})
-			})
+			}
 		"#),
 	};
 	let dependencies = true;

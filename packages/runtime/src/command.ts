@@ -1,59 +1,24 @@
 import * as tg from "./index.ts";
-import type { MaybeMutationMap } from "./util.ts";
 
-type FunctionArg<
-	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
-> = {
-	function: (...args: A) => tg.Unresolved<R>;
-	module: tg.Module;
-	target: string;
-};
-
-export function command<
-	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
->(arg: FunctionArg): Command<A, R>;
-export function command<
-	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
->(...args: tg.Args<Command.Arg>): Promise<Command<A, R>>;
-export function command<
-	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
->(
+export function command<A extends Array<tg.Value>, R extends tg.Value>(
+	function_: (...args: A) => tg.Unresolved<R>,
+): tg.CommandBuilder<A, R>;
+export function command<A extends Array<tg.Value>, R extends tg.Value>(
+	function_: (...args: A) => tg.Unresolved<R>,
+	...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+): tg.CommandBuilder<[], R>;
+export function command(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
-): CommandBuilder;
+): tg.CommandBuilder;
+export function command(...args: tg.Args<tg.Command.Arg>): tg.CommandBuilder;
 export function command(...args: any): any {
-	if (
-		args.length === 1 &&
-		typeof args[0] === "object" &&
-		"function" in args[0]
-	) {
-		let arg = args[0];
-		let args_: Array<tg.Value> = [];
-		let executable = {
-			module: arg.module,
-			target: arg.target,
-		};
-		let cwd = undefined;
-		let mounts: Array<tg.Command.Mount> = [];
-		let env = {};
-		let stdin = undefined;
-		let user = undefined;
-		let object = {
-			args: args_,
-			cwd,
-			env,
-			executable,
+	if (typeof args[0] === "function") {
+		return new CommandBuilder({
 			host: "js",
-			mounts,
-			stdin,
-			user,
-		};
-		let state = { object };
-		return new Command(state, arg.function);
+			executable: syscall("magic", args[0]),
+			args: args.slice(1),
+		});
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -64,46 +29,18 @@ export function command(...args: any): any {
 		};
 		return new CommandBuilder(arg);
 	} else {
-		return Command.new(...(args as tg.Args<Command.Arg>));
+		return new CommandBuilder(...args);
 	}
 }
 
-export interface Command<
-	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
-> extends globalThis.Function {
-	(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): Promise<R>;
-}
-
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make commands callable.
 export class Command<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
-> extends globalThis.Function {
+> {
 	#state: Command.State;
-	#f: Function | undefined;
 
-	constructor(state: Command.State, f?: Function) {
-		super();
+	constructor(state: Command.State) {
 		this.#state = state;
-		this.#f = f;
-		let this_ = this as any;
-		// biome-ignore lint/correctness/noConstructorReturn: This is necessary to make commands callable.
-		return new Proxy(this_, {
-			get(_command, prop, _receiver) {
-				if (typeof this_[prop] === "function") {
-					return this_[prop].bind(this_);
-				} else {
-					return this_[prop];
-				}
-			},
-			apply: async (command, _, args) => {
-				return await tg.run(command, { args });
-			},
-			getPrototypeOf: (_command) => {
-				return Object.getPrototypeOf(this_);
-			},
-		});
 	}
 
 	get state(): Command.State {
@@ -279,81 +216,14 @@ export class Command<
 		return (await this.object()).mounts;
 	}
 
-	function(): Function | undefined {
-		return this.#f;
+	build(
+		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+	): tg.BuildBuilder<[], R> {
+		return tg.build(this, { args });
 	}
 
-	async build(...args: A): Promise<R> {
-		return (await tg.Process.build(this as Command<Array<tg.Value>, tg.Value>, {
-			args,
-		})) as R;
-	}
-
-	async run(...args: A): Promise<R> {
-		return (await tg.Process.run(this as Command<Array<tg.Value>, tg.Value>, {
-			args,
-		})) as R;
-	}
-}
-
-export class CommandBuilder {
-	#args: Array<tg.Unresolved<tg.MaybeMutationMap<tg.Command.ArgObject>>>;
-
-	constructor(...args: tg.Args<tg.Command.ArgObject>) {
-		this.#args = args;
-	}
-
-	args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this {
-		this.#args.push({ args });
-		return this;
-	}
-
-	cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
-		this.#args.push({ cwd });
-		return this;
-	}
-
-	env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this {
-		this.#args.push({ env });
-		return this;
-	}
-
-	executable(
-		executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
-	): this {
-		this.#args.push({ executable });
-		return this;
-	}
-
-	host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
-		this.#args.push({ host });
-		return this;
-	}
-
-	mount(
-		mounts: tg.Unresolved<
-			tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
-		>,
-	): this {
-		this.#args.push({ mounts });
-		return this;
-	}
-
-	// @ts-ignore
-	// biome-ignore lint/suspicious/noThenProperty: promiseLike class
-	then<TResult1 = tg.Value, TResult2 = never>(
-		onfulfilled?:
-			| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
-			| undefined
-			| null,
-		onrejected?:
-			| ((reason: any) => TResult2 | PromiseLike<TResult2>)
-			| undefined
-			| null,
-	): PromiseLike<TResult1 | TResult2> {
-		return tg.Command.new(
-			...(this.#args as tg.Args<tg.Command.ArgObject>),
-		).then(onfulfilled, onrejected);
+	run(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R> {
+		return tg.run(this, { args });
 	}
 }
 
@@ -369,10 +239,10 @@ export namespace Command {
 	export type ArgObject = {
 		args?: Array<tg.Value> | undefined;
 		cwd?: string | undefined;
-		env?: MaybeMutationMap | undefined;
+		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
+		mounts?: Array<tg.Template | tg.Command.Mount> | undefined;
 		stdin?: tg.Blob.Arg | undefined;
 		user?: string | undefined;
 	};
@@ -496,4 +366,105 @@ export namespace Command {
 	};
 
 	export type State = tg.Object.State<Command.Id, Command.Object>;
+}
+
+export interface CommandBuilder<
+	A extends Array<tg.Value> = Array<tg.Value>,
+	R extends tg.Value = tg.Value,
+> {
+	// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
+	(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.CommandBuilder<[], R>;
+}
+
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make this callable.
+export class CommandBuilder<
+	A extends Array<tg.Value> = Array<tg.Value>,
+	R extends tg.Value = tg.Value,
+> extends Function {
+	#args: Array<tg.Unresolved<tg.MaybeMutationMap<tg.Command.ArgObject>>>;
+
+	constructor(...args: tg.Args<tg.Command.ArgObject>) {
+		super();
+		this.#args = args;
+		// biome-ignore lint/correctness/noConstructorReturn: This is necessary to make this callable.
+		return new Proxy(this, {
+			get(this_: any, prop, _receiver) {
+				if (typeof this_[prop] === "function") {
+					return this_[prop].bind(this_);
+				}
+				return this_[prop];
+			},
+			apply: (this_, _, args) => {
+				return this_.args(args);
+			},
+			getPrototypeOf: (this_) => {
+				return Object.getPrototypeOf(this_);
+			},
+		});
+	}
+
+	args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this {
+		this.#args.push({ args });
+		return this;
+	}
+
+	cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+		this.#args.push({ cwd });
+		return this;
+	}
+
+	env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this {
+		this.#args.push({ env });
+		return this;
+	}
+
+	executable(
+		executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
+	): this {
+		this.#args.push({ executable });
+		return this;
+	}
+
+	host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
+		this.#args.push({ host });
+		return this;
+	}
+
+	mount(
+		mounts: tg.Unresolved<
+			tg.MaybeMutation<Array<tg.Template | tg.Command.Mount>>
+		>,
+	): this {
+		this.#args.push({ mounts });
+		return this;
+	}
+
+	// @ts-ignore
+	// biome-ignore lint/suspicious/noThenProperty: promiseLike class
+	then<TResult1 = tg.Command<A, R>, TResult2 = never>(
+		onfulfilled?:
+			| ((value: tg.Command<A, R>) => TResult1 | PromiseLike<TResult1>)
+			| undefined
+			| null,
+		onrejected?:
+			| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+			| undefined
+			| null,
+	): PromiseLike<TResult1 | TResult2> {
+		return (
+			tg.Command.new(
+				...(this.#args as tg.Args<tg.Command.ArgObject>),
+			) as Promise<tg.Command<A, R>>
+		).then(onfulfilled, onrejected);
+	}
+
+	build(
+		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+	): tg.BuildBuilder<[], R> {
+		return new tg.BuildBuilder(this as any, { args });
+	}
+
+	run(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R> {
+		return new tg.RunBuilder(this as any, { args });
+	}
 }

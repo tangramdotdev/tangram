@@ -1512,16 +1512,16 @@ async fn tagged_package() {
 		"a".into(),
 		temp::directory! {
 			"tangram.ts" => indoc::indoc!(r#"
-				export default tg.command(() => "a");
+				export default () => "a";
 			"#),
 		},
 	)];
 	let directory = temp::directory! {
 		"tangram.ts" => indoc::indoc!(r#"
 			import a from "a";
-			export default tg.command(async () => {
+			export default async () => {
 				return await a();
-			});
+			};
 		"#)
 	};
 	let assertions = |object: String, _: String, lockfile: Option<tg::Lockfile>| async move {
@@ -1534,7 +1534,7 @@ async fn tagged_package() {
 		      "entries": {
 		        "tangram.ts": 1
 		      },
-		      "id": "dir_01nmxpd9pn574eb44944s45cxpsatwt70701xn1sbtyejd8jgyd4rg"
+		      "id": "dir_011bzmbdws94k02mvjmhcwys895zcjn7s7rx4gyszj16rvq255bdn0"
 		    },
 		    {
 		      "kind": "file",
@@ -1544,18 +1544,18 @@ async fn tagged_package() {
 		          "subpath": "tangram.ts"
 		        }
 		      },
-		      "id": "fil_01dg1e8v987kdrjxr40r1natxf2qsvsggn5yqjgp4a4sy4a1s113rg"
+		      "id": "fil_01ryb9njvwgrhhs9w24g7bn70x7n7dz3qx850cr5a4wjb0vrgf7kc0"
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 3
 		      },
-		      "id": "dir_01cgwvgsd81m77snb9t4fe88x1a1r00ch1v7embvar5qxm72c0h9ng"
+		      "id": "dir_014kqrajn0xbffgmn84k5crdtpfmw277zz9jcz7wm5jj1bks14spyg"
 		    },
 		    {
 		      "kind": "file",
-		      "id": "fil_01eypdhmb5v4wcjxyk14naaq9bvw09rp84s1amn5q30jv6b324a0fg"
+		      "id": "fil_01wfv1nny15t09ts6estb4pw7qsz3j7bqq2wyfyhapnydarven8jng"
 		    }
 		  ]
 		}
@@ -1563,12 +1563,12 @@ async fn tagged_package() {
 		assert_snapshot!(object, @r#"
 		tg.directory({
 		  "tangram.ts": tg.file({
-		    "contents": tg.blob("import a from \"a\";\nexport default tg.command(async () => {\n\treturn await a();\n});\n"),
+		    "contents": tg.blob("import a from \"a\";\nexport default async () => {\n\treturn await a();\n};\n"),
 		    "dependencies": {
 		      "a": {
 		        "item": tg.directory({
 		          "tangram.ts": tg.file({
-		            "contents": tg.blob("export default tg.command(() => \"a\");\n"),
+		            "contents": tg.blob("export default () => \"a\";\n"),
 		          }),
 		        }),
 		        "subpath": "tangram.ts",

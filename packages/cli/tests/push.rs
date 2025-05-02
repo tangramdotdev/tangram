@@ -8,9 +8,9 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 async fn push_file() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				return tg.file("Hello, World!")
-			})
+			}
 	"#),
 	};
 	test_object_push(directory).await;
@@ -20,14 +20,14 @@ async fn push_file() {
 async fn push_simple_directory() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default tg.command(() => {
+			export default () => {
 				return tg.directory({
 					"hello.txt": tg.file("Hello, world!"),
 					"subdirectory": tg.directory({
 						"nested.txt": tg.file("I'm nested!")
 					})
 				})
-			})
+			}
 		"#)
 	};
 	test_object_push(directory).await;

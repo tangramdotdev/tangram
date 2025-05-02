@@ -9,7 +9,7 @@ import bunLockb from "./bun.lockb" with { type: "file" };
 import packageJson from "./package.json" with { type: "file" };
 import packages from "./packages" with { type: "directory" };
 
-export const source = tg.command(() =>
+export const source = () =>
 	tg.directory({
 		"Cargo.toml": cargoToml,
 		"Cargo.lock": cargoLock,
@@ -18,9 +18,9 @@ export const source = tg.command(() =>
 		"package.json": packageJson,
 		packages: packages,
 	}),
-);
+;
 
-export default tg.command(async () => {
+export default async () => {
 	const host = std.triple.host();
 	const bunArtifact = bun({ host });
 	const env = std.env.arg(
@@ -37,34 +37,32 @@ export default tg.command(async () => {
 	return tg.directory(output, {
 		["bin/tg"]: tg.symlink("tangram"),
 	});
-});
+};
 
-export const librustyv8 = tg.command(
-	async (lockfile: tg.File, hostArg?: string) => {
-		const host = hostArg ?? (await std.triple.host());
-		let os;
-		if (std.triple.os(host) === "darwin") {
-			os = "apple-darwin";
-		} else if (std.triple.os(host) === "linux") {
-			os = "unknown-linux-gnu";
-		} else {
-			throw new Error(`unsupported host ${host}`);
-		}
-		const checksum = "unsafe";
-		const file = `librusty_v8_release_${std.triple.arch(host)}-${os}.a.gz`;
-		const version = await getRustyV8Version(lockfile);
-		const lib = await std
-			.download({
-				checksum,
-				decompress: true,
-				url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
-			})
-			.then(tg.File.expect);
-		return {
-			RUSTY_V8_ARCHIVE: lib,
-		};
-	},
-);
+export const librustyv8 = async (lockfile: tg.File, hostArg?: string) => {
+	const host = hostArg ?? (await std.triple.host());
+	let os;
+	if (std.triple.os(host) === "darwin") {
+		os = "apple-darwin";
+	} else if (std.triple.os(host) === "linux") {
+		os = "unknown-linux-gnu";
+	} else {
+		throw new Error(`unsupported host ${host}`);
+	}
+	const checksum = "unsafe";
+	const file = `librusty_v8_release_${std.triple.arch(host)}-${os}.a.gz`;
+	const version = await getRustyV8Version(lockfile);
+	const lib = await std
+		.download({
+			checksum,
+			decompress: true,
+			url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
+		})
+		.then(tg.File.expect);
+	return {
+		RUSTY_V8_ARCHIVE: lib,
+	};
+}
 
 const getRustyV8Version = async (lockfile: tg.File) => {
 	const v8 = await lockfile
@@ -83,7 +81,7 @@ type CargoLock = {
 	package: Array<{ name: string; version: string }>;
 };
 
-export const linuxRuntimeComponents = tg.command(async () => {
+export const linuxRuntimeComponents = async () => {
 	const version = "v2024.10.03";
 	const urlBase = `https://github.com/tangramdotdev/bootstrap/releases/download/${version}`;
 
@@ -107,4 +105,4 @@ export const linuxRuntimeComponents = tg.command(async () => {
 			}),
 		),
 	);
-});
+};

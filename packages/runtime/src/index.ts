@@ -2,7 +2,7 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert, unimplemented, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
-import { BuildBuilder } from "./build.ts";
+import { BuildBuilder, build } from "./build.ts";
 import {
 	type ArchiveFormat,
 	type CompressionFormat,
@@ -30,7 +30,7 @@ import type { Reference } from "./reference.ts";
 import type { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
-import { RunBuilder } from "./run.ts";
+import { RunBuilder, run } from "./run.ts";
 import { sleep } from "./sleep.ts";
 import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
@@ -45,10 +45,6 @@ import type {
 	ValueOrMaybeMutationMap,
 } from "./util.ts";
 import { Value } from "./value.ts";
-
-let build = Process.build;
-let run = Process.run;
-let $ = run;
 
 export type {
 	ArchiveFormat,
@@ -86,7 +82,6 @@ export {
 	Symlink,
 	Template,
 	Value,
-	$,
 	archive,
 	assert,
 	blob,
@@ -107,6 +102,7 @@ export {
 	mutation,
 	path,
 	resolve,
+	run as $,
 	run,
 	sleep,
 	start,

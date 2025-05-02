@@ -8,10 +8,10 @@ export async function template(
 	...placeholders: tg.Args<Template.Arg>
 ): Promise<Template>;
 export async function template(...args: any): Promise<Template> {
-	return await templateInner(false, ...args);
+	return await inner(false, ...args);
 }
 
-async function templateInner(raw: boolean, ...args: any): Promise<Template> {
+async function inner(raw: boolean, ...args: any): Promise<Template> {
 	if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = !raw ? unindent(args[0]) : args[0];
 		let placeholders = args.slice(1) as tg.Args<Template>;
@@ -111,7 +111,7 @@ export namespace Template {
 	export type Component = string | tg.Artifact;
 
 	export let raw = async (...args: any): Promise<Template> => {
-		return await templateInner(true, ...args);
+		return await inner(true, ...args);
 	};
 }
 

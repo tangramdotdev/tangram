@@ -50,7 +50,7 @@ declare global {
 		string: string,
 	): void;
 
-	function syscall(syscall: "module_load", module: tg.Module): Promise<any>;
+	function syscall(syscall: "magic", value: Function): tg.Command.Executable;
 
 	function syscall(
 		syscall: "object_load",

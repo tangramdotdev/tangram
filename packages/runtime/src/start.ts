@@ -9,6 +9,7 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 	// Set the current process.
 	tg.Process.current = process;
 
+	// Import the module.
 	// @ts-ignore
 	// biome-ignore lint/security/noGlobalEval: special import
 	let namespace = await eval(`import("!")`);
@@ -21,20 +22,17 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 		throw new Error("the executable must have a target");
 	}
 
-	// Get the command.
-	let value = namespace[target];
-	let function_: Function;
-	if (value instanceof tg.Command) {
-		function_ = value.function()!;
+	// Get the output.
+	let output: tg.Value;
+	let value = await namespace[target];
+	if (tg.Value.is(value)) {
+		output = value;
 	} else if (typeof value === "function") {
-		function_ = value;
+		let args = await command.args();
+		output = await tg.resolve(value(...args));
 	} else {
 		throw new Error("invalid export");
 	}
-
-	// Call the function and resolve its output.
-	let args = await command.args();
-	let output = await tg.resolve(function_!(...args));
 
 	return output;
 };

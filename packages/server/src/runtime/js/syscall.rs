@@ -10,6 +10,7 @@ use tangram_v8::convert::{FromV8, ToV8};
 mod blob;
 mod checksum;
 mod encoding;
+mod magic;
 mod object;
 mod process;
 mod sleep;
@@ -42,6 +43,7 @@ pub fn syscall<'s>(
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
 		"log" => sync(scope, &args, self::log::log),
+		"magic" => self::magic::magic(scope, &args),
 		"object_load" => async_(scope, &args, self::object::load),
 		"object_store" => async_(scope, &args, self::object::store),
 		"process_load" => async_(scope, &args, self::process::load),
