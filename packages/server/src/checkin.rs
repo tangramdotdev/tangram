@@ -86,7 +86,7 @@ enum Blob {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FileDependency {
 	Import {
-		import: tg::Import,
+		import: tg::module::Import,
 		path: Option<PathBuf>,
 		subpath: Option<PathBuf>,
 		node: Option<usize>,
