@@ -144,7 +144,6 @@ async fn test_path<F, Fut>(
 			)
 			.unwrap();
 		let arg = tg::checkin::Arg {
-			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,
@@ -195,7 +194,6 @@ async fn test_object<F, Fut>(
 			)
 			.unwrap();
 		let arg = tg::checkin::Arg {
-			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,

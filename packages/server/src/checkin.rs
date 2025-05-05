@@ -118,6 +118,10 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
 	> {
+		if arg.destructive && arg.ignore {
+			return Err(tg::error!("ignore is forbidden for destructive checkins"));
+		}
+
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({
 			let server = self.clone();

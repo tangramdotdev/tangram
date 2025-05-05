@@ -46,7 +46,6 @@ impl Server {
 			},
 			tg::reference::Item::Path(path) => {
 				let arg = tg::checkin::Arg {
-					cache: false,
 					destructive: false,
 					deterministic: false,
 					ignore: true,

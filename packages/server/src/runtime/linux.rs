@@ -493,7 +493,6 @@ impl Runtime {
 		})?;
 		let output = if exists {
 			let arg = tg::checkin::Arg {
-				cache: true,
 				destructive: true,
 				deterministic: true,
 				ignore: false,
