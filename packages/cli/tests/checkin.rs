@@ -2887,6 +2887,7 @@ async fn test_checkin_inner(
 	command.arg(path.clone());
 	if destructive {
 		command.arg("--destructive");
+		command.arg("--ignore=false");
 	}
 	let output = command.output().await.unwrap();
 	assert_success!(output);

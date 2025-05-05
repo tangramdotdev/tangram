@@ -6,6 +6,10 @@ use tangram_client::{self as tg, prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Check in the artifact faster by allowing it o be destroyed.
+	#[arg(long)]
+	pub destructive: bool,
+
 	/// Check in the artifact determnistically.
 	#[arg(long)]
 	pub deterministic: bool,
@@ -37,8 +41,8 @@ impl Cli {
 
 		// Check in the artifact.
 		let arg = tg::checkin::Arg {
-			destructive: false,
 			deterministic: false,
+			destructive: args.destructive,
 			ignore: args.ignore,
 			locked: args.locked,
 			lockfile: args.lockfile,

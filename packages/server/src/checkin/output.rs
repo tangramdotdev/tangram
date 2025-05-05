@@ -1,5 +1,5 @@
 use super::{Blob, File, State, Variant, set_permissions_and_times};
-use crate::{Server, temp::Temp};
+use crate::Server;
 use bytes::Bytes;
 use futures::{TryStreamExt, stream::FuturesUnordered};
 use num::ToPrimitive;
@@ -71,103 +71,56 @@ impl Server {
 		root: usize,
 		nodes: &[usize],
 	) -> tg::Result<()> {
-		// Extract the root data.
-		let root_id = &state.graph.nodes[root].object.as_ref().unwrap().id;
-		let root_path = state.graph.nodes[root].path();
-		let root_metadata = state.graph.nodes[root].metadata.as_ref().unwrap();
-		let root_dst = self.cache_path().join(root_id.to_string());
-
 		// Attempt to rename if this is a destructive checkin.
 		if state.arg.destructive {
-			match std::fs::rename(root_path, &root_dst) {
+			let id = &state.graph.nodes[root].object.as_ref().unwrap().id;
+			let path = state.graph.nodes[root].path();
+			let dst = self.cache_path().join(id.to_string());
+			match std::fs::rename(path, &dst) {
 				Ok(()) => {
 					let epoch =
 						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-					filetime::set_symlink_file_times(&root_dst, epoch, epoch).map_err(
-						|source| tg::error!(!source, %path = root_dst.display(), "failed to set the modified time"),
+					filetime::set_symlink_file_times(&dst, epoch, epoch).map_err(
+						|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
 					)?;
 					return Ok(());
 				},
 				Err(ref error) if error.raw_os_error() == Some(libc::EEXIST | libc::ENOTEMPTY) => {
 					return Ok(());
 				},
-				Err(ref error) if error.raw_os_error() == Some(libc::ENOSYS) => (),
 				Err(source) => return Err(tg::error!(!source, "failed to rename root")),
 			}
 		}
 
-		// Otherwise copy to a temp.
-		let temp = Temp::new(self);
-		if root_metadata.is_file() {
-			// Copy the file.
-			std::fs::copy(root_path, temp.path())
-				.map_err(|source| tg::error!(!source, "failed to copy file"))?;
-
-			// Update permissions.
-			set_permissions_and_times(temp.path(), root_metadata)?;
-		} else if root_metadata.is_symlink() {
-			// Get the target.
-			let target = &state.graph.nodes[root].variant.unwrap_symlink_ref().target;
-
-			// Create the symlink.
-			std::os::unix::fs::symlink(target, temp.path())
-				.map_err(|source| tg::error!(!source, "failed to create link"))?;
-		} else {
-			// Walk the subgraph.
-			std::fs::create_dir_all(temp.path())
-				.map_err(|source| tg::error!(!source, "failed to create temp directory"))?;
-
-			// Copy everything except the root.
-			for node in nodes {
-				let node = &state.graph.nodes[*node];
-				let metadata = node.metadata.as_ref().unwrap();
-				let src = node.path();
-				let dst = temp.path().join(src.strip_prefix(root_path).unwrap());
-				if metadata.is_dir() {
-					std::fs::create_dir_all(&dst).map_err(
-						|source| tg::error!(!source, %path = dst.display(), "failed to create directory"),
+		// If this is a non destructive checkin, only copy the blobs to the cache.
+		for node in std::iter::once(root).chain(nodes.iter().copied()) {
+			// Skip nodes that don't exist on the system.
+			if !state.graph.nodes[node]
+				.metadata
+				.as_ref()
+				.is_some_and(|metadata| metadata.is_file())
+			{
+				continue;
+			}
+			let id = state.graph.nodes[node]
+				.object
+				.as_ref()
+				.unwrap()
+				.id
+				.to_string();
+			let src = state.graph.nodes[node].path();
+			let dst = self.cache_path().join(id);
+			match std::fs::copy(src, &dst) {
+				Ok(_) => {
+					set_permissions_and_times(
+						&dst,
+						state.graph.nodes[node].metadata.as_ref().unwrap(),
 					)?;
-				} else if metadata.is_file() {
-					std::fs::create_dir_all(dst.parent().unwrap()).map_err(
-						|source| tg::error!(!source, %path = dst.display(), "failed to create parent directory"),
-					)?;
-					std::fs::copy(src, &dst).map_err(
-						|source| tg::error!(!source, %path = src.display(), "failed to copy file"),
-					)?;
-				} else if metadata.is_symlink() {
-					let target = &node.variant.unwrap_symlink_ref().target;
-					std::os::unix::fs::symlink(target, &dst)
-						.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
-				} else {
-					unreachable!("well, fuck")
-				}
-
-				// Update permissions.
-				set_permissions_and_times(&dst, metadata)?;
+				},
+				Err(ref error) if error.raw_os_error() == Some(libc::EEXIST) => continue,
+				Err(source) => return Err(tg::error!(!source, "failed to copy the file")),
 			}
 		}
-
-		// Rename the temp to the cache.
-		match std::fs::rename(temp.path(), &root_dst) {
-			Ok(()) => (),
-			Err(error)
-				if matches!(
-					error.kind(),
-					std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::DirectoryNotEmpty,
-				) => {},
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					"failed to rename the path to the cache directory"
-				));
-			},
-		}
-
-		// Set the file times to the epoch.
-		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-		filetime::set_symlink_file_times(&root_dst, epoch, epoch).map_err(
-			|source| tg::error!(!source, %path = root_dst.display(), "failed to set the modified time"),
-		)?;
 
 		Ok(())
 	}
@@ -229,9 +182,14 @@ impl Server {
 							.unwrap_or_default();
 						let id = blob.id.clone().into();
 						let size = blob.size;
+						let cache_reference = state
+							.arg
+							.destructive
+							.then(|| root.clone())
+							.unwrap_or_else(|| object.id.clone().try_into().unwrap());
 						let message =
 							crate::index::Message::PutObject(crate::index::PutObjectMessage {
-								cache_reference: Some(root.clone()),
+								cache_reference: Some(cache_reference),
 								children,
 								id,
 								size,
@@ -303,9 +261,14 @@ impl Server {
 							.unwrap_or_default();
 						let id = blob.id.clone().into();
 						let size = blob.size;
+						let cache_reference = state
+							.arg
+							.destructive
+							.then(|| root.clone())
+							.unwrap_or_else(|| object.id.clone().try_into().unwrap());
 						let message =
 							crate::index::Message::PutObject(crate::index::PutObjectMessage {
-								cache_reference: Some(root.clone()),
+								cache_reference: Some(cache_reference),
 								children,
 								id,
 								size,
@@ -401,15 +364,21 @@ impl Server {
 				{
 					let mut stack = vec![blob];
 					while let Some(blob) = stack.pop() {
-						let subpath = node.path().strip_prefix(root_path).unwrap().to_owned();
-						let subpath = subpath
-							.to_str()
-							.unwrap()
-							.is_empty()
-							.not()
-							.then_some(subpath);
+						let (artifact, subpath) = if state.arg.destructive {
+							let subpath = node.path().strip_prefix(root_path).unwrap().to_owned();
+							let subpath = subpath
+								.to_str()
+								.unwrap()
+								.is_empty()
+								.not()
+								.then_some(subpath);
+							(root.clone(), subpath)
+						} else {
+							let artifact = object.id.clone().try_into().unwrap();
+							(artifact, None)
+						};
 						let reference = crate::store::CacheReference {
-							artifact: root.clone(),
+							artifact,
 							subpath,
 							position: blob.position,
 							length: blob.length,
