@@ -24,6 +24,9 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 
 	// Get the output.
 	let output: tg.Value;
+	if (!(target in namespace)) {
+		throw new Error("failed to find the export");
+	}
 	let value = await namespace[target];
 	if (tg.Value.is(value)) {
 		output = value;
@@ -31,7 +34,7 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 		let args = await command.args();
 		output = await tg.resolve(value(...args));
 	} else {
-		throw new Error("invalid export");
+		throw new Error("the export must be a tg.Value or a function");
 	}
 
 	return output;
