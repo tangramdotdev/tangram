@@ -29,7 +29,6 @@ struct State {
 	lockfile: Option<ParsedLockfile>,
 	locked: bool,
 	ignorer: Option<tangram_ignore::Ignorer>,
-	#[allow(dead_code)]
 	progress: crate::progress::Handle<tg::checkin::Output>,
 }
 

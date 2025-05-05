@@ -98,7 +98,7 @@ impl Server {
 			if !state.graph.nodes[node]
 				.metadata
 				.as_ref()
-				.is_some_and(|metadata| metadata.is_file())
+				.is_some_and(std::fs::Metadata::is_file)
 			{
 				continue;
 			}
@@ -117,7 +117,7 @@ impl Server {
 						state.graph.nodes[node].metadata.as_ref().unwrap(),
 					)?;
 				},
-				Err(ref error) if error.raw_os_error() == Some(libc::EEXIST) => continue,
+				Err(ref error) if error.raw_os_error() == Some(libc::EEXIST) => (),
 				Err(source) => return Err(tg::error!(!source, "failed to copy the file")),
 			}
 		}
