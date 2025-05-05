@@ -159,7 +159,7 @@ impl Reference {
 impl Reference {
 	pub fn name(&self) -> Option<&str> {
 		self.options()
-			.and_then(|options| options.name.as_ref().map(String::as_str))
+			.and_then(|options| options.name.as_deref())
 			.or(self
 				.item()
 				.try_unwrap_tag_ref()

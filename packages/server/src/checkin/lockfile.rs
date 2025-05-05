@@ -107,7 +107,7 @@ impl Server {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == graph_id.clone().into())
+					.find(|object| object.id == graph_id.clone())
 					.unwrap()
 					.data;
 				let file = graph.nodes[*node].clone().try_unwrap_file().unwrap();
@@ -153,9 +153,15 @@ impl Server {
 					referent,
 				} => {
 					let reference = reference.clone();
-					let item = match referent.item.as_ref().ok_or_else(|| tg::error!("unresolved reference"))? {
+					let item = match referent
+						.item
+						.as_ref()
+						.ok_or_else(|| tg::error!("unresolved reference"))?
+					{
 						Either::Left(id) => Either::Right(id.clone()),
-						Either::Right(node) => Self::create_lockfile_node(state, *node, nodes, visited)?,
+						Either::Right(node) => {
+							Self::create_lockfile_node(state, *node, nodes, visited)?
+						},
 					};
 					let referent = tg::Referent {
 						item,
@@ -176,6 +182,7 @@ impl Server {
 		Ok(tg::lockfile::Node::File(file))
 	}
 
+	#[allow(clippy::ptr_arg)]
 	fn checkin_create_lockfile_symlink_node(
 		state: &super::State,
 		_node: usize,
@@ -192,7 +199,7 @@ impl Server {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == graph_id.clone().into())
+					.find(|object| object.id == graph_id.clone())
 					.unwrap()
 					.data;
 				let symlink = graph.nodes[*node].clone().try_unwrap_symlink().unwrap();
