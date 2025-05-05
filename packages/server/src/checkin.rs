@@ -278,21 +278,32 @@ impl Server {
 			.try_into()
 			.unwrap();
 
-		// Write the objects to the database and the store.
 		let state = Arc::new(state);
-		let cache_future = tokio::spawn({
+
+		let cache_and_store_future = tokio::spawn({
 			let server = self.clone();
 			let state = state.clone();
 			async move {
+				// Cache the objects.
 				let start = Instant::now();
 				server
-					.checkin_cache_task(state, touched_at)
+					.checkin_cache_task(state.clone(), touched_at)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to copy blobs"))?;
 				tracing::trace!(elapsed = ?start.elapsed(), "copy blobs");
+
+				// Store the objects.
+				let start = Instant::now();
+				server
+					.checkin_store_task(&state, touched_at)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to write the objects to the store")
+					})?;
+				tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 				Ok::<_, tg::Error>(())
 			}
-			.inspect_err(|error| tracing::error!(?error, "cache task failed"))
+			.inspect_err(|error| tracing::error!(?error, "cache and store task failed"))
 		})
 		.map(|result| result.unwrap());
 		let messenger_future = tokio::spawn({
@@ -312,23 +323,6 @@ impl Server {
 			.inspect_err(|error| tracing::error!(?error, "messenger task failed"))
 		})
 		.map(|result| result.unwrap());
-		let store_future = tokio::spawn({
-			let server = self.clone();
-			let state = state.clone();
-			async move {
-				let start = Instant::now();
-				server
-					.checkin_store_task(&state, touched_at)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to write the objects to the store")
-					})?;
-				tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
-				Ok::<_, tg::Error>(())
-			}
-			.inspect_err(|error| tracing::error!(?error, "store task failed"))
-		})
-		.map(|result| result.unwrap());
 		let lockfile_future = tokio::spawn({
 			let server = self.clone();
 			let state = state.clone();
@@ -344,12 +338,7 @@ impl Server {
 			.inspect_err(|error| tracing::error!(?error, "lockfile task failed"))
 		})
 		.map(|result| result.unwrap());
-		futures::try_join!(
-			cache_future,
-			messenger_future,
-			store_future,
-			lockfile_future
-		)?;
+		futures::try_join!(cache_and_store_future, messenger_future, lockfile_future)?;
 
 		let _state = Arc::into_inner(state).unwrap();
 
