@@ -13,9 +13,9 @@ use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
+use tangram_ignore as ignore;
 use tokio_util::task::AbortOnDropHandle;
 
-pub(crate) mod ignore;
 mod input;
 mod lockfile;
 mod object;
@@ -28,7 +28,7 @@ struct State {
 	graph_objects: Vec<GraphObject>,
 	lockfile: Option<Lockfile>,
 	locked: bool,
-	ignorer: Option<tangram_ignore::Ignorer>,
+	ignorer: Option<ignore::Ignorer>,
 	progress: crate::progress::Handle<tg::checkin::Output>,
 }
 
@@ -83,7 +83,7 @@ enum Blob {
 	Id(tg::blob::Id),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 enum FileDependency {
 	Import {
 		import: tg::module::Import,
@@ -347,7 +347,7 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) fn checkin_create_ignorer() -> tg::Result<tangram_ignore::Ignorer> {
+	pub(crate) fn checkin_create_ignorer() -> tg::Result<ignore::Ignorer> {
 		let file_names = vec![
 			".tangramignore".into(),
 			".tgignore".into(),
@@ -361,26 +361,7 @@ impl Server {
 				tangram.lock
 			"
 		);
-		tangram_ignore::Ignorer::new(file_names, Some(global))
-			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
-	}
-
-	pub(crate) async fn ignore_matcher_for_checkin() -> tg::Result<ignore::Matcher> {
-		let file_names = vec![
-			".tangramignore".into(),
-			".tgignore".into(),
-			".gitignore".into(),
-		];
-		let global = indoc!(
-			"
-				.DS_Store
-				.git
-				.tangram
-				tangram.lock
-			"
-		);
-		ignore::Matcher::new(file_names, Some(global))
-			.await
+		ignore::Ignorer::new(file_names, Some(global))
 			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 }

@@ -1,8 +1,8 @@
-use crate::{Server, checkin::ignore::Matcher, compiler::Compiler};
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use crate::{Server, compiler::Compiler};
 use std::path::Path;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tangram_ignore as ignore;
 
 impl Server {
 	pub async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
@@ -20,96 +20,83 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
 		// Create the ignore matcher.
-		let ignore = Self::ignore_matcher_for_checkin().await?;
+		let mut ignore = Self::checkin_create_ignorer()?;
 
 		// Format.
-		self.format_inner(&path, &ignore).await?;
+		tokio::task::spawn_blocking({
+			let server = self.clone();
+			move || server.format_inner(&path, &mut ignore)
+		})
+		.await
+		.unwrap()?;
 
 		Ok(())
 	}
 
-	async fn format_inner(&self, path: &Path, ignore: &Matcher) -> tg::Result<()> {
-		let metadata = tokio::fs::metadata(path)
-			.await
+	fn format_inner(&self, path: &Path, ignore: &mut ignore::Ignorer) -> tg::Result<()> {
+		let metadata = std::fs::metadata(path)
 			.map_err(|source| tg::error!(!source, "failed to read the metadata"))?;
 		if metadata.is_dir() {
-			self.format_directory(path, ignore).await?;
+			self.format_directory(path, ignore)?;
 		} else if path.is_file() && tg::package::is_module_path(path) {
-			self.format_file(path).await?;
+			Self::format_file(path)?;
 		}
 		Ok(())
 	}
 
-	async fn format_directory(&self, path: &Path, ignore: &Matcher) -> tg::Result<()> {
+	fn format_directory(&self, path: &Path, ignore: &mut ignore::Ignorer) -> tg::Result<()> {
 		// Read the directory entries.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 		let mut entries = Vec::new();
-		let mut read_dir = tokio::fs::read_dir(path)
-			.await
+		let mut read_dir = std::fs::read_dir(path)
 			.map_err(|error| tg::error!(source = error, "failed to read the directory"))?;
 		while let Some(entry) = read_dir
-			.next_entry()
-			.await
+			.next()
+			.transpose()
 			.map_err(|error| tg::error!(source = error, "failed to read the directory entry"))?
 		{
 			entries.push(entry);
 		}
 		drop(read_dir);
-		drop(permit);
 
 		// Handle the directory entries.
-		entries
-			.into_iter()
-			.map(|entry| async move {
-				// Get the path.
-				let path = entry.path();
+		for entry in entries {
+			// Get the path.
+			let path = entry.path();
 
-				// Check to see if the path should be ignored.
-				let file_type = entry
-					.file_type()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the file type"))?;
-				let is_directory = file_type.is_dir();
-				if ignore
-					.matches(path.as_ref(), Some(is_directory))
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to check if the path should be ignored")
-					})? {
-					return Ok::<_, tg::Error>(());
-				}
+			// Check to see if the path should be ignored.
+			let file_type = entry
+				.file_type()
+				.map_err(|source| tg::error!(!source, "failed to get the file type"))?;
+			let is_directory = file_type.is_dir();
+			if ignore
+				.matches(path.as_ref(), Some(is_directory))
+				.map_err(|source| {
+					tg::error!(!source, "failed to check if the path should be ignored")
+				})? {
+				continue;
+			}
 
-				// Recurse.
-				self.format_inner(&path, ignore).await?;
-
-				Ok::<_, tg::Error>(())
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<()>()
-			.await?;
+			// Recurse.
+			self.format_inner(&path, ignore)?;
+		}
 
 		Ok(())
 	}
 
-	async fn format_file(&self, path: &Path) -> tg::Result<()> {
+	fn format_file(path: &Path) -> tg::Result<()> {
 		// Get the text.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		let text = tokio::fs::read_to_string(&path)
-			.await
+		let text = std::fs::read_to_string(path)
 			.map_err(|source| tg::error!(!source, "failed to read the module"))?;
-		drop(permit);
 
 		// Format the text.
-		let text = Compiler::format(text).await.map_err(
+		let text = Compiler::format(&text).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to format the module"),
 		)?;
 
 		// Write the text.
-		let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-		tokio::fs::write(&path, text.as_bytes()).await.map_err(
+		std::fs::write(path, text.as_bytes()).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to write the formatted module"),
 		)?;
-		drop(permit);
 
 		Ok(())
 	}
