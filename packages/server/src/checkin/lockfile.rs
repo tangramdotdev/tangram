@@ -622,22 +622,21 @@ impl petgraph::visit::GraphBase for LockfileGraphImpl<'_> {
 	type NodeId = usize;
 }
 
-#[allow(clippy::needless_arbitrary_self_type)]
-impl<'a> petgraph::visit::NodeIndexable for &'a LockfileGraphImpl<'a> {
-	fn from_index(self: &Self, i: usize) -> Self::NodeId {
+impl petgraph::visit::NodeIndexable for &LockfileGraphImpl<'_> {
+	fn from_index(&self, i: usize) -> Self::NodeId {
 		i
 	}
 
-	fn node_bound(self: &Self) -> usize {
+	fn node_bound(&self) -> usize {
 		self.0.len()
 	}
 
-	fn to_index(self: &Self, a: Self::NodeId) -> usize {
+	fn to_index(&self, a: Self::NodeId) -> usize {
 		a
 	}
 }
 
-impl<'a> petgraph::visit::IntoNeighbors for &'a LockfileGraphImpl<'a> {
+impl<'a> petgraph::visit::IntoNeighbors for &LockfileGraphImpl<'a> {
 	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
 	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
 		match &self.0[a] {
@@ -667,7 +666,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a LockfileGraphImpl<'a> {
 	}
 }
 
-impl<'a> petgraph::visit::IntoNodeIdentifiers for &'a LockfileGraphImpl<'a> {
+impl petgraph::visit::IntoNodeIdentifiers for &LockfileGraphImpl<'_> {
 	type NodeIdentifiers = std::ops::Range<usize>;
 	fn node_identifiers(self) -> Self::NodeIdentifiers {
 		0..self.0.len()

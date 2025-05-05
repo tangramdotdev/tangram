@@ -4,19 +4,6 @@ use std::collections::BTreeMap;
 use tangram_client as tg;
 use tangram_either::Either;
 
-// An unresolved reference in the graph.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Unresolved {
-	// The constraint the referrer places on the dependency.
-	pub reference: tg::Reference,
-
-	// The source node of the edge.
-	pub src: usize,
-
-	// The destination of the edge.
-	pub dst: Option<usize>,
-}
-
 #[derive(Clone, Debug)]
 struct State {
 	// A cache of already solved objects.
@@ -36,6 +23,19 @@ struct State {
 
 	// A list of visited edges.
 	visited: im::HashSet<Unresolved>,
+}
+
+// An unresolved reference in the graph.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Unresolved {
+	// The constraint the referrer places on the dependency.
+	reference: tg::Reference,
+
+	// The source node of the edge.
+	src: usize,
+
+	// The destination of the edge.
+	dst: Option<usize>,
 }
 
 impl Server {
@@ -544,7 +544,7 @@ impl super::Graph {
 					}
 				})
 				.collect(),
-			super::Variant::Symlink(_) | super::Variant::Object => im::Vector::new(), // TODO
+			super::Variant::Symlink(_) | super::Variant::Object => im::Vector::new(),
 		}
 	}
 }

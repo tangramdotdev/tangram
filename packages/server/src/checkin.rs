@@ -1,4 +1,4 @@
-use crate::{Server, lockfile::ParsedLockfile};
+use crate::{Server, lockfile::Lockfile};
 use bytes::Bytes;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _};
 use indoc::indoc;
@@ -26,7 +26,7 @@ struct State {
 	arg: tg::checkin::Arg,
 	graph: Graph,
 	graph_objects: Vec<GraphObject>,
-	lockfile: Option<ParsedLockfile>,
+	lockfile: Option<Lockfile>,
 	locked: bool,
 	ignorer: Option<tangram_ignore::Ignorer>,
 	progress: crate::progress::Handle<tg::checkin::Output>,
@@ -47,7 +47,6 @@ pub struct Graph {
 
 #[derive(Clone, Debug)]
 struct Node {
-	#[allow(dead_code)]
 	metadata: Option<std::fs::Metadata>,
 	object: Option<Object>,
 	path: Option<Arc<PathBuf>>,
@@ -471,7 +470,7 @@ impl Node {
 					},
 				})
 				.collect(),
-			Variant::Symlink(_) | Variant::Object => Vec::new(), // TODO
+			Variant::Symlink(_) | Variant::Object => Vec::new(),
 		}
 	}
 }

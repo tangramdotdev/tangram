@@ -7,10 +7,8 @@ use std::{
 use tangram_client as tg;
 use tangram_either::Either;
 
-/// Represents a lockfile that's been parsed, containing all of its objects and paths to artifacts that it references.
 #[derive(Clone, Debug)]
-#[allow(clippy::module_name_repetitions)]
-pub struct ParsedLockfile {
+pub struct Lockfile {
 	nodes: Vec<tg::lockfile::Node>,
 	paths: Vec<Option<PathBuf>>,
 	path: PathBuf,
@@ -26,7 +24,7 @@ struct FindInLockfileArg<'a> {
 	search: Either<usize, &'a Path>,
 }
 
-pub(crate) struct LockfileNode {
+pub struct LockfileNode {
 	pub node: usize,
 	pub package: PathBuf,
 	pub path: PathBuf,
@@ -711,7 +709,7 @@ fn strip_subpath(base: &Path, subpath: &Path) -> tg::Result<PathBuf> {
 }
 
 pub type ResolvedDependency = Option<Either<PathBuf, tg::object::Id>>;
-impl ParsedLockfile {
+impl Lockfile {
 	pub fn try_resolve_dependency(
 		&self,
 		node_path: &Path,
@@ -805,7 +803,7 @@ impl ParsedLockfile {
 }
 
 impl Server {
-	pub fn try_parse_lockfile(&self, path: &Path) -> tg::Result<Option<ParsedLockfile>> {
+	pub fn try_parse_lockfile(&self, path: &Path) -> tg::Result<Option<Lockfile>> {
 		// First try and read the lockfile from the file's xattrs.
 		let contents_and_root = 'a: {
 			// Read the lockfile's xattrs.
@@ -911,7 +909,7 @@ impl Server {
 		let paths = get_paths(&artifacts_path, root, &lockfile)?;
 
 		// Create the parsed lockfile.
-		let lockfile = ParsedLockfile {
+		let lockfile = Lockfile {
 			nodes: lockfile.nodes,
 			paths,
 			path: path.to_owned(),

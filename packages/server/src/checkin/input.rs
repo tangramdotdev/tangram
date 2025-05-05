@@ -314,7 +314,6 @@ impl Server {
 
 	#[allow(clippy::unnecessary_wraps)]
 	fn checkin_visit_symlink_edges(_state: &mut State, _index: usize) -> tg::Result<()> {
-		// TODO
 		Ok(())
 	}
 
