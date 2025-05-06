@@ -32,14 +32,16 @@ export namespace Checksum {
 				executable: "checksum",
 				host: "builtin",
 			});
-			return value as tg.Checksum;
+			tg.assert(tg.Checksum.is(value));
+			return value;
 		} else if (tg.Artifact.is(input)) {
 			let value = await tg.build({
 				args: [input, algorithm],
 				executable: "checksum",
 				host: "builtin",
 			});
-			return value as tg.Checksum;
+			tg.assert(tg.Checksum.is(value));
+			return value;
 		} else {
 			return tg.unreachable();
 		}

@@ -93,23 +93,23 @@ export class Mutation<T extends tg.Value = tg.Value> {
 	static async prefix<T extends tg.Template.Arg = tg.Template.Arg>(
 		template: tg.Unresolved<T>,
 		separator?: string | undefined,
-	): Promise<tg.Mutation<T>> {
+	): Promise<tg.Mutation<tg.Template>> {
 		return new tg.Mutation({
 			kind: "prefix",
 			template: await tg.template(template),
 			separator,
-		}) as tg.Mutation<T>;
+		});
 	}
 
 	static async suffix<T extends tg.Template.Arg = tg.Template.Arg>(
 		template: tg.Unresolved<T>,
 		separator?: string | undefined,
-	): Promise<tg.Mutation<T>> {
+	): Promise<tg.Mutation<tg.Template>> {
 		return new tg.Mutation({
 			kind: "suffix",
 			template: await tg.template(template),
 			separator,
-		}) as tg.Mutation<T>;
+		});
 	}
 
 	static async merge<

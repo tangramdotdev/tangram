@@ -35,3 +35,16 @@ export namespace Artifact {
 		tg.assert(is(value));
 	};
 }
+
+export let isGraphArg = (
+	obj: unknown,
+): obj is { graph: tg.Graph; node: number } => {
+	return (
+		typeof obj === "object" &&
+		obj !== null &&
+		"graph" in obj &&
+		obj.graph instanceof tg.Graph &&
+		"node" in obj &&
+		typeof obj.node === "number"
+	);
+};

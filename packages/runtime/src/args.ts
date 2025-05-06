@@ -48,7 +48,7 @@ export namespace Args {
 	): Promise<Array<tg.MutationMap<R>>> => {
 		return await Promise.all(
 			args.map(async (arg) => {
-				let object: { [key: string]: tg.Mutation<T> } = {};
+				let object: { [key: string]: tg.Mutation } = {};
 				for (let [key, value] of Object.entries(arg)) {
 					if (value instanceof tg.Mutation) {
 						object[key] = value;
@@ -80,7 +80,7 @@ export namespace Args {
 										tg.Artifact.is(value) ||
 										typeof value === "string",
 								);
-								object[key] = await tg.Mutation.prefix(value);
+								object[key] = await tg.Mutation.prefix<tg.Template.Arg>(value);
 								break;
 							case "suffix":
 								tg.assert(
@@ -88,7 +88,7 @@ export namespace Args {
 										tg.Artifact.is(value) ||
 										typeof value === "string",
 								);
-								object[key] = await tg.Mutation.suffix(value);
+								object[key] = await tg.Mutation.suffix<tg.Template.Arg>(value);
 								break;
 							case "merge":
 								object[key] = await tg.Mutation.merge(value);
@@ -100,7 +100,7 @@ export namespace Args {
 						object[key] = await mutation(value);
 					}
 				}
-				return object as tg.MutationMap<T>;
+				return object as tg.MutationMap<R>;
 			}),
 		);
 	};

@@ -1,3 +1,4 @@
+import { isGraphArg } from "./artifact.ts";
 import * as tg from "./index.ts";
 import { flatten } from "./util.ts";
 
@@ -40,12 +41,9 @@ export class File {
 		let resolved = await Promise.all(args.map(tg.resolve));
 		if (resolved.length === 1) {
 			const arg = resolved[0];
-			if (typeof arg === "object" && "graph" in arg) {
+			if (isGraphArg(arg)) {
 				return arg;
 			}
-		}
-		if (resolved.some((arg) => typeof arg === "object" && "graph" in arg)) {
-			throw new Error("only a single graph arg is supported");
 		}
 		let objects = await Promise.all(
 			resolved.map(async (arg) => {

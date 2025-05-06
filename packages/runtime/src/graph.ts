@@ -63,7 +63,12 @@ export class Graph {
 		let nodes = [];
 		let offset = 0;
 		for (let arg of resolved) {
-			let argNodes = arg instanceof Graph ? await arg.nodes() : arg.nodes || [];
+			let argNodes =
+				arg instanceof Graph
+					? await arg.nodes()
+					: Array.isArray(arg.nodes)
+						? arg.nodes
+						: [];
 			for (let argNode of argNodes) {
 				if (argNode.kind === "directory") {
 					let node: tg.Graph.DirectoryNodeArg = { kind: "directory" as const };

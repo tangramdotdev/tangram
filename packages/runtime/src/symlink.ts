@@ -1,3 +1,4 @@
+import { isGraphArg } from "./artifact.ts";
 import * as tg from "./index.ts";
 
 export let symlink = async (arg: Symlink.Arg): Promise<Symlink> => {
@@ -21,7 +22,7 @@ export class Symlink {
 
 	static async new(arg: tg.Unresolved<Symlink.Arg>): Promise<Symlink> {
 		let resolved = await Symlink.arg(arg);
-		if ("graph" in resolved && "node" in resolved) {
+		if (isGraphArg(resolved)) {
 			return new Symlink({ object: resolved });
 		} else if ("target" in resolved) {
 			let symlink = new Symlink({ object: resolved });

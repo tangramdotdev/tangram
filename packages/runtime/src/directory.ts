@@ -1,3 +1,4 @@
+import { isGraphArg } from "./artifact.ts";
 import * as tg from "./index.ts";
 import type { MaybeNestedArray } from "./util.ts";
 
@@ -286,17 +287,6 @@ export class Directory {
 		}
 	}
 }
-
-const isGraphArg = (obj: unknown): obj is { graph: tg.Graph; node: number } => {
-	return (
-		typeof obj === "object" &&
-		obj !== null &&
-		"graph" in obj &&
-		obj.graph instanceof tg.Graph &&
-		"node" in obj &&
-		typeof obj.node === "number"
-	);
-};
 
 export namespace Directory {
 	export type Arg = undefined | Directory | ArgObject;

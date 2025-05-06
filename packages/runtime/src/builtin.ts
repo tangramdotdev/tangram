@@ -42,7 +42,8 @@ export let checksum = async (
 		executable: "checksum",
 		host: "builtin",
 	});
-	return value as tg.Checksum;
+	tg.assert(tg.Checksum.is(value));
+	return value;
 };
 
 export let compress = async (
