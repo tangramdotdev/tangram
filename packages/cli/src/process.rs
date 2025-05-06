@@ -1,7 +1,6 @@
 use crate::Cli;
 use tangram_client as tg;
 
-pub mod build;
 pub mod cancel;
 pub mod children;
 pub mod get;
@@ -9,7 +8,6 @@ pub mod log;
 pub mod metadata;
 pub mod output;
 pub mod put;
-pub mod run;
 pub mod signal;
 pub mod spawn;
 pub mod status;
@@ -25,7 +23,6 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
-	Build(self::build::Args),
 	Cancel(self::cancel::Args),
 	Children(self::children::Args),
 	Get(self::get::Args),
@@ -33,7 +30,6 @@ pub enum Command {
 	Metadata(self::metadata::Args),
 	Output(self::output::Args),
 	Put(self::put::Args),
-	Run(self::run::Args),
 	#[command(alias = "kill")]
 	Signal(self::signal::Args),
 	Spawn(self::spawn::Args),
@@ -44,9 +40,6 @@ pub enum Command {
 impl Cli {
 	pub async fn command_process(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
-			Command::Build(args) => {
-				self.command_process_build(args).await?;
-			},
 			Command::Cancel(args) => {
 				self.command_process_cancel(args).await?;
 			},
@@ -67,9 +60,6 @@ impl Cli {
 			},
 			Command::Put(args) => {
 				self.command_process_put(args).await?;
-			},
-			Command::Run(args) => {
-				self.command_process_run(args).await?;
 			},
 			Command::Signal(args) => {
 				self.command_process_signal(args).await?;

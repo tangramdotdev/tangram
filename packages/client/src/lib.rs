@@ -54,6 +54,7 @@ pub use self::{
 
 pub mod artifact;
 pub mod blob;
+pub mod build;
 pub mod builtin;
 pub mod bytes;
 pub mod check;
@@ -94,6 +95,7 @@ pub mod range;
 pub mod reference;
 pub mod referent;
 pub mod remote;
+pub mod run;
 pub mod symlink;
 pub mod tag;
 pub mod template;

@@ -5,6 +5,7 @@ use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use std::{
 	io::{IsTerminal as _, Read as _},
+	path::PathBuf,
 	pin::pin,
 };
 use tangram_client as tg;
@@ -34,58 +35,116 @@ pub struct Args {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Options {
+	/// If this flag is set, then build the specified target and run its output.
+	#[arg(short, long)]
+	pub build: bool,
+
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
 	#[arg(short, long)]
 	pub detach: bool,
+
+	/// Set the subpath to use for the executable.
+	#[arg(short = 'x', long)]
+	pub executable_subpath: Option<PathBuf>,
 
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
 }
 
 impl Cli {
-	pub async fn command_process_run(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_run(&mut self, args: Args) -> tg::Result<()> {
+		// Get the reference.
+		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
+
+		// Run.
+		self.run(args.options, reference, args.trailing).await?;
+
+		Ok(())
+	}
+
+	pub async fn run(
+		&mut self,
+		options: Options,
+		reference: tg::Reference,
+		trailing: Vec<String>,
+	) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
+		// If the build flag is set, then build and get the output.
+		let reference = if options.build {
+			let spawn = crate::process::spawn::Options {
+				remote: options.spawn.remote.clone(),
+				..Default::default()
+			};
+			let options = crate::build::Options {
+				checkout: None,
+				detach: false,
+				spawn,
+				view: crate::build::View::default(),
+			};
+			let output = self
+				.build(options, reference, vec![])
+				.await?
+				.ok_or_else(|| tg::error!("expected the build to have an output"))?;
+			let object = output
+				.try_unwrap_object()
+				.ok()
+				.ok_or_else(|| tg::error!("expected the build to output an object"))?;
+			let id = object.id(&handle).await?;
+			tg::Reference::with_object(&id)
+		} else {
+			reference
+		};
+
+		// Handle the executable subpath.
+		let reference = if let Some(executable_subpath) = &options.executable_subpath {
+			let item = reference.item();
+			let subpath = if let Some(subpath) = reference
+				.options()
+				.and_then(|options| options.subpath.as_ref())
+			{
+				subpath.join(executable_subpath)
+			} else {
+				executable_subpath.clone()
+			};
+			let options = tg::reference::Options {
+				subpath: Some(subpath),
+				..Default::default()
+			};
+			tg::Reference::with_item_and_options(item, Some(&options))
+		} else {
+			reference
+		};
+
 		// Get the remote.
-		let remote = args
-			.options
+		let remote = options
 			.spawn
 			.remote
 			.clone()
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
-		// Get the reference.
-		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-
-		// Create the stdio.
-		let stdio = self
-			.create_stdio(remote.clone(), &args.options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
-
 		// If the detach flag is set, then spawn without stdio and return.
-		if args.options.detach {
+		if options.detach {
 			let process = self
-				.spawn_process(
-					args.options.spawn,
-					reference,
-					args.trailing,
-					None,
-					None,
-					None,
-				)
+				.spawn(options.spawn, reference, trailing, None, None, None)
 				.boxed()
 				.await?;
 			println!("{}", process.id());
 			return Ok(());
 		}
 
+		// Create the stdio.
+		let stdio = self
+			.create_stdio(remote.clone(), &options)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
+
 		// Spawn the process.
 		let process = self
-			.spawn_process(
-				args.options.spawn,
+			.spawn(
+				options.spawn,
 				reference,
-				args.trailing,
+				trailing,
 				Some(stdio.stderr.clone()),
 				Some(stdio.stdin.clone()),
 				Some(stdio.stdout.clone()),
@@ -139,7 +198,7 @@ impl Cli {
 		// Handle the result.
 		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
 
-		// Print the output if it is set and is not null.
+		// Print the output.
 		if let Some(value) = wait.output {
 			if !value.is_null() {
 				let stdout = std::io::stdout();

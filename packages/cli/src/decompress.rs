@@ -9,7 +9,7 @@ pub struct Args {
 	pub blob: tg::blob::Id,
 
 	#[command(flatten)]
-	pub build: crate::process::build::Options,
+	pub build: crate::build::Options,
 }
 
 impl Cli {
@@ -19,7 +19,7 @@ impl Cli {
 		let command = tg::builtin::decompress_command(&blob);
 		let command = command.id(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
-		self.build_process(args.build, reference, vec![]).await?;
+		self.build(args.build, reference, vec![]).await?;
 		Ok(())
 	}
 }

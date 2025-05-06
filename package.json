@@ -1,7 +1,7 @@
 {
 	"dependencies": {
 		"@biomejs/biome": "^1.9.4",
-		"@types/bun": "^1.2.10",
+		"@types/bun": "^1.2.12",
 		"typescript": "^5.8.3"
 	},
 	"scripts": {
@@ -11,11 +11,16 @@
 		"format": "cargo fmt --all && bun run --filter \"*\" format",
 		"test": "cargo nextest run --workspace && bun run --filter \"*\" test",
 		"tg": "cargo run -- -m client",
-		"tgs": "cargo run -- -m server",
 		"tgo": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/debug/tangram $@' -- -m client",
 		"tgor": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/release/tangram $@' -- -m client",
+		"tgorx": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/release/tangram $@' -- -m client run -b",
 		"tgr": "cargo run --release -- -m client",
-		"tgrs": "cargo run --release -- -m server"
+		"tgrs": "cargo run --release -- -m server",
+		"tgrsx": "cargo run --release -- -m server run -b",
+		"tgrx": "cargo run -- -m client run -b",
+		"tgs": "cargo run -- -m server",
+		"tgsx": "cargo run -- -m server run -b",
+		"tgx": "cargo run -- -m client run -b"
 	},
 	"workspaces": ["packages/compiler", "packages/runtime", "packages/vscode"]
 }

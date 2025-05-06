@@ -9,7 +9,7 @@ pub struct Args {
 	pub artifact: tg::artifact::Id,
 
 	#[command(flatten)]
-	pub build: crate::process::build::Options,
+	pub build: crate::build::Options,
 
 	#[arg(long)]
 	pub format: tg::ArchiveFormat,
@@ -27,7 +27,7 @@ impl Cli {
 		let command = tg::builtin::archive_command(&artifact, format, compression);
 		let command = command.id(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
-		self.build_process(args.build, reference, vec![]).await?;
+		self.build(args.build, reference, vec![]).await?;
 		Ok(())
 	}
 }

@@ -7,7 +7,7 @@ use url::Url;
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub build: crate::process::build::Options,
+	pub build: crate::build::Options,
 
 	#[arg(long)]
 	pub mode: Option<tg::DownloadMode>,
@@ -23,7 +23,7 @@ impl Cli {
 		let command = tg::builtin::download_command(&args.url, Some(options));
 		let command = command.id(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
-		self.build_process(args.build, reference, vec![]).await?;
+		self.build(args.build, reference, vec![]).await?;
 		Ok(())
 	}
 }

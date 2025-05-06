@@ -20,6 +20,10 @@ let archiveName: string;
 releasePath = "target/aarch64-apple-darwin/release";
 try {
 	await fs.promises.symlink("tangram", path.join(releasePath, "tg"));
+	await fs.promises.writeFile(
+		path.join(releasePath, "tgx"),
+		"#!/bin/sh\ntg run -b $@",
+	);
 } catch (error) {
 	if (error.code !== "EEXIST") throw error;
 }
@@ -29,6 +33,10 @@ await $`tar -czf release/${archiveName} -C ${releasePath} tangram tg`;
 releasePath = "target/aarch64-unknown-linux-gnu/release";
 try {
 	await fs.promises.symlink("tangram", path.join(releasePath, "tg"));
+	await fs.promises.writeFile(
+		path.join(releasePath, "tgx"),
+		"#!/bin/sh\ntg run -b $@",
+	);
 } catch (error) {
 	if (error.code !== "EEXIST") throw error;
 }
@@ -38,6 +46,10 @@ await $`tar -czf release/${archiveName} -C ${releasePath} tangram tg`;
 releasePath = "target/x86_64-apple-darwin/release";
 try {
 	await fs.promises.symlink("tangram", path.join(releasePath, "tg"));
+	await fs.promises.writeFile(
+		path.join(releasePath, "tgx"),
+		"#!/bin/sh\ntg run -b $@",
+	);
 } catch (error) {
 	if (error.code !== "EEXIST") throw error;
 }
@@ -47,6 +59,10 @@ await $`tar -czf release/${archiveName} -C ${releasePath} tangram tg`;
 releasePath = "target/x86_64-unknown-linux-gnu/release";
 try {
 	await fs.promises.symlink("tangram", path.join(releasePath, "tg"));
+	await fs.promises.writeFile(
+		path.join(releasePath, "tgx"),
+		"#!/bin/sh\ntg run -b $@",
+	);
 } catch (error) {
 	if (error.code !== "EEXIST") throw error;
 }

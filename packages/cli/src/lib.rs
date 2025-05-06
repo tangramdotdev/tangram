@@ -3,7 +3,7 @@ use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{fmt::Write as _, path::PathBuf, time::Duration};
-use tangram_client::{self as tg, Client, Handle as _, handle::Ext as _};
+use tangram_client::{self as tg, Client, prelude::*};
 use tangram_either::Either;
 use tangram_server::Server;
 use tokio::io::AsyncWriteExt as _;
@@ -12,6 +12,7 @@ use url::Url;
 
 mod archive;
 mod blob;
+mod build;
 mod bundle;
 mod cat;
 mod check;
@@ -43,6 +44,7 @@ mod pull;
 mod push;
 mod put;
 mod remote;
+mod run;
 mod server;
 mod tag;
 mod tangram;
@@ -126,7 +128,7 @@ enum Command {
 	Blob(self::blob::Args),
 
 	#[command(alias = "b")]
-	Build(self::process::build::Args),
+	Build(self::build::Args),
 
 	Bundle(self::bundle::Args),
 
@@ -201,7 +203,7 @@ enum Command {
 	Remote(self::remote::Args),
 
 	#[command(alias = "r")]
-	Run(self::process::run::Args),
+	Run(self::run::Args),
 
 	Serve(self::server::run::Args),
 
@@ -1030,7 +1032,7 @@ impl Cli {
 		match args.command {
 			Command::Archive(args) => self.command_archive(args).boxed(),
 			Command::Blob(args) => self.command_blob(args).boxed(),
-			Command::Build(args) => self.command_process_build(args).boxed(),
+			Command::Build(args) => self.command_build(args).boxed(),
 			Command::Bundle(args) => self.command_bundle(args).boxed(),
 			Command::Cancel(args) => self.command_process_cancel(args).boxed(),
 			Command::Cat(args) => self.command_cat(args).boxed(),
@@ -1065,7 +1067,7 @@ impl Cli {
 			Command::Push(args) => self.command_push(args).boxed(),
 			Command::Put(args) => self.command_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
-			Command::Run(args) => self.command_process_run(args).boxed(),
+			Command::Run(args) => self.command_run(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Signal(args) => self.command_process_signal(args).boxed(),

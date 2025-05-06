@@ -9,7 +9,6 @@ pub use self::{
 	status::Status, stdio::Stdio, wait::Wait,
 };
 
-pub mod build;
 pub mod children;
 pub mod data;
 pub mod dequeue;
@@ -21,7 +20,6 @@ pub mod log;
 pub mod metadata;
 pub mod mount;
 pub mod put;
-pub mod run;
 pub mod signal;
 pub mod spawn;
 pub mod start;

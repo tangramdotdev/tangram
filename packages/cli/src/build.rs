@@ -21,10 +21,10 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
-	/// Whether to check out the output. The output must be an artifact. A path to check out to may be provided.
+	/// Whether to check out the output.
 	#[allow(clippy::option_option)]
 	#[arg(short, long)]
 	pub checkout: Option<Option<PathBuf>>,
@@ -36,6 +36,7 @@ pub struct Options {
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
 
+	/// The view to display if the process' stdio is not attached.
 	#[arg(default_value = "inline", short, long)]
 	pub view: View,
 }
@@ -50,20 +51,19 @@ pub enum View {
 }
 
 impl Cli {
-	pub async fn command_process_build(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_build(&mut self, args: Args) -> tg::Result<()> {
 		// Get the reference.
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Build.
-		self.build_process(args.options, reference, args.trailing)
-			.await?;
+		self.build(args.options, reference, args.trailing).await?;
 
 		Ok(())
 	}
 
-	pub async fn build_process(
+	pub async fn build(
 		&mut self,
-		mut options: Options,
+		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
 	) -> tg::Result<Option<tg::Value>> {
@@ -77,9 +77,12 @@ impl Cli {
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 
 		// Spawn the process.
-		options.spawn.sandbox = true;
+		let spawn = crate::process::spawn::Options {
+			sandbox: true,
+			..options.spawn
+		};
 		let process = self
-			.spawn_process(options.spawn, reference, trailing, None, None, None)
+			.spawn(spawn, reference, trailing, None, None, None)
 			.boxed()
 			.await?;
 
