@@ -5,6 +5,7 @@ use std::pin::pin;
 use tangram_client as tg;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tokio::io::AsyncWriteExt;
 
 impl Server {
 	pub async fn write_pipe(
@@ -17,15 +18,28 @@ impl Server {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.write_pipe(id, arg, stream.boxed()).await;
 		}
-
 		let mut stream = pin!(stream);
+		let pipe = self
+			.pipes
+			.get(id)
+			.ok_or_else(|| tg::error!("could not find pipe"))?
+			.host
+			.clone();
 		while let Some(event) = stream.try_next().await? {
-			self.write_pipe_event(id, event.clone()).await?;
-			if matches!(event, tg::pipe::Event::End) {
-				break;
+			let mut pipe = pipe.lock().await;
+			match event {
+				tg::pipe::Event::Chunk(chunk) => {
+					pipe.write_all(&chunk)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write pipe"))?;
+				},
+				tg::pipe::Event::End => {
+					pipe.shutdown()
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write pipe"))?;
+				},
 			}
 		}
-
 		Ok(())
 	}
 

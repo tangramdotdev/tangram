@@ -93,9 +93,11 @@ pub struct Inner {
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
+	pipes: DashMap<tg::pipe::Id, pipe::Pipe>,
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
 	processes: ProcessTaskMap,
+	ptys: DashMap<tg::pty::Id, pty::Pty>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Store,
@@ -383,6 +385,9 @@ impl Server {
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
+		let pipes = DashMap::new();
+		let ptys = DashMap::new();
+
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			cache_task_map,
@@ -397,9 +402,11 @@ impl Server {
 			lock_file,
 			messenger,
 			path: directory,
+			pipes,
 			process_permits,
 			process_semaphore,
 			processes,
+			ptys,
 			remotes,
 			runtimes,
 			store,

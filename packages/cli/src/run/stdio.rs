@@ -155,7 +155,7 @@ impl Stdio {
 	) -> impl Future<Output = tg::Result<()>> + Send + 'static {
 		let handle = handle.clone();
 		let remote = self.remote.clone();
-		let io = [self.stdout.clone(), self.stderr.clone()];
+		let io = [self.stdin.clone(), self.stdout.clone(), self.stderr.clone()];
 		async move {
 			for io in io {
 				match io {

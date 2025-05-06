@@ -1,17 +1,17 @@
 use std::{
 	ffi::{OsStr, OsString},
-	os::unix::ffi::OsStrExt as _,
+	os::unix::ffi::OsStrExt,
 	path::PathBuf,
 };
-use tangram_either::Either;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 mod common;
 #[cfg(target_os = "macos")]
 mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
-mod pty;
+// mod pty;
+mod stdio;
+pub use stdio::*;
 
 #[allow(dead_code)]
 pub struct Command {
@@ -43,9 +43,9 @@ pub struct Child {
 	#[cfg(target_os = "linux")]
 	socket: tokio::net::UnixStream,
 
-	pub stdin: Option<Stdin>,
-	pub stdout: Option<Stdout>,
-	pub stderr: Option<Stderr>,
+	pub stdin: Option<ChildStdin>,
+	pub stdout: Option<ChildStdout>,
+	pub stderr: Option<ChildStderr>,
 }
 
 #[derive(Clone, Debug)]
@@ -69,26 +69,6 @@ pub struct BindMount {
 	pub source: PathBuf,
 	pub target: PathBuf,
 	pub readonly: bool,
-}
-
-pub struct Stdin {
-	inner: Either<pty::Writer, tokio::net::UnixStream>,
-}
-
-pub struct Stdout {
-	inner: Either<pty::Reader, tokio::net::UnixStream>,
-}
-
-pub struct Stderr {
-	inner: Either<pty::Reader, tokio::net::UnixStream>,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum Stdio {
-	Inherit,
-	Pipe,
-	Null,
-	Tty(Tty),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -115,9 +95,9 @@ impl Command {
 			hostname: None,
 			mounts: Vec::new(),
 			network: true,
-			stderr: Stdio::Inherit,
-			stdin: Stdio::Inherit,
-			stdout: Stdio::Inherit,
+			stdin: Stdio::inherit(),
+			stdout: Stdio::inherit(),
+			stderr: Stdio::inherit(),
 			uid: None,
 		}
 	}
@@ -186,18 +166,18 @@ impl Command {
 		self
 	}
 
-	pub fn stdin(&mut self, stdio: Stdio) -> &mut Self {
-		self.stdin = stdio;
+	pub fn stdin(&mut self, stdio: impl Into<Stdio>) -> &mut Self {
+		self.stdin = stdio.into();
 		self
 	}
 
-	pub fn stdout(&mut self, stdio: Stdio) -> &mut Self {
-		self.stdout = stdio;
+	pub fn stdout(&mut self, stdio: impl Into<Stdio>) -> &mut Self {
+		self.stdout = stdio.into();
 		self
 	}
 
-	pub fn stderr(&mut self, stdio: Stdio) -> &mut Self {
-		self.stderr = stdio;
+	pub fn stderr(&mut self, stdio: impl Into<Stdio>) -> &mut Self {
+		self.stderr = stdio.into();
 		self
 	}
 
@@ -246,92 +226,6 @@ impl Child {
 		#[cfg(target_os = "macos")]
 		{
 			darwin::wait(self)
-		}
-	}
-}
-
-impl Stdin {
-	pub async fn change_window_size(&self, tty: Tty) -> std::io::Result<()> {
-		let Either::Left(pty) = &self.inner else {
-			return Err(std::io::Error::other("not a pty"));
-		};
-		pty.change_window_size(tty).await
-	}
-}
-
-impl AsyncWrite for Stdin {
-	fn is_write_vectored(&self) -> bool {
-		match &self.inner {
-			Either::Left(io) => io.is_write_vectored(),
-			Either::Right(io) => io.is_write_vectored(),
-		}
-	}
-
-	fn poll_flush(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<Result<(), std::io::Error>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_flush(cx),
-			Either::Right(io) => std::pin::pin!(io).poll_flush(cx),
-		}
-	}
-
-	fn poll_shutdown(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<Result<(), std::io::Error>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_shutdown(cx),
-			Either::Right(io) => std::pin::pin!(io).poll_shutdown(cx),
-		}
-	}
-
-	fn poll_write(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-		buf: &[u8],
-	) -> std::task::Poll<Result<usize, std::io::Error>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_write(cx, buf),
-			Either::Right(io) => std::pin::pin!(io).poll_write(cx, buf),
-		}
-	}
-
-	fn poll_write_vectored(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-		bufs: &[std::io::IoSlice<'_>],
-	) -> std::task::Poll<Result<usize, std::io::Error>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_write_vectored(cx, bufs),
-			Either::Right(io) => std::pin::pin!(io).poll_write_vectored(cx, bufs),
-		}
-	}
-}
-
-impl AsyncRead for Stdout {
-	fn poll_read(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-		buf: &mut tokio::io::ReadBuf<'_>,
-	) -> std::task::Poll<std::io::Result<()>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_read(cx, buf),
-			Either::Right(io) => std::pin::pin!(io).poll_read(cx, buf),
-		}
-	}
-}
-
-impl AsyncRead for Stderr {
-	fn poll_read(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-		buf: &mut tokio::io::ReadBuf<'_>,
-	) -> std::task::Poll<std::io::Result<()>> {
-		match &mut self.get_mut().inner {
-			Either::Left(io) => std::pin::pin!(io).poll_read(cx, buf),
-			Either::Right(io) => std::pin::pin!(io).poll_read(cx, buf),
 		}
 	}
 }

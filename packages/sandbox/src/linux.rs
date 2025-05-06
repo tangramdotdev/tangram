@@ -1,11 +1,9 @@
 use crate::{
-	Child, Command, ExitStatus, Stderr, Stdin, Stdout,
-	common::{CStringVec, GuestStdio, cstring, envstring, socket_pair, stdio_pair},
-	pty::Pty,
+	Child, Command, ExitStatus,
+	common::{CStringVec, cstring, envstring, socket_pair},
 };
 use num::ToPrimitive;
-use std::ffi::CString;
-use tangram_either::Either;
+use std::{ffi::CString, os::fd::RawFd};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 mod guest;
@@ -31,9 +29,9 @@ pub(crate) struct Context {
 	pub mounts: Vec<Mount>,
 	pub network: bool,
 	pub socket: std::os::unix::net::UnixStream,
-	pub stdin: GuestStdio,
-	pub stdout: GuestStdio,
-	pub stderr: GuestStdio,
+	pub stdin: RawFd,
+	pub stdout: RawFd,
+	pub stderr: RawFd,
 }
 
 pub async fn spawn(command: &Command) -> std::io::Result<Child> {
@@ -84,11 +82,9 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 	let (mut parent_socket, child_socket) = socket_pair()?;
 
 	// Create stdio.
-	let mut pty = None;
-
-	let (parent_stdin, child_stdin) = stdio_pair(command.stdin, &mut pty).await?;
-	let (parent_stdout, child_stdout) = stdio_pair(command.stdout, &mut pty).await?;
-	let (parent_stderr, child_stderr) = stdio_pair(command.stderr, &mut pty).await?;
+	let (parent_stdin, child_stdin) = command.stdin.split_stdin()?;
+	let (parent_stdout, child_stdout) = command.stdout.split_stdout()?;
+	let (parent_stderr, child_stderr) = command.stderr.split_stderr()?;
 
 	// Create the context.
 	let context = Context {
@@ -139,46 +135,10 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 		root::main(context);
 	}
 
-	// Close unused fds.
-	for io in [context.stdin, context.stdout, context.stderr] {
-		match io {
-			Either::Left(mut pty) => {
-				pty.close_tty();
-			},
-			Either::Right(Some(raw)) => {
-				unsafe { libc::close(raw) };
-			},
-			Either::Right(None) => (),
-		}
-	}
-
-	// Split stdio.
-	let pty = pty.map(Pty::into_writer);
-	let stdout = match parent_stdout {
-		Either::Left(_) => Some(Either::Left(pty.as_ref().unwrap().get_reader()?)),
-		Either::Right(Some(io)) => Some(Either::Right(io)),
-		Either::Right(None) => None,
-	};
-	let stderr = match parent_stderr {
-		Either::Left(_) => {
-			if matches!(stdout, Some(Either::Left(_))) {
-				None
-			} else {
-				Some(Either::Left(pty.as_ref().unwrap().get_reader()?))
-			}
-		},
-		Either::Right(Some(io)) => Some(Either::Right(io)),
-		Either::Right(None) => None,
-	};
-	let stdin = match parent_stdin {
-		Either::Left(_) => Some(Either::Left(pty.unwrap())),
-		Either::Right(Some(io)) => Some(Either::Right(io)),
-		Either::Right(None) => None,
-	};
-
 	// Signal the root/guest process to start and get the guest PID.
 	let uid = command.uid.unwrap_or_else(|| unsafe { libc::getuid() });
 	let gid = command.gid.unwrap_or_else(|| unsafe { libc::getgid() });
+
 	let guest_pid = match try_start(command.chroot.is_some(), gid, uid, &mut parent_socket).await {
 		Ok(pid) => pid,
 		Err(error) => unsafe {
@@ -192,9 +152,9 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 		guest_pid,
 		root_pid,
 		socket: parent_socket,
-		stdin: stdin.map(|inner| Stdin { inner }),
-		stdout: stdout.map(|inner| Stdout { inner }),
-		stderr: stderr.map(|inner| Stderr { inner }),
+		stdin: parent_stdin,
+		stdout: parent_stdout,
+		stderr: parent_stderr,
 	};
 
 	Ok(child)

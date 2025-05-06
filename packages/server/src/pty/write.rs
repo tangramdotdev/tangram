@@ -4,11 +4,16 @@ use futures::{
 	stream::{FuturesUnordered, TryStreamExt as _},
 };
 use indoc::formatdoc;
-use std::pin::pin;
+use num::ToPrimitive;
+use std::{
+	os::fd::{AsRawFd, RawFd},
+	pin::pin,
+};
 use tangram_client::{self as tg, handle::Process};
 use tangram_database::{self as db, Database, Query};
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tokio::io::unix::AsyncFd;
 
 impl Server {
 	pub async fn write_pty(
@@ -21,18 +26,62 @@ impl Server {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.write_pty(id, arg, stream.boxed()).await;
 		}
+		let fd = if arg.master {
+			self.ptys
+				.get(id)
+				.ok_or_else(|| tg::error!("failed to get PTY"))?
+				.pty_fd
+				.try_clone()
+				.map_err(|source| tg::error!(!source, "failed to clone fd"))?
+		} else {
+			self.ptys
+				.get(id)
+				.ok_or_else(|| tg::error!("failed to get PTY"))?
+				.tty_fd
+				.try_clone()
+				.map_err(|source| tg::error!(!source, "failed to clone fd"))?
+		};
+
+		let fd = AsyncFd::with_interest(fd, tokio::io::Interest::WRITABLE)
+			.map_err(|source| tg::error!(!source, "failed to write pty"))?;
 
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			if let tg::pty::Event::Chunk(chunk) = &event {
-				self.js_signal_hack(id, chunk)
-					.await
-					.inspect_err(|error| tracing::error!(?error, "failed to signal processes"))
-					.ok();
-			}
-			self.write_pty_event(id, event.clone(), arg.master).await?;
-			if matches!(event, tg::pty::Event::End) {
-				break;
+			match event {
+				tg::pty::Event::Chunk(chunk) => {
+					self.js_signal_hack(id, &chunk)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error, "failed to send signal to process");
+						})
+						.ok();
+					let mut chunk = chunk.as_ref();
+					while !chunk.is_empty() {
+						let n = fd
+							.async_io(tokio::io::Interest::WRITABLE, |fd| unsafe {
+								let n =
+									libc::write(fd.as_raw_fd(), chunk.as_ptr().cast(), chunk.len());
+								if n < 0 {
+									return Err(std::io::Error::last_os_error());
+								}
+								Ok(n.to_usize().unwrap())
+							})
+							.await
+							.map_err(|source| tg::error!(!source, "failed to write pty"))?;
+						if n == 0 {
+							break;
+						}
+						chunk = &chunk[n..];
+					}
+				},
+				tg::pty::Event::Size(size) => {
+					change_window_size(fd.as_raw_fd(), size)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to change window size"))?;
+				},
+				tg::pty::Event::End => {
+					break;
+				},
 			}
 		}
 
@@ -143,4 +192,21 @@ impl Server {
 
 		Ok(response)
 	}
+}
+
+async fn change_window_size(fd: RawFd, size: tg::pty::Size) -> std::io::Result<()> {
+	tokio::task::spawn_blocking(move || unsafe {
+		let mut winsize = libc::winsize {
+			ws_col: size.cols,
+			ws_row: size.rows,
+			ws_xpixel: 0,
+			ws_ypixel: 0,
+		};
+		if libc::ioctl(fd, libc::TIOCSWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		Ok(())
+	})
+	.await
+	.unwrap()
 }
