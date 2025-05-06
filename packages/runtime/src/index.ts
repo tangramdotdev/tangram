@@ -106,7 +106,6 @@ export {
 	mutation,
 	path,
 	resolve,
-	run as $,
 	run,
 	sleep,
 	start,

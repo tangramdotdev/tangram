@@ -1,12 +1,18 @@
 import * as tg from "./index.ts";
 
-export function command<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
-): tg.CommandBuilder<A, R>;
-export function command<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
+// biome-ignore lint/suspicious/noConfusingVoidType:
+export function command<A extends Array<tg.Value>, R extends void | tg.Value>(
+	function_: (
+		...args: tg.UnresolvedArray<A>
+	) => R extends void ? tg.MaybePromise<void> : tg.Unresolved<Exclude<R, void>>,
+): tg.CommandBuilder<A, R extends void ? undefined : R>;
+// biome-ignore lint/suspicious/noConfusingVoidType:
+export function command<A extends Array<tg.Value>, R extends void | tg.Value>(
+	function_: (
+		...args: tg.UnresolvedArray<A>
+	) => R extends void ? tg.MaybePromise<void> : tg.Unresolved<Exclude<R, void>>,
 	...args: tg.UnresolvedArray<A>
-): tg.CommandBuilder<[], R>;
+): tg.CommandBuilder<[], R extends void ? undefined : R>;
 export function command(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>

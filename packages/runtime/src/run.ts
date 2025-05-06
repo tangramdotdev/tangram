@@ -1,12 +1,18 @@
 import * as tg from "./index.ts";
 
-export function run<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
-): tg.RunBuilder<A, R>;
-export function run<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
+// biome-ignore lint/suspicious/noConfusingVoidType:
+export function run<A extends Array<tg.Value>, R extends void | tg.Value>(
+	function_: (
+		...args: tg.UnresolvedArray<A>
+	) => R extends void ? tg.MaybePromise<void> : tg.Unresolved<Exclude<R, void>>,
+): tg.RunBuilder<A, R extends void ? undefined : R>;
+// biome-ignore lint/suspicious/noConfusingVoidType:
+export function run<A extends Array<tg.Value>, R extends void | tg.Value>(
+	function_: (
+		...args: tg.UnresolvedArray<A>
+	) => R extends void ? tg.MaybePromise<void> : tg.Unresolved<Exclude<R, void>>,
 	...args: tg.UnresolvedArray<A>
-): tg.RunBuilder<[], R>;
+): tg.RunBuilder<[], R extends void ? undefined : R>;
 export function run(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
