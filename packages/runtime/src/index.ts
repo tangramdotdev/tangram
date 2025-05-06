@@ -42,6 +42,8 @@ import type {
 	MaybeNestedArray,
 	MaybePromise,
 	MutationMap,
+	UnresolvedArray,
+	UnresolvedMap,
 	ValueOrMaybeMutationMap,
 } from "./util.ts";
 import { Value } from "./value.ts";
@@ -60,6 +62,8 @@ export type {
 	Resolved,
 	Tag,
 	Unresolved,
+	UnresolvedArray,
+	UnresolvedMap,
 	ValueOrMaybeMutationMap,
 };
 

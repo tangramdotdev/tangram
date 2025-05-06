@@ -41,3 +41,11 @@ export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 	: T extends { [key: string]: tg.Value }
 		? MaybeMutationMap<T>
 		: never;
+
+export type UnresolvedArray<T extends Array<tg.Value>> = {
+	[K in keyof T]: tg.Unresolved<T[K]>;
+};
+
+export type UnresolvedMap<T extends { [key: string]: tg.Value }> = {
+	[K in keyof T]: tg.Unresolved<T[K]>;
+};

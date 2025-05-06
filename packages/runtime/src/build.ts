@@ -1,11 +1,11 @@
 import * as tg from "./index.ts";
 
 export function build<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: A) => tg.Unresolved<R>,
+	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
 ): tg.BuildBuilder<A, R>;
 export function build<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: A) => tg.Unresolved<R>,
-	...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
+	...args: tg.UnresolvedArray<A>
 ): tg.BuildBuilder<[], R>;
 export function build(
 	strings: TemplateStringsArray,
@@ -159,7 +159,7 @@ export interface BuildBuilder<
 	R extends tg.Value = tg.Value,
 > {
 	// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
-	(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.BuildBuilder<[], R>;
+	(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R>;
 }
 
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make this callable.

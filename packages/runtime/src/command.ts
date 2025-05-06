@@ -1,11 +1,11 @@
 import * as tg from "./index.ts";
 
 export function command<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: A) => tg.Unresolved<R>,
+	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
 ): tg.CommandBuilder<A, R>;
 export function command<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: A) => tg.Unresolved<R>,
-	...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
+	...args: tg.UnresolvedArray<A>
 ): tg.CommandBuilder<[], R>;
 export function command(
 	strings: TemplateStringsArray,
@@ -216,13 +216,11 @@ export class Command<
 		return (await this.object()).mounts;
 	}
 
-	build(
-		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
-	): tg.BuildBuilder<[], R> {
+	build(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R> {
 		return tg.build(this, { args });
 	}
 
-	run(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R> {
+	run(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R> {
 		return tg.run(this, { args });
 	}
 }
@@ -458,13 +456,11 @@ export class CommandBuilder<
 		).then(onfulfilled, onrejected);
 	}
 
-	build(
-		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
-	): tg.BuildBuilder<[], R> {
+	build(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R> {
 		return new tg.BuildBuilder(this as any, { args });
 	}
 
-	run(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R> {
+	run(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R> {
 		return new tg.RunBuilder(this as any, { args });
 	}
 }

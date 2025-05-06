@@ -1,11 +1,11 @@
 import * as tg from "./index.ts";
 
 export function run<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: A) => tg.Unresolved<R>,
+	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
 ): tg.RunBuilder<A, R>;
 export function run<A extends Array<tg.Value>, R extends tg.Value>(
-	function_: (...args: A) => tg.Unresolved<R>,
-	...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+	function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
+	...args: tg.UnresolvedArray<A>
 ): tg.RunBuilder<[], R>;
 export function run(
 	strings: TemplateStringsArray,
@@ -189,7 +189,7 @@ export interface RunBuilder<
 	R extends tg.Value = tg.Value,
 > {
 	// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
-	(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): RunBuilder<[], R>;
+	(...args: tg.UnresolvedArray<A>): RunBuilder<[], R>;
 }
 
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make this callable.

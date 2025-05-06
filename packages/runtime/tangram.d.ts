@@ -452,11 +452,11 @@ declare namespace tg {
 
 	/** Create a command. */
 	export function command<A extends Array<tg.Value>, R extends tg.Value>(
-		function_: (...args: A) => tg.Unresolved<R>,
+		function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
 	): tg.CommandBuilder<A, R>;
 	export function command<A extends Array<tg.Value>, R extends tg.Value>(
-		function_: (...args: A) => tg.Unresolved<R>,
-		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+		function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
+		...args: tg.UnresolvedArray<A>
 	): tg.CommandBuilder<[], R>;
 	export function command(
 		strings: TemplateStringsArray,
@@ -512,12 +512,10 @@ declare namespace tg {
 		user(): Promise<string | undefined>;
 
 		/** Build this command and return the process's output. */
-		build(
-			...args: { [K in keyof A]: tg.Unresolved<A[K]> }
-		): tg.BuildBuilder<[], R>;
+		build(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R>;
 
 		/** Run this command and return the process's output. */
-		run(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R>;
+		run(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R>;
 	}
 
 	export namespace Command {
@@ -948,11 +946,11 @@ declare namespace tg {
 	}
 
 	export function build<A extends Array<tg.Value>, R extends tg.Value>(
-		function_: (...args: A) => tg.Unresolved<R>,
+		function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
 	): tg.BuildBuilder<A, R>;
 	export function build<A extends Array<tg.Value>, R extends tg.Value>(
-		function_: (...args: A) => tg.Unresolved<R>,
-		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+		function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
+		...args: tg.UnresolvedArray<A>
 	): tg.BuildBuilder<[], R>;
 	export function build(
 		strings: TemplateStringsArray,
@@ -961,11 +959,11 @@ declare namespace tg {
 	export function build(...args: tg.Args<tg.Process.BuildArg>): tg.BuildBuilder;
 
 	export function run<A extends Array<tg.Value>, R extends tg.Value>(
-		function_: (...args: A) => tg.Unresolved<R>,
+		function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
 	): tg.RunBuilder<A, R>;
 	export function run<A extends Array<tg.Value>, R extends tg.Value>(
-		function_: (...args: A) => tg.Unresolved<R>,
-		...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+		function_: (...args: tg.UnresolvedArray<A>) => tg.Unresolved<R>,
+		...args: tg.UnresolvedArray<A>
 	): tg.RunBuilder<[], R>;
 	export function run(
 		strings: TemplateStringsArray,
@@ -1144,7 +1142,7 @@ declare namespace tg {
 		R extends tg.Value = tg.Value,
 	> {
 		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
-		(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.BuildBuilder<[], R>;
+		(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R>;
 	}
 
 	export class BuildBuilder<
@@ -1196,9 +1194,7 @@ declare namespace tg {
 		R extends tg.Value = tg.Value,
 	> {
 		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
-		(
-			...args: { [K in keyof A]: tg.Unresolved<A[K]> }
-		): tg.CommandBuilder<[], R>;
+		(...args: tg.UnresolvedArray<A>): tg.CommandBuilder<[], R>;
 	}
 
 	export class CommandBuilder<
@@ -1226,12 +1222,10 @@ declare namespace tg {
 		): this;
 
 		/** Build this command and return the process's output. */
-		build(
-			...args: { [K in keyof A]: tg.Unresolved<A[K]> }
-		): tg.BuildBuilder<[], R>;
+		build(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R>;
 
 		/** Run this command and return the process's output. */
-		run(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R>;
+		run(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R>;
 
 		// biome-ignore lint/suspicious/noThenProperty: This is necessary to make this thenable.
 		then<TResult1 = tg.Command<A, R>, TResult2 = never>(
@@ -1251,7 +1245,7 @@ declare namespace tg {
 		R extends tg.Value = tg.Value,
 	> {
 		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
-		(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.RunBuilder<[], R>;
+		(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R>;
 	}
 
 	export class RunBuilder<
@@ -1409,4 +1403,12 @@ declare namespace tg {
 		: T extends { [key: string]: tg.Value }
 			? MaybeMutationMap<T>
 			: never;
+
+	export type UnresolvedArray<T extends Array<tg.Value>> = {
+		[K in keyof T]: tg.Unresolved<T[K]>;
+	};
+
+	export type UnresolvedMap<T extends { [key: string]: tg.Value }> = {
+		[K in keyof T]: tg.Unresolved<T[K]>;
+	};
 }
