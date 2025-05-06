@@ -325,7 +325,7 @@ impl Runtime {
 			tg::command::data::Executable::Artifact(executable) => {
 				let mut path = artifacts_path.join(executable.artifact.to_string());
 				if let Some(subpath) = executable.subpath {
-					path.join(subpath);
+					path = path.join(subpath);
 				}
 				path
 			},
