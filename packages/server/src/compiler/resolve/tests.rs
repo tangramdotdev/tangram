@@ -75,7 +75,7 @@ async fn package_path_dependency_path() {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
 				item: tg::module::data::Item::Path(path),
-				path: None,
+				path: Some("bar".into()),
 				subpath: Some("tangram.ts".into()),
 				tag: None,
 			},
@@ -110,7 +110,7 @@ async fn package_path_dependency_object() {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
 				item: tg::module::data::Item::Object(object),
-				path: None,
+				path: Some("bar".into()),
 				subpath: Some("tangram.ts".into()),
 				tag: None,
 			},
@@ -144,7 +144,6 @@ async fn test_path<F, Fut>(
 			)
 			.unwrap();
 		let arg = tg::checkin::Arg {
-			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,
@@ -195,7 +194,6 @@ async fn test_object<F, Fut>(
 			)
 			.unwrap();
 		let arg = tg::checkin::Arg {
-			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,

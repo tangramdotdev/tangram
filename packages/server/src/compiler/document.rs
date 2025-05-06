@@ -163,7 +163,6 @@ impl Compiler {
 			return Ok(());
 		};
 		let arg = tg::checkin::Arg {
-			cache: false,
 			path: package_path.clone(),
 			destructive: false,
 			deterministic: false,
@@ -188,7 +187,6 @@ impl Compiler {
 			return Err(tg::error!(%uri = params.text_document.uri, "expected a file URI"));
 		}
 		let arg = tg::checkin::Arg {
-			cache: false,
 			path: params.text_document.uri.path().as_str().into(),
 			destructive: false,
 			deterministic: false,

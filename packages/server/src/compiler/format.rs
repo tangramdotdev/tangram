@@ -3,10 +3,10 @@ use lsp_types as lsp;
 use tangram_client as tg;
 
 impl Compiler {
-	pub async fn format(text: String) -> tg::Result<String> {
+	pub fn format(text: &str) -> tg::Result<String> {
 		let source_type = biome_js_syntax::JsFileSource::ts();
 		let options = biome_js_parser::JsParserOptions::default();
-		let node = biome_js_parser::parse(&text, source_type, options);
+		let node = biome_js_parser::parse(text, source_type, options);
 		let options = biome_js_formatter::context::JsFormatOptions::new(source_type);
 		let formatted = biome_js_formatter::format_node(options, &node.syntax())
 			.map_err(|source| tg::error!(!source, "failed to format"))?;
@@ -33,7 +33,7 @@ impl Compiler {
 		let range = tg::Range::from_byte_range_in_string(&text, 0..text.len());
 
 		// Format the text.
-		let formatted_text = Self::format(text).await?;
+		let formatted_text = Self::format(&text)?;
 
 		// Create the edit.
 		let edit = lsp::TextEdit {

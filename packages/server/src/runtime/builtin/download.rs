@@ -189,7 +189,6 @@ impl Runtime {
 
 		// Check in the temp.
 		let arg = tg::checkin::Arg {
-			cache: false,
 			destructive: true,
 			deterministic: true,
 			ignore: false,

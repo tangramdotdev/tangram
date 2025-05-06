@@ -1,96 +1,24 @@
-use super::{input, object};
 use crate::Server;
-use std::{
-	collections::BTreeMap,
-	path::{Path, PathBuf},
-};
+use itertools::Itertools;
+use std::path::{Path, PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 
 impl Server {
-	/// Attempt to write a lockfile. If the lockfile is empty, the destination is read-only, this is a no-op.
-	pub(super) async fn try_write_lockfile(
-		&self,
-		input: &input::Graph,
-		object: &object::Graph,
-	) -> tg::Result<()> {
-		// Create the lockfile.
-		let lockfile = self
-			.create_lockfile(object, &input.nodes[0].arg.path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the lockfile"))?;
-
-		// Skip empty lockfiles.
-		if lockfile.nodes.is_empty() {
-			return Ok(());
-		}
-
-		// Get the path to the root of the input graph.
-		let root_path = &input.nodes[0].arg.path;
-
-		// If the root item is a directory, the lockfile goes within it. Otherwise, write it next to the file.
-		let lockfile_path = if input.nodes[0].metadata.is_dir() {
-			root_path.join(tg::package::LOCKFILE_FILE_NAME)
-		} else {
-			root_path
-				.parent()
-				.unwrap()
-				.join(tg::package::LOCKFILE_FILE_NAME)
-		};
-
-		// Serialize the lockfile.
-		let lockfile = serde_json::to_vec_pretty(&lockfile)
-			.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
-
-		// Write to disk.
-		match tokio::fs::write(&lockfile_path, &lockfile).await {
-			Ok(()) => (),
-
-			// If there is an EPERM because the destination is RO, ignore.
-			Err(error) if error.raw_os_error() == Some(libc::EPERM) => (),
-
-			// Return all other errors.
-			Err(source) => {
-				return Err(
-					tg::error!(!source, %path = lockfile_path.display(), "failed to write lockfile"),
-				);
-			},
-		}
-
-		Ok(())
-	}
-
-	async fn create_lockfile(
-		&self,
-		graph: &object::Graph,
-		path: &Path,
-	) -> tg::Result<tg::Lockfile> {
-		// Find the root index.
-		let root = *graph
-			.paths
-			.get(path)
-			.ok_or_else(|| tg::error!("failed to get root object"))?;
-
-		// Create the lockfile nodes.
-		let mut nodes = Vec::with_capacity(graph.nodes.len());
-		let mut visited = vec![None; graph.nodes.len()];
-		Box::pin(self.create_lockfile_node(graph, root, &mut nodes, &mut visited)).await?;
-		let nodes = nodes.into_iter().map(Option::unwrap).collect::<Vec<_>>();
-
-		// Get the new root.
-		let root = visited[root].clone().unwrap().unwrap_left();
-
-		// Strip the lockfile nodes.
-		let nodes = self
-			.strip_lockfile_nodes(&nodes, root)
-			.map_err(|source| tg::error!(!source, "failed to strip the lockfile"))?;
-
+	pub(super) fn create_lockfile(state: &super::State) -> tg::Result<tg::Lockfile> {
+		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
+		let mut visited = vec![None; state.graph.nodes.len()];
+		let root = Self::create_lockfile_node(state, 0, &mut nodes, &mut visited)?.unwrap_left();
+		let nodes = nodes
+			.into_iter()
+			.map(|node| node.unwrap())
+			.collect::<Vec<_>>();
+		let nodes = Self::strip_lockfile_nodes(&nodes, root)?;
 		Ok(tg::Lockfile { nodes })
 	}
 
-	async fn create_lockfile_node(
-		&self,
-		graph: &object::Graph,
+	pub(super) fn create_lockfile_node(
+		state: &super::State,
 		node: usize,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
@@ -99,42 +27,38 @@ impl Server {
 			return Ok(visited);
 		}
 
-		// If the object node is not an artifact, return its ID.
-		let id = graph.nodes[node].id.clone().unwrap();
+		// If the object is not an artifact, return its ID.
+		let id = state.graph.nodes[node].object.as_ref().unwrap().id.clone();
 		if !(id.is_directory() || id.is_file() || id.is_symlink()) {
 			visited[node].replace(Either::Right(id.clone()));
 			return Ok(Either::Right(id));
 		}
 
-		// Otherwise create a new slot for it.
+		// Otherwise createa a slot for it.
 		let index = nodes.len();
 		visited[node].replace(Either::Left(index));
 		nodes.push(None);
 
 		// Get the artifact data.
-		let data = if let Some(data) = graph.nodes[node].data.as_ref() {
-			data.clone()
-		} else {
-			let id: tg::artifact::Id = id.try_into().unwrap();
-
-			tg::Artifact::with_id(id.clone()).data(self).await.map_err(
-				|source| tg::error!(!source, %artifact = id, "missing artifact in object graph"),
-			)?
-		};
+		let data: tg::artifact::data::Artifact = state.graph.nodes[node]
+			.object
+			.as_ref()
+			.unwrap()
+			.data
+			.clone()
+			.try_into()
+			.unwrap();
 
 		// Create the node.
 		let node = match data {
 			tg::artifact::Data::Directory(data) => {
-				self.create_lockfile_directory_node(graph, node, &data, nodes, visited)
-					.await?
+				Self::checkin_create_lockfile_directory_node(state, node, &data, nodes, visited)?
 			},
 			tg::artifact::Data::File(data) => {
-				self.create_lockfile_file_node(graph, node, &data, nodes, visited)
-					.await?
+				Self::checkin_create_lockfile_file_node(state, node, &data, nodes, visited)?
 			},
 			tg::artifact::Data::Symlink(data) => {
-				self.create_lockfile_symlink_node(graph, node, &data, nodes, visited)
-					.await?
+				Self::checkin_create_lockfile_symlink_node(state, node, &data, nodes, visited)?
 			},
 		};
 
@@ -142,32 +66,24 @@ impl Server {
 		Ok(Either::Left(index))
 	}
 
-	async fn create_lockfile_directory_node(
-		&self,
-		graph: &object::Graph,
+	pub(super) fn checkin_create_lockfile_directory_node(
+		state: &super::State,
 		node: usize,
 		data: &tg::directory::Data,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
 		let id = tg::directory::Id::new(&data.serialize()?);
-		let mut entries = BTreeMap::new();
-		for edge in &graph.nodes[node].edges {
-			let name = edge
-				.reference
-				.item()
-				.unwrap_path_ref()
-				.components()
-				.next_back()
-				.unwrap()
-				.as_os_str()
-				.to_str()
-				.unwrap()
-				.to_owned();
-			let entry =
-				Box::pin(self.create_lockfile_node(graph, edge.index, nodes, visited)).await?;
-			entries.insert(name, entry);
-		}
+		let entries = state.graph.nodes[node]
+			.variant
+			.unwrap_directory_ref()
+			.entries
+			.iter()
+			.map(|(name, node)| {
+				let entry = Self::create_lockfile_node(state, *node, nodes, visited)?;
+				Ok::<_, tg::Error>((name.clone(), entry))
+			})
+			.try_collect()?;
 		let directory = tg::lockfile::Directory {
 			entries,
 			id: Some(id),
@@ -175,10 +91,9 @@ impl Server {
 		Ok(tg::lockfile::Node::Directory(directory))
 	}
 
-	async fn create_lockfile_file_node(
-		&self,
-		graph: &object::Graph,
-		node: usize,
+	pub(super) fn checkin_create_lockfile_file_node(
+		state: &super::State,
+		index: usize,
 		data: &tg::file::Data,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
@@ -189,7 +104,12 @@ impl Server {
 				graph: graph_id,
 				node,
 			} => {
-				let graph = &graph.graphs.get(graph_id).unwrap().0;
+				let graph = &state
+					.graph_objects
+					.iter()
+					.find(|object| object.id == graph_id.clone())
+					.unwrap()
+					.data;
 				let file = graph.nodes[*node].clone().try_unwrap_file().unwrap();
 				let contents = file.contents;
 				let executable = file.executable;
@@ -201,22 +121,58 @@ impl Server {
 				..
 			} => (contents.clone(), *executable),
 		};
-		let mut dependencies = BTreeMap::new();
-		for edge in &graph.nodes[node].edges {
-			let reference = edge.reference.clone();
-			let tag = edge.tag.clone();
-			let item =
-				Box::pin(self.create_lockfile_node(graph, edge.index, nodes, visited)).await?;
-			let path = edge.path.clone();
-			let subpath = edge.subpath.clone();
-			let referent = tg::Referent {
-				item,
-				path,
-				subpath,
-				tag,
-			};
-			dependencies.insert(reference, referent);
-		}
+		let dependencies = state.graph.nodes[index]
+			.variant
+			.unwrap_file_ref()
+			.dependencies
+			.iter()
+			.map(|dependency| match dependency {
+				super::FileDependency::Import {
+					import,
+					node,
+					path,
+					subpath,
+				} => {
+					let reference = import.reference.clone();
+					let node =
+						node.ok_or_else(|| tg::error!(%import = reference, "unresolved import"))?;
+					let item = Self::create_lockfile_node(state, node, nodes, visited)?;
+					let path = path.clone();
+					let subpath = subpath.clone();
+					let tag = state.graph.nodes[node].tag.clone();
+					let referent = tg::Referent {
+						item,
+						path,
+						subpath,
+						tag,
+					};
+					Ok::<_, tg::Error>((reference, referent))
+				},
+				super::FileDependency::Referent {
+					reference,
+					referent,
+				} => {
+					let reference = reference.clone();
+					let item = match referent
+						.item
+						.as_ref()
+						.ok_or_else(|| tg::error!("unresolved reference"))?
+					{
+						Either::Left(id) => Either::Right(id.clone()),
+						Either::Right(node) => {
+							Self::create_lockfile_node(state, *node, nodes, visited)?
+						},
+					};
+					let referent = tg::Referent {
+						item,
+						path: referent.path.clone(),
+						subpath: referent.subpath.clone(),
+						tag: referent.tag.clone(),
+					};
+					Ok((reference, referent))
+				},
+			})
+			.try_collect()?;
 		let file = tg::lockfile::File {
 			contents: Some(contents),
 			dependencies,
@@ -226,13 +182,13 @@ impl Server {
 		Ok(tg::lockfile::Node::File(file))
 	}
 
-	async fn create_lockfile_symlink_node(
-		&self,
-		graph: &object::Graph,
-		node: usize,
+	#[allow(clippy::ptr_arg)]
+	fn checkin_create_lockfile_symlink_node(
+		state: &super::State,
+		_node: usize,
 		data: &tg::symlink::Data,
-		nodes: &mut Vec<Option<tg::lockfile::Node>>,
-		visited: &mut [Option<Either<usize, tg::object::Id>>],
+		_nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		_visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
 		let id = tg::symlink::Id::new(&data.serialize()?);
 		let subpath = match data {
@@ -240,7 +196,12 @@ impl Server {
 				graph: graph_id,
 				node,
 			} => {
-				let graph = &graph.graphs.get(graph_id).unwrap().0;
+				let graph = &state
+					.graph_objects
+					.iter()
+					.find(|object| object.id == graph_id.clone())
+					.unwrap()
+					.data;
 				let symlink = graph.nodes[*node].clone().try_unwrap_symlink().unwrap();
 				match symlink {
 					tg::graph::data::Symlink::Artifact {
@@ -258,15 +219,7 @@ impl Server {
 		};
 
 		// The artifact is either another point in the graph, or referred to explicitly by data.
-		let artifact = if let Some(edge) = graph.nodes[node].edges.first() {
-			let entry =
-				Box::pin(self.create_lockfile_node(graph, edge.index, nodes, visited)).await?;
-			Some(entry)
-		} else if let tg::symlink::Data::Artifact { artifact, .. } = data {
-			Some(Either::Right(artifact.clone().into()))
-		} else {
-			None
-		};
+		let artifact = None; // todo: symlinks that point to artifacts.
 
 		// Create the lockfile node.
 		match artifact {
@@ -293,9 +246,7 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::unused_self)]
 	pub fn strip_lockfile_nodes(
-		&self,
 		old_nodes: &[tg::lockfile::Node],
 		root: usize,
 	) -> tg::Result<Vec<tg::lockfile::Node>> {
@@ -671,22 +622,21 @@ impl petgraph::visit::GraphBase for LockfileGraphImpl<'_> {
 	type NodeId = usize;
 }
 
-#[allow(clippy::needless_arbitrary_self_type)]
-impl<'a> petgraph::visit::NodeIndexable for &'a LockfileGraphImpl<'a> {
-	fn from_index(self: &Self, i: usize) -> Self::NodeId {
+impl petgraph::visit::NodeIndexable for &LockfileGraphImpl<'_> {
+	fn from_index(&self, i: usize) -> Self::NodeId {
 		i
 	}
 
-	fn node_bound(self: &Self) -> usize {
+	fn node_bound(&self) -> usize {
 		self.0.len()
 	}
 
-	fn to_index(self: &Self, a: Self::NodeId) -> usize {
+	fn to_index(&self, a: Self::NodeId) -> usize {
 		a
 	}
 }
 
-impl<'a> petgraph::visit::IntoNeighbors for &'a LockfileGraphImpl<'a> {
+impl<'a> petgraph::visit::IntoNeighbors for &LockfileGraphImpl<'a> {
 	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
 	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
 		match &self.0[a] {
@@ -716,7 +666,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a LockfileGraphImpl<'a> {
 	}
 }
 
-impl<'a> petgraph::visit::IntoNodeIdentifiers for &'a LockfileGraphImpl<'a> {
+impl petgraph::visit::IntoNodeIdentifiers for &LockfileGraphImpl<'_> {
 	type NodeIdentifiers = std::ops::Range<usize>;
 	fn node_identifiers(self) -> Self::NodeIdentifiers {
 		0..self.0.len()

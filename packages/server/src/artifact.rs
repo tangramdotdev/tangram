@@ -60,11 +60,11 @@ impl Server {
 				let stream = server.index().await?;
 				let stream = std::pin::pin!(stream);
 				stream.try_last().await?;
-				let metadata = server
-					.try_get_object_complete_metadata_local(&artifact.clone().into())
+				let complete = server
+					.try_get_object_complete_local(&artifact.clone().into())
 					.await?
 					.ok_or_else(|| tg::error!(%artifact, "expected an object"))?;
-				if !metadata.complete {
+				if !complete {
 					return Err(tg::error!("expected the object to be complete"));
 				}
 				Ok::<_, tg::Error>(())

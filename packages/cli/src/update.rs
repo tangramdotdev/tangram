@@ -26,7 +26,6 @@ impl Cli {
 
 		// Check in the package.
 		let arg = tg::checkin::Arg {
-			cache: false,
 			destructive: false,
 			deterministic: false,
 			ignore: true,

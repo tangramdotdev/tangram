@@ -154,7 +154,6 @@ impl Server {
 					continue;
 				},
 			};
-
 			// Insert objects from the messages.
 			let result = self.indexer_task_handle_messages(config, messages).await;
 			if let Err(error) = result {
@@ -1328,7 +1327,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					select count(*)
 					from process_children
 					left join processes child_processes on child_processes.id = process_children.child
-					where process_children.process = new.id 
+					where process_children.process = new.id
 					and (child_processes.complete is null or child_processes.complete = 0)
 				)
 				where id = new.id;
@@ -1356,7 +1355,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					select count(*)
 					from process_objects
 					left join objects on objects.id = process_objects.object
-					where process_objects.process = new.id 
+					where process_objects.process = new.id
 					and process_objects.kind = 'command'
 					and (objects.complete is null or objects.complete = 0)
 				)
@@ -1386,7 +1385,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					select count(*)
 					from process_objects
 					left join objects on objects.id = process_objects.object
-					where process_objects.process = new.id 
+					where process_objects.process = new.id
 					and process_objects.kind = 'output'
 					and (objects.complete is null or objects.complete = 0)
 				)
@@ -1431,7 +1430,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					select count(*)
 					from process_children
 					left join processes child_processes on child_processes.id = process_children.child
-					where process_children.process = new.id 
+					where process_children.process = new.id
 					and (child_processes.complete is null or child_processes.commands_complete = 0)
 				)
 				where id = new.id;
@@ -1459,7 +1458,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 					select count(*)
 					from process_children
 					left join processes child_processes on child_processes.id = process_children.child
-					where process_children.process = new.id 
+					where process_children.process = new.id
 					and (child_processes.complete is null or child_processes.outputs_complete = 0)
 				)
 				where id = new.id;

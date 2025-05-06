@@ -89,7 +89,6 @@ impl Runtime {
 		let stream = self
 			.server
 			.checkin(tg::checkin::Arg {
-				cache: false,
 				deterministic: false,
 				ignore: false,
 				locked: false,

@@ -10,9 +10,6 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub cache: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
 	pub destructive: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]

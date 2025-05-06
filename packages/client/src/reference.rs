@@ -156,6 +156,25 @@ impl Reference {
 	}
 }
 
+impl Reference {
+	pub fn name(&self) -> Option<&str> {
+		self.options()
+			.and_then(|options| options.name.as_deref())
+			.or(self
+				.item()
+				.try_unwrap_tag_ref()
+				.ok()
+				.map(tg::tag::Pattern::name))
+	}
+
+	pub fn path(&self) -> Option<&Path> {
+		self.options()
+			.and_then(|opt| opt.path.as_ref())
+			.or(self.item().try_unwrap_path_ref().ok())
+			.map(PathBuf::as_ref)
+	}
+}
+
 impl std::fmt::Display for Reference {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}", self.uri)

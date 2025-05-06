@@ -55,9 +55,12 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		self.try_load(handle)
-			.await?
-			.ok_or_else(|| tg::error!("failed to load the object"))
+		self.try_load(handle).await?.ok_or_else(|| {
+			tg::error!(
+				"failed to load the object {}",
+				self.state.read().unwrap().id.as_ref().unwrap()
+			)
+		})
 	}
 
 	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
