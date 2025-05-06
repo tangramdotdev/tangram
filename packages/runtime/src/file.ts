@@ -1,6 +1,5 @@
 import { isGraphArg } from "./artifact.ts";
 import * as tg from "./index.ts";
-import { flatten } from "./util.ts";
 
 export let file = async (...args: tg.Args<File.Arg>) => {
 	return await File.new(...args);
@@ -54,14 +53,21 @@ export class File {
 					arg instanceof Uint8Array ||
 					arg instanceof tg.Blob
 				) {
-					return { contents: arg };
+					return { contents: [arg] };
 				} else if (arg instanceof File) {
 					return {
-						contents: await arg.contents(),
+						contents: [await arg.contents()],
 						dependencies: await arg.dependencies(),
 					};
 				} else {
-					return arg;
+					if ("contents" in arg) {
+						return {
+							...arg,
+							contents: [arg.contents],
+						};
+					} else {
+						return arg;
+					}
 				}
 			}),
 		);
@@ -69,7 +75,6 @@ export class File {
 			contents: "append",
 			dependencies: "merge",
 		});
-		arg.contents = flatten(arg.contents);
 		return arg;
 	}
 

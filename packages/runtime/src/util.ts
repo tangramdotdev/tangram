@@ -1,14 +1,5 @@
 import type * as tg from "./index.ts";
 
-export let flatten = <T>(value: MaybeNestedArray<T>): Array<T> => {
-	if (value instanceof Array) {
-		// @ts-ignore
-		return value.flat(Number.POSITIVE_INFINITY);
-	} else {
-		return [value];
-	}
-};
-
 export type MaybeNestedArray<T> = T | Array<tg.MaybeNestedArray<T>>;
 
 export type MaybePromise<T> = T | Promise<T>;
