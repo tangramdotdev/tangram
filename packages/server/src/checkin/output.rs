@@ -23,39 +23,41 @@ impl Server {
 				let nodes = nodes.clone();
 				let state = state.clone();
 				async move {
-					// Copy the root artifact to the cache directory.
 					let semaphore = self.file_descriptor_semaphore.acquire().await.unwrap();
 					tokio::task::spawn_blocking({
 						let server = server.clone();
 						let state = state.clone();
-						move || server.checkin_copy_or_move_to_cache_directory(&state, root, &nodes)
+						move || server.checkin_cache_task_inner(&state, root, &nodes)
 					})
 					.await
 					.unwrap()
 					.map_err(|source| tg::error!(!source, "failed to copy root object to temp"))?;
 					drop(semaphore);
 
-					// Publish a notification that the root is ready to be indexed.
-					let id = state.graph.nodes[root]
-						.object
-						.as_ref()
-						.unwrap()
-						.id
-						.clone()
-						.try_into()
-						.unwrap();
-					let message =
-						crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
-							id,
-							touched_at,
-						});
-					let message = serde_json::to_vec(&message)
-						.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-					let _published = server
-						.messenger
-						.stream_publish("index".to_owned(), message.into())
-						.await
-						.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+					if state.arg.destructive {
+						let id = state.graph.nodes[root]
+							.object
+							.as_ref()
+							.unwrap()
+							.id
+							.clone()
+							.try_into()
+							.unwrap();
+						let message = crate::index::Message::PutCacheEntry(
+							crate::index::PutCacheEntryMessage { id, touched_at },
+						);
+						let message = serde_json::to_vec(&message).map_err(|source| {
+							tg::error!(!source, "failed to serialize the message")
+						})?;
+						let _published = server
+							.messenger
+							.stream_publish("index".to_owned(), message.into())
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to publish the message")
+							})?;
+					}
+
 					Ok::<_, tg::Error>(())
 				}
 			})
@@ -65,7 +67,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_copy_or_move_to_cache_directory(
+	fn checkin_cache_task_inner(
 		&self,
 		state: &State,
 		root: usize,
@@ -167,7 +169,6 @@ impl Server {
 				let message = serde_json::to_vec(&message)
 					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
 				messages.push(message.into());
-				// Send messages for the blob.
 				if let Variant::File(File {
 					blob: Some(Blob::Create(blob)),
 					..
@@ -245,8 +246,6 @@ impl Server {
 					.stream_publish("index".to_owned(), message.into())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-
-				// Send messages for the blob.
 				if let Variant::File(File {
 					blob: Some(Blob::Create(blob)),
 					..

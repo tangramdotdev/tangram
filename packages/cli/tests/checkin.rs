@@ -2802,8 +2802,8 @@ async fn tag_dependencies_after_clean() {
 		let (output1, _, _) =
 			test_checkin_inner(referrer.clone(), path, destructive, tags, &server2).await;
 
-		// // Clean up server 2.
-		// server2.stop_gracefully().await;
+		// Clean up server 2.
+		server2.stop_gracefully().await;
 
 		// Create the second server again.
 		let server2 = context.spawn_server().await.unwrap();
