@@ -1,18 +1,16 @@
 import * as tg from "./index.ts";
 
-// biome-ignore lint/suspicious/noConfusingVoidType:
-export function build<A extends Array<tg.Value>, R extends void | tg.Value>(
-	function_: (
-		...args: tg.UnresolvedArray<A>
-	) => R extends void ? tg.MaybePromise<void> : tg.Unresolved<Exclude<R, void>>,
-): tg.BuildBuilder<A, R extends void ? undefined : R>;
-// biome-ignore lint/suspicious/noConfusingVoidType:
-export function build<A extends Array<tg.Value>, R extends void | tg.Value>(
-	function_: (
-		...args: tg.UnresolvedArray<A>
-	) => R extends void ? tg.MaybePromise<void> : tg.Unresolved<Exclude<R, void>>,
-	...args: tg.UnresolvedArray<A>
-): tg.BuildBuilder<[], R extends void ? undefined : R>;
+export function build<
+	A extends tg.UnresolvedArgs<Array<tg.Value>>,
+	R extends tg.ReturnValue,
+>(function_: (...args: A) => R): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
+export function build<
+	A extends tg.UnresolvedArgs<Array<tg.Value>>,
+	R extends tg.ReturnValue,
+>(
+	function_: (...args: A) => R,
+	...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
 export function build(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
@@ -165,7 +163,7 @@ export interface BuildBuilder<
 	R extends tg.Value = tg.Value,
 > {
 	// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
-	(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R>;
+	(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
 }
 
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make this callable.
@@ -245,9 +243,9 @@ export class BuildBuilder<
 
 	// @ts-ignore
 	// biome-ignore lint/suspicious/noThenProperty: promiseLike class
-	then<TResult1 = tg.Value, TResult2 = never>(
+	then<TResult1 = R, TResult2 = never>(
 		onfulfilled?:
-			| ((value: tg.Value) => TResult1 | PromiseLike<TResult1>)
+			| ((value: R) => TResult1 | PromiseLike<TResult1>)
 			| undefined
 			| null,
 		onrejected?:
@@ -256,7 +254,8 @@ export class BuildBuilder<
 			| null,
 	): PromiseLike<TResult1 | TResult2> {
 		return tg
-			.build(...(this.#args as tg.Args<tg.Process.BuildArgObject>))
+			.build(...this.#args)
+			.then((output) => output as R)
 			.then(onfulfilled, onrejected);
 	}
 }

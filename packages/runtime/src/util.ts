@@ -9,7 +9,7 @@ export let flatten = <T>(value: MaybeNestedArray<T>): Array<T> => {
 	}
 };
 
-export type MaybeNestedArray<T> = T | Array<MaybeNestedArray<T>>;
+export type MaybeNestedArray<T> = T | Array<tg.MaybeNestedArray<T>>;
 
 export type MaybePromise<T> = T | Promise<T>;
 
@@ -24,7 +24,7 @@ export type MutationMap<
 export type MaybeMutationMap<
 	T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
 > = {
-	[K in keyof T]?: MaybeMutation<T[K]>;
+	[K in keyof T]?: tg.MaybeMutation<T[K]>;
 };
 
 export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
@@ -32,20 +32,31 @@ export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 	| boolean
 	| number
 	| string
-	| Object
+	| tg.Object
 	| Uint8Array
 	| tg.Mutation
 	| tg.Template
 	| Array<infer _U extends tg.Value>
 	? T
 	: T extends { [key: string]: tg.Value }
-		? MaybeMutationMap<T>
+		? {
+				[K in keyof T]?: T[K] | tg.Mutation<T[K]>;
+			}
 		: never;
 
-export type UnresolvedArray<T extends Array<tg.Value>> = {
+export type UnresolvedArgs<T extends Array<tg.Value>> = {
 	[K in keyof T]: tg.Unresolved<T[K]>;
 };
 
-export type UnresolvedMap<T extends { [key: string]: tg.Value }> = {
-	[K in keyof T]: tg.Unresolved<T[K]>;
+export type ResolvedArgs<T extends Array<tg.Unresolved<tg.Value>>> = {
+	[K in keyof T]: tg.Resolved<T[K]>;
 };
+
+export type ReturnValue = tg.MaybePromise<void> | tg.Unresolved<tg.Value>;
+
+export type ResolvedReturnValue<T extends tg.ReturnValue> =
+	T extends tg.MaybePromise<void>
+		? undefined
+		: T extends tg.Unresolved<tg.Value>
+			? tg.Resolved<T>
+			: never;

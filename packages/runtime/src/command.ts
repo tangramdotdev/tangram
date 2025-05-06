@@ -1,18 +1,16 @@
 import * as tg from "./index.ts";
 
-// biome-ignore lint/suspicious/noConfusingVoidType:
-export function command<A extends Array<tg.Value>, R extends void | tg.Value>(
-	function_: (
-		...args: tg.UnresolvedArray<A>
-	) => R extends void ? tg.MaybePromise<void> : tg.Unresolved<Exclude<R, void>>,
-): tg.CommandBuilder<A, R extends void ? undefined : R>;
-// biome-ignore lint/suspicious/noConfusingVoidType:
-export function command<A extends Array<tg.Value>, R extends void | tg.Value>(
-	function_: (
-		...args: tg.UnresolvedArray<A>
-	) => R extends void ? tg.MaybePromise<void> : tg.Unresolved<Exclude<R, void>>,
-	...args: tg.UnresolvedArray<A>
-): tg.CommandBuilder<[], R extends void ? undefined : R>;
+export function command<
+	A extends tg.UnresolvedArgs<Array<tg.Value>>,
+	R extends tg.ReturnValue,
+>(function_: (...args: A) => R): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
+export function command<
+	A extends tg.UnresolvedArgs<Array<tg.Value>>,
+	R extends tg.ReturnValue,
+>(
+	function_: (...args: A) => R,
+	...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
 export function command(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
@@ -222,12 +220,12 @@ export class Command<
 		return (await this.object()).mounts;
 	}
 
-	build(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R> {
-		return tg.build(this, { args });
+	build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R> {
+		return tg.build(this, { args }) as tg.BuildBuilder<[], R>;
 	}
 
-	run(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R> {
-		return tg.run(this, { args });
+	run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
+		return tg.run(this, { args }) as tg.RunBuilder<[], R>;
 	}
 }
 
@@ -455,18 +453,16 @@ export class CommandBuilder<
 			| undefined
 			| null,
 	): PromiseLike<TResult1 | TResult2> {
-		return (
-			tg.Command.new(
-				...(this.#args as tg.Args<tg.Command.ArgObject>),
-			) as Promise<tg.Command<A, R>>
-		).then(onfulfilled, onrejected);
+		return tg.Command.new(...(this.#args as any))
+			.then((command) => command as tg.Command<A, R>)
+			.then(onfulfilled, onrejected);
 	}
 
-	build(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R> {
-		return new tg.BuildBuilder(this as any, { args });
+	build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R> {
+		return new tg.BuildBuilder(...this.#args, { args });
 	}
 
-	run(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R> {
-		return new tg.RunBuilder(this as any, { args });
+	run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
+		return new tg.RunBuilder(...this.#args, { args });
 	}
 }

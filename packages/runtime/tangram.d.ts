@@ -451,23 +451,17 @@ declare namespace tg {
 	}
 
 	/** Create a command. */
-	// biome-ignore lint/suspicious/noConfusingVoidType:
-	export function command<A extends Array<tg.Value>, R extends void | tg.Value>(
-		function_: (
-			...args: tg.UnresolvedArray<A>
-		) => R extends void
-			? tg.MaybePromise<void>
-			: tg.Unresolved<Exclude<R, void>>,
-	): tg.CommandBuilder<A, R extends void ? undefined : R>;
-	// biome-ignore lint/suspicious/noConfusingVoidType:
-	export function command<A extends Array<tg.Value>, R extends void | tg.Value>(
-		function_: (
-			...args: tg.UnresolvedArray<A>
-		) => R extends void
-			? tg.MaybePromise<void>
-			: tg.Unresolved<Exclude<R, void>>,
-		...args: tg.UnresolvedArray<A>
-	): tg.CommandBuilder<[], R extends void ? undefined : R>;
+	export function command<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		R extends tg.ReturnValue,
+	>(function_: (...args: A) => R): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
+	export function command<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		R extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => R,
+		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+	): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
 	export function command(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
@@ -522,10 +516,10 @@ declare namespace tg {
 		user(): Promise<string | undefined>;
 
 		/** Build this command and return the process's output. */
-		build(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R>;
+		build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
 
 		/** Run this command and return the process's output. */
-		run(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R>;
+		run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
 	}
 
 	export namespace Command {
@@ -697,14 +691,14 @@ declare namespace tg {
 		): Promise<tg.Mutation<T>>;
 
 		/** Create an prepend mutation. */
-		static prepend<T extends tg.Value = tg.Value>(
-			values: tg.Unresolved<tg.MaybeNestedArray<T>>,
-		): Promise<tg.Mutation<Array<T>>>;
+		static prepend<T extends Array<tg.Value> = Array<tg.Value>>(
+			values: tg.Unresolved<T>,
+		): Promise<tg.Mutation<T>>;
 
 		/** Create an append mutation. */
-		static append<T extends tg.Value = tg.Value>(
-			values: tg.Unresolved<tg.MaybeNestedArray<T>>,
-		): Promise<tg.Mutation<Array<T>>>;
+		static append<T extends Array<tg.Value> = Array<tg.Value>>(
+			values: tg.Unresolved<T>,
+		): Promise<tg.Mutation<T>>;
 
 		/** Create a prefix mutation. */
 		static prefix(
@@ -719,9 +713,9 @@ declare namespace tg {
 		): Promise<tg.Mutation<tg.Template>>;
 
 		/** Create a merge mutation. */
-		static merge(
-			value: tg.Unresolved<{ [key: string]: tg.Value }>,
-		): Promise<tg.Mutation<{ [key: string]: tg.Value }>>;
+		static merge<
+			T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
+		>(value: tg.Unresolved<T>): Promise<tg.Mutation<T>>;
 
 		static expect(value: unknown): tg.Mutation;
 
@@ -729,7 +723,7 @@ declare namespace tg {
 
 		apply(map: { [key: string]: tg.Value }, key: string): Promise<void>;
 
-		get inner(): tg.Mutation.Inner;
+		get inner(): tg.Mutation.Inner<T>;
 	}
 
 	export namespace Mutation {
@@ -739,20 +733,20 @@ declare namespace tg {
 			| { kind: "set_if_unset"; value: T }
 			| {
 					kind: "prepend";
-					values: T extends Array<infer U> ? tg.MaybeNestedArray<U> : never;
+					values: T extends Array<infer _U> ? T : never;
 			  }
 			| {
 					kind: "append";
-					values: T extends Array<infer U> ? tg.MaybeNestedArray<U> : never;
+					values: T extends Array<infer _U> ? T : never;
 			  }
 			| {
 					kind: "prefix";
-					template: T extends tg.Template ? tg.Template.Arg : never;
+					template: T extends tg.Template ? T : never;
 					separator?: string | undefined;
 			  }
 			| {
 					kind: "suffix";
-					template: T extends tg.Template ? tg.Template.Arg : never;
+					template: T extends tg.Template ? T : never;
 					separator?: string | undefined;
 			  }
 			| {
@@ -760,31 +754,31 @@ declare namespace tg {
 					value: T extends { [key: string]: tg.Value } ? T : never;
 			  };
 
-		export type Inner =
+		export type Inner<T extends tg.Value = tg.Value> =
 			| { kind: "unset" }
-			| { kind: "set"; value: tg.Value }
-			| { kind: "set_if_unset"; value: tg.Value }
+			| { kind: "set"; value: T }
+			| { kind: "set_if_unset"; value: T }
 			| {
 					kind: "prepend";
-					values: Array<tg.Value>;
+					values: T extends Array<infer _U> ? T : never;
 			  }
 			| {
 					kind: "append";
-					values: Array<tg.Value>;
+					values: T extends Array<infer _U> ? T : never;
 			  }
 			| {
 					kind: "prefix";
-					template: tg.Template;
+					template: T extends tg.Template ? T : never;
 					separator: string | undefined;
 			  }
 			| {
 					kind: "suffix";
-					template: tg.Template;
+					template: T extends tg.Template ? T : never;
 					separator: string | undefined;
 			  }
 			| {
 					kind: "merge";
-					value: { [key: string]: tg.Value };
+					value: T extends { [key: string]: tg.Value } ? T : never;
 			  };
 
 		export type Kind =
@@ -955,46 +949,34 @@ declare namespace tg {
 			| "command";
 	}
 
-	// biome-ignore lint/suspicious/noConfusingVoidType:
-	export function build<A extends Array<tg.Value>, R extends void | tg.Value>(
-		function_: (
-			...args: tg.UnresolvedArray<A>
-		) => R extends void
-			? tg.MaybePromise<void>
-			: tg.Unresolved<Exclude<R, void>>,
-	): tg.BuildBuilder<A, R extends void ? undefined : R>;
-	// biome-ignore lint/suspicious/noConfusingVoidType:
-	export function build<A extends Array<tg.Value>, R extends void | tg.Value>(
-		function_: (
-			...args: tg.UnresolvedArray<A>
-		) => R extends void
-			? tg.MaybePromise<void>
-			: tg.Unresolved<Exclude<R, void>>,
-		...args: tg.UnresolvedArray<A>
-	): tg.BuildBuilder<[], R extends void ? undefined : R>;
+	export function build<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		R extends tg.ReturnValue,
+	>(function_: (...args: A) => R): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
+	export function build<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		R extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => R,
+		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+	): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
 	export function build(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
 	): tg.BuildBuilder;
 	export function build(...args: tg.Args<tg.Process.BuildArg>): tg.BuildBuilder;
 
-	// biome-ignore lint/suspicious/noConfusingVoidType:
-	export function run<A extends Array<tg.Value>, R extends void | tg.Value>(
-		function_: (
-			...args: tg.UnresolvedArray<A>
-		) => R extends void
-			? tg.MaybePromise<void>
-			: tg.Unresolved<Exclude<R, void>>,
-	): tg.RunBuilder<A, R extends void ? undefined : R>;
-	// biome-ignore lint/suspicious/noConfusingVoidType:
-	export function run<A extends Array<tg.Value>, R extends void | tg.Value>(
-		function_: (
-			...args: tg.UnresolvedArray<A>
-		) => R extends void
-			? tg.MaybePromise<void>
-			: tg.Unresolved<Exclude<R, void>>,
-		...args: tg.UnresolvedArray<A>
-	): tg.RunBuilder<[], R extends void ? undefined : R>;
+	export function run<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		R extends tg.ReturnValue,
+	>(function_: (...args: A) => R): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
+	export function run<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		R extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => R,
+		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+	): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
 	export function run(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
@@ -1170,7 +1152,7 @@ declare namespace tg {
 		R extends tg.Value = tg.Value,
 	> {
 		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
-		(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R>;
+		(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
 	}
 
 	export class BuildBuilder<
@@ -1222,7 +1204,7 @@ declare namespace tg {
 		R extends tg.Value = tg.Value,
 	> {
 		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
-		(...args: tg.UnresolvedArray<A>): tg.CommandBuilder<[], R>;
+		(...args: tg.UnresolvedArgs<A>): tg.CommandBuilder<[], R>;
 	}
 
 	export class CommandBuilder<
@@ -1250,10 +1232,10 @@ declare namespace tg {
 		): this;
 
 		/** Build this command and return the process's output. */
-		build(...args: tg.UnresolvedArray<A>): tg.BuildBuilder<[], R>;
+		build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
 
 		/** Run this command and return the process's output. */
-		run(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R>;
+		run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
 
 		// biome-ignore lint/suspicious/noThenProperty: This is necessary to make this thenable.
 		then<TResult1 = tg.Command<A, R>, TResult2 = never>(
@@ -1273,7 +1255,7 @@ declare namespace tg {
 		R extends tg.Value = tg.Value,
 	> {
 		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
-		(...args: tg.UnresolvedArray<A>): tg.RunBuilder<[], R>;
+		(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
 	}
 
 	export class RunBuilder<
@@ -1403,7 +1385,7 @@ declare namespace tg {
 
 	type MaybePromise<T> = T | Promise<T>;
 
-	type MaybeMutation<T extends Value = Value> = T | tg.Mutation<T>;
+	type MaybeMutation<T extends tg.Value = tg.Value> = T | tg.Mutation<T>;
 
 	type MutationMap<
 		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
@@ -1417,26 +1399,35 @@ declare namespace tg {
 		[K in keyof T]?: tg.MaybeMutation<T[K]>;
 	};
 
-	export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
+	type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 		| undefined
 		| boolean
 		| number
 		| string
-		| Object
+		| tg.Object
 		| Uint8Array
 		| tg.Mutation
 		| tg.Template
 		| Array<infer _U extends tg.Value>
 		? T
 		: T extends { [key: string]: tg.Value }
-			? MaybeMutationMap<T>
+			? tg.MaybeMutationMap<T>
 			: never;
 
-	export type UnresolvedArray<T extends Array<tg.Value>> = {
+	type UnresolvedArgs<T extends Array<tg.Value>> = {
 		[K in keyof T]: tg.Unresolved<T[K]>;
 	};
 
-	export type UnresolvedMap<T extends { [key: string]: tg.Value }> = {
-		[K in keyof T]: tg.Unresolved<T[K]>;
+	type ResolvedArgs<T extends Array<tg.Unresolved<tg.Value>>> = {
+		[K in keyof T]: tg.Resolved<T[K]>;
 	};
+
+	type ReturnValue = tg.MaybePromise<void> | tg.Unresolved<tg.Value>;
+
+	type ResolvedReturnValue<T extends tg.ReturnValue> =
+		T extends tg.MaybePromise<void>
+			? undefined
+			: T extends tg.Unresolved<tg.Value>
+				? tg.Resolved<T>
+				: never;
 }

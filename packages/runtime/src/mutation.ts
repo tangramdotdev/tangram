@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { type MaybeNestedArray, flatten } from "./util.ts";
 
 export async function mutation<T extends tg.Value = tg.Value>(
 	arg: tg.Unresolved<Mutation.Arg<T>>,
@@ -8,99 +7,118 @@ export async function mutation<T extends tg.Value = tg.Value>(
 }
 
 export class Mutation<T extends tg.Value = tg.Value> {
-	#inner: Mutation.Inner;
+	#inner: Mutation.Inner<T>;
 
-	constructor(inner: Mutation.Inner) {
+	constructor(inner: tg.Mutation.Inner<T>) {
 		this.#inner = inner;
 	}
 
 	static async new<T extends tg.Value = tg.Value>(
-		unresolved: tg.Unresolved<Mutation.Arg<T>>,
+		arg_: tg.Unresolved<tg.Mutation.Arg<T>>,
 	): Promise<Mutation<T>> {
-		let arg = await tg.resolve(unresolved);
-		if (arg.kind === "prepend" || arg.kind === "append") {
-			return new Mutation({ kind: arg.kind, values: flatten(arg.values) });
+		let arg = await tg.resolve(arg_);
+		if (arg.kind === "set") {
+			return new tg.Mutation({
+				kind: "set",
+				value: arg.value,
+			}) as tg.Mutation<T>;
+		} else if (arg.kind === "unset") {
+			return new tg.Mutation({ kind: "unset" });
+		} else if (arg.kind === "set_if_unset") {
+			return new tg.Mutation({
+				kind: "set_if_unset",
+				value: arg.value,
+			}) as tg.Mutation<T>;
+		} else if (arg.kind === "prepend" || arg.kind === "append") {
+			return new tg.Mutation({
+				kind: arg.kind,
+				values: arg.values as Array<tg.Value>,
+			}) as tg.Mutation<T>;
 		} else if (arg.kind === "prefix" || arg.kind === "suffix") {
-			return new Mutation({
+			return new tg.Mutation({
 				kind: arg.kind,
 				template: await tg.template(arg.template),
 				separator: arg.separator,
-			});
+			}) as tg.Mutation<T>;
 		} else if (arg.kind === "merge") {
-			return new Mutation({
+			return new tg.Mutation({
 				kind: arg.kind,
-				value: arg.value,
-			});
-		} else if (arg.kind === "unset") {
-			return new Mutation({ kind: "unset" });
+				value: arg.value as { [key: string]: tg.Value },
+			}) as tg.Mutation<T>;
 		} else {
-			return new Mutation({ kind: arg.kind, value: arg.value });
+			return tg.unreachable("invalid kind");
 		}
 	}
 
-	static set<T extends tg.Value = tg.Value>(
+	static async set<T extends tg.Value = tg.Value>(
 		value: tg.Unresolved<T>,
-	): Promise<Mutation<T>> {
-		return Mutation.new({ kind: "set", value } as any);
+	): Promise<tg.Mutation<T>> {
+		return new tg.Mutation({
+			kind: "set",
+			value: await tg.resolve(value),
+		}) as tg.Mutation<T>;
 	}
 
-	static unset(): Mutation {
-		return new Mutation({ kind: "unset" });
+	static unset(): tg.Mutation {
+		return new tg.Mutation({ kind: "unset" });
 	}
 
-	static setIfUnset<T extends tg.Value = tg.Value>(
+	static async setIfUnset<T extends tg.Value = tg.Value>(
 		value: tg.Unresolved<T>,
-	): Promise<Mutation<T>> {
-		return Mutation.new({ kind: "set_if_unset", value } as any);
+	): Promise<tg.Mutation<T>> {
+		return new tg.Mutation({
+			kind: "set_if_unset",
+			value: await tg.resolve(value),
+		}) as tg.Mutation<T>;
 	}
 
-	static prepend<T extends tg.Value = tg.Value>(
-		values: tg.Unresolved<MaybeNestedArray<T>>,
-	): Promise<Mutation<Array<T>>> {
-		return Mutation.new({
+	static async prepend<T extends Array<tg.Value> = Array<tg.Value>>(
+		values: tg.Unresolved<T>,
+	): Promise<tg.Mutation<T>> {
+		return new tg.Mutation({
 			kind: "prepend",
-			values,
-		} as any);
+			values: (await tg.resolve(values)) as Array<tg.Value>,
+		}) as tg.Mutation<T>;
 	}
 
-	static append<T extends tg.Value = tg.Value>(
-		values: tg.Unresolved<MaybeNestedArray<T>>,
-	): Promise<Mutation<Array<T>>> {
-		return Mutation.new({
+	static async append<T extends Array<tg.Value> = Array<tg.Value>>(
+		values: tg.Unresolved<T>,
+	): Promise<tg.Mutation<T>> {
+		return new tg.Mutation({
 			kind: "append",
-			values,
-		} as any);
+			values: (await tg.resolve(values)) as Array<tg.Value>,
+		}) as tg.Mutation<T>;
 	}
 
-	static prefix(
-		template: tg.Unresolved<tg.Template.Arg>,
+	static async prefix<T extends tg.Template.Arg = tg.Template.Arg>(
+		template: tg.Unresolved<T>,
 		separator?: string | undefined,
-	): Promise<Mutation<tg.Template>> {
-		return Mutation.new({
+	): Promise<tg.Mutation<T>> {
+		return new tg.Mutation({
 			kind: "prefix",
-			template,
+			template: await tg.template(template),
 			separator,
-		});
+		}) as tg.Mutation<T>;
 	}
 
-	static suffix(
-		template: tg.Unresolved<tg.Template.Arg>,
+	static async suffix<T extends tg.Template.Arg = tg.Template.Arg>(
+		template: tg.Unresolved<T>,
 		separator?: string | undefined,
-	): Promise<Mutation<tg.Template>> {
-		return Mutation.new({
+	): Promise<tg.Mutation<T>> {
+		return new tg.Mutation({
 			kind: "suffix",
-			template,
+			template: await tg.template(template),
 			separator,
-		});
+		}) as tg.Mutation<T>;
 	}
 
-	static merge(
-		value: tg.Unresolved<{ [key: string]: tg.Value }>,
-	): Promise<Mutation<{ [key: string]: tg.Value }>> {
-		return Mutation.new({
+	static async merge<
+		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
+	>(value: tg.Unresolved<T>): Promise<Mutation<T>> {
+		return new tg.Mutation({
 			kind: "merge",
-			value,
-		});
+			value: (await tg.resolve(value)) as { [key: string]: tg.Value },
+		}) as tg.Mutation<T>;
 	}
 
 	static expect(value: unknown): Mutation {
@@ -127,14 +145,14 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			}
 			let array = map[key];
 			tg.assert(array instanceof Array);
-			map[key] = [...flatten(this.#inner.values), ...array];
+			map[key] = [...this.#inner.values, ...array];
 		} else if (this.#inner.kind === "append") {
 			if (!(key in map) || map[key] === undefined) {
 				map[key] = [];
 			}
 			let array = map[key];
 			tg.assert(array instanceof Array);
-			map[key] = [...array, ...flatten(this.#inner.values)];
+			map[key] = [...array, ...this.#inner.values];
 		} else if (this.#inner.kind === "prefix") {
 			if (!(key in map)) {
 				map[key] = await tg.template();
@@ -197,20 +215,20 @@ export namespace Mutation {
 		| { kind: "set_if_unset"; value: T }
 		| {
 				kind: "prepend";
-				values: T extends Array<infer U> ? MaybeNestedArray<U> : never;
+				values: T extends Array<infer _U> ? T : never;
 		  }
 		| {
 				kind: "append";
-				values: T extends Array<infer U> ? MaybeNestedArray<U> : never;
+				values: T extends Array<infer _U> ? T : never;
 		  }
 		| {
 				kind: "prefix";
-				template: T extends tg.Template ? tg.Template.Arg : never;
+				template: T extends tg.Template ? T : never;
 				separator?: string | undefined;
 		  }
 		| {
 				kind: "suffix";
-				template: T extends tg.Template ? tg.Template.Arg : never;
+				template: T extends tg.Template ? T : never;
 				separator?: string | undefined;
 		  }
 		| {
@@ -218,31 +236,31 @@ export namespace Mutation {
 				value: T extends { [key: string]: tg.Value } ? T : never;
 		  };
 
-	export type Inner =
+	export type Inner<T extends tg.Value = tg.Value> =
 		| { kind: "unset" }
-		| { kind: "set"; value: tg.Value }
-		| { kind: "set_if_unset"; value: tg.Value }
+		| { kind: "set"; value: T }
+		| { kind: "set_if_unset"; value: T }
 		| {
 				kind: "prepend";
-				values: Array<tg.Value>;
+				values: T extends Array<infer _U> ? T : never;
 		  }
 		| {
 				kind: "append";
-				values: Array<tg.Value>;
+				values: T extends Array<infer _U> ? T : never;
 		  }
 		| {
 				kind: "prefix";
-				template: tg.Template;
+				template: T extends tg.Template ? T : never;
 				separator: string | undefined;
 		  }
 		| {
 				kind: "suffix";
-				template: tg.Template;
+				template: T extends tg.Template ? T : never;
 				separator: string | undefined;
 		  }
 		| {
 				kind: "merge";
-				value: { [key: string]: tg.Value };
+				value: T extends { [key: string]: tg.Value } ? T : never;
 		  };
 
 	export type Kind =

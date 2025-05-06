@@ -42,8 +42,10 @@ import type {
 	MaybeNestedArray,
 	MaybePromise,
 	MutationMap,
-	UnresolvedArray,
-	UnresolvedMap,
+	ResolvedArgs,
+	ResolvedReturnValue,
+	ReturnValue,
+	UnresolvedArgs,
 	ValueOrMaybeMutationMap,
 } from "./util.ts";
 import { Value } from "./value.ts";
@@ -60,10 +62,12 @@ export type {
 	Reference,
 	Referent,
 	Resolved,
+	ResolvedArgs,
+	ResolvedReturnValue,
+	ReturnValue,
 	Tag,
 	Unresolved,
-	UnresolvedArray,
-	UnresolvedMap,
+	UnresolvedArgs,
 	ValueOrMaybeMutationMap,
 };
 

@@ -1,8 +1,7 @@
 import im from "immutable";
 import * as tg from "./index.ts";
-import type { MaybePromise } from "./util.ts";
 
-export type Unresolved<T extends tg.Value> = MaybePromise<
+export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 	T extends
 		| undefined
 		| boolean
@@ -14,13 +13,13 @@ export type Unresolved<T extends tg.Value> = MaybePromise<
 		| tg.Template
 		? T
 		: T extends Array<infer U extends tg.Value>
-			? Array<Unresolved<U>>
+			? Array<tg.Unresolved<U>>
 			: T extends { [key: string]: tg.Value }
-				? { [K in keyof T]: Unresolved<T[K]> }
+				? { [K in keyof T]: tg.Unresolved<T[K]> }
 				: never
 >;
 
-export type Resolved<T extends Unresolved<tg.Value>> = T extends
+export type Resolved<T extends tg.Unresolved<tg.Value>> = T extends
 	| undefined
 	| boolean
 	| number
@@ -30,19 +29,19 @@ export type Resolved<T extends Unresolved<tg.Value>> = T extends
 	| tg.Mutation
 	| tg.Template
 	? T
-	: T extends Promise<infer U extends Unresolved<tg.Value>>
-		? Resolved<U>
-		: T extends Array<infer U extends Unresolved<tg.Value>>
-			? Array<Resolved<U>>
-			: T extends { [key: string]: Unresolved<tg.Value> }
-				? { [K in keyof T]: Resolved<T[K]> }
+	: T extends Array<infer U extends tg.Unresolved<tg.Value>>
+		? Array<Resolved<U>>
+		: T extends { [key: string]: tg.Unresolved<tg.Value> }
+			? { [K in keyof T]: tg.Resolved<T[K]> }
+			: T extends Promise<infer U extends tg.Unresolved<tg.Value>>
+				? tg.Resolved<U>
 				: never;
 
-export let resolve = async <T extends Unresolved<tg.Value>>(
+export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 	value: T,
-): Promise<Resolved<T>> => {
-	let inner = async <T extends Unresolved<tg.Value>>(
-		value: Unresolved<tg.Value>,
+): Promise<tg.Resolved<T>> => {
+	let inner = async <T extends tg.Unresolved<tg.Value>>(
+		value: tg.Unresolved<tg.Value>,
 		visited: im.Set<object>,
 	): Promise<Resolved<T>> => {
 		value = await value;
