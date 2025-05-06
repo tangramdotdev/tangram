@@ -194,7 +194,8 @@ impl Visitor {
 		};
 
 		// Parse the import.
-		let import = match tg::module::Import::with_specifier_and_attributes(specifier, attributes) {
+		let import = match tg::module::Import::with_specifier_and_attributes(specifier, attributes)
+		{
 			Ok(import) => import,
 			Err(error) => {
 				let loc = self.source_map.lookup_char_pos(span.lo());
@@ -241,7 +242,9 @@ mod tests {
 			"./nested_include.txt",
 		]
 		.into_iter()
-		.map(|specifier| tg::module::Import::with_specifier_and_attributes(specifier, None).unwrap())
+		.map(|specifier| {
+			tg::module::Import::with_specifier_and_attributes(specifier, None).unwrap()
+		})
 		.collect();
 		assert_eq!(found, expected);
 	}

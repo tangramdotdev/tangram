@@ -305,6 +305,7 @@ impl Server {
 			.inspect_err(|error| tracing::error!(?error, "cache and store task failed"))
 		})
 		.map(|result| result.unwrap());
+
 		let messenger_future = tokio::spawn({
 			let server = self.clone();
 			let state = state.clone();
@@ -322,6 +323,7 @@ impl Server {
 			.inspect_err(|error| tracing::error!(?error, "messenger task failed"))
 		})
 		.map(|result| result.unwrap());
+
 		let lockfile_future = tokio::spawn({
 			let server = self.clone();
 			let state = state.clone();
@@ -337,6 +339,7 @@ impl Server {
 			.inspect_err(|error| tracing::error!(?error, "lockfile task failed"))
 		})
 		.map(|result| result.unwrap());
+
 		futures::try_join!(cache_and_store_future, messenger_future, lockfile_future)?;
 
 		let _state = Arc::into_inner(state).unwrap();
