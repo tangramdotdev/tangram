@@ -42,32 +42,6 @@ impl Server {
 		// Write to the log file.
 		self.post_process_log_to_file(id, arg.bytes.clone()).await?;
 
-		// Write to stdout or stderr if necessary.
-		if let (Some(stdout), tg::process::log::Stream::Stdout) = (data.stdout, arg.stream) {
-			match stdout {
-				tg::process::Stdio::Pipe(id) => {
-					self.write_pipe_event(&id, tg::pipe::Event::Chunk(arg.bytes.clone()))
-						.await?;
-				},
-				tg::process::Stdio::Pty(id) => {
-					self.write_pty_event(&id, tg::pty::Event::Chunk(arg.bytes.clone()), false)
-						.await?;
-				},
-			}
-		}
-		if let (Some(stderr), tg::process::log::Stream::Stderr) = (data.stderr, arg.stream) {
-			match stderr {
-				tg::process::Stdio::Pipe(id) => {
-					self.write_pipe_event(&id, tg::pipe::Event::Chunk(arg.bytes.clone()))
-						.await?;
-				},
-				tg::process::Stdio::Pty(id) => {
-					self.write_pty_event(&id, tg::pty::Event::Chunk(arg.bytes.clone()), false)
-						.await?;
-				},
-			}
-		}
-
 		// Publish the message.
 		tokio::spawn({
 			let server = self.clone();

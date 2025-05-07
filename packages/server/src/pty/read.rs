@@ -1,9 +1,11 @@
+use std::os::fd::AsRawFd;
+
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
+use futures::{Stream, StreamExt as _, future, stream};
 use tangram_client as tg;
-use tangram_futures::{stream::Ext as _, task::Stop};
+use tangram_futures::task::Stop;
 use tangram_http::{Body, request::Ext as _};
-use tangram_messenger::{self as messenger, prelude::*};
+use tokio::io::unix::AsyncFd;
 
 impl Server {
 	pub async fn read_pty(
@@ -14,48 +16,60 @@ impl Server {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			let stream = remote.read_pty(id, arg).await?;
-			return Ok(stream.left_stream());
+			let stream = remote.read_pty(id, arg).await?.left_stream();
+			return Ok(stream);
 		}
 
-		// Create the stream.
-		let stream = if arg.master {
-			format!("{id}_master_reader")
+		let fd = if arg.master {
+			self.ptys
+				.get(id)
+				.ok_or_else(|| tg::error!("failed to get pty"))?
+				.host
+				.try_clone()
+				.map_err(|source| tg::error!(!source, "failed to clone fd"))?
 		} else {
-			format!("{id}_master_writer")
+			self.ptys
+				.get(id)
+				.ok_or_else(|| tg::error!("failed to get pty"))?
+				.guest
+				.try_clone()
+				.map_err(|source| tg::error!(!source, "failed to clone fd"))?
 		};
-		let stream = self
-			.messenger
-			.get_stream(stream)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
-		let name = crate::messenger::random_consumer_name();
-		let config = messenger::ConsumerConfig::default();
-		let consumer = stream
-			.create_consumer(name, config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the consumer"))?;
-		let stream = consumer
-			.subscribe()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.boxed()
-			.map_err(|source| tg::error!(!source, "failed to get a message"))
-			.and_then(|message| async move {
-				message
-					.acker
-					.ack()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
-				let event = serde_json::from_slice::<tg::pty::Event>(&message.payload)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Ok::<_, tg::Error>(event)
-			})
-			.take_while_inclusive(|result| {
-				future::ready(!matches!(result, Ok(tg::pty::Event::End) | Err(_)))
-			});
 
-		Ok(stream.right_stream())
+		let fd = AsyncFd::with_interest(fd, tokio::io::Interest::READABLE)
+			.map_err(|source| tg::error!(!source, "failed to read pty"))?;
+
+		let stream = stream::try_unfold(fd, |fd| async move {
+			let Some(bytes) = fd
+				.async_io(tokio::io::Interest::READABLE, |fd| {
+					let mut buf = vec![0u8; 4096];
+					unsafe {
+						let n = libc::read(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len());
+						if n < 0 {
+							let error = std::io::Error::last_os_error();
+							if matches!(error.raw_os_error(), Some(libc::EIO)) {
+								return Ok(None);
+							}
+							return Err(error);
+						}
+						if n == 0 {
+							return Ok(None);
+						}
+						Ok(Some(tg::pty::Event::Chunk(buf.into())))
+					}
+				})
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read pty"))?
+			else {
+				return Ok::<_, tg::Error>(None);
+			};
+			Ok::<_, tg::Error>(Some((bytes, fd)))
+		})
+		.chain(stream::once(future::ok(tg::pty::Event::End)))
+		.boxed()
+		.right_stream();
+
+		Ok(stream)
 	}
 
 	pub(crate) async fn handle_read_pty_request<H>(

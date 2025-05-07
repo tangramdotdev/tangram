@@ -3,13 +3,13 @@ use bytes::Bytes;
 use futures::{Stream, TryStreamExt as _, future, stream};
 use std::{
 	collections::BTreeMap,
+	os::fd::{AsRawFd, RawFd},
 	path::{Path, PathBuf},
 	pin::pin,
 };
 use tangram_client as tg;
-use tangram_futures::task::Stop;
 use tangram_sandbox as sandbox;
-use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::{AsyncRead, AsyncReadExt as _};
 
 /// Render a value.
 pub fn render_value(artifacts_path: &Path, value: &tg::value::Data) -> String {
@@ -69,46 +69,35 @@ pub fn render_env(
 pub async fn stdio_task(
 	server: &Server,
 	process: &tg::Process,
-	stop: Stop,
-	stdin: Option<sandbox::Stdin>,
-	stdout: Option<sandbox::Stdout>,
-	stderr: Option<sandbox::Stderr>,
+	stdin: Option<sandbox::ChildStdin>,
+	stdout: Option<sandbox::ChildStdout>,
+	stderr: Option<sandbox::ChildStderr>,
 ) -> tg::Result<()> {
 	let state = process.load(server).await?;
 
+	// Dump blobs to stdin if necessary.
 	let stdin = tokio::spawn({
 		let server = server.clone();
-		let io = state.stdin.clone();
 		let blob = state.command.load(&server).await?.stdin.clone();
-		let remote = process.remote().cloned();
-
 		async move {
 			let Some(mut stdin) = stdin else {
 				return;
 			};
-			if let Some(io) = io {
-				// Write stdin from pipe/pty.
-				input(&server, &io, remote, &mut stdin, stop)
-					.await
-					.inspect_err(|source| tracing::error!(?source, "failed to write stdin"))
-					.ok();
-			} else if let Some(blob) = blob {
-				// Copy blobs to stdin.
-				let Ok(mut reader) = blob
-					.read(&server, tg::blob::read::Arg::default())
-					.await
-					.inspect_err(|error| tracing::error!(?error, "failed to read blob"))
-				else {
-					return;
-				};
-				tokio::io::copy(&mut reader, &mut stdin)
-					.await
-					.inspect_err(|error| tracing::error!(?error, "failed to copy blob"))
-					.ok();
-			}
-
-			// Shutdown stdin to make sure the process exits if it's reading from stdin.
-			stdin.shutdown().await.ok();
+			let Some(blob) = blob else {
+				return;
+			};
+			// Copy blobs to stdin.
+			let Ok(mut reader) = blob
+				.read(&server, tg::blob::read::Arg::default())
+				.await
+				.inspect_err(|error| tracing::error!(?error, "failed to read blob"))
+			else {
+				return;
+			};
+			tokio::io::copy(&mut reader, &mut stdin)
+				.await
+				.inspect_err(|error| tracing::error!(?error, "failed to copy blob"))
+				.ok();
 		}
 	});
 
@@ -213,84 +202,6 @@ fn signal_number(signal: tg::process::Signal) -> i32 {
 	}
 }
 
-async fn input(
-	server: &Server,
-	stdio: &tg::process::Stdio,
-	remote: Option<String>,
-	stdin: &mut sandbox::Stdin,
-	stop: Stop,
-) -> tg::Result<()> {
-	match stdio {
-		tg::process::Stdio::Pipe(id) => {
-			let arg = tg::pipe::read::Arg { remote };
-			let stream = server.read_pipe(id, arg).await?;
-			let mut stream = pin!(stream);
-			loop {
-				let stop_ = stop.wait();
-				let event = stream.try_next();
-				let chunk = match future::select(event, pin!(stop_)).await {
-					future::Either::Left((Ok(Some(tg::pipe::Event::Chunk(chunk))), _)) => chunk,
-					future::Either::Left((Err(source), _)) => {
-						return Err(source);
-					},
-					_ => break,
-				};
-				let stop_ = stop.wait();
-				let write = stdin.write_all(&chunk);
-				match future::select(pin!(write), pin!(stop_)).await {
-					future::Either::Left((Ok(()), _)) => (),
-					future::Either::Left((Err(source), _))
-						if matches!(source.raw_os_error(), Some(libc::EPIPE)) =>
-					{
-						break;
-					},
-					future::Either::Left((Err(source), _)) => {
-						return Err(tg::error!(!source, "failed to write stdin"));
-					},
-					future::Either::Right(_) => {
-						break;
-					},
-				}
-			}
-			stdin.shutdown().await.ok();
-		},
-		tg::process::Stdio::Pty(id) => {
-			let arg = tg::pty::read::Arg {
-				master: false,
-				remote,
-			};
-			let stream = server.read_pty(id, arg).await?;
-			let mut stream = pin!(stream);
-			loop {
-				let stop = stop.wait();
-				let event = stream.try_next();
-				match future::select(event, pin!(stop)).await {
-					future::Either::Left((Ok(Some(tg::pty::Event::Chunk(chunk))), _)) => {
-						stdin
-							.write_all(&chunk)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to write bytes"))?;
-					},
-					future::Either::Left((Ok(Some(tg::pty::Event::Size(size))), _)) => {
-						let tty = sandbox::Tty {
-							cols: size.cols,
-							rows: size.rows,
-						};
-						stdin.change_window_size(tty).await.map_err(|source| {
-							tg::error!(!source, "failed to change the PTY window size")
-						})?;
-					},
-					future::Either::Left((Err(source), _)) => {
-						return Err(source);
-					},
-					_ => break,
-				}
-			}
-		},
-	}
-	Ok(())
-}
-
 async fn output(
 	server: &Server,
 	process: &tg::Process,
@@ -366,4 +277,24 @@ pub async fn log(
 		.await
 		.inspect_err(|error| tracing::error!(?error, "failed to post process log"))
 		.ok();
+}
+
+impl Server {
+	pub(super) fn get_pty_or_pipe_fd(&self, io: &tg::process::Stdio) -> tg::Result<RawFd> {
+		match io {
+			tg::process::Stdio::Pipe(pipe) => Ok(self
+				.pipes
+				.get(pipe)
+				.ok_or_else(|| tg::error!("failed to get pipe"))?
+				.guest
+				.as_raw_fd()),
+			tg::process::Stdio::Pty(pty) => {
+				let pty = self
+					.ptys
+					.get(pty)
+					.ok_or_else(|| tg::error!("failed to get pty"))?;
+				Ok(pty.guest.as_raw_fd())
+			},
+		}
+	}
 }

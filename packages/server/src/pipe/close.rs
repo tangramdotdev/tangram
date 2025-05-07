@@ -10,10 +10,7 @@ impl Server {
 			remote.close_pipe(id, arg).await?;
 			return Ok(());
 		}
-
-		// Send the end message and wait for acknowledgement.
-		self.write_pipe_event(id, tg::pipe::Event::End).await.ok();
-
+		self.pipes.remove(id);
 		Ok(())
 	}
 

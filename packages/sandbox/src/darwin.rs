@@ -1,17 +1,15 @@
 use crate::{
-	Child, Command, ExitStatus, Stderr, Stdin, Stdout,
-	common::{CStringVec, GuestStdio, abort_errno, cstring, envstring, redirect_stdio, stdio_pair},
-	pty::Pty,
+	Child, Command, ExitStatus,
+	common::{CStringVec, abort_errno, cstring, envstring, redirect_stdio},
 };
 use indoc::writedoc;
 use num::ToPrimitive;
 use std::{
 	ffi::{CStr, CString},
 	fmt::Write,
-	os::unix::ffi::OsStrExt as _,
+	os::{fd::RawFd, unix::ffi::OsStrExt as _},
 	path::Path,
 };
-use tangram_either::Either;
 
 struct Context {
 	argv: CStringVec,
@@ -19,9 +17,9 @@ struct Context {
 	envp: CStringVec,
 	executable: CString,
 	profile: CString,
-	stdin: GuestStdio,
-	stdout: GuestStdio,
-	stderr: GuestStdio,
+	stdin: RawFd,
+	stdout: RawFd,
+	stderr: RawFd,
 }
 
 pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
@@ -46,10 +44,9 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	}
 
 	// Create stdio.
-	let mut pty = None;
-	let (parent_stdin, child_stdin) = stdio_pair(command.stdin, &mut pty).await?;
-	let (parent_stdout, child_stdout) = stdio_pair(command.stdout, &mut pty).await?;
-	let (parent_stderr, child_stderr) = stdio_pair(command.stderr, &mut pty).await?;
+	let (parent_stdin, child_stdin) = command.stdin.split_stdin()?;
+	let (parent_stdout, child_stdout) = command.stdout.split_stdout()?;
+	let (parent_stderr, child_stderr) = command.stderr.split_stderr()?;
 
 	// Create the sandbox profile.
 	let profile = create_sandbox_profile(command)?;
@@ -75,49 +72,12 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 		guest_process(context);
 	}
 
-	// Close unused fds.
-	for io in [context.stdin, context.stdout, context.stderr] {
-		match io {
-			Either::Left(mut pty) => {
-				pty.close_tty();
-			},
-			Either::Right(Some(raw)) => {
-				unsafe { libc::close(raw) };
-			},
-			Either::Right(None) => (),
-		}
-	}
-
-	// Create stdio
-	let pty = pty.map(Pty::into_writer);
-	let stdout = match parent_stdout {
-		Either::Left(_) => Some(Either::Left(pty.as_ref().unwrap().get_reader()?)),
-		Either::Right(Some(io)) => Some(Either::Right(io)),
-		Either::Right(None) => None,
-	};
-	let stderr = match parent_stderr {
-		Either::Left(_) => {
-			if matches!(stdout, Some(Either::Left(_))) {
-				None
-			} else {
-				Some(Either::Left(pty.as_ref().unwrap().get_reader()?))
-			}
-		},
-		Either::Right(Some(io)) => Some(Either::Right(io)),
-		Either::Right(None) => None,
-	};
-	let stdin = match parent_stdin {
-		Either::Left(_) => Some(Either::Left(pty.unwrap())),
-		Either::Right(Some(io)) => Some(Either::Right(io)),
-		Either::Right(None) => None,
-	};
-
 	// Create the child.
 	let child = Child {
 		pid,
-		stdin: stdin.map(|inner| Stdin { inner }),
-		stdout: stdout.map(|inner| Stdout { inner }),
-		stderr: stderr.map(|inner| Stderr { inner }),
+		stdin: parent_stdin,
+		stdout: parent_stdout,
+		stderr: parent_stderr,
 	};
 
 	Ok(child)
@@ -173,9 +133,9 @@ pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 	.unwrap()
 }
 
-fn guest_process(mut context: Context) -> ! {
-	// Redirect
-	redirect_stdio(&mut context.stdin, &mut context.stdout, &mut context.stderr);
+fn guest_process(context: Context) -> ! {
+	// Redirect io.
+	redirect_stdio(context.stdin, context.stdout, context.stderr);
 
 	// Initialize the sandbox.
 	unsafe {

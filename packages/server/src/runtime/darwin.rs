@@ -176,60 +176,28 @@ impl Runtime {
 				.map(|mount| (mount.source.clone(), mount.target.clone(), mount.readonly)),
 		);
 
-		// Create the stdio.
-		let stdin = if let Some(tg::process::Stdio::Pty(pty)) = &state.stdin {
-			let arg = tg::pty::read::Arg {
-				remote: process.remote().cloned(),
-				master: true,
-			};
-			let size = self
-				.server
-				.get_pty_size(pty, arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to get the pty size"))?;
-			let tty = sandbox::Tty {
-				rows: size.rows,
-				cols: size.cols,
-			};
-			sandbox::Stdio::Tty(tty)
-		} else {
-			sandbox::Stdio::Pipe
+		// Get or create stdio.
+		let stdin = match state.stdin.as_ref() {
+			_ if command.stdin.is_some() => sandbox::Stdio::piped(),
+			Some(stdio) => {
+				let fd = self.server.get_pty_or_pipe_fd(stdio)?;
+				sandbox::Stdio::from(fd)
+			},
+			None => sandbox::Stdio::piped(),
 		};
-		let stdout = if let Some(tg::process::Stdio::Pty(pty)) = &state.stdout {
-			let arg = tg::pty::read::Arg {
-				remote: process.remote().cloned(),
-				master: false,
-			};
-			let size = self
-				.server
-				.get_pty_size(pty, arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to get the pty size"))?;
-			let tty = sandbox::Tty {
-				rows: size.rows,
-				cols: size.cols,
-			};
-			sandbox::Stdio::Tty(tty)
-		} else {
-			sandbox::Stdio::Pipe
+		let stdout = match state.stdout.as_ref() {
+			Some(stdio) => {
+				let fd = self.server.get_pty_or_pipe_fd(stdio)?;
+				sandbox::Stdio::from(fd)
+			},
+			None => sandbox::Stdio::piped(),
 		};
-		let stderr = if let Some(tg::process::Stdio::Pty(pty)) = &state.stderr {
-			let arg = tg::pty::read::Arg {
-				remote: process.remote().cloned(),
-				master: false,
-			};
-			let size = self
-				.server
-				.get_pty_size(pty, arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to get the pty size"))?;
-			let tty = sandbox::Tty {
-				rows: size.rows,
-				cols: size.cols,
-			};
-			sandbox::Stdio::Tty(tty)
-		} else {
-			sandbox::Stdio::Pipe
+		let stderr = match state.stderr.as_ref() {
+			Some(stdio) => {
+				let fd = self.server.get_pty_or_pipe_fd(stdio)?;
+				sandbox::Stdio::from(fd)
+			},
+			None => sandbox::Stdio::piped(),
 		};
 
 		// Spawn the process.
@@ -247,15 +215,18 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 
 		// Spawn the stdio task.
-		let stdio_task = Task::spawn(|stop| {
+		let stdio_task = tokio::spawn({
 			let server = self.server.clone();
 			let process = process.clone();
+
+			// Get the stdio.
 			let stdin = child.stdin.take();
 			let stdout = child.stdout.take();
 			let stderr = child.stderr.take();
-			async move { stdio_task(&server, &process, stop, stdin, stdout, stderr).await }
+			async move { stdio_task(&server, &process, stdin, stdout, stderr).await }
 		});
 
+		// Spawn
 		// Spawn the signal task.
 		let signal_task = tokio::spawn({
 			let server = self.server.clone();
@@ -288,8 +259,7 @@ impl Runtime {
 		signal_task.abort();
 
 		// Stop and await the stdio task.
-		stdio_task.stop();
-		stdio_task.wait().await.unwrap()?;
+		stdio_task.await.unwrap()?;
 
 		// Create the output.
 		let exists = tokio::fs::try_exists(&output_path)

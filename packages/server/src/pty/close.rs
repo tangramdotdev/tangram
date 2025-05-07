@@ -11,10 +11,7 @@ impl Server {
 			return Ok(());
 		}
 
-		// Send the end message to master/slave streams and wait for acknowledgement.
-		self.write_pty_event(id, tg::pty::Event::End, arg.master)
-			.await
-			.ok();
+		self.ptys.remove(id);
 
 		Ok(())
 	}

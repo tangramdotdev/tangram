@@ -12,7 +12,11 @@ pub fn main(mut context: Context) -> ! {
 		}
 
 		// Redirect stdio.
-		redirect_stdio(&mut context.stdin, &mut context.stdout, &mut context.stderr);
+		redirect_stdio(
+			context.stdin.as_raw_fd(),
+			context.stdout.as_raw_fd(),
+			context.stderr.as_raw_fd(),
+		);
 
 		// Wait for the notification from the host process to continue.
 		let mut notification = 0u8;

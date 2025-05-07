@@ -1,9 +1,6 @@
 use crate::Server;
-use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database::{self as db, Database, Query, params};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::{self as messenger, prelude::*};
 
 impl Server {
 	pub async fn create_pty(
@@ -14,45 +11,14 @@ impl Server {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.create_pty(arg).await;
 		}
-
 		let id = tg::pty::Id::new();
 
-		// Create the streams.
-		for end in ["master_writer", "master_reader"] {
-			let name = format!("{id}_{end}");
-			let config = messenger::StreamConfig {
-				discard: messenger::DiscardPolicy::New,
-				max_bytes: Some(65_536),
-				max_messages: Some(256),
-				retention: messenger::RetentionPolicy::Limits,
-			};
-			self.messenger
-				.get_or_create_stream(name, config)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the stream"))?;
-		}
+		// Create the pty.
+		let pty = super::Pty::open(arg.size).await?;
+		self.ptys.insert(id.clone(), pty);
 
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into ptys (id, created_at, size)
-				values ({p}1, {p}2, {p}3);
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = params![id.to_string(), now, db::value::Json(arg.size)];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
+		// Return the id.
 		let output = tg::pty::create::Output { id };
-
 		Ok(output)
 	}
 
