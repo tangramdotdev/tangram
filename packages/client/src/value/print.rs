@@ -558,8 +558,8 @@ where
 	pub fn command_executable_module(&mut self, value: &tg::command::ModuleExecutable) -> Result {
 		self.start_map()?;
 		self.map_entry("module", |s| s.command_module(&value.module))?;
-		if let Some(target) = &value.target {
-			self.map_entry("target", |s| s.string(target))?;
+		if let Some(export) = &value.export {
+			self.map_entry("export", |s| s.string(export))?;
 		}
 		self.finish_map()?;
 		Ok(())

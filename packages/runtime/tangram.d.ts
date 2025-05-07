@@ -595,12 +595,12 @@ declare namespace tg {
 
 			export type Module = {
 				module: tg.Module;
-				target: string;
+				export: string | undefined;
 			};
 
 			export type ModuleArg = {
 				module: tg.Module;
-				target: string;
+				export?: string | undefined;
 			};
 
 			export type Path = {

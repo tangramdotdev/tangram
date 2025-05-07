@@ -76,7 +76,7 @@ export class Command<
 		} else if (arg.executable !== undefined && "module" in arg.executable) {
 			executable = {
 				module: arg.executable.module,
-				target: arg.executable.target,
+				export: arg.executable.export,
 			};
 		} else if (arg.executable !== undefined && "path" in arg.executable) {
 			executable = {
@@ -274,12 +274,12 @@ export namespace Command {
 
 		export type Module = {
 			module: tg.Module;
-			target: string | undefined;
+			export: string | undefined;
 		};
 
 		export type ModuleArg = {
 			module: tg.Module;
-			target?: string | undefined;
+			export?: string | undefined;
 		};
 
 		export type Path = {

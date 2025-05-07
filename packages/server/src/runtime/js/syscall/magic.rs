@@ -32,12 +32,12 @@ pub fn magic<'s>(
 	}
 	let module = module.ok_or_else(|| tg::error!("failed to find the module for the function"))?;
 
-	// Get the target.
-	let target = Some(function.get_name(scope).to_rust_string_lossy(scope));
+	// Get the export.
+	let export = Some(function.get_name(scope).to_rust_string_lossy(scope));
 
 	// Create the executable.
 	let executable =
-		tg::command::Executable::Module(tg::command::ModuleExecutable { module, target });
+		tg::command::Executable::Module(tg::command::ModuleExecutable { module, export });
 
 	let value = executable.to_v8(scope)?;
 

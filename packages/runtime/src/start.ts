@@ -11,23 +11,23 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 
 	// Import the module.
 	// @ts-ignore
-	// biome-ignore lint/security/noGlobalEval: special import
+	// biome-ignore lint/security/noGlobalEval:
 	let namespace = await eval(`import("!")`);
 
-	// Get the target.
+	// Get the export.
 	let executable = await command.executable();
 	tg.assert("module" in executable);
-	let target = executable.target;
-	if (target === undefined) {
-		throw new Error("the executable must have a target");
+	let export_ = executable.export;
+	if (export_ === undefined) {
+		throw new Error("the executable must have an export");
 	}
 
 	// Get the output.
 	let output: tg.Value;
-	if (!(target in namespace)) {
+	if (!(export_ in namespace)) {
 		throw new Error("failed to find the export");
 	}
-	let value = await namespace[target];
+	let value = await namespace[export_];
 	if (tg.Value.is(value)) {
 		output = value;
 	} else if (typeof value === "function") {

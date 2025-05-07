@@ -207,7 +207,7 @@ impl Cli {
 						tag: referent.tag,
 					};
 					let module = tg::Module { kind, referent };
-					let target = reference
+					let export = reference
 						.uri()
 						.fragment()
 						.map_or("default", |fragment| fragment)
@@ -216,7 +216,7 @@ impl Cli {
 					let executable =
 						tg::command::Executable::Module(tg::command::ModuleExecutable {
 							module,
-							target: Some(target),
+							export: Some(export),
 						});
 					tg::Command::builder(host, executable)
 				} else {
@@ -269,7 +269,7 @@ impl Cli {
 					let item = tg::module::Item::Object(file.clone().into());
 					let referent = tg::Referent::with_item(item);
 					let module = tg::Module { kind, referent };
-					let target = reference
+					let export = reference
 						.uri()
 						.fragment()
 						.map_or("default", |fragment| fragment)
@@ -278,7 +278,7 @@ impl Cli {
 					let executable =
 						tg::command::Executable::Module(tg::command::ModuleExecutable {
 							module,
-							target: Some(target),
+							export: Some(export),
 						});
 					tg::Command::builder(host, executable)
 				} else {

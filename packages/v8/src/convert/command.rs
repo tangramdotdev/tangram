@@ -249,8 +249,8 @@ impl ToV8 for tg::command::ModuleExecutable {
 		let value = self.module.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
-		let value = self.target.to_v8(scope)?;
+		let key = v8::String::new_external_onebyte_static(scope, "export".as_bytes()).unwrap();
+		let value = self.export.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
@@ -272,12 +272,12 @@ impl FromV8 for tg::command::ModuleExecutable {
 		let module = <_>::from_v8(scope, module)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the module"))?;
 
-		let target = v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
-		let target = value.get(scope, target.into()).unwrap();
-		let target = <_>::from_v8(scope, target)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the target"))?;
+		let export = v8::String::new_external_onebyte_static(scope, "export".as_bytes()).unwrap();
+		let export = value.get(scope, export.into()).unwrap();
+		let export = <_>::from_v8(scope, export)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the export"))?;
 
-		Ok(Self { module, target })
+		Ok(Self { module, export })
 	}
 }
 

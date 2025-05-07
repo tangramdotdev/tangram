@@ -32,7 +32,7 @@ pub struct ArtifactExecutable {
 #[derive(Clone, Debug)]
 pub struct ModuleExecutable {
 	pub module: tg::Module,
-	pub target: Option<String>,
+	pub export: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -93,8 +93,8 @@ impl ModuleExecutable {
 		H: tg::Handle,
 	{
 		let module = self.module.data(handle).await?;
-		let target = self.target.clone();
-		let data = tg::command::data::ModuleExecutable { module, target };
+		let export = self.export.clone();
+		let data = tg::command::data::ModuleExecutable { module, export };
 		Ok(data)
 	}
 }
@@ -154,7 +154,7 @@ impl From<tg::command::data::ModuleExecutable> for ModuleExecutable {
 	fn from(data: tg::command::data::ModuleExecutable) -> Self {
 		Self {
 			module: data.module.into(),
-			target: data.target,
+			export: data.export,
 		}
 	}
 }

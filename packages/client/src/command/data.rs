@@ -51,7 +51,7 @@ pub struct ModuleExecutable {
 	pub module: tg::module::Data,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub target: Option<String>,
+	pub export: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
