@@ -180,11 +180,11 @@ impl Server {
 			async move {
 				let mut stream = pin!(stream);
 				while let Some(complete) = stream.try_next().await? {
-					match complete {
-						tg::import::Complete::Process(ref process_complete) => {
+					match &complete {
+						tg::import::Complete::Process(process_complete) => {
 							graph.update_complete(&Either::Left(process_complete));
 						},
-						tg::import::Complete::Object(ref object_complete) => {
+						tg::import::Complete::Object(object_complete) => {
 							graph.update_complete(&Either::Right(object_complete));
 						},
 					}
@@ -479,11 +479,11 @@ impl Server {
 			.import_complete_receiver
 			.blocking_recv_many(&mut buffer, len);
 		for complete in buffer {
-			match complete {
-				tg::import::Complete::Process(ref process_complete) => {
+			match &complete {
+				tg::import::Complete::Process(process_complete) => {
 					state.graph.update_complete(&Either::Left(process_complete));
 				},
-				tg::import::Complete::Object(ref object_complete) => {
+				tg::import::Complete::Object(object_complete) => {
 					state.graph.update_complete(&Either::Right(object_complete));
 				},
 			}
@@ -735,11 +735,11 @@ impl Server {
 			.import_complete_receiver
 			.blocking_recv_many(&mut buffer, len);
 		for complete in buffer {
-			match complete {
-				tg::import::Complete::Process(ref process_complete) => {
+			match &complete {
+				tg::import::Complete::Process(process_complete) => {
 					state.graph.update_complete(&Either::Left(process_complete));
 				},
-				tg::import::Complete::Object(ref object_complete) => {
+				tg::import::Complete::Object(object_complete) => {
 					state.graph.update_complete(&Either::Right(object_complete));
 				},
 			}
@@ -1283,11 +1283,11 @@ impl Graph {
 		// If we found a path to complete, mark intermediate nodes as complete.
 		if found_complete_ancestor {
 			for node in completion_path {
-				match node.complete {
-					Either::Left(ref process_complete) => {
+				match &node.complete {
+					Either::Left(process_complete) => {
 						process_complete.write().unwrap().complete = true;
 					},
-					Either::Right(ref object_complete) => {
+					Either::Right(object_complete) => {
 						object_complete.store(true, std::sync::atomic::Ordering::SeqCst);
 					},
 				}
@@ -1338,11 +1338,11 @@ impl Graph {
 	) -> Option<Either<ProcessComplete, bool>> {
 		let item = item.cloned();
 		let node = self.nodes.get(&item)?;
-		let output = match node.complete {
-			Either::Left(ref process_complete) => {
+		let output = match &node.complete {
+			Either::Left(process_complete) => {
 				Either::Left(process_complete.read().unwrap().clone())
 			},
-			Either::Right(ref object_complete) => {
+			Either::Right(object_complete) => {
 				Either::Right(object_complete.load(std::sync::atomic::Ordering::SeqCst))
 			},
 		};
@@ -1412,9 +1412,9 @@ impl Node {
 	}
 
 	fn is_complete(&self) -> bool {
-		match self.complete {
-			Either::Left(ref process_complete) => process_complete.read().unwrap().complete,
-			Either::Right(ref object_complete) => {
+		match &self.complete {
+			Either::Left(process_complete) => process_complete.read().unwrap().complete,
+			Either::Right(object_complete) => {
 				object_complete.load(std::sync::atomic::Ordering::SeqCst)
 			},
 		}

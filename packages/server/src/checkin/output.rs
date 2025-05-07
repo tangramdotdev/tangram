@@ -123,8 +123,10 @@ impl Server {
 						state.graph.nodes[node].metadata.as_ref().unwrap(),
 					)?;
 				},
-				Err(ref error) if error.raw_os_error() == Some(libc::EEXIST) => (),
-				Err(source) => return Err(tg::error!(!source, "failed to copy the file")),
+				Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST)) => (),
+				Err(source) => {
+					return Err(tg::error!(!source, "failed to copy the file"));
+				},
 			}
 		}
 

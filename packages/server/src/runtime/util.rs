@@ -239,8 +239,8 @@ async fn input(
 				let write = stdin.write_all(&chunk);
 				match future::select(pin!(write), pin!(stop_)).await {
 					future::Either::Left((Ok(()), _)) => (),
-					future::Either::Left((Err(ref source), _))
-						if source.raw_os_error() == Some(libc::EPIPE) =>
+					future::Either::Left((Err(source), _))
+						if matches!(source.raw_os_error(), Some(libc::EPIPE)) =>
 					{
 						break;
 					},
