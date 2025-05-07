@@ -23,6 +23,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,
 
+	/// The path to the server's directory.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub directory: Option<PathBuf>,
+
 	/// Configure the http task.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub http: Option<Either<bool, Http>>,
@@ -38,10 +42,6 @@ pub struct Config {
 	/// Configure the messenger.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub messenger: Option<Messenger>,
-
-	/// The path where a client will look for a socket file and where a server will store its data.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<PathBuf>,
 
 	/// Set the remotes on server startup.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

@@ -40,7 +40,7 @@ impl Context {
 
 	pub async fn start_server(&mut self) -> Server {
 		let temp = Temp::new();
-		let path = temp.path().to_owned();
+		let directory = temp.path().to_owned();
 		let advanced = crate::config::Advanced {
 			file_descriptor_semaphore_size: 1,
 			..Default::default()
@@ -49,18 +49,18 @@ impl Context {
 		let cleaner = None;
 		let database = crate::config::Database::Sqlite(crate::config::SqliteDatabase {
 			connections: 1,
-			path: path.join("database"),
+			path: directory.join("database"),
 		});
 		let index = crate::config::Index::Sqlite(crate::config::SqliteIndex {
 			connections: 1,
-			path: path.join("index"),
+			path: directory.join("index"),
 		});
 		let indexer = Some(crate::config::Indexer::default());
 		let messenger = crate::config::Messenger::default();
 		let remotes = Some(Vec::new());
 		let runner = Some(crate::config::Runner::default());
 		let store = crate::config::Store::Lmdb(crate::config::LmdbStore {
-			path: path.join("store"),
+			path: directory.join("store"),
 		});
 		let http = Some(crate::config::Http::default());
 		let version = None;
@@ -71,11 +71,11 @@ impl Context {
 			authentication,
 			cleaner,
 			database,
+			directory,
 			http,
 			index,
 			indexer,
 			messenger,
-			path,
 			remotes,
 			runner,
 			store,

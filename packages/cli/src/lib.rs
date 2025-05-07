@@ -84,13 +84,13 @@ struct Args {
 	#[arg(short, long)]
 	config: Option<PathBuf>,
 
+	/// Override the `directory` key in the config.
+	#[arg(short, long)]
+	directory: Option<PathBuf>,
+
 	/// The mode.
 	#[arg(short, long)]
 	mode: Option<Mode>,
-
-	/// Override the `path` key in the config.
-	#[arg(short, long)]
-	path: Option<PathBuf>,
 
 	/// Override the `url` key in the config.
 	#[arg(short, long, env = "TANGRAM_URL")]
@@ -389,9 +389,12 @@ impl Cli {
 			.unwrap_or_else(|| {
 				let path = self
 					.args
-					.path
+					.directory
 					.clone()
-					.or(self.config.as_ref().and_then(|config| config.path.clone()))
+					.or(self
+						.config
+						.as_ref()
+						.and_then(|config| config.directory.clone()))
 					.unwrap_or_else(|| {
 						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
 					});
@@ -482,9 +485,12 @@ impl Cli {
 			.unwrap_or_else(|| {
 				let path = self
 					.args
-					.path
+					.directory
 					.clone()
-					.or(self.config.as_ref().and_then(|config| config.path.clone()))
+					.or(self
+						.config
+						.as_ref()
+						.and_then(|config| config.directory.clone()))
 					.unwrap_or_else(|| {
 						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
 					});
@@ -514,12 +520,15 @@ impl Cli {
 	}
 
 	async fn server(&self) -> tg::Result<Server> {
-		// Get the path.
-		let path = self
+		// Get the directory path.
+		let directory = self
 			.args
-			.path
+			.directory
 			.clone()
-			.or(self.config.as_ref().and_then(|config| config.path.clone()))
+			.or(self
+				.config
+				.as_ref()
+				.and_then(|config| config.directory.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
 
 		// Create the default config.
@@ -530,11 +539,11 @@ impl Cli {
 		let database =
 			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
 				connections: parallelism,
-				path: path.join("database"),
+				path: directory.join("database"),
 			});
 		let index = tangram_server::config::Index::Sqlite(tangram_server::config::SqliteIndex {
 			connections: parallelism,
-			path: path.join("index"),
+			path: directory.join("index"),
 		});
 		let http = Some(tangram_server::config::Http::default());
 		let indexer = Some(tangram_server::config::Indexer::default());
@@ -546,7 +555,7 @@ impl Cli {
 			remotes: Vec::new(),
 		});
 		let store = tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
-			path: path.join("store"),
+			path: directory.join("store"),
 		});
 		let version = Some(version());
 		let vfs = if cfg!(target_os = "linux") {
@@ -564,7 +573,7 @@ impl Cli {
 			index,
 			indexer,
 			messenger,
-			path,
+			directory,
 			remotes,
 			runner,
 			store,
@@ -661,7 +670,7 @@ impl Cli {
 				self::config::Database::Sqlite(database) => {
 					let mut database_ = tangram_server::config::SqliteDatabase {
 						connections: parallelism,
-						path: config.path.clone(),
+						path: config.directory.clone(),
 					};
 					if let Some(connections) = database.connections {
 						database_.connections = connections;
@@ -711,7 +720,7 @@ impl Cli {
 				self::config::Index::Sqlite(index) => {
 					let mut index_ = tangram_server::config::SqliteIndex {
 						connections: parallelism,
-						path: config.path.clone(),
+						path: config.directory.clone(),
 					};
 					if let Some(connections) = index.connections {
 						index_.connections = connections;
@@ -839,7 +848,7 @@ impl Cli {
 				},
 				config::Store::Lmdb(lmdb) => {
 					tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
-						path: lmdb.path.unwrap_or_else(|| config.path.join("store")),
+						path: lmdb.path.unwrap_or_else(|| config.directory.join("store")),
 					})
 				},
 				config::Store::Memory => tangram_server::config::Store::Memory,
@@ -917,20 +926,22 @@ impl Cli {
 
 	/// Start the server.
 	async fn start_server(&self) -> tg::Result<()> {
-		// Ensure the path exists.
-		let home = PathBuf::from(std::env::var("HOME").unwrap());
-		let path = self
+		// Ensure the directory exists.
+		let directory = self
 			.args
-			.path
+			.directory
 			.clone()
-			.or(self.config.as_ref().and_then(|config| config.path.clone()))
-			.unwrap_or_else(|| home.join(".tangram"));
-		tokio::fs::create_dir_all(&path)
+			.or(self
+				.config
+				.as_ref()
+				.and_then(|config| config.directory.clone()))
+			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
+		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 
 		// Get the log file path.
-		let log_path = path.join("log");
+		let log_path = directory.join("log");
 
 		// Create files for stdout and stderr.
 		let stdout = tokio::fs::OpenOptions::new()
@@ -959,7 +970,7 @@ impl Cli {
 		// Spawn the server.
 		tokio::process::Command::new(executable)
 			.args(["serve"])
-			.current_dir(home)
+			.current_dir(PathBuf::from(std::env::var("HOME").unwrap()))
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
 			.stderr(stderr)
@@ -972,13 +983,16 @@ impl Cli {
 	/// Stop the server.
 	async fn stop_server(&self) -> tg::Result<()> {
 		// Get the lock file path.
-		let path = self
+		let directory = self
 			.args
-			.path
+			.directory
 			.clone()
-			.or(self.config.as_ref().and_then(|config| config.path.clone()))
+			.or(self
+				.config
+				.as_ref()
+				.and_then(|config| config.directory.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
-		let lock_path = path.join("lock");
+		let lock_path = directory.join("lock");
 
 		// Read the PID from the lock file.
 		let pid = tokio::fs::read_to_string(&lock_path)
@@ -1091,32 +1105,32 @@ impl Cli {
 		.await
 	}
 
-	fn read_config(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
-		let path = path.unwrap_or_else(|| {
+	fn read_config(directory: Option<PathBuf>) -> tg::Result<Option<Config>> {
+		let directory = directory.unwrap_or_else(|| {
 			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
 		});
-		let config = match std::fs::read_to_string(&path) {
+		let config = match std::fs::read_to_string(&directory) {
 			Ok(config) => config,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
 			Err(source) => {
 				return Err(
-					tg::error!(!source, %path = path.display(), "failed to read the config file"),
+					tg::error!(!source, %directory = directory.display(), "failed to read the config file"),
 				);
 			},
 		};
 		let config = serde_json::from_str(&config).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to deserialize the config"),
+			|source| tg::error!(!source, %directory = directory.display(), "failed to deserialize the config"),
 		)?;
 		Ok(Some(config))
 	}
 
-	fn _write_config(config: &Config, path: Option<PathBuf>) -> tg::Result<()> {
-		let path = path.unwrap_or_else(|| {
+	fn _write_config(config: &Config, directory: Option<PathBuf>) -> tg::Result<()> {
+		let directory = directory.unwrap_or_else(|| {
 			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
 		});
 		let config = serde_json::to_string_pretty(&config)
 			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;
-		std::fs::write(path, config)
+		std::fs::write(directory, config)
 			.map_err(|source| tg::error!(!source, "failed to save the config"))?;
 		Ok(())
 	}

@@ -7,11 +7,11 @@ pub struct Config {
 	pub authentication: Option<Authentication>,
 	pub cleaner: Option<Cleaner>,
 	pub database: Database,
+	pub directory: PathBuf,
 	pub http: Option<Http>,
 	pub index: Index,
 	pub indexer: Option<Indexer>,
 	pub messenger: Messenger,
-	pub path: PathBuf,
 	pub remotes: Option<Vec<Remote>>,
 	pub runner: Option<Runner>,
 	pub store: Store,
@@ -172,7 +172,7 @@ pub struct Watchdog {
 
 impl Config {
 	#[must_use]
-	pub fn with_path(path: PathBuf) -> Self {
+	pub fn with_directory(directory: PathBuf) -> Self {
 		let advanced = Advanced {
 			file_descriptor_semaphore_size: 1,
 			..Default::default()
@@ -181,18 +181,18 @@ impl Config {
 		let cleaner = None;
 		let database = Database::Sqlite(SqliteDatabase {
 			connections: 1,
-			path: path.join("database"),
+			path: directory.join("database"),
 		});
 		let index = Index::Sqlite(SqliteIndex {
 			connections: 1,
-			path: path.join("index"),
+			path: directory.join("index"),
 		});
 		let indexer = Some(Indexer::default());
 		let messenger = Messenger::default();
 		let remotes = None;
 		let runner = Some(Runner::default());
 		let store = Store::Lmdb(LmdbStore {
-			path: path.join("store"),
+			path: directory.join("store"),
 		});
 		let http = Some(Http::default());
 		let version = None;
@@ -203,11 +203,11 @@ impl Config {
 			authentication,
 			cleaner,
 			database,
+			directory,
 			http,
 			index,
 			indexer,
 			messenger,
-			path,
 			remotes,
 			runner,
 			store,

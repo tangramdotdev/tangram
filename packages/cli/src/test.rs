@@ -112,17 +112,17 @@ impl Server {
 		tokio::fs::write(&config_path, config_json)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the config"))?;
-		let data_path = temp.path().join(".tangram");
-		tokio::fs::create_dir_all(&data_path)
+		let directory_path = temp.path().join(".tangram");
+		tokio::fs::create_dir_all(&directory_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the data directory"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 
 		// Create the command.
 		let mut command = tokio::process::Command::new(tg);
 		command.arg("--config");
 		command.arg(&config_path);
-		command.arg("--path");
-		command.arg(&data_path);
+		command.arg("--directory");
+		command.arg(&directory_path);
 		command.arg("serve");
 
 		// Spawn the process.
@@ -135,8 +135,8 @@ impl Server {
 			let output = tokio::process::Command::new(tg)
 				.arg("--config")
 				.arg(&config_path)
-				.arg("--path")
-				.arg(&data_path)
+				.arg("--directory")
+				.arg(&directory_path)
 				.arg("--mode")
 				.arg("client")
 				.arg("health")
@@ -168,12 +168,12 @@ impl Server {
 	pub fn tg(&self) -> tokio::process::Command {
 		let mut command = tokio::process::Command::new(self.tg);
 		let config_path = self.temp.path().join(".config/tangram/config.json");
-		let data_path = self.temp.path().join(".tangram");
+		let directory_path = self.temp.path().join(".tangram");
 		command
 			.arg("--config")
 			.arg(config_path)
-			.arg("--path")
-			.arg(data_path)
+			.arg("--directory")
+			.arg(directory_path)
 			.arg("--mode")
 			.arg("client");
 		command

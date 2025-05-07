@@ -123,17 +123,17 @@ type ProcessTaskMap = TaskMap<tg::process::Id, (), fnv::FnvBuildHasher>;
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Server> {
-		// Ensure the path exists.
-		let path = config.path.clone();
-		tokio::fs::create_dir_all(&path)
+		// Ensure the directory exists.
+		let directory = config.directory.clone();
+		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
-		let path = tokio::fs::canonicalize(&path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to canonicalize server path"),
+		let directory = tokio::fs::canonicalize(&directory).await.map_err(
+			|source| tg::error!(!source, %path = directory.display(), "failed to canonicalize directory path"),
 		)?;
 
 		// Lock the lock file.
-		let lock_path = path.join("lock");
+		let lock_path = directory.join("lock");
 		let mut lock_file = tokio::fs::OpenOptions::new()
 			.read(true)
 			.write(true)
@@ -161,7 +161,7 @@ impl Server {
 		let lock_file = Mutex::new(Some(lock_file));
 
 		// Verify the version file.
-		let version_path = path.join("version");
+		let version_path = directory.join("version");
 		let version = match tokio::fs::read_to_string(&version_path).await {
 			Ok(string) => Some(
 				string
@@ -189,19 +189,19 @@ impl Server {
 		}
 
 		// Ensure the logs directory exists.
-		let logs_path = path.join("logs");
+		let logs_path = directory.join("logs");
 		tokio::fs::create_dir_all(&logs_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the logs directory"))?;
 
 		// Ensure the temp directory exists.
-		let temp_path = path.join("tmp");
+		let temp_path = directory.join("tmp");
 		tokio::fs::create_dir_all(&temp_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 		// Remove an existing socket file.
-		let socket_path = path.join("socket");
+		let socket_path = directory.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
 		// Create the artifact cache task map.
@@ -210,7 +210,7 @@ impl Server {
 		// Create the HTTP configuration.
 		let http = config.http.as_ref().map(|config| {
 			let url = config.url.clone().unwrap_or_else(|| {
-				let path = path.join("socket");
+				let path = directory.join("socket");
 				let path = path.to_str().unwrap();
 				let path = urlencoding::encode(path);
 				format!("http+unix://{path}").parse().unwrap()
@@ -252,7 +252,7 @@ impl Server {
 				let options = db::sqlite::DatabaseOptions {
 					connections: options.connections,
 					initialize,
-					path: path.join("database"),
+					path: directory.join("database"),
 				};
 				let database = db::sqlite::Database::new(options)
 					.await
@@ -296,7 +296,7 @@ impl Server {
 				let options = db::sqlite::DatabaseOptions {
 					connections: options.connections,
 					initialize,
-					path: path.join("index"),
+					path: directory.join("index"),
 				};
 				let database = db::sqlite::Database::new(options)
 					.await
@@ -396,7 +396,7 @@ impl Server {
 			local_pool_handle,
 			lock_file,
 			messenger,
-			path,
+			path: directory,
 			process_permits,
 			process_semaphore,
 			processes,
