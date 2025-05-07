@@ -31,7 +31,7 @@ impl Server {
 					})
 					.await
 					.unwrap()
-					.map_err(|source| tg::error!(!source, "failed to copy root object to temp"))?;
+					.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
 					drop(semaphore);
 
 					if state.arg.destructive {
@@ -87,10 +87,14 @@ impl Server {
 					)?;
 					return Ok(());
 				},
-				Err(ref error) if error.raw_os_error() == Some(libc::EEXIST | libc::ENOTEMPTY) => {
+				Err(error)
+					if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) =>
+				{
 					return Ok(());
 				},
-				Err(source) => return Err(tg::error!(!source, "failed to rename root")),
+				Err(source) => {
+					return Err(tg::error!(!source, "failed to rename root"));
+				},
 			}
 		}
 
