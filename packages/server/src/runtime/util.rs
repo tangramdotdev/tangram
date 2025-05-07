@@ -293,7 +293,7 @@ impl Server {
 					.ptys
 					.get(pty)
 					.ok_or_else(|| tg::error!("failed to get pty"))?;
-				Ok(pty.tty_fd.as_raw_fd())
+				Ok(pty.guest.as_raw_fd())
 			},
 		}
 	}

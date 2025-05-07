@@ -8,8 +8,8 @@ mod size;
 mod write;
 
 pub(crate) struct Pty {
-	pub pty_fd: OwnedFd,
-	pub tty_fd: OwnedFd,
+	pub host: OwnedFd,
+	pub guest: OwnedFd,
 }
 
 impl Pty {
@@ -21,12 +21,12 @@ impl Pty {
 				ws_xpixel: 0,
 				ws_ypixel: 0,
 			};
-			let mut pty_fd = 0;
-			let mut tty_fd = 0;
+			let mut host = 0;
+			let mut guest = 0;
 			let mut tty_name = [0; 256];
 			if libc::openpty(
-				std::ptr::addr_of_mut!(pty_fd),
-				std::ptr::addr_of_mut!(tty_fd),
+				std::ptr::addr_of_mut!(host),
+				std::ptr::addr_of_mut!(guest),
 				tty_name.as_mut_ptr(),
 				std::ptr::null_mut(),
 				std::ptr::addr_of_mut!(win_size),
@@ -36,21 +36,21 @@ impl Pty {
 			}
 
 			// Mark pty as non blocking.
-			let flags = libc::fcntl(pty_fd, libc::F_GETFL);
+			let flags = libc::fcntl(host, libc::F_GETFL);
 			if flags < 0 {
 				return Err(std::io::Error::last_os_error());
 			}
 			let flags = flags | libc::O_NONBLOCK;
-			let ret = libc::fcntl(pty_fd, libc::F_SETFL, flags);
+			let ret = libc::fcntl(host, libc::F_SETFL, flags);
 			if ret < 0 {
 				return Err(std::io::Error::last_os_error());
 			}
 
 			// Take ownership of the FDs.
-			let pty_fd = OwnedFd::from_raw_fd(pty_fd);
-			let tty_fd = OwnedFd::from_raw_fd(tty_fd);
+			let host = OwnedFd::from_raw_fd(host);
+			let guest = OwnedFd::from_raw_fd(guest);
 
-			let pty = Self { pty_fd, tty_fd };
+			let pty = Self { host, guest };
 			Ok(pty)
 		})
 		.await

@@ -24,14 +24,14 @@ impl Server {
 			self.ptys
 				.get(id)
 				.ok_or_else(|| tg::error!("failed to get pty"))?
-				.pty_fd
+				.host
 				.try_clone()
 				.map_err(|source| tg::error!(!source, "failed to clone fd"))?
 		} else {
 			self.ptys
 				.get(id)
 				.ok_or_else(|| tg::error!("failed to get pty"))?
-				.tty_fd
+				.guest
 				.try_clone()
 				.map_err(|source| tg::error!(!source, "failed to clone fd"))?
 		};
