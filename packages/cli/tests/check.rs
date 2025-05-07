@@ -7,10 +7,8 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 #[tokio::test]
 async fn hello_world() {
 	test(TG, async move |context| {
-		// Start the server.
 		let server = context.spawn_server().await.unwrap();
 
-		// Create a package.
 		let temp = Temp::new();
 		let package = temp::directory! {
 			"tangram.ts" => indoc!(r#"
@@ -19,7 +17,6 @@ async fn hello_world() {
 		};
 		package.to_path(temp.as_ref()).await.unwrap();
 
-		// Format the package.
 		let output = server
 			.tg()
 			.arg("check")
@@ -35,10 +32,8 @@ async fn hello_world() {
 #[tokio::test]
 async fn nonexistent_function() {
 	test(TG, async move |context| {
-		// Start the server.
 		let server = context.spawn_server().await.unwrap();
 
-		// Create a package.
 		let temp = Temp::new();
 		let package = temp::directory! {
 			"tangram.ts" => indoc!(r"
@@ -47,7 +42,6 @@ async fn nonexistent_function() {
 		};
 		package.to_path(temp.as_ref()).await.unwrap();
 
-		// Format the package.
 		let output = server
 			.tg()
 			.arg("check")
