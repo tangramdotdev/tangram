@@ -181,22 +181,20 @@ async fn file_through_symlink() {
 		"#);
 		let lockfile = lockfile.expect("expected a lockfile");
 		assert_json_snapshot!(lockfile, @r#"
-				{
-				  "nodes": [
-				    {
-				      "kind": "directory",
-				      "entries": {
-				        "tangram.ts": 1
-				      },
-				      "id": "dir_010005phrqxhzc2tjaqre4jab3nfjets3n0xq427pv8ks8q45p3n2g"
-				    },
-				    {
-				      "kind": "file",
-				      "id": "fil_01bekxaqs9w8vsycr287w5g53d6ts390x5ghrjrp7ce0e3xh563f8g"
-				    }
-				  ]
-				}
-				"#);
+		{
+		  "nodes": [
+		    {
+		      "kind": "directory",
+		      "entries": {
+		        "tangram.ts": 1
+		      }
+		    },
+		    {
+		      "kind": "file"
+		    }
+		  ]
+		}
+		"#);
 	};
 	let destructive = false;
 	let tags = Vec::<(String, temp::Artifact)>::new();
@@ -248,12 +246,10 @@ async fn artifact_symlink() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01hg130caj00ny9p7j7bsqg2evf8qkzykg3g250vmwcwxvwjnqvj20"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_0174w6skgjpk15cfhgymzzc6qawde3m3c0ken1424sp7xgdbs3mhtg"
+		      "kind": "file"
 		    }
 		  ]
 		}
@@ -311,12 +307,10 @@ async fn lockfile_out_of_date() {
 		      "entries": {
 		        "b.tg.ts": 1,
 		        "tangram.ts": 2
-		      },
-		      "id": "dir_01nsds8z80v4wjx797p7q61s2me6b52p3jyz3nt357m1aksz28zj4g"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    },
 		    {
 		      "kind": "file",
@@ -326,8 +320,7 @@ async fn lockfile_out_of_date() {
 		          "item": 0,
 		          "subpath": "b.tg.ts"
 		        }
-		      },
-		      "id": "fil_014pgr51yfg92zvcncdx9g1wh3brjgz2ksg5d5hvpb9wezyn7sgmwg"
+		      }
 		    }
 		  ]
 		}
@@ -386,8 +379,7 @@ async fn simple_path_dependency() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01r3x6dfwxa5b6m8d42xj1h805671qq0nsxy60r5yakv0b4xq763h0"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -397,19 +389,16 @@ async fn simple_path_dependency() {
 		          "path": "../bar",
 		          "subpath": "tangram.ts"
 		        }
-		      },
-		      "id": "fil_01e9ew2j9q6jnjdh3wnv4saj91ahc8p4j2tr57z6e93dfptt5mkjs0"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 3
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    }
 		  ]
 		}
@@ -468,15 +457,13 @@ async fn package_with_nested_dependencies() {
 		        "bar": 1,
 		        "baz": 3,
 		        "tangram.ts": 5
-		      },
-		      "id": "dir_0135k9hrn6ex25j5v6g0hab63w7ywjrrr867jncm62rdqqhb2sgc4g"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 2
-		      },
-		      "id": "dir_01g5nfn3z3pv889xzradap3k9hcjak1pe41e8rpjh0d6hwe6zweje0"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -486,19 +473,16 @@ async fn package_with_nested_dependencies() {
 		          "path": "baz",
 		          "subpath": "tangram.ts"
 		        }
-		      },
-		      "id": "fil_011zas3hzxy8zhgjd6em89084nwsav6996fafptayb7mwc0hspnqhg"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 4
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    },
 		    {
 		      "kind": "file",
@@ -513,8 +497,7 @@ async fn package_with_nested_dependencies() {
 		          "path": "baz",
 		          "subpath": "tangram.ts"
 		        }
-		      },
-		      "id": "fil_01sw07a9xgp8tds89629r8dw8aqw6z6skgc65jd45hj21q2n1ae9s0"
+		      }
 		    }
 		  ]
 		}
@@ -601,12 +584,10 @@ async fn package() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01h8y52j5q8hcsd8qv4tt350jk34ajamj8pw6py6tkkhefae8wsfn0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01s87qfc3564bvf3zpyy5mgh4a1v7hcywwehq69kvthk3qqm7m9xr0"
+		      "kind": "file"
 		    }
 		  ]
 		}
@@ -645,30 +626,25 @@ async fn directory_with_nested_packages() {
 		      "entries": {
 		        "bar": 1,
 		        "foo": 3
-		      },
-		      "id": "dir_01wt47fx7taeywhr5dwsjv6xxkxjb8p0wrfv01a9zkcedjepmq3pj0"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 2
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 4
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    }
 		  ]
 		}
@@ -712,15 +688,13 @@ async fn import_directory_from_current() {
 		      "kind": "directory",
 		      "entries": {
 		        "a": 1
-		      },
-		      "id": "dir_01qc70hm2jn29hedvkwtcfdsefmbk6x9qq9aac52166ycyck660cd0"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "mod.tg.ts": 2
-		      },
-		      "id": "dir_01bgkfmyyp4bx9xx6zfx7kb5na8jqkrds5qnd5fzfpyawdy93z0c9g"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -730,8 +704,7 @@ async fn import_directory_from_current() {
 		          "item": 0,
 		          "subpath": "a"
 		        }
-		      },
-		      "id": "fil_01qx5tar2byw72q1aqqvjrq5hs5q7er2q7t6v374zeedg2mq4arjxg"
+		      }
 		    }
 		  ]
 		}
@@ -793,16 +766,14 @@ async fn import_package_from_current() {
 		      "kind": "directory",
 		      "entries": {
 		        "a": 1
-		      },
-		      "id": "dir_01tefnm7k9mybxjpv7xcdtrpjnzzvg3vd175ajpvfyrhakvhfme2r0"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "mod.tg.ts": 2,
 		        "tangram.ts": 3
-		      },
-		      "id": "dir_01t7yv16xc2xtxz4gbv7428b9tyeayb8b3fypjdcxa6c3kghm69e5g"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -813,12 +784,10 @@ async fn import_package_from_current() {
 		          "path": "a",
 		          "subpath": "tangram.ts"
 		        }
-		      },
-		      "id": "fil_01dqx0ka1z6s4aenvggnx9zjx2mrsd2d4b55cjvnsvy1gzrk03rqs0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    }
 		  ]
 		}
@@ -878,8 +847,7 @@ async fn import_directory_from_parent() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01hgj317y6x614ay2xyfrz7cz2eqdct4d8nr6qcr3c7c3mt073gnp0"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -889,8 +857,7 @@ async fn import_directory_from_parent() {
 		          "item": 0,
 		          "subpath": "a"
 		        }
-		      },
-		      "id": "fil_01wxs8zdq42ce9zxp1a37kfatzzgnaqw140c6zecgrrm2ja13t57b0"
+		      }
 		    }
 		  ]
 		}
@@ -948,19 +915,16 @@ async fn import_package_with_type_directory_from_parent() {
 		      "entries": {
 		        "a": 1,
 		        "tangram.ts": 3
-		      },
-		      "id": "dir_01sskpnxd9bqwxt7h9qme56epbgyq4gfrwsvmydy9tzqfy705njrf0"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 2
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    },
 		    {
 		      "kind": "file",
@@ -970,8 +934,7 @@ async fn import_package_with_type_directory_from_parent() {
 		          "path": "a",
 		          "subpath": "tangram.ts"
 		        }
-		      },
-		      "id": "fil_014v8qvm7e51ghtkmc1z3ev5j94fjnxam2ya6qx7q45xpsnjd1devg"
+		      }
 		    }
 		  ]
 		}
@@ -1026,19 +989,16 @@ async fn import_package_from_parent() {
 		      "entries": {
 		        "a": 1,
 		        "tangram.ts": 3
-		      },
-		      "id": "dir_01z7vpew7gpj9tnzde3faw6yny1zdnx5fmbjaqdvjdp423dmydygy0"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 2
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    },
 		    {
 		      "kind": "file",
@@ -1048,8 +1008,7 @@ async fn import_package_from_parent() {
 		          "path": "a",
 		          "subpath": "tangram.ts"
 		        }
-		      },
-		      "id": "fil_01rp5cf460yqdwy91rkm31pz25awp6wn30j41mwpqfqdgmwvtbpnx0"
+		      }
 		    }
 		  ]
 		}
@@ -1102,8 +1061,7 @@ async fn package_with_cyclic_modules() {
 		      "entries": {
 		        "foo.tg.ts": 1,
 		        "tangram.ts": 2
-		      },
-		      "id": "dir_01z0xx74bhkp20h5h838y04ep1y86w5wq8vpmczq9hbjkcrj38mr6g"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -1113,8 +1071,7 @@ async fn package_with_cyclic_modules() {
 		          "item": 0,
 		          "subpath": "tangram.ts"
 		        }
-		      },
-		      "id": "fil_01gps075nn9g9kgzneh4haatcyx039g60xrzjrprptf63xzyg8zfp0"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -1124,8 +1081,7 @@ async fn package_with_cyclic_modules() {
 		          "item": 0,
 		          "subpath": "foo.tg.ts"
 		        }
-		      },
-		      "id": "fil_018a6y6fz0npdydzfwp86g3n6xbmnchyb2jr9g640nctf1cbqpfxfg"
+		      }
 		    }
 		  ]
 		}
@@ -1137,18 +1093,8 @@ async fn package_with_cyclic_modules() {
 		      {
 		        "kind": "directory",
 		        "entries": {
-		          "foo.tg.ts": 1,
-		          "tangram.ts": 2,
-		        },
-		      },
-		      {
-		        "kind": "file",
-		        "contents": tg.blob("import * as root from \"./tangram.ts\";"),
-		        "dependencies": {
-		          "./tangram.ts": {
-		            "item": 0,
-		            "subpath": "tangram.ts",
-		          },
+		          "foo.tg.ts": 2,
+		          "tangram.ts": 1,
 		        },
 		      },
 		      {
@@ -1158,6 +1104,16 @@ async fn package_with_cyclic_modules() {
 		          "./foo.tg.ts": {
 		            "item": 0,
 		            "subpath": "foo.tg.ts",
+		          },
+		        },
+		      },
+		      {
+		        "kind": "file",
+		        "contents": tg.blob("import * as root from \"./tangram.ts\";"),
+		        "dependencies": {
+		          "./tangram.ts": {
+		            "item": 0,
+		            "subpath": "tangram.ts",
 		          },
 		        },
 		      },
@@ -1194,8 +1150,7 @@ async fn cyclic_dependencies() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01aeyem407yerjtkvxb76h3cm3jnn1asn7bh0z7a5h90twggkf8vc0"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -1206,15 +1161,13 @@ async fn cyclic_dependencies() {
 		          "path": "../bar",
 		          "subpath": "tangram.ts"
 		        }
-		      },
-		      "id": "fil_01d6dav4c760dt9rgsbw2t11x07dktnbvhkgymgjzm5g5yfz57qapg"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 3
-		      },
-		      "id": "dir_01pbbtvgc7ngyvxtp78fed44qt3znbzf6pgedaa17t2wvek2rwwvr0"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -1224,8 +1177,7 @@ async fn cyclic_dependencies() {
 		          "item": 0,
 		          "subpath": "tangram.ts"
 		        }
-		      },
-		      "id": "fil_01x6ajp8q92dq8nzrmmcxms3q7pjv3d12z12wg1shp1myv1gvw0m10"
+		      }
 		    }
 		  ]
 		}
@@ -1394,12 +1346,10 @@ async fn missing_in_lockfile() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    }
 		  ]
 		}
@@ -1443,12 +1393,10 @@ async fn invalid_lockfile() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01sftd1y3rkt16rne7bm02m6ybxbectev4t71x302vweh2zb4jsfz0"
+		      }
 		    },
 		    {
-		      "kind": "file",
-		      "id": "fil_01qgz0w7ntzvac2mbfpz5355d58vn920fb5hsm3qpdmc5206z5xazg"
+		      "kind": "file"
 		    }
 		  ]
 		}
@@ -1482,8 +1430,7 @@ async fn tagged_object() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_013cddxyakamjszdm8efsnw2p65rfxrmy3pcrtc3yc2fzpdp5tj1fg"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -1492,8 +1439,7 @@ async fn tagged_object() {
 		          "item": 2,
 		          "tag": "hello-world"
 		        }
-		      },
-		      "id": "fil_01vm0ea1b00hek3haz99vpkdy93zj4a0rdcmaa0vnnk54dfpk3w9bg"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -1550,8 +1496,7 @@ async fn tagged_package1() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01xf6kw5vfpt67fp5vy9a3kedh3np51gzjmr9ekjx06c7m885q105g"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -1561,8 +1506,7 @@ async fn tagged_package1() {
 		          "subpath": "tangram.ts",
 		          "tag": "a"
 		        }
-		      },
-		      "id": "fil_01qts0qxbd8dz7y43h0ca0h2sb9menenytsztynzfwfbegxzspa2m0"
+		      }
 		    },
 		    {
 		      "kind": "directory",
@@ -1633,8 +1577,7 @@ async fn tagged_package_with_cyclic_dependency() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01e4anfv9eq4s6bdg63b578nbver4dzd7mvtg3j64rwpzsgf81k03g"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -1644,8 +1587,7 @@ async fn tagged_package_with_cyclic_dependency() {
 		          "subpath": "tangram.ts",
 		          "tag": "a"
 		        }
-		      },
-		      "id": "fil_01syp2f8f29xqq09gsjg32r9qnpn5f678r2fb9xvkyxctkh2eve83g"
+		      }
 		    },
 		    {
 		      "kind": "directory",
@@ -1653,7 +1595,7 @@ async fn tagged_package_with_cyclic_dependency() {
 		        "foo.tg.ts": 3,
 		        "tangram.ts": 4
 		      },
-		      "id": "dir_01b226x1hfwp2bx0nz3yp9mx1ws56757k1hetswgpednsb0jgd5y30"
+		      "id": "dir_01psdqjst4yexppa4t36mdrfnzm2qrrrtzts16k8z0y1mrrynpprpg"
 		    },
 		    {
 		      "kind": "file",
@@ -1664,7 +1606,7 @@ async fn tagged_package_with_cyclic_dependency() {
 		          "subpath": "tangram.ts"
 		        }
 		      },
-		      "id": "fil_01n2mdc7sttzaq8965pwntpsyzacqtax9dw397c0b82q6dtja5h5p0"
+		      "id": "fil_01j1yn9jzck8svckn45j6v3ypjqqxf78f94cvr3t0ew91za6ymwjbg"
 		    },
 		    {
 		      "kind": "file",
@@ -1675,7 +1617,7 @@ async fn tagged_package_with_cyclic_dependency() {
 		          "subpath": "foo.tg.ts"
 		        }
 		      },
-		      "id": "fil_01wrq9m40z7v5wsf5hc5a5jrtvwr2eaghzzkex4y9q757tczxw7c20"
+		      "id": "fil_01nbv1qr926wbadymnvm0dcbrdnscp3tnkmdabg110z4f34vyj5zj0"
 		    }
 		  ]
 		}
@@ -1698,18 +1640,8 @@ async fn tagged_package_with_cyclic_dependency() {
 		                        {
 		                          "kind": "directory",
 		                          "entries": {
-		                            "foo.tg.ts": 1,
-		                            "tangram.ts": 2,
-		                          },
-		                        },
-		                        {
-		                          "kind": "file",
-		                          "contents": tg.blob("import * as a from \"./tangram.ts\";\n"),
-		                          "dependencies": {
-		                            "./tangram.ts": {
-		                              "item": 0,
-		                              "subpath": "tangram.ts",
-		                            },
+		                            "foo.tg.ts": 2,
+		                            "tangram.ts": 1,
 		                          },
 		                        },
 		                        {
@@ -1722,9 +1654,19 @@ async fn tagged_package_with_cyclic_dependency() {
 		                            },
 		                          },
 		                        },
+		                        {
+		                          "kind": "file",
+		                          "contents": tg.blob("import * as a from \"./tangram.ts\";\n"),
+		                          "dependencies": {
+		                            "./tangram.ts": {
+		                              "item": 0,
+		                              "subpath": "tangram.ts",
+		                            },
+		                          },
+		                        },
 		                      ],
 		                    }),
-		                    "node": 1,
+		                    "node": 2,
 		                  }),
 		                  "tangram.ts": tg.file({
 		                    "graph": tg.graph({
@@ -1732,18 +1674,8 @@ async fn tagged_package_with_cyclic_dependency() {
 		                        {
 		                          "kind": "directory",
 		                          "entries": {
-		                            "foo.tg.ts": 1,
-		                            "tangram.ts": 2,
-		                          },
-		                        },
-		                        {
-		                          "kind": "file",
-		                          "contents": tg.blob("import * as a from \"./tangram.ts\";\n"),
-		                          "dependencies": {
-		                            "./tangram.ts": {
-		                              "item": 0,
-		                              "subpath": "tangram.ts",
-		                            },
+		                            "foo.tg.ts": 2,
+		                            "tangram.ts": 1,
 		                          },
 		                        },
 		                        {
@@ -1756,9 +1688,19 @@ async fn tagged_package_with_cyclic_dependency() {
 		                            },
 		                          },
 		                        },
+		                        {
+		                          "kind": "file",
+		                          "contents": tg.blob("import * as a from \"./tangram.ts\";\n"),
+		                          "dependencies": {
+		                            "./tangram.ts": {
+		                              "item": 0,
+		                              "subpath": "tangram.ts",
+		                            },
+		                          },
+		                        },
 		                      ],
 		                    }),
-		                    "node": 2,
+		                    "node": 1,
 		                  }),
 		                },
 		              },
@@ -1846,8 +1788,7 @@ async fn tag_dependency_cycles() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01rw61x6v704f2yck3jrskv1fkf79ea0cxhv7d8zz4ev2ta19qs4tg"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -1862,15 +1803,14 @@ async fn tag_dependency_cycles() {
 		          "subpath": "tangram.ts",
 		          "tag": "b/1.0.0"
 		        }
-		      },
-		      "id": "fil_01mgk5bndjshargeg7h6bb0nm2z8yg6jddw0s1910xnmb7hr8ddvbg"
+		      }
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 3
 		      },
-		      "id": "dir_01qremn7w8etcxsnn7k1vtxd683q4w0vtfrqqxywcyx7xt2cp5rtwg"
+		      "id": "dir_01zy52hacvxxjca8k3831m5bsqwm5gwd8cb6k54twzsjzjb7k502wg"
 		    },
 		    {
 		      "kind": "file",
@@ -1882,7 +1822,7 @@ async fn tag_dependency_cycles() {
 		          "tag": "b/1.0.0"
 		        }
 		      },
-		      "id": "fil_01sa3dcc5y35emtjdj92h46qtc5kh81ytmxqcr285a2f6mc1683e20"
+		      "id": "fil_01rkcy82pngcvb26kw0dvbyf5w08d3w9y9beysvs1415nvzfj8yjs0"
 		    },
 		    {
 		      "kind": "directory",
@@ -1890,7 +1830,7 @@ async fn tag_dependency_cycles() {
 		        "foo.tg.ts": 5,
 		        "tangram.ts": 6
 		      },
-		      "id": "dir_01k61vd0t8f5q72aph52dt1bmbzjx50mskp8wt1f4gxw8ymwgj4270"
+		      "id": "dir_01jcct3688t7rpy6es3atv6vx6m33t2c4g0tdz1avhyj5z0qr4cnx0"
 		    },
 		    {
 		      "kind": "file",
@@ -1901,7 +1841,7 @@ async fn tag_dependency_cycles() {
 		          "subpath": "tangram.ts"
 		        }
 		      },
-		      "id": "fil_01r1n4kb6k1kewbxwcasrrtqpddexyvdmcks6qxe62fpq7wzcb7bgg"
+		      "id": "fil_01pe9q2sne8jbtqe3g20nhsmvn7mjaj7e7waacjbqp9cve1zrm98w0"
 		    },
 		    {
 		      "kind": "file",
@@ -1917,7 +1857,7 @@ async fn tag_dependency_cycles() {
 		          "tag": "a/1.0.0"
 		        }
 		      },
-		      "id": "fil_01fvq7vvybenar9m5j4dpz8jtrqt21ehvvc0cpvbhqc0mdhpnk4skg"
+		      "id": "fil_01pd5hnjvdwhr88s9w59ab7jj3mwx3cefeyhbrc3a2wp3rxg4phvxg"
 		    }
 		  ]
 		}
@@ -1940,18 +1880,8 @@ async fn tag_dependency_cycles() {
 		                        {
 		                          "kind": "directory",
 		                          "entries": {
-		                            "foo.tg.ts": 1,
-		                            "tangram.ts": 2,
-		                          },
-		                        },
-		                        {
-		                          "kind": "file",
-		                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
-		                          "dependencies": {
-		                            "./tangram.ts": {
-		                              "item": 0,
-		                              "subpath": "tangram.ts",
-		                            },
+		                            "foo.tg.ts": 2,
+		                            "tangram.ts": 1,
 		                          },
 		                        },
 		                        {
@@ -1973,9 +1903,19 @@ async fn tag_dependency_cycles() {
 		                            },
 		                          },
 		                        },
+		                        {
+		                          "kind": "file",
+		                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
+		                          "dependencies": {
+		                            "./tangram.ts": {
+		                              "item": 0,
+		                              "subpath": "tangram.ts",
+		                            },
+		                          },
+		                        },
 		                      ],
 		                    }),
-		                    "node": 1,
+		                    "node": 2,
 		                  }),
 		                  "tangram.ts": tg.file({
 		                    "graph": tg.graph({
@@ -1983,18 +1923,8 @@ async fn tag_dependency_cycles() {
 		                        {
 		                          "kind": "directory",
 		                          "entries": {
-		                            "foo.tg.ts": 1,
-		                            "tangram.ts": 2,
-		                          },
-		                        },
-		                        {
-		                          "kind": "file",
-		                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
-		                          "dependencies": {
-		                            "./tangram.ts": {
-		                              "item": 0,
-		                              "subpath": "tangram.ts",
-		                            },
+		                            "foo.tg.ts": 2,
+		                            "tangram.ts": 1,
 		                          },
 		                        },
 		                        {
@@ -2016,9 +1946,19 @@ async fn tag_dependency_cycles() {
 		                            },
 		                          },
 		                        },
+		                        {
+		                          "kind": "file",
+		                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
+		                          "dependencies": {
+		                            "./tangram.ts": {
+		                              "item": 0,
+		                              "subpath": "tangram.ts",
+		                            },
+		                          },
+		                        },
 		                      ],
 		                    }),
-		                    "node": 2,
+		                    "node": 1,
 		                  }),
 		                },
 		              },
@@ -2056,18 +1996,8 @@ async fn tag_dependency_cycles() {
 		                                        {
 		                                          "kind": "directory",
 		                                          "entries": {
-		                                            "foo.tg.ts": 1,
-		                                            "tangram.ts": 2,
-		                                          },
-		                                        },
-		                                        {
-		                                          "kind": "file",
-		                                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
-		                                          "dependencies": {
-		                                            "./tangram.ts": {
-		                                              "item": 0,
-		                                              "subpath": "tangram.ts",
-		                                            },
+		                                            "foo.tg.ts": 2,
+		                                            "tangram.ts": 1,
 		                                          },
 		                                        },
 		                                        {
@@ -2089,9 +2019,19 @@ async fn tag_dependency_cycles() {
 		                                            },
 		                                          },
 		                                        },
+		                                        {
+		                                          "kind": "file",
+		                                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
+		                                          "dependencies": {
+		                                            "./tangram.ts": {
+		                                              "item": 0,
+		                                              "subpath": "tangram.ts",
+		                                            },
+		                                          },
+		                                        },
 		                                      ],
 		                                    }),
-		                                    "node": 1,
+		                                    "node": 2,
 		                                  }),
 		                                  "tangram.ts": tg.file({
 		                                    "graph": tg.graph({
@@ -2099,18 +2039,8 @@ async fn tag_dependency_cycles() {
 		                                        {
 		                                          "kind": "directory",
 		                                          "entries": {
-		                                            "foo.tg.ts": 1,
-		                                            "tangram.ts": 2,
-		                                          },
-		                                        },
-		                                        {
-		                                          "kind": "file",
-		                                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
-		                                          "dependencies": {
-		                                            "./tangram.ts": {
-		                                              "item": 0,
-		                                              "subpath": "tangram.ts",
-		                                            },
+		                                            "foo.tg.ts": 2,
+		                                            "tangram.ts": 1,
 		                                          },
 		                                        },
 		                                        {
@@ -2132,9 +2062,19 @@ async fn tag_dependency_cycles() {
 		                                            },
 		                                          },
 		                                        },
+		                                        {
+		                                          "kind": "file",
+		                                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
+		                                          "dependencies": {
+		                                            "./tangram.ts": {
+		                                              "item": 0,
+		                                              "subpath": "tangram.ts",
+		                                            },
+		                                          },
+		                                        },
 		                                      ],
 		                                    }),
-		                                    "node": 2,
+		                                    "node": 1,
 		                                  }),
 		                                },
 		                              },
@@ -2219,18 +2159,8 @@ async fn tag_dependency_cycles() {
 		                        {
 		                          "kind": "directory",
 		                          "entries": {
-		                            "foo.tg.ts": 1,
-		                            "tangram.ts": 2,
-		                          },
-		                        },
-		                        {
-		                          "kind": "file",
-		                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
-		                          "dependencies": {
-		                            "./tangram.ts": {
-		                              "item": 0,
-		                              "subpath": "tangram.ts",
-		                            },
+		                            "foo.tg.ts": 2,
+		                            "tangram.ts": 1,
 		                          },
 		                        },
 		                        {
@@ -2252,9 +2182,19 @@ async fn tag_dependency_cycles() {
 		                            },
 		                          },
 		                        },
+		                        {
+		                          "kind": "file",
+		                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
+		                          "dependencies": {
+		                            "./tangram.ts": {
+		                              "item": 0,
+		                              "subpath": "tangram.ts",
+		                            },
+		                          },
+		                        },
 		                      ],
 		                    }),
-		                    "node": 1,
+		                    "node": 2,
 		                  }),
 		                  "tangram.ts": tg.file({
 		                    "graph": tg.graph({
@@ -2262,18 +2202,8 @@ async fn tag_dependency_cycles() {
 		                        {
 		                          "kind": "directory",
 		                          "entries": {
-		                            "foo.tg.ts": 1,
-		                            "tangram.ts": 2,
-		                          },
-		                        },
-		                        {
-		                          "kind": "file",
-		                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
-		                          "dependencies": {
-		                            "./tangram.ts": {
-		                              "item": 0,
-		                              "subpath": "tangram.ts",
-		                            },
+		                            "foo.tg.ts": 2,
+		                            "tangram.ts": 1,
 		                          },
 		                        },
 		                        {
@@ -2295,9 +2225,19 @@ async fn tag_dependency_cycles() {
 		                            },
 		                          },
 		                        },
+		                        {
+		                          "kind": "file",
+		                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
+		                          "dependencies": {
+		                            "./tangram.ts": {
+		                              "item": 0,
+		                              "subpath": "tangram.ts",
+		                            },
+		                          },
+		                        },
 		                      ],
 		                    }),
-		                    "node": 2,
+		                    "node": 1,
 		                  }),
 		                },
 		              },
@@ -2335,18 +2275,8 @@ async fn tag_dependency_cycles() {
 		                                        {
 		                                          "kind": "directory",
 		                                          "entries": {
-		                                            "foo.tg.ts": 1,
-		                                            "tangram.ts": 2,
-		                                          },
-		                                        },
-		                                        {
-		                                          "kind": "file",
-		                                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
-		                                          "dependencies": {
-		                                            "./tangram.ts": {
-		                                              "item": 0,
-		                                              "subpath": "tangram.ts",
-		                                            },
+		                                            "foo.tg.ts": 2,
+		                                            "tangram.ts": 1,
 		                                          },
 		                                        },
 		                                        {
@@ -2368,9 +2298,19 @@ async fn tag_dependency_cycles() {
 		                                            },
 		                                          },
 		                                        },
+		                                        {
+		                                          "kind": "file",
+		                                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
+		                                          "dependencies": {
+		                                            "./tangram.ts": {
+		                                              "item": 0,
+		                                              "subpath": "tangram.ts",
+		                                            },
+		                                          },
+		                                        },
 		                                      ],
 		                                    }),
-		                                    "node": 1,
+		                                    "node": 2,
 		                                  }),
 		                                  "tangram.ts": tg.file({
 		                                    "graph": tg.graph({
@@ -2378,18 +2318,8 @@ async fn tag_dependency_cycles() {
 		                                        {
 		                                          "kind": "directory",
 		                                          "entries": {
-		                                            "foo.tg.ts": 1,
-		                                            "tangram.ts": 2,
-		                                          },
-		                                        },
-		                                        {
-		                                          "kind": "file",
-		                                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
-		                                          "dependencies": {
-		                                            "./tangram.ts": {
-		                                              "item": 0,
-		                                              "subpath": "tangram.ts",
-		                                            },
+		                                            "foo.tg.ts": 2,
+		                                            "tangram.ts": 1,
 		                                          },
 		                                        },
 		                                        {
@@ -2411,9 +2341,19 @@ async fn tag_dependency_cycles() {
 		                                            },
 		                                          },
 		                                        },
+		                                        {
+		                                          "kind": "file",
+		                                          "contents": tg.blob("import * as b from \"./tangram.ts\";\n"),
+		                                          "dependencies": {
+		                                            "./tangram.ts": {
+		                                              "item": 0,
+		                                              "subpath": "tangram.ts",
+		                                            },
+		                                          },
+		                                        },
 		                                      ],
 		                                    }),
-		                                    "node": 2,
+		                                    "node": 1,
 		                                  }),
 		                                },
 		                              },
@@ -2550,8 +2490,7 @@ async fn diamond_dependency() {
 		      "kind": "directory",
 		      "entries": {
 		        "tangram.ts": 1
-		      },
-		      "id": "dir_01hsbmh86tc28yvgf06s5ak7h6gz73kjy81fgy9b3z4dwhs7yphnx0"
+		      }
 		    },
 		    {
 		      "kind": "file",
@@ -2566,8 +2505,7 @@ async fn diamond_dependency() {
 		          "subpath": "tangram.ts",
 		          "tag": "c"
 		        }
-		      },
-		      "id": "fil_01zatcb7pffd5j4c47grp717j0cw34pfxmgahgm1zvzajetr6r5jxg"
+		      }
 		    },
 		    {
 		      "kind": "directory",

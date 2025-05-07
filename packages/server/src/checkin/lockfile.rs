@@ -84,9 +84,10 @@ impl Server {
 				Ok::<_, tg::Error>((name.clone(), entry))
 			})
 			.try_collect()?;
+		let id = state.graph.nodes[node].path.is_none().then_some(id);
 		let directory = tg::lockfile::Directory {
 			entries,
-			id: Some(id),
+			id,
 		};
 		Ok(tg::lockfile::Node::Directory(directory))
 	}
@@ -173,11 +174,12 @@ impl Server {
 				},
 			})
 			.try_collect()?;
+		let id = state.graph.nodes[index].path.is_none().then_some(id);
 		let file = tg::lockfile::File {
 			contents: Some(contents),
 			dependencies,
 			executable,
-			id: Some(id),
+			id,
 		};
 		Ok(tg::lockfile::Node::File(file))
 	}
@@ -185,7 +187,7 @@ impl Server {
 	#[allow(clippy::ptr_arg)]
 	fn checkin_create_lockfile_symlink_node(
 		state: &super::State,
-		_node: usize,
+		node: usize,
 		data: &tg::symlink::Data,
 		_nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		_visited: &mut [Option<Either<usize, tg::object::Id>>],
@@ -231,9 +233,10 @@ impl Server {
 				},
 			)),
 			None => {
+				let id = state.graph.nodes[node].path.is_none().then_some(id);
 				if let Some(subpath) = subpath {
 					Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
-						id: Some(id),
+						id,
 						target: subpath,
 					}))
 				} else {
