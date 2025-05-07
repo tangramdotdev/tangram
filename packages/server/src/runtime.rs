@@ -44,7 +44,7 @@ impl Runtime {
 	}
 
 	pub async fn run(&self, process: &tg::Process) -> Output {
-		let output = match self.run_inner(process).await {
+		match self.run_inner(process).await {
 			Ok(output) => output,
 			Err(error) => Output {
 				checksum: None,
@@ -52,26 +52,7 @@ impl Runtime {
 				exit: 1,
 				output: None,
 			},
-		};
-
-		// If there is an error, then log it.
-		if let Some(error) = &output.error {
-			let trace_options = tg::error::TraceOptions::default();
-			let isatty = matches!(
-				process.load(self.server()).await.unwrap().stderr,
-				Some(tg::process::Stdio::Pty(_))
-			);
-			let message = self::util::fmt_error(isatty, error, &trace_options);
-			util::log(
-				self.server(),
-				process,
-				tg::process::log::Stream::Stderr,
-				message,
-			)
-			.await;
 		}
-
-		output
 	}
 
 	async fn run_inner(&self, process: &tg::Process) -> tg::Result<Output> {

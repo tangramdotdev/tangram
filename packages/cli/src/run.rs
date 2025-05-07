@@ -198,6 +198,11 @@ impl Cli {
 		// Handle the result.
 		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
 
+		// Print the error.
+		if let Some(error) = wait.error {
+			Self::print_error(&error, self.config.as_ref());
+		}
+
 		// Print the output.
 		if let Some(value) = wait.output {
 			if !value.is_null() {
