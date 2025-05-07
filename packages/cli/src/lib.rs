@@ -995,10 +995,14 @@ impl Cli {
 
 		// Wait up to one second for the server to exit.
 		for duration in [10, 20, 30, 50, 100, 300, 500] {
-			// If the server has exited, then return.
+			// Kill the server. If the server has exited, then return.
 			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
 			if ret != 0 {
-				return Ok(());
+				let error = std::io::Error::last_os_error();
+				if error.raw_os_error() == Some(libc::ESRCH) {
+					return Ok(());
+				}
+				return Err(tg::error!(!error, "failed to stop the server"));
 			}
 
 			// Otherwise, sleep.
@@ -1013,10 +1017,14 @@ impl Cli {
 
 		// Wait up to one second for the server to exit.
 		for duration in [10, 20, 30, 50, 100, 300, 500] {
-			// If the server has exited, then return.
-			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
+			// Kill the server. If the server has exited, then return.
+			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGTERM) };
 			if ret != 0 {
-				return Ok(());
+				let error = std::io::Error::last_os_error();
+				if error.raw_os_error() == Some(libc::ESRCH) {
+					return Ok(());
+				}
+				return Err(tg::error!(!error, "failed to stop the server"));
 			}
 
 			// Otherwise, sleep.

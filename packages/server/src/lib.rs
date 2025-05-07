@@ -138,7 +138,7 @@ impl Server {
 			.read(true)
 			.write(true)
 			.create(true)
-			.truncate(true)
+			.truncate(false)
 			.open(lock_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the lock file"))?;
@@ -150,6 +150,10 @@ impl Server {
 			));
 		}
 		let pid = std::process::id();
+		lock_file
+			.set_len(0)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to truncate the lock file"))?;
 		lock_file
 			.write_all(pid.to_string().as_bytes())
 			.await
