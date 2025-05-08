@@ -34,7 +34,7 @@ pub(crate) struct Context {
 	pub stderr: RawFd,
 }
 
-pub async fn spawn(command: &Command) -> std::io::Result<Child> {
+pub async fn spawn(command: &mut Command) -> std::io::Result<Child> {
 	if !command.mounts.is_empty() && command.chroot.is_none() {
 		return Err(std::io::Error::other(
 			"cannot create mounts without a chroot directory",
@@ -82,9 +82,9 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 	let (mut parent_socket, child_socket) = socket_pair()?;
 
 	// Create stdio.
-	let (parent_stdin, child_stdin) = command.stdin.split_stdin()?;
-	let (parent_stdout, child_stdout) = command.stdout.split_stdout()?;
-	let (parent_stderr, child_stderr) = command.stderr.split_stderr()?;
+	let (parent_stdin, child_stdin) = command.stdin.take().unwrap().split_stdin()?;
+	let (parent_stdout, child_stdout) = command.stdout.take().unwrap().split_stdout()?;
+	let (parent_stderr, child_stderr) = command.stderr.take().unwrap().split_stderr()?;
 
 	// Create the context.
 	let context = Context {
@@ -132,10 +132,6 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 
 	// Run the root process.
 	if root_pid == 0 {
-		// Drop i/o
-		drop(parent_stdin);
-		drop(parent_stdout);
-		drop(parent_stderr);
 		root::main(context);
 	}
 

@@ -1,29 +1,38 @@
 use std::{
-	os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
+	os::fd::{IntoRawFd, OwnedFd, RawFd},
+	pin::pin,
 	task::Poll,
 };
 
-use num::ToPrimitive;
-use tokio::io::unix::AsyncFd;
+use crate::common::socket_pair;
 
 pub struct Stdio {
 	inner: Inner,
+}
+
+pub struct ChildStdin {
+	host: tokio::net::UnixStream,
+}
+
+pub struct ChildStdout {
+	host: tokio::net::UnixStream,
+}
+
+pub struct ChildStderr {
+	host: tokio::net::UnixStream,
 }
 
 enum Inner {
 	Null,
 	Inherit,
 	MakePipe,
-	FileDescriptor(RawFd),
+	FileDescriptor(OwnedFd),
 }
 
-impl<T> From<T> for Stdio
-where
-	T: IntoRawFd,
-{
-	fn from(value: T) -> Self {
+impl From<OwnedFd> for Stdio {
+	fn from(value: OwnedFd) -> Self {
 		Self {
-			inner: Inner::FileDescriptor(value.into_raw_fd()),
+			inner: Inner::FileDescriptor(value),
 		}
 	}
 }
@@ -48,7 +57,7 @@ impl Stdio {
 		Self { inner: Inner::Null }
 	}
 
-	pub(crate) fn split_stdin(&self) -> std::io::Result<(Option<ChildStdin>, RawFd)> {
+	pub(crate) fn split_stdin(self) -> std::io::Result<(Option<ChildStdin>, RawFd)> {
 		match self.inner {
 			Inner::Null => {
 				let host = None;
@@ -60,23 +69,16 @@ impl Stdio {
 				let guest = libc::STDIN_FILENO;
 				Ok((host, guest))
 			},
-			Inner::MakePipe => unsafe {
-				let mut fds = [0; 2];
-				if libc::pipe(fds.as_mut_ptr()) < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-				let [guest, host] = fds;
-				set_cloexec(host)?;
-				set_cloexec(guest)?;
-				let host = make_async_fd(host, tokio::io::Interest::WRITABLE)?;
-				let host = ChildStdin { fd: host };
-				Ok((Some(host), guest))
+			Inner::MakePipe => {
+				let (host, guest) = socket_pair()?;
+				let host = ChildStdin { host };
+				Ok((Some(host), guest.into_raw_fd()))
 			},
-			Inner::FileDescriptor(fd) => Ok((None, fd)),
+			Inner::FileDescriptor(fd) => Ok((None, fd.into_raw_fd())),
 		}
 	}
 
-	pub(crate) fn split_stdout(&self) -> std::io::Result<(Option<ChildStdout>, RawFd)> {
+	pub(crate) fn split_stdout(self) -> std::io::Result<(Option<ChildStdout>, RawFd)> {
 		match self.inner {
 			Inner::Null => {
 				let host = None;
@@ -91,23 +93,16 @@ impl Stdio {
 				let guest = libc::STDOUT_FILENO;
 				Ok((host, guest))
 			},
-			Inner::MakePipe => unsafe {
-				let mut fds = [0; 2];
-				if libc::pipe(fds.as_mut_ptr()) < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-				let [host, guest] = fds;
-				set_cloexec(host)?;
-				set_cloexec(guest)?;
-				let host = make_async_fd(host, tokio::io::Interest::READABLE)?;
-				let host = ChildStdout { fd: host };
-				Ok((Some(host), guest))
+			Inner::MakePipe => {
+				let (host, guest) = socket_pair()?;
+				let host = ChildStdout { host };
+				Ok((Some(host), guest.into_raw_fd()))
 			},
-			Inner::FileDescriptor(fd) => Ok((None, fd)),
+			Inner::FileDescriptor(fd) => Ok((None, fd.into_raw_fd())),
 		}
 	}
 
-	pub(crate) fn split_stderr(&self) -> std::io::Result<(Option<ChildStderr>, RawFd)> {
+	pub(crate) fn split_stderr(self) -> std::io::Result<(Option<ChildStderr>, RawFd)> {
 		match self.inner {
 			Inner::Null => {
 				let host = None;
@@ -122,83 +117,12 @@ impl Stdio {
 				let guest = libc::STDERR_FILENO;
 				Ok((host, guest))
 			},
-			Inner::MakePipe => unsafe {
-				let mut fds = [0; 2];
-				if libc::pipe(fds.as_mut_ptr()) < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-				let [host, guest] = fds;
-				let host = make_async_fd(host, tokio::io::Interest::READABLE)?;
-				let host = ChildStderr { fd: host };
-				Ok((Some(host), guest))
+			Inner::MakePipe => {
+				let (host, guest) = socket_pair()?;
+				let host = ChildStderr { host };
+				Ok((Some(host), guest.into_raw_fd()))
 			},
-			Inner::FileDescriptor(fd) => Ok((None, fd)),
-		}
-	}
-}
-
-pub struct ChildStdin {
-	fd: AsyncFd<OwnedFd>,
-}
-
-pub struct ChildStdout {
-	fd: AsyncFd<OwnedFd>,
-}
-
-pub struct ChildStderr {
-	fd: AsyncFd<OwnedFd>,
-}
-
-impl ChildStdin {
-	pub fn new(fd: OwnedFd) -> std::io::Result<Self> {
-		unsafe {
-			let flags = libc::fcntl(fd.as_raw_fd(), libc::F_GETFL);
-			if flags < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let flags = flags | libc::O_NONBLOCK;
-			let ret = libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags);
-			if ret < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let fd = AsyncFd::with_interest(fd, tokio::io::Interest::WRITABLE)?;
-			Ok(Self { fd })
-		}
-	}
-}
-
-impl ChildStdout {
-	pub fn new(fd: OwnedFd) -> std::io::Result<Self> {
-		unsafe {
-			let flags = libc::fcntl(fd.as_raw_fd(), libc::F_GETFL);
-			if flags < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let flags = flags | libc::O_NONBLOCK;
-			let ret = libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags);
-			if ret < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let fd = AsyncFd::with_interest(fd, tokio::io::Interest::READABLE)?;
-			Ok(Self { fd })
-		}
-	}
-}
-
-impl ChildStderr {
-	pub fn new(fd: OwnedFd) -> std::io::Result<Self> {
-		unsafe {
-			let flags = libc::fcntl(fd.as_raw_fd(), libc::F_GETFL);
-			if flags < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let flags = flags | libc::O_NONBLOCK;
-			let ret = libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags);
-			if ret < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let fd = AsyncFd::with_interest(fd, tokio::io::Interest::READABLE)?;
-			Ok(Self { fd })
+			Inner::FileDescriptor(fd) => Ok((None, fd.into_raw_fd())),
 		}
 	}
 }
@@ -210,40 +134,36 @@ impl tokio::io::AsyncWrite for ChildStdin {
 		buf: &[u8],
 	) -> std::task::Poll<Result<usize, std::io::Error>> {
 		let this = self.get_mut();
-		let mut guard = match this.fd.poll_write_ready(cx) {
-			Poll::Ready(Ok(guard)) => guard,
-			Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-			Poll::Pending => return Poll::Pending,
-		};
-		let ret = guard.try_io(|fd| {
-			let n = unsafe { libc::write(fd.as_raw_fd(), buf.as_ptr().cast(), buf.len()) };
-			if n < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			Ok(n.to_usize().unwrap())
-		});
-		match ret {
-			Ok(result) => Poll::Ready(result),
-			Err(_would_block) => Poll::Pending,
-		}
+		pin!(&mut this.host).poll_write(cx, buf)
 	}
 
 	fn poll_flush(
 		self: std::pin::Pin<&mut Self>,
-		_cx: &mut std::task::Context<'_>,
+		cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<Result<(), std::io::Error>> {
-		std::task::Poll::Ready(Ok(()))
+		let this = self.get_mut();
+		pin!(&mut this.host).poll_flush(cx)
 	}
 
 	fn poll_shutdown(
 		self: std::pin::Pin<&mut Self>,
-		_cx: &mut std::task::Context<'_>,
+		cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<Result<(), std::io::Error>> {
-		std::task::Poll::Ready(Ok(()))
+		let this = self.get_mut();
+		pin!(&mut this.host).poll_shutdown(cx)
 	}
 
 	fn is_write_vectored(&self) -> bool {
-		false
+		self.host.is_write_vectored()
+	}
+
+	fn poll_write_vectored(
+		self: std::pin::Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+		bufs: &[std::io::IoSlice<'_>],
+	) -> Poll<Result<usize, std::io::Error>> {
+		let this = self.get_mut();
+		pin!(&mut this.host).poll_write_vectored(cx, bufs)
 	}
 }
 
@@ -254,36 +174,7 @@ impl tokio::io::AsyncRead for ChildStdout {
 		buf: &mut tokio::io::ReadBuf<'_>,
 	) -> Poll<std::io::Result<()>> {
 		let this = self.get_mut();
-		let mut guard = match this.fd.poll_read_ready(cx) {
-			Poll::Ready(Ok(guard)) => guard,
-			Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-			Poll::Pending => {
-				return Poll::Pending;
-			},
-		};
-		let ret = guard.try_io(|fd| {
-			let n = unsafe {
-				let len = buf.remaining();
-				let buf = buf.unfilled_mut().as_mut_ptr().cast();
-				libc::read(fd.as_raw_fd(), buf, len)
-			};
-			if n < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			if n == 0 {
-				return Ok(0);
-			}
-			let n = n.to_usize().unwrap();
-			unsafe {
-				buf.assume_init(n);
-			}
-			buf.advance(n);
-			Ok(n)
-		});
-		match ret {
-			Ok(result) => Poll::Ready(result.map(|_| ())),
-			Err(_would_block) => Poll::Pending,
-		}
+		pin!(&mut this.host).poll_read(cx, buf)
 	}
 }
 
@@ -294,64 +185,6 @@ impl tokio::io::AsyncRead for ChildStderr {
 		buf: &mut tokio::io::ReadBuf<'_>,
 	) -> Poll<std::io::Result<()>> {
 		let this = self.get_mut();
-		let mut guard = match this.fd.poll_read_ready(cx) {
-			Poll::Ready(Ok(guard)) => guard,
-			Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-			Poll::Pending => return Poll::Pending,
-		};
-		let ret = guard.try_io(|fd| {
-			let n = unsafe {
-				let len = buf.remaining();
-				let buf = buf.unfilled_mut().as_mut_ptr().cast();
-				libc::read(fd.as_raw_fd(), buf, len)
-			};
-			if n < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			if n == 0 {
-				return Ok(0);
-			}
-			let n = n.to_usize().unwrap();
-			unsafe {
-				buf.assume_init(n);
-			}
-			buf.advance(n);
-			Ok(n)
-		});
-
-		match ret {
-			Ok(result) => Poll::Ready(result.map(|_| ())),
-			Err(_would_block) => Poll::Pending,
-		}
-	}
-}
-
-fn make_async_fd(fd: RawFd, interest: tokio::io::Interest) -> std::io::Result<AsyncFd<OwnedFd>> {
-	unsafe {
-		let flags = libc::fcntl(fd, libc::F_GETFL);
-		if flags < 0 {
-			return Err(std::io::Error::last_os_error());
-		}
-		let flags = flags | libc::O_NONBLOCK;
-		let ret = libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags);
-		if ret < 0 {
-			return Err(std::io::Error::last_os_error());
-		}
-		AsyncFd::with_interest(OwnedFd::from_raw_fd(fd), interest)
-	}
-}
-
-fn set_cloexec(fd: RawFd) -> std::io::Result<()> {
-	unsafe {
-		let flags = libc::fcntl(fd, libc::F_GETFD);
-		if flags < 0 {
-			return Err(std::io::Error::last_os_error());
-		}
-		let flags = flags | libc::O_CLOEXEC;
-		let ret = libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, flags);
-		if ret < 0 {
-			return Err(std::io::Error::last_os_error());
-		}
-		Ok(())
+		pin!(&mut this.host).poll_read(cx, buf)
 	}
 }

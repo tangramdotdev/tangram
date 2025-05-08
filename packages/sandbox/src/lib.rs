@@ -24,9 +24,9 @@ pub struct Command {
 	hostname: Option<OsString>,
 	mounts: Vec<Mount>,
 	network: bool,
-	stderr: Stdio,
-	stdin: Stdio,
-	stdout: Stdio,
+	stdin: Option<Stdio>,
+	stdout: Option<Stdio>,
+	stderr: Option<Stdio>,
 	uid: Option<u32>,
 }
 
@@ -95,9 +95,9 @@ impl Command {
 			hostname: None,
 			mounts: Vec::new(),
 			network: true,
-			stdin: Stdio::inherit(),
-			stdout: Stdio::inherit(),
-			stderr: Stdio::inherit(),
+			stdin: Some(Stdio::inherit()),
+			stdout: Some(Stdio::inherit()),
+			stderr: Some(Stdio::inherit()),
 			uid: None,
 		}
 	}
@@ -167,21 +167,21 @@ impl Command {
 	}
 
 	pub fn stdin(&mut self, stdio: impl Into<Stdio>) -> &mut Self {
-		self.stdin = stdio.into();
+		self.stdin.replace(stdio.into());
 		self
 	}
 
 	pub fn stdout(&mut self, stdio: impl Into<Stdio>) -> &mut Self {
-		self.stdout = stdio.into();
+		self.stdout.replace(stdio.into());
 		self
 	}
 
 	pub fn stderr(&mut self, stdio: impl Into<Stdio>) -> &mut Self {
-		self.stderr = stdio.into();
+		self.stderr.replace(stdio.into());
 		self
 	}
 
-	pub fn spawn(&self) -> impl Future<Output = std::io::Result<Child>> {
+	pub fn spawn(&mut self) -> impl Future<Output = std::io::Result<Child>> {
 		#[cfg(target_os = "linux")]
 		{
 			linux::spawn(self)

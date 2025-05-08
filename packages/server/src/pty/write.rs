@@ -29,13 +29,17 @@ impl Server {
 		let fd = if arg.master {
 			self.ptys
 				.get(id)
-				.ok_or_else(|| tg::error!("failed to get PTY"))?
+				.ok_or_else(|| tg::error!("failed to get pty"))?
 				.host
+				.try_clone()
+				.map_err(|source| tg::error!(!source, "failed to get pty"))?
 		} else {
 			self.ptys
 				.get(id)
-				.ok_or_else(|| tg::error!("failed to get PTY"))?
+				.ok_or_else(|| tg::error!("failed to get pty"))?
 				.guest
+				.try_clone()
+				.map_err(|source| tg::error!(!source, "failed to get pty"))?
 		};
 
 		let fd = AsyncFd::with_interest(fd, tokio::io::Interest::WRITABLE)
