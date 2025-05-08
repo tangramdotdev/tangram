@@ -319,7 +319,7 @@ export namespace Command {
 			if (!targetStr.startsWith(":/")) {
 				throw new Error(`expected an absolute path: "${targetStr}"`);
 			}
-			let target = targetStr.substring(2);
+			let target = targetStr.substring(1);
 			// Handle the readonly/readwrite option if present, rejecting read-write.
 			if (target.includes(",")) {
 				const [mountPart, option] = target.split(",", 2);
