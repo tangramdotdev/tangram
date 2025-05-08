@@ -47,9 +47,7 @@ pub fn redirect_stdio(stdin: RawFd, stdout: RawFd, stderr: RawFd) {
 			if libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) < 0 {
 				abort_errno!("failed to redirect stdio");
 			}
-			if io != fd {
-				libc::dup2(io, fd);
-			}
+			libc::dup2(io, fd);
 		}
 	}
 }

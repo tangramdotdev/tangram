@@ -66,7 +66,7 @@ impl Stdio {
 					return Err(std::io::Error::last_os_error());
 				}
 				let [guest, host] = fds;
-				let host = make_async_fd(host)?;
+				let host = make_async_fd(host, tokio::io::Interest::WRITABLE)?;
 				let host = ChildStdin { fd: host };
 				Ok((Some(host), guest))
 			},
@@ -95,7 +95,7 @@ impl Stdio {
 					return Err(std::io::Error::last_os_error());
 				}
 				let [host, guest] = fds;
-				let host = make_async_fd(host)?;
+				let host = make_async_fd(host, tokio::io::Interest::READABLE)?;
 				let host = ChildStdout { fd: host };
 				Ok((Some(host), guest))
 			},
@@ -124,7 +124,7 @@ impl Stdio {
 					return Err(std::io::Error::last_os_error());
 				}
 				let [host, guest] = fds;
-				let host = make_async_fd(host)?;
+				let host = make_async_fd(host, tokio::io::Interest::READABLE)?;
 				let host = ChildStderr { fd: host };
 				Ok((Some(host), guest))
 			},
@@ -274,7 +274,6 @@ impl tokio::io::AsyncRead for ChildStdout {
 			buf.advance(n);
 			Ok(n)
 		});
-
 		match ret {
 			Ok(result) => Poll::Ready(result.map(|_| ())),
 			Err(_would_block) => Poll::Pending,
@@ -321,7 +320,7 @@ impl tokio::io::AsyncRead for ChildStderr {
 	}
 }
 
-fn make_async_fd(fd: RawFd) -> std::io::Result<AsyncFd<OwnedFd>> {
+fn make_async_fd(fd: RawFd, interest: tokio::io::Interest) -> std::io::Result<AsyncFd<OwnedFd>> {
 	unsafe {
 		let flags = libc::fcntl(fd, libc::F_GETFL);
 		if flags < 0 {
@@ -332,6 +331,6 @@ fn make_async_fd(fd: RawFd) -> std::io::Result<AsyncFd<OwnedFd>> {
 		if ret < 0 {
 			return Err(std::io::Error::last_os_error());
 		}
-		AsyncFd::with_interest(OwnedFd::from_raw_fd(fd), tokio::io::Interest::WRITABLE)
+		AsyncFd::with_interest(OwnedFd::from_raw_fd(fd), interest)
 	}
 }

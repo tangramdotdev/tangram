@@ -108,7 +108,8 @@ pub async fn stdio_task(
 			let Some(stdout) = stdout else { return Ok(()) };
 			output(&server, &process, tg::process::log::Stream::Stdout, stdout)
 				.await
-				.inspect_err(|source| tracing::error!(?source, "failed to read stdout"))
+				.inspect_err(|source| tracing::error!(?source, "failed to read stdout"))?;
+			Ok::<_, tg::Error>(())
 		}
 	});
 
@@ -119,7 +120,8 @@ pub async fn stdio_task(
 			let Some(stderr) = stderr else { return Ok(()) };
 			output(&server, &process, tg::process::log::Stream::Stderr, stderr)
 				.await
-				.inspect_err(|source| tracing::error!(?source, "failed to read stderr"))
+				.inspect_err(|source| tracing::error!(?source, "failed to read stderr"))?;
+			Ok::<_, tg::Error>(())
 		}
 	});
 

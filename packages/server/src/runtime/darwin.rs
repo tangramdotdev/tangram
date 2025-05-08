@@ -72,6 +72,9 @@ impl Runtime {
 
 		// Create the root.
 		let root = Temp::new(&self.server);
+		tokio::fs::create_dir_all(&root)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
 
 		// Create the output path.
 		let output_path = root.path().join("output");
@@ -213,7 +216,6 @@ impl Runtime {
 			.spawn()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-
 		// Spawn the stdio task.
 		let stdio_task = tokio::spawn({
 			let server = self.server.clone();
@@ -223,7 +225,10 @@ impl Runtime {
 			let stdin = child.stdin.take();
 			let stdout = child.stdout.take();
 			let stderr = child.stderr.take();
-			async move { stdio_task(&server, &process, stdin, stdout, stderr).await }
+			async move {
+				stdio_task(&server, &process, stdin, stdout, stderr).await?;
+				Ok::<_, tg::Error>(())
+			}
 		});
 
 		// Spawn
