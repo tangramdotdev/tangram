@@ -299,54 +299,40 @@ export namespace Command {
 	};
 
 	export namespace Mount {
-		export let parse = async (
-			t: string | tg.Template,
-		): Promise<tg.Command.Mount> => {
-			// If the user passed a template, render a string with artifact IDs.
-			let s: string | undefined;
-			if (typeof t === "string") {
-				s = t;
-			} else if (t instanceof tg.Template) {
-				s = await t.components.reduce(async (acc, component) => {
-					if (tg.Artifact.is(component)) {
-						return (await acc) + (await component.id());
-					} else {
-						return (await acc) + component;
-					}
-				}, Promise.resolve(""));
-			} else {
-				throw new Error("expected a template or a string");
-			}
-			tg.assert(s);
+		export let parse = async (t: tg.Template): Promise<tg.Command.Mount> => {
+			const components = t.components;
+			tg.assert(
+				components.length === 2,
+				"expected an artifact followed by a string",
+			);
+			const [source, targetStr] = components;
+			tg.assert(
+				tg.Artifact.is(source),
+				"expected first string to be an artifact",
+			);
+			tg.assert(
+				typeof targetStr === "string",
+				"expected remainder to be a string",
+			);
 
+			// Validate the target is an absolute path.
+			if (!targetStr.startsWith(":/")) {
+				throw new Error(`expected an absolute path: "${targetStr}"`);
+			}
+			let target = targetStr.substring(2);
 			// Handle the readonly/readwrite option if present, rejecting read-write.
-			if (s.includes(",")) {
-				const [mountPart, option] = s.split(",", 2);
+			if (target.includes(",")) {
+				const [mountPart, option] = target.split(",", 2);
 				tg.assert(mountPart);
 				tg.assert(option);
 
 				if (option === "ro") {
-					s = mountPart;
+					target = mountPart;
 				} else if (option === "rw") {
 					throw new Error("cannot mount artifacts as read/write");
 				} else {
 					throw new Error(`unknown option: "${option}"`);
 				}
-			}
-
-			// Split the string into source and target.
-			const colonIndex = s.indexOf(":");
-			if (colonIndex === -1) {
-				throw new Error("expected a target path");
-			}
-
-			const sourceId = s.substring(0, colonIndex);
-			const source = tg.Artifact.withId(sourceId);
-			const target = s.substring(colonIndex + 1);
-
-			// Validate the target is an absolute path.
-			if (!target.startsWith("/")) {
-				throw new Error(`expected an absolute path: "${target}"`);
 			}
 
 			return {

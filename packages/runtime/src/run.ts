@@ -48,7 +48,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	let commandMounts: Array<tg.Command.Mount> | undefined;
 	if ("mounts" in arg && arg.mounts !== undefined) {
 		for (let mount of arg.mounts) {
-			if (typeof mount === "string" || mount instanceof tg.Template) {
+			if (mount instanceof tg.Template) {
 				try {
 					let commandMount = await tg.Command.Mount.parse(mount);
 					if (commandMounts === undefined) {
@@ -61,6 +61,9 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 					processMounts.push(processMount);
 				} catch {}
 			} else {
+				if (typeof mount === "string" || mount instanceof tg.Template) {
+					mount = await tg.Process.Mount.parse(mount);
+				}
 				if (tg.Artifact.is(mount.source)) {
 					if (commandMounts === undefined) {
 						commandMounts = [];
