@@ -53,7 +53,7 @@ pub struct Options {
 
 	/// Configure mounts.
 	#[arg(long)]
-	pub mount: Vec<Either<tg::process::Mount, tg::command::Mount>>,
+	pub mount: Vec<tg::process::Mount>,
 
 	/// Enable network access.
 	#[arg(long)]
@@ -355,13 +355,6 @@ impl Cli {
 		}
 		command = command.env(env);
 
-		// Set the mounts.
-		for mount in &options.mount {
-			if let Either::Right(mount) = mount {
-				command = command.mount(mount.clone());
-			}
-		}
-
 		// Create the command.
 		let command = command.build();
 
@@ -393,16 +386,14 @@ impl Cli {
 			});
 		}
 		for mount in &options.mount {
-			if let Either::Left(mount) = mount {
-				let source = tokio::fs::canonicalize(&mount.source)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-				mounts.push(tg::process::data::Mount {
-					source,
-					target: mount.target.clone(),
-					readonly: mount.readonly,
-				});
-			}
+			let source = tokio::fs::canonicalize(&mount.source)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			mounts.push(tg::process::data::Mount {
+				source,
+				target: mount.target.clone(),
+				readonly: mount.readonly,
+			});
 		}
 
 		// Spawn the process.

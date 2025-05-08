@@ -192,34 +192,6 @@ impl Mount {
 	}
 }
 
-impl std::str::FromStr for Mount {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let s = if let Some((s, ro)) = s.split_once(',') {
-			if ro == "ro" {
-				s
-			} else if ro == "rw" {
-				return Err(tg::error!("cannot mount artifacts read-write"));
-			} else {
-				return Err(tg::error!("unknown option: {ro:#?}"));
-			}
-		} else {
-			s
-		};
-		let (source, target) = s
-			.split_once(':')
-			.ok_or_else(|| tg::error!("expected a target path"))?;
-		let target = PathBuf::from(target);
-		if !target.is_absolute() {
-			return Err(tg::error!(%target = target.display(), "expected an absolute path"));
-		}
-		let id = source.parse()?;
-		let source = tg::Artifact::with_id(id);
-		Ok(Self { source, target })
-	}
-}
-
 impl From<tg::command::data::Mount> for Mount {
 	fn from(data: tg::command::data::Mount) -> Self {
 		let source = tg::Artifact::with_id(data.source);
