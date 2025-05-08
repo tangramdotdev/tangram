@@ -1,4 +1,4 @@
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::RawFd;
 use tangram_client as tg;
 
 mod close;
@@ -8,8 +8,8 @@ mod size;
 mod write;
 
 pub(crate) struct Pty {
-	pub host: OwnedFd,
-	pub guest: OwnedFd,
+	pub host: RawFd,
+	pub guest: RawFd,
 }
 
 impl Pty {
@@ -45,10 +45,6 @@ impl Pty {
 			if ret < 0 {
 				return Err(std::io::Error::last_os_error());
 			}
-
-			// Take ownership of the FDs.
-			let host = OwnedFd::from_raw_fd(host);
-			let guest = OwnedFd::from_raw_fd(guest);
 
 			let pty = Self { host, guest };
 			Ok(pty)

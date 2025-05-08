@@ -66,6 +66,8 @@ impl Stdio {
 					return Err(std::io::Error::last_os_error());
 				}
 				let [guest, host] = fds;
+				set_cloexec(host)?;
+				set_cloexec(guest)?;
 				let host = make_async_fd(host, tokio::io::Interest::WRITABLE)?;
 				let host = ChildStdin { fd: host };
 				Ok((Some(host), guest))
@@ -95,6 +97,8 @@ impl Stdio {
 					return Err(std::io::Error::last_os_error());
 				}
 				let [host, guest] = fds;
+				set_cloexec(host)?;
+				set_cloexec(guest)?;
 				let host = make_async_fd(host, tokio::io::Interest::READABLE)?;
 				let host = ChildStdout { fd: host };
 				Ok((Some(host), guest))
@@ -253,7 +257,9 @@ impl tokio::io::AsyncRead for ChildStdout {
 		let mut guard = match this.fd.poll_read_ready(cx) {
 			Poll::Ready(Ok(guard)) => guard,
 			Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-			Poll::Pending => return Poll::Pending,
+			Poll::Pending => {
+				return Poll::Pending;
+			},
 		};
 		let ret = guard.try_io(|fd| {
 			let n = unsafe {
@@ -332,5 +338,20 @@ fn make_async_fd(fd: RawFd, interest: tokio::io::Interest) -> std::io::Result<As
 			return Err(std::io::Error::last_os_error());
 		}
 		AsyncFd::with_interest(OwnedFd::from_raw_fd(fd), interest)
+	}
+}
+
+fn set_cloexec(fd: RawFd) -> std::io::Result<()> {
+	unsafe {
+		let flags = libc::fcntl(fd, libc::F_GETFD);
+		if flags < 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		let flags = flags | libc::O_CLOEXEC;
+		let ret = libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, flags);
+		if ret < 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+		Ok(())
 	}
 }

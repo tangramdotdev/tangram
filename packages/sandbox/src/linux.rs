@@ -132,6 +132,10 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 
 	// Run the root process.
 	if root_pid == 0 {
+		// Drop i/o
+		drop(parent_stdin);
+		drop(parent_stdout);
+		drop(parent_stderr);
 		root::main(context);
 	}
 
@@ -146,6 +150,13 @@ pub async fn spawn(command: &Command) -> std::io::Result<Child> {
 			return Err(error);
 		},
 	};
+
+	// Close unused fds.
+	for fd in [child_stdin, child_stdout, child_stderr] {
+		unsafe {
+			libc::close(fd);
+		}
+	}
 
 	// Create the child.
 	let child = Child {

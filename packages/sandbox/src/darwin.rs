@@ -69,7 +69,19 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 		return Err(std::io::Error::last_os_error());
 	}
 	if pid == 0 {
+		// Drop i/o
+		drop(parent_stdin);
+		drop(parent_stdout);
+		drop(parent_stderr);
+
 		guest_process(&context);
+	}
+
+	// Close unused fds.
+	for fd in [child_stdin, child_stdout, child_stderr] {
+		unsafe {
+			libc::close(fd);
+		}
 	}
 
 	// Create the child.
