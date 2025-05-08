@@ -11,7 +11,13 @@ impl Server {
 			return Ok(());
 		}
 
-		self.ptys.remove(id);
+		let Some((_, pty)) = self.ptys.remove(id) else {
+			return Ok(());
+		};
+		unsafe {
+			libc::close(pty.host);
+			libc::close(pty.guest);
+		}
 
 		Ok(())
 	}
