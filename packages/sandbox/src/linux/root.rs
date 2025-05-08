@@ -56,6 +56,11 @@ pub fn main(context: Context) -> ! {
 			}
 		}
 
+		// Close unused fds.
+		for fd in [context.stdin, context.stdout, context.stderr] {
+			libc::close(fd);
+		}
+
 		// Send the child process's PID to the host process.
 		let ret = libc::send(
 			context.socket.as_raw_fd(),

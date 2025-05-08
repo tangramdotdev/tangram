@@ -47,12 +47,13 @@ pub fn redirect_stdio(stdin: RawFd, stdout: RawFd, stderr: RawFd) {
 			if libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) < 0 {
 				abort_errno!("failed to redirect stdio");
 			}
-			libc::dup2(io, fd);
+			if libc::dup2(io, fd) < 0 {
+				abort_errno!("failed to redirect stdio");
+			}
 		}
 	}
 }
 
-#[cfg(target_os = "linux")]
 pub fn socket_pair() -> std::io::Result<(tokio::net::UnixStream, std::os::unix::net::UnixStream)> {
 	let (r#async, sync) = tokio::net::UnixStream::pair()?;
 	let sync = sync.into_std()?;

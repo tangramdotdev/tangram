@@ -22,7 +22,7 @@ struct Context {
 	stderr: RawFd,
 }
 
-pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
+pub(crate) async fn spawn(command: &mut Command) -> std::io::Result<Child> {
 	// Create argv, cwd, and envp strings.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.args.iter().map(cstring))
@@ -44,9 +44,9 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 	}
 
 	// Create stdio.
-	let (parent_stdin, child_stdin) = command.stdin.split_stdin()?;
-	let (parent_stdout, child_stdout) = command.stdout.split_stdout()?;
-	let (parent_stderr, child_stderr) = command.stderr.split_stderr()?;
+	let (parent_stdin, child_stdin) = command.stdin.take().unwrap().split_stdin()?;
+	let (parent_stdout, child_stdout) = command.stdout.take().unwrap().split_stdout()?;
+	let (parent_stderr, child_stderr) = command.stderr.take().unwrap().split_stderr()?;
 
 	// Create the sandbox profile.
 	let profile = create_sandbox_profile(command)?;
@@ -69,11 +69,6 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 		return Err(std::io::Error::last_os_error());
 	}
 	if pid == 0 {
-		// Drop i/o
-		drop(parent_stdin);
-		drop(parent_stdout);
-		drop(parent_stderr);
-
 		guest_process(&context);
 	}
 

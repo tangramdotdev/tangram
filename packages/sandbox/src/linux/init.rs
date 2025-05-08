@@ -20,6 +20,11 @@ pub fn main(context: Context) -> ! {
 			guest::main(context);
 		}
 
+		// Close unused fds.
+		for fd in [context.stdin, context.stdout, context.stderr] {
+			libc::close(fd);
+		}
+
 		// Reap child processes until the child exits.
 		let status = loop {
 			let mut status = 0;
