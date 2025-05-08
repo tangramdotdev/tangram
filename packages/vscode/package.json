@@ -89,8 +89,7 @@
 	"devDependencies": {
 		"@types/node": "^22.5.4",
 		"@types/vscode": "^1.92.0",
-		"@vscode/vsce": "^3.1.0",
-		"esbuild": "^0.23.1"
+		"@vscode/vsce": "^3.1.0"
 	},
 	"displayName": "Tangram",
 	"engines": {

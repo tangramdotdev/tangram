@@ -71,9 +71,10 @@ fn main() {
 		.success()
 		.then_some(())
 		.unwrap();
-	std::process::Command::new("bun")
+	std::process::Command::new("bunx")
 		.args([
-			"build",
+			"esbuild",
+			"--bundle",
 			"--minify",
 			&format!("--outdir={}", out_dir_path.display()),
 			"--sourcemap=external",
@@ -105,9 +106,10 @@ fn main() {
 		.success()
 		.then_some(())
 		.unwrap();
-	std::process::Command::new("bun")
+	std::process::Command::new("bunx")
 		.args([
-			"build",
+			"esbuild",
+			"--bundle",
 			"--minify",
 			&format!("--outdir={}", out_dir_path.display()),
 			"--sourcemap=external",

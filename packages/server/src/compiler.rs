@@ -557,7 +557,7 @@ impl Compiler {
 					..Default::default()
 				};
 				let trace = error.trace(&options);
-				tracing::error!("{error} {trace}");
+				tracing::error!("the notification handler failed\n{trace}");
 			})
 			.ok();
 	}
