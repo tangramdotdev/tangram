@@ -207,6 +207,7 @@ impl Command {
 }
 
 impl Child {
+	#[must_use]
 	pub fn pid(&self) -> libc::pid_t {
 		#[cfg(target_os = "linux")]
 		{

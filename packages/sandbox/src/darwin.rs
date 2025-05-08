@@ -69,7 +69,7 @@ pub(crate) async fn spawn(command: &Command) -> std::io::Result<Child> {
 		return Err(std::io::Error::last_os_error());
 	}
 	if pid == 0 {
-		guest_process(context);
+		guest_process(&context);
 	}
 
 	// Create the child.
@@ -133,7 +133,7 @@ pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
 	.unwrap()
 }
 
-fn guest_process(context: Context) -> ! {
+fn guest_process(context: &Context) -> ! {
 	// Redirect io.
 	redirect_stdio(context.stdin, context.stdout, context.stderr);
 

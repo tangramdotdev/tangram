@@ -85,10 +85,7 @@ impl Server {
 			})
 			.try_collect()?;
 		let id = state.graph.nodes[node].path.is_none().then_some(id);
-		let directory = tg::lockfile::Directory {
-			entries,
-			id,
-		};
+		let directory = tg::lockfile::Directory { entries, id };
 		Ok(tg::lockfile::Node::Directory(directory))
 	}
 
@@ -224,28 +221,27 @@ impl Server {
 		let artifact = None; // todo: symlinks that point to artifacts.
 
 		// Create the lockfile node.
-		match artifact {
-			Some(artifact) => Ok(tg::lockfile::Node::Symlink(
+		if let Some(artifact) = artifact {
+			Ok(tg::lockfile::Node::Symlink(
 				tg::lockfile::Symlink::Artifact {
 					artifact,
 					id: Some(id),
 					subpath,
 				},
-			)),
-			None => {
-				let id = state.graph.nodes[node].path.is_none().then_some(id);
-				if let Some(subpath) = subpath {
-					Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
-						id,
-						target: subpath,
-					}))
-				} else {
-					Err(tg::error!(
-						?data,
-						"unable to determine subpath for lockfile"
-					))
-				}
-			},
+			))
+		} else {
+			let id = state.graph.nodes[node].path.is_none().then_some(id);
+			if let Some(subpath) = subpath {
+				Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
+					id,
+					target: subpath,
+				}))
+			} else {
+				Err(tg::error!(
+					?data,
+					"unable to determine subpath for lockfile"
+				))
+			}
 		}
 	}
 
