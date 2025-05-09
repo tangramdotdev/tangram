@@ -59,11 +59,33 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	if ("stdin" in arg && arg.stdin !== undefined) {
 		commandStdin = arg.stdin;
 	}
+
+	// Strip path/tag from the executable.
+	let executable = undefined;
+	if ("executable" in arg) {
+		if (typeof arg.executable === "object" && "module" in arg.executable) {
+			// Avoid shallow copies here.
+			executable = {
+				export: arg.executable.export,
+				module: {
+					kind: arg.executable.module.kind,
+					referent: {
+						...arg.executable.module.referent,
+						path: undefined,
+						tag: undefined,
+					},
+				},
+			};
+		} else {
+			executable = arg.executable;
+		}
+	}
+
 	let command = await tg.command(
 		"args" in arg ? { args: arg.args } : undefined,
 		"cwd" in arg ? { cwd: arg.cwd } : undefined,
 		"env" in arg ? { env: arg.env } : undefined,
-		"executable" in arg ? { executable: arg.executable } : undefined,
+		executable ? { executable } : undefined,
 		"host" in arg ? { host: arg.host } : undefined,
 		"user" in arg ? { user: arg.user } : undefined,
 		commandMounts !== undefined ? { mounts: commandMounts } : undefined,
@@ -95,6 +117,17 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	});
 	let wait = await process.wait();
 	if (wait.error) {
+		if (
+			"executable" in arg &&
+			typeof arg.executable === "object" &&
+			"module" in arg.executable &&
+			typeof arg.executable.module.referent.item === "object"
+		) {
+			wait.error = await fixTrace(
+				wait.error,
+				arg.executable.module.referent as tg.Referent<tg.Object>,
+			);
+		}
 		throw wait.error;
 	}
 	if (wait.exit >= 1 && wait.exit < 128) {
@@ -259,3 +292,35 @@ export class BuildBuilder<
 			.then(onfulfilled, onrejected);
 	}
 }
+
+let fixTrace = async (
+	error: tg.Error,
+	referent: tg.Referent<tg.Object>,
+): Promise<tg.Error> => {
+	if (
+		error.source?.location?.source.kind === "module" &&
+		error.source?.location?.source.value.referent.item ===
+			(await referent.item.id())
+	) {
+		error.source.location.source.value.referent.path = referent.path;
+		error.source.location.source.value.referent.tag = referent.tag;
+	}
+	if (error.stack) {
+		let stack = [];
+		for (let location of error.stack) {
+			if (
+				location.source.kind === "module" &&
+				location.source.value.referent.item === (await referent.item.id())
+			) {
+				location.source.value.referent.path = referent.path;
+				location.source.value.referent.tag = referent.tag;
+			}
+			stack.push(location);
+		}
+		error.stack = stack;
+	}
+	if (error.source) {
+		error.source = await fixTrace(error.source, referent);
+	}
+	return error;
+};

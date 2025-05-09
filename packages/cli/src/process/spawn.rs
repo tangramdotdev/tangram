@@ -1,6 +1,6 @@
 use crate::Cli;
 use itertools::Itertools as _;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
 
@@ -203,9 +203,9 @@ impl Cli {
 					referent.subpath.replace(subpath.clone());
 					let referent = tg::Referent {
 						item: tg::module::Item::Object(object.clone()),
-						path: referent.path.clone(),
+						path: None,
 						subpath: Some(subpath),
-						tag: referent.tag.clone(),
+						tag: None,
 					};
 					let module = tg::Module { kind, referent };
 					let export = reference
@@ -487,6 +487,33 @@ pub(crate) fn fix_error_trace(
 			*tag = referent.tag.clone();
 		},
 		_ => (),
+	}
+	for location in error
+		.stack
+		.as_mut()
+		.into_iter()
+		.flat_map(|stack| stack.iter_mut())
+	{
+		match &mut location.source {
+			tg::error::Source::Module(tg::module::Data {
+				referent:
+					tg::Referent {
+						item: tg::module::data::Item::Object(object),
+						path,
+						tag,
+						..
+					},
+				..
+			}) if object == &referent.item => {
+				*path = referent.path.clone();
+				*tag = referent.tag.clone();
+			},
+			_ => (),
+		}
+	}
+	if let Some(source) = error.source.as_deref() {
+		let source = fix_error_trace(source.clone(), referent);
+		error.source.replace(Arc::new(source));
 	}
 	error
 }

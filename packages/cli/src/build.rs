@@ -87,12 +87,9 @@ impl Cli {
 		eprintln!("{} process {}", "info".blue().bold(), process.id());
 
 		// Wait for the process output.
-		self.wait(options, process).await.map_err(move |error| {
-			crate::process::spawn::fix_error_trace(
-				error,
-				&referent,
-			)
-		})
+		self.wait(options, process)
+			.await
+			.map_err(move |error| crate::process::spawn::fix_error_trace(error, &referent))
 	}
 
 	async fn wait(
