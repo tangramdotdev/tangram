@@ -150,6 +150,7 @@ impl Server {
 			checksum: wait.checksum,
 			error: wait.error,
 			exit: wait.exit,
+			force: false,
 			output,
 			remote: process.remote().cloned(),
 		};

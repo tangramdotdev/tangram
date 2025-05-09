@@ -118,6 +118,8 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index processes_status_index on processes (status);
 
+			create index processes_heartbeat_index on processes (heartbeat_at) where status = 'started' or status = 'finishing';
+
 			create trigger processes_delete_trigger
 			after delete on processes
 			for each row

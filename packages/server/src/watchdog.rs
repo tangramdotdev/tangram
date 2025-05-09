@@ -1,5 +1,6 @@
 use crate::Server;
 use futures::{StreamExt as _, stream::FuturesUnordered};
+use indoc::formatdoc;
 use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -24,24 +25,30 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get all started processes whose heartbeat_at exceeds the timeout.
 		let p = connection.p();
-		let statement = format!(
+		let statement = formatdoc!(
 			"
-				select id
-				from processes
-				where
-					(status = 'started' or status = 'finishing') and
-					heartbeat_at <= {p}1
-				limit {p}2;
+				update processes
+				set status = 'started'
+				from (
+					select id
+					from processes
+					where
+						(status = 'started' or status = 'finishing') and
+						heartbeat_at <= {p}1
+					limit {p}2
+				) as updates
+				where processes.id = updates.id
+				returning id;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let max_heartbeat_at = now - config.timeout.as_secs().to_i64().unwrap();
+		let max_heartbeat_at = now - config.ttl.as_secs().to_i64().unwrap();
 		let params = db::params![max_heartbeat_at, config.batch_size];
 		let processes = connection
 			.query_all_value_into::<tg::process::Id>(statement.into(), params)
@@ -65,6 +72,7 @@ impl Server {
 						checksum: None,
 						error,
 						exit: 1,
+						force: false,
 						output: None,
 						remote: None,
 					};

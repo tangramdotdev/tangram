@@ -34,7 +34,10 @@ impl Server {
 		let statement = format!(
 			"
 				update processes
-				set heartbeat_at = {p}1
+				set heartbeat_at = case
+					when status = 'started' or status = 'finishing' then {p}1
+					else null
+				end
 				where id = {p}2
 				returning status;
 			"
@@ -44,7 +47,6 @@ impl Server {
 		let status = connection
 			.query_one_value_into::<tg::process::Status>(statement.into(), params)
 			.await
-			.inspect_err(|error| tracing::error!(%error, "failed to perform heartbeat query"))
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.

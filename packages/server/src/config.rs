@@ -167,7 +167,7 @@ pub struct Vfs {
 pub struct Watchdog {
 	pub batch_size: usize,
 	pub interval: Duration,
-	pub timeout: Duration,
+	pub ttl: Duration,
 }
 
 impl Config {
@@ -290,7 +290,7 @@ impl Default for Watchdog {
 		Self {
 			batch_size: 100,
 			interval: Duration::from_secs(1),
-			timeout: Duration::from_secs(60),
+			ttl: Duration::from_secs(60),
 		}
 	}
 }

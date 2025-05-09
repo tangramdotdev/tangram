@@ -1,4 +1,4 @@
-use crate as tg;
+use crate::{self as tg, util::serde::is_false};
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -10,6 +10,9 @@ pub struct Arg {
 	pub error: Option<tg::Error>,
 
 	pub exit: u8,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub force: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub output: Option<tg::value::Data>,

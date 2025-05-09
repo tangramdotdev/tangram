@@ -122,6 +122,7 @@ impl Server {
 									"the process was canceled"
 								)),
 								exit: 1,
+								force: false,
 								output: None,
 								remote: None,
 							};

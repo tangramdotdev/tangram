@@ -909,8 +909,8 @@ impl Cli {
 				if let Some(interval) = watchdog.interval {
 					watchdog_.interval = interval;
 				}
-				if let Some(timeout) = watchdog.timeout {
-					watchdog_.timeout = timeout;
+				if let Some(ttl) = watchdog.ttl {
+					watchdog_.ttl = ttl;
 				}
 				config.watchdog = Some(watchdog_);
 			},

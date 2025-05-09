@@ -5,6 +5,9 @@ use tangram_client::{self as tg, prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(short, long)]
+	pub force: bool,
+
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
 
@@ -30,6 +33,7 @@ impl Cli {
 				"the process was explicitly canceled"
 			)),
 			exit: 1,
+			force: args.force,
 			output: None,
 			remote,
 		};

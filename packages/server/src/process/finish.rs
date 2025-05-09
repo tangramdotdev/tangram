@@ -53,10 +53,13 @@ impl Server {
 			"
 				update processes
 				set status = 'finishing'
-				where id = {p}1 and status = 'started';
+				where id = {p}1 and case
+					when {p}2 then status = 'started' or status = 'finishing'
+					else status = 'started'
+				end;
 			"
 		);
-		let params = db::params![id];
+		let params = db::params![id, arg.force];
 		let n = connection
 			.execute(statement.into(), params)
 			.await
@@ -72,7 +75,7 @@ impl Server {
 			return Err(tg::error!("failed to find the process"));
 		};
 
-		// Get a database connection.
+		// Get the process's children.
 		let connection = self
 			.database
 			.connection()
@@ -107,6 +110,7 @@ impl Server {
 					checksum: None,
 					error: Some(error),
 					exit: 1,
+					force: false,
 					output: None,
 					remote: None,
 				};

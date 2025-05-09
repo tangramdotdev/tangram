@@ -168,6 +168,7 @@ impl Cli {
 								"the process was explicitly canceled"
 							)),
 							exit: 1,
+							force: false,
 							output: None,
 							remote,
 						};

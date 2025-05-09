@@ -349,16 +349,17 @@ pub struct Vfs {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Watchdog {
+	/// The number of processes to cancel at a time.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
 	/// The duration to pause when there are no processes that need to be canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub interval: Option<Duration>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_size: Option<usize>,
-
 	/// The duration without a heartbeat before a process is canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub timeout: Option<Duration>,
+	pub ttl: Option<Duration>,
 }
