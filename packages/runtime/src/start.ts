@@ -25,7 +25,7 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 	// Get the output.
 	let output: tg.Value;
 	if (!(export_ in namespace)) {
-		throw new Error("failed to find the export");
+		throw new Error(`failed to find the export "${export_}"`);
 	}
 	let value = await namespace[export_];
 	if (tg.Value.is(value)) {

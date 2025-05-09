@@ -459,10 +459,14 @@ impl Server {
 					let path = state.graph.nodes[package]
 						.path
 						.as_deref()
-						.and_then(|module_path| {
+						.map(|module_path| {
 							let path =
-								crate::util::path::diff(&state.arg.path, module_path).ok()?;
-							(!path.as_os_str().is_empty()).then_some(path)
+								crate::util::path::diff(&state.arg.path, module_path).unwrap();
+							if path.as_os_str().is_empty() {
+								".".into()
+							} else {
+								path
+							}
 						});
 
 					// Recreate the new dependency.
