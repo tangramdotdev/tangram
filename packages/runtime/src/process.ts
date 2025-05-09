@@ -186,7 +186,7 @@ export namespace Process {
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		mounts?: Array<tg.Template | tg.Command.Mount> | undefined;
+		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		network?: boolean | undefined;
 		stdin?: tg.Blob.Arg | undefined;
 		user?: string | undefined;

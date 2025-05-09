@@ -223,8 +223,13 @@ export class RunBuilder<
 		});
 	}
 
-	args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this {
+	arg(...args: Array<tg.Unresolved<tg.Value>>): this {
 		this.#args.push({ args });
+		return this;
+	}
+
+	args(...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>): this {
+		this.#args.push(...args.map((args) => ({ args })));
 		return this;
 	}
 
@@ -240,8 +245,10 @@ export class RunBuilder<
 		return this;
 	}
 
-	env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this {
-		this.#args.push({ env });
+	env(
+		...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+	): this {
+		this.#args.push(...envs.map((env) => ({ env })));
 		return this;
 	}
 
@@ -258,13 +265,24 @@ export class RunBuilder<
 	}
 
 	mount(
-		mounts: tg.Unresolved<
-			tg.MaybeMutation<
-				Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
-			>
-		>,
+		...mounts: Array<
+			tg.Unresolved<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
+		>
 	): this {
 		this.#args.push({ mounts });
+		return this;
+	}
+
+	mounts(
+		...mounts: Array<
+			tg.Unresolved<
+				tg.MaybeMutation<
+					Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
+				>
+			>
+		>
+	): this {
+		this.#args.push(...mounts.map((mounts) => ({ mounts })));
 		return this;
 	}
 

@@ -190,7 +190,7 @@ declare namespace tg {
 
 	/** Create a directory. */
 	export let directory: (
-		...args: Array<tg.Unresolved<tg.MaybeNestedArray<tg.Directory.Arg>>>
+		...args: Array<tg.Unresolved<tg.Directory.Arg>>
 	) => Promise<tg.Directory>;
 
 	/** A directory. */
@@ -200,7 +200,7 @@ declare namespace tg {
 
 		/** Create a directory. */
 		static new(
-			...args: Array<tg.Unresolved<tg.MaybeNestedArray<tg.Directory.Arg>>>
+			...args: Array<tg.Unresolved<tg.Directory.Arg>>
 		): Promise<tg.Directory>;
 
 		/** Expect that a value is a `tg.Directory`. */
@@ -550,7 +550,7 @@ declare namespace tg {
 			host?: string | undefined;
 
 			/** The command's mounts. */
-			mounts?: Array<tg.Template | tg.Command.Mount> | undefined;
+			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 
 			/** The command's user. */
 			user?: string | undefined;
@@ -1072,7 +1072,7 @@ declare namespace tg {
 			host?: string | undefined;
 
 			/** The command's mounts. */
-			mounts?: Array<tg.Template | tg.Command.Mount> | undefined;
+			mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
@@ -1161,15 +1161,17 @@ declare namespace tg {
 	> extends Function {
 		constructor(...args: tg.Args<tg.Process.BuildArgObject>);
 
-		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
+		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
 
-		checksum(
-			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
+		args(
+			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
 		): this;
 
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 
-		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
+		env(
+			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+		): this;
 
 		executable(
 			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
@@ -1178,8 +1180,14 @@ declare namespace tg {
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
 
 		mount(
+			...mounts: Array<tg.Unresolved<string | tg.Template | tg.Command.Mount>>
+		): this;
+
+		mounts(
 			...mounts: Array<
-				tg.Unresolved<tg.MaybeMutation<tg.Template | tg.Command.Mount>>
+				tg.Unresolved<
+					tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
+				>
 			>
 		): this;
 
@@ -1213,11 +1221,17 @@ declare namespace tg {
 	> extends Function {
 		constructor(...args: tg.Args<tg.Command.ArgObject>);
 
-		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
+		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
+
+		args(
+			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
+		): this;
 
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 
-		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
+		env(
+			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+		): this;
 
 		executable(
 			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
@@ -1226,8 +1240,14 @@ declare namespace tg {
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
 
 		mount(
+			...mounts: Array<tg.Unresolved<string | tg.Template | tg.Command.Mount>>
+		): this;
+
+		mounts(
 			...mounts: Array<
-				tg.Unresolved<tg.MaybeMutation<tg.Template | tg.Command.Mount>>
+				tg.Unresolved<
+					tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
+				>
 			>
 		): this;
 
@@ -1264,15 +1284,17 @@ declare namespace tg {
 	> extends Function {
 		constructor(...args: tg.Args<tg.Process.RunArgObject>);
 
-		args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this;
+		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
 
-		checksum(
-			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
+		args(
+			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
 		): this;
 
 		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 
-		env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this;
+		env(
+			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+		): this;
 
 		executable(
 			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
@@ -1283,8 +1305,16 @@ declare namespace tg {
 		mount(
 			...mounts: Array<
 				tg.Unresolved<
+					string | tg.Template | tg.Command.Mount | tg.Process.Mount
+				>
+			>
+		): this;
+
+		mounts(
+			...mounts: Array<
+				tg.Unresolved<
 					tg.MaybeMutation<
-						string | tg.Template | tg.Command.Mount | tg.Process.Mount
+						Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
 					>
 				>
 			>
@@ -1380,8 +1410,6 @@ declare namespace tg {
 	export let sleep: (duration: number) => Promise<void>;
 
 	export type Tag = string;
-
-	type MaybeNestedArray<T> = T | Array<tg.MaybeNestedArray<T>>;
 
 	type MaybePromise<T> = T | Promise<T>;
 

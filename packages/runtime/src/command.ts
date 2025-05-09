@@ -244,7 +244,7 @@ export namespace Command {
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		mounts?: Array<tg.Template | tg.Command.Mount> | undefined;
+		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
 		stdin?: tg.Blob.Arg | undefined;
 		user?: string | undefined;
 	};
@@ -405,8 +405,13 @@ export class CommandBuilder<
 		});
 	}
 
-	args(args: tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>): this {
+	arg(...args: Array<tg.Unresolved<tg.Value>>): this {
 		this.#args.push({ args });
+		return this;
+	}
+
+	args(...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>): this {
+		this.#args.push(...args.map((args) => ({ args })));
 		return this;
 	}
 
@@ -415,8 +420,10 @@ export class CommandBuilder<
 		return this;
 	}
 
-	env(env: tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>): this {
-		this.#args.push({ env });
+	env(
+		...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+	): this {
+		this.#args.push(...envs.map((env) => ({ env })));
 		return this;
 	}
 
@@ -433,11 +440,20 @@ export class CommandBuilder<
 	}
 
 	mount(
-		mounts: tg.Unresolved<
-			tg.MaybeMutation<Array<tg.Template | tg.Command.Mount>>
-		>,
+		...mounts: Array<tg.Unresolved<string | tg.Template | tg.Command.Mount>>
 	): this {
 		this.#args.push({ mounts });
+		return this;
+	}
+
+	mounts(
+		...mounts: Array<
+			tg.Unresolved<
+				tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
+			>
+		>
+	): this {
+		this.#args.push(...mounts.map((mounts) => ({ mounts })));
 		return this;
 	}
 
