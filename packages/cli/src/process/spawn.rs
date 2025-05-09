@@ -84,7 +84,7 @@ pub struct Options {
 impl Cli {
 	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-		let process = self
+		let (_referent, process) = self
 			.spawn(args.options, reference, args.trailing, None, None, None)
 			.await?;
 		println!("{}", process.id());
@@ -99,7 +99,7 @@ impl Cli {
 		stderr: Option<tg::process::Stdio>,
 		stdin: Option<tg::process::Stdio>,
 		stdout: Option<tg::process::Stdio>,
-	) -> tg::Result<tg::Process> {
+	) -> tg::Result<(tg::Referent<tg::object::Id>, tg::Process)> {
 		let handle = self.handle().await?;
 
 		// Get the remote.
@@ -147,7 +147,7 @@ impl Cli {
 		}
 
 		// Get the reference.
-		let referent = self.get_reference(&reference).await?;
+		let mut referent = self.get_reference(&reference).await?;
 		let Either::Right(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
 		};
@@ -170,7 +170,7 @@ impl Cli {
 			},
 
 			tg::Object::Directory(directory) => {
-				let subpath = if let Some(subpath) = referent.subpath {
+				let subpath = if let Some(subpath) = referent.subpath.clone() {
 					Some(subpath)
 				} else {
 					'a: {
@@ -200,11 +200,12 @@ impl Cli {
 					} else {
 						unreachable!();
 					};
+					referent.subpath.replace(subpath.clone());
 					let referent = tg::Referent {
 						item: tg::module::Item::Object(object.clone()),
-						path: referent.path,
+						path: referent.path.clone(),
 						subpath: Some(subpath),
-						tag: referent.tag,
+						tag: referent.tag.clone(),
 					};
 					let module = tg::Module { kind, referent };
 					let export = reference
@@ -432,7 +433,13 @@ impl Cli {
 			handle.put_tag(&tag, arg).await?;
 		}
 
-		Ok(process)
+		let referent = tg::Referent {
+			item: object.id(&handle).await?,
+			path: referent.path,
+			tag: referent.tag,
+			subpath: referent.subpath,
+		};
+		Ok((referent, process))
 	}
 }
 
@@ -455,4 +462,31 @@ impl Default for Options {
 			tty: true,
 		}
 	}
+}
+
+pub(crate) fn fix_error_trace(
+	mut error: tg::Error,
+	referent: &tg::Referent<tg::object::Id>,
+) -> tg::Error {
+	match &mut error.location {
+		Some(tg::error::Location {
+			source:
+				tg::error::Source::Module(tg::module::Data {
+					referent:
+						tg::Referent {
+							item: tg::module::data::Item::Object(object),
+							path,
+							tag,
+							..
+						},
+					..
+				}),
+			..
+		}) if object == &referent.item => {
+			*path = referent.path.clone();
+			*tag = referent.tag.clone();
+		},
+		_ => (),
+	}
+	error
 }

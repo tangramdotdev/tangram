@@ -125,7 +125,7 @@ impl Cli {
 
 		// If the detach flag is set, then spawn without stdio and return.
 		if options.detach {
-			let process = self
+			let (_, process) = self
 				.spawn(options.spawn, reference, trailing, None, None, None)
 				.boxed()
 				.await?;
@@ -140,7 +140,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
 
 		// Spawn the process.
-		let process = self
+		let (referent, process) = self
 			.spawn(
 				options.spawn,
 				reference,
@@ -200,6 +200,7 @@ impl Cli {
 
 		// Print the error.
 		if let Some(error) = wait.error {
+			let error = crate::process::spawn::fix_error_trace(error, &referent);
 			Self::print_error(&error, self.config.as_ref());
 		}
 

@@ -67,21 +67,12 @@ impl Cli {
 		reference: tg::Reference,
 		trailing: Vec<String>,
 	) -> tg::Result<Option<tg::Value>> {
-		let handle = self.handle().await?;
-
-		// Get the remote.
-		let remote = options
-			.spawn
-			.remote
-			.clone()
-			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
-
 		// Spawn the process.
 		let spawn = crate::process::spawn::Options {
 			sandbox: true,
-			..options.spawn
+			..options.spawn.clone()
 		};
-		let process = self
+		let (referent, process) = self
 			.spawn(spawn, reference, trailing, None, None, None)
 			.boxed()
 			.await?;
@@ -94,6 +85,29 @@ impl Cli {
 
 		// Print the process.
 		eprintln!("{} process {}", "info".blue().bold(), process.id());
+
+		// Wait for the process output.
+		self.wait(options, process).await.map_err(move |error| {
+			crate::process::spawn::fix_error_trace(
+				error,
+				&referent,
+			)
+		})
+	}
+
+	async fn wait(
+		&mut self,
+		options: Options,
+		process: tg::Process,
+	) -> tg::Result<Option<tg::Value>> {
+		let handle = self.handle().await?;
+
+		// Get the remote.
+		let remote = options
+			.spawn
+			.remote
+			.clone()
+			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the process's status.
 		let status = process

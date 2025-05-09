@@ -73,7 +73,7 @@ impl Server {
 						let output = Some(tg::get::Output {
 							referent: tg::Referent {
 								item,
-								path: None,
+								path: Some(".".into()),
 								subpath,
 								tag: None,
 							},

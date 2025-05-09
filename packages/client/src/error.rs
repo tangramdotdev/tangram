@@ -207,7 +207,7 @@ impl std::fmt::Display for Source {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Source::Internal(path) => {
-				write!(f, "internal:{}", path.display())?;
+				write!(f, "(internal) {}", path.display())?;
 			},
 			Source::Module(module) => {
 				write!(f, "{module}")?;
