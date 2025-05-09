@@ -1,3 +1,5 @@
+import type * as tg from "./index.ts";
+
 export class Error_ {
 	message: string;
 	location: Location | undefined;
@@ -28,5 +30,5 @@ type Location = {
 };
 
 type Source =
-	| { kind: "internal"; path: string }
-	| { kind: "external"; package: string; path: string };
+	| { kind: "internal"; value: string }
+	| { kind: "external"; value: tg.Module };
