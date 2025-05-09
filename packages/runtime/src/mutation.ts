@@ -59,8 +59,8 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		}) as tg.Mutation<T>;
 	}
 
-	static unset(): tg.Mutation {
-		return new tg.Mutation({ kind: "unset" });
+	static unset<T extends tg.Value = tg.Value>(): tg.Mutation<T> {
+		return new tg.Mutation({ kind: "unset" }) as tg.Mutation<T>;
 	}
 
 	static async setIfUnset<T extends tg.Value = tg.Value>(

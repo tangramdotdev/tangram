@@ -678,7 +678,7 @@ declare namespace tg {
 		static new<T extends tg.Value = tg.Value>(): Promise<tg.Mutation<T>>;
 
 		/** Create an unset mutation. */
-		static unset(): tg.Mutation;
+		static unset<T extends tg.Value = tg.Value>(): tg.Mutation<T>;
 
 		/** Create a set mutation. */
 		static set<T extends tg.Value = tg.Value>(
