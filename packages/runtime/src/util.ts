@@ -1,7 +1,5 @@
 import type * as tg from "./index.ts";
 
-export type MaybeNestedArray<T> = T | Array<tg.MaybeNestedArray<T>>;
-
 export type MaybePromise<T> = T | Promise<T>;
 
 export type MaybeMutation<T extends tg.Value = tg.Value> = T | tg.Mutation<T>;

@@ -30,7 +30,7 @@ export type Resolved<T extends tg.Unresolved<tg.Value>> = T extends
 	| tg.Template
 	? T
 	: T extends Array<infer U extends tg.Unresolved<tg.Value>>
-		? Array<Resolved<U>>
+		? Array<tg.Resolved<U>>
 		: T extends { [key: string]: tg.Unresolved<tg.Value> }
 			? { [K in keyof T]: tg.Resolved<T[K]> }
 			: T extends Promise<infer U extends tg.Unresolved<tg.Value>>
@@ -67,11 +67,11 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 			value instanceof tg.Mutation ||
 			value instanceof tg.Template
 		) {
-			output = value as Resolved<T>;
+			output = value as tg.Resolved<T>;
 		} else if (value instanceof Array) {
 			output = (await Promise.all(
 				value.map((item) => inner(item, visited)),
-			)) as Resolved<T>;
+			)) as tg.Resolved<T>;
 		} else if (typeof value === "object") {
 			output = Object.fromEntries(
 				await Promise.all(
@@ -80,7 +80,7 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 						return [key, value];
 					}),
 				),
-			) as Resolved<T>;
+			) as tg.Resolved<T>;
 		} else {
 			throw new Error("invalid value to resolve");
 		}

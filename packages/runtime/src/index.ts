@@ -39,7 +39,6 @@ import { Template, template } from "./template.ts";
 import type {
 	MaybeMutation,
 	MaybeMutationMap,
-	MaybeNestedArray,
 	MaybePromise,
 	MutationMap,
 	ResolvedArgs,
@@ -55,7 +54,6 @@ export type {
 	CompressionFormat,
 	MaybeMutation,
 	MaybeMutationMap,
-	MaybeNestedArray,
 	MaybePromise,
 	Module,
 	MutationMap,

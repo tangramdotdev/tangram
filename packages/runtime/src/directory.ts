@@ -1,10 +1,7 @@
 import { isGraphArg } from "./artifact.ts";
 import * as tg from "./index.ts";
-import type { MaybeNestedArray } from "./util.ts";
 
-export let directory = async (
-	...args: Array<tg.Unresolved<MaybeNestedArray<Directory.Arg>>>
-) => {
+export let directory = async (...args: Array<tg.Unresolved<Directory.Arg>>) => {
 	return await Directory.new(...args);
 };
 
@@ -24,15 +21,15 @@ export class Directory {
 	}
 
 	static async new(
-		...args: Array<tg.Unresolved<MaybeNestedArray<Directory.Arg>>>
+		...args: Array<tg.Unresolved<Directory.Arg>>
 	): Promise<Directory> {
-		let resolved = await Promise.all(args.map(tg.resolve));
-		if (resolved.length === 1) {
-			const arg = resolved[0];
+		if (args.length === 1) {
+			let arg = await tg.resolve(args[0]);
 			if (isGraphArg(arg)) {
 				return new Directory({ object: arg });
 			}
 		}
+		let resolved = await Promise.all(args.map(tg.resolve));
 		let entries = await resolved.reduce<
 			Promise<{ [key: string]: tg.Artifact }>
 		>(async function reduce(promiseEntries, arg) {
@@ -56,12 +53,8 @@ export class Directory {
 					// Set the entry.
 					entries[name] = entry;
 				}
-			} else if (arg instanceof Array) {
-				for (let argEntry of arg) {
-					entries = await reduce(Promise.resolve(entries), argEntry);
-				}
 			} else if (typeof arg === "object") {
-				if (isGraphArg(arg)) {
+				if ("graph" in arg) {
 					throw new Error("nested graph args are not allowed");
 				}
 
