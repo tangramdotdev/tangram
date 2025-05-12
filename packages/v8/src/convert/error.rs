@@ -71,7 +71,7 @@ impl FromV8 for tg::Error {
 
 		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
 		let source = value.get(scope, source.into()).unwrap();
-		let source = <Option<tg::Error>>::from_v8(scope, source)?.map(|error| Arc::new(error) as _);
+		let source = <Option<tg::error::Source>>::from_v8(scope, source)?;
 
 		let values = v8::String::new_external_onebyte_static(scope, "values".as_bytes()).unwrap();
 		let values: v8::Local<'_, v8::Value> = value.get(scope, values.into()).unwrap();
@@ -115,8 +115,8 @@ impl ToV8 for tg::error::Location {
 		let value = self.symbol.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
-		let value = self.source.to_v8(scope)?;
+		let key = v8::String::new_external_onebyte_static(scope, "file".as_bytes()).unwrap();
+		let value = self.file.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		let key = v8::String::new_external_onebyte_static(scope, "line".as_bytes()).unwrap();
@@ -146,10 +146,10 @@ impl FromV8 for tg::error::Location {
 		let symbol = <_>::from_v8(scope, symbol)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the symbol"))?;
 
-		let source = v8::String::new_external_onebyte_static(scope, "source".as_bytes()).unwrap();
-		let source = value.get(scope, source.into()).unwrap();
+		let file = v8::String::new_external_onebyte_static(scope, "file".as_bytes()).unwrap();
+		let source = value.get(scope, file.into()).unwrap();
 		let source = <_>::from_v8(scope, source)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the source"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the file"))?;
 
 		let line = v8::String::new_external_onebyte_static(scope, "line".as_bytes()).unwrap();
 		let line = value.get(scope, line.into()).unwrap();
@@ -163,14 +163,14 @@ impl FromV8 for tg::error::Location {
 
 		Ok(Self {
 			symbol,
-			source,
+			file: source,
 			line,
 			column,
 		})
 	}
 }
 
-impl ToV8 for tg::error::Source {
+impl ToV8 for tg::error::File {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let value = Serde::new(self);
 		let value = value.to_v8(scope)?;
@@ -178,12 +178,46 @@ impl ToV8 for tg::error::Source {
 	}
 }
 
-impl FromV8 for tg::error::Source {
+impl FromV8 for tg::error::File {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = Serde::from_v8(scope, value)?.into_inner();
 		Ok(value)
+	}
+}
+
+impl ToV8 for tg::error::Source {
+	fn to_v8<'a>(
+		&self,
+		scope: &mut v8::HandleScope<'a>,
+	) -> tangram_client::Result<v8::Local<'a, v8::Value>> {
+		let object = v8::Object::new(scope);
+		let key = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
+		let value = self.error.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		Ok(object.into())
+	}
+}
+
+impl FromV8 for tg::error::Source {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tangram_client::Result<Self> {
+		if !value.is_object() {
+			return Err(tg::error!("expected an object"));
+		}
+		let value = value.to_object(scope).unwrap();
+
+		let error = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
+		let error = value.get(scope, error.into()).unwrap();
+		let error = <_>::from_v8(scope, error)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+		Ok(tg::error::Source {
+			error: Arc::new(error),
+		})
 	}
 }

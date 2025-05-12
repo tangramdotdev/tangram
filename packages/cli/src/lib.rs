@@ -1144,7 +1144,7 @@ impl Cli {
 		let trace = error.trace(&options);
 		let mut errors = vec![trace.error];
 		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(next);
+			errors.push(next.error.as_ref());
 		}
 		if !trace.options.reverse {
 			errors.reverse();
@@ -1153,7 +1153,7 @@ impl Cli {
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
-				if !location.source.is_internal() || trace.options.internal {
+				if !location.file.is_internal() || trace.options.internal {
 					let mut string = String::new();
 					write!(string, "{location}").unwrap();
 					eprintln!("   {}", string.yellow());
@@ -1169,7 +1169,7 @@ impl Cli {
 				stack.reverse();
 			}
 			for location in stack {
-				if !location.source.is_internal() || trace.options.internal {
+				if !location.file.is_internal() || trace.options.internal {
 					let location = location.to_string().yellow();
 					eprintln!("   {location}");
 				}

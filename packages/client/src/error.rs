@@ -26,7 +26,7 @@ pub struct Error {
 
 	/// The error's source.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub source: Option<Arc<Error>>,
+	pub source: Option<Source>,
 
 	/// Values associated with the error.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -44,7 +44,7 @@ pub enum Code {
 pub struct Location {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub symbol: Option<String>,
-	pub source: Source,
+	pub file: File,
 	pub line: u32,
 	pub column: u32,
 }
@@ -52,7 +52,7 @@ pub struct Location {
 /// An error location's source.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum Source {
+pub enum File {
 	Internal(PathBuf),
 	Module(tg::module::Data),
 }
@@ -72,6 +72,11 @@ pub struct TraceOptions {
 	pub reverse: bool,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Source {
+	pub error: Arc<Error>,
+}
+
 impl Error {
 	#[must_use]
 	pub fn trace<'a>(&'a self, options: &'a TraceOptions) -> Trace<'a> {
@@ -82,7 +87,7 @@ impl Error {
 	}
 }
 
-impl Source {
+impl File {
 	#[must_use]
 	pub fn is_internal(&self) -> bool {
 		matches!(self, Self::Internal { .. })
@@ -109,7 +114,7 @@ impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		self.source
 			.as_ref()
-			.map(|source| source.as_ref() as &(dyn std::error::Error + 'static))
+			.map(|source| source.error.as_ref() as &(dyn std::error::Error + 'static))
 	}
 }
 
@@ -122,7 +127,9 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 				message: Some(error.to_string()),
 				location: None,
 				stack: None,
-				source: error.source().map(Into::into).map(Arc::new),
+				source: error.source().map(Into::into).map(|error| Source {
+					error: Arc::new(error),
+				}),
 				values: BTreeMap::new(),
 			},
 		}
@@ -136,7 +143,9 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 			message: Some(value.to_string()),
 			location: None,
 			stack: None,
-			source: value.source().map(Into::into).map(Arc::new),
+			source: value.source().map(Into::into).map(|error| Source {
+				error: Arc::new(error),
+			}),
 			values: BTreeMap::new(),
 		}
 	}
@@ -146,7 +155,7 @@ impl<'a> From<&'a std::panic::Location<'a>> for Location {
 	fn from(location: &'a std::panic::Location<'a>) -> Self {
 		Self {
 			symbol: None,
-			source: Source::Internal(location.file().parse().unwrap()),
+			file: File::Internal(location.file().parse().unwrap()),
 			line: location.line() - 1,
 			column: location.column() - 1,
 		}
@@ -157,7 +166,7 @@ impl std::fmt::Display for Trace<'_> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let mut errors = vec![self.error];
 		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(next);
+			errors.push(next.error.as_ref());
 		}
 		if self.options.reverse {
 			errors.reverse();
@@ -167,7 +176,7 @@ impl std::fmt::Display for Trace<'_> {
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			writeln!(f, "-> {message}")?;
 			if let Some(location) = &error.location {
-				if !location.source.is_internal() || self.options.internal {
+				if !location.file.is_internal() || self.options.internal {
 					writeln!(f, "   {location}")?;
 				}
 			}
@@ -183,7 +192,7 @@ impl std::fmt::Display for Trace<'_> {
 				stack.reverse();
 			}
 			for location in stack {
-				if !location.source.is_internal() || self.options.internal {
+				if !location.file.is_internal() || self.options.internal {
 					writeln!(f, "   {location}")?;
 				}
 			}
@@ -195,7 +204,7 @@ impl std::fmt::Display for Trace<'_> {
 
 impl std::fmt::Display for Location {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}:{}:{}", self.source, self.line + 1, self.column + 1)?;
+		write!(f, "{}:{}:{}", self.file, self.line + 1, self.column + 1)?;
 		if let Some(symbol) = &self.symbol {
 			write!(f, " {symbol}")?;
 		}
@@ -203,13 +212,13 @@ impl std::fmt::Display for Location {
 	}
 }
 
-impl std::fmt::Display for Source {
+impl std::fmt::Display for File {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Source::Internal(path) => {
+			File::Internal(path) => {
 				write!(f, "internal:{}", path.display())?;
 			},
-			Source::Module(module) => {
+			File::Module(module) => {
 				write!(f, "{module}")?;
 			},
 		}
@@ -300,14 +309,14 @@ macro_rules! error {
 	({ $error:ident }, !$source:ident, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source = $crate::Error::from(source);
-		let source = std::sync::Arc::new(source);
+		let source = $crate::error::Source { error: std::sync::Arc::new(source) };
 		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, source = $source:expr, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source = $crate::Error::from(source);
-		let source = std::sync::Arc::new(source);
+		let source = $crate::error::Source { error: std::sync::Arc::new(source) };
 		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};
@@ -328,7 +337,7 @@ macro_rules! error {
 			message: Some(String::new()),
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
-				source: $crate::error::Source::Internal(format!("{}", ::std::file!()).parse().unwrap()),
+				file: $crate::error::File::Internal(format!("{}", ::std::file!()).parse().unwrap()),
 				line: line!() - 1,
 				column: column!() - 1,
 			}),
@@ -377,7 +386,7 @@ mod tests {
 
 		let stack = vec![tg::error::Location {
 			symbol: None,
-			source: tg::error::Source::Internal("foobar.rs".parse().unwrap()),
+			file: tg::error::File::Internal("foobar.rs".parse().unwrap()),
 			line: 123,
 			column: 456,
 		}];

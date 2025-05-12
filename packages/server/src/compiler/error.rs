@@ -100,7 +100,9 @@ pub(super) fn from_exception<'s>(
 		.and_then(|exception| exception.get(scope, cause_string.into()))
 		.and_then(|value| value.to_object(scope))
 		.map(|cause| from_exception(scope, cause.into()))
-		.map(|error| Arc::new(error) as _);
+		.map(|error| tg::error::Source {
+			error: Arc::new(error),
+		});
 	let values = BTreeMap::new();
 
 	// Create the error.
@@ -119,12 +121,12 @@ fn get_location(line: u32, column: u32) -> Option<tg::error::Location> {
 	let token = source_map.lookup_token(line, column)?;
 	let symbol = token.get_name().map(String::from);
 	let path = token.get_source().unwrap().parse().unwrap();
-	let source = tg::error::Source::Internal(path);
+	let source = tg::error::File::Internal(path);
 	let line = token.get_src_line();
 	let column = token.get_src_col();
 	let location = tg::error::Location {
 		symbol,
-		source,
+		file: source,
 		line,
 		column,
 	};
