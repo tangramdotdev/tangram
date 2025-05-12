@@ -84,7 +84,7 @@ pub struct Options {
 impl Cli {
 	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-		let process = self
+		let (_, process) = self
 			.spawn(args.options, reference, args.trailing, None, None, None)
 			.await?;
 		println!("{}", process.id());
@@ -99,7 +99,7 @@ impl Cli {
 		stderr: Option<tg::process::Stdio>,
 		stdin: Option<tg::process::Stdio>,
 		stdout: Option<tg::process::Stdio>,
-	) -> tg::Result<tg::Process> {
+	) -> tg::Result<(tg::Referent<tg::object::Id>, tg::Process)> {
 		let handle = self.handle().await?;
 
 		// Get the remote.
@@ -148,13 +148,19 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_reference(&reference).await?;
-		let Either::Right(object) = referent.item else {
-			return Err(tg::error!("expected an object"));
+		let mut referent = tg::Referent {
+			item: referent
+				.item
+				.right()
+				.ok_or_else(|| tg::error!("expected an object"))?,
+			path: referent.path,
+			subpath: referent.subpath,
+			tag: referent.tag,
 		};
 
 		// Create the command builder.
 		let mut command_env = None;
-		let mut command = match &object {
+		let mut command = match referent.item.clone() {
 			tg::Object::Command(command) => {
 				let object = command.object(&handle).await?;
 				command_env = Some(object.env.clone());
@@ -170,7 +176,7 @@ impl Cli {
 			},
 
 			tg::Object::Directory(directory) => {
-				let subpath = if let Some(subpath) = referent.subpath {
+				let subpath = if let Some(subpath) = referent.subpath.clone() {
 					Some(subpath)
 				} else {
 					'a: {
@@ -200,11 +206,12 @@ impl Cli {
 					} else {
 						unreachable!();
 					};
+					referent.subpath.replace(subpath);
 					let referent = tg::Referent {
-						item: tg::module::Item::Object(object.clone()),
-						path: referent.path,
-						subpath: Some(subpath),
-						tag: referent.tag,
+						item: tg::module::Item::Object(referent.item.clone()),
+						path: referent.path.clone(),
+						subpath: referent.subpath.clone(),
+						tag: referent.tag.clone(),
 					};
 					let module = tg::Module { kind, referent };
 					let export = reference
@@ -432,7 +439,14 @@ impl Cli {
 			handle.put_tag(&tag, arg).await?;
 		}
 
-		Ok(process)
+		// Get the referent.
+		let referent = tg::Referent {
+			item: referent.item.id(&handle).await?,
+			path: referent.path,
+			subpath: referent.subpath,
+			tag: referent.tag,
+		};
+		Ok((referent, process))
 	}
 }
 
