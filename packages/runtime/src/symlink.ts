@@ -1,4 +1,3 @@
-import { isGraphArg } from "./artifact.ts";
 import * as tg from "./index.ts";
 
 export let symlink = async (arg: Symlink.Arg): Promise<Symlink> => {
@@ -20,18 +19,23 @@ export class Symlink {
 		return new Symlink({ id });
 	}
 
-	static async new(arg: tg.Unresolved<Symlink.Arg>): Promise<Symlink> {
-		let resolved = await Symlink.arg(arg);
-		if (isGraphArg(resolved)) {
-			return new Symlink({ object: resolved });
-		} else if ("target" in resolved) {
-			let symlink = new Symlink({ object: resolved });
+	static async new(arg_: tg.Unresolved<Symlink.Arg>): Promise<Symlink> {
+		let arg = await Symlink.arg(arg_);
+		if ("target" in arg) {
+			let symlink = new Symlink({ object: arg });
 			return symlink;
-		} else if ("artifact" in resolved) {
+		} else if ("artifact" in arg) {
 			return new Symlink({
 				object: {
-					artifact: resolved.artifact,
-					subpath: resolved.subpath,
+					artifact: arg.artifact,
+					subpath: arg.subpath,
+				},
+			});
+		} else if ("graph" in arg) {
+			return new Symlink({
+				object: arg as {
+					graph: tg.Graph;
+					node: number;
 				},
 			});
 		}
@@ -42,9 +46,6 @@ export class Symlink {
 		arg: tg.Unresolved<Symlink.Arg>,
 	): Promise<Symlink.ArgObject> {
 		let resolved = await tg.resolve(arg);
-		if (typeof resolved === "object" && "graph" in resolved) {
-			return resolved;
-		}
 		if (typeof resolved === "string") {
 			return { target: resolved };
 		} else if (tg.Artifact.is(resolved)) {
@@ -230,22 +231,22 @@ export namespace Symlink {
 	export type Arg = string | tg.Artifact | tg.Template | Symlink | ArgObject;
 
 	export type ArgObject =
-		| { graph: tg.Graph; node: number }
 		| { target: string }
 		| {
 				artifact: tg.Artifact;
 				subpath?: string | undefined;
-		  };
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type Id = string;
 
 	export type Object =
-		| { graph: tg.Graph; node: number }
 		| { target: string }
 		| {
 				artifact: tg.Artifact;
 				subpath: string | undefined;
-		  };
+		  }
+		| { graph: tg.Graph; node: number };
 
 	export type State = tg.Object.State<Symlink.Id, Symlink.Object>;
 }

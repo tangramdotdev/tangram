@@ -75,9 +75,9 @@ export class Blob {
 	}
 
 	static async arg(...args: tg.Args<Blob.Arg>): Promise<Blob.ArgObject> {
-		let resolved = await Promise.all(args.map(tg.resolve));
-		let objects = await Promise.all(
-			resolved.map(async (arg) => {
+		return await tg.Args.apply({
+			args,
+			map: async (arg) => {
 				if (arg === undefined) {
 					return { children: [] };
 				} else if (typeof arg === "string") {
@@ -103,12 +103,11 @@ export class Blob {
 				} else {
 					return arg;
 				}
-			}),
-		);
-		let arg = await tg.Args.apply(objects, {
-			children: "append",
+			},
+			reduce: {
+				children: "append",
+			},
 		});
-		return arg;
 	}
 
 	static expect(value: unknown): Blob {

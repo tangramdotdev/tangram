@@ -1,4 +1,3 @@
-import { isGraphArg } from "./artifact.ts";
 import * as tg from "./index.ts";
 
 export let directory = async (...args: Array<tg.Unresolved<Directory.Arg>>) => {
@@ -25,8 +24,13 @@ export class Directory {
 	): Promise<Directory> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
-			if (isGraphArg(arg)) {
-				return new Directory({ object: arg });
+			if (typeof arg === "object" && "graph" in arg) {
+				return new Directory({
+					object: arg as {
+						graph: tg.Graph;
+						node: number;
+					},
+				});
 			}
 		}
 		let resolved = await Promise.all(args.map(tg.resolve));

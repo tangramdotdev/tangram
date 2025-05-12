@@ -1,9 +1,8 @@
-import { isGraphArg } from "./artifact.ts";
 import * as tg from "./index.ts";
 
-export let file = async (...args: tg.Args<File.Arg>) => {
+export async function file(...args: tg.Args<File.Arg>) {
 	return await File.new(...args);
-};
+}
 
 export class File {
 	#state: File.State;
@@ -21,13 +20,19 @@ export class File {
 	}
 
 	static async new(...args: tg.Args<File.Arg>): Promise<File> {
-		let arg = await File.arg(...args);
-		if ("graph" in arg) {
-			return new File({ object: arg });
+		if (args.length === 1) {
+			let arg = await tg.resolve(args[0]);
+			if (typeof arg === "object" && "graph" in arg) {
+				return new File({
+					object: arg as {
+						graph: tg.Graph;
+						node: number;
+					},
+				});
+			}
 		}
-		let contents = Array.isArray(arg.contents)
-			? await tg.blob(...arg.contents)
-			: await tg.blob(arg.contents);
+		let arg = await File.arg(...args);
+		let contents = await tg.blob(arg.contents);
 		let dependencies = arg.dependencies ?? {};
 		let executable = arg.executable ?? false;
 		const object = { contents, dependencies, executable };
@@ -36,16 +41,19 @@ export class File {
 		});
 	}
 
-	static async arg(...args: tg.Args<File.Arg>): Promise<File.ArgObject> {
-		let resolved = await Promise.all(args.map(tg.resolve));
-		if (resolved.length === 1) {
-			const arg = resolved[0];
-			if (isGraphArg(arg)) {
-				return arg;
+	static async arg(
+		...args: tg.Args<File.Arg>
+	): Promise<Exclude<File.ArgObject, { graph: tg.Graph; node: number }>> {
+		type Arg = Exclude<
+			File.ArgObject,
+			{
+				graph: tg.Graph;
+				node: number;
 			}
-		}
-		let objects = await Promise.all(
-			resolved.map(async (arg) => {
+		>;
+		return await tg.Args.apply<File.Arg, Arg>({
+			args,
+			map: async (arg) => {
 				if (arg === undefined) {
 					return {};
 				} else if (
@@ -53,29 +61,24 @@ export class File {
 					arg instanceof Uint8Array ||
 					arg instanceof tg.Blob
 				) {
-					return { contents: [arg] };
+					return { contents: arg };
 				} else if (arg instanceof File) {
 					return {
-						contents: [await arg.contents()],
+						contents: await arg.contents(),
 						dependencies: await arg.dependencies(),
 					};
 				} else {
-					if ("contents" in arg) {
-						return {
-							...arg,
-							contents: [arg.contents],
-						};
-					} else {
-						return arg;
+					if ("graph" in arg) {
+						throw new Error("invalid arg");
 					}
+					return arg as Arg;
 				}
-			}),
-		);
-		let arg = await tg.Args.apply(objects, {
-			contents: "append",
-			dependencies: "merge",
+			},
+			reduce: {
+				contents: (a, b) => tg.blob(a, b),
+				dependencies: "merge",
+			},
 		});
-		return arg;
 	}
 
 	static expect(value: unknown): File {
@@ -227,13 +230,18 @@ export namespace File {
 
 	export type ArgObject =
 		| {
-				contents?: tg.Blob.Arg | Array<tg.Blob.Arg> | undefined;
+				contents?: tg.Blob.Arg | undefined;
 				dependencies?:
-					| { [reference: tg.Reference]: tg.Referent<tg.Object> }
+					| {
+							[reference: tg.Reference]: tg.Referent<tg.Object>;
+					  }
 					| undefined;
 				executable?: boolean | undefined;
 		  }
-		| { graph: tg.Graph; node: number };
+		| {
+				graph: tg.Graph;
+				node: number;
+		  };
 
 	export type Id = string;
 

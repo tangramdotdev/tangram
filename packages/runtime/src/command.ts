@@ -119,9 +119,9 @@ export class Command<
 	}
 
 	static async arg(...args: tg.Args<Command.Arg>): Promise<Command.ArgObject> {
-		let resolved = await Promise.all(args.map(tg.resolve));
-		let objects = await Promise.all(
-			resolved.map(async (arg) => {
+		return await tg.Args.apply({
+			args,
+			map: async (arg) => {
 				if (arg === undefined) {
 					return {};
 				} else if (
@@ -143,13 +143,12 @@ export class Command<
 				} else {
 					return arg;
 				}
-			}),
-		);
-		let arg = await tg.Args.apply(objects, {
-			args: "append",
-			env: "merge",
+			},
+			reduce: {
+				args: "append",
+				env: "merge",
+			},
 		});
-		return arg;
 	}
 
 	static expect(value: unknown): Command {
@@ -469,7 +468,7 @@ export class CommandBuilder<
 			| undefined
 			| null,
 	): PromiseLike<TResult1 | TResult2> {
-		return tg.Command.new(...(this.#args as any))
+		return tg.Command.new(...this.#args)
 			.then((command) => command as tg.Command<A, R>)
 			.then(onfulfilled, onrejected);
 	}

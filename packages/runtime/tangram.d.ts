@@ -353,12 +353,12 @@ declare namespace tg {
 		export type Arg = string | tg.Artifact | tg.Template | Symlink | ArgObject;
 
 		type ArgObject =
-			| { graph: tg.Graph; node: number }
-			| { command: string }
+			| { target: string }
 			| {
 					artifact: tg.Artifact;
 					subpath?: string | undefined;
-			  };
+			  }
+			| { graph: tg.Graph; node: number };
 	}
 
 	/** Create a graph. */
@@ -831,24 +831,6 @@ declare namespace tg {
 			strings: TemplateStringsArray,
 			...placeholders: tg.Args<tg.Template.Arg>
 		) => Promise<tg.Template>;
-	}
-
-	type Args<T extends tg.Value = tg.Value> = Array<
-		tg.Unresolved<tg.ValueOrMaybeMutationMap<T>>
-	>;
-
-	export namespace Args {
-		export type Rules<
-			T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
-		> = {
-			[K in keyof T]:
-				| tg.Mutation.Kind
-				| ((arg: T[K]) => tg.MaybePromise<tg.Mutation<T[K]>>);
-		};
-
-		export function apply<
-			T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
-		>(args: Array<tg.MaybeMutationMap<T>>, rules?: Rules<T>): Promise<T>;
 	}
 
 	/* Compute a checksum. */
@@ -1410,6 +1392,10 @@ declare namespace tg {
 	export let sleep: (duration: number) => Promise<void>;
 
 	export type Tag = string;
+
+	type Args<T extends tg.Value = tg.Value> = Array<
+		tg.Unresolved<tg.ValueOrMaybeMutationMap<T>>
+	>;
 
 	type MaybePromise<T> = T | Promise<T>;
 

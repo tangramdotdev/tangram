@@ -344,14 +344,63 @@ function groupByKind(input: {
 	let output: SymbolKindDeclarationIndex = {};
 
 	for (const [key, value] of Object.entries(input)) {
-		output[key] = value.declarations.reduce((acc, declaration) => {
-			let { kind, value: transformedValue } = declaration;
-			if (!acc[kind]) {
-				acc[kind] = [];
-			}
-			acc[kind].push(transformedValue);
-			return acc;
-		}, {} as any);
+		output[key] = value.declarations.reduce<DeclarationsByKind>(
+			(index, declaration) => {
+				switch (declaration.kind) {
+					case "class": {
+						if (!index.class) {
+							index.class = [];
+						}
+						index.class.push(declaration.value);
+						break;
+					}
+					case "enum": {
+						if (!index.enum) {
+							index.enum = [];
+						}
+						index.enum.push(declaration.value);
+						break;
+					}
+					case "function": {
+						if (!index.function) {
+							index.function = [];
+						}
+						index.function.push(declaration.value);
+						break;
+					}
+					case "interface": {
+						if (!index.interface) {
+							index.interface = [];
+						}
+						index.interface.push(declaration.value);
+						break;
+					}
+					case "namespace": {
+						if (!index.namespace) {
+							index.namespace = [];
+						}
+						index.namespace.push(declaration.value);
+						break;
+					}
+					case "type": {
+						if (!index.type) {
+							index.type = [];
+						}
+						index.type.push(declaration.value);
+						break;
+					}
+					case "variable": {
+						if (!index.variable) {
+							index.variable = [];
+						}
+						index.variable.push(declaration.value);
+						break;
+					}
+				}
+				return index;
+			},
+			{},
+		);
 	}
 
 	return output;

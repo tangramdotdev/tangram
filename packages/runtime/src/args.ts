@@ -5,74 +5,52 @@ export type Args<T extends tg.Value = tg.Value> = Array<
 >;
 
 export namespace Args {
-	export type Rules<
-		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
-	> = {
-		[K in keyof T]:
-			| tg.Mutation.Kind
-			| ((arg: T[K]) => tg.MaybePromise<tg.Mutation<T[K]>>);
+	type Input<T extends tg.Value, O extends { [key: string]: tg.Value }> = {
+		args: tg.Args<T>;
+		map: (
+			arg: tg.ValueOrMaybeMutationMap<T>,
+		) => tg.MaybePromise<tg.MaybeMutationMap<O>>;
+		reduce: {
+			[K in keyof O]:
+				| tg.Mutation.Kind
+				| ((a: O[K] | undefined, b: O[K]) => tg.MaybePromise<O[K]>);
+		};
 	};
 
 	export let apply = async <
-		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
+		T extends tg.Value,
+		O extends { [key: string]: tg.Value },
 	>(
-		args: Array<tg.MaybeMutationMap<T>>,
-		rules?: Rules<T>,
-	): Promise<T> => {
-		let mutations = await createMutations(args, rules);
-		let arg = await mutations.reduce(
-			async (map, mutations) => {
-				if (mutations === undefined) {
-					return Promise.resolve({}) as Promise<T>;
-				}
-				for (let [key, mutation] of Object.entries(mutations)) {
-					if (!(mutation instanceof tg.Mutation)) {
-						((await map) as Record<string, tg.Value>)[key] = mutation;
-					} else {
-						await mutation.apply(await map, key);
-					}
-				}
-				return map;
-			},
-			Promise.resolve({}) as Promise<T>,
-		);
-		return arg;
-	};
-
-	let createMutations = async <
-		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
-		R extends { [key: string]: tg.Value } = T,
-	>(
-		args: Array<tg.MaybeMutationMap<T>>,
-		rules?: Rules<T>,
-	): Promise<Array<tg.MutationMap<R>>> => {
-		return await Promise.all(
-			args.map(async (arg) => {
-				let object: { [key: string]: tg.Mutation } = {};
-				for (let [key, value] of Object.entries(arg)) {
-					if (value instanceof tg.Mutation) {
-						object[key] = value;
-						continue;
-					}
-					let mutation = rules !== undefined ? rules[key] : undefined;
-					if (mutation === undefined) {
-						object[key] = await tg.Mutation.set<typeof value>(value);
-					} else if (typeof mutation === "string") {
-						switch (mutation) {
+		input: Input<T, O>,
+	): Promise<O> => {
+		let { args, map, reduce } = input;
+		let resolved = (await Promise.all(args.map(tg.resolve))) as Array<
+			tg.ValueOrMaybeMutationMap<T>
+		>;
+		let output: { [key: string]: tg.Value } = {};
+		for (let arg of resolved) {
+			let object = await map(arg);
+			for (let [key, value] of Object.entries(object)) {
+				if (value instanceof tg.Mutation) {
+					await value.apply(output, key);
+				} else if (reduce[key] !== undefined) {
+					if (typeof reduce[key] === "string") {
+						let mutation: tg.Mutation;
+						switch (reduce[key]) {
 							case "set":
-								object[key] = await tg.Mutation.set(value);
+								mutation = await tg.Mutation.set(value);
 								break;
 							case "unset":
-								object[key] = tg.Mutation.unset();
+								mutation = tg.Mutation.unset();
 								break;
 							case "set_if_unset":
-								object[key] = await tg.Mutation.setIfUnset(value);
+								mutation = await tg.Mutation.setIfUnset(value);
 								break;
 							case "prepend":
-								object[key] = await tg.Mutation.prepend(value);
+								mutation = await tg.Mutation.prepend(value);
 								break;
 							case "append":
-								object[key] = await tg.Mutation.append(value);
+								mutation = await tg.Mutation.append(value);
 								break;
 							case "prefix":
 								tg.assert(
@@ -80,7 +58,7 @@ export namespace Args {
 										tg.Artifact.is(value) ||
 										typeof value === "string",
 								);
-								object[key] = await tg.Mutation.prefix<tg.Template.Arg>(value);
+								mutation = await tg.Mutation.prefix<tg.Template.Arg>(value);
 								break;
 							case "suffix":
 								tg.assert(
@@ -88,20 +66,26 @@ export namespace Args {
 										tg.Artifact.is(value) ||
 										typeof value === "string",
 								);
-								object[key] = await tg.Mutation.suffix<tg.Template.Arg>(value);
+								mutation = await tg.Mutation.suffix<tg.Template.Arg>(value);
 								break;
 							case "merge":
-								object[key] = await tg.Mutation.merge(value);
+								mutation = await tg.Mutation.merge(value);
 								break;
 							default:
-								return tg.unreachable(`unknown mutation kind "${mutation}"`);
+								return tg.unreachable(`unknown mutation kind "${reduce[key]}"`);
 						}
+						await mutation.apply(output, key);
 					} else {
-						object[key] = await mutation(value);
+						output[key] = await reduce[key](
+							output[key] as O[typeof key] | undefined,
+							value,
+						);
 					}
+				} else {
+					output[key] = value;
 				}
-				return object as tg.MutationMap<R>;
-			}),
-		);
+			}
+		}
+		return output as O;
 	};
 }

@@ -109,9 +109,9 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 async function arg_(
 	...args: tg.Args<tg.Process.BuildArg>
 ): Promise<tg.Process.BuildArgObject> {
-	let resolved = await Promise.all(args.map(tg.resolve));
-	let objects = await Promise.all(
-		resolved.map(async (arg) => {
+	return await tg.Args.apply({
+		args,
+		map: async (arg) => {
 			if (arg === undefined) {
 				return {};
 			} else if (
@@ -149,13 +149,12 @@ async function arg_(
 			} else {
 				return arg;
 			}
-		}),
-	);
-	let arg = await tg.Args.apply(objects, {
-		args: "append",
-		env: "merge",
+		},
+		reduce: {
+			args: "append",
+			env: "merge",
+		},
 	});
-	return arg;
 }
 
 export interface BuildBuilder<
